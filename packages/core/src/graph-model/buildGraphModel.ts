@@ -50,10 +50,24 @@ function resolveTimeline(
     return { entries, totalSteps };
   }
 
-  // Pass 1: drop unknown-id entries, and dedupe enter/exit (first occurrence
-  // wins, later ones on the same target warn and are dropped).
+  // Pass 1: drop unknown-id entries, and dedupe enter/exit (the numerically
+  // earliest step wins, regardless of source declaration order — next()/
+  // prev() always walk entries in step order, so "first" must mean "first
+  // in time," not "first line in the file." Ties on the same step keep
+  // whichever was declared first.)
+  const winnerByDedupeKey = new Map<string, TimelineEntry>();
+  for (const entry of document.timeline.entries) {
+    if (entry.kind !== "enter" && entry.kind !== "exit") continue;
+    if (!validTargetIds.has(entry.targetId)) continue;
+
+    const dedupeKey = `${entry.kind}:${entry.targetId}`;
+    const current = winnerByDedupeKey.get(dedupeKey);
+    if (current === undefined || entry.step < current.step) {
+      winnerByDedupeKey.set(dedupeKey, entry);
+    }
+  }
+
   const kept: TimelineEntry[] = [];
-  const seenEnterOrExit = new Set<string>();
 
   for (const entry of document.timeline.entries) {
     if (!validTargetIds.has(entry.targetId)) {
@@ -68,16 +82,15 @@ function resolveTimeline(
 
     if (entry.kind === "enter" || entry.kind === "exit") {
       const dedupeKey = `${entry.kind}:${entry.targetId}`;
-      if (seenEnterOrExit.has(dedupeKey)) {
+      if (winnerByDedupeKey.get(dedupeKey) !== entry) {
         diagnostics.push({
           severity: "warning",
-          message: `timeline: "${entry.targetId}" already has a "${entry.kind}" action; keeping the first-seen occurrence.`,
+          message: `timeline: "${entry.targetId}" already has a "${entry.kind}" action; keeping the earliest-step occurrence.`,
           line: entry.line,
           column: entry.column,
         });
         continue;
       }
-      seenEnterOrExit.add(dedupeKey);
     }
 
     kept.push(entry);

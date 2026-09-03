@@ -182,6 +182,34 @@ describe("buildGraphModel", () => {
     expect(diagnostics.every((d) => d.severity === "warning")).toBe(true);
   });
 
+  it("picks the numerically earliest step as the duplicate-enter winner, even when it is declared later in the source", () => {
+    // step 3 is written before step 1 in the array (as if the author typed
+    // the timeline block out of chronological order) — "first occurrence"
+    // must mean the earliest step, not the earliest line, or prev()/next()
+    // (which always iterate in step order) would disagree with which enter
+    // effect actually applies.
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [{ id: "A", label: "A" }],
+      edges: [],
+      timeline: {
+        entries: [
+          { kind: "enter", step: 3, targetId: "A", effect: "slide-left" },
+          { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+        ],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(graph).not.toBeNull();
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+    ]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("warning");
+  });
+
   it("drops a highlight/exit/unhighlight action whose step precedes the target's visibility step, reporting an error, while the rest of the graph still builds", () => {
     const document: SirenDocument = {
       direction: "TD",
