@@ -60,14 +60,22 @@ function buildDefs(): SVGDefsElement {
 
   const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", "siren-arrow");
-  marker.setAttribute("markerWidth", "10");
-  marker.setAttribute("markerHeight", "10");
+  // userSpaceOnUse (not the SVG default, strokeWidth) keeps the arrowhead a
+  // fixed absolute size regardless of the edge's current stroke-width —
+  // otherwise it silently doubles when an edge is highlighted (stroke-width
+  // goes from 1.5 to 3).
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "6");
+  // refX equals markerWidth (the tip's x) so the tip lands exactly on the
+  // path's endpoint — anything less overshoots past the boundary and
+  // visually pierces into the node the arrow points at.
   marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "5");
+  marker.setAttribute("refY", "3");
   marker.setAttribute("orient", "auto-start-reverse");
 
   const arrowPath = document.createElementNS(SVG_NS, "path");
-  arrowPath.setAttribute("d", "M0,0 L10,5 L0,10 Z");
+  arrowPath.setAttribute("d", "M0,0 L8,3 L0,6 Z");
   marker.appendChild(arrowPath);
 
   defs.appendChild(marker);

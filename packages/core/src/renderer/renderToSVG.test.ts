@@ -178,4 +178,29 @@ describe("renderToSVG", () => {
     const marker = svg.querySelector("defs marker#siren-arrow");
     expect(marker).not.toBeNull();
   });
+
+  it("sizes the arrow marker so its tip lands exactly on the path's endpoint, with no overshoot into the node, and stays a fixed absolute size regardless of stroke-width", () => {
+    const svg = renderToSVG(buildFixture());
+
+    const marker = svg.querySelector("defs marker#siren-arrow")!;
+
+    // markerUnits must be userSpaceOnUse, not the SVG default (strokeWidth) —
+    // otherwise the marker silently doubles in size whenever an edge's
+    // stroke-width increases (e.g. on highlight), which is not what "the
+    // arrow tip is too big" or "pierces into the node" should ever depend
+    // on.
+    expect(marker.getAttribute("markerUnits")).toBe("userSpaceOnUse");
+
+    // The tip must sit exactly at refX (the point that gets placed on the
+    // path's actual endpoint) — any smaller refX means the tip overshoots
+    // past the endpoint and visually pierces into the node it points at.
+    const markerWidth = Number(marker.getAttribute("markerWidth"));
+    const refX = Number(marker.getAttribute("refX"));
+    expect(refX).toBe(markerWidth);
+
+    // Small absolute footprint (down from the original 10x10 pierce-prone
+    // marker).
+    expect(markerWidth).toBeLessThanOrEqual(8);
+    expect(Number(marker.getAttribute("markerHeight"))).toBeLessThanOrEqual(6);
+  });
 });
