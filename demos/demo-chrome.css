@@ -28,6 +28,39 @@ h1 {
   margin: 1.5rem 2rem 0.5rem;
 }
 
+/*
+ * Row pairing the page title with the theme toggle — the one button that
+ * stays page-owned once @siren/board takes over Prev/Next/Reset (ADR-0006:
+ * board never touches data-siren-theme). Kept out of board's own floating
+ * bottom bar so the two don't collide.
+ */
+.page-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.5rem 2rem 0.5rem;
+}
+
+.page-header h1 {
+  margin: 0;
+}
+
+.theme-toggle {
+  flex-shrink: 0;
+  font: inherit;
+  padding: 0.4rem 1rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background: #eee;
+}
+
 .intro {
   flex-shrink: 0;
   max-width: 60ch;
@@ -123,6 +156,16 @@ body[data-siren-theme="dark"] .status {
 body[data-siren-theme="dark"] .intro code {
   background: #262a3d;
   color: #e4e6f5;
+}
+
+body[data-siren-theme="dark"] .theme-toggle {
+  background: #1e2130;
+  color: #e4e6f5;
+  border-color: #454b6b;
+}
+
+body[data-siren-theme="dark"] .theme-toggle:hover {
+  background: #262a3d;
 }
 
 body[data-siren-theme="dark"] .controls {

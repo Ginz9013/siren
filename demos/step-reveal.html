@@ -8,13 +8,9 @@
     <link rel="stylesheet" href="./theme-dark-override.css" />
   </head>
   <body>
-    <h1>Siren step-reveal demo</h1>
-
-    <div class="controls">
-      <button id="prev-btn" type="button">Prev</button>
-      <button id="next-btn" type="button">Next</button>
-      <button id="reset-btn" type="button">Reset</button>
-      <button id="theme-btn" type="button">Theme: Light</button>
+    <div class="page-header">
+      <h1>Siren step-reveal demo</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
     </div>
 
     <p class="status" id="status">Step 0 of 0</p>
@@ -22,9 +18,17 @@
     <div id="siren-container"></div>
 
     <!--
-      Imports the real Vite library build (packages/core/dist/siren-core.js),
-      never source files — per ticket 07's acceptance criteria. Run
-      `pnpm --filter @siren/core build` first.
+      Imports the real Vite library build of @siren/board
+      (packages/board/dist/siren-board.js), never source files — per ticket
+      07's acceptance criteria (original for @siren/core, now the same rule
+      for @siren/board). Run `pnpm --filter @siren/core build && pnpm
+      --filter @siren/board build` first.
+
+      @siren/board owns rendering, the text measurer, the Prev/Next/Reset
+      control bar, full-bleed sizing, and error display — see ADR-0005 and
+      ADR-0006, and .scratch/siren-board-slice/spec.md. This page is left
+      with only the things board deliberately doesn't own: fetching the
+      source, and the theme toggle.
 
       The example document itself lives at examples/step-reveal.srn as a
       standalone .srn file — loaded here via fetch(), not inlined — so it
@@ -36,7 +40,7 @@
       directly by double-clicking it will fail to load the example.
     -->
     <script type="module">
-      import { render } from "../packages/core/dist/siren-core.js";
+      import { createBoard } from "../packages/board/dist/siren-board.js";
 
       const source = await fetch("../examples/step-reveal.srn").then((response) => {
         if (!response.ok) {
@@ -45,39 +49,16 @@
         return response.text();
       });
 
-      /**
-       * Real, DOM-based text measurer for the browser (the library's
-       * default measurer is a jsdom-safe fixed-width estimate — see
-       * RenderOptions.measureText in packages/core/src/index.ts). Uses a
-       * canvas 2D context, matching the font this page's CSS applies to
-       * `.siren-node text`.
-       */
-      function createBrowserTextMeasurer() {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        ctx.font = "14px system-ui, sans-serif";
-        const paddingX = 24;
-        const lineHeight = 32;
-
-        return {
-          measure(text) {
-            const { width } = ctx.measureText(text);
-            return { width: width + paddingX, height: lineHeight };
-          },
-        };
-      }
-
       const container = document.getElementById("siren-container");
       const statusEl = document.getElementById("status");
-      const prevBtn = document.getElementById("prev-btn");
-      const nextBtn = document.getElementById("next-btn");
-      const resetBtn = document.getElementById("reset-btn");
       const themeBtn = document.getElementById("theme-btn");
 
       // Proves the design tokens in packages/core/src/theme/default.css are
       // genuinely swappable via plain CSS: this only ever toggles an
       // attribute, demos/theme-dark-override.css does the actual
       // re-theming by redeclaring the same --siren-* custom properties.
+      // Unrelated to @siren/board, which never touches this attribute
+      // (ADR-0006) — theming stays this page's own concern.
       themeBtn.addEventListener("click", () => {
         const isDark = document.body.dataset.sirenTheme === "dark";
         if (isDark) {
@@ -88,36 +69,22 @@
         themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
       });
 
-      const { svg, controller, diagnostics } = render(source, container, {
-        measureText: createBrowserTextMeasurer(),
+      const board = createBoard(container, {
+        source,
+        onStepChange: (current, total) => {
+          statusEl.textContent = `Step ${current} of ${total}`;
+        },
+        onDiagnostics: (diagnostics) => {
+          for (const diagnostic of diagnostics) {
+            console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+          }
+        },
       });
 
-      for (const diagnostic of diagnostics) {
-        console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
-      }
-
-      if (svg === null || controller === null) {
+      if (board.controller === null) {
         statusEl.textContent = "Render failed — see console diagnostics.";
       } else {
-        const updateStatus = () => {
-          statusEl.textContent = `Step ${controller.currentStep} of ${controller.totalSteps}`;
-        };
-        updateStatus();
-
-        prevBtn.addEventListener("click", () => {
-          controller.prev();
-          updateStatus();
-        });
-
-        nextBtn.addEventListener("click", () => {
-          controller.next();
-          updateStatus();
-        });
-
-        resetBtn.addEventListener("click", () => {
-          controller.reset();
-          updateStatus();
-        });
+        statusEl.textContent = `Step ${board.controller.currentStep} of ${board.controller.totalSteps}`;
       }
     </script>
   </body>
