@@ -1,0 +1,69 @@
+/*
+ * Page chrome shared by demos/step-reveal.html and demos/complex-showcase.html
+ * — layout, buttons, status text, the container border. None of this is
+ * diagram styling; the diagram's own visual design system lives in
+ * packages/core/src/theme/default.css and ships as part of @siren/core (see
+ * ADR-0004) — every demo page links both files.
+ */
+
+body {
+  margin: 0;
+  padding: 2rem;
+  font-family: system-ui, sans-serif;
+  background: #f7f7fa;
+  color: #1a1a2e;
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0 0 1rem;
+}
+
+.intro {
+  max-width: 60ch;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.intro code {
+  font-size: 0.85em;
+  background: #eee;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+.controls {
+  margin-bottom: 1rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.controls button {
+  font: inherit;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.controls button:hover {
+  background: #eee;
+}
+
+.status {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+#siren-container {
+  border: 1px solid #ccc;
+  background: #fff;
+  display: inline-block;
+}
+
+#siren-container svg {
+  display: block;
+}
