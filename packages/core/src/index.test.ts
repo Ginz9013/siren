@@ -194,4 +194,87 @@ A[<script>alert(1)</script>] --> B[End]
     expect(text.textContent).toBe("<script>alert(1)</script>");
     expect(result.svg!.querySelectorAll("script")).toHaveLength(0);
   });
+
+  it("renders end to end through the real pipeline for a document using all four timeline verbs and a slide-* effect", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+step 1: enter A slide-left
+step 2: enter B fade
+step 3: highlight A outline
+step 4: exit A fade
+step 5: unhighlight B
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.some((d) => d.severity === "error")).toBe(false);
+    expect(result.svg).not.toBeNull();
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(5);
+    expect(result.svg!.querySelectorAll("g.siren-node")).toHaveLength(3);
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(2);
+  });
+
+  it("calling controller.next() several times then controller.prev() once produces the same DOM class state, per element, as one fewer next() call, through the real pipeline", () => {
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+step 1: enter A slide-left
+step 2: enter B fade
+step 3: highlight A outline
+step 4: exit A fade
+step 5: unhighlight B
+`;
+
+    const forwardThenBackContainer = document.createElement("div");
+    const forwardThenBack = render(source, forwardThenBackContainer);
+    const controller = forwardThenBack.controller!;
+    controller.next();
+    controller.next();
+    controller.next();
+    controller.prev();
+
+    const referenceContainer = document.createElement("div");
+    const reference = render(source, referenceContainer);
+    reference.controller!.next();
+    reference.controller!.next();
+
+    const ids = ["A", "B", "C"];
+    for (const id of ids) {
+      const actual = forwardThenBack.svg!.querySelector(`[data-siren-id="${id}"]`)!;
+      const expected = reference.svg!.querySelector(`[data-siren-id="${id}"]`)!;
+      expect(Array.from(actual.classList).sort()).toEqual(
+        Array.from(expected.classList).sort(),
+      );
+    }
+    expect(controller.currentStep).toBe(2);
+  });
+
+  it("produces an error diagnostic (and drops the action, without throwing) for a highlight action referencing an element before it becomes visible, while the rest of the diagram still renders", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+timeline:
+step 1: highlight B outline
+step 2: enter B fade
+`;
+
+    let result: SirenRenderResult | undefined;
+    expect(() => {
+      result = render(source, container);
+    }).not.toThrow();
+
+    expect(
+      result!.diagnostics.some(
+        (d) => d.severity === "error" && d.message.includes("B") && d.message.includes("highlight"),
+      ),
+    ).toBe(true);
+    expect(result!.svg).not.toBeNull();
+    expect(result!.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
+    expect(result!.svg!.querySelectorAll("path.siren-edge")).toHaveLength(1);
+  });
 });
