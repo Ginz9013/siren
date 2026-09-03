@@ -109,8 +109,8 @@ describe("layoutGraph", () => {
       timeline: {
         totalSteps: 2,
         entries: [
-          { step: 1, targetId: "B", effect: "fade" },
-          { step: 2, targetId: "C", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "B", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "C", effect: "fade" },
         ],
       },
     };
