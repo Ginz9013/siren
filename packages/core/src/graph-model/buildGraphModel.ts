@@ -6,6 +6,7 @@ import type {
   GraphNode,
   ResolvedTimelineEntry,
   SirenDocument,
+  TimelineEntry,
 } from "../contracts";
 
 /**
@@ -49,6 +50,11 @@ function resolveTimeline(
     return { entries, totalSteps };
   }
 
+  // Pass 1: drop unknown-id entries, and dedupe enter/exit (first occurrence
+  // wins, later ones on the same target warn and are dropped).
+  const kept: TimelineEntry[] = [];
+  const seenEnterOrExit = new Set<string>();
+
   for (const entry of document.timeline.entries) {
     if (!validTargetIds.has(entry.targetId)) {
       diagnostics.push({
@@ -60,7 +66,49 @@ function resolveTimeline(
       continue;
     }
 
+    if (entry.kind === "enter" || entry.kind === "exit") {
+      const dedupeKey = `${entry.kind}:${entry.targetId}`;
+      if (seenEnterOrExit.has(dedupeKey)) {
+        diagnostics.push({
+          severity: "warning",
+          message: `timeline: "${entry.targetId}" already has a "${entry.kind}" action; keeping the first-seen occurrence.`,
+          line: entry.line,
+          column: entry.column,
+        });
+        continue;
+      }
+      seenEnterOrExit.add(dedupeKey);
+    }
+
+    kept.push(entry);
+  }
+
+  // Pass 2: compute each target's "becomes visible at step" — its own kept
+  // `enter` step, or 0 if it's never entered — and reject any
+  // highlight/exit/unhighlight action whose step comes before that.
+  const visibleAtStep = new Map<string, number>();
+  for (const entry of kept) {
+    if (entry.kind === "enter") {
+      visibleAtStep.set(entry.targetId, entry.step);
+    }
+  }
+
+  for (const entry of kept) {
+    if (entry.kind === "highlight" || entry.kind === "exit" || entry.kind === "unhighlight") {
+      const visibleStep = visibleAtStep.get(entry.targetId) ?? 0;
+      if (entry.step < visibleStep) {
+        diagnostics.push({
+          severity: "error",
+          message: `timeline: "${entry.kind}" on "${entry.targetId}" at step ${entry.step} comes before it becomes visible (step ${visibleStep})`,
+          line: entry.line,
+          column: entry.column,
+        });
+        continue;
+      }
+    }
+
     entries.push({
+      kind: entry.kind,
       step: entry.step,
       targetId: entry.targetId,
       effect: entry.effect,

@@ -60,9 +60,9 @@ describe("buildGraphModel", () => {
       ],
       timeline: {
         entries: [
-          { step: 1, targetId: "B", effect: "fade" },
-          { step: 2, targetId: "C", effect: "fade" },
-          { step: 2, targetId: "A-B", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "B", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "C", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "A-B", effect: "fade" },
         ],
       },
     };
@@ -99,8 +99,8 @@ describe("buildGraphModel", () => {
       edges: [{ from: "A", to: "B" }],
       timeline: {
         entries: [
-          { step: 1, targetId: "B", effect: "fade" },
-          { step: 1, targetId: "does-not-exist", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "B", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "does-not-exist", effect: "fade" },
         ],
       },
     };
@@ -149,5 +149,167 @@ describe("buildGraphModel", () => {
     expect(graph).not.toBeNull();
     expect(graph!.timeline.totalSteps).toBe(0);
     expect(graph!.timeline.entries).toEqual([]);
+  });
+
+  it("keeps the first occurrence of a duplicate enter or exit action on the same target and warns", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [],
+      timeline: {
+        entries: [
+          { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+          { kind: "enter", step: 3, targetId: "A", effect: "slide-left" },
+          { kind: "enter", step: 1, targetId: "B", effect: "fade" },
+          { kind: "exit", step: 2, targetId: "B", effect: "fade" },
+          { kind: "exit", step: 4, targetId: "B", effect: "slide-right" },
+        ],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(graph).not.toBeNull();
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+      { kind: "enter", step: 1, targetId: "B", effect: "fade" },
+      { kind: "exit", step: 2, targetId: "B", effect: "fade" },
+    ]);
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics.every((d) => d.severity === "warning")).toBe(true);
+  });
+
+  it("drops a highlight/exit/unhighlight action whose step precedes the target's visibility step, reporting an error, while the rest of the graph still builds", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [],
+      timeline: {
+        entries: [
+          // B's actual enter step is 2, but this highlight is (mis)placed at step 1,
+          // before B becomes visible.
+          { kind: "highlight", step: 1, targetId: "B", effect: "outline" },
+          { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+        ],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(graph).not.toBeNull();
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+    ]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("error");
+  });
+
+  it("allows exit on an element that was never entered (visible from step 0) at any later step", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [{ id: "A", label: "A" }],
+      edges: [],
+      timeline: {
+        entries: [{ kind: "exit", step: 3, targetId: "A", effect: "fade" }],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph).not.toBeNull();
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "exit", step: 3, targetId: "A", effect: "fade" },
+    ]);
+  });
+
+  it("allows a highlight at the exact step its target enters (not just strictly after)", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [{ id: "B", label: "B" }],
+      edges: [],
+      timeline: {
+        entries: [
+          { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+          { kind: "highlight", step: 2, targetId: "B", effect: "outline" },
+        ],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph).not.toBeNull();
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+      { kind: "highlight", step: 2, targetId: "B", effect: "outline" },
+    ]);
+  });
+
+  it("drops exit/highlight/unhighlight actions referencing an unknown id, including edge ids, reporting an error each", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      timeline: {
+        entries: [
+          { kind: "exit", step: 1, targetId: "does-not-exist", effect: "fade" },
+          { kind: "highlight", step: 1, targetId: "also-missing", effect: "glow" },
+          { kind: "unhighlight", step: 1, targetId: "still-missing" },
+          { kind: "highlight", step: 1, targetId: "A-B", effect: "outline" },
+        ],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(graph).not.toBeNull();
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "highlight", step: 1, targetId: "A-B", effect: "outline" },
+    ]);
+    expect(diagnostics).toHaveLength(3);
+    expect(diagnostics.every((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("resolves all four action kinds, grouped by step, with kind/targetId/effect intact per entry", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [{ id: "A", label: "A" }],
+      edges: [],
+      timeline: {
+        entries: [
+          { kind: "enter", step: 1, targetId: "A", effect: "slide-top" },
+          { kind: "highlight", step: 2, targetId: "A", effect: "glow" },
+          { kind: "unhighlight", step: 3, targetId: "A" },
+          { kind: "exit", step: 4, targetId: "A", effect: "slide-bottom" },
+        ],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph).not.toBeNull();
+
+    const byStep = new Map(graph!.timeline.entries.map((e) => [e.step, e]));
+    expect(byStep.get(1)).toEqual({ kind: "enter", step: 1, targetId: "A", effect: "slide-top" });
+    expect(byStep.get(2)).toEqual({ kind: "highlight", step: 2, targetId: "A", effect: "glow" });
+    expect(byStep.get(3)).toEqual({ kind: "unhighlight", step: 3, targetId: "A", effect: undefined });
+    expect(byStep.get(4)).toEqual({
+      kind: "exit",
+      step: 4,
+      targetId: "A",
+      effect: "slide-bottom",
+    });
+    expect(graph!.timeline.totalSteps).toBe(4);
   });
 });
