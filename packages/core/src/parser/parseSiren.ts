@@ -1,12 +1,14 @@
 import type {
   Diagnostic,
   Direction,
-  EnterEffect,
+  EnterExitEffect,
+  HighlightEffect,
   ParseResult,
   SirenDocument,
   SirenEdge,
   SirenNode,
   SirenTimeline,
+  TimelineActionKind,
   TimelineEntry,
 } from "../contracts";
 
@@ -17,9 +19,30 @@ const EDGE_RE =
   /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
 const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
 const TIMELINE_ENTRY_RE = /^step\s+(\d+):\s*(.+)$/;
-const TIMELINE_ACTION_RE = /^enter\s+(\S+)\s+(\S+)$/;
+// A verb, a target id, and an optional trailing effect token (unhighlight
+// takes none; every other verb requires one — validated below, not here).
+const TIMELINE_ACTION_RE = /^(\S+)\s+(\S+)(?:\s+(\S+))?$/;
 
-const KNOWN_EFFECTS: ReadonlySet<string> = new Set<EnterEffect>(["fade"]);
+const EFFECTS_BY_KIND: Readonly<
+  Partial<Record<string, ReadonlySet<string> | null>>
+> = {
+  enter: new Set<EnterExitEffect>([
+    "fade",
+    "slide-left",
+    "slide-right",
+    "slide-top",
+    "slide-bottom",
+  ]),
+  exit: new Set<EnterExitEffect>([
+    "fade",
+    "slide-left",
+    "slide-right",
+    "slide-top",
+    "slide-bottom",
+  ]),
+  highlight: new Set<HighlightEffect>(["outline", "glow"]),
+  unhighlight: null,
+};
 
 /**
  * Parses Siren source text (a `flowchart TD|LR` header, node/edge
@@ -162,21 +185,58 @@ export function parseSiren(source: string): ParseResult {
           sawError = true;
           continue;
         }
-        const [, targetId, effect] = actionMatch;
-        if (!KNOWN_EFFECTS.has(effect)) {
+        const [, verb, targetId, effect] = actionMatch;
+        const allowedEffects = EFFECTS_BY_KIND[verb];
+        if (allowedEffects === undefined) {
           diagnostics.push({
             severity: "error",
-            message: `Unknown enter effect "${effect}" (only "fade" is supported)`,
+            message: `Unrecognized timeline verb "${verb}" (expected "enter", "exit", "highlight", or "unhighlight")`,
             line: lineNumber,
             column,
           });
           sawError = true;
           continue;
         }
+        const kind = verb as TimelineActionKind;
+
+        if (allowedEffects === null) {
+          if (effect !== undefined) {
+            diagnostics.push({
+              severity: "error",
+              message: `"unhighlight" takes no effect, found trailing "${effect}" in "${action}"`,
+              line: lineNumber,
+              column,
+            });
+            sawError = true;
+            continue;
+          }
+          const entry: TimelineEntry = {
+            kind,
+            step,
+            targetId,
+            line: lineNumber,
+            column,
+          };
+          (timeline as SirenTimeline).entries.push(entry);
+          continue;
+        }
+
+        if (effect === undefined || !allowedEffects.has(effect)) {
+          diagnostics.push({
+            severity: "error",
+            message: `Unknown ${kind} effect "${effect ?? ""}" (expected one of: ${[...allowedEffects].join(", ")})`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+
         const entry: TimelineEntry = {
+          kind,
           step,
           targetId,
-          effect: effect as EnterEffect,
+          effect: effect as EnterExitEffect | HighlightEffect,
           line: lineNumber,
           column,
         };

@@ -27,8 +27,19 @@ export interface Diagnostic {
 /** Flowchart layout direction, taken from the `flowchart TD|LR` header. */
 export type Direction = "TD" | "LR";
 
-/** A single enter effect. v1 defines exactly one: `fade`. */
-export type EnterEffect = "fade";
+/** Effect names accepted by `enter`/`exit` timeline actions. */
+export type EnterExitEffect =
+  | "fade"
+  | "slide-left"
+  | "slide-right"
+  | "slide-top"
+  | "slide-bottom";
+
+/** Effect names accepted by `highlight` timeline actions. */
+export type HighlightEffect = "outline" | "glow";
+
+/** Verbs recognized in a `timeline:` block. */
+export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
 
 /** A node as declared in source, before graph-model resolution. */
 export interface SirenNode {
@@ -46,11 +57,16 @@ export interface SirenEdge {
   column?: number;
 }
 
-/** One `step N: enter <id> <effect>` entry from the `timeline:` block. */
+/**
+ * One `step N: <verb> <id> [<effect>]` entry from the `timeline:` block.
+ * `effect` is present for `enter`/`exit`/`highlight` and absent for
+ * `unhighlight`.
+ */
 export interface TimelineEntry {
+  kind: TimelineActionKind;
   step: number;
   targetId: string;
-  effect: EnterEffect;
+  effect?: EnterExitEffect | HighlightEffect;
   line?: number;
   column?: number;
 }
@@ -90,11 +106,16 @@ export interface GraphEdge {
   to: string;
 }
 
-/** One resolved timeline entry, referencing a validated graph node/edge id. */
+/**
+ * One resolved timeline entry, referencing a validated graph node/edge id.
+ * `effect` is present for `enter`/`exit`/`highlight` and absent for
+ * `unhighlight`.
+ */
 export interface ResolvedTimelineEntry {
+  kind: TimelineActionKind;
   step: number;
   targetId: string;
-  effect: EnterEffect;
+  effect?: EnterExitEffect | HighlightEffect;
 }
 
 /** The timeline after resolution against the graph's node/edge ids. */
@@ -175,12 +196,15 @@ export interface PositionedGraph {
 /**
  * Caller-driven step-reveal controller returned by
  * `createAnimationController`. `next()` reveals the next step's elements;
- * `reset()` restores the initial pending state.
+ * `prev()` jumps back one step instantly (no transition), to the DOM state
+ * `next()` would have produced at that step; `reset()` restores the initial
+ * pending state.
  */
 export interface AnimationController {
   totalSteps: number;
   currentStep: number;
   next(): void;
+  prev(): void;
   reset(): void;
 }
 
