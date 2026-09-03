@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# TDD planning scratch — working notes for the tdd-plan/tdd-develop skills,
+# not permanent repo content. Load-bearing decisions get written up as ADRs
+# in docs/adr/ instead once a slice lands.
+.scratch/
