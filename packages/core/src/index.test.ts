@@ -10,6 +10,18 @@ step 1: enter A fade
 step 2: enter B fade
 `;
 
+/** A document exercising all four timeline verbs plus a slide-* effect, across 5 steps. */
+const ALL_VERBS_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+step 1: enter A slide-left
+step 2: enter B fade
+step 3: highlight A outline
+step 4: exit A fade
+step 5: unhighlight B
+`;
+
 describe("render", () => {
   it("mounts an SVG into the container with one siren-node group per node and one siren-edge path per edge, each carrying data-siren-id", () => {
     const container = document.createElement("div");
@@ -197,18 +209,8 @@ A[<script>alert(1)</script>] --> B[End]
 
   it("renders end to end through the real pipeline for a document using all four timeline verbs and a slide-* effect", () => {
     const container = document.createElement("div");
-    const source = `flowchart TD
-A[Start] --> B[Middle]
-B --> C[End]
-timeline:
-step 1: enter A slide-left
-step 2: enter B fade
-step 3: highlight A outline
-step 4: exit A fade
-step 5: unhighlight B
-`;
 
-    const result = render(source, container);
+    const result = render(ALL_VERBS_SOURCE, container);
 
     expect(result.diagnostics.some((d) => d.severity === "error")).toBe(false);
     expect(result.svg).not.toBeNull();
@@ -219,19 +221,8 @@ step 5: unhighlight B
   });
 
   it("calling controller.next() several times then controller.prev() once produces the same DOM class state, per element, as one fewer next() call, through the real pipeline", () => {
-    const source = `flowchart TD
-A[Start] --> B[Middle]
-B --> C[End]
-timeline:
-step 1: enter A slide-left
-step 2: enter B fade
-step 3: highlight A outline
-step 4: exit A fade
-step 5: unhighlight B
-`;
-
     const forwardThenBackContainer = document.createElement("div");
-    const forwardThenBack = render(source, forwardThenBackContainer);
+    const forwardThenBack = render(ALL_VERBS_SOURCE, forwardThenBackContainer);
     const controller = forwardThenBack.controller!;
     controller.next();
     controller.next();
@@ -239,7 +230,7 @@ step 5: unhighlight B
     controller.prev();
 
     const referenceContainer = document.createElement("div");
-    const reference = render(source, referenceContainer);
+    const reference = render(ALL_VERBS_SOURCE, referenceContainer);
     reference.controller!.next();
     reference.controller!.next();
 
