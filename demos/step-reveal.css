@@ -198,57 +198,103 @@ h1 {
 }
 
 /*
- * `siren-exit-*`: unlike enter, an exiting element's "before" state is
- * always the plain rendered default (opacity 1, no transform — nothing
- * else scopes those persistently), so a direct `transition` genuinely
- * animates from "in place" to "gone", no keyframes needed. Declared after
- * the enter rules above: an element can carry both `siren-enter-fade` (or
- * a slide-in class) and its `siren-exit-*` class at once — the resolved
- * timeline's `exit` action never clears the earlier `enter` class (see
- * createAnimationController.ts) — and since both rules have equal
- * selector specificity, source order decides that the exit state (the
- * element's true final state) wins the cascade for the shared `opacity`
- * property.
+ * `siren-exit-*`: these must use `animation`, not `transition`, even
+ * though an exiting element's "before" state is always well-defined. Per
+ * the CSS Animations spec, a running (or `forwards`-held) CSS *animation*
+ * unconditionally overrides a CSS *transition* on the same property,
+ * regardless of selector specificity or source order — that ordering only
+ * arbitrates between two rules of the *same* kind. An element that entered
+ * via `siren-enter-slide-*` keeps its `animation` (with `forwards`)
+ * pinning `opacity`/`transform` indefinitely; the resolved timeline's
+ * `exit` action never clears that earlier `enter` class (see
+ * createAnimationController.ts), so both classes are present on the
+ * element at once. A plain `transition` on `.siren-exit-*` would therefore
+ * silently never take effect for any element that entered via a slide —
+ * this was a real bug (found while visually testing the complex-showcase
+ * demo: exit had no visible effect on slide-entered elements). Using
+ * `animation` for exit too means the two rules are now the same kind, so
+ * source order genuinely decides the winner — exit is declared after
+ * enter, so it fully wins the `animation` property (a single element can
+ * only run the one `animation` shorthand that wins the cascade, not both
+ * blended together).
  *
  * Direction semantics match the spec: exit `slide-left` departs *toward*
  * the left (opposite of enter `slide-left`, which arrives *from* the
- * left).
+ * left). `exit-fade` only animates `opacity`, deliberately leaving
+ * `transform` alone — a plain fade-out shouldn't force any position change
+ * even if the element entered via a slide.
  */
+@keyframes siren-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes siren-slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--siren-slide-distance)));
+  }
+}
+
+@keyframes siren-slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(var(--siren-slide-distance));
+  }
+}
+
+@keyframes siren-slide-out-top {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--siren-slide-distance)));
+  }
+}
+
+@keyframes siren-slide-out-bottom {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(var(--siren-slide-distance));
+  }
+}
+
 .siren-exit-fade {
-  opacity: 0;
-  transition: opacity var(--siren-fade-duration) ease-in;
+  animation: siren-fade-out var(--siren-fade-duration) ease-in forwards;
 }
 
 .siren-exit-slide-left {
-  opacity: 0;
-  transform: translateX(calc(-1 * var(--siren-slide-distance)));
-  transition:
-    opacity var(--siren-slide-duration) ease-in,
-    transform var(--siren-slide-duration) ease-in;
+  animation: siren-slide-out-left var(--siren-slide-duration) ease-in forwards;
 }
 
 .siren-exit-slide-right {
-  opacity: 0;
-  transform: translateX(var(--siren-slide-distance));
-  transition:
-    opacity var(--siren-slide-duration) ease-in,
-    transform var(--siren-slide-duration) ease-in;
+  animation: siren-slide-out-right var(--siren-slide-duration) ease-in forwards;
 }
 
 .siren-exit-slide-top {
-  opacity: 0;
-  transform: translateY(calc(-1 * var(--siren-slide-distance)));
-  transition:
-    opacity var(--siren-slide-duration) ease-in,
-    transform var(--siren-slide-duration) ease-in;
+  animation: siren-slide-out-top var(--siren-slide-duration) ease-in forwards;
 }
 
 .siren-exit-slide-bottom {
-  opacity: 0;
-  transform: translateY(var(--siren-slide-distance));
-  transition:
-    opacity var(--siren-slide-duration) ease-in,
-    transform var(--siren-slide-duration) ease-in;
+  animation: siren-slide-out-bottom var(--siren-slide-duration) ease-in forwards;
 }
 
 /*
