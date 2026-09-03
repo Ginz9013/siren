@@ -19,6 +19,13 @@ package. Does not include the VS Code extension, the website, or the playground 
 separate projects.
 _Avoid_: the library, the engine (ambiguous — say which stage: parser, layout, renderer, ...)
 
+**Board** (`@siren/board`):
+A mounted, browser-only wrapper around one core-renderer `render()` call — owns a container's DOM,
+its own chrome styling, and the `AnimationController` lifecycle across source changes. A consumer
+of the core renderer (see [ADR-0005](docs/adr/0005-board-is-a-separate-package-that-owns-calling-render.md)),
+not part of it; does not parse, layout, or render anything itself.
+_Avoid_: canvas, viewer, widget
+
 **Timeline block**:
 The `timeline:` section of a Siren document. Lists step entries that assign animation actions to
 nodes/edges by id. Deliberately separate from the diagram's structural definition — see
