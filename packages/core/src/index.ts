@@ -5,6 +5,8 @@ import { renderToSVG } from "./renderer/renderToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import type { Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
 
+export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+
 /** Options accepted by the public `render()` entry point. */
 export interface RenderOptions {
   /**
