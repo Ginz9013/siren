@@ -22,8 +22,8 @@
       never source files — per ticket 07's acceptance criteria. Run
       `pnpm --filter @siren/core build` first.
 
-      The example document itself lives at examples/step-reveal.siren as a
-      standalone .siren file — loaded here via fetch(), not inlined — so it
+      The example document itself lives at examples/step-reveal.srn as a
+      standalone .srn file — loaded here via fetch(), not inlined — so it
       stays the one shared source of truth for what real Siren syntax looks
       like (this demo, and later the playground/docs, all read the same
       file). Note: fetch() of a local file is blocked by the browser's
@@ -34,9 +34,9 @@
     <script type="module">
       import { render } from "../packages/core/dist/siren-core.js";
 
-      const source = await fetch("../examples/step-reveal.siren").then((response) => {
+      const source = await fetch("../examples/step-reveal.srn").then((response) => {
         if (!response.ok) {
-          throw new Error(`Failed to load examples/step-reveal.siren: ${response.status}`);
+          throw new Error(`Failed to load examples/step-reveal.srn: ${response.status}`);
         }
         return response.text();
       });
