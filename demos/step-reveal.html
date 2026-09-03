@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — step-reveal demo</title>
+    <link rel="stylesheet" href="./step-reveal.css" />
+  </head>
+  <body>
+    <h1>Siren step-reveal demo</h1>
+
+    <div class="controls">
+      <button id="next-btn" type="button">Next</button>
+      <button id="reset-btn" type="button">Reset</button>
+    </div>
+
+    <p class="status" id="status">Step 0 of 0</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Imports the real Vite library build (packages/core/dist/siren-core.js),
+      never source files — per ticket 07's acceptance criteria. Run
+      `pnpm --filter @siren/core build` first.
+    -->
+    <script type="module">
+      import { render } from "../packages/core/dist/siren-core.js";
+
+      // Example document: 4 nodes, 3 timeline steps, so "Next" has three
+      // distinct reveals to click through before it stops advancing.
+      const source = `flowchart TD
+  A[Start]
+  A --> B[Fetch data]
+  B --> C[Transform]
+  C --> D[Publish]
+
+timeline:
+  step 1: enter B fade
+  step 2: enter C fade
+  step 3: enter D fade
+`;
+
+      /**
+       * Real, DOM-based text measurer for the browser (the library's
+       * default measurer is a jsdom-safe fixed-width estimate — see
+       * RenderOptions.measureText in packages/core/src/index.ts). Uses a
+       * canvas 2D context, matching the font this page's CSS applies to
+       * `.siren-node text`.
+       */
+      function createBrowserTextMeasurer() {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        ctx.font = "14px system-ui, sans-serif";
+        const paddingX = 24;
+        const lineHeight = 32;
+
+        return {
+          measure(text) {
+            const { width } = ctx.measureText(text);
+            return { width: width + paddingX, height: lineHeight };
+          },
+        };
+      }
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const nextBtn = document.getElementById("next-btn");
+      const resetBtn = document.getElementById("reset-btn");
+
+      const { svg, controller, diagnostics } = render(source, container, {
+        measureText: createBrowserTextMeasurer(),
+      });
+
+      for (const diagnostic of diagnostics) {
+        console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+      }
+
+      if (svg === null || controller === null) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        const updateStatus = () => {
+          statusEl.textContent = `Step ${controller.currentStep} of ${controller.totalSteps}`;
+        };
+        updateStatus();
+
+        nextBtn.addEventListener("click", () => {
+          controller.next();
+          updateStatus();
+        });
+
+        resetBtn.addEventListener("click", () => {
+          controller.reset();
+          updateStatus();
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,96 @@
+/*
+ * Styles for demos/step-reveal.html.
+ *
+ * Defines the shipped `siren-enter-fade` CSS transition that
+ * `createAnimationController` toggles: elements start hidden via
+ * `siren-pending` (matching the initial-render convention in
+ * renderToSVG.ts) and fade in over `--siren-fade-duration` once
+ * `siren-enter-fade` is added by `controller.next()`.
+ */
+
+:root {
+  --siren-fade-duration: 600ms;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+  font-family: system-ui, sans-serif;
+  background: #f7f7fa;
+  color: #1a1a2e;
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0 0 1rem;
+}
+
+.controls {
+  margin-bottom: 1rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.controls button {
+  font: inherit;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.controls button:hover {
+  background: #eee;
+}
+
+.status {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+#siren-container {
+  border: 1px solid #ccc;
+  background: #fff;
+  display: inline-block;
+}
+
+#siren-container svg {
+  display: block;
+}
+
+/* Node/edge base styling, per the frozen SVG conventions in renderToSVG.ts. */
+.siren-node rect {
+  fill: #eef2ff;
+  stroke: #4c51bf;
+  stroke-width: 1.5;
+  rx: 6;
+}
+
+.siren-node text {
+  font-size: 14px;
+  fill: #1a1a2e;
+  dominant-baseline: middle;
+  text-anchor: middle;
+}
+
+.siren-edge {
+  fill: none;
+  stroke: #666;
+  stroke-width: 1.5;
+}
+
+/*
+ * Step-reveal states: elements referenced anywhere in `timeline:` render
+ * with `siren-pending` initially (invisible). `controller.next()` swaps
+ * that for `siren-enter-fade`, which is what actually performs the fade.
+ */
+.siren-pending {
+  opacity: 0;
+}
+
+.siren-enter-fade {
+  opacity: 1;
+  transition: opacity var(--siren-fade-duration) ease-in;
+}
