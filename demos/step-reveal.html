@@ -9,6 +9,7 @@
     <h1>Siren step-reveal demo</h1>
 
     <div class="controls">
+      <button id="prev-btn" type="button">Prev</button>
       <button id="next-btn" type="button">Next</button>
       <button id="reset-btn" type="button">Reset</button>
     </div>
@@ -65,6 +66,7 @@
 
       const container = document.getElementById("siren-container");
       const statusEl = document.getElementById("status");
+      const prevBtn = document.getElementById("prev-btn");
       const nextBtn = document.getElementById("next-btn");
       const resetBtn = document.getElementById("reset-btn");
 
@@ -83,6 +85,11 @@
           statusEl.textContent = `Step ${controller.currentStep} of ${controller.totalSteps}`;
         };
         updateStatus();
+
+        prevBtn.addEventListener("click", () => {
+          controller.prev();
+          updateStatus();
+        });
 
         nextBtn.addEventListener("click", () => {
           controller.next();

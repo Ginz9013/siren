@@ -1,15 +1,25 @@
 /*
  * Styles for demos/step-reveal.html.
  *
- * Defines the shipped `siren-enter-fade` CSS transition that
- * `createAnimationController` toggles: elements start hidden via
- * `siren-pending` (matching the initial-render convention in
- * renderToSVG.ts) and fade in over `--siren-fade-duration` once
- * `siren-enter-fade` is added by `controller.next()`.
+ * Defines the shipped CSS transitions/animations that
+ * `createAnimationController` toggles by adding/removing classes:
+ * `enter`, `exit`, `highlight`, `unhighlight`. Every effect-related
+ * transition/animation declaration lives on the effect class itself
+ * (`.siren-enter-fade`, `.siren-exit-slide-left`, `.siren-highlight-glow`,
+ * etc.) — never on `.siren-node`/`.siren-edge` or on `.siren-pending`.
+ * That's what makes `controller.prev()` (which only ever adds/removes
+ * these same classes, per createAnimationController.ts) snap instantly
+ * with no JS-side "disable transitions" step: whichever class `prev()`
+ * lands on next (`.siren-pending`, or an earlier step's already-settled
+ * class) carries no transition of its own, so the browser has nothing to
+ * animate.
  */
 
 :root {
   --siren-fade-duration: 600ms;
+  --siren-slide-duration: 500ms;
+  --siren-slide-distance: 60px;
+  --siren-highlight-duration: 300ms;
 }
 
 body {
@@ -83,9 +93,10 @@ h1 {
 }
 
 /*
- * Step-reveal states: elements referenced anywhere in `timeline:` render
- * with `siren-pending` initially (invisible). `controller.next()` swaps
- * that for `siren-enter-fade`, which is what actually performs the fade.
+ * Step-reveal states: elements with an `enter` action render with
+ * `siren-pending` initially (invisible; renderToSVG.ts only marks
+ * elements that actually have an `enter` action, per ticket 03).
+ * `controller.next()` swaps that for `siren-enter-{effect}`.
  */
 .siren-pending {
   opacity: 0;
@@ -94,4 +105,166 @@ h1 {
 .siren-enter-fade {
   opacity: 1;
   transition: opacity var(--siren-fade-duration) ease-in;
+}
+
+/*
+ * `siren-enter-slide-*`: every enter effect starts from the same shared
+ * `siren-pending` state (opacity 0, no transform), so a plain `transition`
+ * can't express a direction-specific starting offset — the "before" state
+ * is identical no matter which slide direction eventually fires. Each
+ * direction instead uses a self-contained `@keyframes` animation with its
+ * own explicit from/to, so the offset is still entirely local to the
+ * effect class (never leaking a transition onto `.siren-pending` or the
+ * base node/edge rules) and still stops/snaps cleanly the moment the
+ * class is removed (prev(), or a later action swapping it away).
+ *
+ * `transform: translate(...)` is used rather than repositioning via
+ * layout, since renderToSVG.ts places nodes/edges with absolute x/y
+ * attributes, not CSS layout — transform composes with that positioning
+ * instead of fighting it.
+ */
+@keyframes siren-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--siren-slide-distance)));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes siren-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(var(--siren-slide-distance));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes siren-slide-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--siren-slide-distance)));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes siren-slide-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(var(--siren-slide-distance));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.siren-enter-slide-left {
+  animation: siren-slide-in-left var(--siren-slide-duration) ease-out forwards;
+}
+
+.siren-enter-slide-right {
+  animation: siren-slide-in-right var(--siren-slide-duration) ease-out forwards;
+}
+
+.siren-enter-slide-top {
+  animation: siren-slide-in-top var(--siren-slide-duration) ease-out forwards;
+}
+
+.siren-enter-slide-bottom {
+  animation: siren-slide-in-bottom var(--siren-slide-duration) ease-out forwards;
+}
+
+/*
+ * `siren-exit-*`: unlike enter, an exiting element's "before" state is
+ * always the plain rendered default (opacity 1, no transform — nothing
+ * else scopes those persistently), so a direct `transition` genuinely
+ * animates from "in place" to "gone", no keyframes needed. Declared after
+ * the enter rules above: an element can carry both `siren-enter-fade` (or
+ * a slide-in class) and its `siren-exit-*` class at once — the resolved
+ * timeline's `exit` action never clears the earlier `enter` class (see
+ * createAnimationController.ts) — and since both rules have equal
+ * selector specificity, source order decides that the exit state (the
+ * element's true final state) wins the cascade for the shared `opacity`
+ * property.
+ *
+ * Direction semantics match the spec: exit `slide-left` departs *toward*
+ * the left (opposite of enter `slide-left`, which arrives *from* the
+ * left).
+ */
+.siren-exit-fade {
+  opacity: 0;
+  transition: opacity var(--siren-fade-duration) ease-in;
+}
+
+.siren-exit-slide-left {
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--siren-slide-distance)));
+  transition:
+    opacity var(--siren-slide-duration) ease-in,
+    transform var(--siren-slide-duration) ease-in;
+}
+
+.siren-exit-slide-right {
+  opacity: 0;
+  transform: translateX(var(--siren-slide-distance));
+  transition:
+    opacity var(--siren-slide-duration) ease-in,
+    transform var(--siren-slide-duration) ease-in;
+}
+
+.siren-exit-slide-top {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--siren-slide-distance)));
+  transition:
+    opacity var(--siren-slide-duration) ease-in,
+    transform var(--siren-slide-duration) ease-in;
+}
+
+.siren-exit-slide-bottom {
+  opacity: 0;
+  transform: translateY(var(--siren-slide-distance));
+  transition:
+    opacity var(--siren-slide-duration) ease-in,
+    transform var(--siren-slide-duration) ease-in;
+}
+
+/*
+ * `siren-highlight-*`: added on top of an already-visible node/edge, so
+ * (like exit) the "before" state is always the plain base rule — a direct
+ * `transition` works cleanly. `outline` needs a descendant selector for
+ * nodes (the visible stroke lives on the inner `<rect>`, since
+ * `data-siren-id`/the highlight class land on the outer `<g class="siren-node">`
+ * per renderToSVG.ts) but applies directly for edges (the highlight class
+ * lands on the `<path class="siren-edge">` itself, which already carries
+ * `stroke`). `glow` uses an SVG filter, which applies to a `<g>`'s whole
+ * subtree as a unit, so no descendant selector is needed there.
+ */
+.siren-node.siren-highlight-outline rect {
+  stroke: #f6ad55;
+  stroke-width: 3;
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+.siren-edge.siren-highlight-outline {
+  stroke: #f6ad55;
+  stroke-width: 3;
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+.siren-highlight-glow {
+  filter: drop-shadow(0 0 4px #f6ad55) drop-shadow(0 0 8px #f6ad55);
+  transition: filter var(--siren-highlight-duration) ease-out;
 }
