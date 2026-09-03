@@ -1,27 +1,37 @@
 /*
  * Page chrome shared by demos/step-reveal.html and demos/complex-showcase.html
- * — layout, buttons, status text, the container border. None of this is
- * diagram styling; the diagram's own visual design system lives in
- * packages/core/src/theme/default.css and ships as part of @siren/core (see
- * ADR-0004) — every demo page links both files.
+ * — layout, the full-bleed canvas, the floating control bar, status text.
+ * None of this is diagram styling; the diagram's own visual design system
+ * lives in packages/core/src/theme/default.css and ships as part of
+ * @siren/core (see ADR-0004) — every demo page links both files.
  */
+
+html,
+body {
+  height: 100%;
+}
 
 body {
   margin: 0;
-  padding: 2rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   font-family: system-ui, sans-serif;
   background: #f7f7fa;
   color: #1a1a2e;
 }
 
 h1 {
+  flex-shrink: 0;
   font-size: 1.25rem;
-  margin: 0 0 1rem;
+  margin: 1.5rem 2rem 0.5rem;
 }
 
 .intro {
+  flex-shrink: 0;
   max-width: 60ch;
-  margin: 0 0 1rem;
+  margin: 0 2rem 0.5rem;
   font-size: 0.9rem;
   color: #444;
 }
@@ -33,39 +43,65 @@ h1 {
   border-radius: 3px;
 }
 
+.status {
+  flex-shrink: 0;
+  margin: 0 2rem 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+/*
+ * Full-bleed canvas: fills whatever vertical space the header text above it
+ * doesn't use. The <svg> the library renders is fixed-size (width/height
+ * attributes matching the diagram's content box, see renderToSVG.ts), so it's
+ * stretched to 100%/100% here and relies on its own viewBox to scale +
+ * letterbox rather than crop.
+ */
+#siren-container {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: #fff;
+}
+
+#siren-container svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Floating control bar: taken out of document flow so the canvas above can
+ * run full-bleed underneath it, then centered along the bottom edge of the
+ * viewport.
+ */
 .controls {
-  margin-bottom: 1rem;
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 10;
   display: flex;
   gap: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ccc;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(6px);
 }
 
 .controls button {
   font: inherit;
   padding: 0.5rem 1.25rem;
   border: 1px solid #333;
-  border-radius: 4px;
+  border-radius: 8px;
   background: #fff;
   cursor: pointer;
 }
 
 .controls button:hover {
   background: #eee;
-}
-
-.status {
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-  color: #444;
-}
-
-#siren-container {
-  border: 1px solid #ccc;
-  background: #fff;
-  display: inline-block;
-}
-
-#siren-container svg {
-  display: block;
 }
 
 /*
@@ -89,6 +125,12 @@ body[data-siren-theme="dark"] .intro code {
   color: #e4e6f5;
 }
 
+body[data-siren-theme="dark"] .controls {
+  background: rgba(30, 33, 48, 0.9);
+  border-color: #454b6b;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
 body[data-siren-theme="dark"] .controls button {
   background: #1e2130;
   color: #e4e6f5;
@@ -101,5 +143,4 @@ body[data-siren-theme="dark"] .controls button:hover {
 
 body[data-siren-theme="dark"] #siren-container {
   background: #0e0f17;
-  border-color: #454b6b;
 }
