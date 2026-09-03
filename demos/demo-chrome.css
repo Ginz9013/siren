@@ -1,7 +1,11 @@
 /*
  * Page chrome shared by demos/step-reveal.html and demos/complex-showcase.html
- * — layout, the full-bleed canvas, the floating control bar, status text.
- * None of this is diagram styling; the diagram's own visual design system
+ * — page layout, header/status text, the theme toggle, and the flex slot
+ * @siren/board mounts into. The full-bleed canvas sizing and floating
+ * Prev/Next/Reset bar used to live here but are now board's own injected
+ * chrome (packages/board/src/styles.ts, ADR-0006) — both demos migrated
+ * onto @siren/board, so this file no longer needs to hand-roll them. None
+ * of this is diagram styling either; the diagram's own visual design system
  * lives in packages/core/src/theme/default.css and ships as part of
  * @siren/core (see ADR-0004) — every demo page links both files.
  */
@@ -84,57 +88,17 @@ h1 {
 }
 
 /*
- * Full-bleed canvas: fills whatever vertical space the header text above it
- * doesn't use. The <svg> the library renders is fixed-size (width/height
- * attributes matching the diagram's content box, see renderToSVG.ts), so it's
- * stretched to 100%/100% here and relies on its own viewBox to scale +
- * letterbox rather than crop.
+ * Slot for @siren/board: fills whatever vertical space the header text above
+ * it doesn't use. Everything inside — full-bleed SVG scaling, the floating
+ * Prev/Next/Reset bar — is board's own injected chrome (see
+ * packages/board/src/styles.ts, ADR-0006); this page only needs to give the
+ * slot a sized flex area and a background.
  */
 #siren-container {
   flex: 1;
   min-height: 0;
   width: 100%;
   background: #fff;
-}
-
-#siren-container svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/*
- * Floating control bar: taken out of document flow so the canvas above can
- * run full-bleed underneath it, then centered along the bottom edge of the
- * viewport.
- */
-.controls {
-  position: fixed;
-  left: 50%;
-  bottom: 1.5rem;
-  transform: translateX(-50%);
-  z-index: 10;
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #ccc;
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  backdrop-filter: blur(6px);
-}
-
-.controls button {
-  font: inherit;
-  padding: 0.5rem 1.25rem;
-  border: 1px solid #333;
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.controls button:hover {
-  background: #eee;
 }
 
 /*
@@ -165,22 +129,6 @@ body[data-siren-theme="dark"] .theme-toggle {
 }
 
 body[data-siren-theme="dark"] .theme-toggle:hover {
-  background: #262a3d;
-}
-
-body[data-siren-theme="dark"] .controls {
-  background: rgba(30, 33, 48, 0.9);
-  border-color: #454b6b;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-body[data-siren-theme="dark"] .controls button {
-  background: #1e2130;
-  color: #e4e6f5;
-  border-color: #454b6b;
-}
-
-body[data-siren-theme="dark"] .controls button:hover {
   background: #262a3d;
 }
 
