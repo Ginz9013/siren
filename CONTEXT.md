@@ -31,10 +31,21 @@ A positive integer named in a timeline block. Steps reveal in ascending order vi
 start (implicit "step 0").
 _Avoid_: frame, stage
 
-**Enter effect**:
-The action a pending node or edge performs when its step is revealed. `fade` is the only effect
-defined so far.
-_Avoid_: animation type, transition
+**Timeline action**:
+One `step N: <verb> <id> [<effect>]` entry in a timeline block. Four verbs: `enter`/`exit`
+(effect: `fade` or a directional `slide-{left,right,top,bottom}`), `highlight` (effect: `outline`
+or `glow` — cumulative, multiple elements can be highlighted at once, a second `highlight` on the
+same target replaces its effect rather than requiring `unhighlight` first), `unhighlight` (no
+effect).
+_Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highlight effect" when
+the verb matters)
+
+**Design token**:
+A `--siren-*` CSS custom property in `packages/core/src/theme/default.css` — the single source of
+truth for the diagram's default colors, sizing, and motion timing. Consumers theme by
+redeclaring these in their own CSS, not by passing a JS theme object — see
+[ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md).
+_Avoid_: CSS variable, theme variable
 
 **Diagnostic**:
 A non-fatal, structured message (`severity: 'error' | 'warning'`) describing a problem in a Siren
