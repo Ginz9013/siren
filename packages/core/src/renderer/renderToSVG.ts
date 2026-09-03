@@ -12,6 +12,9 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  */
 export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(graph.width));
+  svg.setAttribute("height", String(graph.height));
+  svg.setAttribute("viewBox", `0 0 ${graph.width} ${graph.height}`);
   const pendingIds = pendingElementIds(graph);
 
   svg.appendChild(buildDefs());

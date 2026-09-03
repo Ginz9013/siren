@@ -93,6 +93,15 @@ describe("renderToSVG", () => {
     expect(text.textContent).toBe("Process");
   });
 
+  it("sizes the root svg to the graph's full width/height via width/height and viewBox", () => {
+    const svg = renderToSVG(buildFixture());
+
+    // Fixture: width: 80, height: 240.
+    expect(svg.getAttribute("width")).toBe("80");
+    expect(svg.getAttribute("height")).toBe("240");
+    expect(svg.getAttribute("viewBox")).toBe("0 0 80 240");
+  });
+
   it("centers each node's text within its rect instead of leaving it at the default (0,0)", () => {
     const svg = renderToSVG(buildFixture());
 
