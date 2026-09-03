@@ -23,23 +23,19 @@ const TIMELINE_ENTRY_RE = /^step\s+(\d+):\s*(.+)$/;
 // takes none; every other verb requires one — validated below, not here).
 const TIMELINE_ACTION_RE = /^(\S+)\s+(\S+)(?:\s+(\S+))?$/;
 
+const ENTER_EXIT_EFFECTS = new Set<EnterExitEffect>([
+  "fade",
+  "slide-left",
+  "slide-right",
+  "slide-top",
+  "slide-bottom",
+]);
+
 const EFFECTS_BY_KIND: Readonly<
   Partial<Record<string, ReadonlySet<string> | null>>
 > = {
-  enter: new Set<EnterExitEffect>([
-    "fade",
-    "slide-left",
-    "slide-right",
-    "slide-top",
-    "slide-bottom",
-  ]),
-  exit: new Set<EnterExitEffect>([
-    "fade",
-    "slide-left",
-    "slide-right",
-    "slide-top",
-    "slide-bottom",
-  ]),
+  enter: ENTER_EXIT_EFFECTS,
+  exit: ENTER_EXIT_EFFECTS,
   highlight: new Set<HighlightEffect>(["outline", "glow"]),
   unhighlight: null,
 };
