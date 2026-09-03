@@ -69,10 +69,11 @@ h1 {
 }
 
 .siren-node text {
+  /* text-anchor/dominant-baseline are set as SVG presentation attributes by
+     renderToSVG.ts, not here — CSS would win over them and could silently
+     drift out of sync with the library's own centering math. */
   font-size: 14px;
   fill: #1a1a2e;
-  dominant-baseline: middle;
-  text-anchor: middle;
 }
 
 .siren-edge {
