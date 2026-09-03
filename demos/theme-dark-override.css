@@ -1,0 +1,21 @@
+/*
+ * Example theme override, proving packages/core/src/theme/default.css's
+ * design tokens are genuinely swappable from plain CSS — no JS, no touching
+ * the SVG-generating code, just redeclaring the same --siren-* custom
+ * properties this file's selector scopes to a different value. Toggled by
+ * the "Theme" button on the demo pages, which only ever sets/removes
+ * data-siren-theme="dark" on <body> — everything else is this stylesheet
+ * reacting to that attribute via the cascade.
+ *
+ * This file is demo-only scaffolding, not part of @siren/core's shipped
+ * design system — it exists to demonstrate the mechanism, not to ship as a
+ * second official theme.
+ */
+
+[data-siren-theme="dark"] {
+  --siren-node-fill: #1e2130;
+  --siren-node-stroke: #7c8fff;
+  --siren-node-text: #e4e6f5;
+  --siren-edge-stroke: #6b7290;
+  --siren-highlight-color: #ffb454;
+}

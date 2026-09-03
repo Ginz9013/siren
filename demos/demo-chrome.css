@@ -67,3 +67,39 @@ h1 {
 #siren-container svg {
   display: block;
 }
+
+/*
+ * Dark-mode chrome, toggled alongside demos/theme-dark-override.css by the
+ * same data-siren-theme="dark" attribute on <body> — this part is page
+ * chrome (background/border colors), not a design token override, so it
+ * lives here rather than in the theme-override file.
+ */
+body[data-siren-theme="dark"] {
+  background: #14151f;
+  color: #e4e6f5;
+}
+
+body[data-siren-theme="dark"] .intro,
+body[data-siren-theme="dark"] .status {
+  color: #a8acc8;
+}
+
+body[data-siren-theme="dark"] .intro code {
+  background: #262a3d;
+  color: #e4e6f5;
+}
+
+body[data-siren-theme="dark"] .controls button {
+  background: #1e2130;
+  color: #e4e6f5;
+  border-color: #454b6b;
+}
+
+body[data-siren-theme="dark"] .controls button:hover {
+  background: #262a3d;
+}
+
+body[data-siren-theme="dark"] #siren-container {
+  background: #0e0f17;
+  border-color: #454b6b;
+}

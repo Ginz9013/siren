@@ -5,6 +5,7 @@
     <title>Siren — complex showcase demo</title>
     <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
     <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
   </head>
   <body>
     <h1>Siren complex showcase</h1>
@@ -20,6 +21,7 @@
       <button id="prev-btn" type="button">Prev</button>
       <button id="next-btn" type="button">Next</button>
       <button id="reset-btn" type="button">Reset</button>
+      <button id="theme-btn" type="button">Theme: Light</button>
     </div>
 
     <p class="status" id="status">Step 0 of 0</p>
@@ -66,6 +68,21 @@
       const prevBtn = document.getElementById("prev-btn");
       const nextBtn = document.getElementById("next-btn");
       const resetBtn = document.getElementById("reset-btn");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
 
       const { svg, controller, diagnostics } = render(source, container, {
         measureText: createBrowserTextMeasurer(),
