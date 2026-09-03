@@ -23,11 +23,11 @@ timeline:
   step 7: unhighlight BranchA, unhighlight BranchB
   step 8: enter Merge fade, enter BranchA-Merge fade, enter BranchB-Merge slide-left
   step 9: highlight Merge glow, highlight BranchA-Merge glow
-  step 10: exit Start slide-top, exit Fetch slide-left
+  step 10: exit Start slide-top, exit Fetch slide-left, exit Start-Fetch fade, exit Fetch-Validate slide-top
   step 11: unhighlight Merge, unhighlight BranchA-Merge
   step 12: enter Transform slide-right, enter Merge-Transform fade
-  step 13: exit BranchA slide-bottom, exit BranchA-Merge fade
-  step 14: exit BranchB slide-right, exit BranchB-Merge slide-top
+  step 13: exit BranchA slide-bottom, exit BranchA-Merge fade, exit Validate-BranchA slide-right
+  step 14: exit BranchB slide-right, exit BranchB-Merge slide-top, exit Validate-BranchB slide-bottom
   step 15: enter Cache fade, enter Transform-Cache slide-left
   step 16: enter Notify slide-top, enter Transform-Notify slide-bottom
   step 17: highlight Cache outline, highlight Notify glow
