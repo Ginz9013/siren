@@ -93,6 +93,19 @@ describe("renderToSVG", () => {
     expect(text.textContent).toBe("Process");
   });
 
+  it("centers each node's text within its rect instead of leaving it at the default (0,0)", () => {
+    const svg = renderToSVG(buildFixture());
+
+    const nodeB = svg.querySelector('g.siren-node[data-siren-id="B"]')!;
+    const text = nodeB.querySelector("text")!;
+
+    // Fixture B: x=0, y=100, width=80, height=40 -> center is (40, 120).
+    expect(text.getAttribute("x")).toBe("40");
+    expect(text.getAttribute("y")).toBe("120");
+    expect(text.getAttribute("text-anchor")).toBe("middle");
+    expect(text.getAttribute("dominant-baseline")).toBe("middle");
+  });
+
   it("renders a label containing markup-looking text as literal textContent, never as parsed markup", () => {
     const graph = buildFixture();
     graph.nodes[0]!.label = "<script>alert(1)</script>";

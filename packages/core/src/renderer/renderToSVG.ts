@@ -29,6 +29,10 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     g.appendChild(rect);
 
     const text = document.createElementNS(SVG_NS, "text");
+    text.setAttribute("x", String(node.x + node.width / 2));
+    text.setAttribute("y", String(node.y + node.height / 2));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("dominant-baseline", "middle");
     text.textContent = node.label;
     g.appendChild(text);
 
