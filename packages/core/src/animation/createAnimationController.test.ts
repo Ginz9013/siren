@@ -253,6 +253,25 @@ describe("createAnimationController", () => {
     expect(classesOf(forward.svg, "A-B")).toEqual(classesOf(reference.svg, "A-B"));
   });
 
+  it("prev() clears a stale effect class from a target whose only action is at a step being reverted past, even though that target has no enter action", () => {
+    // A has no `enter` action anywhere in buildAllKindsFixture's timeline —
+    // it's visible from the start (step 0) and only gets `exit A fade` at
+    // step 2. Stepping back to step 1 (before A's own action fires) must
+    // leave A with no effect classes at all, not a stale siren-exit-fade
+    // held over from having been at step 2 or later.
+    const { svg, timeline } = buildAllKindsFixture();
+    const controller = createAnimationController(svg, timeline);
+
+    controller.next(); // step 1
+    controller.next(); // step 2: A gets siren-exit-fade
+    expect(classesOf(svg, "A")).toContain("siren-exit-fade");
+
+    controller.prev(); // back to step 1, before A's exit ever fires
+
+    expect(controller.currentStep).toBe(1);
+    expect(classesOf(svg, "A")).toEqual(["siren-node"]);
+  });
+
   it("reset() restores initial pending state after two next() calls", () => {
     const svg = buildFixtureSvg();
     const timeline = buildTimeline();

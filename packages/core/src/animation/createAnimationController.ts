@@ -32,10 +32,18 @@ function computeClassStateAtStep(
     return classes;
   };
 
-  // Every element with an `enter` action starts pending, before any entry
-  // (including its own) has fired.
+  // Ensure every target mentioned anywhere in the timeline gets an entry in
+  // the map, even if it stays empty at this step — otherwise applyClassState
+  // has no way to know a target's effect classes should be cleared (it only
+  // touches targets present in this map). An element with only exit/
+  // highlight/unhighlight actions (no enter) would otherwise be silently
+  // skipped whenever targetStep falls before its first action, leaving a
+  // stale effect class from a later step behind after prev()/reset().
   for (const entry of timeline.entries) {
-    if (entry.kind === "enter") classesFor(entry.targetId).add("siren-pending");
+    const classes = classesFor(entry.targetId);
+    // Every element with an `enter` action starts pending, before any entry
+    // (including its own) has fired.
+    if (entry.kind === "enter") classes.add("siren-pending");
   }
 
   const inOrder: ResolvedTimelineEntry[] = [...timeline.entries].sort(
