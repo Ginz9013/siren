@@ -140,7 +140,13 @@ export interface LayoutOptions {
   measureText: TextMeasurer;
 }
 
-/** A node with layout-assigned position and size. */
+/**
+ * A node with layout-assigned position and size.
+ *
+ * `x`/`y` are the top-left corner of the bounding box (matches SVG `<rect x y>`
+ * directly) — not the center. `layoutGraph` is responsible for converting from
+ * dagre's center-based coordinates before returning.
+ */
 export interface PositionedNode extends GraphNode {
   x: number;
   y: number;
