@@ -1,0 +1,10 @@
+flowchart TD
+  A[Start]
+  A --> B[Fetch data]
+  B --> C[Transform]
+  C --> D[Publish]
+
+timeline:
+  step 1: enter B fade, enter A-B fade
+  step 2: enter C fade, enter B-C fade
+  step 3: enter D fade, enter C-D fade
