@@ -67,7 +67,7 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("marks step>1 elements as siren-pending and leaves elements never mentioned in the timeline unmarked", () => {
+  it("marks elements referenced anywhere in timeline: as siren-pending and leaves elements never mentioned unmarked", () => {
     const svg = renderToSVG(buildFixture());
 
     const nodeA = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
