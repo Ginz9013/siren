@@ -120,4 +120,98 @@ A[Different] --> B[End]
     expect(document.head.querySelector("style#siren-board-styles")).not.toBeNull();
     expect(() => board.destroy()).not.toThrow();
   });
+
+  it("renders a default Prev/Next/Reset control bar unless controls: false is passed", () => {
+    const container = document.createElement("div");
+
+    createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+
+    const bar = container.querySelector(".siren-board-controls")!;
+    expect(bar).not.toBeNull();
+    const buttonLabels = Array.from(bar.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttonLabels).toEqual(["Prev", "Next", "Reset"]);
+  });
+
+  it("controls: false renders no control bar", () => {
+    const container = document.createElement("div");
+
+    createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false });
+
+    expect(container.querySelector(".siren-board-controls")).toBeNull();
+  });
+
+  it("clicking the default bar's Next button advances board.controller.currentStep", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+timeline:
+step 1: enter B fade
+`;
+    const board = createBoard(container, { source, measureText: FAKE_MEASURER });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Next",
+    )!;
+    nextButton.click();
+
+    expect(board.controller!.currentStep).toBe(1);
+  });
+
+  it("controls: <factory> renders the factory's element instead of the built-in bar, and calls its destroy() when the board is destroyed", () => {
+    const container = document.createElement("div");
+    const customElement = document.createElement("div");
+    customElement.className = "my-custom-controls";
+    const destroySpy = { called: false };
+
+    const board = createBoard(container, {
+      source: VALID_SOURCE,
+      measureText: FAKE_MEASURER,
+      controls: () => ({
+        element: customElement,
+        destroy: () => {
+          destroySpy.called = true;
+        },
+      }),
+    });
+
+    expect(container.querySelector(".siren-board-controls")).toBeNull();
+    expect(container.contains(customElement)).toBe(true);
+
+    board.destroy();
+    expect(destroySpy.called).toBe(true);
+  });
+
+  it("onStepChange fires once per step change, from either the built-in bar or a direct board.controller call, but not on construction or a no-op call", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+step 1: enter B fade
+step 2: enter C fade
+`;
+    const calls: Array<[number, number]> = [];
+    const board = createBoard(container, {
+      source,
+      measureText: FAKE_MEASURER,
+      onStepChange: (current, total) => calls.push([current, total]),
+    });
+
+    expect(calls).toEqual([]); // no synthetic call on construction
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Next",
+    )!;
+    nextButton.click(); // built-in bar trigger
+    expect(calls).toEqual([[1, 2]]);
+
+    board.controller!.next(); // direct controller trigger
+    expect(calls).toEqual([[1, 2], [2, 2]]);
+
+    board.controller!.next(); // already at the last step: no-op, no callback
+    expect(calls).toEqual([[1, 2], [2, 2]]);
+
+    board.controller!.reset();
+    expect(calls).toEqual([[1, 2], [2, 2], [0, 2]]);
+  });
 });

@@ -2,8 +2,13 @@ import { render } from "@siren/core";
 import type { AnimationController, Diagnostic, TextMeasurer } from "@siren/core";
 import { ensureStylesInjected } from "./styles";
 import { createCanvasTextMeasurer } from "./textMeasurer";
+import { createDefaultControls } from "./defaultControls";
 
 const ERROR_BANNER_CLASS = "siren-board-error";
+const CANVAS_CLASS = "siren-board-canvas";
+
+/** A caller-supplied replacement for board's default control bar. */
+export type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): void };
 
 /** Options accepted by `createBoard`. */
 export interface BoardOptions {
@@ -13,6 +18,10 @@ export interface BoardOptions {
   measureText?: TextMeasurer;
   /** Fired on every `setSource` call (construction included), fatal or warning-only. */
   onDiagnostics?: (diagnostics: Diagnostic[]) => void;
+  /** Fired whenever the current step changes, from the built-in bar or a direct `controller` call. */
+  onStepChange?: (current: number, total: number) => void;
+  /** `true`/omitted = built-in Prev/Next/Reset bar; `false` = none; function = custom. */
+  controls?: boolean | ControlsFactory;
 }
 
 /**
@@ -31,45 +40,78 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   ensureStylesInjected();
   container.classList.add("siren-board");
 
+  const canvas = document.createElement("div");
+  canvas.className = CANVAS_CLASS;
+  container.appendChild(canvas);
+
   const measureText = options.measureText ?? createCanvasTextMeasurer();
-  let controller: AnimationController | null = null;
+  let wrappedController: AnimationController | null = null;
   let diagnostics: Diagnostic[] = [];
   let destroyed = false;
+
+  function wrapController(real: AnimationController): AnimationController {
+    function afterCall(previousStep: number): void {
+      if (real.currentStep !== previousStep) {
+        options.onStepChange?.(real.currentStep, real.totalSteps);
+      }
+    }
+    return {
+      get totalSteps() {
+        return real.totalSteps;
+      },
+      get currentStep() {
+        return real.currentStep;
+      },
+      next() {
+        const before = real.currentStep;
+        real.next();
+        afterCall(before);
+      },
+      prev() {
+        const before = real.currentStep;
+        real.prev();
+        afterCall(before);
+      },
+      reset() {
+        const before = real.currentStep;
+        real.reset();
+        afterCall(before);
+      },
+    };
+  }
 
   function showErrorBanner(): void {
     clearErrorBanner();
     const banner = document.createElement("div");
     banner.className = ERROR_BANNER_CLASS;
     banner.textContent = "Render failed — see diagnostics.";
-    container.appendChild(banner);
+    canvas.appendChild(banner);
   }
 
   function clearErrorBanner(): void {
-    container.querySelector(`.${ERROR_BANNER_CLASS}`)?.remove();
+    canvas.querySelector(`.${ERROR_BANNER_CLASS}`)?.remove();
   }
 
   function setSource(source: string): void {
-    const result = render(source, container, { measureText });
+    const result = render(source, canvas, { measureText });
     diagnostics = result.diagnostics;
     if (result.svg === null) {
-      // render() leaves the container untouched on failure (see
+      // render() leaves the canvas layer untouched on failure (see
       // packages/core/src/index.ts) — the previous diagram and controller
       // stay live; only overlay the error banner on top of them.
       showErrorBanner();
     } else {
       clearErrorBanner();
-      controller = result.controller;
+      wrappedController = wrapController(result.controller!);
     }
     options.onDiagnostics?.(diagnostics);
   }
 
-  if (options.source !== undefined) {
-    setSource(options.source);
-  }
+  let controlsDestroy: (() => void) | undefined;
 
-  return {
+  const board: Board = {
     get controller() {
-      return controller;
+      return wrappedController;
     },
     get diagnostics() {
       return diagnostics;
@@ -78,8 +120,22 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      controlsDestroy?.();
       container.replaceChildren();
       container.classList.remove("siren-board");
     },
   };
+
+  if (options.controls !== false) {
+    const factory = typeof options.controls === "function" ? options.controls : createDefaultControls;
+    const controls = factory(board);
+    container.appendChild(controls.element);
+    controlsDestroy = controls.destroy;
+  }
+
+  if (options.source !== undefined) {
+    setSource(options.source);
+  }
+
+  return board;
 }

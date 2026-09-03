@@ -3,9 +3,19 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
 /**
  * Board's chrome CSS: full-bleed responsive sizing (the container fills its
  * parent, the mounted SVG stretches to 100%/100% and scales via its own
- * `viewBox` — no ResizeObserver needed) plus the error-banner overlay shown
- * on a failed `setSource`. Auto-injected rather than a file consumers link
- * themselves — see ADR-0006.
+ * `viewBox` — no ResizeObserver needed), the error-banner overlay shown on a
+ * failed `setSource`, and the default control bar, positioned relative to
+ * board's own container rather than the viewport (see ADR-0006 — a board
+ * embedded anywhere, or several on one page, must not have its controls fly
+ * to the window edge or collide with another instance's). Auto-injected
+ * rather than a file consumers link themselves.
+ *
+ * DOM shape this targets: `.siren-board` (the consumer's container) holds
+ * `.siren-board-canvas` (everything `render()` mounts/replaces on each
+ * `setSource`, plus the error banner) as one child, and `.siren-board-controls`
+ * as a sibling — kept out of the canvas layer specifically so a re-render
+ * (which replaces the canvas layer's children wholesale) never wipes out the
+ * control bar.
  */
 const CSS = `
 .siren-board {
@@ -15,7 +25,12 @@ const CSS = `
   overflow: hidden;
 }
 
-.siren-board > svg {
+.siren-board-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.siren-board-canvas > svg {
   display: block;
   width: 100%;
   height: 100%;
@@ -32,6 +47,34 @@ const CSS = `
   font: 14px system-ui, sans-serif;
   color: #b00020;
   background: rgba(255, 255, 255, 0.85);
+}
+
+.siren-board-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.siren-board-controls__button {
+  font: inherit;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.siren-board-controls__button:hover {
+  background: #eee;
 }
 `;
 
