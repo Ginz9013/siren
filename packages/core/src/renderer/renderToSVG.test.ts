@@ -203,4 +203,18 @@ describe("renderToSVG", () => {
     expect(markerWidth).toBeLessThanOrEqual(8);
     expect(Number(marker.getAttribute("markerHeight"))).toBeLessThanOrEqual(6);
   });
+
+  it("gives the arrow tip a themeable class instead of relying on the SVG fill default", () => {
+    const svg = renderToSVG(buildFixture());
+
+    // The marker's arrowhead <path> had no fill/class at all, which meant
+    // it silently defaulted to SVG's initial fill (black) rather than
+    // tracking the edge's own color — invisible against a dark theme's
+    // near-black background (reported by the user testing the dark-theme
+    // toggle demo). It must carry a class the shipped theme can target,
+    // the same way every other themeable part of the SVG does.
+    const arrowPath = svg.querySelector("defs marker#siren-arrow path")!;
+    expect(arrowPath.getAttribute("class")).toBe("siren-arrow-fill");
+    expect(arrowPath.getAttribute("fill")).toBeNull();
+  });
 });

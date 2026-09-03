@@ -83,6 +83,17 @@
 }
 
 /*
+ * The arrowhead lives inside <defs><marker>, not on the <path class="siren-edge">
+ * itself, so it doesn't inherit that path's stroke color — it needs its own
+ * rule, or it falls back to SVG's initial fill (black), invisible against a
+ * dark theme's background. Tracks the same token as the edge line so the
+ * two always match.
+ */
+.siren-arrow-fill {
+  fill: var(--siren-edge-stroke);
+}
+
+/*
  * Step-reveal states: elements with an `enter` action render with
  * `siren-pending` initially (invisible; renderToSVG.ts only marks elements
  * that actually have an `enter` action). `controller.next()` swaps that for

@@ -76,6 +76,13 @@ function buildDefs(): SVGDefsElement {
 
   const arrowPath = document.createElementNS(SVG_NS, "path");
   arrowPath.setAttribute("d", "M0,0 L8,3 L0,6 Z");
+  // No fill attribute here on purpose — an SVG <path> with none set falls
+  // back to the initial value (black), which reads fine against a light
+  // background but disappears against a dark one. The class lets the
+  // shipped theme (packages/core/src/theme/default.css) color it to match
+  // the edge's own stroke, the same way every other themeable part of the
+  // SVG is class-driven rather than hardcoded here.
+  arrowPath.setAttribute("class", "siren-arrow-fill");
   marker.appendChild(arrowPath);
 
   defs.appendChild(marker);
