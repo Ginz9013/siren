@@ -340,4 +340,81 @@ describe("buildGraphModel", () => {
     });
     expect(graph!.timeline.totalSteps).toBe(4);
   });
+
+  it("warns when a node exits while an edge connected to it never exits, since the edge would render with a missing endpoint", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      timeline: {
+        entries: [{ kind: "exit", step: 5, targetId: "A", effect: "fade" }],
+      },
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(graph).not.toBeNull();
+    // The warning does not drop the exit action itself — it's advisory,
+    // not a structural error; the author's content still renders as
+    // authored, just with a diagnostic pointing at the gap.
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "exit", step: 5, targetId: "A", effect: "fade" },
+    ]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("warning");
+    expect(diagnostics[0]!.message).toContain("A-B");
+    expect(diagnostics[0]!.message).toContain("A");
+    expect(diagnostics[0]!.message).toContain("5");
+  });
+
+  it("warns when a node exits before an edge connected to it (which does eventually exit, but too late)", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      timeline: {
+        entries: [
+          { kind: "exit", step: 5, targetId: "A", effect: "fade" },
+          { kind: "exit", step: 8, targetId: "A-B", effect: "fade" },
+        ],
+      },
+    };
+
+    const { diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("warning");
+    expect(diagnostics[0]!.message).toContain("A-B");
+  });
+
+  it("does not warn when the connected edge exits at or before the node, or when neither endpoint ever exits", () => {
+    const document: SirenDocument = {
+      direction: "TD",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+        { id: "C", label: "C" },
+      ],
+      edges: [
+        { from: "A", to: "B" }, // A-B: edge exits at the same step as A
+        { from: "B", to: "C" }, // B-C: neither B nor C ever exits
+      ],
+      timeline: {
+        entries: [
+          { kind: "exit", step: 5, targetId: "A", effect: "fade" },
+          { kind: "exit", step: 5, targetId: "A-B", effect: "fade" },
+        ],
+      },
+    };
+
+    const { diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+  });
 });
