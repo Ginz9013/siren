@@ -37,8 +37,35 @@ function buildFixture(): PositionedGraph {
     timeline: {
       totalSteps: 2,
       entries: [
-        { step: 1, targetId: "B", effect: "fade" },
-        { step: 2, targetId: "C", effect: "fade" },
+        { kind: "enter", step: 1, targetId: "B", effect: "fade" },
+        { kind: "enter", step: 2, targetId: "C", effect: "fade" },
+      ],
+    },
+    width: 80,
+    height: 240,
+  };
+}
+
+/**
+ * Hand-built fixture exercising the enter-only siren-pending rule: X has
+ * only an `exit` action (no `enter`), Y has only a `highlight` action (no
+ * `enter`), Z has an `enter` action.
+ */
+function buildNonEnterFixture(): PositionedGraph {
+  return {
+    direction: "TD",
+    nodes: [
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40 },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40 },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40 },
+    ],
+    edges: [],
+    timeline: {
+      totalSteps: 2,
+      entries: [
+        { kind: "exit", step: 1, targetId: "X", effect: "fade" },
+        { kind: "highlight", step: 2, targetId: "Y", effect: "outline" },
+        { kind: "enter", step: 1, targetId: "Z", effect: "fade" },
       ],
     },
     width: 80,
@@ -67,7 +94,7 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("marks elements referenced anywhere in timeline: as siren-pending and leaves elements never mentioned unmarked", () => {
+  it("marks elements with an enter action as siren-pending and leaves elements never mentioned unmarked", () => {
     const svg = renderToSVG(buildFixture());
 
     const nodeA = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
@@ -77,6 +104,18 @@ describe("renderToSVG", () => {
     expect(nodeA.classList.contains("siren-pending")).toBe(false);
     expect(nodeB.classList.contains("siren-pending")).toBe(true);
     expect(nodeC.classList.contains("siren-pending")).toBe(true);
+  });
+
+  it("does not mark siren-pending for elements whose only timeline action is exit or highlight, but still marks elements with an enter action", () => {
+    const svg = renderToSVG(buildNonEnterFixture());
+
+    const nodeX = svg.querySelector('g.siren-node[data-siren-id="X"]')!;
+    const nodeY = svg.querySelector('g.siren-node[data-siren-id="Y"]')!;
+    const nodeZ = svg.querySelector('g.siren-node[data-siren-id="Z"]')!;
+
+    expect(nodeX.classList.contains("siren-pending")).toBe(false);
+    expect(nodeY.classList.contains("siren-pending")).toBe(false);
+    expect(nodeZ.classList.contains("siren-pending")).toBe(true);
   });
 
   it("gives every node a rect sized to width/height and a text with the node's exact label", () => {

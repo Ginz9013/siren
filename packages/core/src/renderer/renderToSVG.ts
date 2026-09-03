@@ -7,8 +7,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * SVG conventions in spec.md ("SVG conventions" bullet list): one
  * `<g class="siren-node">` per node, one `<path class="siren-edge">` per
  * edge, `data-siren-id` on both, and the initial `siren-pending` class on
- * elements assigned to any step in the graph's resolved timeline (see
- * `pendingElementIds` for the exact rule and why it starts at step 1).
+ * elements with an `enter` action in the graph's resolved timeline (see
+ * `pendingElementIds` for the exact rule).
  */
 export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -82,16 +82,19 @@ function pointsToPathData(points: { x: number; y: number }[]): string {
 }
 
 /**
- * Ids of elements assigned to a step in the graph's resolved timeline.
- * Steps are always positive integers (see spec.md's "Step" domain
- * decision); an element with any timeline entry starts hidden as
- * `siren-pending`, while an element never mentioned in the timeline
- * (implicit "step 0") renders immediately visible.
+ * Ids of elements with an `enter` action in the graph's resolved timeline.
+ * Only these elements start hidden as `siren-pending`; an element whose
+ * only timeline actions are `exit`/`highlight`/`unhighlight` must already
+ * be visible (see spec.md's "Visibility precondition" domain decision), and
+ * an element never mentioned in the timeline (implicit "step 0") also
+ * renders immediately visible.
  */
 function pendingElementIds(graph: PositionedGraph): Set<string> {
   const ids = new Set<string>();
   for (const entry of graph.timeline.entries) {
-    ids.add(entry.targetId);
+    if (entry.kind === "enter") {
+      ids.add(entry.targetId);
+    }
   }
   return ids;
 }
