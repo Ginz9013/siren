@@ -1,0 +1,38 @@
+flowchart TD
+  Start[Start]
+  Start --> Fetch[Fetch Data]
+  Fetch --> Validate[Validate]
+  Validate --> BranchA[Path A]
+  Validate --> BranchB[Path B]
+  BranchA --> Merge[Merge Results]
+  BranchB --> Merge
+  Merge --> Transform[Transform]
+  Transform --> Cache[Cache Result]
+  Transform --> Notify[Notify]
+  Cache --> Publish[Publish]
+  Notify --> Publish
+  Publish --> End[Done]
+
+timeline:
+  step 1: enter Start fade
+  step 2: enter Fetch slide-top, enter Start-Fetch fade
+  step 3: enter Validate slide-left, enter Fetch-Validate slide-right
+  step 4: enter BranchA slide-right, enter Validate-BranchA slide-top
+  step 5: enter BranchB slide-bottom, enter Validate-BranchB slide-bottom
+  step 6: highlight BranchA outline, highlight BranchB outline
+  step 7: unhighlight BranchA, unhighlight BranchB
+  step 8: enter Merge fade, enter BranchA-Merge fade, enter BranchB-Merge slide-left
+  step 9: highlight Merge glow, highlight BranchA-Merge glow
+  step 10: exit Start slide-top, exit Fetch slide-left
+  step 11: unhighlight Merge, unhighlight BranchA-Merge
+  step 12: enter Transform slide-right, enter Merge-Transform fade
+  step 13: exit BranchA slide-bottom, exit BranchA-Merge fade
+  step 14: exit BranchB slide-right, exit BranchB-Merge slide-top
+  step 15: enter Cache fade, enter Transform-Cache slide-left
+  step 16: enter Notify slide-top, enter Transform-Notify slide-bottom
+  step 17: highlight Cache outline, highlight Notify glow
+  step 18: enter Publish fade, enter Cache-Publish fade, enter Notify-Publish fade
+  step 19: unhighlight Cache, unhighlight Notify
+  step 20: enter End slide-left, enter Publish-End fade
+  step 21: highlight End glow
+  step 22: highlight Publish-End outline

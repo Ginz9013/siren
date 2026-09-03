@@ -1,5 +1,5 @@
 /*
- * Styles for demos/step-reveal.html.
+ * Shared styles for demos/step-reveal.html and demos/complex-showcase.html.
  *
  * Defines the shipped CSS transitions/animations that
  * `createAnimationController` toggles by adding/removing classes:
@@ -33,6 +33,20 @@ body {
 h1 {
   font-size: 1.25rem;
   margin: 0 0 1rem;
+}
+
+.intro {
+  max-width: 60ch;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.intro code {
+  font-size: 0.85em;
+  background: #eee;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
 }
 
 .controls {
