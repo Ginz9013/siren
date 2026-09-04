@@ -1,5 +1,7 @@
 import type {
   PositionedBlock,
+  PositionedBox,
+  PositionedDestroyMark,
   PositionedMessage,
   PositionedParticipant,
   PositionedSequenceDiagram,
@@ -16,6 +18,20 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  */
 const BLOCK_LABEL_PADDING_X = 8;
 const BLOCK_LABEL_PADDING_Y = 14;
+
+/**
+ * Half-diagonal of a destroy mark's X, in user units: each of its two
+ * strokes runs from `-arm` to `+arm` on both axes around the lifeline's
+ * truncation point.
+ */
+const DESTROY_MARK_ARM = 7;
+
+/**
+ * Baseline offset of a box's label from the top of its background rect —
+ * Mermaid captions a box across the top of the group, above the
+ * participants it contains, not centered in the fill.
+ */
+const BOX_LABEL_PADDING_Y = 14;
 
 /**
  * Marker id in `<defs>` for each arrowhead style, or `null` for `"none"`
@@ -41,9 +57,10 @@ const HEAD_MARKER_ID: Record<SequenceArrowHead, string | null> = {
  * participant, one `<g class="siren-message">` per message (all ten
  * arrow-marker/dash combinations), a `<g class="siren-block">` per
  * control-flow block (frame/fill, header/branch labels, dividers — see
- * `buildBlock`), and a `<text class="siren-title">` when a title is
- * present. Box-group backgrounds are added by a later ticket on top of this
- * same file.
+ * `buildBlock`), a `<g class="siren-box">` background per participant
+ * grouping, a `<path class="siren-destroy-mark">` per destroyed
+ * participant's lifeline truncation point, and a `<text class="siren-title">`
+ * when a title is present.
  */
 export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -55,6 +72,12 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
 
   if (diagram.title !== null) {
     svg.appendChild(buildTitle(diagram.title, diagram.width));
+  }
+
+  // Boxes first, before anything they group: SVG paints in document order,
+  // so a background rect appended alongside its members would cover them.
+  for (const box of diagram.boxes) {
+    svg.appendChild(buildBox(box));
   }
 
   for (const participant of diagram.participants) {
@@ -76,10 +99,42 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
 }
 
 /**
- * Dispatches one `PositionedSequenceElement` to its builder. `destroyMark`
- * elements are rendered by a later ticket (14) on top of this same file —
- * out of this ticket's scope, so they're skipped here.
+ * Builds the `<g class="siren-box">` for one participant grouping: a
+ * `<rect class="siren-box-background">` at the box's bounding box, filled
+ * with the author's `box <color>` when one was given. Emitted before the
+ * participants/lifelines/messages it groups (see `renderSequenceToSVG`), so
+ * it paints behind them rather than over them.
  */
+function buildBox(box: PositionedBox): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-box");
+  g.setAttribute("data-siren-id", box.id);
+
+  const background = document.createElementNS(SVG_NS, "rect");
+  background.setAttribute("class", "siren-box-background");
+  background.setAttribute("x", String(box.x));
+  background.setAttribute("y", String(box.y));
+  background.setAttribute("width", String(box.width));
+  background.setAttribute("height", String(box.height));
+  if (box.color !== null) {
+    background.setAttribute("fill", box.color);
+  }
+  g.appendChild(background);
+
+  if (box.label !== null) {
+    const label = document.createElementNS(SVG_NS, "text");
+    label.setAttribute("class", "siren-box-label");
+    label.setAttribute("x", String(box.x + box.width / 2));
+    label.setAttribute("y", String(box.y + BOX_LABEL_PADDING_Y));
+    label.setAttribute("text-anchor", "middle");
+    label.textContent = box.label;
+    g.appendChild(label);
+  }
+
+  return g;
+}
+
+/** Dispatches one `PositionedSequenceElement` to its builder. */
 function buildSequenceElement(element: PositionedSequenceElement): SVGElement | null {
   switch (element.kind) {
     case "message":
@@ -87,8 +142,29 @@ function buildSequenceElement(element: PositionedSequenceElement): SVGElement | 
     case "block":
       return buildBlock(element.block);
     case "destroyMark":
-      return null;
+      return buildDestroyMark(element.mark);
   }
+}
+
+/**
+ * Builds the `<path class="siren-destroy-mark">` X at a destroyed
+ * participant's lifeline truncation point: two crossing strokes as two
+ * subpaths of one path, centered on the mark, with `fill="none"` so the
+ * two subpaths are never closed into a filled quad however this element is
+ * themed (same explicit-`fill="none"` precedent as `buildOpenMarker`).
+ */
+function buildDestroyMark(mark: PositionedDestroyMark): SVGPathElement {
+  const path = document.createElementNS(SVG_NS, "path") as SVGPathElement;
+  path.setAttribute("class", "siren-destroy-mark");
+  path.setAttribute("data-siren-id", mark.participantId);
+
+  const left = mark.x - DESTROY_MARK_ARM;
+  const right = mark.x + DESTROY_MARK_ARM;
+  const top = mark.y - DESTROY_MARK_ARM;
+  const bottom = mark.y + DESTROY_MARK_ARM;
+  path.setAttribute("d", `M${left},${top} L${right},${bottom} M${right},${top} L${left},${bottom}`);
+  path.setAttribute("fill", "none");
+  return path;
 }
 
 /**
