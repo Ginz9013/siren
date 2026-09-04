@@ -55,6 +55,11 @@
   --siren-stroke-width: 1.5;
   --siren-highlight-stroke-width: 3;
   --siren-lifeline-dash: 4 4;
+  /* A note's connector is dashed, as UML draws one — its own token rather than
+     the lifeline's, which belongs to a different diagram kind. Declaring it
+     here is safe where a *color* token would not be: a dash pattern carries no
+     light/dark value, so freezing it at `:root` costs nothing. */
+  --siren-note-link-dash: 4 4;
   /* A box groups participants drawn on top of it, so it reads as a tint. */
   --siren-box-fill-opacity: 0.35;
 
@@ -135,7 +140,9 @@
 .siren-block,
 .siren-box,
 .siren-class,
-.siren-relationship {
+.siren-relationship,
+.siren-namespace,
+.siren-note {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -382,6 +389,69 @@
   fill: var(--siren-node-fill);
   stroke: var(--siren-edge-stroke);
   stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * An annotation (`«interface»`) names the *kind* of thing the class is rather
+ * than the class itself, so it takes the secondary type size the sequence
+ * diagram's captions use, under the name's own weight. Drawing it smaller than
+ * the line `layoutClassDiagram` measured also absorbs the guillemets the
+ * renderer adds, which that measurement does not include.
+ */
+.siren-class-annotation {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
+ * A namespace frame encloses class boxes that are drawn *over* it, so it is
+ * outlined and not filled: a fill here would sit behind the whole group and
+ * tint nothing usefully, while still hiding whatever the frame overlaps. It
+ * tracks the node stroke because it is a container of boxes, not a connector.
+ */
+.siren-namespace-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/*
+ * No `font-size` on either label below: `layoutClassDiagram` measures a
+ * namespace's label and a note's text in the group font declared above and
+ * sizes the frame and the box from it, so shrinking or growing them here would
+ * leave the drawn text disagreeing with the box that was built to hold it.
+ */
+.siren-namespace-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/* A note is a box of text like a class box, so it takes the same surface. */
+.siren-note-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+.siren-note-text {
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The connector from a note to the class it annotates. Dashed — UML's own
+ * convention, and what keeps it from reading as a ninth relationship type.
+ * The dash is the theme's to set here, unlike on `.siren-relationship-line`:
+ * the renderer sets none on a connector, and every connector is dashed, so
+ * nothing per-element is being overridden. `fill` is absent because the
+ * renderer writes `fill="none"` onto the path itself, for the same reason a
+ * relationship line carries it.
+ */
+.siren-note-link {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+  stroke-dasharray: var(--siren-note-link-dash);
 }
 
 /*

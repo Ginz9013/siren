@@ -4,6 +4,8 @@ import type {
   PositionedClass,
   PositionedClassCompartment,
   PositionedClassDiagram,
+  PositionedClassNamespace,
+  PositionedClassNote,
   PositionedClassRelationship,
 } from "../contracts";
 
@@ -62,13 +64,17 @@ const DASH_PATTERN = "6,4";
  * `<g class="siren-class">` per class (frame rect, name, compartment
  * dividers, member lines) and one `<g class="siren-relationship">` per
  * relationship (line with the markers and dash its
- * `{ line, fromEnd, toEnd }` triple calls for, label, multiplicity), plus
- * the initial `siren-pending` class on elements with an `enter` action in
- * the resolved timeline (see `pendingElementIds` for the exact rule).
+ * `{ line, fromEnd, toEnd }` triple calls for, label, multiplicity), one
+ * `<g class="siren-namespace">` per namespace frame and one
+ * `<g class="siren-note">` per note, plus the initial `siren-pending` class
+ * on elements with an `enter` action in the resolved timeline (see
+ * `pendingElementIds` for the exact rule).
  *
- * Namespaces, notes and annotations, and author styling/links/click hooks
- * are deliberately not rendered here — later tickets on this board own
- * those parts of the frozen conventions.
+ * Document order is the paint order: namespace frames, then classes, then
+ * relationships, then notes.
+ *
+ * Author styling, links and click hooks are deliberately not rendered here —
+ * a later ticket on this board owns that part of the frozen conventions.
  */
 export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -80,12 +86,24 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
 
   svg.appendChild(buildDefs());
 
+  // Namespaces first, and nothing else before them: SVG has no z-index, so a
+  // frame is behind the boxes it encloses only by being drawn before them.
+  for (const namespace of diagram.namespaces) {
+    svg.appendChild(buildNamespace(namespace));
+  }
+
   for (const positionedClass of diagram.classes) {
     svg.appendChild(buildClass(positionedClass, pendingIds.has(positionedClass.id)));
   }
 
   for (const relationship of diagram.relationships) {
     svg.appendChild(buildRelationship(relationship, pendingIds.has(relationship.id)));
+  }
+
+  // Notes last: a note box is opaque, and it annotates the figure rather than
+  // being part of it, so nothing drawn here should cover one.
+  for (const note of diagram.notes) {
+    svg.appendChild(buildNote(note));
   }
 
   return svg;
@@ -296,14 +314,34 @@ function buildClass(positionedClass: PositionedClass, pending: boolean): SVGGEle
   frame.setAttribute("height", String(positionedClass.height));
   g.appendChild(frame);
 
-  const name = document.createElementNS(SVG_NS, "text");
-  name.setAttribute("class", "siren-class-name");
-  name.setAttribute("x", String(positionedClass.x + positionedClass.width / 2));
-  name.setAttribute("y", String(nameCenterY(positionedClass)));
-  name.setAttribute("text-anchor", "middle");
-  name.setAttribute("dominant-baseline", "middle");
-  name.textContent = positionedClass.name;
-  g.appendChild(name);
+  const centerX = positionedClass.x + positionedClass.width / 2;
+  const band = nameBand(positionedClass);
+  if (positionedClass.annotation === null) {
+    g.appendChild(
+      buildCenteredText("siren-class-name", positionedClass.name, {
+        x: centerX,
+        y: (band.top + band.bottom) / 2,
+      }),
+    );
+  } else {
+    // Two lines share the band — `planClassBox` reserved a line above the name
+    // for the annotation — so each takes half of it. The annotation is drawn
+    // in Mermaid's guillemets, which is also why the layout measured it
+    // without them.
+    const split = (band.top + band.bottom) / 2;
+    g.appendChild(
+      buildCenteredText("siren-class-annotation", `«${positionedClass.annotation}»`, {
+        x: centerX,
+        y: (band.top + split) / 2,
+      }),
+    );
+    g.appendChild(
+      buildCenteredText("siren-class-name", positionedClass.name, {
+        x: centerX,
+        y: (split + band.bottom) / 2,
+      }),
+    );
+  }
 
   for (const compartment of compartmentsOf(positionedClass)) {
     g.appendChild(buildDivider(positionedClass, compartment.dividerY));
@@ -323,6 +361,91 @@ function buildClass(positionedClass: PositionedClass, pending: boolean): SVGGEle
   return g;
 }
 
+/**
+ * Builds the `<g class="siren-namespace">` for one namespace: a
+ * `<rect class="siren-namespace-frame">` at the frame the layout grew around
+ * its member boxes, and a `<text class="siren-namespace-label">` centered on
+ * the layout-assigned anchor in the strip along the frame's top edge.
+ */
+function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-namespace");
+  g.setAttribute("data-siren-id", namespace.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-namespace-frame");
+  frame.setAttribute("x", String(namespace.x));
+  frame.setAttribute("y", String(namespace.y));
+  frame.setAttribute("width", String(namespace.width));
+  frame.setAttribute("height", String(namespace.height));
+  g.appendChild(frame);
+
+  g.appendChild(
+    buildCenteredText("siren-namespace-label", namespace.label, namespace.labelAnchor),
+  );
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-note">` for one note: a
+ * `<rect class="siren-note-frame">` at its layout-assigned box with the note's
+ * text centered inside it, plus — for an attached note only — a
+ * `<path class="siren-note-link">` along the connector the layout routed from
+ * the note to the class it annotates. A free note is a box on its own.
+ *
+ * The text is centered rather than placed at an anchor of its own because
+ * `PositionedClassNote` carries no anchor: `layoutClassDiagram` sizes the box
+ * by padding the one line it measured, so the box's center *is* where that
+ * line goes.
+ */
+function buildNote(note: PositionedClassNote): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-note");
+  g.setAttribute("data-siren-id", note.id);
+
+  if (note.linkPoints !== null) {
+    const link = document.createElementNS(SVG_NS, "path");
+    link.setAttribute("class", "siren-note-link");
+    link.setAttribute("d", pointsToPathData(note.linkPoints));
+    // Explicit, for the same reason a relationship line carries it: an open,
+    // multi-segment path would otherwise be painted as a filled polygon.
+    link.setAttribute("fill", "none");
+    g.appendChild(link);
+  }
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-note-frame");
+  frame.setAttribute("x", String(note.x));
+  frame.setAttribute("y", String(note.y));
+  frame.setAttribute("width", String(note.width));
+  frame.setAttribute("height", String(note.height));
+  g.appendChild(frame);
+
+  g.appendChild(
+    buildCenteredText("siren-note-text", note.text, {
+      x: note.x + note.width / 2,
+      y: note.y + note.height / 2,
+    }),
+  );
+  return g;
+}
+
+/**
+ * A `<text>` centered on `anchor` in both axes — the shape every box label in
+ * this renderer takes, since the layout hands over a center point rather than
+ * a baseline. Text is set with `textContent`, never `innerHTML`.
+ */
+function buildCenteredText(className: string, content: string, anchor: Point): SVGTextElement {
+  const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
+  text.setAttribute("class", className);
+  text.setAttribute("x", String(anchor.x));
+  text.setAttribute("y", String(anchor.y));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "middle");
+  text.textContent = content;
+  return text;
+}
+
 /** The class's compartments in drawn order: attributes above methods, skipping the absent ones. */
 function compartmentsOf(positionedClass: PositionedClass): PositionedClassCompartment[] {
   const compartments: PositionedClassCompartment[] = [];
@@ -336,18 +459,20 @@ function compartmentsOf(positionedClass: PositionedClass): PositionedClassCompar
 }
 
 /**
- * Vertical center of the name compartment — the band between the box's top
- * edge and the first divider, or the whole box when the class declares no
- * members. The frozen `PositionedClass` carries no name anchor of its own,
- * so the dividers the layout recorded are what bound the name's band.
+ * The name compartment — the band between the box's top edge and the first
+ * divider, or the whole box when the class declares no members. The frozen
+ * `PositionedClass` carries no name or annotation anchor of its own, so the
+ * dividers the layout recorded are what bound the band the two share.
  */
-function nameCenterY(positionedClass: PositionedClass): number {
+function nameBand(positionedClass: PositionedClass): { top: number; bottom: number } {
   const [firstCompartment] = compartmentsOf(positionedClass);
-  const bandBottom =
-    firstCompartment === undefined
-      ? positionedClass.y + positionedClass.height
-      : firstCompartment.dividerY;
-  return (positionedClass.y + bandBottom) / 2;
+  return {
+    top: positionedClass.y,
+    bottom:
+      firstCompartment === undefined
+        ? positionedClass.y + positionedClass.height
+        : firstCompartment.dividerY,
+  };
 }
 
 /** Builds one `<line class="siren-class-divider">` spanning the class frame's full width. */

@@ -5,6 +5,8 @@ import type {
   ClassRelationshipLine,
   PositionedClass,
   PositionedClassDiagram,
+  PositionedClassNamespace,
+  PositionedClassNote,
   PositionedClassRelationship,
 } from "../contracts";
 
@@ -178,6 +180,40 @@ const MERMAID_RELATIONSHIP_TYPES = [
   startMarked: boolean;
   endMarked: boolean;
 }[];
+
+/**
+ * Hand-built namespace frame, laid out around the class fixtures above with
+ * its label centered on the strip along its top edge — `labelAnchor` is the
+ * label's center point, as `layoutClassDiagram` computes it.
+ */
+function buildNamespace(
+  overrides: Partial<PositionedClassNamespace> = {},
+): PositionedClassNamespace {
+  return {
+    id: "Zoo",
+    label: "Zoo",
+    x: 4,
+    y: 6,
+    width: 300,
+    height: 200,
+    labelAnchor: { x: 154, y: 20 },
+    ...overrides,
+  };
+}
+
+/** Hand-built free note — a box with text and no connector; each test attaches its own. */
+function buildNote(overrides: Partial<PositionedClassNote> = {}): PositionedClassNote {
+  return {
+    id: "note-1",
+    text: "Ducks are birds",
+    x: 200,
+    y: 40,
+    width: 160,
+    height: 40,
+    linkPoints: null,
+    ...overrides,
+  };
+}
 
 /** Hand-built diagram carrying the given classes and relationships, and no timeline. */
 function buildDiagram(
@@ -471,6 +507,150 @@ describe("renderClassDiagramToSVG", () => {
     for (const text of Array.from(svg.querySelectorAll("text"))) {
       expect(text.children.length).toBe(0);
     }
+  });
+
+  // Characterization: this passed before the ticket that added it. A generic
+  // is composed into `PositionedClass.name` by `layoutClassDiagram` (which
+  // measures the box from the composed text and turns Mermaid's authoring
+  // `~T~` into the `<T>` Mermaid draws), so the renderer has nothing to do
+  // beyond drawing the name it is handed — pinned here so the composed
+  // spelling cannot be lost at this seam, and asserted as text rather than as
+  // markup for the same reason every label in this file is.
+  it("draws a generic as part of the class name, in the spelling the layout composed", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram([buildClass({ id: "Registry", name: "Registry<T>" })]),
+    );
+
+    const name = svg.querySelector("g.siren-class text.siren-class-name");
+    expect(name?.textContent).toBe("Registry<T>");
+    expect(name?.children.length).toBe(0);
+  });
+
+  it("renders an annotation above the class name, sharing the name band with it", () => {
+    // The name band runs from the box's top edge (20) to the first divider
+    // (60), and `layoutClassDiagram` reserved a line in it for the annotation
+    // above the name — so the two lines take half the band each: the
+    // annotation centered at 30, the name pushed down to 50.
+    const svg = renderClassDiagramToSVG(
+      buildDiagram([
+        buildClass({
+          annotation: "interface",
+          height: 120,
+          attributes: { dividerY: 60, members: [{ text: "+int age", x: 18, y: 74 }] },
+        }),
+      ]),
+    );
+
+    const annotation = svg.querySelector("g.siren-class text.siren-class-annotation");
+    // Mermaid draws `<<interface>>` in guillemets, and `layoutClassDiagram`
+    // measures the annotation without them precisely because this renderer
+    // adds them.
+    expect(annotation?.textContent).toBe("«interface»");
+    expect(annotation?.getAttribute("x")).toBe("70");
+    expect(annotation?.getAttribute("y")).toBe("30");
+    expect(svg.querySelector("text.siren-class-name")?.getAttribute("y")).toBe("50");
+  });
+
+  it("renders no annotation text for a class that carries none", () => {
+    const svg = renderClassDiagramToSVG(buildDiagram([buildClass(COMPARTMENTED_CLASS)]));
+
+    expect(svg.querySelectorAll("text.siren-class-annotation").length).toBe(0);
+    // The name keeps the whole band to itself, exactly as before.
+    expect(svg.querySelector("text.siren-class-name")?.getAttribute("y")).toBe("35");
+  });
+
+  it("renders one identified group per namespace, holding its frame and label", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()]),
+      namespaces: [buildNamespace()],
+    });
+
+    const groups = svg.querySelectorAll("g.siren-namespace");
+    expect(groups.length).toBe(1);
+    expect(groups[0].getAttribute("data-siren-id")).toBe("Zoo");
+
+    const frame = groups[0].querySelector("rect.siren-namespace-frame");
+    expect(frame?.getAttribute("x")).toBe("4");
+    expect(frame?.getAttribute("y")).toBe("6");
+    expect(frame?.getAttribute("width")).toBe("300");
+    expect(frame?.getAttribute("height")).toBe("200");
+
+    const label = groups[0].querySelector("text.siren-namespace-label");
+    expect(label?.textContent).toBe("Zoo");
+    expect(label?.getAttribute("x")).toBe("154");
+    expect(label?.getAttribute("y")).toBe("20");
+  });
+
+  it("renders every namespace before the classes, so a frame paints behind its members", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 20 })]),
+      namespaces: [buildNamespace(), buildNamespace({ id: "Aviary", label: "Aviary" })],
+    });
+
+    // SVG has no z-index: what paints behind is whatever comes first in
+    // document order, so a frame drawn after its members would hide them.
+    const drawn = Array.from(svg.children).map((child) => child.getAttribute("class"));
+    expect(drawn).toEqual([
+      null,
+      "siren-namespace",
+      "siren-namespace",
+      "siren-class",
+      "siren-class",
+    ]);
+  });
+
+  it("renders one identified group per note, holding its frame and its text", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()]),
+      notes: [buildNote()],
+    });
+
+    const groups = svg.querySelectorAll("g.siren-note");
+    expect(groups.length).toBe(1);
+    expect(groups[0].getAttribute("data-siren-id")).toBe("note-1");
+
+    const frame = groups[0].querySelector("rect.siren-note-frame");
+    expect(frame?.getAttribute("x")).toBe("200");
+    expect(frame?.getAttribute("y")).toBe("40");
+    expect(frame?.getAttribute("width")).toBe("160");
+    expect(frame?.getAttribute("height")).toBe("40");
+
+    // The layout pads the box around the text it measured, so the text sits
+    // at the box's center in both axes.
+    const text = groups[0].querySelector("text.siren-note-text");
+    expect(text?.textContent).toBe("Ducks are birds");
+    expect(text?.getAttribute("x")).toBe("280");
+    expect(text?.getAttribute("y")).toBe("60");
+  });
+
+  it("renders a connector along the layout's points for an attached note", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()]),
+      notes: [
+        buildNote({
+          linkPoints: [
+            { x: 200, y: 60 },
+            { x: 160, y: 60 },
+            { x: 130, y: 50 },
+          ],
+        }),
+      ],
+    });
+
+    const link = svg.querySelector("g.siren-note path.siren-note-link");
+    expect(link?.getAttribute("d")).toBe("M200,60 L160,60 L130,50");
+    // An open, multi-segment path, exactly like a relationship line: a default
+    // fill would paint it as a polygon across the diagram.
+    expect(link?.getAttribute("fill")).toBe("none");
+  });
+
+  it("renders no connector for a free note", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()]),
+      notes: [buildNote()],
+    });
+
+    expect(svg.querySelectorAll("path.siren-note-link").length).toBe(0);
   });
 
   it("renders a single divider for a class that only has methods", () => {
