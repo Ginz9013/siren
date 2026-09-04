@@ -7,8 +7,9 @@ import { buildSequenceModel } from "./buildSequenceModel";
  * `document.kind`: a `"flowchart"` document resolves through
  * `buildFlowchartModel` into `graph`, a `"sequence"` document through
  * `buildSequenceModel` into `model`, and a `"class"` document through
- * `buildClassModel` into `classModel`. Exactly one of the three is non-null
- * in the result.
+ * `buildClassModel` into `classModel`. At most one of the three is non-null;
+ * a document that fails to resolve returns all three null alongside an
+ * error-severity diagnostic.
  */
 export function buildGraphModel(document: SirenDocument): GraphModelResult {
   if (document.kind === "class") {
@@ -18,7 +19,24 @@ export function buildGraphModel(document: SirenDocument): GraphModelResult {
     // until then a class document resolves to an empty result rather than
     // reaching `buildFlowchartModel`, which would crash on its missing
     // `nodes`/`edges`.
-    return { graph: null, model: null, classModel: null, diagnostics: [] };
+    //
+    // The diagnostic is what keeps that honest: without it `render()` returns
+    // a null SVG and an empty diagnostics array, so an author whose document
+    // is perfectly valid gets nothing at all and no reason why. Diagnostics
+    // are this codebase's channel for "we understood you, but here is the
+    // problem" — silence is not.
+    return {
+      graph: null,
+      model: null,
+      classModel: null,
+      diagnostics: [
+        {
+          severity: "error",
+          message:
+            "Class diagrams parse but are not renderable yet — support is still being built.",
+        },
+      ],
+    };
   }
 
   if (document.kind === "sequence") {

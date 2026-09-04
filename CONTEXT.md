@@ -69,12 +69,20 @@ _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "err
 diagnostic" for the level)
 
 **Diagram kind**:
-Which diagram a Siren document declares in its header — `flowchart TD|LR` or `sequenceDiagram`.
-Carried as `SirenDocument.kind` and dispatched on by `parseSiren`, `buildGraphModel`, and
-`render()`, each of which routes to that kind's own parser/model/layout/renderer. Flowcharts lay
-out through `layoutGraph` (dagre); sequence diagrams through `layoutSequence` (hand-rolled lanes
-and rows) — the two share no layout code.
+Which diagram a Siren document declares in its header — `flowchart TD|LR`, `sequenceDiagram`, or
+`classDiagram`. Carried as `SirenDocument.kind` and dispatched on by `parseSiren`,
+`buildGraphModel`, and `render()`, each of which routes to that kind's own
+parser/model/layout/renderer.
 _Avoid_: diagram type, mode
+
+**Graph-shaped diagram**:
+A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class
+diagrams today; state, ER, requirement and C4 when they land. Every one of them sizes its own
+boxes and labels and then calls `layoutDirectedGraph`, the single place in the codebase that
+imports dagre (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
+and its amendment). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
+and has its own `layoutSequence`.
+_Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre diagram
 
 **Participant**:
 One vertical lane in a sequence diagram, declared explicitly as `participant X` (drawn as a box)

@@ -542,8 +542,13 @@ export interface GraphModel {
 /**
  * Result of `buildGraphModel`. Carries `graph` (flowchart), `model`
  * (sequence) and `classModel` (class) so the one dispatcher function can
- * return any of the three shapes; at most one of them is non-null,
- * matching the `SirenDocument.kind` of the document it resolved.
+ * return any of the three shapes.
+ *
+ * At most one is non-null, matching the `SirenDocument.kind` of the document
+ * it resolved — not exactly one, because a stage that fails resolution
+ * returns all three null alongside an error-severity diagnostic explaining
+ * why. A caller must therefore branch on the field it expects being non-null,
+ * never assume the other two being null means its own is populated.
  */
 export interface GraphModelResult {
   graph: GraphModel | null;

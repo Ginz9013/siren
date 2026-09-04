@@ -23,7 +23,19 @@ that means manipulating its already-rendered SVG from the outside after the fact
   well enough to modify it is plausibly more expensive than owning a small, purpose-built engine
   we understand completely because we wrote it.
 - **Build from scratch** (chosen) — but layout *math* specifically is not hand-rolled. It uses
-  `@dagrejs/dagre` internally, hidden behind our own `layoutGraph()` interface. Sugiyama-style
+  `@dagrejs/dagre` internally, hidden behind our own interface. Sugiyama-style
   layered graph layout with edge-crossing minimization is a solved, well-studied problem orthogonal
   to animation — not worth re-deriving, and swappable later since it's an implementation detail
   behind our own seam, not a dependency the rest of the pipeline knows about.
+
+## Amendment (class-diagram slice)
+
+That seam was originally `layoutGraph()`, when flowcharts were the only diagram kind. It is now
+`layoutDirectedGraph()`: every graph-shaped diagram (flowchart today, class diagrams next, and
+state/ER/requirement/C4 on the roadmap) computes its own node and label sizes and calls that one
+function, which is the sole place in the codebase that imports dagre. `layoutGraph()` is now a
+flowchart-specific adapter over it. Sequence diagrams do not use it at all — they are lane-based,
+not a directed graph, and have their own `layoutSequence()`.
+
+The decision this ADR records is unchanged; only the name and location of the seam moved, and it
+moved in the direction the original reasoning pointed: dagre now has exactly one call site.
