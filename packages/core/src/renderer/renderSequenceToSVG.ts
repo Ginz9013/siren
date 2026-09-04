@@ -51,10 +51,12 @@ const HEAD_MARKER_ID: Record<SequenceArrowHead, string | null> = {
 
 /**
  * Builds a real `SVGSVGElement` from a `PositionedSequenceDiagram`, per the
- * frozen SVG conventions in spec.md ("SVG conventions" bullet list): one
- * `<g class="siren-participant">` per participant (box for `participant`,
- * stick figure for `actor`), one `<line class="siren-lifeline">` per
- * participant, one `<g class="siren-message">` per message (all ten
+ * frozen SVG conventions in spec.md ("SVG conventions" bullet list): a
+ * `<g class="siren-participant">` per participant at the top of its lifeline
+ * (box for `participant`, stick figure for `actor`) plus a second one at the
+ * diagram's bottom row for each declared, never-destroyed participant, one
+ * `<line class="siren-lifeline">` per participant, one
+ * `<g class="siren-message">` per message (all ten
  * arrow-marker/dash combinations), a `<g class="siren-block">` per
  * control-flow block (frame/fill, header/branch labels, dividers — see
  * `buildBlock`), a `<g class="siren-box">` background per participant
@@ -85,7 +87,19 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   }
 
   for (const participant of diagram.participants) {
-    svg.appendChild(buildParticipant(participant));
+    svg.appendChild(buildParticipant(participant, participant.top));
+  }
+
+  // A preamble-declared participant that survives to the end of the diagram is
+  // drawn a second time at the far end of its lifeline (Mermaid's own bottom
+  // row); a `create`d or destroyed one is drawn only once. See spec.md's "SVG
+  // conventions".
+  const destroyedIds = collectDestroyedParticipantIds(diagram.elements);
+  for (const participant of diagram.participants) {
+    if (participant.origin !== "declared" || destroyedIds.has(participant.id)) {
+      continue;
+    }
+    svg.appendChild(buildParticipant(participant, participant.bottom - participant.height));
   }
 
   for (const element of diagram.elements) {
@@ -406,21 +420,45 @@ function buildLifeline(participant: PositionedParticipant): SVGLineElement {
 }
 
 /**
- * Builds the `<g class="siren-participant">` for one participant: a
- * `<rect>`+`<text>` box for `kind: "participant"`, or a stick-figure `<g>`
- * (head circle + body/arm/leg lines) + `<text>` label for `kind: "actor"`.
+ * Every participant id carrying a destroy mark anywhere in the diagram — the
+ * renderer's way of telling a destroyed lifeline from a surviving one, since
+ * the frozen `PositionedParticipant` shape carries `origin` but no destroyed
+ * flag. Recurses into block children, because a `destroy` written inside a
+ * `loop`/`alt`/... body puts its mark there rather than at the top level.
  */
-function buildParticipant(participant: PositionedParticipant): SVGGElement {
+function collectDestroyedParticipantIds(
+  elements: PositionedSequenceElement[],
+  ids: Set<string> = new Set<string>(),
+): Set<string> {
+  for (const element of elements) {
+    if (element.kind === "destroyMark") {
+      ids.add(element.mark.participantId);
+    } else if (element.kind === "block") {
+      collectDestroyedParticipantIds(element.block.children, ids);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Builds the `<g class="siren-participant">` for one participant, with its
+ * shape's top edge at `top`: a `<rect>`+`<text>` box for
+ * `kind: "participant"`, or a stick-figure `<g>` (head circle + body/arm/leg
+ * lines) + `<text>` label for `kind: "actor"`. `top` is a parameter rather
+ * than read off the participant because a surviving declared participant is
+ * drawn twice — once at its lifeline's top, once at the bottom row.
+ */
+function buildParticipant(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-participant");
   g.setAttribute("data-siren-id", participant.id);
 
   if (participant.participantKind === "actor") {
-    g.appendChild(buildActorIcon(participant));
+    g.appendChild(buildActorIcon(participant, top));
 
     const text = document.createElementNS(SVG_NS, "text");
     text.setAttribute("x", String(participant.x));
-    text.setAttribute("y", String(participant.top + participant.height));
+    text.setAttribute("y", String(top + participant.height));
     text.setAttribute("text-anchor", "middle");
     text.textContent = participant.label;
     g.appendChild(text);
@@ -430,14 +468,14 @@ function buildParticipant(participant: PositionedParticipant): SVGGElement {
 
   const rect = document.createElementNS(SVG_NS, "rect");
   rect.setAttribute("x", String(participant.x - participant.width / 2));
-  rect.setAttribute("y", String(participant.top));
+  rect.setAttribute("y", String(top));
   rect.setAttribute("width", String(participant.width));
   rect.setAttribute("height", String(participant.height));
   g.appendChild(rect);
 
   const text = document.createElementNS(SVG_NS, "text");
   text.setAttribute("x", String(participant.x));
-  text.setAttribute("y", String(participant.top + participant.height / 2));
+  text.setAttribute("y", String(top + participant.height / 2));
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("dominant-baseline", "middle");
   text.textContent = participant.label;
@@ -449,16 +487,16 @@ function buildParticipant(participant: PositionedParticipant): SVGGElement {
 /**
  * Builds the stick-figure icon for an `actor` participant: a head circle,
  * a body line, an arm line, and two leg lines, sized within the
- * participant's layout-assigned bounding box.
+ * participant's layout-assigned bounding box, with its top edge at `top`.
  */
-function buildActorIcon(participant: PositionedParticipant): SVGGElement {
+function buildActorIcon(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   const centerX = participant.x;
   const headRadius = Math.max(Math.min(participant.width, participant.height) / 6, 4);
-  const headCenterY = participant.top + headRadius;
+  const headCenterY = top + headRadius;
   const bodyTopY = headCenterY + headRadius;
-  const bodyBottomY = participant.top + participant.height * 0.7;
-  const legBottomY = participant.top + participant.height;
+  const bodyBottomY = top + participant.height * 0.7;
+  const legBottomY = top + participant.height;
 
   const head = document.createElementNS(SVG_NS, "circle");
   head.setAttribute("cx", String(centerX));

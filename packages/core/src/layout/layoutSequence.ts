@@ -312,7 +312,9 @@ function layoutMessage(
 
 /**
  * Computes participant lane x-positions, each lifeline's y-extent —
- * full-height, or truncated to its `create`/`destroy` rows — each message's
+ * full-height (ending at the reserved bottom row where a declared,
+ * never-destroyed participant's box is drawn again), or truncated to its
+ * `create`/`destroy` rows — each message's
  * y-coordinate and arrow endpoint x-coordinates, every nested control-flow
  * block's bounding box (recursively, so time flows strictly top-to-bottom
  * across the whole diagram regardless of nesting), and every box group's
@@ -330,15 +332,25 @@ export function layoutSequence(
     destroyedBottomById: new Map(),
   };
 
-  const maxParticipantHeight = participants.reduce(
-    (max, p) => Math.max(max, p.height),
-    0,
-  );
+  // The top row has to clear the tallest box drawn in it; every lane's
+  // lifeline then starts below it, on one shared row.
+  const topRowHeight = participants.reduce((max, p) => Math.max(max, p.height), 0);
   const titleHeight = model.title === null ? 0 : TITLE_HEIGHT;
-  const lifelineTop = titleHeight + maxParticipantHeight;
+  const lifelineTop = titleHeight + topRowHeight;
 
   const { elements, endY } = layoutStatements(model.statements, ctx, lifelineTop);
-  const lifelineBottom = endY + BOTTOM_MARGIN + maxParticipantHeight;
+  // The bottom row exists only for participants drawn there — declared and
+  // never destroyed (see spec.md's "SVG conventions"). A diagram whose lanes
+  // are all `create`d or destroyed reserves nothing, rather than trailing an
+  // empty band the renderer never fills.
+  const bottomRowHeight = participants.reduce(
+    (max, p) =>
+      p.origin === "declared" && !ctx.destroyedBottomById.has(p.id)
+        ? Math.max(max, p.height)
+        : max,
+    0,
+  );
+  const lifelineBottom = endY + BOTTOM_MARGIN + bottomRowHeight;
 
   for (const participant of participants) {
     participant.top = ctx.createdTopById.get(participant.id) ?? lifelineTop;

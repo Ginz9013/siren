@@ -933,6 +933,56 @@ describe("layoutSequence", () => {
     expect(blockElement.block.y + blockElement.block.height).toBeGreaterThan(byId.C.bottom);
   });
 
+  it("reserves a bottom row inside the diagram's height for participants that get a bottom box, and none when every participant is created or destroyed", () => {
+    const withBottomRow: SequenceModel = {
+      title: null,
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [messageStatement("m1", "A", "B", "Hi")],
+    };
+
+    const positioned = layoutSequence(withBottomRow, { measureText: fakeMeasurer });
+    const [message] = messagesOf(positioned);
+
+    for (const participant of positioned.participants) {
+      // A full box height fits between the last message and the lifeline's
+      // end, and that end is still inside the diagram — so the bottom box
+      // clears the diagram's content and never spills past its height.
+      expect(participant.bottom - message.y).toBeGreaterThanOrEqual(participant.height);
+      expect(participant.bottom).toBeLessThanOrEqual(positioned.height);
+    }
+
+    // Alice is declared but destroyed, Carol is created and destroyed: nobody
+    // is eligible for a bottom box, so no bottom row is reserved.
+    const carol: ResolvedSequenceParticipant = {
+      id: "C",
+      label: "Carol",
+      participantKind: "participant",
+      origin: "created",
+      createdAt: 1,
+      destroyedAt: 3,
+    };
+    const withoutBottomRow: SequenceModel = {
+      title: null,
+      participants: [{ ...declaredParticipant("A", "Alice"), destroyedAt: 4 }, carol],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "A", "start"),
+        { kind: "participant", participant: carol },
+        messageStatement("m2", "A", "C", "work"),
+        { kind: "destroy", id: "C" },
+        { kind: "destroy", id: "A" },
+      ],
+    };
+
+    const bare = layoutSequence(withoutBottomRow, { measureText: fakeMeasurer });
+    const lastMarkY = Math.max(...destroyMarksOf(bare).map((mark) => mark.y));
+    const shortestParticipant = Math.min(...bare.participants.map((p) => p.height));
+
+    expect(lastMarkY).toBeLessThanOrEqual(bare.height);
+    expect(bare.height - lastMarkY).toBeLessThan(shortestParticipant);
+  });
+
   it("gives a box a background rect spanning its member lanes only, over the diagram's full height", () => {
     const model: SequenceModel = {
       title: "Grouped",

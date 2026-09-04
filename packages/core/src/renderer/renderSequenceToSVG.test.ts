@@ -120,8 +120,10 @@ describe("renderSequenceToSVG", () => {
   it("renders one siren-participant group per participant, with a rect+text for a participant lane", () => {
     const svg = renderSequenceToSVG(buildParticipantsFixture());
 
+    // Two groups per lane: both fixture participants are preamble-declared and
+    // never destroyed, so each is drawn again at the bottom row.
     const groups = svg.querySelectorAll("g.siren-participant");
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(4);
 
     const aliceGroup = svg.querySelector('g.siren-participant[data-siren-id="Alice"]')!;
     expect(aliceGroup).not.toBeNull();
@@ -129,6 +131,45 @@ describe("renderSequenceToSVG", () => {
     const text = aliceGroup.querySelector("text")!;
     expect(rect).not.toBeNull();
     expect(text.textContent).toBe("Alice");
+  });
+
+  it("repeats a declared, never-destroyed participant at the bottom of the diagram, with the same id and shape as its top box", () => {
+    const svg = renderSequenceToSVG(buildParticipantsFixture());
+
+    const aliceGroups = svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]');
+    expect(aliceGroups).toHaveLength(2);
+
+    const topRect = aliceGroups[0]!.querySelector("rect")!;
+    const bottomRect = aliceGroups[1]!.querySelector("rect")!;
+    expect(topRect.getAttribute("y")).toBe("0");
+    // Same lane, same size — only the row differs, and the bottom row sits at
+    // the far end of the lifeline.
+    expect(bottomRect.getAttribute("x")).toBe(topRect.getAttribute("x"));
+    expect(bottomRect.getAttribute("width")).toBe(topRect.getAttribute("width"));
+    expect(bottomRect.getAttribute("height")).toBe(topRect.getAttribute("height"));
+    expect(
+      Number(bottomRect.getAttribute("y")) + Number(bottomRect.getAttribute("height")),
+    ).toBe(300);
+    expect(aliceGroups[1]!.querySelector("text")!.textContent).toBe("Alice");
+
+    // An actor repeats as a stick figure, not as a box.
+    const bobGroups = svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]');
+    expect(bobGroups).toHaveLength(2);
+    const bobBottom = bobGroups[1]!;
+    expect(bobBottom.querySelector("rect")).toBeNull();
+    expect(bobBottom.querySelector("circle")).not.toBeNull();
+    expect(bobBottom.querySelectorAll("line").length).toBeGreaterThanOrEqual(4);
+    expect(bobBottom.querySelector("text")!.textContent).toBe("Bob");
+    expect(Number(bobBottom.querySelector("circle")!.getAttribute("cy"))).toBeGreaterThan(
+      Number(bobGroups[0]!.querySelector("circle")!.getAttribute("cy")),
+    );
+
+    // The added row leaves each lifeline's own extent untouched.
+    const lifelines = svg.querySelectorAll("line.siren-lifeline");
+    expect(lifelines).toHaveLength(2);
+    const aliceLifeline = svg.querySelector('line.siren-lifeline[data-siren-id="Alice"]')!;
+    expect(aliceLifeline.getAttribute("y1")).toBe("0");
+    expect(aliceLifeline.getAttribute("y2")).toBe("300");
   });
 
   it("renders an actor lane as a stick-figure group (head circle + body/arm/leg lines) plus a text label, not a rect", () => {
@@ -604,6 +645,34 @@ describe("renderSequenceToSVG", () => {
     const ys = points.map((point) => point.y);
     expect((Math.min(...xs) + Math.max(...xs)) / 2).toBe(60);
     expect((Math.min(...ys) + Math.max(...ys)) / 2).toBe(180);
+  });
+
+  it("gives no bottom box to a participant destroyed inside a block, whose destroy mark is nested rather than top-level", () => {
+    const diagram = buildParticipantsFixture();
+    // Alice is destroyed inside a loop, so her mark is a child of the block
+    // element rather than a top-level one.
+    diagram.participants[0]!.bottom = 180;
+    const block: PositionedBlock = {
+      id: "loop-1",
+      kind: "loop",
+      label: "each retry",
+      x: 20,
+      y: 60,
+      width: 240,
+      height: 160,
+      dividers: [],
+      children: [{ kind: "destroyMark", mark: { participantId: "Alice", x: 60, y: 180 } }],
+    };
+    diagram.elements = [{ kind: "block", block }];
+
+    const svg = renderSequenceToSVG(diagram);
+
+    const aliceGroups = svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]');
+    expect(aliceGroups).toHaveLength(1);
+    expect(aliceGroups[0]!.querySelector("rect")!.getAttribute("y")).toBe("0");
+
+    // Bob survives, so he still gets his bottom box.
+    expect(svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]')).toHaveLength(2);
   });
 
   it("renders a created participant exactly once, at its creation point rather than the diagram's top", () => {
