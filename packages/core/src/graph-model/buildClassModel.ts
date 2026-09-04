@@ -53,6 +53,14 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     relationships,
     namespaces,
     notes,
+    // Parsed but not yet resolved. The parser captures `click`/`callback`/
+    // `link` and `style`/`classDef`/`cssClass` as structured declarations
+    // and deliberately does not judge them — this stage owns the `http`/
+    // `https`/`mailto` URL allowlist and the `url(`/`expression(` rejection
+    // list. Until that lands, every such declaration is dropped here
+    // without a diagnostic, so a document using them renders as though it
+    // had not. Nothing downstream draws them yet either, which is the only
+    // reason silence is tolerable rather than a bug.
     interactions: [],
     styles: [],
     timeline: resolveTimeline(

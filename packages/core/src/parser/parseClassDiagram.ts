@@ -313,10 +313,18 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * **Interaction and styling are validated for syntax shape only, and that
  * is deliberate.** A `click X href "javascript:alert(1)"` and a
  * `style X fill:url(#evil)` are well-formed statements, so they parse here
- * with no diagnostic. Both are then rejected by `buildClassModel`, which
- * owns the `http`/`https`/`mailto` URL allowlist and the rejected
+ * with no diagnostic. Both are to be rejected by `buildClassModel`, which
+ * will own the `http`/`https`/`mailto` URL allowlist and the rejected
  * style-function list (`url(`, `expression(`) — see the board's
- * "Interaction target" decision. The split is not an oversight: this
+ * "Interaction target" decision.
+ *
+ * That check is **not written yet**: `buildClassModel` currently resolves
+ * `interactions` and `styles` to empty arrays, so today these statements
+ * parse and then vanish. Nothing renders them either, so the effect is
+ * inert rather than unsafe — but do not read this paragraph as describing
+ * a check that already runs.
+ *
+ * The split is not an oversight: this
  * parser answers "what did the author write", one stage answers "is that
  * safe to render", and putting the second question here would mean a
  * hostile URL silently changed what the document *is* rather than being
