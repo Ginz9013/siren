@@ -2,7 +2,7 @@ const VIEWPORT_CLASS = "siren-board-viewport";
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 4;
-const ZOOM_SENSITIVITY = 0.001;
+const ZOOM_SENSITIVITY = 0.0025;
 /**
  * Extra blank space, as a fraction of the surface's own width/height, the
  * user can drag the content past its true edge before the pan clamp locks —
