@@ -2,6 +2,7 @@ import type {
   ClassDecl,
   ClassDirection,
   ClassDocument,
+  ClassInteraction,
   ClassMember,
   ClassMemberClassifier,
   ClassMemberVisibility,
@@ -9,6 +10,8 @@ import type {
   ClassNote,
   ClassRelationship,
   ClassRelationshipEnd,
+  ClassStyleDecl,
+  ClassStyleProperty,
   Diagnostic,
   ParseResult,
 } from "../contracts";
@@ -69,6 +72,55 @@ const NOTE_FOR_RE = /^note\s+for\s+(\w+)\s+"([^"]*)"$/;
 /** A `direction TB|BT|LR|RL` statement. */
 const DIRECTION_RE = /^direction\s+(TB|BT|LR|RL)$/;
 
+/**
+ * `click Shape href "https://example.com"`, with Mermaid's optional
+ * trailing tooltip string.
+ *
+ * The URL is captured as written. Whether it is a URL this renderer is
+ * willing to emit — the `http`/`https`/`mailto` allowlist that rejects
+ * `javascript:` and `data:` — is deliberately *not* decided here; see the
+ * note on `parseClassDiagram` about where that check lives.
+ */
+const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+
+/**
+ * `click Shape call callbackFn()`, with an optional literal argument and
+ * Mermaid's optional trailing tooltip: `click Shape call fn("arg") "tip"`.
+ *
+ * The argument is captured as one raw string rather than a parsed list —
+ * `ClassInteraction.argument` is a single string, and a caller-supplied
+ * handler receives whatever the author wrote.
+ */
+const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$/;
+
+/**
+ * `callback Shape "callbackFn"` and `link Shape "https://example.com"` —
+ * Mermaid's older spellings of `click ... call` and `click ... href`, each
+ * with the same optional trailing tooltip. They produce the same
+ * `ClassInteraction` shapes as their `click` equivalents: they are
+ * spellings, not separate concepts.
+ */
+const CALLBACK_RE = /^callback\s+(\w+)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+const LINK_RE = /^link\s+(\w+)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+
+/**
+ * `style Shape fill:#fdd,stroke:#c00` — author styling applied directly to
+ * one class.
+ */
+const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
+
+/**
+ * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
+ * nothing on its own, and `cssClass "Shape,Other" emphasis` — the
+ * statement that applies one to a quoted, comma-separated target list.
+ *
+ * The two are kept as separate declarations rather than being resolved
+ * against each other here: pairing a `cssClass` with its `classDef`, in
+ * either source order, is `buildClassModel`'s job.
+ */
+const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+const CSS_CLASS_RE = /^cssClass\s+"([^"]*)"\s+(\w+)$/;
+
 /** The inline member form, `Bird : +fly()`. */
 const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/;
 /** What a member's own name may look like, once markers and type are off. */
@@ -76,6 +128,56 @@ const MEMBER_NAME_RE = /^[A-Za-z_]\w*$/;
 
 const VISIBILITY_MARKERS = new Set<string>(["+", "-", "#", "~"]);
 const CLASSIFIER_MARKERS = new Set<string>(["*", "$"]);
+
+/**
+ * Splits a `fill:#fdd,stroke:#c00` declaration list into its pairs,
+ * preserving author order. Only the first `:` of a segment separates
+ * property from value, so a value containing a colon survives intact.
+ *
+ * A segment with no `:` at all has no readable shape, so it is returned in
+ * `malformed` for the caller to diagnose — the same treatment an
+ * unreadable member line gets.
+ *
+ * The values themselves are not inspected here. `url(` and `expression(`
+ * are rejected by `buildClassModel`, not by this parser — see the note on
+ * `parseClassDiagram`.
+ */
+function parseStyleProperties(text: string): {
+  properties: ClassStyleProperty[];
+  malformed: string[];
+} {
+  const properties: ClassStyleProperty[] = [];
+  const malformed: string[] = [];
+  for (const segment of text.split(",")) {
+    const trimmed = segment.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const separator = trimmed.indexOf(":");
+    if (separator === -1) {
+      malformed.push(trimmed);
+      continue;
+    }
+    properties.push({
+      property: trimmed.slice(0, separator).trim(),
+      value: trimmed.slice(separator + 1).trim(),
+    });
+  }
+  return { properties, malformed };
+}
+
+/**
+ * Strips one layer of surrounding quotes from a `call fn("arg")`
+ * argument, and reads an empty argument list as no argument at all.
+ */
+function callArgument(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const quoted = /^"([^"]*)"$/.exec(trimmed);
+  return quoted === null ? trimmed : quoted[1];
+}
 
 /**
  * Maps a relation token's left- or right-hand marker to the endpoint it
@@ -184,9 +286,12 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * (`class Animal`, `class Animal { ... }`, `Animal : +fly()`),
  * relationship statements with their optional label and multiplicity,
  * `<<annotation>>` markers, `~generic~` parameters, `namespace` blocks,
- * `note` statements and `direction` — into a `ClassDocument`. Never throws
- * on malformed input: syntax problems are reported as diagnostics, and a
- * document containing an error-severity one comes back as `null`.
+ * `note` statements, `direction`, the interaction directives (`click ...
+ * href`, `click ... call`, and their `link`/`callback` spellings) and the
+ * styling directives (`style`, `classDef`, `cssClass`) — into a
+ * `ClassDocument`. Never throws on malformed input: syntax problems are
+ * reported as diagnostics, and a document containing an error-severity one
+ * comes back as `null`.
  *
  * A class named only by a relationship is declared by that mention, the
  * way `parseFlowchart` declares a node named only by an edge. Repeat
@@ -205,10 +310,21 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * `%%` comments are already gone by the time this runs: `parseSiren`
  * strips them for every diagram kind before dispatching.
  *
- * Not yet recognized, and therefore reported as unrecognized lines: the
- * interaction and styling directives (`click`, `callback`, `style`,
- * `classDef`, `cssClass`) and the `timeline:` block. Those arrive in later
- * tickets on this board.
+ * **Interaction and styling are validated for syntax shape only, and that
+ * is deliberate.** A `click X href "javascript:alert(1)"` and a
+ * `style X fill:url(#evil)` are well-formed statements, so they parse here
+ * with no diagnostic. Both are then rejected by `buildClassModel`, which
+ * owns the `http`/`https`/`mailto` URL allowlist and the rejected
+ * style-function list (`url(`, `expression(`) — see the board's
+ * "Interaction target" decision. The split is not an oversight: this
+ * parser answers "what did the author write", one stage answers "is that
+ * safe to render", and putting the second question here would mean a
+ * hostile URL silently changed what the document *is* rather than being
+ * reported as the error it is. Every value captured by this function is
+ * therefore untrusted until the model has passed it.
+ *
+ * Not yet recognized, and therefore reported as an unrecognized line: the
+ * `timeline:` block. That arrives in a later ticket on this board.
  */
 export function parseClassDiagram(source: string): ParseResult {
   const lines = source.split(/\r\n|\r|\n/);
@@ -241,6 +357,8 @@ export function parseClassDiagram(source: string): ParseResult {
   const relationships: ClassRelationship[] = [];
   const namespaces: ClassNamespace[] = [];
   const notes: ClassNote[] = [];
+  const interactions: ClassInteraction[] = [];
+  const styles: ClassStyleDecl[] = [];
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
   /**
@@ -290,6 +408,29 @@ export function parseClassDiagram(source: string): ParseResult {
       { id, generic: null, annotation: null, members: [], line, column },
       namespaceMembers,
     );
+  };
+
+  /**
+   * Reads the declaration list of a `style`/`classDef` statement, turning
+   * each segment that is not a `property:value` pair into an error
+   * diagnostic on that statement's line.
+   */
+  const readStyleProperties = (
+    text: string,
+    lineNumber: number,
+    column: number,
+  ): ClassStyleProperty[] => {
+    const { properties, malformed } = parseStyleProperties(text);
+    for (const segment of malformed) {
+      diagnostics.push({
+        severity: "error",
+        message: `Unrecognized style declaration: "${segment}"`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+    }
+    return properties;
   };
 
   /**
@@ -367,6 +508,110 @@ export function parseClassDiagram(source: string): ParseResult {
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null) {
       notes.push({ text: noteMatch[1], targetId: null, line: lineNumber, column });
+      return startIndex;
+    }
+
+    const clickHrefMatch = CLICK_HREF_RE.exec(line);
+    if (clickHrefMatch !== null) {
+      // Naming a class here does not declare it, exactly as naming one in a
+      // `note for` does not: only a `class` statement or a relationship
+      // does. An interaction on a class that was never declared is
+      // `buildClassModel`'s to resolve.
+      interactions.push({
+        interactionKind: "href",
+        classId: clickHrefMatch[1],
+        action: clickHrefMatch[2],
+        argument: null,
+        tooltip: clickHrefMatch[3] ?? null,
+        line: lineNumber,
+        column,
+      });
+      return startIndex;
+    }
+
+    const clickCallMatch = CLICK_CALL_RE.exec(line);
+    if (clickCallMatch !== null) {
+      interactions.push({
+        interactionKind: "call",
+        classId: clickCallMatch[1],
+        action: clickCallMatch[2],
+        argument: callArgument(clickCallMatch[3]),
+        tooltip: clickCallMatch[4] ?? null,
+        line: lineNumber,
+        column,
+      });
+      return startIndex;
+    }
+
+    const callbackMatch = CALLBACK_RE.exec(line);
+    if (callbackMatch !== null) {
+      interactions.push({
+        interactionKind: "call",
+        classId: callbackMatch[1],
+        action: callbackMatch[2],
+        argument: null,
+        tooltip: callbackMatch[3] ?? null,
+        line: lineNumber,
+        column,
+      });
+      return startIndex;
+    }
+
+    const linkMatch = LINK_RE.exec(line);
+    if (linkMatch !== null) {
+      interactions.push({
+        interactionKind: "href",
+        classId: linkMatch[1],
+        action: linkMatch[2],
+        argument: null,
+        tooltip: linkMatch[3] ?? null,
+        line: lineNumber,
+        column,
+      });
+      return startIndex;
+    }
+
+    const classDefMatch = CLASS_DEF_RE.exec(line);
+    if (classDefMatch !== null) {
+      styles.push({
+        styleKind: "classDef",
+        classIds: [],
+        name: classDefMatch[1],
+        properties: readStyleProperties(classDefMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      return startIndex;
+    }
+
+    const cssClassMatch = CSS_CLASS_RE.exec(line);
+    if (cssClassMatch !== null) {
+      styles.push({
+        styleKind: "cssClass",
+        classIds: cssClassMatch[1]
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+        name: cssClassMatch[2],
+        properties: [],
+        line: lineNumber,
+        column,
+      });
+      return startIndex;
+    }
+
+    const styleMatch = STYLE_RE.exec(line);
+    if (styleMatch !== null) {
+      // `classIds` is a list because `cssClass` targets many; a `style`
+      // statement fills it with its single target.
+      styles.push({
+        styleKind: "style",
+        classIds: [styleMatch[1]],
+        name: null,
+        properties: readStyleProperties(styleMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
       return startIndex;
     }
 
@@ -561,8 +806,8 @@ export function parseClassDiagram(source: string): ParseResult {
     relationships,
     namespaces,
     notes,
-    interactions: [],
-    styles: [],
+    interactions,
+    styles,
     timeline: null,
   };
 

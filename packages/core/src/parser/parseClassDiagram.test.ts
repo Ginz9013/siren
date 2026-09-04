@@ -476,6 +476,188 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(withoutDirection.document.direction).toBe("TB");
   });
 
+  it("parses a click href interaction, with and without the trailing tooltip", () => {
+    const source = `classDiagram
+  class Shape
+  click Shape href "https://example.com"
+  click Other href "https://example.org" "Read the docs"
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "href",
+        classId: "Shape",
+        action: "https://example.com",
+        argument: null,
+        tooltip: null,
+        line: 3,
+        column: 3,
+      },
+      {
+        interactionKind: "href",
+        classId: "Other",
+        action: "https://example.org",
+        argument: null,
+        tooltip: "Read the docs",
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("parses a click call interaction, capturing the function name and any literal argument", () => {
+    const source = `classDiagram
+  click Shape call callbackFn()
+  click Other call callbackFn("arg")
+  click Third call callbackFn("arg") "Do the thing"
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "call",
+        classId: "Shape",
+        action: "callbackFn",
+        argument: null,
+        tooltip: null,
+        line: 2,
+        column: 3,
+      },
+      {
+        interactionKind: "call",
+        classId: "Other",
+        action: "callbackFn",
+        argument: "arg",
+        tooltip: null,
+        line: 3,
+        column: 3,
+      },
+      {
+        interactionKind: "call",
+        classId: "Third",
+        action: "callbackFn",
+        argument: "arg",
+        tooltip: "Do the thing",
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("parses callback and link as spellings of the click forms, not as separate concepts", () => {
+    const spellings = parseOk(`classDiagram
+  callback Shape "callbackFn"
+  link Shape "https://example.com"
+`);
+    const clicks = parseOk(`classDiagram
+  click Shape call callbackFn()
+  click Shape href "https://example.com"
+`);
+
+    expect(spellings.diagnostics).toEqual([]);
+    // Compared to the `click` equivalents rather than to a literal, because
+    // the criterion is that the two spellings produce the same shape.
+    expect(spellings.document.interactions.map((i) => ({ ...i, line: 0 }))).toEqual(
+      clicks.document.interactions.map((i) => ({ ...i, line: 0 })),
+    );
+    expect(spellings.document.interactions.map((i) => i.line)).toEqual([2, 3]);
+  });
+
+  it("parses a style statement into its target and an ordered list of property/value pairs", () => {
+    const source = `classDiagram
+  class Shape
+  style Shape fill:#fdd,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "style",
+        classIds: ["Shape"],
+        name: null,
+        properties: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("parses classDef as a named definition and cssClass as an application naming every target", () => {
+    const source = `classDiagram
+  classDef emphasis fill:#fdd
+  cssClass "Shape,Other" emphasis
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "classDef",
+        classIds: [],
+        name: "emphasis",
+        properties: [{ property: "fill", value: "#fdd" }],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "cssClass",
+        classIds: ["Shape", "Other"],
+        name: "emphasis",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reports an error diagnostic for a style declaration that is not a property:value pair", () => {
+    const source = `classDiagram
+  class Shape
+  style Shape fill:#fdd,wibble
+`;
+
+    expect(() => parseClassDiagram(source)).not.toThrow();
+
+    const { document, diagnostics } = parseClassDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error" && d.line === 3)).toBe(true);
+  });
+
+  // Boundary-pinning, not a missing check: a `javascript:` URL and a
+  // `url(` value are syntactically well-formed, and this parser reports
+  // syntax only. Both are rejected one stage later, by `buildClassModel`,
+  // which owns the `http`/`https`/`mailto` allowlist and the rejected
+  // style-function list. This test exists so that moving either check into
+  // the parser — where it would silently change what a document *is*,
+  // rather than what is safe to render — fails loudly.
+  it("parses a javascript: URL and a url( style value without a diagnostic — rejecting them is the model's job", () => {
+    const source = `classDiagram
+  class Shape
+  click Shape href "javascript:alert(1)"
+  style Shape fill:url(#evil)
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toHaveLength(1);
+    expect(document.interactions[0].action).toBe("javascript:alert(1)");
+    expect(document.styles).toHaveLength(1);
+    expect(document.styles[0].properties).toEqual([{ property: "fill", value: "url(#evil)" }]);
+  });
+
   it.each(RELATIONSHIP_FORMS)(
     "parses the %s relationship form into its line style and endpoint markers",
     (token, expectedLine, expectedFromEnd, expectedToEnd) => {
