@@ -162,4 +162,273 @@ describe("parseSequenceDiagram", () => {
     expect(document).toBeNull();
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
+
+  it("parses a standalone loop block, wrapping its messages into the body", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  loop Every minute
+    A->>B: poll
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.map((s) => s.kind)).toEqual(["participant", "participant", "loop"]);
+    const loopStatement = document.statements.find((s) => s.kind === "loop");
+    expect(loopStatement!.kind === "loop" && loopStatement!.label).toBe("Every minute");
+    expect(loopStatement!.kind === "loop" && loopStatement!.body.map((s) => s.kind)).toEqual([
+      "message",
+    ]);
+    expect(
+      loopStatement!.kind === "loop" &&
+        loopStatement!.body[0].kind === "message" &&
+        loopStatement!.body[0].text,
+    ).toBe("poll");
+  });
+
+  it("parses standalone opt, break, and rect blocks, each wrapping their messages into the body", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  opt is available
+    A->>B: opt-message
+  end
+  break connection lost
+    A->>B: break-message
+  end
+  rect rgb(191, 223, 255)
+    A->>B: rect-message
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.map((s) => s.kind)).toEqual([
+      "participant",
+      "participant",
+      "opt",
+      "break",
+      "rect",
+    ]);
+
+    const optStatement = document.statements.find((s) => s.kind === "opt");
+    expect(optStatement!.kind === "opt" && optStatement!.label).toBe("is available");
+    expect(optStatement!.kind === "opt" && optStatement!.body.map((s) => s.kind)).toEqual([
+      "message",
+    ]);
+
+    const breakStatement = document.statements.find((s) => s.kind === "break");
+    expect(breakStatement!.kind === "break" && breakStatement!.label).toBe("connection lost");
+    expect(breakStatement!.kind === "break" && breakStatement!.body.map((s) => s.kind)).toEqual([
+      "message",
+    ]);
+
+    const rectStatement = document.statements.find((s) => s.kind === "rect");
+    expect(rectStatement!.kind === "rect" && rectStatement!.color).toBe("rgb(191, 223, 255)");
+    expect(rectStatement!.kind === "rect" && rectStatement!.body.map((s) => s.kind)).toEqual([
+      "message",
+    ]);
+  });
+
+  it("parses a rect block with an rgba(...) color, carrying the raw color string through unvalidated", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  rect rgba(0,255,0,0.1)
+    A->>B: hi
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    const rectStatement = document.statements.find((s) => s.kind === "rect");
+    expect(rectStatement!.kind === "rect" && rectStatement!.color).toBe("rgba(0,255,0,0.1)");
+  });
+
+  it("parses alt/else into one alt node with two branches, each carrying its condition label and body", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  alt is sick
+    A->>B: sick message
+  else is well
+    A->>B: well message
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    const altStatement = document.statements.find((s) => s.kind === "alt");
+    expect(altStatement).toBeDefined();
+    expect(altStatement!.kind === "alt" && altStatement!.branches).toEqual([
+      {
+        label: "is sick",
+        body: [
+          {
+            kind: "message",
+            from: "A",
+            to: "B",
+            text: "sick message",
+            arrow: { line: "solid", head: "filled" },
+            line: 5,
+            column: 5,
+          },
+        ],
+      },
+      {
+        label: "is well",
+        body: [
+          {
+            kind: "message",
+            from: "A",
+            to: "B",
+            text: "well message",
+            arrow: { line: "solid", head: "filled" },
+            line: 7,
+            column: 5,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("parses par/and (two `and` branches) into one par node with three branches", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  participant C
+  par send to B
+    A->>B: first
+  and send to C
+    A->>C: second
+  and send again
+    A->>B: third
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    const parStatement = document.statements.find((s) => s.kind === "par");
+    expect(parStatement).toBeDefined();
+    expect(
+      parStatement!.kind === "par" && parStatement!.branches.map((b) => b.label),
+    ).toEqual(["send to B", "send to C", "send again"]);
+    expect(
+      parStatement!.kind === "par" && parStatement!.branches.map((b) => b.body.length),
+    ).toEqual([1, 1, 1]);
+  });
+
+  it("parses critical/option (two `option` branches) into one critical node with three branches", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  critical establish connection
+    A->>B: connect
+  option networkFailure
+    A->>B: fail1
+  option timeout
+    A->>B: fail2
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    const criticalStatement = document.statements.find((s) => s.kind === "critical");
+    expect(criticalStatement).toBeDefined();
+    expect(
+      criticalStatement!.kind === "critical" &&
+        criticalStatement!.branches.map((b) => b.label),
+    ).toEqual(["establish connection", "networkFailure", "timeout"]);
+    expect(
+      criticalStatement!.kind === "critical" &&
+        criticalStatement!.branches.map((b) => b.body.length),
+    ).toEqual([1, 1, 1]);
+  });
+
+  it("parses a loop containing an alt containing a par, three levels deep", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  loop outer
+    alt condition
+      par branch
+        A->>B: deepest
+      end
+    end
+  end
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    const loopStatement = document.statements.find((s) => s.kind === "loop");
+    if (loopStatement === undefined || loopStatement.kind !== "loop") {
+      throw new Error("expected a loop statement");
+    }
+    expect(loopStatement.label).toBe("outer");
+
+    const altStatement = loopStatement.body.find((s) => s.kind === "alt");
+    if (altStatement === undefined || altStatement.kind !== "alt") {
+      throw new Error("expected an alt statement nested in the loop");
+    }
+    expect(altStatement.branches.map((b) => b.label)).toEqual(["condition"]);
+
+    const parStatement = altStatement.branches[0].body.find((s) => s.kind === "par");
+    if (parStatement === undefined || parStatement.kind !== "par") {
+      throw new Error("expected a par statement nested in the alt branch");
+    }
+    expect(parStatement.branches.map((b) => b.label)).toEqual(["branch"]);
+    expect(
+      parStatement.branches[0].body.map((s) => (s.kind === "message" ? s.text : null)),
+    ).toEqual(["deepest"]);
+  });
+
+  it("returns a null document plus an error diagnostic for a block missing its end, without throwing", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  loop forever
+    A->>B: hi
+`;
+
+    expect(() => parseSequenceDiagram(source)).not.toThrow();
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("interleaves blocks with plain messages and participant declarations at the same nesting level", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  A->>B: before
+  loop repeat
+    A->>B: inside
+  end
+  participant C
+  A->>C: after
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.map((s) => s.kind)).toEqual([
+      "participant",
+      "participant",
+      "message",
+      "loop",
+      "participant",
+      "message",
+    ]);
+    expect(document.participants.map((p) => p.id)).toEqual(["A", "B", "C"]);
+  });
 });
