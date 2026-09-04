@@ -4,20 +4,56 @@ import type {
   SequenceAltBranch,
   SequenceArrowHead,
   SequenceArrowLine,
+  SequenceBox,
   SequenceCriticalBranch,
   SequenceDocument,
   SequenceParBranch,
   SequenceParticipantDecl,
   SequenceParticipantKind,
+  SequenceParticipantOrigin,
+  SequenceParticipantStatement,
   SequenceStatement,
 } from "../contracts";
 
 const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/;
 const TITLE_RE = /^title\s+(.+)$/;
+/** The lone participant id argument of a `destroy` statement. */
+const DESTROY_ID_RE = /^(\w+)$/;
 
 /** The raw color argument to a `rect` block: `rgb(...)` or `rgba(...)`, unvalidated beyond shape. */
 const RECT_COLOR_RE = /^(rgba?\([^()]*\))$/;
+
+/**
+ * Splits a `box` header's arguments into its leading token — an
+ * `rgb()`/`rgba()` call, a `#hex` literal, or a bare word — and whatever
+ * follows it.
+ */
+const BOX_HEADER_RE = /^(rgba?\([^()]*\)|#\w+|\w+)(?:\s+(.*))?$/;
+
+/**
+ * The CSS named colors, plus `transparent`. Used only to decide whether a
+ * `box` header's first bare word is its color or the start of its label
+ * (see `parseBoxHeader`); no color value is ever validated beyond this.
+ */
+const CSS_NAMED_COLORS: ReadonlySet<string> = new Set(
+  `transparent aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond
+   blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk
+   crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta
+   darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray
+   darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick
+   floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey
+   honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon
+   lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink
+   lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow
+   lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple
+   mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue
+   mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid
+   palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum
+   powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen
+   seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal
+   thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen`.split(/\s+/),
+);
 
 interface ArrowTokenDef {
   token: string;
@@ -68,6 +104,7 @@ interface ParserState {
   readonly diagnostics: Diagnostic[];
   readonly participants: SequenceParticipantDecl[];
   readonly participantIds: Set<string>;
+  readonly boxes: SequenceBox[];
   sawError: boolean;
   title: string | null;
 }
@@ -105,6 +142,81 @@ function unterminatedBlockDiagnostic(kind: string, line: number, column: number)
     line,
     column,
   };
+}
+
+/**
+ * Splits a `box` header's arguments (everything after the `box` keyword)
+ * into its optional color and optional label.
+ *
+ * Mermaid's grammar for this line is `box <color>? <label>?` with no fixed
+ * field order enforced, so the rule this parser implements is:
+ *
+ * - the first token is the color when it is *color-shaped* — an
+ *   `rgb()`/`rgba()` call, a `#hex` literal, `transparent`, or a CSS named
+ *   color (matched case-insensitively, reported verbatim) — and everything
+ *   after it is the label;
+ * - otherwise there is no color and the whole argument text is the label
+ *   (so `box My Service` labels the box "My Service" rather than reading
+ *   "My" as a color);
+ * - an empty argument text means no color and no label.
+ *
+ * A label is never reinterpreted as a color: only the first token is ever
+ * a color candidate.
+ */
+function parseBoxHeader(rest: string): { color: string | null; label: string | null } {
+  const headerMatch = BOX_HEADER_RE.exec(rest);
+  if (headerMatch === null) {
+    return { color: null, label: labelFrom(rest) };
+  }
+
+  const [, firstToken, remainder] = headerMatch;
+  const isColor =
+    firstToken.startsWith("#") ||
+    firstToken.startsWith("rgb(") ||
+    firstToken.startsWith("rgba(") ||
+    CSS_NAMED_COLORS.has(firstToken.toLowerCase());
+
+  if (!isColor) {
+    return { color: null, label: labelFrom(rest) };
+  }
+  return { color: firstToken, label: labelFrom(remainder === undefined ? "" : remainder.trim()) };
+}
+
+/**
+ * Records one `participant`/`actor` declaration — whether written in the
+ * preamble (`origin: "declared"`) or mid-stream via `create`
+ * (`origin: "created"`) — into the document's flat participants list, and
+ * returns the statement that marks its position in the statement stream.
+ *
+ * `declMatch` must be a `PARTICIPANT_RE` match (for `create`, of the text
+ * after the `create` keyword). The flat list keeps encounter order;
+ * separating preamble lanes from `create`d ones for lane ordering is
+ * `buildSequenceModel`'s job, not the parser's.
+ */
+function declareParticipant(
+  state: ParserState,
+  declMatch: RegExpExecArray,
+  origin: SequenceParticipantOrigin,
+  line: number,
+  column: number,
+): SequenceParticipantStatement {
+  const [, kindWord, id, alias] = declMatch;
+  const participantKind = kindWord as SequenceParticipantKind;
+  const label = alias !== undefined ? alias.trim() : id;
+
+  if (state.participantIds.has(id)) {
+    state.diagnostics.push({
+      severity: "warning",
+      message: `Participant "${id}" redeclared; keeping the first declaration`,
+      line,
+      column,
+    });
+  } else {
+    state.participantIds.add(id);
+    state.participants.push({ id, label, participantKind, line, column });
+  }
+
+  return { kind: "participant", id, label, participantKind, origin, line, column };
 }
 
 /** Outcome of parsing a statement list up to (and consuming) one of `terminators`, or EOF. */
@@ -153,31 +265,47 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const declMatch = PARTICIPANT_RE.exec(line);
     if (declMatch !== null) {
-      const [, kindWord, id, alias] = declMatch;
-      const participantKind = kindWord as SequenceParticipantKind;
-      const label = alias !== undefined ? alias.trim() : id;
+      statements.push(declareParticipant(state, declMatch, "declared", lineNumber, column));
+      state.index++;
+      continue;
+    }
 
-      if (state.participantIds.has(id)) {
+    const createMatch = matchLeadingKeyword(line, "create");
+    if (createMatch.matched) {
+      const createdDeclMatch = PARTICIPANT_RE.exec(createMatch.rest);
+      if (createdDeclMatch === null) {
         state.diagnostics.push({
-          severity: "warning",
-          message: `Participant "${id}" redeclared; keeping the first declaration`,
+          severity: "error",
+          message: `Invalid "create", expected "create participant <id>" or "create actor <id>": "${line}"`,
           line: lineNumber,
           column,
         });
-      } else {
-        state.participantIds.add(id);
-        state.participants.push({ id, label, participantKind, line: lineNumber, column });
+        state.sawError = true;
+        state.index++;
+        continue;
       }
+      statements.push(declareParticipant(state, createdDeclMatch, "created", lineNumber, column));
+      state.index++;
+      continue;
+    }
 
-      statements.push({
-        kind: "participant",
-        id,
-        label,
-        participantKind,
-        origin: "declared",
-        line: lineNumber,
-        column,
-      });
+    const destroyMatch = matchLeadingKeyword(line, "destroy");
+    if (destroyMatch.matched) {
+      const idMatch = DESTROY_ID_RE.exec(destroyMatch.rest);
+      if (idMatch === null) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `Invalid "destroy", expected "destroy <id>": "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        state.sawError = true;
+        state.index++;
+        continue;
+      }
+      // No check that the id was declared — that's the explicit-reference
+      // rule, enforced by `buildSequenceModel`, not here.
+      statements.push({ kind: "destroy", id: idMatch[1], line: lineNumber, column });
       state.index++;
       continue;
     }
@@ -217,6 +345,43 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         column,
       });
       state.index++;
+      continue;
+    }
+
+    const boxMatch = matchLeadingKeyword(line, "box");
+    if (boxMatch.matched) {
+      state.index++;
+      const { color, label } = parseBoxHeader(boxMatch.rest);
+      const body = parseBody(state, ["end"]);
+      if (body.terminatorKeyword !== "end") {
+        state.diagnostics.push(unterminatedBlockDiagnostic("box", lineNumber, column));
+        state.sawError = true;
+        continue;
+      }
+
+      const members = body.statements.filter((s) => s.kind === "participant");
+      if (members.length !== body.statements.length) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `A "box" body may only contain participant/actor declarations`,
+          line: lineNumber,
+          column,
+        });
+        state.sawError = true;
+      }
+
+      state.boxes.push({
+        color,
+        label,
+        participantIds: members.map((s) => s.id),
+        line: lineNumber,
+        column,
+      });
+      // A box groups lanes; it is not a statement of its own. Its member
+      // declarations stay in the enclosing statement stream, at the
+      // position the box was written, so statement order still tells
+      // `buildSequenceModel` where every lifeline begins.
+      statements.push(...body.statements);
       continue;
     }
 
@@ -414,8 +579,10 @@ function parseBranches<TBranch extends { label: string | null; body: SequenceSta
 /**
  * Parses Siren sequence-diagram source text (a `sequenceDiagram` header,
  * `participant`/`actor` declarations, message statements, `title`,
- * `autonumber`/`autonumber off`, and nested `loop ... end` control-flow
- * blocks) into a `SequenceDocument`. Never throws on malformed input —
+ * `autonumber`/`autonumber off`, nested control-flow blocks,
+ * `create participant`/`create actor` and `destroy` lifeline statements,
+ * and `box ... end` participant groupings) into a `SequenceDocument`.
+ * Never throws on malformed input —
  * syntax problems are reported as diagnostics instead.
  *
  * Only validates syntax shape: a message/destroy/block referencing a
@@ -432,6 +599,7 @@ export function parseSequenceDiagram(source: string): ParseResult {
     diagnostics,
     participants: [],
     participantIds: new Set<string>(),
+    boxes: [],
     sawError: false,
     title: null,
   };
@@ -479,7 +647,7 @@ export function parseSequenceDiagram(source: string): ParseResult {
     kind: "sequence",
     title: state.title,
     participants: state.participants,
-    boxes: [],
+    boxes: state.boxes,
     statements,
   };
 

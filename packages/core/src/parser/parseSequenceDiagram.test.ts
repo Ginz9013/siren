@@ -431,4 +431,236 @@ describe("parseSequenceDiagram", () => {
     ]);
     expect(document.participants.map((p) => p.id)).toEqual(["A", "B", "C"]);
   });
+
+  it("parses `create participant`/`create actor`, with and without aliasing, as origin-created participants at their position in the stream", () => {
+    const source = `sequenceDiagram
+  participant A
+  A->>Carl: hi
+  create participant Carl
+  create actor D as Donald
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements).toEqual([
+      {
+        kind: "participant",
+        id: "A",
+        label: "A",
+        participantKind: "participant",
+        origin: "declared",
+        line: 2,
+        column: 3,
+      },
+      {
+        kind: "message",
+        from: "A",
+        to: "Carl",
+        text: "hi",
+        arrow: { line: "solid", head: "filled" },
+        line: 3,
+        column: 3,
+      },
+      {
+        kind: "participant",
+        id: "Carl",
+        label: "Carl",
+        participantKind: "participant",
+        origin: "created",
+        line: 4,
+        column: 3,
+      },
+      {
+        kind: "participant",
+        id: "D",
+        label: "Donald",
+        participantKind: "actor",
+        origin: "created",
+        line: 5,
+        column: 3,
+      },
+    ]);
+    expect(document.participants).toEqual([
+      { id: "A", label: "A", participantKind: "participant", line: 2, column: 3 },
+      { id: "Carl", label: "Carl", participantKind: "participant", line: 4, column: 3 },
+      { id: "D", label: "Donald", participantKind: "actor", line: 5, column: 3 },
+    ]);
+  });
+
+  it("parses `destroy X` into a destroy statement, without rejecting an id that was never declared", () => {
+    const source = `sequenceDiagram
+  participant A
+  create participant Carl
+  A->>Carl: hi
+  destroy Carl
+  destroy NeverDeclared
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.filter((s) => s.kind === "destroy")).toEqual([
+      { kind: "destroy", id: "Carl", line: 5, column: 3 },
+      { kind: "destroy", id: "NeverDeclared", line: 6, column: 3 },
+    ]);
+  });
+
+  it("reports a malformed `destroy` line as an error diagnostic instead of a statement", () => {
+    const source = `sequenceDiagram
+  participant A
+  destroy
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error" && d.line === 3)).toBe(true);
+  });
+
+  it("parses `box <color> <label> ... end` into one box referencing its members, whose declarations stay in the statement stream", () => {
+    const source = `sequenceDiagram
+  box Purple Alice,Bob
+    participant Alice
+    actor Bob as Bobby
+  end
+  participant Carl
+  Alice->>Bob: hi
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.boxes).toEqual([
+      {
+        color: "Purple",
+        label: "Alice,Bob",
+        participantIds: ["Alice", "Bob"],
+        line: 2,
+        column: 3,
+      },
+    ]);
+    expect(document.participants).toEqual([
+      { id: "Alice", label: "Alice", participantKind: "participant", line: 3, column: 5 },
+      { id: "Bob", label: "Bobby", participantKind: "actor", line: 4, column: 5 },
+      { id: "Carl", label: "Carl", participantKind: "participant", line: 6, column: 3 },
+    ]);
+    expect(document.statements.map((s) => (s.kind === "participant" ? s.id : s.kind))).toEqual([
+      "Alice",
+      "Bob",
+      "Carl",
+      "message",
+    ]);
+  });
+
+  it("reads a box header's first token as its color only when that token is color-shaped", () => {
+    const source = `sequenceDiagram
+  box transparent
+    participant A
+  end
+  box rgb(255, 0, 0) Reds
+    participant B
+  end
+  box My Service
+    participant C
+  end
+  box
+    participant D
+  end
+  A->>B: hi
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.boxes.map((b) => ({ color: b.color, label: b.label }))).toEqual([
+      { color: "transparent", label: null },
+      { color: "rgb(255, 0, 0)", label: "Reds" },
+      { color: null, label: "My Service" },
+      { color: null, label: null },
+    ]);
+    expect(document.boxes.map((b) => b.participantIds)).toEqual([["A"], ["B"], ["C"], ["D"]]);
+  });
+
+  it("returns a null document plus an error diagnostic for a box missing its end", () => {
+    const source = `sequenceDiagram
+  box Purple Group
+    participant A
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error" && d.line === 2)).toBe(true);
+  });
+
+  it("interleaves create/destroy with messages and nested control-flow blocks, including inside a block body", () => {
+    const source = `sequenceDiagram
+  box Purple Team
+    participant A
+    participant B
+  end
+  A->>B: start
+  loop retry
+    create participant Worker
+    A->>Worker: spawn
+    alt failed
+      destroy Worker
+    else ok
+      Worker-->>A: done
+    end
+  end
+  destroy B
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.boxes.map((b) => b.participantIds)).toEqual([["A", "B"]]);
+    expect(document.participants.map((p) => p.id)).toEqual(["A", "B", "Worker"]);
+    expect(document.statements.map((s) => s.kind)).toEqual([
+      "participant",
+      "participant",
+      "message",
+      "loop",
+      "destroy",
+    ]);
+
+    const loopStatement = document.statements.find((s) => s.kind === "loop");
+    if (loopStatement === undefined || loopStatement.kind !== "loop") {
+      throw new Error("expected a loop statement");
+    }
+    expect(loopStatement.body.map((s) => s.kind)).toEqual(["participant", "message", "alt"]);
+    expect(loopStatement.body[0]).toEqual({
+      kind: "participant",
+      id: "Worker",
+      label: "Worker",
+      participantKind: "participant",
+      origin: "created",
+      line: 8,
+      column: 5,
+    });
+
+    const altStatement = loopStatement.body.find((s) => s.kind === "alt");
+    if (altStatement === undefined || altStatement.kind !== "alt") {
+      throw new Error("expected an alt statement nested in the loop");
+    }
+    expect(altStatement.branches[0].body).toEqual([
+      { kind: "destroy", id: "Worker", line: 11, column: 7 },
+    ]);
+  });
+
+  it("reports a non-declaration statement inside a box body as an error", () => {
+    const source = `sequenceDiagram
+  box Purple Group
+    participant A
+    A->>A: not allowed here
+  end
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error" && d.line === 2)).toBe(true);
+  });
 });
