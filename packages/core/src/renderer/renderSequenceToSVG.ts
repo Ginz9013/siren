@@ -34,6 +34,18 @@ const DESTROY_MARK_ARM = 7;
 const BOX_LABEL_PADDING_Y = 14;
 
 /**
+ * Share of an `actor` row's reserved height `[top, top + height]` given to
+ * the stick figure, measured from the row's top edge; the remainder is the
+ * label's own band. An actor is the one participant shape whose label sits
+ * beside its shape rather than inside it, so the row has to be split — drawing
+ * the figure across the whole row and hanging the label off its bottom edge
+ * (as this did before) printed the label through the figure's legs. 0.6 is
+ * roughly Mermaid's own figure-to-label proportion, and leaves the label a
+ * band comfortably taller than a line of text at the theme's font size.
+ */
+const ACTOR_ICON_BAND_RATIO = 0.6;
+
+/**
  * Marker id in `<defs>` for each arrowhead style, or `null` for `"none"`
  * (no marker at all). `"filled"` and `"bidirectionalFilled"` share the same
  * marker id — `orient="auto-start-reverse"` on the `<marker>` def makes the
@@ -456,10 +468,16 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
   if (participant.participantKind === "actor") {
     g.appendChild(buildActorIcon(participant, top));
 
+    // The figure owns the top of the row and the label owns what is left, so
+    // the two never share pixels; centring the label in that free band (rather
+    // than sitting it on the band's bottom edge) keeps ascenders and
+    // descenders inside the row, exactly as a participant box's label does.
+    const iconBottom = top + participant.height * ACTOR_ICON_BAND_RATIO;
     const text = document.createElementNS(SVG_NS, "text");
     text.setAttribute("x", String(participant.x));
-    text.setAttribute("y", String(top + participant.height));
+    text.setAttribute("y", String((iconBottom + top + participant.height) / 2));
     text.setAttribute("text-anchor", "middle");
+    text.setAttribute("dominant-baseline", "middle");
     text.textContent = participant.label;
     g.appendChild(text);
 
@@ -486,17 +504,21 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
 
 /**
  * Builds the stick-figure icon for an `actor` participant: a head circle,
- * a body line, an arm line, and two leg lines, sized within the
- * participant's layout-assigned bounding box, with its top edge at `top`.
+ * a body line, an arm line, and two leg lines, drawn inside the icon band —
+ * the top `ACTOR_ICON_BAND_RATIO` of the participant's layout-assigned row
+ * `[top, top + height]`. The rest of the row is the label's band (see
+ * `buildParticipant`); drawing the figure across the whole row instead put the
+ * label's glyphs straight through the figure's legs.
  */
 function buildActorIcon(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   const centerX = participant.x;
-  const headRadius = Math.max(Math.min(participant.width, participant.height) / 6, 4);
+  const iconHeight = participant.height * ACTOR_ICON_BAND_RATIO;
+  const headRadius = Math.max(Math.min(participant.width, iconHeight) / 6, 4);
   const headCenterY = top + headRadius;
   const bodyTopY = headCenterY + headRadius;
-  const bodyBottomY = top + participant.height * 0.7;
-  const legBottomY = top + participant.height;
+  const bodyBottomY = top + iconHeight * 0.7;
+  const legBottomY = top + iconHeight;
 
   const head = document.createElementNS(SVG_NS, "circle");
   head.setAttribute("cx", String(centerX));

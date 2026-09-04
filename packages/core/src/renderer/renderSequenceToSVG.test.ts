@@ -105,6 +105,27 @@ function buildBoxFixture(boxes: PositionedBox[]): PositionedSequenceDiagram {
   return { ...diagram, boxes };
 }
 
+/**
+ * The vertical extent an actor's stick-figure strokes actually occupy: the
+ * head circle's top and bottom plus every body/arm/leg line endpoint. Lets a
+ * test say "the label sits below the figure" without hard-coding which stroke
+ * happens to be the lowest one.
+ */
+function iconExtentY(participantGroup: Element): { min: number; max: number } {
+  const ys: number[] = [];
+
+  for (const circle of Array.from(participantGroup.querySelectorAll("circle"))) {
+    const cy = Number(circle.getAttribute("cy"));
+    const r = Number(circle.getAttribute("r"));
+    ys.push(cy - r, cy + r);
+  }
+  for (const line of Array.from(participantGroup.querySelectorAll("line"))) {
+    ys.push(Number(line.getAttribute("y1")), Number(line.getAttribute("y2")));
+  }
+
+  return { min: Math.min(...ys), max: Math.max(...ys) };
+}
+
 function extractMarkerId(urlRef: string | null | undefined): string | null {
   if (urlRef === null || urlRef === undefined) {
     return null;
@@ -188,6 +209,50 @@ describe("renderSequenceToSVG", () => {
 
     const text = bobGroup.querySelector("text")!;
     expect(text.textContent).toBe("Bob");
+  });
+
+  it("draws an actor's label clear of its stick figure, in the band the figure leaves free at the bottom of the participant's row", () => {
+    const svg = renderSequenceToSVG(buildParticipantsFixture());
+
+    // Bob's reserved row band is `[top, top + height]` at the top of his
+    // lifeline, and `[bottom - height, bottom]` at the bottom row.
+    const rows: { group: Element; bandTop: number }[] = Array.from(
+      svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]'),
+    ).map((group, index) => ({ group, bandTop: index === 0 ? 0 : 300 - 50 }));
+    expect(rows).toHaveLength(2);
+
+    for (const { group, bandTop } of rows) {
+      const bandBottom = bandTop + 50;
+      const icon = iconExtentY(group);
+      const label = group.querySelector("text")!;
+      const labelY = Number(label.getAttribute("y"));
+
+      // The whole figure sits inside the row's reserved band...
+      expect(icon.min).toBeGreaterThanOrEqual(bandTop);
+      expect(icon.max).toBeLessThanOrEqual(bandBottom);
+      // ...ending far enough above the band's bottom edge to leave the label a
+      // band of its own (the bottom 40% of the row, per buildActorIcon).
+      expect(bandBottom - icon.max).toBeGreaterThanOrEqual(0.4 * 50);
+
+      // And the label lives in that free band, below every icon stroke —
+      // centred in it, the same way a participant box centres its own label.
+      expect(labelY).toBeGreaterThan(icon.max);
+      expect(labelY).toBeLessThanOrEqual(bandBottom);
+      expect(label.getAttribute("dominant-baseline")).toBe("middle");
+      expect(labelY).toBe((icon.max + bandBottom) / 2);
+    }
+  });
+
+  it("leaves a participant lane's label centred in its own box (characterization: unchanged by the actor-label fix)", () => {
+    const svg = renderSequenceToSVG(buildParticipantsFixture());
+
+    const aliceGroup = svg.querySelector('g.siren-participant[data-siren-id="Alice"]')!;
+    const text = aliceGroup.querySelector("text")!;
+    // Alice's box is `[0, 40]` tall at x 60, so her label sits at its centre.
+    expect(text.getAttribute("x")).toBe("60");
+    expect(text.getAttribute("y")).toBe("20");
+    expect(text.getAttribute("text-anchor")).toBe("middle");
+    expect(text.getAttribute("dominant-baseline")).toBe("middle");
   });
 
   it("renders one siren-lifeline per participant, spanning the participant's full computed extent", () => {
