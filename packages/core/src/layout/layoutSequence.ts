@@ -2,11 +2,13 @@ import type {
   LayoutOptions,
   PositionedBlock,
   PositionedBlockDivider,
+  PositionedBox,
   PositionedMessage,
   PositionedParticipant,
   PositionedSequenceDiagram,
   PositionedSequenceElement,
   ResolvedSequenceBlock,
+  ResolvedSequenceBox,
   ResolvedSequenceMessage,
   ResolvedSequenceStatement,
   SequenceModel,
@@ -51,12 +53,40 @@ const BLOCK_DIVIDER_HEIGHT = 30;
 const BLOCK_DIVIDER_TOP_GAP = 10;
 /** Vertical gap between a block's last content and its own frame's bottom edge. */
 const BLOCK_MARGIN_BOTTOM = 20;
+/** Vertical gap above a `create`d participant's box, separating it from the preceding row. */
+const CREATE_ROW_GAP = 20;
+/** Vertical distance a `destroy` statement's X mark sits below the preceding row. */
+const DESTROY_ROW_HEIGHT = 30;
+/**
+ * Horizontal padding a box's background rect extends beyond its outermost
+ * member lane's own box. Kept below `LEFT_MARGIN` so a box grouping the
+ * first lane still starts inside the diagram.
+ */
+const BOX_PADDING_X = 12;
+
+/**
+ * Everything the recursive statement walk needs: the lane geometry it reads,
+ * and the truncated-lifeline extents it discovers on the way (a `create`d
+ * participant's top and a `destroy`ed participant's bottom are only known
+ * once the walk reaches that statement's row).
+ */
+interface SequenceLayoutContext {
+  /** Lane center x-coordinate per participant id. */
+  laneCenterById: Map<string, number>;
+  /** The positioned participant per id, for its box width/height. */
+  participantsById: Map<string, PositionedParticipant>;
+  /** y-coordinate a `create`d participant's lifeline starts at, keyed by id. */
+  createdTopById: Map<string, number>;
+  /** y-coordinate a `destroy`ed participant's lifeline ends at, keyed by id. */
+  destroyedBottomById: Map<string, number>;
+}
 
 /**
  * Computes participant lane x-positions (first-declaration order, sized
  * from measured label width) and their box `width`/`height`. `top`/`bottom`
- * are filled in afterward, once the lifeline's full vertical extent (which
- * depends on the message rows below) is known.
+ * are filled in afterward, once the statement walk has found the diagram's
+ * full vertical extent and any `create`/`destroy` row that truncates this
+ * particular lifeline.
  */
 function layoutParticipants(
   model: SequenceModel,
@@ -93,13 +123,13 @@ function layoutParticipants(
  * Assigns a y-coordinate to each message and a bounding box to each block,
  * walking `statements` recursively (block bodies included) in document
  * order, so the whole diagram shares one strictly-increasing time axis
- * regardless of nesting. `participant`/`destroy` statements are not yet
- * laid out — ticket 13 extends this same module.
+ * regardless of nesting. A `create` statement claims a row of its own —
+ * enough for the created participant's box — and records where that
+ * participant's lifeline begins.
  */
 function layoutStatements(
   statements: ResolvedSequenceStatement[],
-  laneCenterById: Map<string, number>,
-  participantsById: Map<string, PositionedParticipant>,
+  ctx: SequenceLayoutContext,
   startY: number,
   depth = 0,
 ): { elements: PositionedSequenceElement[]; endY: number } {
@@ -111,19 +141,37 @@ function layoutStatements(
       y += MESSAGE_ROW_HEIGHT;
       elements.push({
         kind: "message",
-        message: layoutMessage(statement.message, laneCenterById, y),
+        message: layoutMessage(statement.message, ctx.laneCenterById, y),
+      });
+      continue;
+    }
+
+    if (statement.kind === "participant") {
+      const participant = ctx.participantsById.get(statement.participant.id);
+      if (participant !== undefined && participant.origin === "created") {
+        y += CREATE_ROW_GAP;
+        ctx.createdTopById.set(participant.id, y);
+        y += participant.height;
+      }
+      continue;
+    }
+
+    if (statement.kind === "destroy") {
+      y += DESTROY_ROW_HEIGHT;
+      ctx.destroyedBottomById.set(statement.id, y);
+      elements.push({
+        kind: "destroyMark",
+        mark: {
+          participantId: statement.id,
+          x: ctx.laneCenterById.get(statement.id) ?? 0,
+          y,
+        },
       });
       continue;
     }
 
     if (statement.kind === "block") {
-      const { element, endY } = layoutBlock(
-        statement.block,
-        laneCenterById,
-        participantsById,
-        y,
-        depth,
-      );
+      const { element, endY } = layoutBlock(statement.block, ctx, y, depth);
       elements.push({ kind: "block", block: element });
       y = endY;
     }
@@ -142,8 +190,7 @@ function layoutStatements(
  */
 function layoutBlock(
   block: ResolvedSequenceBlock,
-  laneCenterById: Map<string, number>,
-  participantsById: Map<string, PositionedParticipant>,
+  ctx: SequenceLayoutContext,
   startY: number,
   depth: number,
 ): { element: PositionedBlock; endY: number } {
@@ -160,13 +207,7 @@ function layoutBlock(
       y += BLOCK_DIVIDER_HEIGHT;
     }
 
-    const { elements, endY } = layoutStatements(
-      branch.statements,
-      laneCenterById,
-      participantsById,
-      y,
-      depth + 1,
-    );
+    const { elements, endY } = layoutStatements(branch.statements, ctx, y, depth + 1);
     children.push(...elements);
     y = endY;
   });
@@ -174,7 +215,7 @@ function layoutBlock(
   const bottom = y + BLOCK_MARGIN_BOTTOM;
 
   const touchedParticipants = block.touchedParticipantIds
-    .map((id) => participantsById.get(id))
+    .map((id) => ctx.participantsById.get(id))
     .filter((p): p is PositionedParticipant => p !== undefined);
 
   // Nested blocks shed horizontal padding per level, so a child's frame is
@@ -212,6 +253,39 @@ function layoutBlock(
   };
 }
 
+/**
+ * Computes one box's background rect: horizontally spanning its member
+ * lanes' boxes plus padding, vertically the diagram's full height below the
+ * title, so it sits behind every lifeline it groups.
+ */
+function layoutBox(
+  box: ResolvedSequenceBox,
+  participantsById: Map<string, PositionedParticipant>,
+  top: number,
+  bottom: number,
+): PositionedBox {
+  const members = box.participantIds
+    .map((id) => participantsById.get(id))
+    .filter((p): p is PositionedParticipant => p !== undefined);
+
+  const left =
+    members.reduce((min, p) => Math.min(min, p.x - p.width / 2), Number.POSITIVE_INFINITY) -
+    BOX_PADDING_X;
+  const right =
+    members.reduce((max, p) => Math.max(max, p.x + p.width / 2), Number.NEGATIVE_INFINITY) +
+    BOX_PADDING_X;
+
+  return {
+    id: box.id,
+    color: box.color,
+    label: box.label,
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
 function layoutMessage(
   message: ResolvedSequenceMessage,
   laneCenterById: Map<string, number>,
@@ -237,20 +311,24 @@ function layoutMessage(
 }
 
 /**
- * Computes participant lane x-positions, full-height lifeline y-extents,
- * each message's y-coordinate and arrow endpoint x-coordinates, and every
- * nested control-flow block's bounding box (recursively, so time flows
- * strictly top-to-bottom across the whole diagram regardless of nesting).
- * `create`/`destroy`/`box` geometry is not yet computed — ticket 13 extends
- * this same module.
+ * Computes participant lane x-positions, each lifeline's y-extent —
+ * full-height, or truncated to its `create`/`destroy` rows — each message's
+ * y-coordinate and arrow endpoint x-coordinates, every nested control-flow
+ * block's bounding box (recursively, so time flows strictly top-to-bottom
+ * across the whole diagram regardless of nesting), and every box group's
+ * background rect.
  */
 export function layoutSequence(
   model: SequenceModel,
   options: LayoutOptions,
 ): PositionedSequenceDiagram {
   const participants = layoutParticipants(model, options);
-  const laneCenterById = new Map(participants.map((p) => [p.id, p.x]));
-  const participantsById = new Map(participants.map((p) => [p.id, p]));
+  const ctx: SequenceLayoutContext = {
+    laneCenterById: new Map(participants.map((p) => [p.id, p.x])),
+    participantsById: new Map(participants.map((p) => [p.id, p])),
+    createdTopById: new Map(),
+    destroyedBottomById: new Map(),
+  };
 
   const maxParticipantHeight = participants.reduce(
     (max, p) => Math.max(max, p.height),
@@ -259,17 +337,12 @@ export function layoutSequence(
   const titleHeight = model.title === null ? 0 : TITLE_HEIGHT;
   const lifelineTop = titleHeight + maxParticipantHeight;
 
-  const { elements, endY } = layoutStatements(
-    model.statements,
-    laneCenterById,
-    participantsById,
-    lifelineTop,
-  );
+  const { elements, endY } = layoutStatements(model.statements, ctx, lifelineTop);
   const lifelineBottom = endY + BOTTOM_MARGIN + maxParticipantHeight;
 
   for (const participant of participants) {
-    participant.top = lifelineTop;
-    participant.bottom = lifelineBottom;
+    participant.top = ctx.createdTopById.get(participant.id) ?? lifelineTop;
+    participant.bottom = ctx.destroyedBottomById.get(participant.id) ?? lifelineBottom;
   }
 
   const rightmostParticipantEdge = participants.reduce(
@@ -278,12 +351,18 @@ export function layoutSequence(
   );
   const rightmostBlockEdge = maxBlockRightEdge(elements);
 
+  const boxes = model.boxes.map((box) =>
+    layoutBox(box, ctx.participantsById, titleHeight, lifelineBottom),
+  );
+  const rightmostBoxEdge = boxes.reduce((max, box) => Math.max(max, box.x + box.width), 0);
+
   return {
     title: model.title,
     participants,
-    boxes: [],
+    boxes,
     elements,
-    width: Math.max(rightmostParticipantEdge, rightmostBlockEdge) + RIGHT_MARGIN,
+    width:
+      Math.max(rightmostParticipantEdge, rightmostBlockEdge, rightmostBoxEdge) + RIGHT_MARGIN,
     height: lifelineBottom,
   };
 }

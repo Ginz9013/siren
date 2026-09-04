@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   PositionedSequenceElement,
   ResolvedSequenceBlock,
+  ResolvedSequenceParticipant,
   ResolvedSequenceStatement,
   SequenceModel,
   TextMeasurer,
@@ -70,6 +71,53 @@ function coreModel(): SequenceModel {
       },
     ],
   };
+}
+
+/** A preamble-declared participant: full-height lifeline, boxes at both ends. */
+function declaredParticipant(id: string, label: string): ResolvedSequenceParticipant {
+  return {
+    id,
+    label,
+    participantKind: "participant",
+    origin: "declared",
+    createdAt: 0,
+    destroyedAt: null,
+  };
+}
+
+function messageStatement(
+  id: string,
+  from: string,
+  to: string,
+  text: string,
+): ResolvedSequenceStatement {
+  return {
+    kind: "message",
+    message: {
+      id,
+      from,
+      to,
+      text,
+      arrow: { line: "solid", head: "filled" },
+      autonumber: null,
+    },
+  };
+}
+
+function messagesOf(positioned: { elements: PositionedSequenceElement[] }) {
+  return positioned.elements
+    .filter((el): el is Extract<PositionedSequenceElement, { kind: "message" }> =>
+      el.kind === "message",
+    )
+    .map((el) => el.message);
+}
+
+function destroyMarksOf(positioned: { elements: PositionedSequenceElement[] }) {
+  return positioned.elements
+    .filter((el): el is Extract<PositionedSequenceElement, { kind: "destroyMark" }> =>
+      el.kind === "destroyMark",
+    )
+    .map((el) => el.mark);
 }
 
 describe("layoutSequence", () => {
@@ -738,5 +786,243 @@ describe("layoutSequence", () => {
     }
 
     assertBlocksInBounds(positionedWith.elements);
+  });
+
+  it("starts a created participant's lifeline at its create statement's y, below the messages that precede it", () => {
+    const model: SequenceModel = {
+      title: null,
+      participants: [
+        declaredParticipant("A", "Alice"),
+        declaredParticipant("B", "Bob"),
+        {
+          id: "C",
+          label: "Carol",
+          participantKind: "participant",
+          origin: "created",
+          createdAt: 1,
+          destroyedAt: null,
+        },
+      ],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "B", "before create"),
+        {
+          kind: "participant",
+          participant: {
+            id: "C",
+            label: "Carol",
+            participantKind: "participant",
+            origin: "created",
+            createdAt: 1,
+            destroyedAt: null,
+          },
+        },
+        messageStatement("m2", "B", "C", "after create"),
+      ],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    const [before, after] = messagesOf(positioned);
+
+    // The declared lanes still start at the diagram's participant row.
+    expect(byId.A.top).toBe(byId.B.top);
+    expect(byId.A.top).toBeLessThan(before.y);
+
+    // Carol's lifeline (and her only box) begins at the create statement's position.
+    expect(byId.C.top).toBeGreaterThan(before.y);
+    expect(byId.C.top).toBeLessThan(after.y);
+    // Her box fits between the create point and the message that follows it.
+    expect(byId.C.top + byId.C.height).toBeLessThanOrEqual(after.y);
+    // Undestroyed, she still runs to the diagram's bottom.
+    expect(byId.C.bottom).toBe(byId.A.bottom);
+  });
+
+  it("ends a destroyed participant's lifeline at its destroy statement's y and emits a destroy mark there", () => {
+    const model: SequenceModel = {
+      title: null,
+      participants: [
+        declaredParticipant("A", "Alice"),
+        { ...declaredParticipant("B", "Bob"), destroyedAt: 1 },
+      ],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "B", "goodbye"),
+        { kind: "destroy", id: "B" },
+        messageStatement("m2", "A", "A", "carry on"),
+      ],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    const [goodbye, carryOn] = messagesOf(positioned);
+    const marks = destroyMarksOf(positioned);
+
+    expect(marks).toHaveLength(1);
+    expect(marks[0].participantId).toBe("B");
+    expect(marks[0].x).toBe(byId.B.x);
+
+    // The mark sits at the destroy statement's row, between the two messages.
+    expect(marks[0].y).toBeGreaterThan(goodbye.y);
+    expect(marks[0].y).toBeLessThan(carryOn.y);
+
+    // Bob's lifeline stops there; Alice's still reaches the diagram's bottom.
+    expect(byId.B.bottom).toBe(marks[0].y);
+    expect(byId.B.bottom).toBeLessThan(byId.A.bottom);
+    expect(byId.B.top).toBe(byId.A.top);
+  });
+
+  it("spans a created-then-destroyed participant's lifeline exactly between its create and destroy rows, even nested inside a block", () => {
+    const carol: ResolvedSequenceParticipant = {
+      id: "C",
+      label: "Carol",
+      participantKind: "actor",
+      origin: "created",
+      createdAt: 2,
+      destroyedAt: 4,
+    };
+
+    const model: SequenceModel = {
+      title: null,
+      participants: [declaredParticipant("A", "Alice"), carol],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "A", "before"),
+        {
+          kind: "block",
+          block: {
+            id: "loop-1",
+            kind: "loop",
+            touchedParticipantIds: ["A", "C"],
+            branches: [
+              {
+                label: "each retry",
+                statements: [
+                  { kind: "participant", participant: carol },
+                  messageStatement("m2", "A", "C", "work"),
+                  { kind: "destroy", id: "C" },
+                ],
+              },
+            ],
+          } satisfies ResolvedSequenceBlock,
+        },
+        messageStatement("m3", "A", "A", "after"),
+      ],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    const blockElement = positioned.elements[1];
+    if (blockElement.kind !== "block") throw new Error("expected block element");
+
+    const [work] = messagesOf({ elements: blockElement.block.children });
+    const [mark] = destroyMarksOf({ elements: blockElement.block.children });
+
+    // Both ends of the span come from the nested statements, not the diagram edges.
+    expect(byId.C.top).toBeGreaterThan(byId.A.top);
+    expect(byId.C.top).toBeLessThan(work.y);
+    expect(byId.C.bottom).toBe(mark.y);
+    expect(mark.y).toBeGreaterThan(work.y);
+    expect(byId.C.bottom).toBeLessThan(byId.A.bottom);
+
+    // The enclosing block still contains the whole truncated lifeline.
+    expect(blockElement.block.y).toBeLessThan(byId.C.top);
+    expect(blockElement.block.y + blockElement.block.height).toBeGreaterThan(byId.C.bottom);
+  });
+
+  it("gives a box a background rect spanning its member lanes only, over the diagram's full height", () => {
+    const model: SequenceModel = {
+      title: "Grouped",
+      participants: [
+        declaredParticipant("A", "Alice"),
+        declaredParticipant("B", "Bob"),
+        declaredParticipant("C", "Carol"),
+      ],
+      boxes: [
+        {
+          id: "box-1",
+          color: "rgb(200, 220, 255)",
+          label: "Service tier",
+          participantIds: ["A", "B"],
+        },
+      ],
+      statements: [messageStatement("m1", "A", "C", "Ping")],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    expect(positioned.boxes).toHaveLength(1);
+    const box = positioned.boxes[0];
+    expect(box.id).toBe("box-1");
+    expect(box.color).toBe("rgb(200, 220, 255)");
+    expect(box.label).toBe("Service tier");
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+
+    // Padding on both sides of the member lanes' own boxes.
+    expect(box.x).toBeLessThan(byId.A.x - byId.A.width / 2);
+    expect(box.x + box.width).toBeGreaterThan(byId.B.x + byId.B.width / 2);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+
+    // Carol is not a member, so her lane stays outside the background.
+    expect(box.x + box.width).toBeLessThan(byId.C.x - byId.C.width / 2);
+
+    // Full diagram height: covers every member lifeline end to end, below the title.
+    expect(box.y).toBeLessThanOrEqual(byId.A.top);
+    expect(box.y + box.height).toBeGreaterThanOrEqual(byId.A.bottom);
+    expect(box.y).toBeGreaterThan(0);
+  });
+
+  it("grows width for a box's background padding and keeps create/destroy geometry inside the diagram bounds", () => {
+    const carol: ResolvedSequenceParticipant = {
+      id: "C",
+      label: "Carol",
+      participantKind: "participant",
+      origin: "created",
+      createdAt: 1,
+      destroyedAt: 3,
+    };
+
+    const withoutBox: SequenceModel = {
+      title: null,
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob"), carol],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "B", "start"),
+        { kind: "participant", participant: carol },
+        messageStatement("m2", "B", "C", "work"),
+        { kind: "destroy", id: "C" },
+      ],
+    };
+
+    // The box wraps the rightmost lanes, so its padding sits beyond every
+    // participant box the width already accounted for.
+    const withBox: SequenceModel = {
+      ...withoutBox,
+      boxes: [{ id: "box-1", color: null, label: null, participantIds: ["B", "C"] }],
+    };
+
+    const positionedWithout = layoutSequence(withoutBox, { measureText: fakeMeasurer });
+    const positionedWith = layoutSequence(withBox, { measureText: fakeMeasurer });
+
+    expect(positionedWith.width).toBeGreaterThan(positionedWithout.width);
+
+    const box = positionedWith.boxes[0];
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(positionedWith.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(positionedWith.height);
+
+    const byId = Object.fromEntries(positionedWith.participants.map((p) => [p.id, p]));
+    const [mark] = destroyMarksOf(positionedWith);
+
+    // The created participant's box and the destroy mark both fit inside the height.
+    expect(byId.C.top + byId.C.height).toBeLessThanOrEqual(positionedWith.height);
+    expect(mark.y).toBeLessThanOrEqual(positionedWith.height);
+    for (const participant of positionedWith.participants) {
+      expect(participant.bottom).toBeLessThanOrEqual(positionedWith.height);
+    }
   });
 });
