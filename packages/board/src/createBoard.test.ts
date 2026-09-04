@@ -329,16 +329,31 @@ step 1: enter B fade
     expect(readViewportTransform(container)).toEqual(beforeFailure);
   });
 
-  it("a mousedown + mousemove drag sequence over the board's canvas pans the diagram by the drag delta; mouseup stops the pan, and further window mousemove has no effect", () => {
+  it("a mousedown + mousemove drag sequence over the board's canvas pans the diagram at the default 1.0x fit-to-container scale — panning is not gated on zooming in first", () => {
     const container = document.createElement("div");
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
     const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
     stubRect(canvas, { width: 400, height: 300 });
-    // Zoom in first: at the initial fit-to-container scale (1.0) content
-    // exactly fills the container (no overflow), so panning is legitimately
-    // inert (locked centered — see the pan-clamp tests below). A large wheel
-    // event deterministically saturates zoom to the 4.0x clamp, giving the
-    // drag below real room to move without hitting that same clamp.
+
+    canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 100, clientY: 100, button: 0, bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 150, clientY: 130 }));
+
+    // Within the margin band around dead center (PAN_MARGIN_RATIO 0.5 * 400 =
+    // 200, * 300 = 150), the drag delta applies directly.
+    expect(readViewportTransform(container)).toEqual({ offsetX: 50, offsetY: 30, scale: 1 });
+
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 150, clientY: 130 }));
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 400 }));
+    expect(readViewportTransform(container)).toEqual({ offsetX: 50, offsetY: 30, scale: 1 }); // stopped, stray moves are no-ops
+  });
+
+  it("a mousedown + mousemove drag sequence over the board's canvas pans the diagram by the drag delta when zoomed in; mouseup stops the pan, and further window mousemove has no effect", () => {
+    const container = document.createElement("div");
+    createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+    const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    stubRect(canvas, { width: 400, height: 300 });
+    // A large wheel event deterministically saturates zoom to the 4.0x
+    // clamp, giving the drag below plenty of overflow room to move within.
     canvas.dispatchEvent(
       new WheelEvent("wheel", { clientX: 200, clientY: 150, deltaY: -1_000_000, bubbles: true, cancelable: true }),
     );
@@ -462,14 +477,17 @@ step 1: enter B fade
     expect(readViewportTransform(container)).toEqual({ offsetX: -1400, offsetY: -1050, scale: 4 });
   });
 
-  it("pan is locked centered on an axis where zoomed-out scaled content is smaller than the container — drag deltas on that axis produce no offset change", () => {
+  it("pan still moves the view — within a margin around dead center — even when zoomed-out content is smaller than the container", () => {
     const container = document.createElement("div");
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
     const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
     stubRect(canvas, { width: 400, height: 300 });
-    // Saturate zoom-out to exactly 0.1x (spec-given constant): scaled
-    // content is then 40x30 against a 400x300 container — smaller on both
-    // axes, so both are locked centered: (400-40)/2=180, (300-30)/2=135.
+    // Saturate zoom-out to exactly 0.1x (spec-given constant) with the wheel
+    // centered on the container's own center point (200, 150 of a 400x300
+    // box): cursor-anchored zoom keeps that point fixed at every step, so
+    // the content lands exactly dead center regardless of the internal
+    // zoom-per-tick formula — scaled content is then 40x30, dead center at
+    // (400-40)/2=180, (300-30)/2=135.
     canvas.dispatchEvent(
       new WheelEvent("wheel", { clientX: 200, clientY: 150, deltaY: 1_000_000, bubbles: true, cancelable: true }),
     );
@@ -478,12 +496,21 @@ step 1: enter B fade
     expect(zoomedOut.offsetX).toBeCloseTo(180, 10);
     expect(zoomedOut.offsetY).toBeCloseTo(135, 10);
 
+    // A drag well inside the margin (PAN_MARGIN_RATIO 0.5 * 400 = 200, * 300
+    // = 150 on each side of dead center) moves the view by the full delta —
+    // panning isn't locked here just because content is smaller than the
+    // container.
     canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 0, clientY: 0, button: 0, bubbles: true }));
     window.dispatchEvent(new MouseEvent("mousemove", { clientX: 50, clientY: 50 }));
-
     const dragged = readViewportTransform(container);
-    expect(dragged.offsetX).toBeCloseTo(180, 10);
-    expect(dragged.offsetY).toBeCloseTo(135, 10);
+    expect(dragged.offsetX).toBeCloseTo(230, 10); // 180 + 50
+    expect(dragged.offsetY).toBeCloseTo(185, 10); // 135 + 50
+
+    // Dragging far past the margin still hits a hard boundary — restMaxX
+    // (360, i.e. rect.width - scaledWidth) + marginX (200) = 560 for X;
+    // restMaxY (270) + marginY (150) = 420 for Y.
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 1_000_000, clientY: 1_000_000 }));
+    expect(readViewportTransform(container)).toEqual({ offsetX: 560, offsetY: 420, scale: 0.1 });
   });
 
   it("destroy() removes the viewport's window-level mousemove/mouseup listeners left over from an in-progress drag, so a stray window move afterward has no effect", () => {

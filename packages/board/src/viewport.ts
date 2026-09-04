@@ -33,8 +33,8 @@ export interface Viewport {
  * `createDefaultControls(board)`'s pattern of accepting a mount point rather
  * than creating its own. A detached or zero-size `surface` degrades to inert
  * (no pan/zoom range) rather than throwing, since `getBoundingClientRect()`
- * naturally reports zero size in that case and the clamp math below locks
- * offsets to 0 whenever scaled content isn't larger than the surface.
+ * naturally reports zero size in that case and the clamp math below then
+ * has nothing to compute a margin from.
  */
 export function createViewport(surface: HTMLElement): Viewport {
   const content = document.createElement("div");
@@ -56,11 +56,13 @@ export function createViewport(surface: HTMLElement): Viewport {
   }
 
   /**
-   * Clamps the current offset against `surface`'s current size: an axis
-   * where scaled content is larger than the surface can be dragged past its
-   * own edge by up to `PAN_MARGIN_RATIO` of the surface's size (a blank-space
-   * buffer before it locks), but no further; an axis where scaled content is
-   * smaller than (or equal to) the surface is locked centered.
+   * Clamps the current offset around its "rest" range against `surface`'s
+   * current size, plus `PAN_MARGIN_RATIO` of the surface's size as a
+   * blank-space buffer on each side — on every axis, regardless of whether
+   * the scaled content currently overflows the surface or not, so dragging
+   * always does *something*: an axis where content is smaller than the
+   * surface still lets it be dragged PAN_MARGIN_RATIO past dead center
+   * before locking, rather than being pinned there outright.
    */
   function clampOffset(): void {
     const rect = surface.getBoundingClientRect();
@@ -68,14 +70,12 @@ export function createViewport(surface: HTMLElement): Viewport {
     const scaledHeight = rect.height * scale;
     const marginX = rect.width * PAN_MARGIN_RATIO;
     const marginY = rect.height * PAN_MARGIN_RATIO;
-    offsetX =
-      scaledWidth > rect.width
-        ? Math.min(marginX, Math.max(rect.width - scaledWidth - marginX, offsetX))
-        : (rect.width - scaledWidth) / 2;
-    offsetY =
-      scaledHeight > rect.height
-        ? Math.min(marginY, Math.max(rect.height - scaledHeight - marginY, offsetY))
-        : (rect.height - scaledHeight) / 2;
+    const restMinX = Math.min(0, rect.width - scaledWidth);
+    const restMaxX = Math.max(0, rect.width - scaledWidth);
+    const restMinY = Math.min(0, rect.height - scaledHeight);
+    const restMaxY = Math.max(0, rect.height - scaledHeight);
+    offsetX = Math.min(restMaxX + marginX, Math.max(restMinX - marginX, offsetX));
+    offsetY = Math.min(restMaxY + marginY, Math.max(restMinY - marginY, offsetY));
   }
 
   function onMouseDown(event: MouseEvent): void {
