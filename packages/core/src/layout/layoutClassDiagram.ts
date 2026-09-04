@@ -283,9 +283,16 @@ export function layoutClassDiagram(
 /**
  * The extent every drawn thing fits inside: class boxes, relationship paths,
  * and the text anchored along them. The shared core reports bounds for the
- * graph it placed, but it never saw the labels and multiplicity strings this
- * module anchors afterwards — and its own figure does not always cover a
- * self-relationship's routing — so the diagram measures its own extent.
+ * graph it placed, but it never saw the multiplicity strings this module
+ * anchors afterwards — a multiplicity sits beside its end of a routed path,
+ * which can put it outside the core's figure — so the diagram measures its
+ * own extent and takes the larger.
+ *
+ * (An earlier version of this comment also claimed the core under-reports a
+ * self-relationship's routing. That was checked afterwards across four graph
+ * shapes in both axes and does not reproduce: dagre's reported bounds covered
+ * every node box every time. The multiplicity reason above is the real one,
+ * and it stands on its own.)
  */
 function diagramBounds(
   classes: PositionedClass[],
