@@ -481,4 +481,41 @@ describe("buildGraphModel", () => {
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([{ id: "A", label: "A" }]);
   });
+
+  it("dispatches a kind: \"class\" document to buildClassModel, leaving graph and model null and populating classModel", () => {
+    const document: SirenDocument = {
+      kind: "class",
+      direction: "TB",
+      classes: [
+        { id: "Animal", generic: null, annotation: null, members: [] },
+        { id: "Duck", generic: null, annotation: null, members: [] },
+      ],
+      relationships: [
+        {
+          from: "Animal",
+          to: "Duck",
+          line: "solid",
+          fromEnd: "triangle",
+          toEnd: "none",
+          label: null,
+          fromMultiplicity: null,
+          toMultiplicity: null,
+        },
+      ],
+      namespaces: [],
+      notes: [],
+      interactions: [],
+      styles: [],
+      timeline: null,
+    };
+
+    const { graph, model, classModel, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph).toBeNull();
+    expect(model).toBeNull();
+    expect(classModel).not.toBeNull();
+    expect(classModel!.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
+    expect(classModel!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+  });
 });
