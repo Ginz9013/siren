@@ -2,6 +2,38 @@ import { describe, expect, it } from "vitest";
 import { render } from "./index";
 import type { SirenRenderResult } from "./contracts";
 
+/**
+ * Kept identical to demos/sequence-diagram.html's fetched example,
+ * examples/sequence-core.srn — duplicated inline here (rather than read via
+ * `node:fs`) because this package has no `@types/node`/Node-built-in typings
+ * configured (`tsc --noEmit` has no `lib`/`types` for them) and adding one is
+ * outside this ticket's write scope (`packages/core/package.json` is not in
+ * it). If the two ever drift, this test and the demo page stop exercising
+ * the same source.
+ */
+const SEQUENCE_CORE_EXAMPLE_SOURCE = `sequenceDiagram
+title Core sequence diagram feature tour
+participant Client
+actor User
+participant Server
+
+autonumber
+User->Client: Open app
+Client->>Server: Fetch profile
+Server-->>Client: Profile data
+autonumber off
+Client->Server: Plain request
+Client-->Server: Plain dotted request
+Client->>Server: Solid filled arrowhead
+Client-->>Server: Dotted filled arrowhead
+Client<<->>Server: Solid bidirectional
+Client<<-->>Server: Dotted bidirectional
+Client-xServer: Solid cross (lost message)
+Client--xServer: Dotted cross (lost message)
+Client-)Server: Solid open (async)
+Client--)Server: Dotted open (async)
+`;
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -243,6 +275,66 @@ A[<script>alert(1)</script>] --> B[End]
       );
     }
     expect(controller.currentStep).toBe(2);
+  });
+
+  it("mounts an SVG for a real sequenceDiagram source with participant and message elements, and returns a null controller with no diagnostics", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+actor B
+A->>B: Hello
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.controller).toBeNull();
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+
+    const participantGroups = result.svg!.querySelectorAll("g.siren-participant");
+    const lifelines = result.svg!.querySelectorAll("line.siren-lifeline");
+    const messageGroups = result.svg!.querySelectorAll("g.siren-message");
+    expect(participantGroups).toHaveLength(2);
+    expect(lifelines).toHaveLength(2);
+    expect(messageGroups).toHaveLength(1);
+  });
+
+  it("produces an error diagnostic for a sequenceDiagram message referencing an undeclared participant, without throwing", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+A->>GHOST: Hello
+`;
+
+    let result: SirenRenderResult | undefined;
+    expect(() => {
+      result = render(source, container);
+    }).not.toThrow();
+
+    expect(
+      result!.diagnostics.some(
+        (d) => d.severity === "error" && d.message.includes("GHOST"),
+      ),
+    ).toBe(true);
+  });
+
+  it("renders demos/sequence-diagram.html's example source (examples/sequence-core.srn) end to end with no error diagnostics, both participant kinds, all ten arrow forms, a title, and autonumber labels", () => {
+    const container = document.createElement("div");
+
+    const result = render(SEQUENCE_CORE_EXAMPLE_SOURCE, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.controller).toBeNull();
+    expect(result.svg).not.toBeNull();
+
+    expect(result.svg!.querySelectorAll("g.siren-participant")).toHaveLength(3);
+    expect(result.svg!.querySelectorAll("line.siren-lifeline")).toHaveLength(3);
+    expect(result.svg!.querySelectorAll("g.siren-message")).toHaveLength(13);
+    expect(result.svg!.querySelectorAll("text.siren-title")).toHaveLength(1);
+    expect(
+      result.svg!.querySelectorAll("text.siren-autonumber").length,
+    ).toBeGreaterThan(0);
   });
 
   it("produces an error diagnostic (and drops the action, without throwing) for a highlight action referencing an element before it becomes visible, while the rest of the diagram still renders", () => {

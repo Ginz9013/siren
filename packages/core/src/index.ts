@@ -1,7 +1,9 @@
 import { parseSiren } from "./parser/parseSiren";
 import { buildGraphModel } from "./graph-model/buildGraphModel";
 import { layoutGraph } from "./layout/layoutGraph";
+import { layoutSequence } from "./layout/layoutSequence";
 import { renderToSVG } from "./renderer/renderToSVG";
+import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import type { Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
 
@@ -60,6 +62,19 @@ export function render(
 
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
+
+  if (parseResult.document.kind === "sequence") {
+    if (graphResult.model === null) {
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedSequence = layoutSequence(graphResult.model, { measureText });
+    const sequenceSvg = renderSequenceToSVG(positionedSequence);
+
+    container.replaceChildren(sequenceSvg);
+
+    return { svg: sequenceSvg, controller: null, diagnostics };
+  }
 
   if (graphResult.graph === null) {
     return { svg: null, controller: null, diagnostics };

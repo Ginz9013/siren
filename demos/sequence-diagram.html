@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — sequence diagram demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren sequence diagram demo</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+    <p class="intro">
+      A core-wave <code>sequenceDiagram</code> exercising both <code>participant</code> and
+      <code>actor</code> declarations, all ten Mermaid message arrow forms, a <code>title</code>,
+      and <code>autonumber</code>/<code>autonumber off</code>. Sequence diagrams render fully
+      visible and static — there is no Prev/Next/Reset control here, unlike the flowchart
+      step-reveal demos, since <code>SirenRenderResult.controller</code> is always
+      <code>null</code> for a sequence diagram (see spec.md's Non-goals).
+    </p>
+
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Unlike demos/step-reveal.html and demos/complex-showcase.html, this
+      page imports the real Vite library build of @siren/core directly
+      (packages/core/dist/siren-core.js), not @siren/board: sequence
+      diagrams have no timeline/animation controller to wire up (board's
+      whole job), so board would add nothing here. Run
+      `pnpm --filter @siren/core build` first.
+
+      The example document lives at examples/sequence-core.srn as a
+      standalone .srn file — loaded here via fetch(), not inlined — mirroring
+      demos/step-reveal.html's example-loading pattern. Note: fetch() of a
+      local file is blocked by the browser's file:// CORS policy, so this
+      page must be served over http(s), e.g. `python3 -m http.server` from
+      the repo root — opening the .html file directly by double-clicking it
+      will fail to load the example.
+    -->
+    <script type="module">
+      import { render } from "../packages/core/dist/siren-core.js";
+
+      const source = await fetch("../examples/sequence-core.srn").then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load examples/sequence-core.srn: ${response.status}`);
+        }
+        return response.text();
+      });
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
+
+      // jsdom-safe fixed-width-per-character estimate is fine for tests,
+      // but this is a real browser: measure labels with a real <canvas> 2D
+      // context so participant/message layout is sized from actual glyph
+      // metrics instead of a rough per-character guess.
+      const measureCanvas = document.createElement("canvas");
+      const measureCtx = measureCanvas.getContext("2d");
+      measureCtx.font = "14px system-ui, sans-serif";
+      const measureText = {
+        measure(text) {
+          const metrics = measureCtx.measureText(text);
+          return { width: metrics.width, height: 24 };
+        },
+      };
+
+      const result = render(source, container, { measureText });
+
+      for (const diagnostic of result.diagnostics) {
+        console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+      }
+
+      if (result.svg === null) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        const messageCount = result.svg.querySelectorAll("g.siren-message").length;
+        const participantCount = result.svg.querySelectorAll("g.siren-participant").length;
+        statusEl.textContent = `Rendered ${participantCount} participants, ${messageCount} messages.`;
+      }
+    </script>
+  </body>
+</html>
