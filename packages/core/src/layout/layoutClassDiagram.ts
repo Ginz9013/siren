@@ -45,23 +45,61 @@ function memberText(member: ClassMember): string {
   const classifier = member.classifier ?? "";
   if (member.memberKind === "method") {
     const returnType =
-      member.returnType === null ? "" : ` ${member.returnType}`;
-    const parameters = member.parameters ?? "";
+      member.returnType === null ? "" : ` ${angleBrackets(member.returnType)}`;
+    const parameters = angleBrackets(member.parameters ?? "");
     return `${visibility}${member.name}(${parameters})${returnType}${classifier}`;
   }
-  const type = member.type === null ? "" : `${member.type} `;
+  const type = member.type === null ? "" : `${angleBrackets(member.type)} `;
   return `${visibility}${type}${member.name}${classifier}`;
 }
 
 /**
+ * A type as drawn, with the author's `~T~` generic delimiters turned into
+ * the `<T>` Mermaid draws.
+ *
+ * Tildes are paired outside-in — the first with the last, then the next pair
+ * inward — because `~` is its own closing delimiter and so carries no nesting
+ * information of its own. That is what makes a nested generic come out right:
+ * `Map~String, List~int~~` draws as `Map<String, List<int>>`, where pairing
+ * left-to-right would produce `Map<String, List>int<>`. Mermaid pairs them
+ * the same way.
+ *
+ * Applied to a type, never to a whole member line: a member's
+ * package-visibility marker is a leading `~` — the same character, a
+ * different token — and it is a separate field on the model, so converting
+ * types only leaves it untouched by construction rather than by heuristic.
+ */
+function angleBrackets(type: string): string {
+  const chars = [...type];
+  let open = chars.indexOf("~");
+  let close = chars.lastIndexOf("~");
+  // An odd tilde has nothing to pair with once the pairs around it are used
+  // up: `open === close` ends the loop and it stays a literal `~`, so a typo
+  // costs the author that one character rather than the rest of the line.
+  while (open !== -1 && open < close) {
+    chars[open] = "<";
+    chars[close] = ">";
+    open = chars.indexOf("~");
+    close = chars.lastIndexOf("~");
+  }
+  return chars.join("");
+}
+
+/**
  * The name text a class box draws: its id, carrying its generic parameter in
- * the `~T~` spelling the author wrote. The tildes are put back rather than
- * translated to `<T>` so that a generic reads the same everywhere on the box
- * — a member's type keeps whatever the author typed (`+List~int~ items`), so
- * a name spelled `List<int>` beside it would be the odd one out.
+ * angle brackets. `~T~` is Mermaid's *authoring* delimiter — what Mermaid
+ * draws is `<T>` — and this board's premise is parity with what Mermaid
+ * draws, so the tildes never reach the canvas. A member's type is converted
+ * by the same rule, so a generic reads the same everywhere on the box.
+ *
+ * The generic the parser captured runs to the last tilde on the line, so a
+ * nested one (`class Map~String, List~int~~`) still arrives spelled with
+ * tildes inside; `angleBrackets` converts those too.
  */
 function classNameText(cls: ResolvedClass): string {
-  return cls.generic === null ? cls.id : `${cls.id}~${cls.generic}~`;
+  return cls.generic === null
+    ? cls.id
+    : `${cls.id}<${angleBrackets(cls.generic)}>`;
 }
 
 /**
@@ -376,13 +414,20 @@ export function layoutClassDiagram(
     ],
   });
 
-  const placedById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  // Boxes as the shared core placed them, in *core* coordinates: the frames
+  // below are measured in this space, and the translation that follows is
+  // what moves everything out of it. Nothing outside the frame code may read
+  // this map — see `boxInDiagramSpaceById` for the space the diagram is
+  // described in.
+  const boxInCoreSpaceById = new Map(
+    laidOut.nodes.map((box) => [box.id, box]),
+  );
 
   const frames = groups.map((group) =>
     namespaceFrame(
       group.ns,
-      group.memberIds.map((id) => placedById.get(id)!),
-      placedById.get(namespaceNodeId(group.ns.id))!,
+      group.memberIds.map((id) => boxInCoreSpaceById.get(id)!),
+      boxInCoreSpaceById.get(namespaceNodeId(group.ns.id))!,
       options,
     ),
   );
@@ -400,7 +445,9 @@ export function layoutClassDiagram(
     y: point.y + shift.y,
   });
 
-  const boxById = new Map(
+  // The same boxes in *diagram* coordinates — translated, non-negative, and
+  // the only space anything returned from here is described in.
+  const boxInDiagramSpaceById = new Map(
     laidOut.nodes.map((box) => [box.id, { ...box, ...shifted(box) }]),
   );
   const routeById = new Map(
@@ -423,7 +470,7 @@ export function layoutClassDiagram(
   }));
 
   const classes = model.classes.map<PositionedClass>((cls) => {
-    const box = boxById.get(cls.id)!;
+    const box = boxInDiagramSpaceById.get(cls.id)!;
     const plan = planById.get(cls.id)!;
 
     /** Moves a compartment's box-local geometry into diagram coordinates. */
@@ -486,7 +533,7 @@ export function layoutClassDiagram(
   const attachedNoteIds = new Set(attachedNotes.map((note) => note.id));
 
   const notes = model.notes.map<PositionedClassNote>((note) => {
-    const box = boxById.get(noteNodeId(note.id))!;
+    const box = boxInDiagramSpaceById.get(noteNodeId(note.id))!;
     // The joining edge was routed from the class to the note; the connector
     // is drawn the other way round, out of the note it belongs to.
     const link = attachedNoteIds.has(note.id)

@@ -414,7 +414,11 @@ describe("layoutClassDiagram", () => {
   });
 
   describe("generics", () => {
-    it("draws a class's generic parameter as part of its name and sizes the box from the composed name", () => {
+    // `~T~` is Mermaid's *authoring* delimiter for a generic; what Mermaid
+    // draws is `<T>`. This board's premise is parity with what Mermaid draws,
+    // so the drawn text carries angle brackets and the tildes never reach the
+    // canvas.
+    it("draws a class's generic parameter in angle brackets and sizes the box from the composed name", () => {
       const diagram = layoutClassDiagram(
         classModel({
           classes: [cls("Square", [], { generic: "Shape" }), cls("Circle")],
@@ -423,12 +427,165 @@ describe("layoutClassDiagram", () => {
       );
 
       const square = classById(diagram, "Square");
-      expect(square.name).toBe("Square~Shape~");
+      expect(square.name).toBe("Square<Shape>");
       // The name it draws is the widest line of this class, so the box has to
       // hold the whole composed name with padding to spare.
-      expect(square.width).toBeGreaterThan(measuredWidth("Square~Shape~"));
+      expect(square.width).toBeGreaterThan(measuredWidth("Square<Shape>"));
       // A class with no generic still draws its bare id.
       expect(classById(diagram, "Circle").name).toBe("Circle");
+    });
+
+    it("draws a member's generic type and return type in angle brackets, leaving a package-visibility tilde alone", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Store", [
+              attribute({ visibility: "+", type: "List~int~", name: "items" }),
+              // The leading `~` here is the package-visibility marker, a
+              // different token that happens to share the character.
+              attribute({ visibility: "~", type: "String", name: "tag" }),
+              attribute({ visibility: "+", type: "int", name: "age" }),
+              method({
+                visibility: "+",
+                name: "all",
+                parameters: "",
+                returnType: "List~int~",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const store = classById(diagram, "Store");
+      expect(store.attributes!.members.map((m) => m.text)).toEqual([
+        "+List<int> items",
+        "~String tag",
+        "+int age",
+      ]);
+      expect(store.methods!.members.map((m) => m.text)).toEqual([
+        "+all() List<int>",
+      ]);
+    });
+
+    it("draws a generic type inside a method's parameter list in angle brackets", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Store", [
+              method({
+                visibility: "+",
+                name: "addAll",
+                parameters: "List~int~ items, String tag",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(
+        classById(diagram, "Store").methods!.members.map((m) => m.text),
+      ).toEqual(["+addAll(List<int> items, String tag)"]);
+    });
+
+    it("converts a nested generic throughout, on the class name and on a member type", () => {
+      // `class Map~String, List~int~~` reaches layout as the id `Map` and the
+      // generic `String, List~int~`: the parser's capture runs to the last
+      // tilde on the line, so the inner pair is still spelled with tildes.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls(
+              "Map",
+              [
+                attribute({
+                  visibility: "+",
+                  type: "Map~String, List~int~~",
+                  name: "lookup",
+                }),
+              ],
+              { generic: "String, List~int~" },
+            ),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const map = classById(diagram, "Map");
+      expect(map.name).toBe("Map<String, List<int>>");
+      expect(map.attributes!.members.map((m) => m.text)).toEqual([
+        "+Map<String, List<int>> lookup",
+      ]);
+    });
+
+    it("draws a tilde with no partner literally and still converts the pairs around it", () => {
+      // The documented rule for author typos: tildes pair outside-in, and
+      // whichever one is left over is drawn as itself. A missing tilde
+      // therefore costs the author that one character, not the rest of the
+      // line.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Broken", [
+              attribute({ visibility: "+", type: "List~int", name: "items" }),
+              attribute({
+                visibility: "+",
+                type: "Map~String,List~int~",
+                name: "lookup",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(
+        classById(diagram, "Broken").attributes!.members.map((m) => m.text),
+      ).toEqual(["+List~int items", "+Map<String,List~int> lookup"]);
+    });
+
+    it("measures a class box from the converted text, not from the tildes the author wrote", () => {
+      // A measurer that charges heavily for a tilde, so a box measured from
+      // the authored spelling is a different width from one measured from the
+      // drawn spelling. The real measurer's two glyphs differ far less, but
+      // they do differ.
+      const tildeIsWide: TextMeasurer = {
+        measure(text: string) {
+          const tildes = [...text].filter((ch) => ch === "~").length;
+          return { width: text.length * 8 + tildes * 40, height: 24 };
+        },
+      };
+
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Square", [], { generic: "Shape" }),
+            cls("Store", [
+              attribute({ visibility: "+", type: "List~int~", name: "items" }),
+            ]),
+          ],
+        }),
+        { measureText: tildeIsWide },
+      );
+
+      // Both boxes hold their drawn line with padding to spare, and neither
+      // paid for the two tildes that are no longer drawn.
+      const square = classById(diagram, "Square");
+      expect(square.width).toBeGreaterThan(
+        tildeIsWide.measure("Square<Shape>").width,
+      );
+      expect(square.width).toBeLessThan(
+        tildeIsWide.measure("Square~Shape~").width,
+      );
+
+      const store = classById(diagram, "Store");
+      expect(store.width).toBeGreaterThan(
+        tildeIsWide.measure("+List<int> items").width,
+      );
+      expect(store.width).toBeLessThan(
+        tildeIsWide.measure("+List~int~ items").width,
+      );
     });
   });
 
@@ -575,6 +732,37 @@ describe("layoutClassDiagram", () => {
       expect(frame.labelAnchor.y + LINE_HEIGHT / 2).toBeLessThanOrEqual(
         Math.min(...members.map((box) => box.y)),
       );
+    });
+
+    it("moves the whole diagram down when a frame's label strip reaches above the graph's own top edge", () => {
+      // The frame is grown outward from the boxes it encloses: its label
+      // strip is taller than the room the layout core leaves above a
+      // clustered box, so the frame reaches above the corner the core laid
+      // the graph out from. `grouped()` is exactly that case.
+      const diagram = grouped();
+      const frame = diagram.namespaces[0];
+      const members = ["Triangle", "Square"].map((id) =>
+        classById(diagram, id),
+      );
+
+      // Flush with the top edge: the diagram was translated by exactly the
+      // overshoot. Any less and the frame would be drawn off the canvas.
+      expect(frame.y).toBe(0);
+      // Everything moved with it, rather than the frame alone being clamped
+      // to zero: the label strip above the first member box survives the
+      // translation.
+      expect(Math.min(...members.map((box) => box.y))).toBeGreaterThan(
+        frame.y + LINE_HEIGHT,
+      );
+      // And nothing else was left behind above the canvas.
+      for (const box of [...diagram.classes, ...diagram.notes]) {
+        expect(box.y).toBeGreaterThanOrEqual(0);
+      }
+      for (const routed of diagram.relationships) {
+        for (const point of routed.points) {
+          expect(point.y).toBeGreaterThanOrEqual(0);
+        }
+      }
     });
 
     it("leaves a class in no namespace outside every frame", () => {
