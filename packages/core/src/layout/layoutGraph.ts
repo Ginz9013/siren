@@ -1,66 +1,77 @@
-import dagre from "@dagrejs/dagre";
 import type {
+  Direction,
   GraphModel,
   LayoutOptions,
   PositionedGraph,
 } from "../contracts";
+import {
+  layoutDirectedGraph,
+  type RankDirection,
+} from "./layoutDirectedGraph";
 
 /**
- * Computes node positions and edge paths for a resolved `GraphModel` using
- * `@dagrejs/dagre` for rank/position assignment. `PositionedNode.x/y` are
- * the top-left corner of the node's bounding box (dagre itself reports
- * node centers; this module converts to top-left so downstream renderer
- * code can place a `<rect>` directly).
+ * Maps the flowchart header's direction vocabulary onto the shared layout
+ * core's rank directions. Mermaid writes top-down as `TD`; the graph
+ * literature — and `layoutDirectedGraph` — calls it `TB`.
+ */
+function rankDirectionFor(direction: Direction): RankDirection {
+  return direction === "LR" ? "LR" : "TB";
+}
+
+/**
+ * Computes node positions and edge paths for a resolved `GraphModel`.
+ *
+ * This is the flowchart adapter over `layoutDirectedGraph`: it measures each
+ * node's label, hands the resulting sizes to the shared layout core, and
+ * reattaches the flowchart's own data (labels, shapes, the resolved timeline)
+ * to the coordinates that come back. All graph-layout math — and the only
+ * dependency on the layout engine — lives in the shared core.
+ *
+ * `PositionedNode.x/y` are the top-left corner of the node's bounding box,
+ * as the core returns them, so renderer code can place a `<rect>` directly.
  */
 export function layoutGraph(
   graph: GraphModel,
   options: LayoutOptions,
 ): PositionedGraph {
-  const g = new dagre.graphlib.Graph({ multigraph: true });
-  g.setGraph({ rankdir: graph.direction });
-  g.setDefaultEdgeLabel(() => ({}));
+  const laidOut = layoutDirectedGraph({
+    rankdir: rankDirectionFor(graph.direction),
+    nodes: graph.nodes.map((node) => ({
+      id: node.id,
+      ...options.measureText.measure(node.label),
+    })),
+    edges: graph.edges.map((edge) => ({
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+    })),
+  });
 
-  for (const node of graph.nodes) {
-    const { width, height } = options.measureText.measure(node.label);
-    g.setNode(node.id, { width, height });
-  }
-
-  for (const edge of graph.edges) {
-    g.setEdge(edge.from, edge.to, {}, edge.id);
-  }
-
-  dagre.layout(g);
+  const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
   const nodes = graph.nodes.map((node) => {
-    const laidOut = g.node(node.id);
+    const box = boxById.get(node.id)!;
     return {
       ...node,
-      x: laidOut.x - laidOut.width / 2,
-      y: laidOut.y - laidOut.height / 2,
-      width: laidOut.width,
-      height: laidOut.height,
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
     };
   });
 
-  const edges = graph.edges.map((edge) => {
-    const laidOut = g.edge(edge.from, edge.to, edge.id);
-    return {
-      ...edge,
-      points: laidOut.points.map((p: { x: number; y: number }) => ({
-        x: p.x,
-        y: p.y,
-      })),
-    };
-  });
-
-  const graphLabel = g.graph();
+  const edges = graph.edges.map((edge) => ({
+    ...edge,
+    points: routeById.get(edge.id)!.points,
+  }));
 
   return {
     direction: graph.direction,
     nodes,
     edges,
     timeline: graph.timeline,
-    width: graphLabel.width ?? 0,
-    height: graphLabel.height ?? 0,
+    width: laidOut.width,
+    height: laidOut.height,
   };
 }
