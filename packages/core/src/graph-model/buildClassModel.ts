@@ -378,11 +378,17 @@ const ALLOWED_SCHEMES_PHRASE = "only http:, https: and mailto: are allowed";
 const URL_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*$/;
 
 /**
- * The characters removed from a URL before its scheme is read: every ASCII
- * control character, plus space and DEL. Written as a source pattern rather
- * than a literal so the file holds no raw control bytes.
+ * A URL that names no scheme of its own and adopts the page's: `//host`, and
+ * the `/\`, `\/`, `\\` spellings a browser reads the same way.
  */
-const STRIPPED = "[\\u0000-\\u0020\\u007f]";
+const URL_SCHEME_RELATIVE_RE = /^[/\\][/\\]/;
+
+/**
+ * The characters removed from a URL before it is judged: every ASCII control
+ * character, plus space and DEL. Written with escapes rather than raw bytes so
+ * the file holds no control characters of its own.
+ */
+const URL_STRIPPED_RE = /[\u0000-\u0020\u007f]/g;
 
 /**
  * Decides whether an author-written `href` may be emitted, returning `null`
@@ -395,16 +401,18 @@ const STRIPPED = "[\\u0000-\\u0020\\u007f]";
  *
  * The rules, in the order they apply:
  *
- * - Leading whitespace and control characters are stripped, and whitespace
- *   and control characters are removed from the candidate scheme, *before*
- *   the scheme is read. A browser does the same, so a `javascript:` URL with
- *   a tab, a newline or a NUL wedged into the word — or leading spaces in
- *   front of it — navigates exactly like the plain spelling. Matching on
- *   the raw text is the classic way an allowlist is walked past.
+ * - Whitespace and control characters are removed from the whole URL, once,
+ *   *before* any of the rules below read it. A browser does the same, so a
+ *   `javascript:` URL with a tab, a newline or a NUL wedged into the word —
+ *   or leading spaces in front of it — navigates exactly like the plain
+ *   spelling. Matching on the raw text is the classic way an allowlist is
+ *   walked past, and matching *some* rules on the stripped text and others
+ *   on the raw text is the same hole with extra steps: `/<TAB>/evil.example`
+ *   walked past an earlier version that stripped only for the scheme rule.
  *   The rule is deliberately stricter than the URL spec (which only strips
- *   tab and newline): a legitimate scheme contains none of these characters,
- *   so the worst an over-strict reading costs is a diagnostic on a URL that
- *   was already unusable.
+ *   tab and newline): no usable URL needs a control character or an interior
+ *   space, so the worst an over-strict reading costs is a diagnostic on a URL
+ *   that was already unusable.
  * - A URL beginning `//` — or the `\\` a browser reads as `//` — is
  *   rejected. It carries no scheme of its own, adopting instead whatever
  *   the page was served over, so it is an off-site navigation wearing the
@@ -415,18 +423,18 @@ const STRIPPED = "[\\u0000-\\u0020\\u007f]";
  *   schemes; it does not demand absolute URLs.
  */
 function rejectUrl(url: string): string | null {
-  const leading = url.replace(new RegExp(`^${STRIPPED}+`), "");
+  const stripped = url.replace(URL_STRIPPED_RE, "");
 
-  if (/^[/\\][/\\]/.test(leading)) {
+  if (URL_SCHEME_RELATIVE_RE.test(stripped)) {
     return `uses a scheme-relative URL ("${url}"), which adopts the page's scheme`;
   }
 
-  const colon = leading.indexOf(":");
+  const colon = stripped.indexOf(":");
   if (colon === -1) {
     return null;
   }
 
-  const candidate = leading.slice(0, colon).replace(new RegExp(STRIPPED, "g"), "");
+  const candidate = stripped.slice(0, colon);
   if (!URL_SCHEME_RE.test(candidate)) {
     // Not a scheme at all: the `:` belongs to a path or a fragment, as in
     // `./a:b`. A relative URL, and allowed.
@@ -516,7 +524,10 @@ const CSS_PROPERTY_RE = /^-{0,2}[A-Za-z_][A-Za-z0-9_-]*$/;
  *
  * A deliberately short list. It is not "every way CSS can fetch" — the
  * board named these two — so a future value-bearing sink (`image-set(`,
- * `-moz-binding`) belongs here, and this is the one place to add it.
+ * `-moz-binding`) belongs here, and this is the one place to add it. Note
+ * that these patterns match *text*: an author can spell any of them with a
+ * CSS escape, which is why `rejectStyleProperty` refuses a value carrying a
+ * backslash before it can reach one of these names in disguise.
  */
 const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[] = [
   { pattern: /url\s*\(/i, name: "url(", why: "can fetch a remote resource" },
@@ -581,6 +592,24 @@ function rejectStyleProperty({ property, value }: ClassStyleProperty): string | 
   // attribute; refusing it here means the answer does not matter.
   if (value.includes(";")) {
     return `Style value for "${property}" contains ";", which would smuggle in a second declaration; dropping the declaration.`;
+  }
+
+  // A `\` is refused outright, because the list above matches literal text
+  // and literal text is not what CSS reads: `\75 rl(...)`, `u\72 l(...)` and
+  // `\65 xpression(...)` are `url(` and `expression(` by the time a browser
+  // has resolved the escapes, and each one walked straight past the list.
+  //
+  // The alternative — resolving escapes here and matching the result — means
+  // owning a piece of the CSS tokenizer (hex escapes with an optional
+  // trailing space, `\0` becoming U+FFFD, escapes inside strings versus
+  // idents), and every corner of it got subtly wrong reopens exactly this
+  // hole. Refusing is cruder, and it is the option whose failure mode is a
+  // diagnostic rather than a bypass: no value this stage exists to emit —
+  // colors, lengths, keywords, `rgb()`, `color-mix()` — contains a
+  // backslash, so nothing legitimate is lost by not spending that
+  // complexity here.
+  if (value.includes("\\")) {
+    return `Style value for "${property}" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.`;
   }
 
   return null;

@@ -738,6 +738,25 @@ describe("buildClassModel", () => {
       expect(model!.interactions).toEqual([]);
     });
 
+    it.each([
+      ["plain", "//evil.example/shape"],
+      ["a backslash", "/\\evil.example/shape"],
+      ["a tab wedged between the slashes", "/\t/evil.example/shape"],
+      ["a NUL wedged between the slashes", "/\u0000\\evil.example/shape"],
+      ["leading whitespace", " //evil.example/shape"],
+    ])(
+      "drops an off-site navigation spelled scheme-relative with %s, which a browser resolves as another origin",
+      (_how, url) => {
+        const { model, diagnostics } = buildClassModel(hrefDocument(url));
+
+        expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
+        expect(diagnostics[0].message).toContain("scheme-relative");
+        expect(model!.interactions).toEqual([]);
+        // The class still renders, just without a link.
+        expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+      },
+    );
+
     it("leaves a call interaction alone, whose action is a callback name and not a URL", () => {
       const { model, diagnostics } = buildClassModel(
         classDocument({
@@ -1116,6 +1135,37 @@ describe("buildClassModel", () => {
           "dropping the declaration.",
       ]);
       expect(model!.styles).toEqual([]);
+    });
+
+    it.each([
+      ["url(", "background-image", "\\75 rl(https://e.example/beacon.png)"],
+      ["url( with the escape on its second letter", "background-image", "u\\72 l(https://e.example/beacon.png)"],
+      ["expression(", "width", "\\65 xpression(alert(1))"],
+      ["url( behind a custom property", "--brand-image", "\\75 rl(https://e.example/beacon.png)"],
+    ])("drops a value that reaches a rejected function by spelling %s as a CSS escape", (_what, property, value) => {
+      const { model, diagnostics } = buildClassModel(
+        styleDocument([
+          { property, value },
+          { property: "fill", value: "#fdd" },
+        ]),
+      );
+
+      expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
+      // The declaration beside it is untouched, as for any other rejection.
+      expect(model!.styles).toEqual([
+        { classId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+      ]);
+    });
+
+    it.each([
+      ["a function-bearing color", "fill", "rgb(255, 0, 0)"],
+      ["a nested function-bearing color", "fill", "color-mix(in srgb, rgb(1,2,3), #fff)"],
+      ["a length calculation", "stroke-width", "calc(2px + 1em)"],
+    ])("keeps admitting %s, which the rejection list has no quarrel with", (_what, property, value) => {
+      const { model, diagnostics } = buildClassModel(styleDocument([{ property, value }]));
+
+      expect(diagnostics).toEqual([]);
+      expect(model!.styles).toEqual([{ classId: "Shape", properties: [{ property, value }] }]);
     });
 
     it("reports a rejected classDef declaration once, at the classDef, however many classes apply it", () => {
