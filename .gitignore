@@ -7,3 +7,8 @@ dist/
 # not permanent repo content. Load-bearing decisions get written up as ADRs
 # in docs/adr/ instead once a slice lands.
 .scratch/
+
+# Dev-only notes: roadmap drafts, reference docs, working notes not meant
+# for the published repo. Promote anything load-bearing into docs/ or an
+# ADR once it's decided.
+.dev/
