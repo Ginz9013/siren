@@ -5,7 +5,10 @@ import type {
   Point,
   PositionedClass,
   PositionedClassDiagram,
+  PositionedClassNote,
   ResolvedClass,
+  ResolvedClassNamespace,
+  ResolvedClassNote,
   ResolvedClassRelationship,
   ResolvedTimeline,
   TextMeasurer,
@@ -84,6 +87,22 @@ function relationship(
   };
 }
 
+function namespace(
+  id: string,
+  classIds: string[],
+  label: string = id,
+): ResolvedClassNamespace {
+  return { id, label, classIds };
+}
+
+function note(
+  id: string,
+  text: string,
+  targetId: string | null = null,
+): ResolvedClassNote {
+  return { id, text, targetId };
+}
+
 function classModel(partial: Partial<ClassModel> = {}): ClassModel {
   return {
     direction: "TB",
@@ -107,18 +126,45 @@ function classById(
   return found;
 }
 
+function noteById(
+  diagram: PositionedClassDiagram,
+  id: string,
+): PositionedClassNote {
+  const found = diagram.notes.find((candidate) => candidate.id === id);
+  if (!found) throw new Error(`no positioned note ${id}`);
+  return found;
+}
+
 /** Straight-line distance between two points. */
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** Whether a point sits on or inside a positioned class's box. */
-function touches(point: Point, box: PositionedClass): boolean {
+/** Any rectangle in diagram coordinates — a class box, a frame, a note. */
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Whether a point sits on or inside a positioned box. */
+function touches(point: Point, box: Rect): boolean {
   return (
     point.x >= box.x &&
     point.x <= box.x + box.width &&
     point.y >= box.y &&
     point.y <= box.y + box.height
+  );
+}
+
+/** Whether two rectangles share any area. Touching edges do not count. */
+function overlaps(a: Rect, b: Rect): boolean {
+  return (
+    a.x < b.x + b.width &&
+    b.x < a.x + a.width &&
+    a.y < b.y + b.height &&
+    b.y < a.y + a.height
   );
 }
 
@@ -367,6 +413,25 @@ describe("layoutClassDiagram", () => {
     });
   });
 
+  describe("generics", () => {
+    it("draws a class's generic parameter as part of its name and sizes the box from the composed name", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Square", [], { generic: "Shape" }), cls("Circle")],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const square = classById(diagram, "Square");
+      expect(square.name).toBe("Square~Shape~");
+      // The name it draws is the widest line of this class, so the box has to
+      // hold the whole composed name with padding to spare.
+      expect(square.width).toBeGreaterThan(measuredWidth("Square~Shape~"));
+      // A class with no generic still draws its bare id.
+      expect(classById(diagram, "Circle").name).toBe("Circle");
+    });
+  });
+
   describe("relationships", () => {
     it("routes each relationship as a path from one class box to the other, carrying its type through", () => {
       const diagram = layoutClassDiagram(
@@ -457,6 +522,129 @@ describe("layoutClassDiagram", () => {
       expect(routed.labelAnchor).toBeNull();
       expect(routed.fromMultiplicityAnchor).toBeNull();
       expect(routed.toMultiplicityAnchor).toBeNull();
+    });
+  });
+
+  describe("namespaces", () => {
+    /** `namespace BaseShapes { Triangle, Square }`, plus an outsider linked to it. */
+    function grouped(): PositionedClassDiagram {
+      return layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Triangle", [], { namespaceId: "BaseShapes" }),
+            cls("Square", [], { namespaceId: "BaseShapes" }),
+            cls("Duck"),
+          ],
+          namespaces: [namespace("BaseShapes", ["Triangle", "Square"])],
+          relationships: [relationship("Square", "Duck")],
+        }),
+        { measureText: fakeMeasurer },
+      );
+    }
+
+    it("frames a namespace's member classes with padding on every side, and anchors its label above them", () => {
+      const diagram = grouped();
+
+      expect(diagram.namespaces).toHaveLength(1);
+      const frame = diagram.namespaces[0];
+      expect(frame.id).toBe("BaseShapes");
+      expect(frame.label).toBe("BaseShapes");
+      // A frame is drawn like every other element, so it stays on the canvas.
+      expect(frame.x).toBeGreaterThanOrEqual(0);
+      expect(frame.y).toBeGreaterThanOrEqual(0);
+
+      const members = ["Triangle", "Square"].map((id) =>
+        classById(diagram, id),
+      );
+      for (const box of members) {
+        expect(frame.x).toBeLessThan(box.x);
+        expect(frame.y).toBeLessThan(box.y);
+        expect(frame.x + frame.width).toBeGreaterThan(box.x + box.width);
+        expect(frame.y + frame.height).toBeGreaterThan(box.y + box.height);
+      }
+
+      // The label sits inside the frame and clear of every member box.
+      const halfLabel = measuredWidth("BaseShapes") / 2;
+      expect(frame.labelAnchor.x - halfLabel).toBeGreaterThanOrEqual(frame.x);
+      expect(frame.labelAnchor.x + halfLabel).toBeLessThanOrEqual(
+        frame.x + frame.width,
+      );
+      expect(frame.labelAnchor.y - LINE_HEIGHT / 2).toBeGreaterThanOrEqual(
+        frame.y,
+      );
+      expect(frame.labelAnchor.y + LINE_HEIGHT / 2).toBeLessThanOrEqual(
+        Math.min(...members.map((box) => box.y)),
+      );
+    });
+
+    it("leaves a class in no namespace outside every frame", () => {
+      const diagram = grouped();
+
+      const duck = classById(diagram, "Duck");
+      expect(overlaps(duck, diagram.namespaces[0])).toBe(false);
+    });
+
+    it("frames nothing for a namespace naming no class this diagram has", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Duck")],
+          namespaces: [namespace("Empty", [])],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(diagram.namespaces).toEqual([]);
+    });
+  });
+
+  describe("notes", () => {
+    /** A free note and a note attached to `Duck`, alongside `Animal <|-- Duck`. */
+    function annotated(): PositionedClassDiagram {
+      return layoutClassDiagram(
+        classModel({
+          classes: [cls("Animal"), cls("Duck")],
+          relationships: [relationship("Animal", "Duck")],
+          notes: [
+            note("note1", "ducks are birds", "Duck"),
+            note("note2", "a free-standing remark"),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+    }
+
+    it("gives every note a box that fits its text, overlapping no class box", () => {
+      const diagram = annotated();
+
+      expect(diagram.notes.map((n) => n.id)).toEqual(["note1", "note2"]);
+      expect(diagram.notes.map((n) => n.text)).toEqual([
+        "ducks are birds",
+        "a free-standing remark",
+      ]);
+      for (const box of diagram.notes) {
+        expect(box.width).toBeGreaterThan(measuredWidth(box.text));
+        expect(box.height).toBeGreaterThan(LINE_HEIGHT);
+        for (const cls of diagram.classes) {
+          expect(overlaps(box, cls)).toBe(false);
+        }
+      }
+    });
+
+    it("leaves a free note unconnected", () => {
+      expect(noteById(annotated(), "note2").linkPoints).toBeNull();
+    });
+
+    it("connects an attached note's box to its target class's box", () => {
+      const diagram = annotated();
+
+      const attached = noteById(diagram, "note1");
+      const duck = classById(diagram, "Duck");
+      expect(attached.linkPoints).not.toBeNull();
+      const points = attached.linkPoints!;
+      expect(points.length).toBeGreaterThanOrEqual(2);
+      // The connector runs from the note it belongs to towards its target.
+      expect(touches(points[0], attached)).toBe(true);
+      expect(touches(points[points.length - 1], duck)).toBe(true);
     });
   });
 
@@ -581,6 +769,60 @@ describe("layoutClassDiagram", () => {
             withinBounds(anchor, size.width / 2, size.height / 2);
           }
         }
+      }
+    });
+
+    it("grows its width and height to contain namespace frames, their labels, note boxes and connectors", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Triangle", [], { namespaceId: "BaseShapes" }),
+            cls("Square", [], { namespaceId: "BaseShapes" }),
+            cls("Duck"),
+          ],
+          namespaces: [
+            // A label far wider than the two small boxes it groups, so the
+            // frame reaches past what the graph itself needed.
+            namespace(
+              "BaseShapes",
+              ["Triangle", "Square"],
+              "Base shapes and every last one of their many close and distant relatives",
+            ),
+          ],
+          relationships: [relationship("Square", "Duck")],
+          notes: [
+            note("note1", "ducks are birds", "Duck"),
+            note("note2", "a free-standing remark"),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const withinBounds = (point: Point, halfWidth = 0, halfHeight = 0) => {
+        expect(point.x - halfWidth).toBeGreaterThanOrEqual(0);
+        expect(point.y - halfHeight).toBeGreaterThanOrEqual(0);
+        expect(point.x + halfWidth).toBeLessThanOrEqual(diagram.width);
+        expect(point.y + halfHeight).toBeLessThanOrEqual(diagram.height);
+      };
+
+      const boxes: Rect[] = [
+        ...diagram.classes,
+        ...diagram.namespaces,
+        ...diagram.notes,
+      ];
+      expect(boxes).toHaveLength(6);
+      for (const box of boxes) {
+        withinBounds({ x: box.x, y: box.y });
+        withinBounds({ x: box.x + box.width, y: box.y + box.height });
+      }
+
+      for (const frame of diagram.namespaces) {
+        const size = fakeMeasurer.measure(frame.label);
+        withinBounds(frame.labelAnchor, size.width / 2, size.height / 2);
+      }
+
+      for (const box of diagram.notes) {
+        for (const point of box.linkPoints ?? []) withinBounds(point);
       }
     });
   });

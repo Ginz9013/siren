@@ -7,11 +7,15 @@ import type {
   PositionedClass,
   PositionedClassCompartment,
   PositionedClassDiagram,
+  PositionedClassNamespace,
+  PositionedClassNote,
   PositionedClassRelationship,
   ResolvedClass,
+  ResolvedClassNamespace,
 } from "../contracts";
 import {
   layoutDirectedGraph,
+  type DirectedGraphLayoutNodeBox,
   type RankDirection,
 } from "./layoutDirectedGraph";
 
@@ -19,6 +23,12 @@ import {
 const CLASS_PADDING_X = 12;
 /** Vertical padding between a compartment's edge and its first/last text line. */
 const CLASS_PADDING_Y = 8;
+/** Gap between a namespace frame and the member boxes it encloses. */
+const NAMESPACE_PADDING = 12;
+/** Horizontal padding between a note box's edge and its text. */
+const NOTE_PADDING_X = 10;
+/** Vertical padding between a note box's edge and its text. */
+const NOTE_PADDING_Y = 8;
 /** How far along the line from its own end a multiplicity string is anchored. */
 const MULTIPLICITY_OFFSET_ALONG = 12;
 /** How far to the side of the line a multiplicity string is anchored, so it never sits on it. */
@@ -41,6 +51,17 @@ function memberText(member: ClassMember): string {
   }
   const type = member.type === null ? "" : `${member.type} `;
   return `${visibility}${type}${member.name}${classifier}`;
+}
+
+/**
+ * The name text a class box draws: its id, carrying its generic parameter in
+ * the `~T~` spelling the author wrote. The tildes are put back rather than
+ * translated to `<T>` so that a generic reads the same everywhere on the box
+ * — a member's type keeps whatever the author typed (`+List~int~ items`), so
+ * a name spelled `List<int>` beside it would be the odd one out.
+ */
+function classNameText(cls: ResolvedClass): string {
+  return cls.generic === null ? cls.id : `${cls.id}~${cls.generic}~`;
 }
 
 /**
@@ -88,7 +109,7 @@ function planClassBox(
     bottom += annotation.height;
   }
 
-  const name = measure(cls.id);
+  const name = measure(classNameText(cls));
   widths.push(name.width);
   bottom += name.height + CLASS_PADDING_Y;
 
@@ -169,6 +190,88 @@ function multiplicityAnchor(points: Point[], atStart: boolean): Point {
 }
 
 /**
+ * The id a namespace's cluster is known by inside the shared layout core.
+ * Namespace ids and class ids are separate id spaces in a `ClassModel`, so a
+ * namespace may legitimately be named after a class; prefixing keeps the two
+ * from colliding as graph nodes. Class nodes keep their own id unprefixed, so
+ * a diagram with no namespaces is laid out exactly as before.
+ */
+function namespaceNodeId(id: string): string {
+  return `namespace:${id}`;
+}
+
+/**
+ * The id a note is known by inside the shared layout core. Prefixed for the
+ * same reason a namespace's is: note ids and class ids are separate id spaces
+ * in a `ClassModel`.
+ */
+function noteNodeId(id: string): string {
+  return `note:${id}`;
+}
+
+/**
+ * The id of the edge joining an attached note to its class. Prefixed away
+ * from the `${from}-${to}` ids relationships carry, so a note's connector is
+ * never mistaken for one of them.
+ */
+function noteLinkEdgeId(id: string): string {
+  return `note-link:${id}`;
+}
+
+/**
+ * A namespace's frame: the cluster box the shared core placed, widened until
+ * it clears every member box by `NAMESPACE_PADDING` and has a strip along its
+ * top for its own label. The core sizes a cluster to hold its children, but
+ * knows nothing about the label this module draws on it, so the frame is
+ * taken as whichever is larger at each edge.
+ *
+ * The result can extend past the core's own top-left corner, which is why
+ * `layoutClassDiagram` translates the diagram afterwards.
+ */
+function namespaceFrame(
+  ns: ResolvedClassNamespace,
+  memberBoxes: DirectedGraphLayoutNodeBox[],
+  clusterBox: DirectedGraphLayoutNodeBox,
+  options: LayoutOptions,
+): PositionedClassNamespace {
+  const label = options.measureText.measure(ns.label);
+  const left = Math.min(
+    clusterBox.x,
+    ...memberBoxes.map((box) => box.x - NAMESPACE_PADDING),
+  );
+  const top = Math.min(
+    clusterBox.y,
+    // The label strip: padding, the label line, then padding again before the
+    // first member box starts.
+    ...memberBoxes.map(
+      (box) => box.y - NAMESPACE_PADDING * 2 - label.height,
+    ),
+  );
+  const right = Math.max(
+    clusterBox.x + clusterBox.width,
+    left + label.width + NAMESPACE_PADDING * 2,
+    ...memberBoxes.map((box) => box.x + box.width + NAMESPACE_PADDING),
+  );
+  const bottom = Math.max(
+    clusterBox.y + clusterBox.height,
+    ...memberBoxes.map((box) => box.y + box.height + NAMESPACE_PADDING),
+  );
+
+  return {
+    id: ns.id,
+    label: ns.label,
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    labelAnchor: {
+      x: (left + right) / 2,
+      y: top + NAMESPACE_PADDING + label.height / 2,
+    },
+  };
+}
+
+/**
  * Computes class boxes and relationship paths for a resolved `ClassModel`.
  *
  * This is the class-diagram adapter over `layoutDirectedGraph`: it measures
@@ -184,26 +287,140 @@ export function layoutClassDiagram(
     model.classes.map((cls) => [cls.id, planClassBox(cls, options)]),
   );
 
+  const knownClassIds = new Set(model.classes.map((cls) => cls.id));
+
+  // Membership is read from each namespace's own class list, filtered to the
+  // classes this model actually has. That one list drives both the cluster
+  // parentage and the frame, so the two cannot disagree. A namespace left
+  // with no members is dropped entirely: it has nothing to enclose, and the
+  // shared core lays a childless cluster out as an ordinary box, which would
+  // put a stray frame in the middle of the diagram.
+  const groups = model.namespaces
+    .map((ns) => ({
+      ns,
+      memberIds: ns.classIds.filter((id) => knownClassIds.has(id)),
+    }))
+    .filter((group) => group.memberIds.length > 0);
+
+  const namespaceIdByClassId = new Map<string, string>();
+  for (const group of groups) {
+    for (const id of group.memberIds) {
+      namespaceIdByClassId.set(id, group.ns.id);
+    }
+  }
+
+  // A note counts as attached only when the class it names is one this model
+  // has. `buildClassModel` diagnoses a note pointing at an unknown class, so
+  // this is the layout declining to invent a connector to nothing.
+  const attachedNotes = model.notes.filter(
+    (note) => note.targetId !== null && knownClassIds.has(note.targetId),
+  );
+
   const laidOut = layoutDirectedGraph({
     rankdir: RANK_DIRECTION[model.direction],
-    nodes: model.classes.map((cls) => {
-      const plan = planById.get(cls.id)!;
-      return { id: cls.id, width: plan.width, height: plan.height };
-    }),
-    edges: model.relationships.map((rel) => ({
-      id: rel.id,
-      from: rel.from,
-      to: rel.to,
-      // A labelled relationship asks the core to keep its ranks far enough
-      // apart for the text, and reports back where that space ended up.
-      ...(rel.label === null
-        ? {}
-        : { label: options.measureText.measure(rel.label) }),
-    })),
+    nodes: [
+      ...model.classes.map((cls) => {
+        const plan = planById.get(cls.id)!;
+        const namespaceId = namespaceIdByClassId.get(cls.id);
+        return {
+          id: cls.id,
+          width: plan.width,
+          height: plan.height,
+          ...(namespaceId === undefined
+            ? {}
+            : { parentId: namespaceNodeId(namespaceId) }),
+        };
+      }),
+      ...groups.map((group) => {
+        // The core sizes a cluster from its children and ignores what it is
+        // given here; the label's own size is passed anyway, as the smallest
+        // the frame could sensibly be.
+        const label = options.measureText.measure(group.ns.label);
+        return {
+          id: namespaceNodeId(group.ns.id),
+          isCluster: true,
+          width: label.width + NAMESPACE_PADDING * 2,
+          height: label.height + NAMESPACE_PADDING * 2,
+        };
+      }),
+      // A note is a box the layout places like any other, which is what keeps
+      // it from landing on top of a class.
+      ...model.notes.map((note) => {
+        const text = options.measureText.measure(note.text);
+        return {
+          id: noteNodeId(note.id),
+          width: text.width + NOTE_PADDING_X * 2,
+          height: text.height + NOTE_PADDING_Y * 2,
+        };
+      }),
+    ],
+    edges: [
+      ...model.relationships.map((rel) => ({
+        id: rel.id,
+        from: rel.from,
+        to: rel.to,
+        // A labelled relationship asks the core to keep its ranks far enough
+        // apart for the text, and reports back where that space ended up.
+        ...(rel.label === null
+          ? {}
+          : { label: options.measureText.measure(rel.label) }),
+      })),
+      // An attached note is joined to its class by an edge that is never
+      // drawn as a relationship: it is what puts the note beside the class it
+      // annotates, and its route is the note's connector.
+      ...attachedNotes.map((note) => ({
+        id: noteLinkEdgeId(note.id),
+        from: note.targetId!,
+        to: noteNodeId(note.id),
+      })),
+    ],
   });
 
-  const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
-  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
+  const placedById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+
+  const frames = groups.map((group) =>
+    namespaceFrame(
+      group.ns,
+      group.memberIds.map((id) => placedById.get(id)!),
+      placedById.get(namespaceNodeId(group.ns.id))!,
+      options,
+    ),
+  );
+
+  // A frame is grown outward from the boxes it encloses, so it can reach
+  // above or left of the corner the core laid the graph out from. Everything
+  // is shifted by however far it did, rather than letting a frame be drawn at
+  // a negative coordinate — off the canvas.
+  const shift = {
+    x: Math.max(0, ...frames.map((frame) => -frame.x)),
+    y: Math.max(0, ...frames.map((frame) => -frame.y)),
+  };
+  const shifted = (point: Point): Point => ({
+    x: point.x + shift.x,
+    y: point.y + shift.y,
+  });
+
+  const boxById = new Map(
+    laidOut.nodes.map((box) => [box.id, { ...box, ...shifted(box) }]),
+  );
+  const routeById = new Map(
+    laidOut.edges.map((route) => [
+      route.id,
+      {
+        ...route,
+        points: route.points.map(shifted),
+        labelAnchor:
+          route.labelAnchor === undefined
+            ? undefined
+            : shifted(route.labelAnchor),
+      },
+    ]),
+  );
+  const namespaces = frames.map((frame) => ({
+    ...frame,
+    ...shifted(frame),
+    labelAnchor: shifted(frame.labelAnchor),
+  }));
 
   const classes = model.classes.map<PositionedClass>((cls) => {
     const box = boxById.get(cls.id)!;
@@ -226,7 +443,7 @@ export function layoutClassDiagram(
 
     return {
       id: cls.id,
-      name: cls.id,
+      name: classNameText(cls),
       annotation: cls.annotation,
       x: box.x,
       y: box.y,
@@ -266,17 +483,43 @@ export function layoutClassDiagram(
     },
   );
 
-  const bounds = diagramBounds(classes, relationships, options);
+  const attachedNoteIds = new Set(attachedNotes.map((note) => note.id));
+
+  const notes = model.notes.map<PositionedClassNote>((note) => {
+    const box = boxById.get(noteNodeId(note.id))!;
+    // The joining edge was routed from the class to the note; the connector
+    // is drawn the other way round, out of the note it belongs to.
+    const link = attachedNoteIds.has(note.id)
+      ? [...routeById.get(noteLinkEdgeId(note.id))!.points].reverse()
+      : null;
+    return {
+      id: note.id,
+      text: note.text,
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      linkPoints: link,
+    };
+  });
+
+  const bounds = diagramBounds(
+    classes,
+    relationships,
+    namespaces,
+    notes,
+    options,
+  );
 
   return {
     direction: model.direction,
     classes,
     relationships,
-    namespaces: [],
-    notes: [],
+    namespaces,
+    notes,
     timeline: model.timeline,
-    width: Math.max(laidOut.width, bounds.width),
-    height: Math.max(laidOut.height, bounds.height),
+    width: Math.max(laidOut.width + shift.x, bounds.width),
+    height: Math.max(laidOut.height + shift.y, bounds.height),
   };
 }
 
@@ -297,6 +540,8 @@ export function layoutClassDiagram(
 function diagramBounds(
   classes: PositionedClass[],
   relationships: PositionedClassRelationship[],
+  namespaces: PositionedClassNamespace[],
+  notes: PositionedClassNote[],
   options: LayoutOptions,
 ): { width: number; height: number } {
   let right = 0;
@@ -313,8 +558,12 @@ function diagramBounds(
     cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
   };
 
-  for (const box of classes) {
+  for (const box of [...classes, ...namespaces, ...notes]) {
     cover(box.x + box.width, box.y + box.height);
+  }
+
+  for (const note of notes) {
+    for (const point of note.linkPoints ?? []) cover(point.x, point.y);
   }
 
   for (const rel of relationships) {
