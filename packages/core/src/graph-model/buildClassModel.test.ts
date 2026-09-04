@@ -127,6 +127,66 @@ describe("buildClassModel", () => {
     expect(model!.classes[1].members).toEqual([]);
   });
 
+  it("unions rather than concatenates, so a member written twice appears once", () => {
+    // What the parser hands over for:
+    //   Animal : +int age
+    //   Animal : +int age
+    // Two declarations, each carrying its own copy of the same member line.
+    // The merge is a union: a class that renders "+int age" twice is never
+    // what the author meant.
+    const firstAge = attribute({ name: "age", line: 2, column: 1 });
+    const secondAge = attribute({ name: "age", line: 3, column: 1 });
+
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [
+          classDecl({ id: "Animal", members: [firstAge] }),
+          classDecl({ id: "Animal", members: [secondAge] }),
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.classes).toHaveLength(1);
+    expect(model!.classes[0].members).toEqual([firstAge]);
+  });
+
+  it("treats members differing in any rendered part as distinct when unioning", () => {
+    // Same name, different visibility / type / parameters / return type /
+    // classifier: each renders as its own line, so each survives the union.
+    const publicAge = attribute({ name: "age", visibility: "+" });
+    const privateAge = attribute({ name: "age", visibility: "-" });
+    const stringAge = attribute({ name: "age", visibility: "+", type: "String" });
+    const swim = method({ name: "swim" });
+    const swimFar = method({ name: "swim", parameters: "int distance" });
+    const swimVoid = method({ name: "swim", returnType: null });
+    const swimAbstract = method({ name: "swim", classifier: "*" });
+
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [
+          classDecl({
+            id: "Animal",
+            members: [publicAge, privateAge, stringAge, swim, swimFar, swimVoid, swimAbstract],
+          }),
+          classDecl({ id: "Animal", members: [swim] }),
+        ],
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(model!.classes[0].members).toEqual([
+      publicAge,
+      privateAge,
+      stringAge,
+      swim,
+      swimFar,
+      swimVoid,
+      swimAbstract,
+    ]);
+  });
+
   it("keeps an annotation and a generic carried by a later declaration than the one that introduced the class", () => {
     // The implicit declaration a relationship makes comes first and carries
     // neither, so taking the first declaration's values wholesale would
@@ -170,6 +230,104 @@ describe("buildClassModel", () => {
         column: 1,
       },
     ]);
+  });
+
+  it("resolves each namespace to a stable namespace-n id carrying its declared name and member ids", () => {
+    // What the parser hands over for:
+    //   namespace BaseShapes {
+    //     class Triangle
+    //     class Square
+    //   }
+    //   namespace Widgets {
+    //     class Button
+    //   }
+    // — the member classes are ordinary declarations too, and the namespace
+    // records only the grouping.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [
+          classDecl({ id: "Triangle" }),
+          classDecl({ id: "Square" }),
+          classDecl({ id: "Button" }),
+        ],
+        namespaces: [
+          { id: "BaseShapes", classIds: ["Triangle", "Square"] },
+          { id: "Widgets", classIds: ["Button"] },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.namespaces).toEqual([
+      { id: "namespace-1", label: "BaseShapes", classIds: ["Triangle", "Square"] },
+      { id: "namespace-2", label: "Widgets", classIds: ["Button"] },
+    ]);
+    expect(model!.classes.map((c) => [c.id, c.namespaceId])).toEqual([
+      ["Triangle", "namespace-1"],
+      ["Square", "namespace-1"],
+      ["Button", "namespace-2"],
+    ]);
+  });
+
+  it("errors and keeps the first namespace when two of them name the same class", () => {
+    // A class belongs to at most one namespace: a frame cannot enclose a box
+    // that another frame also encloses. The first claim wins, and the second
+    // namespace neither lists the class nor takes it from the first.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Square" })],
+        namespaces: [
+          { id: "BaseShapes", classIds: ["Triangle", "Square"], line: 2, column: 1 },
+          { id: "Widgets", classIds: ["Triangle"], line: 7, column: 1 },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Class "Triangle" is named by more than one namespace ("BaseShapes" and "Widgets"); keeping the first.',
+        line: 7,
+        column: 1,
+      },
+    ]);
+    expect(model).not.toBeNull();
+    expect(model!.namespaces).toEqual([
+      { id: "namespace-1", label: "BaseShapes", classIds: ["Triangle", "Square"] },
+      { id: "namespace-2", label: "Widgets", classIds: [] },
+    ]);
+    expect(model!.classes.map((c) => c.namespaceId)).toEqual(["namespace-1", "namespace-1"]);
+  });
+
+  it("leaves a class outside every namespace with a null namespaceId", () => {
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Loose" })],
+        namespaces: [{ id: "BaseShapes", classIds: ["Triangle"] }],
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(model!.classes.map((c) => c.namespaceId)).toEqual(["namespace-1", null]);
+  });
+
+  it("creates a class a namespace names but nothing else declares, as a relationship endpoint does", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Triangle" })],
+        namespaces: [{ id: "BaseShapes", classIds: ["Triangle", "Square"] }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.classes).toEqual([
+      { id: "Triangle", generic: null, annotation: null, members: [], namespaceId: "namespace-1" },
+      { id: "Square", generic: null, annotation: null, members: [], namespaceId: "namespace-1" },
+    ]);
+    expect(model!.namespaces[0].classIds).toEqual(["Triangle", "Square"]);
   });
 
   it("resolves a relationship into an id of the form fromId-toId, passing its type, label and multiplicity through unchanged", () => {
@@ -252,6 +410,58 @@ describe("buildClassModel", () => {
     expect(model!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
   });
 
+  it("resolves notes to stable note-n ids, an attached one carrying its target and a free one none", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Duck" })],
+        notes: [
+          { text: "free standing", targetId: null },
+          { text: "can fly", targetId: "Duck" },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.notes).toEqual([
+      { id: "note-1", text: "free standing", targetId: null },
+      { id: "note-2", text: "can fly", targetId: "Duck" },
+    ]);
+  });
+
+  it("drops a note whose target class does not exist with an error diagnostic, keeping the rest of the model", () => {
+    // Naming a class in a `note for` does not declare it — only a class
+    // statement or a relationship does — so an unknown target is a mistake,
+    // not an implicit declaration. The note goes; nothing else does.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Duck" })],
+        notes: [
+          { text: "first", targetId: "Duck" },
+          { text: "orphan", targetId: "Ghost", line: 6, column: 1 },
+          { text: "third", targetId: null },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'note for "Ghost" references a class that does not exist; dropping the note.',
+        line: 6,
+        column: 1,
+      },
+    ]);
+    expect(model).not.toBeNull();
+    // The surviving notes keep the ids their own position gives them: a
+    // broken note does not renumber the ones after it.
+    expect(model!.notes).toEqual([
+      { id: "note-1", text: "first", targetId: "Duck" },
+      { id: "note-3", text: "third", targetId: null },
+    ]);
+    expect(model!.classes.map((c) => c.id)).toEqual(["Duck"]);
+  });
+
   it("resolves timeline entries against class ids and relationship ids", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
@@ -277,6 +487,45 @@ describe("buildClassModel", () => {
         { kind: "highlight", step: 3, targetId: "Duck", effect: "glow" },
       ],
     });
+  });
+
+  it("lets a timeline address a namespace and a note by the ids this stage assigned them", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Triangle" })],
+        namespaces: [{ id: "BaseShapes", classIds: ["Triangle"] }],
+        notes: [{ text: "shapes live here", targetId: "Triangle" }],
+        timeline: {
+          entries: [
+            { kind: "enter", step: 1, targetId: "namespace-1", effect: "fade" },
+            { kind: "enter", step: 2, targetId: "note-1", effect: "fade" },
+          ],
+        },
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["namespace-1", "note-1"]);
+    expect(model!.timeline.totalSteps).toBe(2);
+  });
+
+  it("drops a timeline entry naming a note that was dropped for an unknown target", () => {
+    // The note's id never enters the model, so the timeline entry naming it
+    // is unresolvable — reported on its own terms rather than silently.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Duck" })],
+        notes: [{ text: "orphan", targetId: "Ghost", line: 4, column: 1 }],
+        timeline: {
+          entries: [{ kind: "enter", step: 1, targetId: "note-1", effect: "fade", line: 8 }],
+        },
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(diagnostics.map((d) => d.line)).toEqual([4, 8]);
+    expect(model!.timeline.entries).toEqual([]);
   });
 
   it("drops a timeline entry naming an unknown id with an error diagnostic, keeping the rest of the model", () => {
