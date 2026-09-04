@@ -423,6 +423,45 @@ A->>B: Hello
     expect(messageGroups).toHaveLength(1);
   });
 
+  it("draws the top participant row above the first message rather than over it, with each lifeline still hanging from its own box", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: first message
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const messageY = Number(
+      result
+        .svg!.querySelector("g.siren-message path.siren-message-arrow")!
+        .getAttribute("d")!
+        .match(/^M[\d.-]+,([\d.-]+)/)![1],
+    );
+
+    const bands = Array.from(
+      result.svg!.querySelectorAll('g.siren-participant[data-siren-id="A"] rect'),
+    ).map((rect) => ({
+      top: Number(rect.getAttribute("y")),
+      bottom: Number(rect.getAttribute("y")) + Number(rect.getAttribute("height")),
+    }));
+    // Declared and never destroyed, so A is drawn twice: top row and bottom row.
+    expect(bands).toHaveLength(2);
+    const [topBand, bottomBand] = bands;
+
+    // The message runs between the two rows, inside neither box.
+    expect(topBand.bottom).toBeLessThanOrEqual(messageY);
+    expect(bottomBand.top).toBeGreaterThanOrEqual(messageY);
+
+    // The lifeline still spans box to box, top edge to bottom edge.
+    const lifeline = result.svg!.querySelector('line.siren-lifeline[data-siren-id="A"]')!;
+    expect(Number(lifeline.getAttribute("y1"))).toBe(topBand.top);
+    expect(Number(lifeline.getAttribute("y2"))).toBe(bottomBand.bottom);
+  });
+
   it("produces an error diagnostic for a sequenceDiagram message referencing an undeclared participant, without throwing", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram

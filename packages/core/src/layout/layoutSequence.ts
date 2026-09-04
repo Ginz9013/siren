@@ -332,13 +332,20 @@ export function layoutSequence(
     destroyedBottomById: new Map(),
   };
 
-  // The top row has to clear the tallest box drawn in it; every lane's
-  // lifeline then starts below it, on one shared row.
+  // Every declared lane's box hangs downward from the top row's own top edge
+  // — the band `[top, top + height]`, exactly as a `create` row already
+  // reserves it — so the row has to be tall enough for the tallest box in it
+  // and the statements below it start where that band ends. Reserving the
+  // band above `top` instead would lay the first message inside the box.
   const topRowHeight = participants.reduce((max, p) => Math.max(max, p.height), 0);
   const titleHeight = model.title === null ? 0 : TITLE_HEIGHT;
-  const lifelineTop = titleHeight + topRowHeight;
+  // A box's background starts at the same edge the top row now does, and its
+  // caption is drawn across the top of that background — so the row starts a
+  // caption line lower whenever a labelled box would otherwise be drawn
+  // behind (and hidden by) the participant boxes it groups.
+  const topRowTop = titleHeight + boxCaptionHeight(model, options);
 
-  const { elements, endY } = layoutStatements(model.statements, ctx, lifelineTop);
+  const { elements, endY } = layoutStatements(model.statements, ctx, topRowTop + topRowHeight);
   // The bottom row exists only for participants drawn there — declared and
   // never destroyed (see spec.md's "SVG conventions"). A diagram whose lanes
   // are all `create`d or destroyed reserves nothing, rather than trailing an
@@ -353,7 +360,7 @@ export function layoutSequence(
   const lifelineBottom = endY + BOTTOM_MARGIN + bottomRowHeight;
 
   for (const participant of participants) {
-    participant.top = ctx.createdTopById.get(participant.id) ?? lifelineTop;
+    participant.top = ctx.createdTopById.get(participant.id) ?? topRowTop;
     participant.bottom = ctx.destroyedBottomById.get(participant.id) ?? lifelineBottom;
   }
 
@@ -377,6 +384,19 @@ export function layoutSequence(
       Math.max(rightmostParticipantEdge, rightmostBlockEdge, rightmostBoxEdge) + RIGHT_MARGIN,
     height: lifelineBottom,
   };
+}
+
+/**
+ * Height of the tallest box caption in the diagram, or `0` when no box
+ * carries a label — the vertical band a box's background needs above the top
+ * participant row for its own caption text.
+ */
+function boxCaptionHeight(model: SequenceModel, options: LayoutOptions): number {
+  return model.boxes.reduce(
+    (max, box) =>
+      box.label === null ? max : Math.max(max, options.measureText.measure(box.label).height),
+    0,
+  );
 }
 
 /** Finds the rightmost frame edge across every block, recursively including nested children. */

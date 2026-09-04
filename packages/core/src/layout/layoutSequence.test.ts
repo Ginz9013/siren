@@ -1075,4 +1075,81 @@ describe("layoutSequence", () => {
       expect(participant.bottom).toBeLessThanOrEqual(positionedWith.height);
     }
   });
+
+  it("reserves the top row's band below each declared participant's top, so the first message clears its box", () => {
+    const model: SequenceModel = {
+      title: null,
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [messageStatement("m1", "A", "B", "first message")],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const [first] = messagesOf(positioned);
+
+    for (const participant of positioned.participants) {
+      // A box hangs downward from `top` — the same band a `create` row
+      // already reserves — so [top, top + height] has to end before the
+      // first message row rather than straddle it.
+      expect(participant.top).toBeGreaterThanOrEqual(0);
+      expect(participant.top + participant.height).toBeLessThanOrEqual(first.y);
+    }
+  });
+
+  it("keeps a block that opens the diagram below the top row's band, frame and message alike", () => {
+    const model: SequenceModel = {
+      title: null,
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [
+        {
+          kind: "block",
+          block: {
+            id: "loop-1",
+            kind: "loop",
+            touchedParticipantIds: ["A", "B"],
+            branches: [
+              {
+                label: "each retry",
+                statements: [messageStatement("m1", "A", "B", "first message")],
+              },
+            ],
+          } satisfies ResolvedSequenceBlock,
+        },
+      ],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const blockElement = positioned.elements[0];
+    if (blockElement.kind !== "block") throw new Error("expected block element");
+    const [first] = messagesOf({ elements: blockElement.block.children });
+
+    for (const participant of positioned.participants) {
+      expect(participant.top + participant.height).toBeLessThanOrEqual(blockElement.block.y);
+      expect(participant.top + participant.height).toBeLessThanOrEqual(first.y);
+    }
+  });
+
+  it("leaves a labelled box's caption band clear of the participant boxes it groups", () => {
+    const model: SequenceModel = {
+      title: "Grouped",
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [
+        { id: "box-1", color: null, label: "Service tier", participantIds: ["A", "B"] },
+      ],
+      statements: [messageStatement("m1", "A", "B", "Ping")],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const box = positioned.boxes[0];
+    const caption = fakeMeasurer.measure("Service tier");
+
+    for (const participant of positioned.participants) {
+      // The caption is drawn across the top of the background, above the
+      // members — so a full line of it has to fit before the top row starts.
+      expect(participant.top - box.y).toBeGreaterThanOrEqual(caption.height);
+    }
+    // The background still covers every member lifeline end to end.
+    expect(box.y + box.height).toBeGreaterThanOrEqual(positioned.participants[0].bottom);
+  });
 });
