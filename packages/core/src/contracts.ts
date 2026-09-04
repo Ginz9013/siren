@@ -539,9 +539,15 @@ export interface GraphModel {
   timeline: ResolvedTimeline;
 }
 
-/** Result of `buildGraphModel`. */
+/**
+ * Result of `buildGraphModel`. Carries both `graph` (flowchart) and `model`
+ * (sequence) so the one dispatcher function can return either shape;
+ * exactly one of the two is non-null, matching the `SirenDocument.kind` of
+ * the document it resolved.
+ */
 export interface GraphModelResult {
   graph: GraphModel | null;
+  model: SequenceModel | null;
   diagnostics: Diagnostic[];
 }
 
