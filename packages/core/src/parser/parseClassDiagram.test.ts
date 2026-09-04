@@ -689,6 +689,87 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(document.styles[0].properties).toEqual([{ property: "fill", value: "url(#evil)" }]);
   });
 
+  it("keeps a comma inside a style value's parentheses out of the declaration split", () => {
+    const source = `classDiagram
+  class Shape
+  style Shape fill:rgb(255, 0, 0)
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toHaveLength(1);
+    expect(document.styles[0].properties).toEqual([{ property: "fill", value: "rgb(255, 0, 0)" }]);
+  });
+
+  // The decision this pins: an unbalanced parenthesis is a value problem,
+  // not a list problem. An unclosed `(` runs to the end of the declaration
+  // list — the text is kept in that one value rather than dropped — and a
+  // stray `)` is ignored by the splitter, so the declarations after it
+  // still separate normally instead of being swallowed into one value.
+  it("reads an unclosed ( as running to the end of the list, and lets a stray ) still split", () => {
+    const unclosed = parseOk(`classDiagram
+  class Shape
+  style Shape fill:rgb(1, 2,stroke:#c00
+`);
+
+    expect(unclosed.diagnostics).toEqual([]);
+    expect(unclosed.document.styles[0].properties).toEqual([
+      { property: "fill", value: "rgb(1, 2,stroke:#c00" },
+    ]);
+
+    const stray = parseOk(`classDiagram
+  class Shape
+  style Shape fill:a),stroke:#c00
+`);
+
+    expect(stray.diagnostics).toEqual([]);
+    expect(stray.document.styles[0].properties).toEqual([
+      { property: "fill", value: "a)" },
+      { property: "stroke", value: "#c00" },
+    ]);
+  });
+
+  it("still splits the commas that separate declarations, around and inside a nested paren value", () => {
+    const source = `classDiagram
+  class Shape
+  style Shape fill:rgb(1,2,3),stroke:#c00,stroke-width:2px
+  classDef emphasis fill:color-mix(in srgb, rgb(1,2,3), #fff),stroke:#c00
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles[0].properties).toEqual([
+      { property: "fill", value: "rgb(1,2,3)" },
+      { property: "stroke", value: "#c00" },
+      { property: "stroke-width", value: "2px" },
+    ]);
+    expect(document.styles[1].properties).toEqual([
+      { property: "fill", value: "color-mix(in srgb, rgb(1,2,3), #fff)" },
+      { property: "stroke", value: "#c00" },
+    ]);
+  });
+
+  it("still reports a segment with no colon, even beside a declaration whose value holds commas", () => {
+    const source = `classDiagram
+  class Shape
+  style Shape fill:rgb(1,2,3),wibble
+`;
+
+    const { document, diagnostics } = parseClassDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized style declaration: "wibble"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
   it.each(RELATIONSHIP_FORMS)(
     "parses the %s relationship form into its line style and endpoint markers",
     (token, expectedLine, expectedFromEnd, expectedToEnd) => {

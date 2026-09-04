@@ -130,6 +130,39 @@ const VISIBILITY_MARKERS = new Set<string>(["+", "-", "#", "~"]);
 const CLASSIFIER_MARKERS = new Set<string>(["*", "$"]);
 
 /**
+ * Splits a declaration list on the commas that separate declarations,
+ * ignoring the ones inside a value's parentheses. Only a comma at paren
+ * depth 0 is a separator, so `fill:rgb(255, 0, 0)` stays one declaration
+ * rather than becoming three fragments, two of which have no `:` and would
+ * be diagnosed as malformed.
+ *
+ * An unbalanced parenthesis is treated as a problem with that value, never
+ * with the list: an unclosed `(` runs to the end of the list, keeping the
+ * text inside one value rather than dropping it, and a stray `)` is
+ * ignored — the depth floor is 0 — so the declarations after it still
+ * separate normally. Whether such a value is usable is `buildClassModel`'s
+ * judgement, as it is for every other value here.
+ */
+function splitDeclarations(text: string): string[] {
+  const segments: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (character === "," && depth === 0) {
+      segments.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  segments.push(text.slice(start));
+  return segments;
+}
+
+/**
  * Splits a `fill:#fdd,stroke:#c00` declaration list into its pairs,
  * preserving author order. Only the first `:` of a segment separates
  * property from value, so a value containing a colon survives intact.
@@ -148,7 +181,7 @@ function parseStyleProperties(text: string): {
 } {
   const properties: ClassStyleProperty[] = [];
   const malformed: string[] = [];
-  for (const segment of text.split(",")) {
+  for (const segment of splitDeclarations(text)) {
     const trimmed = segment.trim();
     if (trimmed.length === 0) {
       continue;
