@@ -13,17 +13,27 @@
       <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
     </div>
     <p class="intro">
-      A core-wave <code>sequenceDiagram</code> exercising both <code>participant</code> and
-      <code>actor</code> declarations, all ten Mermaid message arrow forms, a <code>title</code>,
-      and <code>autonumber</code>/<code>autonumber off</code>. Sequence diagrams render fully
-      visible and static — there is no Prev/Next/Reset control here, unlike the flowchart
+      Two <code>sequenceDiagram</code> documents. The first exercises both
+      <code>participant</code> and <code>actor</code> declarations, all ten Mermaid message arrow
+      forms, a <code>title</code>, and <code>autonumber</code>/<code>autonumber off</code>. The
+      second exercises every control-flow block kind — <code>loop</code>,
+      <code>alt</code>/<code>else</code>, <code>opt</code>, <code>par</code>/<code>and</code>,
+      <code>critical</code>/<code>option</code>, <code>break</code>, and <code>rect</code> —
+      including an <code>alt</code> nested inside a <code>loop</code>. Sequence diagrams render
+      fully visible and static — there is no Prev/Next/Reset control here, unlike the flowchart
       step-reveal demos, since <code>SirenRenderResult.controller</code> is always
       <code>null</code> for a sequence diagram (see spec.md's Non-goals).
     </p>
 
+    <h2>Core features</h2>
     <p class="status" id="status">Loading…</p>
 
     <div id="siren-container"></div>
+
+    <h2>Control-flow blocks</h2>
+    <p class="status" id="blocks-status">Loading…</p>
+
+    <div id="siren-blocks-container"></div>
 
     <!--
       Unlike demos/step-reveal.html and demos/complex-showcase.html, this
@@ -33,26 +43,35 @@
       whole job), so board would add nothing here. Run
       `pnpm --filter @siren/core build` first.
 
-      The example document lives at examples/sequence-core.srn as a
-      standalone .srn file — loaded here via fetch(), not inlined — mirroring
-      demos/step-reveal.html's example-loading pattern. Note: fetch() of a
-      local file is blocked by the browser's file:// CORS policy, so this
-      page must be served over http(s), e.g. `python3 -m http.server` from
-      the repo root — opening the .html file directly by double-clicking it
-      will fail to load the example.
+      The example documents live at examples/sequence-core.srn and
+      examples/sequence-blocks.srn as standalone .srn files — loaded here via
+      fetch(), not inlined — mirroring demos/step-reveal.html's
+      example-loading pattern. Note: fetch() of a local file is blocked by the
+      browser's file:// CORS policy, so this page must be served over
+      http(s), e.g. `python3 -m http.server` from the repo root — opening the
+      .html file directly by double-clicking it will fail to load the
+      examples.
     -->
     <script type="module">
       import { render } from "../packages/core/dist/siren-core.js";
 
-      const source = await fetch("../examples/sequence-core.srn").then((response) => {
+      async function loadExample(path) {
+        const response = await fetch(path);
         if (!response.ok) {
-          throw new Error(`Failed to load examples/sequence-core.srn: ${response.status}`);
+          throw new Error(`Failed to load ${path}: ${response.status}`);
         }
         return response.text();
-      });
+      }
+
+      const [source, blocksSource] = await Promise.all([
+        loadExample("../examples/sequence-core.srn"),
+        loadExample("../examples/sequence-blocks.srn"),
+      ]);
 
       const container = document.getElementById("siren-container");
       const statusEl = document.getElementById("status");
+      const blocksContainer = document.getElementById("siren-blocks-container");
+      const blocksStatusEl = document.getElementById("blocks-status");
       const themeBtn = document.getElementById("theme-btn");
 
       // Proves the design tokens in packages/core/src/theme/default.css are
@@ -83,19 +102,27 @@
         },
       };
 
-      const result = render(source, container, { measureText });
+      function renderExample(exampleSource, targetContainer, targetStatusEl) {
+        const result = render(exampleSource, targetContainer, { measureText });
 
-      for (const diagnostic of result.diagnostics) {
-        console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
-      }
+        for (const diagnostic of result.diagnostics) {
+          console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+        }
 
-      if (result.svg === null) {
-        statusEl.textContent = "Render failed — see console diagnostics.";
-      } else {
+        if (result.svg === null) {
+          targetStatusEl.textContent = "Render failed — see console diagnostics.";
+          return;
+        }
+
         const messageCount = result.svg.querySelectorAll("g.siren-message").length;
-        const participantCount = result.svg.querySelectorAll("g.siren-participant").length;
-        statusEl.textContent = `Rendered ${participantCount} participants, ${messageCount} messages.`;
+        const blockCount = result.svg.querySelectorAll("g.siren-block").length;
+        const blockSummary =
+          blockCount === 0 ? "" : `, ${blockCount} control-flow blocks`;
+        targetStatusEl.textContent = `Rendered ${messageCount} messages${blockSummary}.`;
       }
+
+      renderExample(source, container, statusEl);
+      renderExample(blocksSource, blocksContainer, blocksStatusEl);
     </script>
   </body>
 </html>

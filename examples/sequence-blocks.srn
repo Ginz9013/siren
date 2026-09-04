@@ -1,0 +1,35 @@
+sequenceDiagram
+title Control-flow block tour
+participant Client
+participant Server
+participant Cache
+
+loop Every minute
+  Client->>Server: Poll for work
+  alt is fresh
+    Server-->>Client: Fresh data
+  else is stale
+    Server-->>Client: Stale marker
+  else is missing
+    Server--xClient: Not found
+  end
+end
+opt Warm the cache
+  Client->>Server: Prime hint
+end
+par Fan out
+  Client->>Server: Task A
+and Second branch
+  Client->>Cache: Task B
+end
+critical Acquire lock
+  Client->>Cache: Lock
+option Timeout
+  Cache-->>Client: Busy
+end
+break Fatal error
+  Server--xClient: Abort
+end
+rect rgb(240, 248, 255)
+  Client->>Cache: Highlighted exchange
+end
