@@ -211,4 +211,287 @@ describe("buildSequenceModel", () => {
     );
     expect(messages.map((s) => s.message.autonumber)).toEqual([null, 1, 2, null]);
   });
+
+  it("assigns stable per-kind block ids in document order, e.g. a second top-level loop gets loop-2", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: "first loop",
+          body: [{ kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } }],
+        },
+        {
+          kind: "loop",
+          label: "second loop",
+          body: [{ kind: "message", from: "B", to: "A", text: "bye", arrow: { line: "solid", head: "filled" } }],
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+
+    const blocks = model!.statements.filter(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    );
+    expect(blocks.map((s) => s.block.id)).toEqual(["loop-1", "loop-2"]);
+  });
+
+  it("resolves an alt block's branch labels unchanged, with each branch's body resolved independently", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "alt",
+          branches: [
+            {
+              label: "success",
+              body: [{ kind: "message", from: "A", to: "B", text: "ok", arrow: { line: "solid", head: "filled" } }],
+            },
+            {
+              label: "failure",
+              body: [{ kind: "message", from: "B", to: "A", text: "err", arrow: { line: "solid", head: "filled" } }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+
+    const block = model!.statements.find(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    )!;
+
+    expect(block.block.branches.map((b) => b.label)).toEqual(["success", "failure"]);
+    expect(block.block.branches[0]!.statements).toEqual([
+      {
+        kind: "message",
+        message: {
+          id: "A-B",
+          from: "A",
+          to: "B",
+          text: "ok",
+          arrow: { line: "solid", head: "filled" },
+          autonumber: null,
+        },
+      },
+    ]);
+    expect(block.block.branches[1]!.statements).toEqual([
+      {
+        kind: "message",
+        message: {
+          id: "B-A",
+          from: "B",
+          to: "A",
+          text: "err",
+          arrow: { line: "solid", head: "filled" },
+          autonumber: null,
+        },
+      },
+    ]);
+  });
+
+  it("computes a block's recursive participantsTouched set across three nested levels (loop > alt > par)", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+        { id: "C", label: "C", participantKind: "participant" },
+        { id: "D", label: "D", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "C", label: "C", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "D", label: "D", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: "outer",
+          body: [
+            { kind: "message", from: "A", to: "B", text: "top", arrow: { line: "solid", head: "filled" } },
+            {
+              kind: "alt",
+              branches: [
+                {
+                  label: "cond",
+                  body: [
+                    {
+                      kind: "par",
+                      branches: [
+                        {
+                          label: null,
+                          body: [
+                            {
+                              kind: "message",
+                              from: "C",
+                              to: "D",
+                              text: "innermost",
+                              arrow: { line: "solid", head: "filled" },
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+
+    const loopBlock = model!.statements.find(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    )!.block;
+    expect(new Set(loopBlock.touchedParticipantIds)).toEqual(new Set(["A", "B", "C", "D"]));
+
+    const altStatement = loopBlock.branches[0]!.statements.find(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    )!;
+    expect(new Set(altStatement.block.touchedParticipantIds)).toEqual(new Set(["C", "D"]));
+
+    const parStatement = altStatement.block.branches[0]!.statements.find(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    )!;
+    expect(new Set(parStatement.block.touchedParticipantIds)).toEqual(new Set(["C", "D"]));
+  });
+
+  it("drops a message inside a block body referencing an undeclared participant, reporting the same diagnostic a top-level message would", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: null,
+          body: [
+            {
+              kind: "message",
+              from: "A",
+              to: "does-not-exist",
+              text: "bad",
+              arrow: { line: "solid", head: "filled" },
+            },
+          ],
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    const loopBlock = model!.statements.find(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    )!.block;
+    expect(loopBlock.branches[0]!.statements).toEqual([]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("does-not-exist");
+  });
+
+  it("passes a rect block's color string through unvalidated", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "rect",
+          color: "not-a-real-color-value",
+          body: [{ kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } }],
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+
+    const block = model!.statements.find(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    )!.block;
+    expect(block.kind).toBe("rect");
+    expect(block.branches[0]!.label).toBe("not-a-real-color-value");
+  });
+
+  it("makes a participant declared inside a block's body visible to a later sibling statement after the block ends (order-sensitive, threaded through recursion)", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: null,
+          body: [
+            { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+          ],
+        },
+        {
+          kind: "message",
+          from: "A",
+          to: "B",
+          text: "after the block",
+          arrow: { line: "solid", head: "filled" },
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+
+    const messages = model!.statements.filter(
+      (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
+    );
+    expect(messages.map((s) => s.message.id)).toEqual(["A-B"]);
+  });
 });

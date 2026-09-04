@@ -1,13 +1,54 @@
 import type {
   Diagnostic,
+  ResolvedSequenceBlock,
+  ResolvedSequenceBranch,
   ResolvedSequenceMessage,
   ResolvedSequenceParticipant,
   ResolvedSequenceStatement,
+  SequenceAltStatement,
+  SequenceBreakStatement,
+  SequenceCriticalStatement,
   SequenceDocument,
+  SequenceLoopStatement,
   SequenceModel,
   SequenceModelResult,
+  SequenceOptStatement,
+  SequenceParStatement,
+  SequenceRectStatement,
   SequenceStatement,
 } from "../contracts";
+
+/**
+ * A block-kind `SequenceStatement` — everything left once `message`,
+ * `participant`, `destroy`, `autonumberOn`, and `autonumberOff` are
+ * excluded.
+ */
+type BlockStatement =
+  | SequenceLoopStatement
+  | SequenceAltStatement
+  | SequenceOptStatement
+  | SequenceParStatement
+  | SequenceCriticalStatement
+  | SequenceBreakStatement
+  | SequenceRectStatement;
+
+/**
+ * Mutable resolution state threaded by reference through the whole
+ * (recursive) statement tree, so that order-sensitive rules — the
+ * explicit-reference rule, message-pair-repeat counting, autonumbering, and
+ * block-id counters — operate on the flattened document order rather than
+ * resetting at each block boundary. A `participant` statement declared
+ * inside a block's body must become visible to later statements anywhere in
+ * the document, exactly as a top-level `participant` statement already is.
+ */
+interface ResolutionState {
+  diagnostics: Diagnostic[];
+  declaredSoFar: Set<string>;
+  seenPairCounts: Map<string, number>;
+  blockCounters: Map<string, number>;
+  autonumbering: boolean;
+  autonumberCounter: number;
+}
 
 /**
  * Resolves a parsed `SequenceDocument` into a validated `SequenceModel`.
@@ -31,7 +72,16 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   }));
   const participantsById = new Map(participants.map((p) => [p.id, p]));
 
-  const statements = resolveStatements(document.statements, participantsById, diagnostics);
+  const state: ResolutionState = {
+    diagnostics,
+    declaredSoFar: new Set<string>(),
+    seenPairCounts: new Map<string, number>(),
+    blockCounters: new Map<string, number>(),
+    autonumbering: false,
+    autonumberCounter: 0,
+  };
+
+  const { statements } = resolveStatements(document.statements, participantsById, state);
 
   const model: SequenceModel = {
     title: document.title,
@@ -46,46 +96,31 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 function resolveStatements(
   statements: SequenceStatement[],
   participantsById: Map<string, ResolvedSequenceParticipant>,
-  diagnostics: Diagnostic[],
-): ResolvedSequenceStatement[] {
+  state: ResolutionState,
+): { statements: ResolvedSequenceStatement[]; touchedParticipantIds: string[] } {
   const resolved: ResolvedSequenceStatement[] = [];
-  const seenPairCounts = new Map<string, number>();
-
-  // Explicit-reference rule is order-sensitive (spec.md Domain decisions:
-  // "'earlier' meaning earlier in the flattened statement order, so a
-  // message ... can't reference a participant only declared/created later").
-  // Built up incrementally as `participant` statements are walked, not
-  // pre-seeded from the full document.participants list — a message before
-  // its target's declaring statement must fail validation even though that
-  // id is declared *somewhere* in the document.
-  const declaredSoFar = new Set<string>();
-
-  // Autonumbering is a fold over statement order, not a per-statement
-  // concept: `autonumberOn`/`autonumberOff` toggle a running flag (and,
-  // once on, a monotonic counter that keeps counting across an off/on
-  // toggle rather than restarting — the spec only pins down the bare
-  // on/off toggle, not restart semantics, so "keep counting" is the least
-  // surprising choice). Neither toggle statement has a corresponding
-  // `ResolvedSequenceStatement` kind in contracts.ts — their effect is
-  // folded entirely into each following message's `autonumber` field
-  // ("pass through unchanged, no validation needed") instead of being
-  // retained as its own resolved statement.
-  let autonumbering = false;
-  let autonumberCounter = 0;
+  const touched = new Set<string>();
 
   for (const statement of statements) {
     if (statement.kind === "autonumberOn") {
-      autonumbering = true;
+      state.autonumbering = true;
       continue;
     }
 
     if (statement.kind === "autonumberOff") {
-      autonumbering = false;
+      state.autonumbering = false;
       continue;
     }
 
     if (statement.kind === "participant") {
-      declaredSoFar.add(statement.id);
+      // Explicit-reference rule (spec.md Domain decisions: "'earlier'
+      // meaning earlier in the flattened statement order") — accumulated
+      // incrementally, by mutating the shared `declaredSoFar` set, not
+      // pre-seeded from the full document.participants list. This also
+      // means a participant declared inside a block body becomes visible
+      // to later sibling/parent statements the same way, since the set is
+      // threaded by reference through the recursive block walk below.
+      state.declaredSoFar.add(statement.id);
       const participant = participantsById.get(statement.id);
       // participantsById is built from the same document.participants list
       // every participant statement's id is drawn from, so this is always
@@ -100,8 +135,8 @@ function resolveStatements(
       // type surface already includes them (frozen for the whole board),
       // and ticket 12 extends this branch to actually truncate the
       // participant's lifeline extent.
-      if (!declaredSoFar.has(statement.id)) {
-        diagnostics.push({
+      if (!state.declaredSoFar.has(statement.id)) {
+        state.diagnostics.push({
           severity: "error",
           message: `destroy references undeclared participant "${statement.id}"`,
           line: statement.line,
@@ -113,47 +148,120 @@ function resolveStatements(
       continue;
     }
 
-    if (statement.kind !== "message") continue;
-
-    // Explicit-reference rule: a message referencing a participant id with
-    // no earlier `participant`/`create participant` statement is an error
-    // diagnostic. That message alone is dropped — everything else still
-    // resolves (partial-failure tolerance, matching flowchart's "drop the
-    // bad entry, keep going" discipline).
-    const referencedIds = [...new Set([statement.from, statement.to])];
-    const missingIds = referencedIds.filter((id) => !declaredSoFar.has(id));
-    if (missingIds.length > 0) {
-      for (const id of missingIds) {
-        diagnostics.push({
-          severity: "error",
-          message: `Message references undeclared participant "${id}"`,
-          line: statement.line,
-          column: statement.column,
-        });
+    if (statement.kind === "message") {
+      // Explicit-reference rule: a message referencing a participant id
+      // with no earlier `participant`/`create participant` statement is an
+      // error diagnostic. That message alone is dropped — everything else
+      // still resolves (partial-failure tolerance, matching flowchart's
+      // "drop the bad entry, keep going" discipline). Applies the same way
+      // whether the message sits at top level or inside a block's body.
+      const referencedIds = [...new Set([statement.from, statement.to])];
+      const missingIds = referencedIds.filter((id) => !state.declaredSoFar.has(id));
+      if (missingIds.length > 0) {
+        for (const id of missingIds) {
+          state.diagnostics.push({
+            severity: "error",
+            message: `Message references undeclared participant "${id}"`,
+            line: statement.line,
+            column: statement.column,
+          });
+        }
+        continue;
       }
+
+      const pairKey = `${statement.from}->${statement.to}`;
+      const occurrence = (state.seenPairCounts.get(pairKey) ?? 0) + 1;
+      state.seenPairCounts.set(pairKey, occurrence);
+      const baseId = `${statement.from}-${statement.to}`;
+      const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
+
+      if (state.autonumbering) {
+        state.autonumberCounter += 1;
+      }
+
+      const message: ResolvedSequenceMessage = {
+        id,
+        from: statement.from,
+        to: statement.to,
+        text: statement.text,
+        arrow: statement.arrow,
+        autonumber: state.autonumbering ? state.autonumberCounter : null,
+      };
+      resolved.push({ kind: "message", message });
+      touched.add(statement.from);
+      touched.add(statement.to);
       continue;
     }
 
-    const pairKey = `${statement.from}->${statement.to}`;
-    const occurrence = (seenPairCounts.get(pairKey) ?? 0) + 1;
-    seenPairCounts.set(pairKey, occurrence);
-    const baseId = `${statement.from}-${statement.to}`;
-    const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
-
-    if (autonumbering) {
-      autonumberCounter += 1;
-    }
-
-    const message: ResolvedSequenceMessage = {
-      id,
-      from: statement.from,
-      to: statement.to,
-      text: statement.text,
-      arrow: statement.arrow,
-      autonumber: autonumbering ? autonumberCounter : null,
-    };
-    resolved.push({ kind: "message", message });
+    // Everything left is a block-kind statement (loop/alt/opt/par/critical/
+    // break/rect).
+    const block = resolveBlock(statement, participantsById, state);
+    resolved.push({ kind: "block", block });
+    for (const id of block.touchedParticipantIds) touched.add(id);
   }
 
-  return resolved;
+  return { statements: resolved, touchedParticipantIds: [...touched] };
+}
+
+function resolveBlock(
+  statement: BlockStatement,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  state: ResolutionState,
+): ResolvedSequenceBlock {
+  // Block id: `${kind}-${n}`, a 1-based counter per block kind, in document
+  // order — assigned here, before recursing into the block's body, so
+  // nested blocks (which are walked immediately after, still ahead of this
+  // block's later siblings) receive ids that reflect source order across
+  // the whole flattened tree, not just within their own nesting level.
+  const n = (state.blockCounters.get(statement.kind) ?? 0) + 1;
+  state.blockCounters.set(statement.kind, n);
+  const id = `${statement.kind}-${n}`;
+
+  let branchInputs: Array<{ label: string | null; body: SequenceStatement[] }>;
+  switch (statement.kind) {
+    case "alt":
+    case "par":
+    case "critical":
+      // alt/par/critical branch labels ("else"/"and"/"option" conditions)
+      // pass through unchanged; each branch's body resolves independently
+      // (its own nested block-id/participant-reference state is still the
+      // shared `state`, since block ids and the explicit-reference rule are
+      // both document-order-wide, not branch-scoped).
+      branchInputs = statement.branches;
+      break;
+    case "rect":
+      // `rect` isn't a labeled-branch construct like alt/par/critical — it's
+      // a single colored-background region with no condition label of its
+      // own. ResolvedSequenceBlock/PositionedBlock have no dedicated color
+      // field (contracts.ts is frozen for this board), so the color string
+      // rides through in this sole branch's `label` slot: layoutSequence
+      // copies it straight to PositionedBlock.label, and
+      // renderSequenceToSVG (ticket 09) reads it there for `rect`'s fill.
+      // Passed through unvalidated, per this ticket's acceptance criteria —
+      // validating the color string is rendering's concern.
+      branchInputs = [{ label: statement.color, body: statement.body }];
+      break;
+    default:
+      // loop / opt / break: single implicit branch.
+      branchInputs = [{ label: statement.label, body: statement.body }];
+      break;
+  }
+
+  const touched = new Set<string>();
+  const branches: ResolvedSequenceBranch[] = branchInputs.map(({ label, body }) => {
+    const { statements: resolvedBody, touchedParticipantIds } = resolveStatements(
+      body,
+      participantsById,
+      state,
+    );
+    for (const participantId of touchedParticipantIds) touched.add(participantId);
+    return { label, statements: resolvedBody };
+  });
+
+  return {
+    id,
+    kind: statement.kind,
+    touchedParticipantIds: [...touched],
+    branches,
+  };
 }
