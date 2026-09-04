@@ -1,0 +1,21 @@
+sequenceDiagram
+title Core sequence diagram feature tour
+participant Client
+actor User
+participant Server
+
+autonumber
+User->Client: Open app
+Client->>Server: Fetch profile
+Server-->>Client: Profile data
+autonumber off
+Client->Server: Plain request
+Client-->Server: Plain dotted request
+Client->>Server: Solid filled arrowhead
+Client-->>Server: Dotted filled arrowhead
+Client<<->>Server: Solid bidirectional
+Client<<-->>Server: Dotted bidirectional
+Client-xServer: Solid cross (lost message)
+Client--xServer: Dotted cross (lost message)
+Client-)Server: Solid open (async)
+Client--)Server: Dotted open (async)

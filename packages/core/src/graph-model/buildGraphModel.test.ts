@@ -5,6 +5,7 @@ import { buildGraphModel } from "./buildGraphModel";
 describe("buildGraphModel", () => {
   it("assigns edge ids of the form fromId-toId for distinct pairs", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -27,6 +28,7 @@ describe("buildGraphModel", () => {
 
   it("suffixes the id of a second edge between the same pair with #2", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -48,6 +50,7 @@ describe("buildGraphModel", () => {
 
   it("resolves timeline entries against node/edge ids, grouping by step, and leaves elements never mentioned immediately visible", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -91,6 +94,7 @@ describe("buildGraphModel", () => {
 
   it("drops a timeline entry referencing an unknown id, reports an error diagnostic, and still builds the graph", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -115,6 +119,7 @@ describe("buildGraphModel", () => {
 
   it("keeps the first-seen label and warns when a node id is declared twice with conflicting labels", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "Start" },
@@ -134,6 +139,7 @@ describe("buildGraphModel", () => {
 
   it("sets totalSteps to 0 and leaves every element immediately visible when there is no timeline block", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -153,6 +159,7 @@ describe("buildGraphModel", () => {
 
   it("keeps the first occurrence of a duplicate enter or exit action on the same target and warns", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -189,6 +196,7 @@ describe("buildGraphModel", () => {
     // (which always iterate in step order) would disagree with which enter
     // effect actually applies.
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
@@ -212,6 +220,7 @@ describe("buildGraphModel", () => {
 
   it("drops a highlight/exit/unhighlight action whose step precedes the target's visibility step, reporting an error, while the rest of the graph still builds", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -240,6 +249,7 @@ describe("buildGraphModel", () => {
 
   it("allows exit on an element that was never entered (visible from step 0) at any later step", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
@@ -259,6 +269,7 @@ describe("buildGraphModel", () => {
 
   it("allows a highlight at the exact step its target enters (not just strictly after)", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [{ id: "B", label: "B" }],
       edges: [],
@@ -282,6 +293,7 @@ describe("buildGraphModel", () => {
 
   it("drops exit/highlight/unhighlight actions referencing an unknown id, including edge ids, reporting an error each", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -310,6 +322,7 @@ describe("buildGraphModel", () => {
 
   it("resolves all four action kinds, grouped by step, with kind/targetId/effect intact per entry", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
@@ -343,6 +356,7 @@ describe("buildGraphModel", () => {
 
   it("warns when a node exits while an edge connected to it never exits, since the edge would render with a missing endpoint", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -372,6 +386,7 @@ describe("buildGraphModel", () => {
 
   it("warns when a node exits before an edge connected to it (which does eventually exit, but too late)", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -395,6 +410,7 @@ describe("buildGraphModel", () => {
 
   it("does not warn when the connected edge exits at or before the node, or when neither endpoint ever exits", () => {
     const document: SirenDocument = {
+      kind: "flowchart",
       direction: "TD",
       nodes: [
         { id: "A", label: "A" },
@@ -416,5 +432,53 @@ describe("buildGraphModel", () => {
     const { diagnostics } = buildGraphModel(document);
 
     expect(diagnostics).toEqual([]);
+  });
+
+  it("dispatches a kind: \"sequence\" document to buildSequenceModel, leaving graph null and populating model", () => {
+    const document: SirenDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "message",
+          from: "A",
+          to: "B",
+          text: "hello",
+          arrow: { line: "solid", head: "filled" },
+        },
+      ],
+    };
+
+    const { graph, model, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph).toBeNull();
+    expect(model).not.toBeNull();
+    expect(model!.participants.map((p) => p.id)).toEqual(["A", "B"]);
+    expect(model!.statements.filter((s) => s.kind === "message")).toHaveLength(1);
+  });
+
+  it("dispatches a kind: \"flowchart\" document to buildFlowchartModel, leaving model null and populating graph", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TD",
+      nodes: [{ id: "A", label: "A" }],
+      edges: [],
+      timeline: null,
+    };
+
+    const { graph, model, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).toBeNull();
+    expect(graph).not.toBeNull();
+    expect(graph!.nodes).toEqual([{ id: "A", label: "A" }]);
   });
 });
