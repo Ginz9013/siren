@@ -319,6 +319,163 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     ]);
   });
 
+  it("parses an annotation written inside a class block, alongside that class's members", () => {
+    const source = `classDiagram
+  class Shape {
+    <<interface>>
+    +int sides
+    +draw()
+  }
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes).toHaveLength(1);
+    expect(document.classes[0].id).toBe("Shape");
+    expect(document.classes[0].annotation).toBe("interface");
+    expect(document.classes[0].members.map((m) => m.name)).toEqual(["sides", "draw"]);
+  });
+
+  it("parses a standalone annotation as a declaration of the class it names, with any author text", () => {
+    const source = `classDiagram
+  <<interface>> Shape
+  <<Service>> Repository
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => ({ id: c.id, annotation: c.annotation }))).toEqual([
+      { id: "Shape", annotation: "interface" },
+      { id: "Repository", annotation: "Service" },
+    ]);
+  });
+
+  it("captures a class's generic parameter in both declaration forms, and keeps a generic member type verbatim", () => {
+    const source = `classDiagram
+  class Square~Shape~
+  class Bag~T~ {
+    +List~int~ points
+  }
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => ({ id: c.id, generic: c.generic }))).toEqual([
+      { id: "Square", generic: "Shape" },
+      { id: "Bag", generic: "T" },
+    ]);
+    expect(document.classes[1].members[0]).toMatchObject({
+      name: "points",
+      type: "List~int~",
+    });
+  });
+
+  it("parses a nested generic parameter whole, rather than diagnosing it", () => {
+    const source = `classDiagram
+  class Shelf~Map~String, List~int~~~
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes).toHaveLength(1);
+    expect(document.classes[0].id).toBe("Shelf");
+    expect(document.classes[0].generic).toBe("Map~String, List~int~~");
+  });
+
+  it("parses a namespace naming its member classes, which stay ordinary classes in the document", () => {
+    const source = `classDiagram
+  namespace BaseShapes {
+    class Triangle
+    class Square {
+      -int id
+      +getArea() int
+    }
+  }
+  Triangle <|-- Square
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.namespaces).toEqual([
+      { id: "BaseShapes", classIds: ["Triangle", "Square"], line: 2, column: 3 },
+    ]);
+    expect(document.classes.map((c) => c.id)).toEqual(["Triangle", "Square"]);
+    expect(document.classes[1].members.map((m) => m.name)).toEqual(["id", "getArea"]);
+    expect(document.relationships).toHaveLength(1);
+  });
+
+  it("reports an error diagnostic and no document for an unterminated namespace, without throwing", () => {
+    const source = `classDiagram
+  namespace BaseShapes {
+    class Triangle
+`;
+
+    expect(() => parseClassDiagram(source)).not.toThrow();
+
+    const { document, diagnostics } = parseClassDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("parses a free note as a note with no target", () => {
+    const source = `classDiagram
+  note "This diagram is a work in progress"
+  class Duck
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.notes).toEqual([
+      {
+        text: "This diagram is a work in progress",
+        targetId: null,
+        line: 2,
+        column: 3,
+      },
+    ]);
+    expect(document.classes.map((c) => c.id)).toEqual(["Duck"]);
+  });
+
+  it("parses an attached note as a note carrying its target class name", () => {
+    const source = `classDiagram
+  class Duck
+  note for Duck "can fly, can swim"
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.notes).toEqual([
+      {
+        text: "can fly, can swim",
+        targetId: "Duck",
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("parses a direction statement, defaulting to TB when the document has none", () => {
+    const withDirection = parseOk(`classDiagram
+  direction RL
+  Animal <|-- Duck
+`);
+    const withoutDirection = parseOk(`classDiagram
+  Animal <|-- Duck
+`);
+
+    expect(withDirection.diagnostics).toEqual([]);
+    expect(withDirection.document.direction).toBe("RL");
+    expect(withoutDirection.document.direction).toBe("TB");
+  });
+
   it.each(RELATIONSHIP_FORMS)(
     "parses the %s relationship form into its line style and endpoint markers",
     (token, expectedLine, expectedFromEnd, expectedToEnd) => {
