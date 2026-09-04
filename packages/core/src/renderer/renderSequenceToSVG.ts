@@ -1,11 +1,21 @@
 import type {
+  PositionedBlock,
   PositionedMessage,
   PositionedParticipant,
   PositionedSequenceDiagram,
+  PositionedSequenceElement,
   SequenceArrowHead,
 } from "../contracts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Horizontal/vertical inset for a block's header/branch condition labels
+ * from the block frame's top-left corner — matches Mermaid's own visual
+ * convention of hugging the frame's top-left, not centering.
+ */
+const BLOCK_LABEL_PADDING_X = 8;
+const BLOCK_LABEL_PADDING_Y = 14;
 
 /**
  * Marker id in `<defs>` for each arrowhead style, or `null` for `"none"`
@@ -29,9 +39,11 @@ const HEAD_MARKER_ID: Record<SequenceArrowHead, string | null> = {
  * `<g class="siren-participant">` per participant (box for `participant`,
  * stick figure for `actor`), one `<line class="siren-lifeline">` per
  * participant, one `<g class="siren-message">` per message (all ten
- * arrow-marker/dash combinations), and a `<text class="siren-title">` when
- * a title is present. Block frames and box-group backgrounds are added by
- * later tickets on top of this same file.
+ * arrow-marker/dash combinations), a `<g class="siren-block">` per
+ * control-flow block (frame/fill, header/branch labels, dividers — see
+ * `buildBlock`), and a `<text class="siren-title">` when a title is
+ * present. Box-group backgrounds are added by a later ticket on top of this
+ * same file.
  */
 export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -54,14 +66,129 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   }
 
   for (const element of diagram.elements) {
-    if (element.kind === "message") {
-      svg.appendChild(buildMessage(element.message));
+    const node = buildSequenceElement(element);
+    if (node !== null) {
+      svg.appendChild(node);
     }
-    // "block" and "destroyMark" elements are rendered by later tickets
-    // (09/14) on top of this same file — out of this ticket's core scope.
   }
 
   return svg;
+}
+
+/**
+ * Dispatches one `PositionedSequenceElement` to its builder. `destroyMark`
+ * elements are rendered by a later ticket (14) on top of this same file —
+ * out of this ticket's scope, so they're skipped here.
+ */
+function buildSequenceElement(element: PositionedSequenceElement): SVGElement | null {
+  switch (element.kind) {
+    case "message":
+      return buildMessage(element.message);
+    case "block":
+      return buildBlock(element.block);
+    case "destroyMark":
+      return null;
+  }
+}
+
+/**
+ * Builds the `<g class="siren-block">` for one control-flow block: for the
+ * six framed kinds (`loop`/`alt`/`opt`/`par`/`critical`/`break`), a
+ * `<rect class="siren-block-frame">` at the block's exact bounding box (with
+ * `fill="none"` so it never obscures nested content regardless of paint
+ * order — mirrors the `fill="none"` precedent in `buildOpenMarker` below),
+ * a top-left `<text class="siren-block-label">` for the header condition,
+ * and one `<line class="siren-block-divider">` (+ label, when given) per
+ * branch after the first. `rect` blocks get a distinct treatment instead —
+ * see `buildBlockFill`. Children (messages/nested blocks) are always
+ * rendered afterward, in document order, so they paint on top of this
+ * block's own frame/fill.
+ */
+function buildBlock(block: PositionedBlock): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-block");
+  g.setAttribute("data-siren-id", block.id);
+  g.setAttribute("data-siren-block-kind", block.kind);
+
+  if (block.kind === "rect") {
+    g.appendChild(buildBlockFill(block));
+  } else {
+    g.appendChild(buildBlockFrame(block));
+    g.appendChild(
+      buildBlockLabel(block.label ?? "", block.x + BLOCK_LABEL_PADDING_X, block.y + BLOCK_LABEL_PADDING_Y),
+    );
+    for (const divider of block.dividers) {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", "siren-block-divider");
+      line.setAttribute("x1", String(block.x));
+      line.setAttribute("y1", String(divider.y));
+      line.setAttribute("x2", String(block.x + block.width));
+      line.setAttribute("y2", String(divider.y));
+      g.appendChild(line);
+
+      if (divider.label !== null) {
+        g.appendChild(
+          buildBlockLabel(
+            divider.label,
+            block.x + BLOCK_LABEL_PADDING_X,
+            divider.y + BLOCK_LABEL_PADDING_Y,
+          ),
+        );
+      }
+    }
+  }
+
+  for (const child of block.children) {
+    const node = buildSequenceElement(child);
+    if (node !== null) {
+      g.appendChild(node);
+    }
+  }
+
+  return g;
+}
+
+/** Builds the outlined `<rect class="siren-block-frame">` for a non-`rect`-kind block. */
+function buildBlockFrame(block: PositionedBlock): SVGRectElement {
+  const rect = document.createElementNS(SVG_NS, "rect") as SVGRectElement;
+  rect.setAttribute("class", "siren-block-frame");
+  rect.setAttribute("x", String(block.x));
+  rect.setAttribute("y", String(block.y));
+  rect.setAttribute("width", String(block.width));
+  rect.setAttribute("height", String(block.height));
+  // Explicit, not left to CSS: an unfilled frame must never obscure the
+  // nested content painted after it, however this element is themed.
+  rect.setAttribute("fill", "none");
+  return rect;
+}
+
+/**
+ * Builds the filled `<rect class="siren-block-fill">` for a `rect`-kind
+ * block: the background-highlight treatment, with no frame border, using
+ * the `rect rgb(...)`/`rgba(...)` color Mermaid syntax captured — per the
+ * frozen `PositionedBlock` shape, which carries no separate color field —
+ * in this block's `label`.
+ */
+function buildBlockFill(block: PositionedBlock): SVGRectElement {
+  const rect = document.createElementNS(SVG_NS, "rect") as SVGRectElement;
+  rect.setAttribute("class", "siren-block-fill");
+  rect.setAttribute("x", String(block.x));
+  rect.setAttribute("y", String(block.y));
+  rect.setAttribute("width", String(block.width));
+  rect.setAttribute("height", String(block.height));
+  rect.setAttribute("fill", block.label ?? "none");
+  return rect;
+}
+
+/** Builds one top-left-anchored `<text class="siren-block-label">`. */
+function buildBlockLabel(text: string, x: number, y: number): SVGTextElement {
+  const label = document.createElementNS(SVG_NS, "text") as SVGTextElement;
+  label.setAttribute("class", "siren-block-label");
+  label.setAttribute("x", String(x));
+  label.setAttribute("y", String(y));
+  label.setAttribute("text-anchor", "start");
+  label.textContent = text;
+  return label;
 }
 
 /** Builds the `<text class="siren-title">`, centered above the diagram. */

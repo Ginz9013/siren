@@ -4,6 +4,8 @@ import type {
   PositionedSequenceDiagram,
   PositionedParticipant,
   PositionedMessage,
+  PositionedBlock,
+  PositionedSequenceElement,
   SequenceArrow,
   SequenceArrowLine,
   SequenceArrowHead,
@@ -60,6 +62,21 @@ function buildMessageFixture(arrow: SequenceArrow): PositionedSequenceDiagram {
   return {
     ...diagram,
     elements: [{ kind: "message", message }],
+  };
+}
+
+/**
+ * Hand-built fixture: two lanes and a single top-level block, given the
+ * block's fields directly (per contracts.ts's frozen `PositionedBlock`
+ * shape) so each test controls exactly which block-kind/branch/nesting
+ * shape it exercises.
+ */
+function buildBlockFixture(block: PositionedBlock): PositionedSequenceDiagram {
+  const diagram = buildParticipantsFixture();
+  const element: PositionedSequenceElement = { kind: "block", block };
+  return {
+    ...diagram,
+    elements: [element],
   };
 }
 
@@ -255,5 +272,187 @@ describe("renderSequenceToSVG", () => {
     expect(svg.querySelector('g.siren-participant[data-siren-id="Alice"] text')!.textContent).toBe(
       "<i>Alice</i>",
     );
+  });
+
+  it("renders a loop block as a siren-block group with a frame rect at its exact bounding box and a top-left condition label", () => {
+    const block: PositionedBlock = {
+      id: "loop-1",
+      kind: "loop",
+      label: "n < 5",
+      x: 40,
+      y: 50,
+      width: 200,
+      height: 80,
+      dividers: [],
+      children: [],
+    };
+    const svg = renderSequenceToSVG(buildBlockFixture(block));
+
+    const groups = svg.querySelectorAll("g.siren-block");
+    expect(groups).toHaveLength(1);
+
+    const group = svg.querySelector('g.siren-block[data-siren-id="loop-1"]')!;
+    expect(group).not.toBeNull();
+    expect(group.getAttribute("data-siren-block-kind")).toBe("loop");
+
+    const frame = group.querySelector("rect.siren-block-frame")!;
+    expect(frame).not.toBeNull();
+    expect(frame.getAttribute("x")).toBe("40");
+    expect(frame.getAttribute("y")).toBe("50");
+    expect(frame.getAttribute("width")).toBe("200");
+    expect(frame.getAttribute("height")).toBe("80");
+
+    const label = group.querySelector("text.siren-block-label")!;
+    expect(label).not.toBeNull();
+    expect(label.textContent).toBe("n < 5");
+    // Top-left per Mermaid's convention: inside the frame, hugging its top edge.
+    const labelX = Number(label.getAttribute("x"));
+    const labelY = Number(label.getAttribute("y"));
+    expect(labelX).toBeGreaterThanOrEqual(block.x);
+    expect(labelX).toBeLessThan(block.x + block.width);
+    expect(labelY).toBeGreaterThanOrEqual(block.y);
+    expect(labelY).toBeLessThan(block.y + 20);
+  });
+
+  it("renders one divider line + branch label per branch after the first, for an alt with three branches", () => {
+    const block: PositionedBlock = {
+      id: "alt-1",
+      kind: "alt",
+      label: "x == 1",
+      x: 20,
+      y: 30,
+      width: 240,
+      height: 180,
+      dividers: [
+        { label: "x == 2", y: 90 },
+        { label: "else", y: 140 },
+      ],
+      children: [],
+    };
+    const svg = renderSequenceToSVG(buildBlockFixture(block));
+
+    const group = svg.querySelector('g.siren-block[data-siren-id="alt-1"]')!;
+    const dividers = group.querySelectorAll("line.siren-block-divider");
+    expect(dividers).toHaveLength(2);
+    expect(dividers[0]!.getAttribute("y1")).toBe("90");
+    expect(dividers[0]!.getAttribute("y2")).toBe("90");
+    expect(dividers[0]!.getAttribute("x1")).toBe("20");
+    expect(dividers[0]!.getAttribute("x2")).toBe("260");
+    expect(dividers[1]!.getAttribute("y1")).toBe("140");
+
+    // Header condition label plus one label per divider branch.
+    const labels = Array.from(group.querySelectorAll("text.siren-block-label")).map(
+      (label) => label.textContent,
+    );
+    expect(labels).toEqual(["x == 1", "x == 2", "else"]);
+  });
+
+  it("renders a rect block as a filled background rect using its color, with no frame border, behind its contained message in paint order", () => {
+    const message: PositionedMessage = {
+      id: "Alice-Bob",
+      from: "Alice",
+      to: "Bob",
+      text: "hi",
+      arrow: { line: "solid", head: "filled" },
+      autonumber: null,
+      y: 100,
+      fromX: 60,
+      toX: 220,
+    };
+    const block: PositionedBlock = {
+      id: "rect-1",
+      kind: "rect",
+      label: "rgb(191, 223, 255)",
+      x: 20,
+      y: 60,
+      width: 240,
+      height: 100,
+      dividers: [],
+      children: [{ kind: "message", message }],
+    };
+    const svg = renderSequenceToSVG(buildBlockFixture(block));
+
+    const group = svg.querySelector('g.siren-block[data-siren-id="rect-1"]')!;
+
+    // No outlined frame, no header/branch labels — distinct from the other
+    // six block kinds.
+    expect(group.querySelector("rect.siren-block-frame")).toBeNull();
+    expect(group.querySelectorAll("text.siren-block-label")).toHaveLength(0);
+
+    const fill = group.querySelector("rect.siren-block-fill")!;
+    expect(fill).not.toBeNull();
+    expect(fill.getAttribute("fill")).toBe("rgb(191, 223, 255)");
+    expect(fill.getAttribute("x")).toBe("20");
+    expect(fill.getAttribute("y")).toBe("60");
+    expect(fill.getAttribute("width")).toBe("240");
+    expect(fill.getAttribute("height")).toBe("100");
+
+    // Paint order: the fill rect comes before the contained message group,
+    // so it's drawn behind it.
+    const children = Array.from(group.children);
+    const fillIndex = children.indexOf(fill);
+    const messageIndex = children.findIndex((child) => child.classList.contains("siren-message"));
+    expect(fillIndex).toBeGreaterThanOrEqual(0);
+    expect(messageIndex).toBeGreaterThan(fillIndex);
+  });
+
+  it("renders a nested block as a nested siren-block group, visually enclosed by its parent's un-obscuring frame", () => {
+    const innerBlock: PositionedBlock = {
+      id: "alt-1",
+      kind: "alt",
+      label: "y > 0",
+      x: 60,
+      y: 80,
+      width: 160,
+      height: 60,
+      dividers: [],
+      children: [],
+    };
+    const outerBlock: PositionedBlock = {
+      id: "loop-1",
+      kind: "loop",
+      label: "n < 5",
+      x: 40,
+      y: 50,
+      width: 200,
+      height: 120,
+      dividers: [],
+      children: [{ kind: "block", block: innerBlock }],
+    };
+    const svg = renderSequenceToSVG(buildBlockFixture(outerBlock));
+
+    const allBlocks = svg.querySelectorAll("g.siren-block");
+    expect(allBlocks).toHaveLength(2);
+
+    const outerGroup = svg.querySelector('g.siren-block[data-siren-id="loop-1"]')!;
+    const innerGroup = outerGroup.querySelector('g.siren-block[data-siren-id="alt-1"]');
+    expect(innerGroup).not.toBeNull();
+
+    // The outer frame is unfilled, so it never paints over the nested
+    // content regardless of DOM order.
+    const outerFrame = outerGroup.querySelector(":scope > rect.siren-block-frame")!;
+    expect(outerFrame.getAttribute("fill")).toBe("none");
+  });
+
+  it("renders block header labels and branch divider labels via textContent only, never as parsed markup", () => {
+    const block: PositionedBlock = {
+      id: "alt-1",
+      kind: "alt",
+      label: "<b>x == 1</b>",
+      x: 20,
+      y: 30,
+      width: 240,
+      height: 180,
+      dividers: [{ label: "<i>else</i>", y: 120 }],
+      children: [],
+    };
+    const svg = renderSequenceToSVG(buildBlockFixture(block));
+
+    expect(svg.querySelectorAll("b, i")).toHaveLength(0);
+
+    const labels = Array.from(svg.querySelectorAll("text.siren-block-label")).map(
+      (label) => label.textContent,
+    );
+    expect(labels).toEqual(["<b>x == 1</b>", "<i>else</i>"]);
   });
 });
