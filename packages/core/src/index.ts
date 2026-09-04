@@ -40,10 +40,13 @@ const defaultMeasurer: TextMeasurer = {
 };
 
 /**
- * Runs the real parse -> buildGraphModel -> layoutGraph -> renderToSVG ->
- * createAnimationController pipeline end to end, mounts the resulting SVG
- * into `container` on success, and always returns the aggregated
- * diagnostics from every stage.
+ * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
+ * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
+ * createAnimationController; a sequence diagram runs layoutSequence ->
+ * renderSequenceToSVG and returns `controller: null` (no animation
+ * integration for sequence diagrams yet). Mounts the resulting SVG into
+ * `container` on success, and always returns the aggregated diagnostics
+ * from every stage.
  */
 export function render(
   source: string,
