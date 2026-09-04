@@ -44,10 +44,10 @@
       repo root — opening the .html file directly by double-clicking it will
       fail to load the example.
 
-      Expect an unstyled page for now: packages/core/src/theme/default.css
-      selects no class-diagram element yet, so every box and line falls back to
-      the SVG defaults (black fill, no stroke) until the theme's class-diagram
-      rules land. The structure is what this page demonstrates today.
+      This page shows the core syntax only — classes, members and the eight
+      relationship kinds. Annotations, generics, namespaces, notes, direction,
+      and the interaction and styling directives all parse and render, but a
+      later ticket extends this page to exercise them.
     -->
     <script type="module">
       import { render } from "../packages/core/dist/siren-core.js";

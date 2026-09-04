@@ -290,8 +290,19 @@ function addMembers(target: ClassAccumulator, members: ClassMember[]): void {
  * the union key above. Deliberately duplicated from the layout stage's own
  * copy rather than shared: the model must not depend on layout (the
  * dependency runs the other way), and this stage needs the rule before any
- * measuring exists. If the two ever disagree, the layout's spelling is the
- * one the reader sees, and this one should follow it.
+ * measuring exists.
+ *
+ * The two spellings have since diverged on purpose, and must not be
+ * "fixed" to match. This composes the **authored** spelling; layout
+ * composes the **drawn** one, which converts a generic's `~T~` into the
+ * `<T>` Mermaid draws. That is fine — a union key only has to be
+ * consistent with itself, and it is computed at one stage from one source.
+ *
+ * The one visible consequence: a class declaring both `+List~int~ items`
+ * and `+List<int> items` keeps two members here, because they are two
+ * keys, and layout then draws the same line twice. Collapsing that would
+ * mean keying on the drawn spelling, which means composing the line once
+ * in this stage and carrying it on the contract for layout to draw.
  */
 function memberLineText(member: ClassMember): string {
   const visibility = member.visibility ?? "";
