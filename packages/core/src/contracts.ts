@@ -90,10 +90,10 @@ export interface FlowchartDocument {
 
 /**
  * The parsed document, tagged by diagram kind. Produced by `parseSiren`
- * (which dispatches on the source's header line to `parseFlowchart` or
- * `parseSequenceDiagram`).
+ * (which dispatches on the source's header line to `parseFlowchart`,
+ * `parseSequenceDiagram` or `parseClassDiagram`).
  */
-export type SirenDocument = FlowchartDocument | SequenceDocument;
+export type SirenDocument = FlowchartDocument | SequenceDocument | ClassDocument;
 
 /** Result of `parseSiren` (and, independently, `parseSequenceDiagram`). */
 export interface ParseResult {
@@ -540,14 +540,15 @@ export interface GraphModel {
 }
 
 /**
- * Result of `buildGraphModel`. Carries both `graph` (flowchart) and `model`
- * (sequence) so the one dispatcher function can return either shape;
- * exactly one of the two is non-null, matching the `SirenDocument.kind` of
- * the document it resolved.
+ * Result of `buildGraphModel`. Carries `graph` (flowchart), `model`
+ * (sequence) and `classModel` (class) so the one dispatcher function can
+ * return any of the three shapes; at most one of them is non-null,
+ * matching the `SirenDocument.kind` of the document it resolved.
  */
 export interface GraphModelResult {
   graph: GraphModel | null;
   model: SequenceModel | null;
+  classModel: ClassModel | null;
   diagnostics: Diagnostic[];
 }
 
@@ -623,4 +624,407 @@ export interface SirenRenderResult {
   svg: SVGSVGElement | null;
   controller: AnimationController | null;
   diagnostics: Diagnostic[];
+}
+
+// ---------------------------------------------------------------------------
+// Class diagram — parser-level (pre graph-model) types
+// ---------------------------------------------------------------------------
+
+/**
+ * Layout direction of a class diagram, from its `direction` statement.
+ * Wider than the flowchart header's `TD|LR` on purpose: Mermaid accepts all
+ * four here, and this board deliberately does not widen the flowchart
+ * header to match.
+ */
+export type ClassDirection = "TB" | "BT" | "LR" | "RL";
+
+/** Whether a class member is an attribute (no parameter list) or a method. */
+export type ClassMemberKind = "attribute" | "method";
+
+/**
+ * A member's visibility marker, stored as the character the author wrote —
+ * which is also the character the renderer prints: `+` public, `-` private,
+ * `#` protected, `~` package/internal.
+ */
+export type ClassMemberVisibility = "+" | "-" | "#" | "~";
+
+/**
+ * A member's classifier, stored as the character the author wrote: `*`
+ * abstract, `$` static. Mermaid appends it to the end of the member line.
+ */
+export type ClassMemberClassifier = "*" | "$";
+
+/**
+ * One attribute or method line of a class. Every part is kept as written,
+ * so the source line can be reconstructed from the parts (that is how the
+ * renderer prints it) without the parser having to keep the raw string.
+ */
+export interface ClassMember {
+  memberKind: ClassMemberKind;
+  visibility: ClassMemberVisibility | null;
+  classifier: ClassMemberClassifier | null;
+  name: string;
+  /** An attribute's type (`int` in `+int size`), or `null` when untyped. Always `null` for a method. */
+  type: string | null;
+  /** A method's parameter text between its parens, `""` for `()`. Always `null` for an attribute. */
+  parameters: string | null;
+  /** A method's return type (`bool` in `+swim() bool`), or `null` when it declares none. */
+  returnType: string | null;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * One `class X`, `class X { ... }` or `X : member` declaration, as written.
+ * The parser does not merge repeat declarations of the same name — that is
+ * `buildClassModel`'s job — so the same id may appear more than once.
+ */
+export interface ClassDecl {
+  id: string;
+  /** Generic parameter text between the `~`s (`Shape` in `class Square~Shape~`), or `null`. */
+  generic: string | null;
+  /** Annotation text without its `<<`/`>>` (`interface`), or `null`. */
+  annotation: string | null;
+  members: ClassMember[];
+  line?: number;
+  column?: number;
+}
+
+/**
+ * Line style of a relationship — one of the two axes Mermaid's eight
+ * relationship forms compose from.
+ */
+export type ClassRelationshipLine = "solid" | "dashed";
+
+/**
+ * The marker drawn at one end of a relationship — the other axis. `<|`/`|>`
+ * is a `triangle`, `*` a `diamondFilled`, `o` a `diamondHollow`, `<`/`>` an
+ * `arrow`, and a bare end is `none`.
+ */
+export type ClassRelationshipEnd =
+  | "none"
+  | "triangle"
+  | "diamondFilled"
+  | "diamondHollow"
+  | "arrow";
+
+/**
+ * One relationship statement between two classes.
+ *
+ * The relationship *type* is the `{ line, fromEnd, toEnd }` triple rather
+ * than one of eight opaque names, so the renderer switches on two small
+ * enums and every Mermaid spelling — including the mirrored ones
+ * (`Duck --|> Animal` for `Animal <|-- Duck`) — lands in the same model.
+ *
+ * Source position is `sourceLine`/`sourceColumn` here, not the `line`/
+ * `column` used everywhere else in this file, because `line` already names
+ * the relationship's line style.
+ */
+export interface ClassRelationship {
+  from: string;
+  to: string;
+  line: ClassRelationshipLine;
+  fromEnd: ClassRelationshipEnd;
+  toEnd: ClassRelationshipEnd;
+  /** The `: label` text, or `null`. */
+  label: string | null;
+  /** The quoted multiplicity next to `from` (`"1"` in `Customer "1" --> "*" Ticket`), or `null`. */
+  fromMultiplicity: string | null;
+  /** The quoted multiplicity next to `to` (`"*"` in the same example), or `null`. */
+  toMultiplicity: string | null;
+  sourceLine?: number;
+  sourceColumn?: number;
+}
+
+/**
+ * A `namespace Name { ... }` grouping. Its member classes also appear in
+ * `ClassDocument.classes` as ordinary declarations; this only records the
+ * grouping.
+ */
+export interface ClassNamespace {
+  id: string;
+  classIds: string[];
+  line?: number;
+  column?: number;
+}
+
+/** A `note "text"` (free) or `note for X "text"` (attached) statement. */
+export interface ClassNote {
+  text: string;
+  /** The class this note is attached to, or `null` for a free note. */
+  targetId: string | null;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * Whether an interaction navigates to a URL (`click X href "..."`, `link X
+ * "..."`) or invokes a caller-supplied callback (`click X call fn()`,
+ * `callback X "fn"`).
+ */
+export type ClassInteractionKind = "href" | "call";
+
+/**
+ * A `click`/`link`/`callback` statement making a class interactive, as
+ * written. The URL allowlist is applied later, by `buildClassModel` — the
+ * parser only records syntax.
+ */
+export interface ClassInteraction {
+  interactionKind: ClassInteractionKind;
+  classId: string;
+  /** The URL for `href`, or the callback function name for `call`. */
+  action: string;
+  /** The literal argument of a `call fn("arg")` form, or `null`. */
+  argument: string | null;
+  /** The optional trailing tooltip string, or `null`. */
+  tooltip: string | null;
+  line?: number;
+  column?: number;
+}
+
+/** One `property:value` pair of an author style declaration. */
+export interface ClassStyleProperty {
+  property: string;
+  value: string;
+}
+
+/** Which author-styling statement a `ClassStyleDecl` came from. */
+export type ClassStyleDeclKind = "style" | "classDef" | "cssClass";
+
+/**
+ * A `style X fill:#fdd`, `classDef name fill:#fdd`, or `cssClass "A,B"
+ * name` statement, as written. Values are not validated here — rejecting
+ * `url(`/`expression(` is `buildClassModel`'s job.
+ */
+export interface ClassStyleDecl {
+  styleKind: ClassStyleDeclKind;
+  /** The classes targeted by `style`/`cssClass`; empty for `classDef`. */
+  classIds: string[];
+  /** The definition name of `classDef`/`cssClass`; `null` for `style`. */
+  name: string | null;
+  /** The declarations of `style`/`classDef`; empty for `cssClass`. */
+  properties: ClassStyleProperty[];
+  line?: number;
+  column?: number;
+}
+
+/**
+ * The parsed `classDiagram` (or `classDiagram-v2`) source: classes,
+ * relationships, namespaces, notes, interaction and styling directives, and
+ * an optional timeline block. Produced by `parseClassDiagram`. One arm of
+ * the `SirenDocument` union.
+ */
+export interface ClassDocument {
+  kind: "class";
+  direction: ClassDirection;
+  classes: ClassDecl[];
+  relationships: ClassRelationship[];
+  namespaces: ClassNamespace[];
+  notes: ClassNote[];
+  interactions: ClassInteraction[];
+  styles: ClassStyleDecl[];
+  timeline: SirenTimeline | null;
+}
+
+// ---------------------------------------------------------------------------
+// Class diagram — graph-model (post `buildClassModel`) types
+// ---------------------------------------------------------------------------
+
+/**
+ * A class after model resolution: repeat declarations of the same name
+ * merged into one, and its namespace membership resolved.
+ */
+export interface ResolvedClass {
+  id: string;
+  generic: string | null;
+  annotation: string | null;
+  members: ClassMember[];
+  /** The namespace this class belongs to, or `null` when it belongs to none. */
+  namespaceId: string | null;
+}
+
+/**
+ * A relationship after model resolution: assigned the id the timeline and
+ * the renderer address it by, following the flowchart edge convention —
+ * `${from}-${to}`, then `#2`, `#3`, ... for repeats of the same pair.
+ */
+export interface ResolvedClassRelationship {
+  id: string;
+  from: string;
+  to: string;
+  line: ClassRelationshipLine;
+  fromEnd: ClassRelationshipEnd;
+  toEnd: ClassRelationshipEnd;
+  label: string | null;
+  fromMultiplicity: string | null;
+  toMultiplicity: string | null;
+}
+
+/** A namespace after model resolution: assigned id, membership resolved. */
+export interface ResolvedClassNamespace {
+  id: string;
+  label: string;
+  classIds: string[];
+}
+
+/** A note after model resolution: assigned id, attachment resolved. */
+export interface ResolvedClassNote {
+  id: string;
+  text: string;
+  /** The class this note is attached to, or `null` for a free note. */
+  targetId: string | null;
+}
+
+/**
+ * An interaction after model resolution: target resolved and the URL
+ * checked against the `http`/`https`/`mailto` allowlist (a rejected one is
+ * dropped with an error diagnostic and never reaches here).
+ */
+export interface ResolvedClassInteraction {
+  classId: string;
+  interactionKind: ClassInteractionKind;
+  action: string;
+  argument: string | null;
+  tooltip: string | null;
+}
+
+/**
+ * Author styling after model resolution: `classDef`/`cssClass` flattened
+ * onto each class it applies to, in declaration order, with rejected
+ * values already dropped.
+ */
+export interface ResolvedClassStyle {
+  classId: string;
+  properties: ClassStyleProperty[];
+}
+
+/**
+ * The normalized in-memory class diagram produced by `buildClassModel`:
+ * merged classes, identified relationships, resolved namespaces, notes,
+ * interactions and styles, and the resolved timeline.
+ */
+export interface ClassModel {
+  direction: ClassDirection;
+  classes: ResolvedClass[];
+  relationships: ResolvedClassRelationship[];
+  namespaces: ResolvedClassNamespace[];
+  notes: ResolvedClassNote[];
+  interactions: ResolvedClassInteraction[];
+  styles: ResolvedClassStyle[];
+  timeline: ResolvedTimeline;
+}
+
+/** Result of `buildClassModel`. */
+export interface ClassModelResult {
+  model: ClassModel | null;
+  diagnostics: Diagnostic[];
+}
+
+// ---------------------------------------------------------------------------
+// Class diagram — layout (post `layoutClassDiagram`) types
+// ---------------------------------------------------------------------------
+
+/** One member line with the position its text is drawn at. */
+export interface PositionedClassMember {
+  /** The member's rendered text, e.g. `+int size` or `+swim() bool`. */
+  text: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * One compartment of a class box — its attributes or its methods —
+ * together with the divider drawn above it.
+ */
+export interface PositionedClassCompartment {
+  /** The y-coordinate of the `<line class="siren-class-divider">` above this compartment. */
+  dividerY: number;
+  members: PositionedClassMember[];
+}
+
+/**
+ * A class with a layout-assigned box, compartment boundaries, and whatever
+ * author styling and interaction the model resolved for it.
+ *
+ * `x`/`y` are the box's top-left corner, matching `PositionedNode`.
+ */
+export interface PositionedClass {
+  id: string;
+  /** The class-name text as drawn, including any generic parameter. */
+  name: string;
+  /** Annotation text without its `<<`/`>>`, or `null`. */
+  annotation: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** The attribute compartment, or `null` when the class declares none. */
+  attributes: PositionedClassCompartment | null;
+  /** The method compartment, or `null` when the class declares none. */
+  methods: PositionedClassCompartment | null;
+  /** Author declarations to emit as this element's inline `style` attribute. */
+  style: ClassStyleProperty[];
+  /** The link or click hook to attach, or `null`. */
+  interaction: ResolvedClassInteraction | null;
+}
+
+/** A relationship with a layout-assigned path and text anchors. */
+export interface PositionedClassRelationship {
+  id: string;
+  from: string;
+  to: string;
+  line: ClassRelationshipLine;
+  fromEnd: ClassRelationshipEnd;
+  toEnd: ClassRelationshipEnd;
+  points: Point[];
+  label: string | null;
+  /** Where the label is drawn; `null` when there is no label. */
+  labelAnchor: Point | null;
+  fromMultiplicity: string | null;
+  /** Where the from-end multiplicity is drawn; `null` when there is none. */
+  fromMultiplicityAnchor: Point | null;
+  toMultiplicity: string | null;
+  /** Where the to-end multiplicity is drawn; `null` when there is none. */
+  toMultiplicityAnchor: Point | null;
+}
+
+/** A namespace with a layout-assigned frame enclosing its member classes. */
+export interface PositionedClassNamespace {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Where the frame's label text is drawn. */
+  labelAnchor: Point;
+}
+
+/** A note with a layout-assigned box and, when attached, its connector. */
+export interface PositionedClassNote {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** The connector path to the class this note is attached to; `null` for a free note. */
+  linkPoints: Point[] | null;
+}
+
+/**
+ * The class diagram after layout: positioned classes, relationships,
+ * namespaces and notes plus the resolved timeline, ready for
+ * `renderClassDiagramToSVG`.
+ */
+export interface PositionedClassDiagram {
+  direction: ClassDirection;
+  classes: PositionedClass[];
+  relationships: PositionedClassRelationship[];
+  /** Namespace frames, drawn before (behind) the classes they enclose. */
+  namespaces: PositionedClassNamespace[];
+  notes: PositionedClassNote[];
+  timeline: ResolvedTimeline;
+  width: number;
+  height: number;
 }

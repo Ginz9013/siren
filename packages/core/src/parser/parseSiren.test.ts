@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseSiren } from "./parseSiren";
-import type { Diagnostic, FlowchartDocument, SequenceDocument } from "../contracts";
+import type {
+  ClassDocument,
+  Diagnostic,
+  FlowchartDocument,
+  SequenceDocument,
+} from "../contracts";
 
 /**
  * Asserts a `parseSiren` call produced a flowchart document and narrows to
@@ -251,5 +256,109 @@ timeline:
     // Activation shorthand `+` is ignored as literal syntax noise (see
     // parseSequenceDiagram.ts) — the target id is still "B", not "+B".
     expect(messages[2].kind === "message" && messages[2].to).toBe("B");
+  });
+
+  it("dispatches a classDiagram document to parseClassDiagram, tagged kind: \"class\"", () => {
+    const source = `classDiagram
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("class");
+  });
+
+  it("accepts the classDiagram-v2 header as the same diagram kind", () => {
+    const source = `classDiagram-v2
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("class");
+  });
+
+  it("ignores whole-line, indented and trailing %% comments in a flowchart", () => {
+    const source = `%% what this diagram is for
+flowchart TD
+  A[Start]
+    %% the interesting bit
+  A --> B[End] %% and back again
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.id)).toEqual(["A", "B"]);
+    expect(document.edges.map((e) => ({ from: e.from, to: e.to }))).toEqual([
+      { from: "A", to: "B" },
+    ]);
+  });
+
+  it("ignores whole-line and trailing %% comments in a sequence diagram", () => {
+    const source = `sequenceDiagram
+  %% who is involved
+  participant A as Alice
+  participant B as Bob
+  A->>B: Sync call %% the important one
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document!.kind).toBe("sequence");
+    const sequenceDocument = document as SequenceDocument;
+    expect(sequenceDocument.participants.map((p) => p.id)).toEqual(["A", "B"]);
+    const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
+    expect(messages).toHaveLength(1);
+    expect(messages[0].kind === "message" && messages[0].text).toBe("Sync call");
+  });
+
+  it("ignores whole-line, indented and trailing %% comments in a class diagram", () => {
+    const source = `%% the domain, roughly
+classDiagram
+    %% ducks are animals
+  Animal <|-- Duck %% and so are fish
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document!.kind).toBe("class");
+    const classDocument = document as ClassDocument;
+    expect(classDocument.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
+    expect(classDocument.relationships).toHaveLength(1);
+  });
+
+  it("strips %% line-wise, so a %% inside message text starts a comment there too", () => {
+    // Documented decision (see parseSiren.ts): comments are stripped
+    // line-wise before parsing, exactly as Mermaid does, so `%%` starts a
+    // comment even inside quoted text or a label. There is no escape.
+    const source = `sequenceDiagram
+  participant A as Alice
+  participant B as Bob
+  A->>B: 50%% done
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    const messages = (document as SequenceDocument).statements.filter((s) => s.kind === "message");
+    expect(messages[0].kind === "message" && messages[0].text).toBe("50");
+  });
+
+  it("reports an error diagnostic, not a throw, for a document that is only comments", () => {
+    const source = `%% nothing here yet
+   %% still nothing
+`;
+
+    expect(() => parseSiren(source)).not.toThrow();
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 });
