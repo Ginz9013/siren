@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — class diagram demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren class diagram demo</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+    <p class="intro">
+      One <code>classDiagram</code> document exercising all three declaration forms —
+      <code>class Flyer</code>, the block form <code>class Animal { … }</code>, and the inline
+      <code>Feather : +String color</code> form — plus implicit declaration from a relationship
+      (<code>Habitat</code> and <code>Keeper</code> are named nowhere else), every visibility
+      marker (<code>+ - # ~</code>), both classifiers (<code>*</code> abstract,
+      <code>$</code> static), attributes and methods with types and return types, and all eight
+      Mermaid relationship kinds — inheritance, realization, composition, aggregation,
+      association, link, dependency and dashed link — one of them
+      (<code>Keeper "1" --&gt; "*" Animal</code>) carrying multiplicity at both ends.
+    </p>
+
+    <h2>Core features</h2>
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Like demos/sequence-diagram.html, this page imports the real Vite
+      library build of @siren/core directly (packages/core/dist/siren-core.js),
+      not @siren/board: this example carries no timeline: block, so there is
+      no animation controller to drive and board would add nothing here. Run
+      `pnpm --filter @siren/core build` first.
+
+      The example document lives at examples/class-core.srn as a standalone
+      .srn file — loaded here via fetch(), not inlined — mirroring
+      demos/sequence-diagram.html's example-loading pattern. Note: fetch() of
+      a local file is blocked by the browser's file:// CORS policy, so this
+      page must be served over http(s), e.g. `python3 -m http.server` from the
+      repo root — opening the .html file directly by double-clicking it will
+      fail to load the example.
+
+      Expect an unstyled page for now: packages/core/src/theme/default.css
+      selects no class-diagram element yet, so every box and line falls back to
+      the SVG defaults (black fill, no stroke) until the theme's class-diagram
+      rules land. The structure is what this page demonstrates today.
+    -->
+    <script type="module">
+      import { render } from "../packages/core/dist/siren-core.js";
+
+      async function loadExample(path) {
+        const response = await fetch(path);
+        if (!response.ok) {
+          throw new Error(`Failed to load ${path}: ${response.status}`);
+        }
+        return response.text();
+      }
+
+      const source = await loadExample("../examples/class-core.srn");
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
+
+      // jsdom-safe fixed-width-per-character estimate is fine for tests, but
+      // this is a real browser: measure with a real <canvas> 2D context so a
+      // class box is sized from its widest member line's actual glyph metrics
+      // instead of a rough per-character guess.
+      const measureCanvas = document.createElement("canvas");
+      const measureCtx = measureCanvas.getContext("2d");
+      measureCtx.font = "14px system-ui, sans-serif";
+      const measureText = {
+        measure(text) {
+          const metrics = measureCtx.measureText(text);
+          return { width: metrics.width, height: 24 };
+        },
+      };
+
+      const result = render(source, container, { measureText });
+
+      for (const diagnostic of result.diagnostics) {
+        console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+      }
+
+      if (result.svg === null) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        const count = (selector) => result.svg.querySelectorAll(selector).length;
+        const kinds = new Set(
+          Array.from(result.svg.querySelectorAll("g.siren-relationship")).map((g) =>
+            g.getAttribute("data-siren-relationship"),
+          ),
+        );
+        statusEl.textContent =
+          `Rendered ${count("g.siren-class")} classes, ` +
+          `${count("g.siren-relationship")} relationships across ${kinds.size} kinds, ` +
+          `${count("text.siren-member")} member lines.`;
+      }
+    </script>
+  </body>
+</html>

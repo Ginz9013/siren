@@ -154,6 +154,67 @@ destroy Ledger
 Web-->>Shopper: Email receipt
 `;
 
+/**
+ * Kept identical to demos/class-diagram.html's fetched example,
+ * examples/class-core.srn — duplicated inline for the same reason as the
+ * sequence constants above (no `node:fs` typings in this package). If the
+ * two ever drift, this test and the demo page stop exercising the same
+ * source.
+ *
+ * Exercises the class-diagram features that are in scope up to this ticket:
+ * all three declaration forms (`class X`, the block form, and the inline
+ * `X : +member` form), implicit declaration from a relationship (`Habitat`
+ * and `Keeper` are named nowhere else), every visibility marker and both
+ * classifiers, attributes and methods with types and return types, and all
+ * eight relationship kinds — one of them with multiplicity at both ends.
+ * Annotations, generics, namespaces and notes are deliberately absent: they
+ * parse, but nothing downstream draws them until later tickets on this board.
+ */
+const CLASS_CORE_EXAMPLE_SOURCE = `classDiagram
+class Animal {
+  +int age
+  +String gender
+  #bool warmBlooded
+  ~String tag
+  +isMammal() bool
+  +mate(Animal partner) Animal
+}
+class Duck {
+  -String beakColor
+  +swim()
+  +quack() String
+}
+class Fish {
+  -int sizeInFeet
+  #canEat() bool
+}
+class Zebra {
+  +bool isWild
+  +run()*
+}
+class Flyer {
+  +fly() bool
+}
+class Registry {
+  -int cachedCount$
+  +lookup(String name) Animal$
+}
+
+Feather : +String color
+Feather : +float lengthInCm
+
+Animal <|-- Duck
+Animal <|-- Fish
+Animal <|-- Zebra
+Duck ..|> Flyer : implements
+Habitat *-- Animal : houses
+Duck o-- Feather : plumage
+Keeper "1" --> "*" Animal : cares for
+Keeper -- Habitat
+Registry ..> Animal : looks up
+Zebra .. Habitat
+`;
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -988,6 +1049,134 @@ loop Every minute
       ),
     ).toBe(true);
     expect(result!.controller).toBeNull();
+  });
+
+  it("mounts an SVG for a classDiagram whose classes are declared only by a relationship, with one siren-class group per class and one siren-relationship group, and no diagnostics", () => {
+    const container = document.createElement("div");
+    // Mermaid's canonical class-diagram example: no `class` statement at all,
+    // both classes declared by being named in the relationship.
+    const source = `classDiagram
+Animal <|-- Duck
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+
+    const classGroups = result.svg!.querySelectorAll("g.siren-class");
+    const relationshipGroups = result.svg!.querySelectorAll("g.siren-relationship");
+    expect(
+      Array.from(classGroups)
+        .map((g) => g.getAttribute("data-siren-id"))
+        .sort(),
+    ).toEqual(["Animal", "Duck"]);
+    expect(
+      Array.from(relationshipGroups).map((g) => g.getAttribute("data-siren-id")),
+    ).toEqual(["Animal-Duck"]);
+    expect(
+      relationshipGroups[0].getAttribute("data-siren-relationship"),
+    ).toBe("inheritance");
+  });
+
+  it("returns a working animation controller for a classDiagram — unlike a sequence diagram's null one — reporting totalSteps 0 when the document declares no timeline: block", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+Animal <|-- Duck
+`;
+
+    const result = render(source, container);
+
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+    expect(result.controller!.currentStep).toBe(0);
+    // Nothing is animated, so nothing starts hidden.
+    expect(
+      result.svg!.querySelectorAll("g.siren-class.siren-pending"),
+    ).toHaveLength(0);
+  });
+
+  it("renders demos/class-diagram.html's example source (examples/class-core.srn) end to end with no error diagnostics, every declaration form, member text verbatim, and all eight relationship kinds", () => {
+    const container = document.createElement("div");
+
+    const result = render(CLASS_CORE_EXAMPLE_SOURCE, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.svg).not.toBeNull();
+
+    const classIds = Array.from(result.svg!.querySelectorAll("g.siren-class"))
+      .map((g) => g.getAttribute("data-siren-id"))
+      .sort();
+    // Six block/bare declarations, one declared only by inline members
+    // (Feather), and two declared only by being named in a relationship
+    // (Habitat, Keeper).
+    expect(classIds).toEqual([
+      "Animal",
+      "Duck",
+      "Feather",
+      "Fish",
+      "Flyer",
+      "Habitat",
+      "Keeper",
+      "Registry",
+      "Zebra",
+    ]);
+
+    // Members print back as the author wrote them, attributes above methods
+    // with a divider over each populated compartment.
+    const animal = result.svg!.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    expect(
+      Array.from(animal.querySelectorAll("text.siren-member")).map((t) => t.textContent),
+    ).toEqual([
+      "+int age",
+      "+String gender",
+      "#bool warmBlooded",
+      "~String tag",
+      "+isMammal() bool",
+      "+mate(Animal partner) Animal",
+    ]);
+    expect(animal.querySelectorAll("line.siren-class-divider")).toHaveLength(2);
+
+    const registryMembers = Array.from(
+      result
+        .svg!.querySelector('g.siren-class[data-siren-id="Registry"]')!
+        .querySelectorAll("text.siren-member"),
+    ).map((t) => t.textContent);
+    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) Animal$"]);
+
+    // All eight Mermaid relationship kinds, over ten statements.
+    const relationships = Array.from(
+      result.svg!.querySelectorAll("g.siren-relationship"),
+    );
+    expect(relationships).toHaveLength(10);
+    expect(
+      new Set(relationships.map((g) => g.getAttribute("data-siren-relationship"))),
+    ).toEqual(
+      new Set([
+        "inheritance",
+        "realization",
+        "composition",
+        "aggregation",
+        "association",
+        "link",
+        "dependency",
+        "dashedLink",
+      ]),
+    );
+
+    // The one relationship carrying both a label and multiplicity at each end.
+    const cares = result.svg!.querySelector(
+      'g.siren-relationship[data-siren-id="Keeper-Animal"]',
+    )!;
+    expect(
+      cares.querySelector("text.siren-relationship-label")!.textContent,
+    ).toBe("cares for");
+    expect(
+      Array.from(cares.querySelectorAll("text.siren-multiplicity")).map(
+        (t) => t.textContent,
+      ),
+    ).toEqual(["1", "*"]);
   });
 
   it("produces an error diagnostic (and drops the action, without throwing) for a highlight action referencing an element before it becomes visible, while the rest of the diagram still renders", () => {

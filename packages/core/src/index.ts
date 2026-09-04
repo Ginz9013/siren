@@ -2,8 +2,10 @@ import { parseSiren } from "./parser/parseSiren";
 import { buildGraphModel } from "./graph-model/buildGraphModel";
 import { layoutGraph } from "./layout/layoutGraph";
 import { layoutSequence } from "./layout/layoutSequence";
+import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
+import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import type { Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
 
@@ -42,7 +44,9 @@ const defaultMeasurer: TextMeasurer = {
 /**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
- * createAnimationController; a sequence diagram runs layoutSequence ->
+ * createAnimationController; a class diagram runs layoutClassDiagram ->
+ * renderClassDiagramToSVG -> createAnimationController, so it too returns a
+ * working controller; a sequence diagram runs layoutSequence ->
  * renderSequenceToSVG and returns `controller: null` (no animation
  * integration for sequence diagrams yet). Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
@@ -65,6 +69,27 @@ export function render(
 
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
+
+  if (parseResult.document.kind === "class") {
+    if (graphResult.classModel === null) {
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedClassDiagram = layoutClassDiagram(graphResult.classModel, { measureText });
+    const classSvg = renderClassDiagramToSVG(positionedClassDiagram);
+
+    container.replaceChildren(classSvg);
+
+    // Unlike a sequence diagram, a class diagram animates: its classes and
+    // relationships carry `data-siren-id`, so the same controller that drives
+    // flowchart nodes and edges drives them unchanged.
+    const classController = createAnimationController(
+      classSvg,
+      positionedClassDiagram.timeline,
+    );
+
+    return { svg: classSvg, controller: classController, diagnostics };
+  }
 
   if (parseResult.document.kind === "sequence") {
     if (graphResult.model === null) {
