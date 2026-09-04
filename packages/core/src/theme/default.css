@@ -124,12 +124,18 @@
  *    to declare above and are declared there.
  */
 
-/* Shared type for the sequence diagram's grouping elements; the `<text>`
-   children inherit it and only restate what they change. */
+/* Shared type for the sequence and class diagrams' grouping elements; the
+   `<text>` children inherit it and only restate what they change. The class
+   groups belong here rather than in a rule of their own: `layoutClassDiagram`
+   sizes every class box from text measured in this font at this size, so a
+   group left out renders its members in the browser's default face and the
+   box no longer fits what it holds. */
 .siren-participant,
 .siren-message,
 .siren-block,
-.siren-box {
+.siren-box,
+.siren-class,
+.siren-relationship {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -281,6 +287,101 @@
   font-size: var(--siren-title-font-size);
   font-weight: 600;
   fill: var(--siren-node-text);
+}
+
+/*
+ * Class diagram, per the frozen SVG conventions in
+ * renderClassDiagramToSVG.ts. Same two rules as the sequence block above, for
+ * the same reasons: the flowchart's five color tokens are reused rather than
+ * extended with class-diagram-specific ones (a class box *is* a node, a
+ * relationship *is* an edge), and every one of them is named at the point of
+ * use rather than aliased into a new `--siren-*` declared in `:root`, which
+ * would freeze its light value above the demos' `<body>`-scoped dark
+ * override.
+ */
+
+/*
+ * A class frame takes no `rx`: UML draws a class as a square-cornered box
+ * divided into compartments, and the dividers below run the frame's full
+ * width — a rounded corner would leave them poking past the outline.
+ */
+.siren-class-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/* Same weight as a sequence block's caption: the name titles the box. */
+.siren-class-name {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * A compartment divider is part of the frame, not a connector, so it tracks
+ * the frame's stroke rather than the edge color.
+ */
+.siren-class-divider {
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-member {
+  fill: var(--siren-node-text);
+}
+
+/*
+ * `stroke-dasharray` is deliberately absent here and must stay absent, for
+ * the same reason it is on `.siren-message-arrow` above: the renderer sets it
+ * per relationship as a presentation attribute, and it is the *only* thing
+ * separating a dependency from an association and a dashed link from a link.
+ * An author rule outranks a presentation attribute, so declaring a dash (or a
+ * `none`) here would flatten all four of those into two.
+ *
+ * `fill` is absent for a different reason: the renderer writes `fill="none"`
+ * onto the path itself, because a relationship's points make an open,
+ * multi-segment path that a default fill would paint as a polygon over the
+ * classes it connects.
+ */
+.siren-relationship-line {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-relationship-label {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
+ * Multiplicity is secondary type annotating the line rather than naming the
+ * relationship, so it tracks the line's color — the `.siren-autonumber`
+ * precedent.
+ */
+.siren-multiplicity {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-edge-stroke);
+}
+
+/*
+ * The hollow endpoint shapes — UML's inheritance/realization triangle and its
+ * aggregation diamond. Outlined in the line's own color, and filled with the
+ * surface the diagram sits on rather than left unfilled: this is the one rule
+ * here that changes what a diagram *means*.
+ *
+ * The two diamonds are the same `<path>` shape drawn twice, told apart only
+ * by this class versus `.siren-arrow-fill` (see renderClassDiagramToSVG.ts's
+ * `buildDefs`) — so with no fill declared, SVG's initial `fill: black` makes
+ * an aggregation identical to a composition. `fill: none` is not the fix
+ * either: an unfilled head lets the relationship line run straight through
+ * its middle. `--siren-node-fill` is the surface token — a class box's own
+ * fill — so a head sitting against a class box, and one crossing empty
+ * canvas, both read as hollow in either theme.
+ */
+.siren-arrow-hollow {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
 }
 
 /*
