@@ -46,11 +46,17 @@
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
   --siren-font-size: 14px;
+  --siren-title-font-size: 18px;
+  /* Secondary type: autonumbers and a block's kind/condition caption. */
+  --siren-label-font-size: 12px;
 
   /* Sizing tokens */
   --siren-node-border-radius: 6px;
   --siren-stroke-width: 1.5;
   --siren-highlight-stroke-width: 3;
+  --siren-lifeline-dash: 4 4;
+  /* A box groups participants drawn on top of it, so it reads as a tint. */
+  --siren-box-fill-opacity: 0.35;
 
   /* Motion tokens */
   --siren-fade-duration: 600ms;
@@ -91,6 +97,190 @@
  */
 .siren-arrow-fill {
   fill: var(--siren-edge-stroke);
+}
+
+/*
+ * Sequence diagram, per the frozen SVG conventions in
+ * renderSequenceToSVG.ts. Everything below reuses the same five color tokens
+ * the flowchart already uses rather than introducing sequence-specific color
+ * tokens, and references them *at the point of use* — deliberately, on both
+ * counts:
+ *
+ *  - A sequence diagram's parts map cleanly onto the flowchart's vocabulary
+ *    (a participant box is a node; a lifeline, message, block frame and
+ *    divider are all edge-weight strokes), so a consumer who has already
+ *    themed the flowchart gets a matching sequence diagram for free, and one
+ *    who wants them to differ still can — by scoping an override to the
+ *    selectors below.
+ *  - A *new* color token declared in `:root` here would silently defeat any
+ *    override scoped lower than `:root` (the demos' `[data-siren-theme=
+ *    "dark"]` sits on `<body>`, see demos/theme-dark-override.css). Custom
+ *    properties substitute against the element the declaration sits on, so
+ *    `--siren-x: var(--siren-node-fill)` written in `:root` freezes the
+ *    *light* value at `:root` and inherits it down past the override. Naming
+ *    the base token directly in the rule instead resolves it on the diagram
+ *    element itself, below the override, so dark mode just works. Only
+ *    color-independent tokens (dash pattern, font sizes, opacities) are safe
+ *    to declare above and are declared there.
+ */
+
+/* Shared type for the sequence diagram's grouping elements; the `<text>`
+   children inherit it and only restate what they change. */
+.siren-participant,
+.siren-message,
+.siren-block,
+.siren-box {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-font-size);
+}
+
+/*
+ * A participant's box and label, and an actor's stick figure, carry no class
+ * of their own — `data-siren-id` and the class land on the enclosing
+ * `<g class="siren-participant">`, and the stick figure's head/body/arms/legs
+ * sit in a further unclassed `<g>` (see `buildParticipant`/`buildActorIcon`).
+ * They are reached by element type instead. A participant is either a box or
+ * an actor, never both, so the `rect` and `circle`/`line` rules never meet on
+ * one participant.
+ */
+.siren-participant rect {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+.siren-participant text {
+  /* text-anchor/dominant-baseline stay with the renderer, for the same reason
+     they do on `.siren-node text` above. */
+  fill: var(--siren-node-text);
+}
+
+.siren-participant circle,
+.siren-participant line {
+  /* An outlined head, not a filled dot — and `line` has nothing to fill. */
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  stroke-linecap: round;
+}
+
+/*
+ * A lifeline is dashed to read as "this participant exists over time" rather
+ * than as another message line. The dash is the theme's to set: the renderer
+ * puts no `stroke-dasharray` on a lifeline (unlike a `dotted` message, below).
+ */
+.siren-lifeline {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+  stroke-dasharray: var(--siren-lifeline-dash);
+}
+
+/*
+ * `stroke-dasharray` is deliberately absent here and must stay absent. The
+ * renderer sets it per message, as a presentation attribute, and it is the
+ * only thing distinguishing a dotted `-->>` reply from a solid `->>` call —
+ * an author rule outranks a presentation attribute, so declaring a dash (or a
+ * `none`) here would flatten every reply in every diagram to a solid line.
+ * Style the lifeline's dash above instead, where the renderer sets none.
+ */
+.siren-message-arrow {
+  /* `fill: none` is not optional: the renderer sets no `fill` attribute on
+     this path, so SVG's initial `fill: black` would otherwise apply. */
+  fill: none;
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-message-label {
+  fill: var(--siren-node-text);
+}
+
+.siren-autonumber {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-edge-stroke);
+}
+
+/*
+ * The cross (`-x`) and open (`-)`) arrowheads are drawn as open subpaths, so
+ * unlike `.siren-arrow-fill` they need a stroke and must not be filled — a
+ * filled open subpath is implicitly closed, turning the cross into a pair of
+ * solid triangles. Tracks the edge token, same as the line it terminates.
+ */
+.siren-arrow-stroke {
+  fill: none;
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-block-frame {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-block-divider {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-block-label {
+  font-size: var(--siren-label-font-size);
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * A `rect` block's fill is the author's own `rect rgb(...)` color, which the
+ * renderer writes onto the element as a `fill` presentation attribute — so
+ * this rule must not declare `fill` at all. An author rule outranks a
+ * presentation attribute, so declaring one here would repaint every
+ * background-highlight block in a single theme color and throw the author's
+ * choice away. A background highlight is not an outlined region, so it takes
+ * no border either.
+ */
+.siren-block-fill {
+  stroke: none;
+}
+
+/*
+ * A box's fill is the author's `box <color>` when they gave one — same
+ * presentation-attribute rule as `.siren-block-fill` above, so the theme's
+ * fallback fill is scoped by `:not([fill])` to exactly the boxes the renderer
+ * left unpainted. Selecting on the attribute, rather than dropping the
+ * fallback or moving the decision into the renderer, is what lets both hold
+ * at once: a `box Blue Storefront` stays blue, a bare `box Ledgers` still
+ * reads as a group instead of vanishing.
+ *
+ * `fill-opacity` applies to both, on purpose. A box is a backdrop for the
+ * participants drawn over it, and `box Blue` means a blue *tint*, not a
+ * saturated slab that swallows the diagram — opacity is a separate property,
+ * so the author's hue is still theirs.
+ */
+.siren-box-background {
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  fill-opacity: var(--siren-box-fill-opacity);
+}
+
+.siren-box-background:not([fill]) {
+  fill: var(--siren-node-fill);
+}
+
+.siren-box-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+.siren-destroy-mark {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-title {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-title-font-size);
+  font-weight: 600;
+  fill: var(--siren-node-text);
 }
 
 /*
