@@ -668,7 +668,8 @@ export function parseClassDiagram(source: string): ParseResult {
     const blockOpenMatch = CLASS_BLOCK_OPEN_RE.exec(line);
     if (blockOpenMatch !== null) {
       const members: ClassMember[] = [];
-      let annotation: string | null = null;
+      // Annotations inside the block are emitted as their own declarations
+      // above, so the block declaration itself never carries one.
       let closed = false;
       let bodyIndex = startIndex + 1;
 
@@ -685,9 +686,28 @@ export function parseClassDiagram(source: string): ParseResult {
 
         // Checked before `parseMember`, which would read `<<interface>>`
         // as a nameless member and reject it.
+        //
+        // Each annotation line becomes its own annotation-only declaration of
+        // the class, exactly as a standalone `<<interface>> Shape` does,
+        // rather than being collapsed into one value here. Collapsing meant
+        // two conflicting annotations inside one block silently kept the
+        // last, while two across separate declarations warned and kept the
+        // first — the same authoring mistake diagnosed two different ways
+        // depending on where it was written. Emitting both lets
+        // `buildClassModel`'s merge be the single rule for either spelling.
         const annotationMatch = ANNOTATION_RE.exec(bodyLine);
         if (annotationMatch !== null) {
-          annotation = annotationMatch[1].trim();
+          declareClass(
+            {
+              id: blockOpenMatch[1],
+              generic: blockOpenMatch[2] ?? null,
+              annotation: annotationMatch[1].trim(),
+              members: [],
+              line: bodyIndex + 1,
+              column: bodyRawLine.length - bodyRawLine.trimStart().length + 1,
+            },
+            namespaceMembers,
+          );
           continue;
         }
 
@@ -723,7 +743,7 @@ export function parseClassDiagram(source: string): ParseResult {
         {
           id: blockOpenMatch[1],
           generic: blockOpenMatch[2] ?? null,
-          annotation,
+          annotation: null,
           members,
           line: lineNumber,
           column,

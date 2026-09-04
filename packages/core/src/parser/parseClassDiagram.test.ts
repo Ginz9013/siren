@@ -331,10 +331,41 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.classes).toHaveLength(1);
-    expect(document.classes[0].id).toBe("Shape");
-    expect(document.classes[0].annotation).toBe("interface");
-    expect(document.classes[0].members.map((m) => m.name)).toEqual(["sides", "draw"]);
+
+    // An annotation line inside a block is emitted as its own
+    // annotation-only declaration of the class, the same shape a standalone
+    // `<<interface>> Shape` produces, rather than being folded into the
+    // block's own declaration. Two declarations of one id is this parser's
+    // normal output — every mention emits one, and `buildClassModel` merges
+    // them — and it is what lets two conflicting annotations in one block be
+    // diagnosed by the same rule as two across separate declarations.
+    const shape = document.classes.filter((c) => c.id === "Shape");
+    expect(shape).toHaveLength(2);
+    expect(shape.map((c) => c.annotation)).toEqual(["interface", null]);
+    expect(shape.flatMap((c) => c.members.map((m) => m.name))).toEqual([
+      "sides",
+      "draw",
+    ]);
+  });
+
+  it("emits both annotations when one class block carries two, so the model can diagnose the conflict", () => {
+    const source = `classDiagram
+  class Shape {
+    <<interface>>
+    <<abstract>>
+    +int sides
+  }
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    // The parser does not choose between them: collapsing here is what made
+    // an in-block conflict silently keep the last one while the same mistake
+    // across two declarations warned and kept the first.
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.classes.filter((c) => c.id === "Shape").map((c) => c.annotation),
+    ).toEqual(["interface", "abstract", null]);
   });
 
   it("parses a standalone annotation as a declaration of the class it names, with any author text", () => {
