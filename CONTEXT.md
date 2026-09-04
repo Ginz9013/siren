@@ -26,6 +26,13 @@ of the core renderer (see [ADR-0005](docs/adr/0005-board-is-a-separate-package-t
 not part of it; does not parse, layout, or render anything itself.
 _Avoid_: canvas, viewer, widget
 
+**View**:
+A board's current pan offset and zoom scale, independent of which timeline step is showing (see
+[ADR-0007](docs/adr/0007-board-pan-zoom-is-a-css-transform-on-a-new-viewport-layer.md)).
+Resetting the view (`board.resetView()`) never changes the current step; resetting the step
+(`controller.reset()`) never changes the view.
+_Avoid_: viewport, camera, zoom level (say "view" for the combined pan+zoom state)
+
 **Timeline block**:
 The `timeline:` section of a Siren document. Lists step entries that assign animation actions to
 nodes/edges by id. Deliberately separate from the diagram's structural definition — see
