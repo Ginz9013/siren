@@ -3,6 +3,7 @@ import type { AnimationController, Diagnostic, TextMeasurer } from "@siren/core"
 import { ensureStylesInjected } from "./styles";
 import { createCanvasTextMeasurer } from "./textMeasurer";
 import { createDefaultControls } from "./defaultControls";
+import { createViewport } from "./viewport";
 
 const ERROR_BANNER_CLASS = "siren-board-error";
 const CANVAS_CLASS = "siren-board-canvas";
@@ -33,6 +34,8 @@ export interface Board {
   readonly controller: AnimationController | null;
   readonly diagnostics: Diagnostic[];
   setSource(source: string): void;
+  /** Resets pan/zoom to the initial fit-to-container state (scale 1.0, no offset). */
+  resetView(): void;
   destroy(): void;
 }
 
@@ -43,6 +46,8 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   const canvas = document.createElement("div");
   canvas.className = CANVAS_CLASS;
   container.appendChild(canvas);
+
+  const viewport = createViewport(canvas);
 
   const measureText = options.measureText ?? createCanvasTextMeasurer();
   let wrappedController: AnimationController | null = null;
@@ -93,16 +98,18 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   }
 
   function setSource(source: string): void {
-    const result = render(source, canvas, { measureText });
+    const result = render(source, viewport.content, { measureText });
     diagnostics = result.diagnostics;
     if (result.svg === null) {
-      // render() leaves the canvas layer untouched on failure (see
-      // packages/core/src/index.ts) — the previous diagram and controller
-      // stay live; only overlay the error banner on top of them.
+      // render() leaves the viewport's content layer untouched on failure
+      // (see packages/core/src/index.ts) — the previous diagram and
+      // controller stay live, and so does the current pan/zoom view; only
+      // overlay the error banner on top of them.
       showErrorBanner();
     } else {
       clearErrorBanner();
       wrappedController = wrapController(result.controller!);
+      viewport.resetView();
     }
     options.onDiagnostics?.(diagnostics);
   }
@@ -117,9 +124,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       return diagnostics;
     },
     setSource,
+    resetView() {
+      viewport.resetView();
+    },
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      viewport.destroy();
       controlsDestroy?.();
       container.replaceChildren();
       container.classList.remove("siren-board");

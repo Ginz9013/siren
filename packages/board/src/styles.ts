@@ -11,11 +11,13 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * rather than a file consumers link themselves.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
- * `.siren-board-canvas` (everything `render()` mounts/replaces on each
- * `setSource`, plus the error banner) as one child, and `.siren-board-controls`
- * as a sibling — kept out of the canvas layer specifically so a re-render
- * (which replaces the canvas layer's children wholesale) never wipes out the
- * control bar.
+ * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
+ * sibling — kept out of the canvas layer specifically so a re-render never
+ * wipes out the control bar. `.siren-board-canvas` in turn holds two of its
+ * own children: `.siren-board-viewport` (everything `render()`
+ * mounts/replaces on each `setSource`, receiving the pan/zoom transform —
+ * see viewport.ts) and, conditionally, the error banner — a sibling of the
+ * viewport so it is never panned or zoomed along with the diagram.
  */
 const CSS = `
 .siren-board {
@@ -28,9 +30,16 @@ const CSS = `
 .siren-board-canvas {
   position: absolute;
   inset: 0;
+  overflow: hidden;
 }
 
-.siren-board-canvas > svg {
+.siren-board-viewport {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.siren-board-viewport > svg {
   display: block;
   width: 100%;
   height: 100%;
