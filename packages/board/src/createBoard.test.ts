@@ -435,7 +435,7 @@ step 1: enter B fade
     expect(readViewportTransform(container).scale).toBeCloseTo(0.1, 10);
   });
 
-  it("pan is clamped so scaled content larger than the container can't be dragged to reveal empty space past its own edge", () => {
+  it("pan is clamped so scaled content larger than the container can be dragged up to a blank-space margin past its own edge, but no further", () => {
     const container = document.createElement("div");
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
     const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
@@ -450,16 +450,16 @@ step 1: enter B fade
 
     canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 0, clientY: 0, button: 0, bubbles: true }));
     window.dispatchEvent(new MouseEvent("mousemove", { clientX: 1_000_000, clientY: 1_000_000 }));
-    // Dragged far positive: content's left/top edge is pinned to the
-    // container's own left/top edge (offset can't exceed 0 — no empty space
-    // revealed past the container's near edge).
-    expect(readViewportTransform(container)).toEqual({ offsetX: 0, offsetY: 0, scale: 4 });
+    // Dragged far positive: content's left/top edge is pinned to a margin of
+    // PAN_MARGIN_RATIO (0.5) * the container's own width/height past the
+    // container's near edge — 400*0.5=200, 300*0.5=150 — rather than exactly 0.
+    expect(readViewportTransform(container)).toEqual({ offsetX: 200, offsetY: 150, scale: 4 });
 
     window.dispatchEvent(new MouseEvent("mousemove", { clientX: -1_000_000, clientY: -1_000_000 }));
-    // Dragged far negative: content's right/bottom edge is pinned to the
-    // container's own right/bottom edge — offsetX/Y = width/height - scaledWidth/Height
-    // (400 - 1600 = -1200, 300 - 1200 = -900), the spec's own two numbers.
-    expect(readViewportTransform(container)).toEqual({ offsetX: -1200, offsetY: -900, scale: 4 });
+    // Dragged far negative: content's right/bottom edge is pinned to that same
+    // margin past the container's far edge — offsetX/Y = width/height -
+    // scaledWidth/Height - margin (400-1600-200=-1400, 300-1200-150=-1050).
+    expect(readViewportTransform(container)).toEqual({ offsetX: -1400, offsetY: -1050, scale: 4 });
   });
 
   it("pan is locked centered on an axis where zoomed-out scaled content is smaller than the container — drag deltas on that axis produce no offset change", () => {

@@ -3,6 +3,13 @@ const VIEWPORT_CLASS = "siren-board-viewport";
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 4;
 const ZOOM_SENSITIVITY = 0.001;
+/**
+ * Extra blank space, as a fraction of the surface's own width/height, the
+ * user can drag the content past its true edge before the pan clamp locks —
+ * so the boundary doesn't feel like it's snapping tight against the diagram
+ * itself.
+ */
+const PAN_MARGIN_RATIO = 0.5;
 
 /**
  * Owns board's pan/zoom DOM layer (`.siren-board-viewport`) and its mouse
@@ -50,21 +57,24 @@ export function createViewport(surface: HTMLElement): Viewport {
 
   /**
    * Clamps the current offset against `surface`'s current size: an axis
-   * where scaled content is larger than the surface can't be dragged to
-   * reveal empty space past its own edge; an axis where scaled content is
+   * where scaled content is larger than the surface can be dragged past its
+   * own edge by up to `PAN_MARGIN_RATIO` of the surface's size (a blank-space
+   * buffer before it locks), but no further; an axis where scaled content is
    * smaller than (or equal to) the surface is locked centered.
    */
   function clampOffset(): void {
     const rect = surface.getBoundingClientRect();
     const scaledWidth = rect.width * scale;
     const scaledHeight = rect.height * scale;
+    const marginX = rect.width * PAN_MARGIN_RATIO;
+    const marginY = rect.height * PAN_MARGIN_RATIO;
     offsetX =
       scaledWidth > rect.width
-        ? Math.min(0, Math.max(rect.width - scaledWidth, offsetX))
+        ? Math.min(marginX, Math.max(rect.width - scaledWidth - marginX, offsetX))
         : (rect.width - scaledWidth) / 2;
     offsetY =
       scaledHeight > rect.height
-        ? Math.min(0, Math.max(rect.height - scaledHeight, offsetY))
+        ? Math.min(marginY, Math.max(rect.height - scaledHeight - marginY, offsetY))
         : (rect.height - scaledHeight) / 2;
   }
 
