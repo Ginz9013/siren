@@ -18,6 +18,7 @@ export function createDefaultControls(board: Board): { element: HTMLElement; des
     makeButton("Prev", () => board.controller?.prev()),
     makeButton("Next", () => board.controller?.next()),
     makeButton("Reset", () => board.controller?.reset()),
+    makeButton("Reset view", () => board.resetView()),
   );
 
   return { element: bar };

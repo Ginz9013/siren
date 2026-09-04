@@ -156,7 +156,7 @@ A[Different] --> B[End]
     expect(() => board.destroy()).not.toThrow();
   });
 
-  it("renders a default Prev/Next/Reset control bar unless controls: false is passed", () => {
+  it("renders a default Prev/Next/Reset/Reset view control bar unless controls: false is passed", () => {
     const container = document.createElement("div");
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
@@ -164,7 +164,7 @@ A[Different] --> B[End]
     const bar = container.querySelector(".siren-board-controls")!;
     expect(bar).not.toBeNull();
     const buttonLabels = Array.from(bar.querySelectorAll("button")).map((b) => b.textContent);
-    expect(buttonLabels).toEqual(["Prev", "Next", "Reset"]);
+    expect(buttonLabels).toEqual(["Prev", "Next", "Reset", "Reset view"]);
   });
 
   it("controls: false renders no control bar", () => {
@@ -190,6 +190,56 @@ step 1: enter B fade
     nextButton.click();
 
     expect(board.controller!.currentStep).toBe(1);
+  });
+
+  it("clicking the default bar's Reset view button resets the pan/zoom view without changing board.controller.currentStep or totalSteps", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+timeline:
+step 1: enter B fade
+`;
+    const board = createBoard(container, { source, measureText: FAKE_MEASURER });
+    const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    stubRect(canvas, { width: 400, height: 300 });
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+    );
+    expect(readViewportTransform(container).scale).not.toBe(1); // sanity: the wheel event actually moved the view
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Next",
+    )!;
+    nextButton.click();
+    expect(board.controller!.currentStep).toBe(1);
+
+    const resetViewButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Reset view",
+    )!;
+    resetViewButton.click();
+
+    expect(readViewportTransform(container)).toEqual({ offsetX: 0, offsetY: 0, scale: 1 });
+    expect(board.controller!.currentStep).toBe(1); // step untouched by Reset view
+    expect(board.controller!.totalSteps).toBe(1);
+  });
+
+  it("clicking the default bar's existing Reset button does not change the pan/zoom view", () => {
+    const container = document.createElement("div");
+    createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+    const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    stubRect(canvas, { width: 400, height: 300 });
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+    );
+    const zoomed = readViewportTransform(container);
+    expect(zoomed.scale).not.toBe(1); // sanity: the wheel event actually moved the view
+
+    const resetButton = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Reset",
+    )!;
+    resetButton.click();
+
+    expect(readViewportTransform(container)).toEqual(zoomed);
   });
 
   it("controls: <factory> renders the factory's element instead of the built-in bar, and calls its destroy() when the board is destroyed", () => {
