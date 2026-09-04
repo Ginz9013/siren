@@ -357,6 +357,26 @@ step 1: enter B fade
     expect(readViewportTransform(container)).toEqual(dragged); // stopped, and stray moves are no-ops
   });
 
+  it("a mousedown on the board's canvas calls preventDefault(), so a real drag isn't hijacked by the browser's native image-drag or text-selection gesture", () => {
+    const container = document.createElement("div");
+    createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+    const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    stubRect(canvas, { width: 400, height: 300 });
+
+    const mouseDownEvent = new MouseEvent("mousedown", {
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+      bubbles: true,
+      cancelable: true,
+    });
+    const preventDefaultSpy = vi.spyOn(mouseDownEvent, "preventDefault");
+    canvas.dispatchEvent(mouseDownEvent);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 100 })); // cleanup: stop the drag this started
+  });
+
   it("a wheel event over the board's canvas zooms cursor-anchored (the content point under the cursor stays under the cursor) and calls preventDefault()", () => {
     const container = document.createElement("div");
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });

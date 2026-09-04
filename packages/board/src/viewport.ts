@@ -70,6 +70,13 @@ export function createViewport(surface: HTMLElement): Viewport {
 
   function onMouseDown(event: MouseEvent): void {
     if (event.button !== 0) return;
+    // Without this, a real click-drag starting on the SVG can be hijacked by
+    // the browser's native image/element drag-and-drop or text-selection
+    // gesture, which swallows the mousemove sequence below entirely — a real
+    // human drag can trigger this even though synthetic/automated mousedown
+    // events typically don't, so it doesn't show up under jsdom or CDP-driven
+    // testing.
+    event.preventDefault();
     dragging = true;
     dragStartClientX = event.clientX;
     dragStartClientY = event.clientY;

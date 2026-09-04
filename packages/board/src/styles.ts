@@ -37,6 +37,13 @@ const CSS = `
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.siren-board-viewport img,
+.siren-board-viewport svg {
+  -webkit-user-drag: none;
 }
 
 .siren-board-viewport > svg {
