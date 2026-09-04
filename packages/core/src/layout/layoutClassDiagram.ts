@@ -54,33 +54,68 @@ function memberText(member: ClassMember): string {
 }
 
 /**
+ * Whether `ch` can begin a generic's argument — the first character of a type
+ * name. Deliberately not whitespace-tolerant: see `angleBrackets`.
+ */
+function opensTypeName(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
+}
+
+/**
  * A type as drawn, with the author's `~T~` generic delimiters turned into
  * the `<T>` Mermaid draws.
  *
- * Tildes are paired outside-in — the first with the last, then the next pair
- * inward — because `~` is its own closing delimiter and so carries no nesting
- * information of its own. That is what makes a nested generic come out right:
- * `Map~String, List~int~~` draws as `Map<String, List<int>>`, where pairing
- * left-to-right would produce `Map<String, List>int<>`. Mermaid pairs them
- * the same way.
+ * `~` is its own closing delimiter, so which role a given tilde plays has to
+ * be read off its surroundings. The rule is a single left-to-right scan: a
+ * tilde immediately followed by a character that could start a type name
+ * *opens* a generic and is pushed on a stack; any other tilde *closes* the
+ * innermost open one. Both directions of the problem fall out of that:
  *
- * Applied to a type, never to a whole member line: a member's
- * package-visibility marker is a leading `~` — the same character, a
- * different token — and it is a separate field on the model, so converting
+ * - Nested — `Map~String, List~int~~` draws as `Map<String, List<int>>`. The
+ *   tilde after `List` is followed by `i`, so it opens rather than closing
+ *   the one after `Map`.
+ * - Sibling — `List~int~ a, Map~String,int~ b` draws as
+ *   `List<int> a, Map<String,int> b`. The tilde after `int` is followed by a
+ *   space, so it closes, and the second generic starts fresh.
+ *
+ * (An earlier version paired tildes outside-in — first with last, then
+ * inward. That is right for nesting and wrong for siblings, which it
+ * interleaves into `List<int< a, Map>String,int> b`. Depth, not distance from
+ * the ends, is what tells the two apart.)
+ *
+ * A tilde left over — an open that never closed, or a close with nothing
+ * open — is drawn as itself, so an author's typo costs that one character
+ * rather than the rest of the line. That is also what leaves a
+ * package-visibility `~` written inside a parameter list alone: in
+ * `~run(~int a, ~int b)` both parameter tildes read as opens and neither ever
+ * closes, so both survive to the canvas. It is a consequence of the rule, not
+ * a special case, and it is not fully decidable from the text — a leading
+ * `~` on a parameter *would* be consumed by a later closing tilde, as in
+ * `~int a, b~`.
+ *
+ * The lookahead is strict about adjacency: `List~ int ~`, with spaces inside
+ * the delimiters, leaves both tildes literal rather than converting. Skipping
+ * whitespace there would make the space in `List~int~ a, ...` look like the
+ * start of a nested argument and break siblings again, which is the case that
+ * matters more.
+ *
+ * Applied to a type, never to a whole member line: a member's own
+ * package-visibility marker is a separate field on the model, so converting
  * types only leaves it untouched by construction rather than by heuristic.
  */
 function angleBrackets(type: string): string {
   const chars = [...type];
-  let open = chars.indexOf("~");
-  let close = chars.lastIndexOf("~");
-  // An odd tilde has nothing to pair with once the pairs around it are used
-  // up: `open === close` ends the loop and it stays a literal `~`, so a typo
-  // costs the author that one character rather than the rest of the line.
-  while (open !== -1 && open < close) {
+  const openIndices: number[] = [];
+  for (let i = 0; i < chars.length; i += 1) {
+    if (chars[i] !== "~") continue;
+    if (opensTypeName(chars[i + 1])) {
+      openIndices.push(i);
+      continue;
+    }
+    const open = openIndices.pop();
+    if (open === undefined) continue;
     chars[open] = "<";
-    chars[close] = ">";
-    open = chars.indexOf("~");
-    close = chars.lastIndexOf("~");
+    chars[i] = ">";
   }
   return chars.join("");
 }

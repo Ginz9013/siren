@@ -519,11 +519,124 @@ describe("layoutClassDiagram", () => {
       ]);
     });
 
+    it("converts two independent generics on one line without interleaving them", () => {
+      // Two generics side by side in one parameter list are *siblings*, not
+      // nested: the first `~` closes at the second, not at the last one on
+      // the line. Pairing them outside-in interleaves the two, which is what
+      // this ticket exists to fix.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Registry", [
+              method({
+                visibility: "+",
+                name: "lookup",
+                parameters: "List~int~ a, Map~String,int~ b",
+                returnType: "bool",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(
+        classById(diagram, "Registry").methods!.members.map((m) => m.text),
+      ).toEqual(["+lookup(List<int> a, Map<String,int> b) bool"]);
+    });
+
+    it("converts a nested generic and a sibling generic on the same line", () => {
+      // The case that pins the rule from both sides at once: the tilde after
+      // `List` has to open (nesting) while the tilde after the first `int~~`
+      // pair has to close (sibling), and no single "distance from the ends"
+      // rule can do both on one line.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Registry", [
+              method({
+                visibility: "+",
+                name: "merge",
+                parameters: "Map~String, List~int~~ a, Set~int~ b",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(
+        classById(diagram, "Registry").methods!.members.map((m) => m.text),
+      ).toEqual(["+merge(Map<String, List<int>> a, Set<int> b)"]);
+    });
+
+    it("converts three sibling generics on one line, each on its own", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Registry", [
+              method({
+                visibility: "+",
+                name: "store",
+                parameters: "List~int~ a, Set~String~ b, Map~String,int~ c",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(
+        classById(diagram, "Registry").methods!.members.map((m) => m.text),
+      ).toEqual(["+store(List<int> a, Set<String> b, Map<String,int> c)"]);
+    });
+
+    it("leaves a package-visibility tilde written inside a parameter list alone", () => {
+      // `~run(~int a, ~int b)` — the tildes on the parameters are visibility
+      // markers the author typed into the parameter text, not generic
+      // delimiters. Each is followed by a type name, so each reads as an
+      // opening tilde that never closes, and an unclosed tilde is drawn as
+      // itself. A real generic further along the same line still converts.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Runner", [
+              method({
+                visibility: "~",
+                name: "run",
+                parameters: "~int a, ~int b",
+              }),
+              method({
+                visibility: "~",
+                name: "runAll",
+                parameters: "~int a, List~int~ b",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(
+        classById(diagram, "Runner").methods!.members.map((m) => m.text),
+      ).toEqual(["~run(~int a, ~int b)", "~runAll(~int a, List<int> b)"]);
+    });
+
     it("draws a tilde with no partner literally and still converts the pairs around it", () => {
-      // The documented rule for author typos: tildes pair outside-in, and
-      // whichever one is left over is drawn as itself. A missing tilde
-      // therefore costs the author that one character, not the rest of the
-      // line.
+      // The documented rule for author typos: whichever tilde is left over
+      // once the pairs around it are matched is drawn as itself. A missing
+      // tilde therefore costs the author that one character, not the rest of
+      // the line.
+      //
+      // Which one is left over changed with ticket 21. Under the old
+      // outside-in pairing, `Map~String,List~int~` drew as
+      // `Map<String,List~int>` — first tilde with last. That pairing is
+      // exactly what interleaves two sibling generics, and applying it here
+      // is inseparable from applying it there: the same first-with-last step
+      // draws `~int a, List~int~ b` as `<int a, List~int> b`, eating a
+      // package-visibility marker. Ticket 21 pairs by depth instead, so the
+      // leftover is now the *outer* opening tilde and the inner pair
+      // converts.
       const diagram = layoutClassDiagram(
         classModel({
           classes: [
@@ -542,7 +655,45 @@ describe("layoutClassDiagram", () => {
 
       expect(
         classById(diagram, "Broken").attributes!.members.map((m) => m.text),
-      ).toEqual(["+List~int items", "+Map<String,List~int> lookup"]);
+      ).toEqual(["+List~int items", "+Map~String,List<int> lookup"]);
+    });
+
+    it("measures a box holding two generics on one line from the converted text", () => {
+      // Characterization of the measuring seam for the sibling case: the box
+      // is sized from `memberText`'s output, so it holds the drawn line and
+      // never pays for the four tildes that do not reach the canvas.
+      const tildeIsWide: TextMeasurer = {
+        measure(text: string) {
+          const tildes = [...text].filter((ch) => ch === "~").length;
+          return { width: text.length * 8 + tildes * 40, height: 24 };
+        },
+      };
+
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Registry", [
+              method({
+                visibility: "+",
+                name: "lookup",
+                parameters: "List~int~ a, Map~String,int~ b",
+                returnType: "bool",
+              }),
+            ]),
+          ],
+        }),
+        { measureText: tildeIsWide },
+      );
+
+      const registry = classById(diagram, "Registry");
+      expect(registry.width).toBeGreaterThan(
+        tildeIsWide.measure("+lookup(List<int> a, Map<String,int> b) bool")
+          .width,
+      );
+      expect(registry.width).toBeLessThan(
+        tildeIsWide.measure("+lookup(List~int~ a, Map~String,int~ b) bool")
+          .width,
+      );
     });
 
     it("measures a class box from the converted text, not from the tildes the author wrote", () => {
