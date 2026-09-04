@@ -1,0 +1,298 @@
+import type {
+  PositionedMessage,
+  PositionedParticipant,
+  PositionedSequenceDiagram,
+  SequenceArrowHead,
+} from "../contracts";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Marker id in `<defs>` for each arrowhead style, or `null` for `"none"`
+ * (no marker at all). `"filled"` and `"bidirectionalFilled"` share the same
+ * marker id — `orient="auto-start-reverse"` on the `<marker>` def makes the
+ * one def point outward correctly whether it's used as `marker-start` or
+ * `marker-end`, so `bidirectionalFilled` just applies it at both ends
+ * rather than needing a second mirrored def.
+ */
+const HEAD_MARKER_ID: Record<SequenceArrowHead, string | null> = {
+  none: null,
+  filled: "siren-arrow-filled",
+  bidirectionalFilled: "siren-arrow-filled",
+  cross: "siren-arrow-cross",
+  open: "siren-arrow-open",
+};
+
+/**
+ * Builds a real `SVGSVGElement` from a `PositionedSequenceDiagram`, per the
+ * frozen SVG conventions in spec.md ("SVG conventions" bullet list): one
+ * `<g class="siren-participant">` per participant (box for `participant`,
+ * stick figure for `actor`), one `<line class="siren-lifeline">` per
+ * participant, one `<g class="siren-message">` per message (all ten
+ * arrow-marker/dash combinations), and a `<text class="siren-title">` when
+ * a title is present. Block frames and box-group backgrounds are added by
+ * later tickets on top of this same file.
+ */
+export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(diagram.width));
+  svg.setAttribute("height", String(diagram.height));
+  svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
+
+  svg.appendChild(buildDefs());
+
+  if (diagram.title !== null) {
+    svg.appendChild(buildTitle(diagram.title, diagram.width));
+  }
+
+  for (const participant of diagram.participants) {
+    svg.appendChild(buildLifeline(participant));
+  }
+
+  for (const participant of diagram.participants) {
+    svg.appendChild(buildParticipant(participant));
+  }
+
+  for (const element of diagram.elements) {
+    if (element.kind === "message") {
+      svg.appendChild(buildMessage(element.message));
+    }
+    // "block" and "destroyMark" elements are rendered by later tickets
+    // (09/14) on top of this same file — out of this ticket's core scope.
+  }
+
+  return svg;
+}
+
+/** Builds the `<text class="siren-title">`, centered above the diagram. */
+function buildTitle(title: string, diagramWidth: number): SVGTextElement {
+  const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
+  text.setAttribute("class", "siren-title");
+  text.setAttribute("x", String(diagramWidth / 2));
+  text.setAttribute("y", "20");
+  text.setAttribute("text-anchor", "middle");
+  text.textContent = title;
+  return text;
+}
+
+/**
+ * Builds the `<g class="siren-message">` for one message: a
+ * `<path class="siren-message-arrow">` with marker-start/marker-end and
+ * stroke-dasharray matching its `{ line, head }`, a
+ * `<text class="siren-message-label">`, and — when autonumbering was
+ * active for this message — an adjacent `<text class="siren-autonumber">`.
+ */
+function buildMessage(message: PositionedMessage): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-message");
+  g.setAttribute("data-siren-id", message.id);
+
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("class", "siren-message-arrow");
+  path.setAttribute("d", `M${message.fromX},${message.y} L${message.toX},${message.y}`);
+
+  const markerId = HEAD_MARKER_ID[message.arrow.head];
+  if (markerId !== null) {
+    path.setAttribute("marker-end", `url(#${markerId})`);
+    if (message.arrow.head === "bidirectionalFilled") {
+      path.setAttribute("marker-start", `url(#${markerId})`);
+    }
+  }
+  if (message.arrow.line === "dotted") {
+    path.setAttribute("stroke-dasharray", "4,3");
+  }
+  g.appendChild(path);
+
+  const label = document.createElementNS(SVG_NS, "text");
+  label.setAttribute("class", "siren-message-label");
+  label.setAttribute("x", String((message.fromX + message.toX) / 2));
+  label.setAttribute("y", String(message.y - 6));
+  label.setAttribute("text-anchor", "middle");
+  label.textContent = message.text;
+  g.appendChild(label);
+
+  if (message.autonumber !== null) {
+    const autonumber = document.createElementNS(SVG_NS, "text");
+    autonumber.setAttribute("class", "siren-autonumber");
+    autonumber.setAttribute("x", String(Math.min(message.fromX, message.toX) - 12));
+    autonumber.setAttribute("y", String(message.y + 4));
+    autonumber.textContent = String(message.autonumber);
+    g.appendChild(autonumber);
+  }
+
+  return g;
+}
+
+/**
+ * Builds the shared `<defs>` block: one `<marker>` per distinct arrowhead
+ * shape (`"none"` needs none; `"filled"`/`"bidirectionalFilled"` share one).
+ */
+function buildDefs(): SVGDefsElement {
+  const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
+  defs.appendChild(buildFilledMarker());
+  defs.appendChild(buildCrossMarker());
+  defs.appendChild(buildOpenMarker());
+  return defs;
+}
+
+function buildFilledMarker(): SVGMarkerElement {
+  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
+  marker.setAttribute("id", "siren-arrow-filled");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "6");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "3");
+  marker.setAttribute("orient", "auto-start-reverse");
+
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M0,0 L8,3 L0,6 Z");
+  path.setAttribute("class", "siren-arrow-fill");
+  marker.appendChild(path);
+  return marker;
+}
+
+function buildCrossMarker(): SVGMarkerElement {
+  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
+  marker.setAttribute("id", "siren-arrow-cross");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "8");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "4");
+  marker.setAttribute("orient", "auto-start-reverse");
+
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M0,0 L8,8 M8,0 L0,8");
+  path.setAttribute("class", "siren-arrow-stroke");
+  marker.appendChild(path);
+  return marker;
+}
+
+function buildOpenMarker(): SVGMarkerElement {
+  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
+  marker.setAttribute("id", "siren-arrow-open");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "8");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "4");
+  marker.setAttribute("orient", "auto-start-reverse");
+
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M0,0 L8,4 L0,8");
+  path.setAttribute("class", "siren-arrow-stroke");
+  path.setAttribute("fill", "none");
+  marker.appendChild(path);
+  return marker;
+}
+
+/**
+ * Builds the `<line class="siren-lifeline">` for one participant, spanning
+ * its layout-assigned top-to-bottom extent.
+ */
+function buildLifeline(participant: PositionedParticipant): SVGLineElement {
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("class", "siren-lifeline");
+  line.setAttribute("data-siren-id", participant.id);
+  line.setAttribute("x1", String(participant.x));
+  line.setAttribute("y1", String(participant.top));
+  line.setAttribute("x2", String(participant.x));
+  line.setAttribute("y2", String(participant.bottom));
+  return line;
+}
+
+/**
+ * Builds the `<g class="siren-participant">` for one participant: a
+ * `<rect>`+`<text>` box for `kind: "participant"`, or a stick-figure `<g>`
+ * (head circle + body/arm/leg lines) + `<text>` label for `kind: "actor"`.
+ */
+function buildParticipant(participant: PositionedParticipant): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-participant");
+  g.setAttribute("data-siren-id", participant.id);
+
+  if (participant.participantKind === "actor") {
+    g.appendChild(buildActorIcon(participant));
+
+    const text = document.createElementNS(SVG_NS, "text");
+    text.setAttribute("x", String(participant.x));
+    text.setAttribute("y", String(participant.top + participant.height));
+    text.setAttribute("text-anchor", "middle");
+    text.textContent = participant.label;
+    g.appendChild(text);
+
+    return g;
+  }
+
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", String(participant.x - participant.width / 2));
+  rect.setAttribute("y", String(participant.top));
+  rect.setAttribute("width", String(participant.width));
+  rect.setAttribute("height", String(participant.height));
+  g.appendChild(rect);
+
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("x", String(participant.x));
+  text.setAttribute("y", String(participant.top + participant.height / 2));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "middle");
+  text.textContent = participant.label;
+  g.appendChild(text);
+
+  return g;
+}
+
+/**
+ * Builds the stick-figure icon for an `actor` participant: a head circle,
+ * a body line, an arm line, and two leg lines, sized within the
+ * participant's layout-assigned bounding box.
+ */
+function buildActorIcon(participant: PositionedParticipant): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  const centerX = participant.x;
+  const headRadius = Math.max(Math.min(participant.width, participant.height) / 6, 4);
+  const headCenterY = participant.top + headRadius;
+  const bodyTopY = headCenterY + headRadius;
+  const bodyBottomY = participant.top + participant.height * 0.7;
+  const legBottomY = participant.top + participant.height;
+
+  const head = document.createElementNS(SVG_NS, "circle");
+  head.setAttribute("cx", String(centerX));
+  head.setAttribute("cy", String(headCenterY));
+  head.setAttribute("r", String(headRadius));
+  g.appendChild(head);
+
+  const body = document.createElementNS(SVG_NS, "line");
+  body.setAttribute("x1", String(centerX));
+  body.setAttribute("y1", String(bodyTopY));
+  body.setAttribute("x2", String(centerX));
+  body.setAttribute("y2", String(bodyBottomY));
+  g.appendChild(body);
+
+  const armSpan = participant.width / 3;
+  const armY = bodyTopY + (bodyBottomY - bodyTopY) * 0.3;
+  const arms = document.createElementNS(SVG_NS, "line");
+  arms.setAttribute("x1", String(centerX - armSpan));
+  arms.setAttribute("y1", String(armY));
+  arms.setAttribute("x2", String(centerX + armSpan));
+  arms.setAttribute("y2", String(armY));
+  g.appendChild(arms);
+
+  const legSpan = participant.width / 4;
+  const legLeft = document.createElementNS(SVG_NS, "line");
+  legLeft.setAttribute("x1", String(centerX));
+  legLeft.setAttribute("y1", String(bodyBottomY));
+  legLeft.setAttribute("x2", String(centerX - legSpan));
+  legLeft.setAttribute("y2", String(legBottomY));
+  g.appendChild(legLeft);
+
+  const legRight = document.createElementNS(SVG_NS, "line");
+  legRight.setAttribute("x1", String(centerX));
+  legRight.setAttribute("y1", String(bodyBottomY));
+  legRight.setAttribute("x2", String(centerX + legSpan));
+  legRight.setAttribute("y2", String(legBottomY));
+  g.appendChild(legRight);
+
+  return g;
+}
