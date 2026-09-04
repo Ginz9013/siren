@@ -1,6 +1,7 @@
 import type {
   Diagnostic,
   ResolvedSequenceBlock,
+  ResolvedSequenceBox,
   ResolvedSequenceBranch,
   ResolvedSequenceMessage,
   ResolvedSequenceParticipant,
@@ -48,6 +49,21 @@ interface ResolutionState {
   blockCounters: Map<string, number>;
   autonumbering: boolean;
   autonumberCounter: number;
+  /**
+   * Position of the most recently resolved statement — the running counter
+   * behind `ResolvedSequenceParticipant.createdAt`/`destroyedAt`.
+   *
+   * A position is the 1-based index of a statement in a pre-order walk of
+   * the *resolved* statement tree (a block takes its position before its
+   * body's statements do), so `layoutSequence` can recover the same numbers
+   * by walking `model.statements` in order. Only statements that survive
+   * into the tree consume one: a dropped message, or an `autonumber` toggle
+   * that resolves to no node at all, does not advance the counter.
+   *
+   * Position 0 is therefore never a statement — it is the diagram's top,
+   * where a preamble-declared participant's lifeline begins.
+   */
+  position: number;
 }
 
 /**
@@ -58,10 +74,12 @@ interface ResolutionState {
 export function buildSequenceModel(document: SequenceDocument): SequenceModelResult {
   const diagnostics: Diagnostic[] = [];
 
-  // No `create` statements exist at this ticket's parser support level, so
-  // every declared participant resolves with the same origin and a
-  // full-height lifeline extent. Tickets 07/12 extend this to compute the
-  // truncated-extent cases once create/destroy parsing exists.
+  // Every participant starts out with a full-height lifeline — from the
+  // diagram's top (position 0) to its bottom (`destroyedAt: null`). The
+  // statement walk below narrows that extent in place for the participants
+  // that have a `create` or a `destroy` statement: these objects are the
+  // same ones the resolved `participant` statements hold by reference, so
+  // both views of a participant always agree.
   const participants: ResolvedSequenceParticipant[] = document.participants.map((p) => ({
     id: p.id,
     label: p.label,
@@ -79,18 +97,56 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     blockCounters: new Map<string, number>(),
     autonumbering: false,
     autonumberCounter: 0,
+    position: 0,
   };
+
+  const boxes = resolveBoxes(document, diagnostics);
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
 
   const model: SequenceModel = {
     title: document.title,
     participants,
-    boxes: [],
+    boxes,
     statements,
   };
 
   return { model, diagnostics };
+}
+
+/**
+ * Resolves the document's `box` groupings to `box-${n}` ids, 1-based in
+ * declaration order.
+ *
+ * Boxes group *declarations*, not statements: they live in the preamble
+ * alongside the participant list rather than at a position in the statement
+ * tree, so the explicit-reference rule applies to them against the declared
+ * participants as a whole, not against the order-sensitive `declaredSoFar`
+ * set the statement walk maintains — there is no statement position at
+ * which to say a box came "before" a declaration.
+ *
+ * An unresolvable member is dropped from the box and the box itself kept,
+ * the same partial-failure tolerance an invalid message gets: the remaining
+ * members still describe a grouping worth rendering.
+ */
+function resolveBoxes(document: SequenceDocument, diagnostics: Diagnostic[]): ResolvedSequenceBox[] {
+  const declaredIds = new Set(document.participants.map((p) => p.id));
+
+  return document.boxes.map((box, index) => {
+    const id = `box-${index + 1}`;
+    const participantIds = box.participantIds.filter((participantId) => {
+      if (declaredIds.has(participantId)) return true;
+      diagnostics.push({
+        severity: "error",
+        message: `box "${id}" groups undeclared participant "${participantId}"`,
+        line: box.line,
+        column: box.column,
+      });
+      return false;
+    });
+
+    return { id, color: box.color, label: box.label, participantIds };
+  });
 }
 
 function resolveStatements(
@@ -125,16 +181,20 @@ function resolveStatements(
       // participantsById is built from the same document.participants list
       // every participant statement's id is drawn from, so this is always
       // found.
+      const position = ++state.position;
+      // `create participant X` starts the lifeline here rather than at the
+      // diagram's top; a plain preamble `participant X` leaves the default
+      // full-height extent alone.
+      participant!.origin = statement.origin;
+      if (statement.origin === "created") participant!.createdAt = position;
       resolved.push({ kind: "participant", participant: participant! });
       continue;
     }
 
     if (statement.kind === "destroy") {
-      // Explicit-reference rule applies to `destroy` too. This ticket's
-      // parser support level never produces `destroy` statements, but the
-      // type surface already includes them (frozen for the whole board),
-      // and ticket 12 extends this branch to actually truncate the
-      // participant's lifeline extent.
+      // Explicit-reference rule applies to `destroy` too — including to a
+      // `create`d participant destroyed above its own `create` statement,
+      // since `declaredSoFar` only gains the id at that statement.
       if (!state.declaredSoFar.has(statement.id)) {
         state.diagnostics.push({
           severity: "error",
@@ -144,6 +204,22 @@ function resolveStatements(
         });
         continue;
       }
+      // A lifeline can only end once: a second `destroy` has no truncation
+      // point left to name, so it is an error and is dropped, keeping the
+      // first one's extent.
+      const participant = participantsById.get(statement.id)!;
+      if (participant.destroyedAt !== null) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `destroy references participant "${statement.id}", whose lifeline already ended`,
+          line: statement.line,
+          column: statement.column,
+        });
+        continue;
+      }
+
+      // The lifeline stops here instead of running to the diagram's bottom.
+      participant.destroyedAt = ++state.position;
       resolved.push({ kind: "destroy", id: statement.id });
       continue;
     }
@@ -175,9 +251,31 @@ function resolveStatements(
       const baseId = `${statement.from}-${statement.to}`;
       const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
 
+      // A message can still name a participant whose lifeline has already
+      // been `destroy`ed — the id resolves, but the arrow would touch empty
+      // space below the destroy mark. Advisory only, exactly like
+      // flowchart's "edge outlives its endpoint" warning: the message is
+      // kept, since nothing else can be inferred about what the author
+      // meant. The walk is in document order, so any non-null `destroyedAt`
+      // here belongs to an earlier statement.
+      for (const referencedId of referencedIds) {
+        const endsAt = participantsById.get(referencedId)!.destroyedAt;
+        if (endsAt === null) continue;
+        state.diagnostics.push({
+          severity: "warning",
+          message:
+            `Message "${id}" references participant "${referencedId}", whose lifeline ` +
+            `already ended — the arrow points past the destroy mark`,
+          line: statement.line,
+          column: statement.column,
+        });
+      }
+
       if (state.autonumbering) {
         state.autonumberCounter += 1;
       }
+
+      ++state.position;
 
       const message: ResolvedSequenceMessage = {
         id,
@@ -216,6 +314,10 @@ function resolveBlock(
   const n = (state.blockCounters.get(statement.kind) ?? 0) + 1;
   state.blockCounters.set(statement.kind, n);
   const id = `${statement.kind}-${n}`;
+
+  // Pre-order: the block occupies the position just before its body's
+  // statements do.
+  ++state.position;
 
   let branchInputs: Array<{ label: string | null; body: SequenceStatement[] }>;
   switch (statement.kind) {

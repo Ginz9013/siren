@@ -456,6 +456,246 @@ describe("buildSequenceModel", () => {
     expect(block.branches[0]!.label).toBe("not-a-real-color-value");
   });
 
+  it("resolves a create-declared participant with origin created and createdAt at its create statement's position", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "Bob", participantKind: "actor" },
+      ],
+      boxes: [],
+      // Resolved-statement positions, 1-based in flattened order:
+      //   1 participant A, 2 message A->A, 3 create actor B, 4 message A->B.
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "A", text: "self", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "B", label: "Bob", participantKind: "actor", origin: "created" },
+        { kind: "message", from: "A", to: "B", text: "hello", arrow: { line: "solid", head: "filled" } },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.participants).toEqual([
+      {
+        id: "A",
+        label: "A",
+        participantKind: "participant",
+        origin: "declared",
+        createdAt: 0,
+        destroyedAt: null,
+      },
+      {
+        id: "B",
+        label: "Bob",
+        participantKind: "actor",
+        origin: "created",
+        createdAt: 3,
+        destroyedAt: null,
+      },
+    ]);
+  });
+
+  it("ends a destroyed participant's lifeline at the destroy statement's position, leaving every other lifeline full-height", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      // Resolved-statement positions, 1-based in flattened order:
+      //   1 participant A, 2 participant B, 3 loop, 4 message A->B (in the
+      //   loop body), 5 destroy B.
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: null,
+          body: [
+            { kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } },
+          ],
+        },
+        { kind: "destroy", id: "B" },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.participants.map((p) => [p.id, p.createdAt, p.destroyedAt])).toEqual([
+      ["A", 0, null],
+      ["B", 0, 5],
+    ]);
+    expect(model!.statements.at(-1)).toEqual({ kind: "destroy", id: "B" });
+  });
+
+  it("rejects a second destroy of an already-destroyed participant, keeping the first destroy's position", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      // Positions: 1 participant A, 2 destroy A. The second destroy is
+      // dropped, so it consumes no position.
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "destroy", id: "A" },
+        { kind: "destroy", id: "A", line: 4, column: 1 },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    expect(model!.participants[0]!.destroyedAt).toBe(2);
+    expect(model!.statements.filter((s) => s.kind === "destroy")).toHaveLength(1);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("A");
+    expect(diagnostics[0]!.line).toBe(4);
+  });
+
+  it("warns about a message reaching a participant past the end of its lifeline, without dropping the message", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", text: "alive", arrow: { line: "solid", head: "filled" } },
+        { kind: "destroy", id: "B" },
+        {
+          kind: "message",
+          from: "A",
+          to: "B",
+          text: "too late",
+          arrow: { line: "solid", head: "filled" },
+          line: 7,
+          column: 1,
+        },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    const messages = model!.statements.filter(
+      (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
+    );
+    expect(messages.map((s) => s.message.id)).toEqual(["A-B", "A-B#2"]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("warning");
+    expect(diagnostics[0]!.message).toContain("A-B#2");
+    expect(diagnostics[0]!.message).toContain("B");
+    expect(diagnostics[0]!.line).toBe(7);
+  });
+
+  it("assigns each box a stable box-n id in declaration order, passing its color, label and members through", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+        { id: "C", label: "C", participantKind: "participant" },
+      ],
+      boxes: [
+        { color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
+        { color: null, label: null, participantIds: ["C"] },
+      ],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "C", label: "C", participantKind: "participant", origin: "declared" },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.boxes).toEqual([
+      { id: "box-1", color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
+      { id: "box-2", color: null, label: null, participantIds: ["C"] },
+    ]);
+  });
+
+  it("drops an undeclared member id from a box, reports an error diagnostic, and keeps the box's declared members", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [
+        {
+          color: null,
+          label: "Services",
+          participantIds: ["A", "does-not-exist"],
+          line: 2,
+          column: 1,
+        },
+      ],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    expect(model!.boxes).toEqual([
+      { id: "box-1", color: null, label: "Services", participantIds: ["A"] },
+    ]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("does-not-exist");
+    expect(diagnostics[0]!.message).toContain("box-1");
+    expect(diagnostics[0]!.line).toBe(2);
+  });
+
+  it("rejects a message and a destroy that reference a create-declared participant before its create statement", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", text: "too early", arrow: { line: "solid", head: "filled" } },
+        { kind: "destroy", id: "B" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "created" },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    expect(model!.statements.map((s) => s.kind)).toEqual(["participant", "participant"]);
+    expect(model!.participants[1]).toEqual({
+      id: "B",
+      label: "B",
+      participantKind: "participant",
+      origin: "created",
+      createdAt: 2,
+      destroyedAt: null,
+    });
+    expect(diagnostics.map((d) => d.severity)).toEqual(["error", "error"]);
+  });
+
   it("makes a participant declared inside a block's body visible to a later sibling statement after the block ends (order-sensitive, threaded through recursion)", () => {
     const document: SequenceDocument = {
       kind: "sequence",
