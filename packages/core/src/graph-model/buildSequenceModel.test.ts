@@ -124,6 +124,40 @@ describe("buildSequenceModel", () => {
     expect(diagnostics[0]!.message).toContain("does-not-exist");
   });
 
+  it("drops a message referencing a participant declared later in the statement order, even though it is declared somewhere in the document", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        {
+          kind: "message",
+          from: "A",
+          to: "B",
+          text: "too early",
+          arrow: { line: "solid", head: "filled" },
+        },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    const messages = model!.statements.filter(
+      (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
+    );
+    expect(messages).toHaveLength(0);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("B");
+  });
+
   it("drops a destroy statement referencing an undeclared participant and reports an error diagnostic", () => {
     const document: SequenceDocument = {
       kind: "sequence",

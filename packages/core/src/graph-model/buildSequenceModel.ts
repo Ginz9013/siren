@@ -30,9 +30,8 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     destroyedAt: null,
   }));
   const participantsById = new Map(participants.map((p) => [p.id, p]));
-  const declaredIds = new Set(document.participants.map((p) => p.id));
 
-  const statements = resolveStatements(document.statements, declaredIds, participantsById, diagnostics);
+  const statements = resolveStatements(document.statements, participantsById, diagnostics);
 
   const model: SequenceModel = {
     title: document.title,
@@ -46,12 +45,20 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
 function resolveStatements(
   statements: SequenceStatement[],
-  declaredIds: Set<string>,
   participantsById: Map<string, ResolvedSequenceParticipant>,
   diagnostics: Diagnostic[],
 ): ResolvedSequenceStatement[] {
   const resolved: ResolvedSequenceStatement[] = [];
   const seenPairCounts = new Map<string, number>();
+
+  // Explicit-reference rule is order-sensitive (spec.md Domain decisions:
+  // "'earlier' meaning earlier in the flattened statement order, so a
+  // message ... can't reference a participant only declared/created later").
+  // Built up incrementally as `participant` statements are walked, not
+  // pre-seeded from the full document.participants list — a message before
+  // its target's declaring statement must fail validation even though that
+  // id is declared *somewhere* in the document.
+  const declaredSoFar = new Set<string>();
 
   // Autonumbering is a fold over statement order, not a per-statement
   // concept: `autonumberOn`/`autonumberOff` toggle a running flag (and,
@@ -78,6 +85,7 @@ function resolveStatements(
     }
 
     if (statement.kind === "participant") {
+      declaredSoFar.add(statement.id);
       const participant = participantsById.get(statement.id);
       // participantsById is built from the same document.participants list
       // every participant statement's id is drawn from, so this is always
@@ -92,7 +100,7 @@ function resolveStatements(
       // type surface already includes them (frozen for the whole board),
       // and ticket 12 extends this branch to actually truncate the
       // participant's lifeline extent.
-      if (!declaredIds.has(statement.id)) {
+      if (!declaredSoFar.has(statement.id)) {
         diagnostics.push({
           severity: "error",
           message: `destroy references undeclared participant "${statement.id}"`,
@@ -113,7 +121,7 @@ function resolveStatements(
     // resolves (partial-failure tolerance, matching flowchart's "drop the
     // bad entry, keep going" discipline).
     const referencedIds = [...new Set([statement.from, statement.to])];
-    const missingIds = referencedIds.filter((id) => !declaredIds.has(id));
+    const missingIds = referencedIds.filter((id) => !declaredSoFar.has(id));
     if (missingIds.length > 0) {
       for (const id of missingIds) {
         diagnostics.push({
