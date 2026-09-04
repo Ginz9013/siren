@@ -1,0 +1,327 @@
+import type {
+  ClassDirection,
+  ClassMember,
+  ClassModel,
+  LayoutOptions,
+  Point,
+  PositionedClass,
+  PositionedClassCompartment,
+  PositionedClassDiagram,
+  PositionedClassRelationship,
+  ResolvedClass,
+} from "../contracts";
+import {
+  layoutDirectedGraph,
+  type RankDirection,
+} from "./layoutDirectedGraph";
+
+/** Horizontal padding between a class box's edge and its widest text line. */
+const CLASS_PADDING_X = 12;
+/** Vertical padding between a compartment's edge and its first/last text line. */
+const CLASS_PADDING_Y = 8;
+/** How far along the line from its own end a multiplicity string is anchored. */
+const MULTIPLICITY_OFFSET_ALONG = 12;
+/** How far to the side of the line a multiplicity string is anchored, so it never sits on it. */
+const MULTIPLICITY_OFFSET_ACROSS = 10;
+
+/**
+ * The text a member is drawn as, rebuilt from the parts the parser kept:
+ * `+int age` for an attribute, `+swim() bool` for a method. The classifier
+ * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
+ * rule covers both member kinds whether or not a return type follows.
+ */
+function memberText(member: ClassMember): string {
+  const visibility = member.visibility ?? "";
+  const classifier = member.classifier ?? "";
+  if (member.memberKind === "method") {
+    const returnType =
+      member.returnType === null ? "" : ` ${member.returnType}`;
+    const parameters = member.parameters ?? "";
+    return `${visibility}${member.name}(${parameters})${returnType}${classifier}`;
+  }
+  const type = member.type === null ? "" : `${member.type} `;
+  return `${visibility}${type}${member.name}${classifier}`;
+}
+
+/**
+ * A compartment's geometry in box-local coordinates: `dividerY` is measured
+ * from the box's top edge, as is each member's line center.
+ */
+interface CompartmentPlan {
+  dividerY: number;
+  members: { text: string; y: number }[];
+}
+
+/**
+ * A class box measured but not yet placed: its size, and where its
+ * compartments and member lines sit relative to its own top edge. Computed
+ * before the shared core runs, because the core needs the size; translated
+ * into diagram coordinates once the core has placed the box.
+ */
+interface ClassBoxPlan {
+  width: number;
+  height: number;
+  attributes: CompartmentPlan | null;
+  methods: CompartmentPlan | null;
+}
+
+/**
+ * Measures a class box from its own lines: as wide as its widest measured
+ * line plus padding, and as tall as its name line and every member line
+ * stacked, each compartment padded and preceded by a divider.
+ */
+function planClassBox(
+  cls: ResolvedClass,
+  options: LayoutOptions,
+): ClassBoxPlan {
+  const measure = (text: string) => options.measureText.measure(text);
+  const widths: number[] = [];
+  let bottom = CLASS_PADDING_Y;
+
+  // An annotation takes a line of its own above the class name. It is
+  // measured as the model stores it — without the `«»` the renderer draws
+  // around it — so the box is a couple of characters narrower than the
+  // decorated text; the horizontal padding absorbs that.
+  if (cls.annotation !== null) {
+    const annotation = measure(cls.annotation);
+    widths.push(annotation.width);
+    bottom += annotation.height;
+  }
+
+  const name = measure(cls.id);
+  widths.push(name.width);
+  bottom += name.height + CLASS_PADDING_Y;
+
+  /**
+   * Stacks one group of members below everything placed so far, preceded by
+   * its divider. Returns `null` for an empty group, which is how a class
+   * with no attributes (or no methods) ends up with no divider drawn.
+   */
+  function planCompartment(members: ClassMember[]): CompartmentPlan | null {
+    if (members.length === 0) return null;
+    const dividerY = bottom;
+    bottom += CLASS_PADDING_Y;
+    const planned = members.map((member) => {
+      const text = memberText(member);
+      const measured = measure(text);
+      widths.push(measured.width);
+      const y = bottom + measured.height / 2;
+      bottom += measured.height;
+      return { text, y };
+    });
+    bottom += CLASS_PADDING_Y;
+    return { dividerY, members: planned };
+  }
+
+  const attributes = planCompartment(
+    cls.members.filter((member) => member.memberKind === "attribute"),
+  );
+  const methods = planCompartment(
+    cls.members.filter((member) => member.memberKind === "method"),
+  );
+
+  return {
+    width: Math.max(...widths) + CLASS_PADDING_X * 2,
+    height: bottom,
+    attributes,
+    methods,
+  };
+}
+
+/**
+ * Maps a class diagram's `direction` statement onto the shared layout core's
+ * rank directions. The two vocabularies spell the same four values, but they
+ * are separate types on purpose — `ClassDirection` is a pipeline contract,
+ * `RankDirection` is the core's own — so the mapping is written out rather
+ * than cast across.
+ */
+const RANK_DIRECTION: Record<ClassDirection, RankDirection> = {
+  TB: "TB",
+  BT: "BT",
+  LR: "LR",
+  RL: "RL",
+};
+
+/**
+ * Anchors a multiplicity string beside one end of a routed relationship:
+ * a step along the line away from the class box it belongs to, then a step
+ * to the side of it, so the text clears both the box and the line itself.
+ */
+function multiplicityAnchor(points: Point[], atStart: boolean): Point {
+  const end = atStart ? points[0] : points[points.length - 1];
+  const neighbour = atStart ? points[1] : points[points.length - 2];
+  const towards = neighbour ?? end;
+  const dx = towards.x - end.x;
+  const dy = towards.y - end.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const alongX = dx / length;
+  const alongY = dy / length;
+  return {
+    x:
+      end.x +
+      alongX * MULTIPLICITY_OFFSET_ALONG -
+      alongY * MULTIPLICITY_OFFSET_ACROSS,
+    y:
+      end.y +
+      alongY * MULTIPLICITY_OFFSET_ALONG +
+      alongX * MULTIPLICITY_OFFSET_ACROSS,
+  };
+}
+
+/**
+ * Computes class boxes and relationship paths for a resolved `ClassModel`.
+ *
+ * This is the class-diagram adapter over `layoutDirectedGraph`: it measures
+ * every line a class box draws, hands the resulting sizes to the shared
+ * layout core, and reattaches the class diagram's own data to the
+ * coordinates that come back. All graph-layout math lives in the core.
+ */
+export function layoutClassDiagram(
+  model: ClassModel,
+  options: LayoutOptions,
+): PositionedClassDiagram {
+  const planById = new Map(
+    model.classes.map((cls) => [cls.id, planClassBox(cls, options)]),
+  );
+
+  const laidOut = layoutDirectedGraph({
+    rankdir: RANK_DIRECTION[model.direction],
+    nodes: model.classes.map((cls) => {
+      const plan = planById.get(cls.id)!;
+      return { id: cls.id, width: plan.width, height: plan.height };
+    }),
+    edges: model.relationships.map((rel) => ({
+      id: rel.id,
+      from: rel.from,
+      to: rel.to,
+      // A labelled relationship asks the core to keep its ranks far enough
+      // apart for the text, and reports back where that space ended up.
+      ...(rel.label === null
+        ? {}
+        : { label: options.measureText.measure(rel.label) }),
+    })),
+  });
+
+  const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
+
+  const classes = model.classes.map<PositionedClass>((cls) => {
+    const box = boxById.get(cls.id)!;
+    const plan = planById.get(cls.id)!;
+
+    /** Moves a compartment's box-local geometry into diagram coordinates. */
+    const place = (
+      compartment: CompartmentPlan | null,
+    ): PositionedClassCompartment | null =>
+      compartment === null
+        ? null
+        : {
+            dividerY: box.y + compartment.dividerY,
+            members: compartment.members.map((member) => ({
+              text: member.text,
+              x: box.x + CLASS_PADDING_X,
+              y: box.y + member.y,
+            })),
+          };
+
+    return {
+      id: cls.id,
+      name: cls.id,
+      annotation: cls.annotation,
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      attributes: place(plan.attributes),
+      methods: place(plan.methods),
+      style: [],
+      interaction: null,
+    };
+  });
+
+  const relationships = model.relationships.map<PositionedClassRelationship>(
+    (rel) => {
+      const route = routeById.get(rel.id)!;
+      return {
+        id: rel.id,
+        from: rel.from,
+        to: rel.to,
+        line: rel.line,
+        fromEnd: rel.fromEnd,
+        toEnd: rel.toEnd,
+        points: route.points,
+        label: rel.label,
+        labelAnchor: route.labelAnchor ?? null,
+        fromMultiplicity: rel.fromMultiplicity,
+        fromMultiplicityAnchor:
+          rel.fromMultiplicity === null
+            ? null
+            : multiplicityAnchor(route.points, true),
+        toMultiplicity: rel.toMultiplicity,
+        toMultiplicityAnchor:
+          rel.toMultiplicity === null
+            ? null
+            : multiplicityAnchor(route.points, false),
+      };
+    },
+  );
+
+  const bounds = diagramBounds(classes, relationships, options);
+
+  return {
+    direction: model.direction,
+    classes,
+    relationships,
+    namespaces: [],
+    notes: [],
+    timeline: model.timeline,
+    width: Math.max(laidOut.width, bounds.width),
+    height: Math.max(laidOut.height, bounds.height),
+  };
+}
+
+/**
+ * The extent every drawn thing fits inside: class boxes, relationship paths,
+ * and the text anchored along them. The shared core reports bounds for the
+ * graph it placed, but it never saw the labels and multiplicity strings this
+ * module anchors afterwards — and its own figure does not always cover a
+ * self-relationship's routing — so the diagram measures its own extent.
+ */
+function diagramBounds(
+  classes: PositionedClass[],
+  relationships: PositionedClassRelationship[],
+  options: LayoutOptions,
+): { width: number; height: number } {
+  let right = 0;
+  let bottom = 0;
+
+  const cover = (x: number, y: number) => {
+    right = Math.max(right, x);
+    bottom = Math.max(bottom, y);
+  };
+
+  /** Covers a centered run of text drawn at `anchor`. */
+  const coverText = (text: string, anchor: Point) => {
+    const size = options.measureText.measure(text);
+    cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
+  };
+
+  for (const box of classes) {
+    cover(box.x + box.width, box.y + box.height);
+  }
+
+  for (const rel of relationships) {
+    for (const point of rel.points) cover(point.x, point.y);
+    if (rel.label !== null && rel.labelAnchor !== null) {
+      coverText(rel.label, rel.labelAnchor);
+    }
+    if (rel.fromMultiplicity !== null && rel.fromMultiplicityAnchor !== null) {
+      coverText(rel.fromMultiplicity, rel.fromMultiplicityAnchor);
+    }
+    if (rel.toMultiplicity !== null && rel.toMultiplicityAnchor !== null) {
+      coverText(rel.toMultiplicity, rel.toMultiplicityAnchor);
+    }
+  }
+
+  return { width: right, height: bottom };
+}
