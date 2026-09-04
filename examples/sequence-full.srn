@@ -1,0 +1,58 @@
+sequenceDiagram
+title Checkout — every sequence feature
+box Blue Storefront
+  actor Shopper
+  participant Web
+end
+participant Orders
+participant Payments
+
+autonumber
+Shopper->>Web: Open checkout
+Web->>Orders: Create draft order
+Orders->>Orders: Validate line items
+Orders-->>Web: Draft ready
+autonumber off
+
+create participant Ledger
+Web->>Ledger: Open ledger entry
+Web->Payments: Quote fees
+Web-->Payments: Re-quote after tax
+Web<<->>Payments: Agree currency
+Web<<-->>Payments: Confirm currency
+
+loop Every authorization attempt
+  Web->>Payments: Authorize
+  create participant Retry
+  Web->>Retry: Schedule a retry
+  alt approved
+    Payments-->>Web: Approved
+    destroy Retry
+  else declined
+    Payments-xWeb: Declined
+  else timed out
+    Payments--xWeb: No response
+  end
+end
+opt Shopper opted into the audit trail
+  create actor Auditor
+  Web-)Auditor: Notify audit trail
+end
+par Settle
+  Orders->>Payments: Capture funds
+and Record
+  Orders->>Auditor: Record capture
+end
+critical Reserve stock
+  Orders->>Ledger: Post reservation
+option Warehouse offline
+  Ledger--)Orders: Deferred
+end
+break Fraud detected
+  Payments--xOrders: Hard decline
+end
+rect rgb(240, 248, 255)
+  Web-->>Shopper: Show confirmation
+end
+destroy Ledger
+Web-->>Shopper: Email receipt

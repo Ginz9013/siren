@@ -81,6 +81,79 @@ rect rgb(240, 248, 255)
 end
 `;
 
+/**
+ * Kept identical to demos/sequence-diagram.html's third fetched example,
+ * examples/sequence-full.srn — duplicated inline for the same reason as the
+ * two constants above (no `node:fs` typings in this package).
+ *
+ * The board's closing example: every in-scope feature in one document —
+ * `participant` and `actor` declarations, a `box` grouping, `title`,
+ * `autonumber`/`autonumber off`, all ten arrow forms, a self-message, all
+ * seven block kinds with `alt` nested inside `loop`, and `create`/`destroy`
+ * both at the top level (`Ledger`) and inside a block body (`Retry`,
+ * destroyed from inside the nested `alt`; `Auditor`, created inside `opt`
+ * and never destroyed).
+ */
+const SEQUENCE_FULL_EXAMPLE_SOURCE = `sequenceDiagram
+title Checkout — every sequence feature
+box Blue Storefront
+  actor Shopper
+  participant Web
+end
+participant Orders
+participant Payments
+
+autonumber
+Shopper->>Web: Open checkout
+Web->>Orders: Create draft order
+Orders->>Orders: Validate line items
+Orders-->>Web: Draft ready
+autonumber off
+
+create participant Ledger
+Web->>Ledger: Open ledger entry
+Web->Payments: Quote fees
+Web-->Payments: Re-quote after tax
+Web<<->>Payments: Agree currency
+Web<<-->>Payments: Confirm currency
+
+loop Every authorization attempt
+  Web->>Payments: Authorize
+  create participant Retry
+  Web->>Retry: Schedule a retry
+  alt approved
+    Payments-->>Web: Approved
+    destroy Retry
+  else declined
+    Payments-xWeb: Declined
+  else timed out
+    Payments--xWeb: No response
+  end
+end
+opt Shopper opted into the audit trail
+  create actor Auditor
+  Web-)Auditor: Notify audit trail
+end
+par Settle
+  Orders->>Payments: Capture funds
+and Record
+  Orders->>Auditor: Record capture
+end
+critical Reserve stock
+  Orders->>Ledger: Post reservation
+option Warehouse offline
+  Ledger--)Orders: Deferred
+end
+break Fraud detected
+  Payments--xOrders: Hard decline
+end
+rect rgb(240, 248, 255)
+  Web-->>Shopper: Show confirmation
+end
+destroy Ledger
+Web-->>Shopper: Email receipt
+`;
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -465,6 +538,391 @@ A->>GHOST: Hello
         result.svg!.querySelector(`g.siren-participant[data-siren-id="${id}"]`),
       ).not.toBeNull();
     }
+  });
+
+  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroy statement with an X mark and no bottom-row box", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant Client
+participant Server
+Client->>Server: Start
+create participant Worker
+Server->>Worker: Spawn
+Worker-->>Server: Done
+destroy Worker
+Server-->>Client: Finished
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const groupsFor = (id: string) =>
+      result.svg!.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`);
+    // Client and Server are declared and survive, so each is drawn at both the
+    // top and the bottom row; Worker is created and then destroyed, so it is
+    // drawn exactly once, at its `create` statement's row.
+    expect(groupsFor("Client")).toHaveLength(2);
+    expect(groupsFor("Server")).toHaveLength(2);
+    expect(groupsFor("Worker")).toHaveLength(1);
+
+    const lifeline = (id: string) =>
+      result.svg!.querySelector(`line.siren-lifeline[data-siren-id="${id}"]`)!;
+    const y1 = (id: string) => Number(lifeline(id).getAttribute("y1"));
+    const y2 = (id: string) => Number(lifeline(id).getAttribute("y2"));
+
+    // Created later than the diagram's top row, destroyed before its bottom.
+    expect(y1("Worker")).toBeGreaterThan(y1("Client"));
+    expect(y2("Worker")).toBeLessThan(y2("Client"));
+
+    // Worker's one box sits at the top of its own (truncated) lifeline.
+    const workerBoxY = Number(groupsFor("Worker")[0]!.querySelector("rect")!.getAttribute("y"));
+    expect(workerBoxY).toBeGreaterThanOrEqual(y1("Client"));
+    expect(workerBoxY).toBeLessThanOrEqual(y1("Worker"));
+
+    const destroyMarks = result.svg!.querySelectorAll("path.siren-destroy-mark");
+    expect(
+      Array.from(destroyMarks).map((p) => p.getAttribute("data-siren-id")),
+    ).toEqual(["Worker"]);
+  });
+
+  it("renders a `box <color> <label> ... end` grouping as one siren-box background spanning only its member lanes, painted before (behind) the participants it groups", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+box Blue Storefront
+  actor Shopper
+  participant Web
+end
+participant Orders
+Shopper->>Web: Browse catalogue
+Web->>Orders: Create order
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const boxes = result.svg!.querySelectorAll("g.siren-box");
+    expect(boxes).toHaveLength(1);
+    const box = boxes[0]!;
+    expect(box.getAttribute("data-siren-id")).toBe("box-1");
+    expect(box.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
+
+    const laneX = (id: string) =>
+      Number(
+        result
+          .svg!.querySelector(`line.siren-lifeline[data-siren-id="${id}"]`)!
+          .getAttribute("x1"),
+      );
+    const background = box.querySelector("rect.siren-box-background")!;
+    const left = Number(background.getAttribute("x"));
+    const right = left + Number(background.getAttribute("width"));
+
+    // Spans its two members' lanes, and stops short of the ungrouped one.
+    expect(left).toBeLessThan(laneX("Shopper"));
+    expect(right).toBeGreaterThan(laneX("Web"));
+    expect(right).toBeLessThan(laneX("Orders"));
+
+    // SVG paints in document order, so the background must come first.
+    const children = Array.from(result.svg!.children);
+    const firstParticipantIndex = children.findIndex((child) =>
+      child.classList.contains("siren-participant"),
+    );
+    expect(children.indexOf(box)).toBeLessThan(firstParticipantIndex);
+  });
+
+  it("renders exactly one siren-title carrying the title text, and no title element at all when the document declares none", () => {
+    const body = `participant A
+participant B
+A->>B: Hello
+`;
+
+    const titled = render(
+      `sequenceDiagram
+title Handshake overview
+${body}`,
+      document.createElement("div"),
+    );
+    const titles = titled.svg!.querySelectorAll("text.siren-title");
+    expect(titles).toHaveLength(1);
+    expect(titles[0]!.textContent).toBe("Handshake overview");
+
+    const untitled = render(`sequenceDiagram\n${body}`, document.createElement("div"));
+    expect(untitled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(untitled.svg!.querySelectorAll("text.siren-title")).toHaveLength(0);
+  });
+
+  it("numbers every message after `autonumber` sequentially in document order — including messages nested inside blocks — and leaves messages before it and after `autonumber off` unnumbered", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: before numbering
+autonumber
+A->>B: first numbered
+loop Retry
+  A->>B: second numbered
+  alt ok
+    B-->>A: third numbered
+  end
+end
+autonumber off
+A->>B: after numbering
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const numbering = Array.from(
+      result.svg!.querySelectorAll("g.siren-message"),
+    ).map((g) => [
+      g.querySelector("text.siren-message-label")!.textContent,
+      g.querySelector("text.siren-autonumber")?.textContent ?? null,
+    ]);
+
+    expect(numbering).toEqual([
+      ["before numbering", null],
+      ["first numbered", "1"],
+      ["second numbered", "2"],
+      ["third numbered", "3"],
+      ["after numbering", null],
+    ]);
+  });
+
+  it("renders markup-looking title, box, participant, block-condition and message text in a sequenceDiagram as literal visible text, never as parsed markup", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+title <script>alert("title")</script>
+box Blue <b>Team</b>
+  participant A as <i>Alpha</i>
+end
+participant B
+loop <img src=x onerror="alert(1)">
+  A->>B: <script>alert("message")</script>
+end
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.svg!.querySelector("text.siren-title")!.textContent).toBe(
+      '<script>alert("title")</script>',
+    );
+    expect(result.svg!.querySelector("text.siren-box-label")!.textContent).toBe("<b>Team</b>");
+    expect(
+      result.svg!.querySelector('g.siren-participant[data-siren-id="A"] text')!.textContent,
+    ).toBe("<i>Alpha</i>");
+    expect(result.svg!.querySelector("text.siren-block-label")!.textContent).toBe(
+      '<img src=x onerror="alert(1)">',
+    );
+    expect(result.svg!.querySelector("text.siren-message-label")!.textContent).toBe(
+      '<script>alert("message")</script>',
+    );
+
+    expect(result.svg!.querySelectorAll("script")).toHaveLength(0);
+    expect(result.svg!.querySelectorAll("img")).toHaveLength(0);
+    expect(result.svg!.querySelectorAll("b")).toHaveLength(0);
+    expect(result.svg!.querySelectorAll("i")).toHaveLength(0);
+  });
+
+  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, and create/destroy inside and outside blocks", () => {
+    const container = document.createElement("div");
+
+    const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.controller).toBeNull();
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    expect(svg.querySelector("text.siren-title")!.textContent).toBe(
+      "Checkout — every sequence feature",
+    );
+
+    // Four declared, never-destroyed participants (two rows each), plus three
+    // `create`d ones (one row each): Ledger and Retry are destroyed, Auditor
+    // survives — a created participant never gets a bottom row either way.
+    const groupCount = (id: string) =>
+      svg.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`).length;
+    expect(groupCount("Shopper")).toBe(2);
+    expect(groupCount("Web")).toBe(2);
+    expect(groupCount("Orders")).toBe(2);
+    expect(groupCount("Payments")).toBe(2);
+    expect(groupCount("Ledger")).toBe(1);
+    expect(groupCount("Retry")).toBe(1);
+    expect(groupCount("Auditor")).toBe(1);
+    expect(svg.querySelectorAll("g.siren-participant")).toHaveLength(11);
+
+    // `actor` renders a stick figure, `participant` a box.
+    expect(
+      svg.querySelector('g.siren-participant[data-siren-id="Shopper"] circle'),
+    ).not.toBeNull();
+    expect(
+      svg.querySelector('g.siren-participant[data-siren-id="Web"] rect'),
+    ).not.toBeNull();
+
+    // Lane order is preamble declaration order, then `create` order; `create`
+    // moves a lifeline's start down the page, never its lane sideways.
+    const lifelines = Array.from(svg.querySelectorAll("line.siren-lifeline"));
+    expect(lifelines).toHaveLength(7);
+    const lanes = ["Shopper", "Web", "Orders", "Payments", "Ledger", "Retry", "Auditor"];
+    const laneX = (id: string) =>
+      Number(
+        svg.querySelector(`line.siren-lifeline[data-siren-id="${id}"]`)!.getAttribute("x1"),
+      );
+    for (let i = 1; i < lanes.length; i += 1) {
+      expect(laneX(lanes[i]!)).toBeGreaterThan(laneX(lanes[i - 1]!));
+    }
+
+    // All ten arrow forms: two line styles x five arrowheads, each a distinct
+    // marker/dash combination on the rendered path.
+    const messages = Array.from(svg.querySelectorAll("g.siren-message"));
+    expect(messages).toHaveLength(22);
+    const arrowForms = new Set(
+      messages.map((g) => {
+        const path = g.querySelector("path.siren-message-arrow")!;
+        return [
+          path.getAttribute("stroke-dasharray") ?? "solid",
+          path.getAttribute("marker-start") ?? "none",
+          path.getAttribute("marker-end") ?? "none",
+        ].join("|");
+      }),
+    );
+    expect(arrowForms.size).toBe(10);
+
+    // A self-message stays on its own lane.
+    const selfMessage = svg.querySelector('g.siren-message[data-siren-id="Orders-Orders"]')!;
+    expect(selfMessage).not.toBeNull();
+    expect(selfMessage.querySelector("text.siren-message-label")!.textContent).toBe(
+      "Validate line items",
+    );
+
+    // Autonumbering covers exactly the four messages between `autonumber` and
+    // `autonumber off`.
+    expect(
+      Array.from(svg.querySelectorAll("text.siren-autonumber")).map((t) => t.textContent),
+    ).toEqual(["1", "2", "3", "4"]);
+
+    // All seven block kinds, with `alt` nested inside `loop`.
+    const blocks = Array.from(svg.querySelectorAll("g.siren-block"));
+    expect(blocks.map((g) => g.getAttribute("data-siren-id")).sort()).toEqual([
+      "alt-1",
+      "break-1",
+      "critical-1",
+      "loop-1",
+      "opt-1",
+      "par-1",
+      "rect-1",
+    ]);
+    const block = (id: string) =>
+      svg.querySelector(`g.siren-block[data-siren-id="${id}"]`)!;
+    expect(block("loop-1").contains(block("alt-1"))).toBe(true);
+    expect(
+      block("alt-1").querySelectorAll(":scope > line.siren-block-divider"),
+    ).toHaveLength(2);
+
+    // One box background, behind the two lanes it groups.
+    const boxes = svg.querySelectorAll("g.siren-box");
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]!.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
+
+    // Destroy marks for the two destroyed lifelines only — `destroy Ledger` at
+    // the top level, `destroy Retry` from inside the nested `alt`.
+    expect(
+      Array.from(svg.querySelectorAll("path.siren-destroy-mark"))
+        .map((p) => p.getAttribute("data-siren-id"))
+        .sort(),
+    ).toEqual(["Ledger", "Retry"]);
+    // Both created lifelines start below the top row; both destroyed ones end
+    // above the bottom row.
+    const y1 = (id: string) =>
+      Number(
+        svg.querySelector(`line.siren-lifeline[data-siren-id="${id}"]`)!.getAttribute("y1"),
+      );
+    const y2 = (id: string) =>
+      Number(
+        svg.querySelector(`line.siren-lifeline[data-siren-id="${id}"]`)!.getAttribute("y2"),
+      );
+    for (const created of ["Ledger", "Retry", "Auditor"]) {
+      expect(y1(created)).toBeGreaterThan(y1("Web"));
+    }
+    for (const destroyed of ["Ledger", "Retry"]) {
+      expect(y2(destroyed)).toBeLessThan(y2("Web"));
+    }
+    expect(y2("Auditor")).toBe(y2("Web"));
+  });
+
+  it("gives every one of the ten source arrow forms its own line style and arrowhead through render(): dotted forms dash, `<<->>`/`<<-->>` arrow both ends, and filled/cross/open resolve to three distinct <marker> defs", () => {
+    const container = document.createElement("div");
+    // spec.md's two-axis arrow model: line style x arrowhead, written in the
+    // ten Mermaid token spellings.
+    const forms = [
+      { token: "->", line: "solid", head: "none" },
+      { token: "-->", line: "dotted", head: "none" },
+      { token: "->>", line: "solid", head: "filled" },
+      { token: "-->>", line: "dotted", head: "filled" },
+      { token: "<<->>", line: "solid", head: "bidirectionalFilled" },
+      { token: "<<-->>", line: "dotted", head: "bidirectionalFilled" },
+      { token: "-x", line: "solid", head: "cross" },
+      { token: "--x", line: "dotted", head: "cross" },
+      { token: "-)", line: "solid", head: "open" },
+      { token: "--)", line: "dotted", head: "open" },
+    ] as const;
+    const source = `sequenceDiagram
+participant A
+participant B
+${forms.map((form) => `A${form.token}B: ${form.line} ${form.head}`).join("\n")}
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const messages = Array.from(result.svg!.querySelectorAll("g.siren-message"));
+    expect(messages).toHaveLength(forms.length);
+
+    const markerIdByHead = new Map<string, string>();
+    forms.forEach((form, index) => {
+      const group = messages[index]!;
+      const path = group.querySelector("path.siren-message-arrow")!;
+      const where = `${form.token} (${form.line} ${form.head})`;
+
+      expect(group.querySelector("text.siren-message-label")!.textContent).toBe(
+        `${form.line} ${form.head}`,
+      );
+      expect([where, path.getAttribute("stroke-dasharray") !== null]).toEqual([
+        where,
+        form.line === "dotted",
+      ]);
+      expect([where, path.getAttribute("marker-end") !== null]).toEqual([
+        where,
+        form.head !== "none",
+      ]);
+      expect([where, path.getAttribute("marker-start") !== null]).toEqual([
+        where,
+        form.head === "bidirectionalFilled",
+      ]);
+
+      const markerEnd = path.getAttribute("marker-end");
+      if (markerEnd !== null) {
+        const markerId = markerEnd.replace(/^url\(#/, "").replace(/\)$/, "");
+        expect(result.svg!.querySelector(`defs marker#${markerId}`)).not.toBeNull();
+        markerIdByHead.set(form.head, markerId);
+      }
+    });
+
+    // `<<->>` reuses the filled head at both ends; cross and open are their
+    // own marker shapes.
+    expect(markerIdByHead.get("bidirectionalFilled")).toBe(markerIdByHead.get("filled"));
+    expect(
+      new Set([
+        markerIdByHead.get("filled"),
+        markerIdByHead.get("cross"),
+        markerIdByHead.get("open"),
+      ]).size,
+    ).toBe(3);
   });
 
   it("produces the parser's unterminated-block error diagnostic, without throwing, for a sequenceDiagram block missing its end", () => {

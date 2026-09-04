@@ -13,16 +13,19 @@
       <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
     </div>
     <p class="intro">
-      Two <code>sequenceDiagram</code> documents. The first exercises both
+      Three <code>sequenceDiagram</code> documents. The first exercises both
       <code>participant</code> and <code>actor</code> declarations, all ten Mermaid message arrow
       forms, a <code>title</code>, and <code>autonumber</code>/<code>autonumber off</code>. The
       second exercises every control-flow block kind — <code>loop</code>,
       <code>alt</code>/<code>else</code>, <code>opt</code>, <code>par</code>/<code>and</code>,
       <code>critical</code>/<code>option</code>, <code>break</code>, and <code>rect</code> —
-      including an <code>alt</code> nested inside a <code>loop</code>. Sequence diagrams render
-      fully visible and static — there is no Prev/Next/Reset control here, unlike the flowchart
-      step-reveal demos, since <code>SirenRenderResult.controller</code> is always
-      <code>null</code> for a sequence diagram (see spec.md's Non-goals).
+      including an <code>alt</code> nested inside a <code>loop</code>. The third puts every
+      in-scope feature into one document, adding <code>create</code>/<code>destroy</code>
+      participant lifecycle (both at the top level and inside a block body) and a
+      <code>box</code> participant grouping. Sequence diagrams render fully visible and static —
+      there is no Prev/Next/Reset control here, unlike the flowchart step-reveal demos, since
+      <code>SirenRenderResult.controller</code> is always <code>null</code> for a sequence
+      diagram (see spec.md's Non-goals).
     </p>
 
     <h2>Core features</h2>
@@ -35,6 +38,21 @@
 
     <div id="siren-blocks-container"></div>
 
+    <h2>Everything together</h2>
+    <p class="intro">
+      One coherent checkout example covering every feature in scope: a <code>box</code> grouping
+      an <code>actor</code> and a <code>participant</code>, a <code>title</code>,
+      <code>autonumber</code>/<code>autonumber off</code>, all ten arrow forms, a self-message,
+      all seven block kinds with <code>alt</code> nested inside <code>loop</code>, and
+      <code>create</code>/<code>destroy</code> both at the top level (<code>Ledger</code>) and
+      inside a block body (<code>Retry</code>, destroyed from inside the nested <code>alt</code>;
+      <code>Auditor</code>, created inside <code>opt</code> and never destroyed — so its lifeline
+      starts partway down the page and runs to the bottom, with no top-row box).
+    </p>
+    <p class="status" id="full-status">Loading…</p>
+
+    <div id="siren-full-container"></div>
+
     <!--
       Unlike demos/step-reveal.html and demos/complex-showcase.html, this
       page imports the real Vite library build of @siren/core directly
@@ -43,8 +61,9 @@
       whole job), so board would add nothing here. Run
       `pnpm --filter @siren/core build` first.
 
-      The example documents live at examples/sequence-core.srn and
-      examples/sequence-blocks.srn as standalone .srn files — loaded here via
+      The example documents live at examples/sequence-core.srn,
+      examples/sequence-blocks.srn and examples/sequence-full.srn as
+      standalone .srn files — loaded here via
       fetch(), not inlined — mirroring demos/step-reveal.html's
       example-loading pattern. Note: fetch() of a local file is blocked by the
       browser's file:// CORS policy, so this page must be served over
@@ -63,15 +82,18 @@
         return response.text();
       }
 
-      const [source, blocksSource] = await Promise.all([
+      const [source, blocksSource, fullSource] = await Promise.all([
         loadExample("../examples/sequence-core.srn"),
         loadExample("../examples/sequence-blocks.srn"),
+        loadExample("../examples/sequence-full.srn"),
       ]);
 
       const container = document.getElementById("siren-container");
       const statusEl = document.getElementById("status");
       const blocksContainer = document.getElementById("siren-blocks-container");
       const blocksStatusEl = document.getElementById("blocks-status");
+      const fullContainer = document.getElementById("siren-full-container");
+      const fullStatusEl = document.getElementById("full-status");
       const themeBtn = document.getElementById("theme-btn");
 
       // Proves the design tokens in packages/core/src/theme/default.css are
@@ -114,15 +136,23 @@
           return;
         }
 
-        const messageCount = result.svg.querySelectorAll("g.siren-message").length;
-        const blockCount = result.svg.querySelectorAll("g.siren-block").length;
-        const blockSummary =
-          blockCount === 0 ? "" : `, ${blockCount} control-flow blocks`;
-        targetStatusEl.textContent = `Rendered ${messageCount} messages${blockSummary}.`;
+        const count = (selector) => result.svg.querySelectorAll(selector).length;
+        const parts = [`${count("g.siren-message")} messages`];
+        if (count("g.siren-block") > 0) {
+          parts.push(`${count("g.siren-block")} control-flow blocks`);
+        }
+        if (count("g.siren-box") > 0) {
+          parts.push(`${count("g.siren-box")} participant boxes`);
+        }
+        if (count("path.siren-destroy-mark") > 0) {
+          parts.push(`${count("path.siren-destroy-mark")} destroyed lifelines`);
+        }
+        targetStatusEl.textContent = `Rendered ${parts.join(", ")}.`;
       }
 
       renderExample(source, container, statusEl);
       renderExample(blocksSource, blocksContainer, blocksStatusEl);
+      renderExample(fullSource, fullContainer, fullStatusEl);
     </script>
   </body>
 </html>
