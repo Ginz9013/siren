@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { parseSiren } from "./parseSiren";
+import type { Diagnostic, FlowchartDocument, SequenceDocument } from "../contracts";
+
+/**
+ * Asserts a `parseSiren` call produced a flowchart document and narrows to
+ * `FlowchartDocument`, so existing tests below can keep accessing
+ * flowchart-only fields now that `SirenDocument` is a `kind`-discriminated
+ * union.
+ */
+function parseFlowchartOk(source: string): {
+  document: FlowchartDocument;
+  diagnostics: Diagnostic[];
+} {
+  const { document, diagnostics } = parseSiren(source);
+  if (document === null || document.kind !== "flowchart") {
+    throw new Error(
+      `expected a flowchart document, got ${document === null ? "null" : document.kind}`,
+    );
+  }
+  return { document, diagnostics };
+}
 
 describe("parseSiren", () => {
   it("parses a minimal flowchart with inline edge node declarations and a timeline block", () => {
@@ -13,19 +33,19 @@ timeline:
   step 2: enter C fade
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
-    expect(document!.direction).toBe("TD");
-    expect(document!.nodes.map((n) => n.id).sort()).toEqual(["A", "B", "C"]);
-    expect(document!.edges).toHaveLength(2);
-    expect(document!.edges.map((e) => ({ from: e.from, to: e.to }))).toEqual([
+    expect(document.direction).toBe("TD");
+    expect(document.nodes.map((n) => n.id).sort()).toEqual(["A", "B", "C"]);
+    expect(document.edges).toHaveLength(2);
+    expect(document.edges.map((e) => ({ from: e.from, to: e.to }))).toEqual([
       { from: "A", to: "B" },
       { from: "B", to: "C" },
     ]);
-    expect(document!.timeline).not.toBeNull();
-    expect(document!.timeline!.entries.map((e) => e.step)).toEqual([1, 2]);
+    expect(document.timeline).not.toBeNull();
+    expect(document.timeline!.entries.map((e) => e.step)).toEqual([1, 2]);
   });
 
   it("accepts flowchart LR and sets direction to LR", () => {
@@ -34,11 +54,11 @@ timeline:
   A --> B[End]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
-    expect(document!.direction).toBe("LR");
+    expect(document.direction).toBe("LR");
   });
 
   it("reports an error diagnostic and returns a null document for a malformed edge line, without throwing", () => {
@@ -63,10 +83,10 @@ timeline:
   A[Begin]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(document).not.toBeNull();
-    const nodeA = document!.nodes.find((n) => n.id === "A");
+    const nodeA = document.nodes.find((n) => n.id === "A");
     expect(nodeA?.label).toBe("Start");
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
@@ -84,11 +104,11 @@ timeline:
   step 4: unhighlight A-B
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
-    expect(document!.timeline!.entries).toEqual([
+    expect(document.timeline!.entries).toEqual([
       { kind: "enter", step: 1, targetId: "B", effect: "fade", line: 6, column: 3 },
       { kind: "exit", step: 2, targetId: "A", effect: "slide-left", line: 7, column: 3 },
       { kind: "highlight", step: 3, targetId: "A-B", effect: "outline", line: 8, column: 3 },
@@ -112,11 +132,11 @@ timeline:
   step 8: exit B slide-bottom
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
-    expect(document!.timeline!.entries.map((e) => `${e.kind}:${e.effect}`)).toEqual([
+    expect(document.timeline!.entries.map((e) => `${e.kind}:${e.effect}`)).toEqual([
       "enter:slide-left",
       "enter:slide-right",
       "enter:slide-top",
@@ -138,11 +158,11 @@ timeline:
   step 2: highlight A-B glow
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
-    expect(document!.timeline!.entries.map((e) => e.effect)).toEqual([
+    expect(document.timeline!.entries.map((e) => e.effect)).toEqual([
       "outline",
       "glow",
     ]);
@@ -185,5 +205,51 @@ timeline:
     const { document, diagnostics } = parseSiren(source);
     expect(document).toBeNull();
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("dispatches a flowchart TD document to parseFlowchart, tagged kind: \"flowchart\"", () => {
+    const source = `flowchart TD
+  A[Start]
+  A --> B[End]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("flowchart");
+  });
+
+  it("dispatches a sequenceDiagram document to parseSequenceDiagram, parsing title, both declaration forms, and arrows, tagged kind: \"sequence\"", () => {
+    const source = `sequenceDiagram
+  title Order confirmation flow
+  participant A as Alice
+  actor B as Bob
+  A->>B: Sync call
+  A-->>B: Dotted no arrow
+  A->>+B: (activation shorthand is NOT parsed specially — treat literally, see note below)
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("sequence");
+    const sequenceDocument = document as SequenceDocument;
+    expect(sequenceDocument.title).toBe("Order confirmation flow");
+    expect(sequenceDocument.participants).toEqual([
+      { id: "A", label: "Alice", participantKind: "participant", line: 3, column: 3 },
+      { id: "B", label: "Bob", participantKind: "actor", line: 4, column: 3 },
+    ]);
+    const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
+    expect(messages).toHaveLength(3);
+    expect(messages.map((m) => (m.kind === "message" ? m.arrow : null))).toEqual([
+      { line: "solid", head: "filled" },
+      { line: "dotted", head: "filled" },
+      { line: "solid", head: "filled" },
+    ]);
+    // Activation shorthand `+` is ignored as literal syntax noise (see
+    // parseSequenceDiagram.ts) — the target id is still "B", not "+B".
+    expect(messages[2].kind === "message" && messages[2].to).toBe("B");
   });
 });
