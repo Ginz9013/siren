@@ -67,3 +67,54 @@ document — an unresolved timeline reference, a duplicate node id, etc. Returne
 never thrown.
 _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "error-severity
 diagnostic" for the level)
+
+**Diagram kind**:
+Which diagram a Siren document declares in its header — `flowchart TD|LR` or `sequenceDiagram`.
+Carried as `SirenDocument.kind` and dispatched on by `parseSiren`, `buildGraphModel`, and
+`render()`, each of which routes to that kind's own parser/model/layout/renderer. Flowcharts lay
+out through `layoutGraph` (dagre); sequence diagrams through `layoutSequence` (hand-rolled lanes
+and rows) — the two share no layout code.
+_Avoid_: diagram type, mode
+
+**Participant**:
+One vertical lane in a sequence diagram, declared explicitly as `participant X` (drawn as a box)
+or `actor X` (drawn as a stick figure). Lanes order left-to-right by first declaration. Never
+created implicitly by being mentioned in a message — an undeclared reference is a diagnostic.
+_Avoid_: actor (that is one of the two shapes a participant takes, not a synonym), lane, column,
+node
+
+**Lifeline**:
+The dashed vertical line running down a participant's lane, spanning the extent between where the
+participant comes into existence and where it stops. A `create participant X` statement starts it
+partway down instead of at the top; a `destroy X` statement ends it early with an X mark instead
+of at the bottom.
+_Avoid_: timeline (that is the animation block — a lifeline is structural, not animated), axis
+
+**Participant row**:
+The horizontal band at the top of a sequence diagram holding every participant's box or icon, and
+its mirror at the bottom. A preamble-declared, never-destroyed participant appears in both rows; a
+`create`d or destroyed one appears once.
+_Avoid_: header, top box (ambiguous with a box grouping)
+
+**Message**:
+One `A->>B: text` line in a sequence diagram — an arrow from one participant to another (or to
+itself), carrying label text. Its arrow style is two independent axes: a line (`solid`/`dotted`)
+and an arrowhead (`none`/`filled`/`bidirectionalFilled`/`cross`/`open`), which compose into
+Mermaid's ten arrow forms.
+_Avoid_: edge (that is flowchart vocabulary — messages are ordered in time, edges are not), call,
+arrow (say "arrow" only for the drawn line/head, not the message itself)
+
+**Control-flow block**:
+A `loop`/`alt`/`opt`/`par`/`critical`/`break`/`rect` region wrapping a run of statements in a
+sequence diagram, nestable to any depth. Drawn as a frame spanning every participant lane its body
+touches, with one divider per extra branch (`else`/`and`/`option`). `rect` is the exception: a
+filled background highlight with no frame.
+_Avoid_: block (alone — too vague), group, section, box
+
+**Box grouping**:
+A `box <color> <label> ... end` region wrapping participant declarations, drawn as a colored
+background band behind those lanes for the diagram's full height. Distinct from a control-flow
+block (which wraps messages in time, not participants in space) and from a participant's own box
+shape.
+_Avoid_: box (alone — the word is overloaded three ways: this grouping, a participant's rect, and
+a block's bounding rect; always qualify it)
