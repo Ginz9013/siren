@@ -69,6 +69,34 @@ function buildMessageFixture(arrow: SequenceArrow): PositionedSequenceDiagram {
 }
 
 /**
+ * Hand-built fixture: two lanes and one message per given arrow, all in a
+ * single diagram — so a test can compare marker references *within* one
+ * render. Ids are minted per render (`mintIdScope`), so two renders never
+ * share one and any question about which heads share a marker has to be
+ * asked of one SVG.
+ */
+function buildMessagesFixture(arrows: SequenceArrow[]): PositionedSequenceDiagram {
+  const diagram = buildParticipantsFixture();
+  return {
+    ...diagram,
+    elements: arrows.map((arrow, index) => ({
+      kind: "message" as const,
+      message: {
+        id: `Alice-Bob-${index}`,
+        from: "Alice",
+        to: "Bob",
+        text: "hello",
+        arrow,
+        autonumber: null,
+        y: 100 + index * 20,
+        fromX: 60,
+        toX: 220,
+      },
+    })),
+  };
+}
+
+/**
  * Hand-built fixture: two lanes and a single top-level block, given the
  * block's fields directly (per contracts.ts's frozen `PositionedBlock`
  * shape) so each test controls exactly which block-kind/branch/nesting
@@ -325,21 +353,35 @@ describe("renderSequenceToSVG", () => {
     expect(markerEndByHead.get("cross")).not.toBeNull();
     expect(markerEndByHead.get("open")).not.toBeNull();
 
-    // bidirectionalFilled is the only head with both ends arrowed, using the
-    // same filled marker at both ends.
-    expect(markerStartByHead.get("bidirectionalFilled")).toBe(markerEndByHead.get("filled"));
-    expect(markerEndByHead.get("bidirectionalFilled")).toBe(markerEndByHead.get("filled"));
     for (const head of ["none", "filled", "cross", "open"] as const) {
       expect(markerStartByHead.get(head)).toBeNull();
     }
 
-    // filled/cross/open are visually distinct markers.
+    // Which heads *share* a marker, and which are distinct, is a question
+    // about one render and can only be asked of one: ids are minted per
+    // render, so two SVGs deliberately never share one. Every head in one
+    // diagram, then, read by following each path's own reference.
+    const oneOfEach = renderSequenceToSVG(
+      buildMessagesFixture(HEADS.map((head) => ({ line: "solid" as const, head }))),
+    );
+    const arrowFor = (head: SequenceArrowHead): Element =>
+      oneOfEach.querySelectorAll("path.siren-message-arrow")[HEADS.indexOf(head)]!;
+
+    // bidirectionalFilled is the only head with both ends arrowed, using the
+    // same filled marker at both ends.
+    const filledEnd = arrowFor("filled").getAttribute("marker-end");
+    expect(arrowFor("bidirectionalFilled").getAttribute("marker-end")).toBe(filledEnd);
+    expect(arrowFor("bidirectionalFilled").getAttribute("marker-start")).toBe(filledEnd);
+
+    // filled/cross/open are visually distinct markers, each with a def of
+    // its own — three defs for five heads.
     const distinctIds = new Set(
-      [markerEndByHead.get("filled"), markerEndByHead.get("cross"), markerEndByHead.get("open")].map(
-        (ref) => extractMarkerId(ref),
+      (["filled", "cross", "open"] as const).map((head) =>
+        extractMarkerId(arrowFor(head).getAttribute("marker-end")),
       ),
     );
     expect(distinctIds.size).toBe(3);
+    expect(oneOfEach.querySelectorAll("defs > marker")).toHaveLength(3);
   });
 
   it("covers every one of the ten { line, head } combinations without throwing, each producing a path with the matching marker/dasharray shape", () => {

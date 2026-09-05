@@ -10,6 +10,7 @@ import type {
   ResolvedClassInteraction,
   StyleProperty,
 } from "../contracts";
+import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -279,21 +280,6 @@ function buildDefs(scope: string): SVGDefsElement {
     ),
   );
   return defs;
-}
-
-/**
- * Mints the token every marker id in one rendered SVG is namespaced by.
- *
- * The reasoning — why a document-wide id namespace is the hazard, why a
- * random token rather than a counter, and what non-reproducible markup costs
- * — is written once, in `renderToSVG.ts`. This is a deliberate second copy
- * rather than an import: a class diagram does not depend on a flowchart, and
- * the two renderers are peers. The third caller should lift it into a module
- * of its own; the sequence renderer's `siren-arrow-filled`/`-cross`/`-open`
- * are still fixed ids and are that third caller waiting to happen.
- */
-function mintIdScope(): string {
-  return `__${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
 }
 
 /**

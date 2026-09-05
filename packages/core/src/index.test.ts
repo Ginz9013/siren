@@ -33,8 +33,8 @@ const readExample = (name: string): string =>
 /**
  * `markup` with every minted id scope collapsed to a fixed token.
  *
- * Marker ids are namespaced per render (`mintIdScope` in renderToSVG.ts and
- * renderClassDiagramToSVG.ts), because `url(#id)` resolves against the whole
+ * Marker ids are namespaced per render (`renderer/mintIdScope.ts`, which all
+ * three renderers mint from), because `url(#id)` resolves against the whole
  * document rather than against the SVG it is written in. The direct cost is
  * that markup is no longer byte-reproducible across renders — so a comparison
  * asking "are these two the same *drawing*?" has to collapse exactly those
@@ -3319,5 +3319,178 @@ B --> C[End]
     expect(
       unstyledResult.svg!.querySelector("defs > marker path")!.getAttribute("style"),
     ).toBeNull();
+  });
+  it("leaves every sequence arrowhead the theme's to paint: each marker's shape carries only its theme class, and no sequence marker carries an author color", () => {
+    // A characterization test, written before the sequence renderer's ids
+    // were scoped and green from the moment it was written. Author styling
+    // for sequence diagrams is a board non-goal, so the whole exposure being
+    // fixed here is the *invisible* one: `--siren-*` reaches a sequence
+    // arrowhead through the marker's shape class and through nothing else,
+    // and scoping the marker's id must not put a color on it or take the
+    // token's reach away. `fill="none"` on the open head is shape, not
+    // color — an unclosed V that must never be filled in.
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant Alice
+participant Bob
+Alice->>Bob: filled
+Alice<<->>Bob: bidirectional
+Alice-xBob: cross
+Alice-)Bob: open
+`;
+
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const markers = Array.from(svg.querySelectorAll("defs > marker"));
+    expect(markers).toHaveLength(3);
+
+    for (const marker of markers) {
+      const shape = marker.querySelector("path")!;
+      // The class is the whole mechanism: the theme selects it, so a
+      // consumer's `--siren-*` redeclaration reaches the arrowhead.
+      expect([marker.id, shape.getAttribute("class")]).toEqual([
+        marker.id,
+        expect.stringMatching(/^siren-arrow-(fill|stroke)$/),
+      ]);
+      // Nothing an author wrote lands here, and nothing freezes the
+      // theme's value at render time.
+      expect([marker.id, shape.getAttribute("style")]).toEqual([marker.id, null]);
+      expect([marker.id, shape.getAttribute("stroke")]).toEqual([marker.id, null]);
+      // `fill` is either absent or the literal `none` — the open head's
+      // "never close this V", which is shape rather than color. No marker
+      // names a color here at all.
+      const fill = shape.getAttribute("fill");
+      expect([marker.id, fill === null || fill === "none"]).toEqual([marker.id, true]);
+    }
+
+    // And every message that carries a head points at one of exactly those
+    // three markers — no fourth, per-message marker was minted.
+    const referenced = new Set(
+      Array.from(svg.querySelectorAll("path.siren-message-arrow")).flatMap((path) =>
+        [path.getAttribute("marker-start"), path.getAttribute("marker-end")].filter(
+          (reference): reference is string => reference !== null,
+        ),
+      ),
+    );
+    expect(referenced.size).toBe(3);
+  });
+  it("scopes a sequence diagram's marker ids the same way, so two sequence diagrams on one page share no id and each message's arrowhead resolves inside its own SVG", () => {
+    // The third and last renderer with fixed ids: `siren-arrow-filled`,
+    // `siren-arrow-cross` and `siren-arrow-open`. The exposure here is the
+    // pre-existing invisible one rather than one author styling activated —
+    // a sequence marker carries no author color, by board non-goal — and it
+    // becomes visible the moment two sequence diagrams sit in *different CSS
+    // contexts*, which ADR-0004 invites by letting a consumer scope
+    // `--siren-*` to a container: both define `siren-arrow-filled`, the
+    // second diagram's `url(#siren-arrow-filled)` resolves to the first's
+    // marker, and its arrowheads take the first container's theme.
+    const source = `sequenceDiagram
+participant Alice
+participant Bob
+Alice->>Bob: filled
+Alice<<->>Bob: bidirectional
+Alice-xBob: cross
+Alice-)Bob: open
+`;
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+
+    try {
+      const one = render(source, first);
+      const two = render(source, second);
+      expect([one.diagnostics, two.diagnostics]).toEqual([[], []]);
+
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      for (const svg of [one.svg!, two.svg!]) {
+        const arrows = Array.from(svg.querySelectorAll("path.siren-message-arrow"));
+        expect(arrows.length).toBe(4);
+        const referenced = arrows.flatMap((arrow) => [
+          arrow.getAttribute("marker-start"),
+          arrow.getAttribute("marker-end"),
+        ]);
+        expect(referenced.filter((reference) => reference !== null).length).toBeGreaterThan(0);
+        for (const reference of referenced) {
+          if (reference === null) continue;
+          expect(reference).toMatch(/^url\(#.+\)$/);
+          const id = reference.slice("url(#".length, -1);
+          expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+          expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+        }
+      }
+
+      // `filled` and `bidirectionalFilled` still share one marker inside a
+      // render — deliberate sharing, since `orient="auto-start-reverse"`
+      // makes the one def point outward at either end. Scoping the id must
+      // not accidentally split them into two defs.
+      expect(one.svg!.querySelectorAll("defs > marker")).toHaveLength(3);
+      const arrowOf = (index: number): Element =>
+        one.svg!.querySelectorAll("path.siren-message-arrow")[index]!;
+      expect(arrowOf(1).getAttribute("marker-end")).toBe(arrowOf(0).getAttribute("marker-end"));
+      expect(arrowOf(1).getAttribute("marker-start")).toBe(arrowOf(0).getAttribute("marker-end"));
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+  it("shares no id across a page holding two diagrams of each of the three kinds", () => {
+    // The claim the three renderers only make together. 05c could assert it
+    // of four flowchart/class diagrams; with the sequence renderer scoped it
+    // holds for a page of every kind Siren draws, which is what "no duplicate
+    // ids on a page" was supposed to mean all along.
+    const sources = [
+      `flowchart TD
+A[Start] --> B[End]
+`,
+      `classDiagram
+Animal <|-- Duck
+Habitat *-- Animal
+Duck o-- Feather
+Keeper --> Animal
+`,
+      `sequenceDiagram
+participant Alice
+participant Bob
+Alice->>Bob: filled
+Alice-xBob: cross
+Alice-)Bob: open
+`,
+    ];
+    const containers = [...sources, ...sources].map(() => document.createElement("div"));
+    document.body.append(...containers);
+
+    try {
+      const results = [...sources, ...sources].map((source, index) =>
+        render(source, containers[index]!),
+      );
+      expect(results.map((result) => result.diagnostics)).toEqual(results.map(() => []));
+
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      // Six diagrams, each minting at least one marker id.
+      expect(ids.length).toBeGreaterThanOrEqual(6);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      // And every reference on the page resolves inside the SVG that wrote
+      // it, which is the consequence a duplicate id would silently break.
+      for (const result of results) {
+        const svg = result.svg!;
+        for (const element of Array.from(svg.querySelectorAll("[marker-start], [marker-end]"))) {
+          for (const attribute of ["marker-start", "marker-end"]) {
+            const reference = element.getAttribute(attribute);
+            if (reference === null) continue;
+            const id = reference.slice("url(#".length, -1);
+            expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+            expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+          }
+        }
+      }
+    } finally {
+      for (const container of containers) container.remove();
+    }
   });
 });
