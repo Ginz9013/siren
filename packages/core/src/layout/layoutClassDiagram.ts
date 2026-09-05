@@ -33,6 +33,8 @@ const NOTE_PADDING_Y = 8;
 const MULTIPLICITY_OFFSET_ALONG = 12;
 /** How far to the side of the line a multiplicity string is anchored, so it never sits on it. */
 const MULTIPLICITY_OFFSET_ACROSS = 10;
+/** The gap kept between a multiplicity string and the class frame it is drawn beside. */
+const MULTIPLICITY_CLEARANCE = 4;
 
 /**
  * The text a member is drawn as, rebuilt from the parts the parser kept:
@@ -236,29 +238,120 @@ const RANK_DIRECTION: Record<ClassDirection, RankDirection> = {
   RL: "RL",
 };
 
+/** Any axis-aligned rectangle in diagram coordinates — here, a class box. */
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * How far along `direction` from `origin` the ray is still inside `rect`, or
+ * `0` when it never enters it. The standard slab test: each axis gives the
+ * interval of `t` for which the ray is within that pair of edges, and the ray
+ * is inside the rectangle exactly where the two intervals overlap.
+ *
+ * A ray parallel to an axis has no crossing on it — either it is within that
+ * slab for every `t` or for none — so the axis contributes no bound in the
+ * first case and rules the rectangle out entirely in the second.
+ */
+function exitDistance(origin: Point, direction: Point, rect: Rect): number {
+  let enter = -Infinity;
+  let exit = Infinity;
+  for (const [at, step, from, span] of [
+    [origin.x, direction.x, rect.x, rect.width],
+    [origin.y, direction.y, rect.y, rect.height],
+  ] as const) {
+    if (Math.abs(step) < 1e-9) {
+      if (at < from || at > from + span) return 0;
+      continue;
+    }
+    const near = (from - at) / step;
+    const far = (from + span - at) / step;
+    enter = Math.max(enter, Math.min(near, far));
+    exit = Math.min(exit, Math.max(near, far));
+  }
+  if (!Number.isFinite(exit) || enter > exit || exit <= 0) return 0;
+  return exit;
+}
+
+/** The total length of a routed path, walked segment by segment. */
+function pathLength(points: Point[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    total += Math.hypot(
+      points[i].x - points[i - 1].x,
+      points[i].y - points[i - 1].y,
+    );
+  }
+  return total;
+}
+
 /**
  * Anchors a multiplicity string beside one end of a routed relationship:
  * a step along the line away from the class box it belongs to, then a step
  * to the side of it, so the text clears both the box and the line itself.
+ *
+ * The step to the side fixes which ray the anchor lives on — the relationship
+ * line shifted sideways by `MULTIPLICITY_OFFSET_ACROSS` — and the anchor only
+ * ever slides *along* that ray. That is what keeps this correction from
+ * changing what the label reads as: the two multiplicities of one relationship
+ * stay on opposite sides of it, and each stays the same distance off the
+ * stroke as before.
+ *
+ * How far along is where the class box comes in, and it has to: the routed
+ * endpoint sits *on* the box's boundary, and the step back along the line runs
+ * toward the other class, so it is parallel to the edge it has to escape. For
+ * a line arriving square-on, a fixed step clears the box; for one arriving at
+ * a corner or at a shallow angle it does not, and a real diagram drew `*` on
+ * `Animal`'s corner, over the frame stroke. So the anchor is pushed out to
+ * wherever its ray leaves the box — grown by half the text's own size, since
+ * the text is drawn centered on the anchor, plus a clearance so the glyph does
+ * not touch the frame. Enlarging the fixed offsets instead would only move the
+ * angle at which it fails.
+ *
+ * Never past the midpoint of the line, so a multiplicity that cannot be fitted
+ * beside a very large box stops rather than drifting into the label at the
+ * other end.
  */
-function multiplicityAnchor(points: Point[], atStart: boolean): Point {
+function multiplicityAnchor(
+  points: Point[],
+  atStart: boolean,
+  text: string,
+  box: Rect,
+  options: LayoutOptions,
+): Point {
   const end = atStart ? points[0] : points[points.length - 1];
   const neighbour = atStart ? points[1] : points[points.length - 2];
   const towards = neighbour ?? end;
   const dx = towards.x - end.x;
   const dy = towards.y - end.y;
   const length = Math.hypot(dx, dy) || 1;
-  const alongX = dx / length;
-  const alongY = dy / length;
+  const along = { x: dx / length, y: dy / length };
+
+  const origin = {
+    x: end.x - along.y * MULTIPLICITY_OFFSET_ACROSS,
+    y: end.y + along.x * MULTIPLICITY_OFFSET_ACROSS,
+  };
+
+  const size = options.measureText.measure(text);
+  const padX = size.width / 2 + MULTIPLICITY_CLEARANCE;
+  const padY = size.height / 2 + MULTIPLICITY_CLEARANCE;
+  const keepOut: Rect = {
+    x: box.x - padX,
+    y: box.y - padY,
+    width: box.width + padX * 2,
+    height: box.height + padY * 2,
+  };
+
+  const distance = Math.min(
+    Math.max(MULTIPLICITY_OFFSET_ALONG, exitDistance(origin, along, keepOut)),
+    pathLength(points) / 2,
+  );
   return {
-    x:
-      end.x +
-      alongX * MULTIPLICITY_OFFSET_ALONG -
-      alongY * MULTIPLICITY_OFFSET_ACROSS,
-    y:
-      end.y +
-      alongY * MULTIPLICITY_OFFSET_ALONG +
-      alongX * MULTIPLICITY_OFFSET_ACROSS,
+    x: origin.x + along.x * distance,
+    y: origin.y + along.y * distance,
   };
 }
 
@@ -555,12 +648,24 @@ export function layoutClassDiagram(
         fromMultiplicityAnchor:
           rel.fromMultiplicity === null
             ? null
-            : multiplicityAnchor(route.points, true),
+            : multiplicityAnchor(
+                route.points,
+                true,
+                rel.fromMultiplicity,
+                boxInDiagramSpaceById.get(rel.from)!,
+                options,
+              ),
         toMultiplicity: rel.toMultiplicity,
         toMultiplicityAnchor:
           rel.toMultiplicity === null
             ? null
-            : multiplicityAnchor(route.points, false),
+            : multiplicityAnchor(
+                route.points,
+                false,
+                rel.toMultiplicity,
+                boxInDiagramSpaceById.get(rel.to)!,
+                options,
+              ),
       };
     },
   );

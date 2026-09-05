@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  ClassDirection,
   ClassMember,
   ClassModel,
   Point,
@@ -140,6 +141,48 @@ function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** Total length of a routed path, walked segment by segment. */
+function pathLength(points: Point[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) total += distance(points[i - 1], points[i]);
+  return total;
+}
+
+/** Shortest distance from `point` to a routed path, over all its segments. */
+function distanceToPath(point: Point, points: Point[]): number {
+  let nearest = Infinity;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    const span = distance(a, b);
+    // How far along `a`→`b` the nearest point lies, clamped to the segment.
+    const t =
+      span === 0
+        ? 0
+        : Math.min(
+            1,
+            Math.max(
+              0,
+              ((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)) /
+                (span * span),
+            ),
+          );
+    nearest = Math.min(
+      nearest,
+      distance(point, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }),
+    );
+  }
+  return nearest;
+}
+
+/**
+ * Which side of the ray `a`→`b` the point `p` falls on, as the sign of the
+ * cross product: positive one side, negative the other, zero on the ray.
+ */
+function sideOfLine(p: Point, a: Point, b: Point): number {
+  return Math.sign((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x));
+}
+
 /** Any rectangle in diagram coordinates — a class box, a frame, a note. */
 interface Rect {
   x: number;
@@ -165,6 +208,42 @@ function overlaps(a: Rect, b: Rect): boolean {
     b.x < a.x + a.width &&
     a.y < b.y + b.height &&
     b.y < a.y + a.height
+  );
+}
+
+/**
+ * The rectangle a run of text covers when drawn centered on `anchor` — the
+ * same model of a text's extent `layoutClassDiagram` uses when it measures
+ * the diagram's own bounds, so this is the tests' independent yardstick for
+ * "where the glyph actually lands".
+ */
+function textBoxAt(text: string, anchor: Point): Rect {
+  const size = fakeMeasurer.measure(text);
+  return {
+    x: anchor.x - size.width / 2,
+    y: anchor.y - size.height / 2,
+    width: size.width,
+    height: size.height,
+  };
+}
+
+/** Each multiplicity of a relationship paired with the class box it belongs beside. */
+function multiplicitiesWithTheirClassBoxes(
+  diagram: PositionedClassDiagram,
+): { text: string; anchor: Point; box: PositionedClass }[] {
+  return diagram.relationships.flatMap((routed) =>
+    (
+      [
+        [routed.fromMultiplicity, routed.fromMultiplicityAnchor, routed.from],
+        [routed.toMultiplicity, routed.toMultiplicityAnchor, routed.to],
+      ] as const
+    )
+      .filter(([text, anchor]) => text !== null && anchor !== null)
+      .map(([text, anchor, classId]) => ({
+        text: text!,
+        anchor: anchor!,
+        box: classById(diagram, classId),
+      })),
   );
 }
 
@@ -815,6 +894,112 @@ describe("layoutClassDiagram", () => {
       // Beside the line, not on it.
       expect(routed.fromMultiplicityAnchor).not.toEqual(first);
       expect(routed.toMultiplicityAnchor).not.toEqual(last);
+    });
+
+    /**
+     * `Keeper "1" --> "*" Animal` inside a triangle of classes, which is what
+     * makes the relationship arrive at a corner rather than square-on: the
+     * shape a real diagram produced when this defect was spotted by looking at
+     * a rendered picture.
+     */
+    function cornerArrival(direction: ClassDirection): PositionedClassDiagram {
+      return layoutClassDiagram(
+        classModel({
+          direction,
+          classes: [cls("Keeper"), cls("Animal"), cls("Habitat")],
+          relationships: [
+            relationship("Keeper", "Animal", {
+              fromMultiplicity: "1",
+              toMultiplicity: "*",
+            }),
+            relationship("Keeper", "Habitat", { toEnd: "none" }),
+            relationship("Habitat", "Animal", { toEnd: "diamondFilled" }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+    }
+
+    /**
+     * Which of a diagram's multiplicity strings are drawn on top of the class
+     * box they belong to — named, so a failure says which label landed where
+     * rather than just that a boolean was wrong.
+     */
+    function multiplicitiesOnTheirClassBox(
+      diagram: PositionedClassDiagram,
+    ): string[] {
+      return multiplicitiesWithTheirClassBoxes(diagram)
+        .filter(({ text, anchor, box }) => overlaps(textBoxAt(text, anchor), box))
+        .map(({ text, box }) => `"${text}" on ${box.id}`);
+    }
+
+    it("keeps a multiplicity clear of its own class box when the line arrives at a corner", () => {
+      expect(multiplicitiesOnTheirClassBox(cornerArrival("TB"))).toEqual([]);
+    });
+
+    it.each(["TB", "BT", "LR", "RL"] as const)(
+      "keeps a multiplicity clear of its own class box with direction %s",
+      (direction) => {
+        expect(multiplicitiesOnTheirClassBox(cornerArrival(direction))).toEqual(
+          [],
+        );
+      },
+    );
+
+    it.each(["TB", "BT", "LR", "RL"] as const)(
+      "still reads each multiplicity as its own end's label with direction %s",
+      (direction) => {
+        const routed = cornerArrival(direction).relationships.find(
+          (candidate) => candidate.id === "Keeper-Animal",
+        )!;
+        const points = routed.points;
+        const first = points[0];
+        const last = points[points.length - 1];
+        const half = pathLength(points) / 2;
+
+        for (const [anchor, own, other] of [
+          [routed.fromMultiplicityAnchor!, first, last],
+          [routed.toMultiplicityAnchor!, last, first],
+        ] as const) {
+          // Beside its own end, and never past the middle of the line — a
+          // multiplicity pushed clear of one box must not arrive at the other.
+          expect(distance(anchor, own)).toBeLessThan(distance(anchor, other));
+          expect(distance(anchor, own)).toBeLessThanOrEqual(half);
+          // Off the stroke, which is what the across-offset buys.
+          expect(distanceToPath(anchor, points)).toBeGreaterThanOrEqual(8);
+        }
+
+        // Each sits on the same hand of its *own* outward direction, and the
+        // two outward directions are opposite — so the two labels fall on
+        // opposite sides of the line and read as two, not one clump.
+        expect(
+          sideOfLine(routed.fromMultiplicityAnchor!, first, points[1]) *
+            sideOfLine(
+              routed.toMultiplicityAnchor!,
+              last,
+              points[points.length - 2],
+            ),
+        ).toBeGreaterThan(0);
+      },
+    );
+
+    it("keeps both multiplicities of a self-relationship clear of the one box they share", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Ticket"), cls("Customer")],
+          relationships: [
+            relationship("Ticket", "Ticket", {
+              id: "Ticket-Ticket",
+              fromMultiplicity: "0..1",
+              toMultiplicity: "0..*",
+            }),
+            relationship("Customer", "Ticket"),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(multiplicitiesOnTheirClassBox(diagram)).toEqual([]);
     });
 
     it("anchors nothing for a relationship with no label and no multiplicity", () => {
