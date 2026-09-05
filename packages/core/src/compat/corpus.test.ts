@@ -238,7 +238,7 @@ describe("the corpus, case by case", () => {
  * Mermaid document that draws the wrong picture with no diagnostic is the
  * worst failure mode this repo has, and this number's destination is zero.
  *
- * Two of the three left cannot get there by being rejected, and are named so
+ * Both that are left cannot get there by being rejected, and are named so
  * that nobody mistakes them for the board failing to finish: `seq-loop` and
  * `seq-alt-else`. Siren never draws a control-flow block's **keyword** — the
  * frame, the label and the divider are all there, but `loop`, `alt`, `else`,
@@ -255,8 +255,16 @@ describe("the corpus, case by case", () => {
  * that rises because a measurement was corrected is not a regression; a number
  * that rises because code got worse is. Only a human can tell those apart, so
  * say which in the commit.
+ *
+ * It fell to **2** when the sequence parser stopped swallowing the activation
+ * shorthand's `+`/`-`: `seq-activation-shorthand` drew both messages, drew no
+ * bar, and said nothing; it is now told which construct is missing. That is
+ * the floor this board can reach — what remains is the two named above, and
+ * their exit is drawing a keyword, not refusing a construct. A board that
+ * lowers this number further has either implemented one of them or
+ * miscounted.
  */
-const SILENTLY_WRONG = 3;
+const SILENTLY_WRONG = 2;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -272,8 +280,12 @@ const SILENTLY_WRONG = 3;
  * is allowed, and `silently-wrong` fell by the same five. Those five drew a
  * rectangle labelled with the shape's own punctuation and said nothing; they
  * now say which shape Siren cannot draw yet. Worse numbers, honest ones.
+ *
+ * It went up by one again, to 39, for the same reason and on the same trade:
+ * `seq-activation-shorthand` left `silently-wrong` when `MESSAGE_RE` stopped
+ * matching the `+`/`-` marker and throwing it away.
  */
-const REJECTED = 38;
+const REJECTED = 39;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

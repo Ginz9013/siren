@@ -425,7 +425,6 @@ timeline:
   actor B as Bob
   A->>B: Sync call
   A-->>B: Dotted no arrow
-  A->>+B: (activation shorthand is NOT parsed specially — treat literally, see note below)
 `;
 
     const { document, diagnostics } = parseSiren(source);
@@ -440,15 +439,33 @@ timeline:
       { id: "B", label: "Bob", participantKind: "actor", line: 4, column: 3 },
     ]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
-    expect(messages).toHaveLength(3);
+    expect(messages).toHaveLength(2);
     expect(messages.map((m) => (m.kind === "message" ? m.arrow : null))).toEqual([
       { line: "solid", head: "filled" },
       { line: "dotted", head: "filled" },
-      { line: "solid", head: "filled" },
     ]);
-    // Activation shorthand `+` is ignored as literal syntax noise (see
-    // parseSequenceDiagram.ts) — the target id is still "B", not "+B".
-    expect(messages[2].kind === "message" && messages[2].to).toBe("B");
+  });
+
+  it("refuses activation shorthand through the dispatching seam too, naming activation", () => {
+    // This test used to assert the reverse: it fed `A->>+B` and expected zero
+    // diagnostics, because `MESSAGE_RE` matched the `+` and threw it away.
+    // Mermaid draws an activation bar and a thickened lifeline for it and
+    // Siren draws neither, so the swallow handed the author a wrong picture
+    // with nothing in it to say so. Being told what is missing is the point.
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  A->>+B: request
+  B-->>-A: response
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw an activation bar (the `+` after the arrow) yet: "A->>+B: request"',
+      'Siren does not draw an activation bar (the `-` after the arrow) yet: "B-->>-A: response"',
+    ]);
   });
 
   it("dispatches a classDiagram document to parseClassDiagram, tagged kind: \"class\"", () => {

@@ -922,15 +922,8 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       participant B
       A->>+B: request
       B-->>-A: response`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning: "`+` activates the target's lifeline and `-` deactivates it, drawn as a bar on the lane.",
-    assert: (result) => {
-      // The wrong picture, recorded: the messages are drawn, the `+`/`-` are
-      // swallowed by `MESSAGE_RE`'s `[+-]?`, and no activation is drawn or
-      // recorded anywhere.
-      expectSame("messages", messages(result), ["A-B: request", "B-A: response"]);
-      expectSame("anything activation-shaped was drawn", drew(result, "[class*=activation]"), false);
-    },
   },
   {
     id: "seq-activate",
