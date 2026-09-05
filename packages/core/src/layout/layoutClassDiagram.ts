@@ -11,6 +11,7 @@ import type {
   PositionedClassNote,
   PositionedClassRelationship,
   ResolvedClass,
+  ResolvedClassInteraction,
   ResolvedClassNamespace,
 } from "../contracts";
 import {
@@ -597,6 +598,39 @@ export function layoutClassDiagram(
     labelAnchor: shifted(frame.labelAnchor),
   }));
 
+  /**
+   * Each styled class's declarations, keyed for lookup below.
+   *
+   * `buildClassModel` has already merged everything one class was styled by —
+   * its `style` statements and every `classDef` a `cssClass` applied to it —
+   * into a single entry with no repeated property, and omits a class that
+   * ended up with none. So there is nothing to reconcile here: this carries
+   * the model's answer through, and a class absent from the map is one the
+   * renderer must give no `style` attribute at all.
+   */
+  const styleByClassId = new Map(
+    model.styles.map((style) => [style.classId, style.properties]),
+  );
+
+  /**
+   * The one interaction each class ends up with.
+   *
+   * Unlike a style, an interaction does not merge: a class is drawn either as
+   * a link or as a click hook, so two `click` statements naming it are a
+   * disagreement, not a set. The later one wins — the same answer a second
+   * `style` statement on one class already gets, so an author who repeats
+   * themselves gets one rule to remember rather than two.
+   *
+   * Written as an explicit overwriting loop rather than a `new Map(...)` over
+   * the list, because that spelling would make the policy an artifact of how
+   * the map happens to be built: silently reversible, and nothing in the code
+   * would say which end was meant to win.
+   */
+  const interactionByClassId = new Map<string, ResolvedClassInteraction>();
+  for (const interaction of model.interactions) {
+    interactionByClassId.set(interaction.classId, interaction);
+  }
+
   const classes = model.classes.map<PositionedClass>((cls) => {
     const box = boxInDiagramSpaceById.get(cls.id)!;
     const plan = planById.get(cls.id)!;
@@ -626,8 +660,8 @@ export function layoutClassDiagram(
       height: box.height,
       attributes: place(plan.attributes),
       methods: place(plan.methods),
-      style: [],
-      interaction: null,
+      style: styleByClassId.get(cls.id) ?? [],
+      interaction: interactionByClassId.get(cls.id) ?? null,
     };
   });
 

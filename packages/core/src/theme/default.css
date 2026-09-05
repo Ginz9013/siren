@@ -440,6 +440,19 @@
 }
 
 /*
+ * The `<a>` wrapped around a class the author gave an `href`. It sets a
+ * cursor and nothing else, deliberately: recoloring the class would make a
+ * linked box read as a different *kind* of class rather than as the same
+ * class you can follow, and an author's own `style` on that class would then
+ * be arguing with the theme over the same box. The pointer is the whole
+ * affordance — without it a link is indistinguishable from any other box
+ * until a reader happens to click it.
+ */
+.siren-link {
+  cursor: pointer;
+}
+
+/*
  * The connector from a note to the class it annotates. Dashed — UML's own
  * convention, and what keeps it from reading as a ninth relationship type.
  * The dash is the theme's to set here, unlike on `.siren-relationship-line`:

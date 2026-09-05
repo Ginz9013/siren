@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render } from "./index";
+import { render, type InteractionTarget } from "./index";
 import type { SirenRenderResult } from "./contracts";
 
 /**
@@ -1426,5 +1426,124 @@ step 2: enter B fade
     expect(result!.svg).not.toBeNull();
     expect(result!.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
     expect(result!.svg!.querySelectorAll("path.siren-edge")).toHaveLength(1);
+  });
+
+  it("invokes options.onClick with the clicked class's id, callback name and literal argument when a real click lands inside a class the author gave a `call` interaction", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+Animal <|-- Duck
+click Duck call showDetails("mallard") "Duck facts"
+`;
+
+    const clicks: InteractionTarget[] = [];
+    const result = render(source, container, {
+      onClick: (target) => clicks.push(target),
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    const duck = result.svg!.querySelector('g.siren-class[data-siren-id="Duck"]');
+    expect(duck).not.toBeNull();
+
+    // Clicked on the class *name*, not on the group: a reader aims at what
+    // they can see, and the event has to reach the handler by bubbling out of
+    // whichever child they hit.
+    const name = duck!.querySelector("text.siren-class-name");
+    expect(name).not.toBeNull();
+    name!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(clicks).toEqual([
+      { id: "Duck", action: "showDetails", argument: "mallard" },
+    ]);
+  });
+
+  it("invokes onClick for no other click in the diagram — not on a class the author left alone, and not on one whose interaction is an href", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+Animal <|-- Duck
+class Fish
+click Duck call showDetails()
+click Fish href "https://example.com/fish"
+`;
+
+    const clicks: InteractionTarget[] = [];
+    const result = render(source, container, {
+      onClick: (target) => clicks.push(target),
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    const classGroup = (id: string): Element => {
+      const group = result.svg!.querySelector(`g.siren-class[data-siren-id="${id}"]`);
+      if (group === null) throw new Error(`no rendered class ${id}`);
+      return group;
+    };
+
+    // Animal is styled and hooked by nothing at all; Fish is a *link*, which
+    // the browser navigates — reporting it as a callback would invite a host
+    // to act on a click the reader already spent on going somewhere.
+    classGroup("Animal").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    classGroup("Fish").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toEqual([]);
+
+    // The same document does still deliver the class that has a callback, so
+    // this is a test about which clicks are reported, not a broken wiring.
+    classGroup("Duck").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toEqual([{ id: "Duck", action: "showDetails", argument: null }]);
+  });
+
+  it("renders byte-for-byte the same SVG with and without an onClick handler, and clicking a hooked class throws nothing when none was given", () => {
+    const source = `classDiagram
+Animal <|-- Duck
+click Duck call showDetails("mallard")
+`;
+
+    const withHandler = document.createElement("div");
+    render(source, withHandler, { onClick: () => {} });
+
+    const withoutHandler = document.createElement("div");
+    const result = render(source, withoutHandler);
+
+    // The hook is markup either way: `render()` attaches a listener to it or
+    // does not, and nothing about the document a consumer gets back changes.
+    expect(withoutHandler.innerHTML).toBe(withHandler.innerHTML);
+    expect(
+      result.svg!.querySelector('g.siren-class[data-siren-id="Duck"]')!
+        .getAttribute("data-siren-click"),
+    ).toBe("showDetails");
+
+    expect(() => {
+      result.svg!
+        .querySelector('g.siren-class[data-siren-id="Duck"]')!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    }).not.toThrow();
+  });
+
+  it("carries an author's styling and interaction all the way to the DOM: inline style on the frame, an <a class=\"siren-link\"> around a linked class, and a tooltip as a <title>", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+Animal <|-- Duck
+class Fish
+style Duck fill:#fdd,stroke:#c00
+click Fish href "https://example.com/fish" "Fish facts"
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+
+    const duck = result.svg!.querySelector('g.siren-class[data-siren-id="Duck"]')!;
+    expect(duck.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBe(
+      "fill:#fdd;stroke:#c00",
+    );
+    // An unstyled class is left without the attribute entirely, rather than
+    // carrying an empty one.
+    const animal = result.svg!.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    expect(animal.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBeNull();
+
+    const fish = result.svg!.querySelector('g.siren-class[data-siren-id="Fish"]')!;
+    const link = fish.parentElement;
+    expect(link!.tagName).toBe("a");
+    expect(link!.getAttribute("class")).toBe("siren-link");
+    expect(link!.getAttribute("href")).toBe("https://example.com/fish");
+    expect(fish.querySelector("title")!.textContent).toBe("Fish facts");
   });
 });

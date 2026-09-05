@@ -1239,6 +1239,96 @@ describe("layoutClassDiagram", () => {
     });
   });
 
+  describe("author styling and interaction", () => {
+    it("carries each class's resolved style declarations through, in declaration order, and leaves an unstyled class with none", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Duck"), cls("Animal")],
+          styles: [
+            {
+              classId: "Duck",
+              properties: [
+                { property: "fill", value: "#fdd" },
+                { property: "stroke", value: "#c00" },
+              ],
+            },
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(classById(diagram, "Duck").style).toEqual([
+        { property: "fill", value: "#fdd" },
+        { property: "stroke", value: "#c00" },
+      ]);
+      // No declarations, so the renderer emits no `style` attribute at all.
+      expect(classById(diagram, "Animal").style).toEqual([]);
+    });
+
+    it("carries each class's resolved interaction through, and leaves a class named by none with null", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Duck"), cls("Animal")],
+          interactions: [
+            {
+              classId: "Duck",
+              interactionKind: "call",
+              action: "showDetails",
+              argument: "Duck",
+              tooltip: "What a duck is",
+            },
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(classById(diagram, "Duck").interaction).toEqual({
+        classId: "Duck",
+        interactionKind: "call",
+        action: "showDetails",
+        argument: "Duck",
+        tooltip: "What a duck is",
+      });
+      expect(classById(diagram, "Animal").interaction).toBeNull();
+    });
+
+    it("gives a class named by two interactions the last of them, as a class styled twice keeps the last value", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Duck")],
+          interactions: [
+            {
+              classId: "Duck",
+              interactionKind: "href",
+              action: "https://example.com/duck",
+              argument: null,
+              tooltip: null,
+            },
+            {
+              classId: "Duck",
+              interactionKind: "call",
+              action: "showDetails",
+              argument: null,
+              tooltip: null,
+            },
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      // One class draws one way: it is either a link or a click hook, never
+      // both, so a second `click` statement replaces the first rather than
+      // joining it — the answer a second `style` statement already gets.
+      expect(classById(diagram, "Duck").interaction).toEqual({
+        classId: "Duck",
+        interactionKind: "call",
+        action: "showDetails",
+        argument: null,
+        tooltip: null,
+      });
+    });
+  });
+
   describe("bounds", () => {
     it("reports a width and height that contain every class box, relationship path, label and multiplicity", () => {
       const diagram = layoutClassDiagram(

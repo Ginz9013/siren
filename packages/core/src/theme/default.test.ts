@@ -142,6 +142,8 @@ Fish .. Habitat
 
 note for Duck "Ducks are birds"
 note "Drawn from the keeper's ledger"
+
+click Duck href "https://example.com/duck" "Ducks are birds"
 `;
 
 /**
