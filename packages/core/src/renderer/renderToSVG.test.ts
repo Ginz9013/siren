@@ -47,9 +47,9 @@ function buildFixture(): PositionedGraph {
 }
 
 /**
- * Hand-built fixture exercising the enter-only siren-pending rule: X has
- * only an `exit` action (no `enter`), Y has only a `highlight` action (no
- * `enter`), Z has an `enter` action.
+ * Hand-built fixture whose timeline mixes the verbs: X has only an `exit`
+ * action, Y only a `highlight`, Z an `enter`. None of them may make this
+ * renderer stamp anything — step 0 belongs to the controller.
  */
 function buildNonEnterFixture(): PositionedGraph {
   return {
@@ -94,28 +94,13 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("marks elements with an enter action as siren-pending and leaves elements never mentioned unmarked", () => {
-    const svg = renderToSVG(buildFixture());
-
-    const nodeA = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
-    const nodeB = svg.querySelector('g.siren-node[data-siren-id="B"]')!;
-    const nodeC = svg.querySelector('g.siren-node[data-siren-id="C"]')!;
-
-    expect(nodeA.classList.contains("siren-pending")).toBe(false);
-    expect(nodeB.classList.contains("siren-pending")).toBe(true);
-    expect(nodeC.classList.contains("siren-pending")).toBe(true);
-  });
-
-  it("does not mark siren-pending for elements whose only timeline action is exit or highlight, but still marks elements with an enter action", () => {
-    const svg = renderToSVG(buildNonEnterFixture());
-
-    const nodeX = svg.querySelector('g.siren-node[data-siren-id="X"]')!;
-    const nodeY = svg.querySelector('g.siren-node[data-siren-id="Y"]')!;
-    const nodeZ = svg.querySelector('g.siren-node[data-siren-id="Z"]')!;
-
-    expect(nodeX.classList.contains("siren-pending")).toBe(false);
-    expect(nodeY.classList.contains("siren-pending")).toBe(false);
-    expect(nodeZ.classList.contains("siren-pending")).toBe(true);
+  it("leaves step-0 pending state to the controller, stamping siren-pending on nothing whatever the timeline declares", () => {
+    // The renderer draws the diagram; `createAnimationController.reset()`
+    // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. Held
+    // here so a private "which elements start pending" copy cannot grow back
+    // in this file and drift from the controller's own notion of step 0.
+    expect(renderToSVG(buildFixture()).querySelectorAll(".siren-pending")).toHaveLength(0);
+    expect(renderToSVG(buildNonEnterFixture()).querySelectorAll(".siren-pending")).toHaveLength(0);
   });
 
   it("gives every node a rect sized to width/height and a text with the node's exact label", () => {

@@ -432,74 +432,39 @@ describe("renderClassDiagramToSVG", () => {
     expect(multiplicities[0].textContent).toBe("0..1");
   });
 
-  it("starts classes and relationships with an enter action as siren-pending", () => {
-    const diagram = buildDiagram(
-      [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],
-      [buildRelationship()],
-    );
-    diagram.timeline = {
-      totalSteps: 2,
-      entries: [
-        { kind: "enter", step: 1, targetId: "Duck", effect: "fade" },
-        { kind: "enter", step: 2, targetId: "Animal-Duck", effect: "fade" },
-      ],
-    };
-    const svg = renderClassDiagramToSVG(diagram);
-
-    expect(svg.querySelector('g.siren-class[data-siren-id="Animal"]')?.getAttribute("class")).toBe(
-      "siren-class",
-    );
-    expect(svg.querySelector('g.siren-class[data-siren-id="Duck"]')?.getAttribute("class")).toBe(
-      "siren-class siren-pending",
-    );
-    expect(svg.querySelector("g.siren-relationship")?.getAttribute("class")).toBe(
-      "siren-relationship siren-pending",
-    );
-  });
-
-  it("starts namespaces and notes with an enter action as siren-pending too", () => {
-    // `buildClassModel` gives namespaces and notes ids of their own and
-    // resolves a timeline against them, so an author can address one — and an
-    // addressable element that never starts hidden would appear from the
-    // first frame and then "enter" a diagram it was already in.
+  it("leaves step-0 pending state to the controller, stamping siren-pending on none of the four addressable kinds", () => {
+    // The renderer draws the diagram; `createAnimationController.reset()`
+    // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. All
+    // four addressable kinds are named here — class, relationship, namespace
+    // and note — because all four used to be stamped from a private copy of
+    // that rule kept in this file.
     const diagram = {
-      ...buildDiagram([buildClass()]),
-      namespaces: [
-        buildNamespace({ id: "namespace:1" }),
-        buildNamespace({ id: "namespace:2", label: "Aviary" }),
-      ],
-      notes: [buildNote({ id: "note:1" }), buildNote({ id: "note:2" })],
+      ...buildDiagram(
+        [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],
+        [buildRelationship()],
+      ),
+      namespaces: [buildNamespace({ id: "namespace:1" })],
+      notes: [buildNote({ id: "note:1" })],
       timeline: {
-        totalSteps: 2,
+        totalSteps: 4,
         entries: [
-          { kind: "enter", step: 1, targetId: "namespace:1", effect: "fade" },
-          { kind: "enter", step: 2, targetId: "note:1", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "Duck", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "Animal-Duck", effect: "fade" },
+          { kind: "enter", step: 3, targetId: "namespace:1", effect: "fade" },
+          { kind: "enter", step: 4, targetId: "note:1", effect: "fade" },
         ],
       },
     } satisfies PositionedClassDiagram;
 
-    const svg = renderClassDiagramToSVG(diagram);
+    expect(renderClassDiagramToSVG(diagram).querySelectorAll(".siren-pending")).toHaveLength(0);
 
-    expect(
-      svg.querySelector('g.siren-namespace[data-siren-id="namespace:1"]')?.getAttribute("class"),
-    ).toBe("siren-namespace siren-pending");
-    expect(
-      svg.querySelector('g.siren-namespace[data-siren-id="namespace:2"]')?.getAttribute("class"),
-    ).toBe("siren-namespace");
-    expect(svg.querySelector('g.siren-note[data-siren-id="note:1"]')?.getAttribute("class")).toBe(
-      "siren-note siren-pending",
-    );
-    expect(svg.querySelector('g.siren-note[data-siren-id="note:2"]')?.getAttribute("class")).toBe(
-      "siren-note",
-    );
-  });
-
-  it("leaves an element whose only actions are exit or highlight visible from the start", () => {
-    const diagram = buildDiagram(
+    // And the same for a timeline built from the other three verbs, whose
+    // targets were never pending under the deleted rule either.
+    const noEnter = buildDiagram(
       [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],
       [buildRelationship()],
     );
-    diagram.timeline = {
+    noEnter.timeline = {
       totalSteps: 2,
       entries: [
         { kind: "exit", step: 1, targetId: "Animal", effect: "fade" },
@@ -507,9 +472,8 @@ describe("renderClassDiagramToSVG", () => {
         { kind: "unhighlight", step: 2, targetId: "Animal-Duck" },
       ],
     };
-    const svg = renderClassDiagramToSVG(diagram);
 
-    expect(svg.querySelectorAll(".siren-pending").length).toBe(0);
+    expect(renderClassDiagramToSVG(noEnter).querySelectorAll(".siren-pending")).toHaveLength(0);
   });
 
   // Guard for the hard invariant every Siren renderer holds: author text is

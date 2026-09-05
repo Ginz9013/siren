@@ -485,6 +485,59 @@ step 2: enter C fade
     expect(result.controller!.totalSteps).toBe(2);
   });
 
+  it("hands back every diagram kind already in the exact class state reset() produces", () => {
+    // The one rule behind step 0, asserted as one rule: what a reader sees
+    // before touching the controller *is* `reset()`'s output, for all three
+    // kinds. `computeClassStateAtStep(timeline, 0)` decides it and nothing
+    // else recomputes it, so a second opinion cannot quietly grow back — this
+    // test fails the moment a rendered diagram and `reset()` disagree.
+    const classStateById = (svg: SVGSVGElement): string[] =>
+      Array.from(svg.querySelectorAll("[data-siren-id]")).map(
+        (el) =>
+          `${el.getAttribute("data-siren-id")}: ${Array.from(el.classList).sort().join(" ")}`,
+      );
+
+    const sources = [
+      `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+step 1: enter B fade
+step 2: enter C fade
+`,
+      `classDiagram
+Animal <|-- Duck
+timeline:
+step 1: enter Duck fade
+step 2: enter Animal-Duck slide-left
+`,
+      `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+timeline:
+  step 1: enter A fade
+`,
+    ];
+
+    for (const source of sources) {
+      const container = document.createElement("div");
+      const result = render(source, container);
+
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      const asRendered = classStateById(result.svg!);
+
+      // Guards the comparison against passing vacuously: each source names an
+      // `enter`, so something must actually start pending for there to be a
+      // step-0 state worth agreeing about.
+      expect(asRendered.some((entry) => entry.includes("siren-pending"))).toBe(true);
+
+      result.controller!.reset();
+
+      expect(classStateById(result.svg!)).toEqual(asRendered);
+    }
+  });
+
   it("reports totalSteps of 0 and renders every element immediately visible when there is no timeline: block", () => {
     const container = document.createElement("div");
     const source = `flowchart TD
@@ -2520,6 +2573,60 @@ timeline:
       expect(el.classList.contains("siren-pending")).toBe(false);
       expect(el.classList.contains("siren-enter-fade")).toBe(false);
     }
+  });
+
+  it("keeps a message that outlives an exited participant purely advisory: the warning is a warning, the SVG and controller still work, and the exit still applies", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+timeline:
+  step 1: exit A fade
+`;
+
+    const result = render(source, container);
+
+    // Advisory, not fatal: severity "warning", and no error alongside it.
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'timeline: message "A-B" remains visible after its endpoint "A" exits at step 1 — ' +
+          'add "exit A-B ..." at or before step 1',
+      },
+    ]);
+
+    // The document still renders and still animates.
+    expect(result.svg).not.toBeNull();
+    expect(container.firstChild).toBe(result.svg);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    const elementsForA = () =>
+      Array.from(result.svg!.querySelectorAll('[data-siren-id="A"]'));
+    const message = result.svg!.querySelector('[data-siren-id="A-B"]')!;
+    // A is preamble-declared and never destroyed: top-row box, bottom-row
+    // box, lifeline.
+    expect(elementsForA()).toHaveLength(3);
+    expect(message).not.toBeNull();
+
+    controller.next();
+
+    // The exit still applies, to every element wearing A's id.
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-exit-fade")),
+    ).toEqual([true, true, true]);
+    // And the message is left exactly as drawn — which is the defect the
+    // warning exists to describe, not one this package repairs.
+    expect(message.classList.contains("siren-exit-fade")).toBe(false);
+    expect(message.classList.contains("siren-pending")).toBe(false);
+
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-exit-fade")),
+    ).toEqual([false, false, false]);
   });
 
   it("reaches a destroyed participant's destroy mark too, since the mark carries the participant's id", () => {

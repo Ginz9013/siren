@@ -7,7 +7,12 @@ import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
-import type { Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+import type {
+  AnimationController,
+  Diagnostic,
+  SirenRenderResult,
+  TextMeasurer,
+} from "./contracts";
 
 export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
 
@@ -103,6 +108,27 @@ function attachClickHooks(
 }
 
 /**
+ * Puts a freshly rendered diagram into step 0 — the initial `siren-pending`
+ * state — for whichever kind just rendered.
+ *
+ * `reset()` is by definition "the initial pending state", computed from
+ * `computeClassStateAtStep(timeline, 0)`, and it is a no-op for a diagram
+ * with no timeline. That is why no renderer stamps `siren-pending` itself:
+ * two of them used to, each with a private copy of the "elements with an
+ * `enter` action start hidden" rule, and a third copy for sequence would
+ * have been three answers to a question `computeClassStateAtStep` already
+ * answers. One call site, one rule, no drift.
+ *
+ * Every caller must invoke this in the *same synchronous task* as its
+ * `container.replaceChildren(...)`, which is why this takes a controller
+ * rather than doing the mounting itself: nothing is painted between the two,
+ * so the reader never sees a frame of a to-be-hidden element.
+ */
+function establishStepZero(controller: AnimationController): void {
+  controller.reset();
+}
+
+/**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
  * createAnimationController; a class diagram runs layoutClassDiagram ->
@@ -155,6 +181,7 @@ export function render(
       classSvg,
       positionedClassDiagram.timeline,
     );
+    establishStepZero(classController);
 
     return { svg: classSvg, controller: classController, diagnostics };
   }
@@ -178,21 +205,7 @@ export function render(
       sequenceSvg,
       positionedSequence.timeline,
     );
-    // `renderSequenceToSVG` does not stamp the initial `siren-pending` class
-    // the way `renderToSVG` and `renderClassDiagramToSVG` do, so step 0 is
-    // established here instead: `reset()` is by definition "the initial
-    // pending state", and it is a no-op for a diagram with no timeline.
-    //
-    // Deliberately not fixed by teaching the renderer to stamp it. Those two
-    // renderers each carry their own private `pendingElementIds` copy, so
-    // symmetry that way means a third copy of a rule `computeClassStateAtStep`
-    // already owns. The convergence worth having runs the other way -- delete
-    // both copies and let `reset()` establish step 0 for all three kinds.
-    //
-    // Safe because `container.replaceChildren` above and this call sit in one
-    // synchronous task: the SVG is never painted in its unstamped state, so
-    // there is no flash of a to-be-hidden element.
-    sequenceController.reset();
+    establishStepZero(sequenceController);
 
     return { svg: sequenceSvg, controller: sequenceController, diagnostics };
   }
@@ -207,6 +220,7 @@ export function render(
   container.replaceChildren(svg);
 
   const controller = createAnimationController(svg, positioned.timeline);
+  establishStepZero(controller);
 
   return { svg, controller, diagnostics };
 }
