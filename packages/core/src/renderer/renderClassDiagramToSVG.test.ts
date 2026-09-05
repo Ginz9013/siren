@@ -653,6 +653,194 @@ describe("renderClassDiagramToSVG", () => {
     expect(svg.querySelectorAll("path.siren-note-link").length).toBe(0);
   });
 
+  describe("author styling", () => {
+    it("emits the class's resolved declarations as an inline style on its frame", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            style: [
+              { property: "fill", value: "#fdd" },
+              { property: "stroke", value: "#c00" },
+            ],
+          }),
+        ]),
+      );
+
+      // On the frame rect, not on the enclosing `<g>`: the theme's own
+      // `.siren-class-frame { fill: ... }` rule applies directly to the rect,
+      // and a directly-applied declaration always beats an inherited one, so a
+      // `fill` parked on the `<g>` would never reach the box the author meant.
+      const frame = svg.querySelector("g.siren-class rect.siren-class-frame");
+      expect(frame?.getAttribute("style")).toBe("fill:#fdd;stroke:#c00");
+    });
+
+    it("keeps declarations in the order the author wrote them", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            style: [
+              { property: "stroke-width", value: "4px" },
+              { property: "fill", value: "#eef" },
+            ],
+          }),
+        ]),
+      );
+
+      expect(svg.querySelector("rect.siren-class-frame")?.getAttribute("style")).toBe(
+        "stroke-width:4px;fill:#eef",
+      );
+    });
+
+    it("emits no style attribute for a class the author did not style", () => {
+      const svg = renderClassDiagramToSVG(buildDiagram([buildClass()]));
+
+      expect(svg.querySelector("rect.siren-class-frame")?.hasAttribute("style")).toBe(false);
+    });
+  });
+
+  describe("interaction", () => {
+    it("wraps a class carrying an href in a link", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            interaction: {
+              classId: "Animal",
+              interactionKind: "href",
+              action: "https://example.com/animal",
+              argument: null,
+              tooltip: null,
+            },
+          }),
+        ]),
+      );
+
+      const link = svg.querySelector("a.siren-link");
+      expect(link?.getAttribute("href")).toBe("https://example.com/animal");
+
+      // The `<a>` wraps the class group rather than replacing it: the id and
+      // the animation classes stay where `createAnimationController` and the
+      // theme already look for them.
+      const group = link?.querySelector("g.siren-class");
+      expect(group?.getAttribute("data-siren-id")).toBe("Animal");
+      expect(svg.querySelectorAll("g.siren-class").length).toBe(1);
+    });
+
+    it("renders a tooltip as a title inside the class group", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            interaction: {
+              classId: "Animal",
+              interactionKind: "href",
+              action: "https://example.com/animal",
+              argument: null,
+              tooltip: "Everything that breathes",
+            },
+          }),
+        ]),
+      );
+
+      const group = svg.querySelector("g.siren-class");
+      const title = group?.querySelector("title");
+      expect(title?.textContent).toBe("Everything that breathes");
+      // SVG shows a `<title>` as the tooltip only when it is its parent's
+      // first child element.
+      expect(group?.firstElementChild).toBe(title);
+    });
+
+    it("renders no title for an interaction without a tooltip", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            interaction: {
+              classId: "Animal",
+              interactionKind: "href",
+              action: "https://example.com/animal",
+              argument: null,
+              tooltip: null,
+            },
+          }),
+        ]),
+      );
+
+      expect(svg.querySelectorAll("title").length).toBe(0);
+    });
+
+    it("marks a class carrying a callback with a click hook, and does not link it", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            interaction: {
+              classId: "Animal",
+              interactionKind: "call",
+              action: "showDetails",
+              argument: "Animal",
+              tooltip: null,
+            },
+          }),
+        ]),
+      );
+
+      const group = svg.querySelector("g.siren-class");
+      expect(group?.getAttribute("data-siren-click")).toBe("showDetails");
+      // The literal argument gets an attribute of its own rather than being
+      // packed into `showDetails(Animal)`: an argument is author text and may
+      // itself contain brackets or quotes, so a packed form would be ambiguous
+      // to read back.
+      expect(group?.getAttribute("data-siren-click-arg")).toBe("Animal");
+
+      // A callback is not navigation, so there is nothing for an `<a>` to
+      // point at — and a link with no href would still take focus and show a
+      // pointer.
+      expect(svg.querySelectorAll("a").length).toBe(0);
+    });
+
+    it("emits no argument attribute for a callback taking none", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            interaction: {
+              classId: "Animal",
+              interactionKind: "call",
+              action: "showDetails",
+              argument: null,
+              tooltip: null,
+            },
+          }),
+        ]),
+      );
+
+      const group = svg.querySelector("g.siren-class");
+      expect(group?.getAttribute("data-siren-click")).toBe("showDetails");
+      expect(group?.hasAttribute("data-siren-click-arg")).toBe(false);
+    });
+
+    it("puts no click hook on a linked class", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            interaction: {
+              classId: "Animal",
+              interactionKind: "href",
+              action: "https://example.com/animal",
+              argument: null,
+              tooltip: null,
+            },
+          }),
+        ]),
+      );
+
+      expect(svg.querySelector("g.siren-class")?.hasAttribute("data-siren-click")).toBe(false);
+    });
+
+    it("leaves a class with no interaction unwrapped", () => {
+      const svg = renderClassDiagramToSVG(buildDiagram([buildClass()]));
+
+      expect(svg.querySelectorAll("a").length).toBe(0);
+      expect(svg.querySelector("g.siren-class")?.parentElement).toBe(svg);
+    });
+  });
+
   it("renders a single divider for a class that only has methods", () => {
     const methodsOnly = buildClass({
       attributes: null,

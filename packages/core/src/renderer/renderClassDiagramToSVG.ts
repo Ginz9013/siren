@@ -1,5 +1,6 @@
 import type {
   ClassRelationshipEnd,
+  ClassStyleProperty,
   Point,
   PositionedClass,
   PositionedClassCompartment,
@@ -7,6 +8,7 @@ import type {
   PositionedClassNamespace,
   PositionedClassNote,
   PositionedClassRelationship,
+  ResolvedClassInteraction,
 } from "../contracts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -73,8 +75,12 @@ const DASH_PATTERN = "6,4";
  * Document order is the paint order: namespace frames, then classes, then
  * relationships, then notes.
  *
- * Author styling, links and click hooks are deliberately not rendered here —
- * a later ticket on this board owns that part of the frozen conventions.
+ * A class the author made interactive or styled also carries that here: the
+ * resolved declarations become an inline `style` on the frame rect (ADR-0008),
+ * an allowed `href` wraps the group in `<a class="siren-link">`, a callback
+ * marks it `data-siren-click`, and a tooltip becomes a leading `<title>`. The
+ * click *listener* is deliberately not attached here — `render()` owns that,
+ * so this stays a pure DOM-building function with no event wiring.
  */
 export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -93,7 +99,8 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   }
 
   for (const positionedClass of diagram.classes) {
-    svg.appendChild(buildClass(positionedClass, pendingIds.has(positionedClass.id)));
+    const group = buildClass(positionedClass, pendingIds.has(positionedClass.id));
+    svg.appendChild(wrapInteraction(group, positionedClass.interaction));
   }
 
   for (const relationship of diagram.relationships) {
@@ -306,12 +313,23 @@ function buildClass(positionedClass: PositionedClass, pending: boolean): SVGGEle
   g.setAttribute("class", pending ? "siren-class siren-pending" : "siren-class");
   g.setAttribute("data-siren-id", positionedClass.id);
 
+  // First child, before the frame: SVG surfaces a `<title>` as the hover
+  // tooltip only when it is its parent's first child element.
+  const tooltip = positionedClass.interaction?.tooltip ?? null;
+  if (tooltip !== null) {
+    const title = document.createElementNS(SVG_NS, "title");
+    // textContent, never innerHTML — a tooltip is author input like any label.
+    title.textContent = tooltip;
+    g.appendChild(title);
+  }
+
   const frame = document.createElementNS(SVG_NS, "rect");
   frame.setAttribute("class", "siren-class-frame");
   frame.setAttribute("x", String(positionedClass.x));
   frame.setAttribute("y", String(positionedClass.y));
   frame.setAttribute("width", String(positionedClass.width));
   frame.setAttribute("height", String(positionedClass.height));
+  applyAuthorStyle(frame, positionedClass.style);
   g.appendChild(frame);
 
   const centerX = positionedClass.x + positionedClass.width / 2;
@@ -473,6 +491,75 @@ function nameBand(positionedClass: PositionedClass): { top: number; bottom: numb
         ? positionedClass.y + positionedClass.height
         : firstCompartment.dividerY,
   };
+}
+
+/**
+ * Applies a class's resolved interaction, returning whatever should be
+ * appended to the diagram in the group's place: an `href` interaction returns
+ * an `<a class="siren-link">` wrapping the group, anything else returns the
+ * group itself.
+ *
+ * The group is wrapped rather than turned into a link so that `data-siren-id`,
+ * the animation classes and the theme's `.siren-class` rules all keep landing
+ * on the same element whether or not the author made the class clickable.
+ *
+ * The URL is written verbatim: `buildClassModel` has already checked it against
+ * the `http`/`https`/`mailto` allowlist and dropped anything else with an error
+ * diagnostic, so a `javascript:` URL never reaches this function.
+ */
+function wrapInteraction(
+  group: SVGGElement,
+  interaction: ResolvedClassInteraction | null,
+): SVGElement {
+  if (interaction === null) {
+    return group;
+  }
+
+  if (interaction.interactionKind === "href") {
+    const link = document.createElementNS(SVG_NS, "a");
+    link.setAttribute("class", "siren-link");
+    link.setAttribute("href", interaction.action);
+    link.appendChild(group);
+    return link;
+  }
+
+  // A callback is a hook, not navigation: the renderer attaches no listener of
+  // its own (that is `render()`'s job, per the design contract) and emits no
+  // `<a>`, which with no href would still take focus and show a link cursor
+  // while going nowhere.
+  group.setAttribute("data-siren-click", interaction.action);
+  if (interaction.argument !== null) {
+    group.setAttribute("data-siren-click-arg", interaction.argument);
+  }
+  return group;
+}
+
+/**
+ * Writes the author's resolved `style`/`classDef`/`cssClass` declarations onto
+ * `element` as an inline `style` attribute, in declaration order, or leaves the
+ * element without one when the author styled nothing.
+ *
+ * Inline rather than a generated class rule, and on the drawn shape rather than
+ * its enclosing `<g>` — both for the same cascade reason, recorded in ADR-0008.
+ * The theme styles `.siren-class-frame` directly, so an inline declaration on
+ * the frame outranks it without needing `!important`, while the same
+ * declaration on the `<g>` would only ever be *inherited* by the frame and so
+ * would lose to the theme's own rule.
+ *
+ * The values are written verbatim. They are author input, but they arrive here
+ * having already passed `buildClassModel`'s gate (no `url(`, no `expression(`,
+ * no `;`, no backslash), and re-checking here would fork that single source of
+ * truth. This attribute is a CSS sink, never an HTML one: nothing is parsed as
+ * markup, so the hard `textContent`-never-`innerHTML` invariant is untouched.
+ */
+function applyAuthorStyle(element: SVGElement, style: ClassStyleProperty[]): void {
+  if (style.length === 0) {
+    return;
+  }
+  element.setAttribute(
+    "style",
+    style.map(({ property, value }) => `${property}:${value}`).join(";"),
+  );
 }
 
 /** Builds one `<line class="siren-class-divider">` spanning the class frame's full width. */
