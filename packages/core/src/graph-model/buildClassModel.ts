@@ -15,8 +15,8 @@ import type {
   ResolvedClassStyle,
   ResolvedTimeline,
   ResolvedTimelineEntry,
-  TimelineEntry,
 } from "../contracts";
+import { resolveTimeline } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `ClassDocument` into a validated `ClassModel`: repeat
@@ -66,8 +66,12 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const styles = resolveStyles(document, classesById, diagnostics);
 
+  // Classes, relationships, namespaces and notes share one id space, the way
+  // flowchart node and edge ids do, so an author animates any element of the
+  // diagram the same way — and the shared resolver never has to learn which
+  // kind of element an id belongs to.
   const timeline = resolveTimeline(
-    document,
+    document.timeline,
     new Set([
       ...classes.map((c) => c.id),
       ...relationships.map((r) => r.id),
@@ -713,117 +717,6 @@ function resolveStyles(
       classId,
       properties: [...properties].map(([property, value]) => ({ property, value })),
     }));
-}
-
-/**
- * Resolves the `timeline:` block against the ids this model just assigned —
- * classes, relationships, namespaces and notes share one id space, extending
- * the way flowchart node and edge ids do, so an author animates any element
- * of the diagram the same way. An entry naming an id none of them holds is
- * dropped with an error diagnostic, leaving the rest of the timeline and the
- * model intact.
- *
- * Beyond reference resolution it applies the same ordering rules
- * `buildFlowchartModel` does — one `enter`/`exit` per target with the
- * earliest step winning, and no action on a target that is not visible yet —
- * because a class diagram's animation is meant to *be* a flowchart's, not to
- * resemble it. A rule applied to one kind and not the other is a document
- * that behaves differently for no reason the author can see.
- */
-function resolveTimeline(
-  document: ClassDocument,
-  validTargetIds: Set<string>,
-  diagnostics: Diagnostic[],
-): ResolvedTimeline {
-  const entries: ResolvedTimelineEntry[] = [];
-  let totalSteps = 0;
-
-  if (document.timeline === null) {
-    return { totalSteps, entries };
-  }
-
-  // Which `enter`/`exit` survives for each target: the numerically earliest
-  // step, regardless of the order the actions were written in — `next()` and
-  // `prev()` walk the timeline in step order, so "first" has to mean first in
-  // time. A tie keeps whichever was declared first.
-  const winnerByDedupeKey = new Map<string, TimelineEntry>();
-  for (const entry of document.timeline.entries) {
-    if (entry.kind !== "enter" && entry.kind !== "exit") continue;
-    if (!validTargetIds.has(entry.targetId)) continue;
-
-    const dedupeKey = `${entry.kind}:${entry.targetId}`;
-    const current = winnerByDedupeKey.get(dedupeKey);
-    if (current === undefined || entry.step < current.step) {
-      winnerByDedupeKey.set(dedupeKey, entry);
-    }
-  }
-
-  const kept: TimelineEntry[] = [];
-
-  for (const entry of document.timeline.entries) {
-    if (!validTargetIds.has(entry.targetId)) {
-      diagnostics.push({
-        severity: "error",
-        message: `timeline: references unknown id "${entry.targetId}"`,
-        line: entry.line,
-        column: entry.column,
-      });
-      continue;
-    }
-
-    if (entry.kind === "enter" || entry.kind === "exit") {
-      const dedupeKey = `${entry.kind}:${entry.targetId}`;
-      if (winnerByDedupeKey.get(dedupeKey) !== entry) {
-        diagnostics.push({
-          severity: "warning",
-          message: `timeline: "${entry.targetId}" already has a "${entry.kind}" action; keeping the earliest-step occurrence.`,
-          line: entry.line,
-          column: entry.column,
-        });
-        continue;
-      }
-    }
-
-    kept.push(entry);
-  }
-
-  // When each target becomes visible: its own kept `enter` step, or 0 for one
-  // that is never entered and so is on screen from the start. An action
-  // before that moment addresses something the reader cannot see.
-  const visibleAtStep = new Map<string, number>();
-  for (const entry of kept) {
-    if (entry.kind === "enter") {
-      visibleAtStep.set(entry.targetId, entry.step);
-    }
-  }
-
-  for (const entry of kept) {
-    if (entry.kind !== "enter") {
-      const visibleStep = visibleAtStep.get(entry.targetId) ?? 0;
-      if (entry.step < visibleStep) {
-        diagnostics.push({
-          severity: "error",
-          message: `timeline: "${entry.kind}" on "${entry.targetId}" at step ${entry.step} comes before it becomes visible (step ${visibleStep})`,
-          line: entry.line,
-          column: entry.column,
-        });
-        continue;
-      }
-    }
-
-    entries.push({
-      kind: entry.kind,
-      step: entry.step,
-      targetId: entry.targetId,
-      effect: entry.effect,
-    });
-
-    if (entry.step > totalSteps) {
-      totalSteps = entry.step;
-    }
-  }
-
-  return { totalSteps, entries };
 }
 
 /**
