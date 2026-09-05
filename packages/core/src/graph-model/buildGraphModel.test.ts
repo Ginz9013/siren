@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SirenDocument } from "../contracts";
+import type { LinkStyleDecl, SirenDocument } from "../contracts";
 import { buildGraphModel } from "./buildGraphModel";
 
 describe("buildGraphModel", () => {
@@ -828,6 +828,166 @@ describe("buildGraphModel", () => {
     expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
       ["A-B", [{ property: "stroke", value: "#0f0" }]],
       ["A-B#2", [{ property: "stroke", value: "#0f0" }]],
+    ]);
+  });
+
+  it("lets a specific `linkStyle` beat `linkStyle default` for the edge it names, whichever order the two are written in", () => {
+    // Mermaid reads `linkStyle default` as the fallback for the links
+    // nothing else styles, so a specific `linkStyle N` wins even when the
+    // author wrote it first. That is not a specificity model between author
+    // directives, which ADR-0008 refuses: last-declaration-wins settles
+    // repeated declarations *on one target*, and `default` is not a target,
+    // it is a tier under all of them.
+    const documentWith = (...linkStyles: LinkStyleDecl[]): SirenDocument => ({
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+        { id: "C", label: "C" },
+      ],
+      edges: [
+        { from: "A", to: "B" },
+        { from: "B", to: "C" },
+      ],
+      styles: [],
+      linkStyles,
+      timeline: null,
+    });
+
+    const fallback: LinkStyleDecl = {
+      targets: ["default"],
+      properties: [{ property: "stroke", value: "#0f0" }],
+      line: 4,
+      column: 1,
+    };
+    const specific: LinkStyleDecl = {
+      targets: ["0"],
+      properties: [{ property: "stroke", value: "#f00" }],
+      line: 5,
+      column: 1,
+    };
+
+    const styled = (document: SirenDocument) => {
+      const { graph, diagnostics } = buildGraphModel(document);
+      expect(diagnostics).toEqual([]);
+      return graph!.edges.map((edge) => [edge.id, edge.style]);
+    };
+
+    // The edge no specific `linkStyle` names keeps the fallback in both
+    // orders — the specific statement takes edge 0 out of the tier, it does
+    // not switch the tier off.
+    expect(styled(documentWith(fallback, specific))).toEqual([
+      ["A-B", [{ property: "stroke", value: "#f00" }]],
+      ["B-C", [{ property: "stroke", value: "#0f0" }]],
+    ]);
+
+    expect(styled(documentWith(specific, fallback))).toEqual([
+      ["A-B", [{ property: "stroke", value: "#f00" }]],
+      ["B-C", [{ property: "stroke", value: "#0f0" }]],
+    ]);
+  });
+
+  it("merges a specific `linkStyle` into `linkStyle default` property by property, rather than replacing what the fallback declared", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+        { id: "C", label: "C" },
+      ],
+      edges: [
+        { from: "A", to: "B" },
+        { from: "B", to: "C" },
+      ],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["default"],
+          properties: [
+            { property: "stroke", value: "#0f0" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          line: 4,
+          column: 1,
+        },
+        {
+          targets: ["0"],
+          properties: [{ property: "stroke", value: "#f00" }],
+          line: 5,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    // The specific statement said one thing about edge 0, so it takes one
+    // property away from the fallback and leaves the rest of it standing —
+    // a tier is what the edge falls back *to*, not a set the specific
+    // statement replaces. The width the author only ever wrote once is the
+    // thing a wholesale replacement drops.
+    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+      [
+        "A-B",
+        [
+          { property: "stroke", value: "#f00" },
+          { property: "stroke-width", value: "4px" },
+        ],
+      ],
+      [
+        "B-C",
+        [
+          { property: "stroke", value: "#0f0" },
+          { property: "stroke-width", value: "4px" },
+        ],
+      ],
+    ]);
+  });
+
+  it("settles two `linkStyle default` statements between themselves by last-declaration-wins: the fallback is one tier, not one tier per statement", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["default"],
+          properties: [
+            { property: "stroke", value: "#0f0" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          line: 3,
+          column: 1,
+        },
+        {
+          targets: ["default"],
+          properties: [{ property: "stroke", value: "#00f" }],
+          line: 4,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    // Neither statement is more specific than the other, so nothing here is
+    // decided by the tier: ADR-0008 settles them exactly as it settles two
+    // `style` statements on one node — the second takes the property it
+    // repeats and leaves the one it does not mention alone.
+    expect(graph!.edges[0].style).toEqual([
+      { property: "stroke", value: "#00f" },
+      { property: "stroke-width", value: "4px" },
     ]);
   });
 

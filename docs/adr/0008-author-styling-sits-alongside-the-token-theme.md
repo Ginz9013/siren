@@ -128,3 +128,23 @@ the author's declaration mean something they did not write.
 Until that lands, author styling stays documented as local emphasis with a known limit — a style
 reaches a class's frame, never its label text — and translucent fills remain the recommended way
 to stay theme-safe.
+
+## Amendment (`linkStyle default` is a fallback tier, not a competing declaration)
+
+The Consequences above say there is no specificity model between author directives, and that
+stands for every statement that names a target. `linkStyle default` names none. It is Mermaid's
+document-wide fallback for the links nothing else styles, which makes it a tier underneath the
+per-target declarations rather than another one of them — a shape this ADR did not contemplate,
+because at the time the class diagram was the only kind with author styling and a class diagram
+has no fallback spelling at all. So a specific `linkStyle N` wins over `linkStyle default` for the
+edge it names whichever order the two were written in, and the fallback keeps every edge no
+specific statement named. That does not overturn last-declaration-wins: that rule settles
+repeated declarations *on one target*, and it still settles two `linkStyle default` statements
+against each other, exactly as it settles two `style` statements on one node. The two tiers merge
+property by property rather than one replacing the other — `linkStyle default
+stroke:#0f0,stroke-width:4px` beside `linkStyle 0 stroke:#f00` leaves that edge red *and* 4px
+wide — because a tier is what an edge falls back to, not a set the specific statement swaps out,
+and a replacement would silently drop the properties the author only ever wrote once. The tier
+lives in `buildFlowchartModel`, which sorts a document's `linkStyle` statements into the two lists
+and hands each to `resolveStyles` on its own; `resolveStyles` itself stays shared and stays
+unaware, since it is read by a diagram kind that has no fallback to resolve.

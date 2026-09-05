@@ -6,6 +6,7 @@ import type {
   GraphNode,
   LinkStyleDecl,
   StyleDecl,
+  StyleProperty,
 } from "../contracts";
 import { resolveStyles } from "./resolveStyles";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
@@ -50,18 +51,32 @@ export function buildFlowchartModel(
     nodeById.get(targetId)!.style = properties;
   }
 
-  // The same resolver, the same gate, a different set of ids — the second
-  // call is what keeps `linkStyle` from growing a styling pipeline of its
-  // own. What it is handed has already stopped being about indices:
+  // The same resolver, the same gate, a different set of ids — reusing it
+  // is what keeps `linkStyle` from growing a styling pipeline of its own.
+  // What it is handed has already stopped being about indices:
   // `asStyleDeclarations` spends every address on the edge ids assigned
   // just above, so nothing past this point can name an edge by position.
+  //
+  // It is handed two lists rather than one, because `linkStyle` has a tier
+  // `style` has not: `linkStyle default` is Mermaid's fallback for the
+  // links nothing else styles, so a specific `linkStyle N` beats it for the
+  // edge it names whichever order the author wrote the two in. Resolving
+  // the fallback tier first and letting the specific tier land on top is
+  // that rule, and it is the whole of it.
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
-  for (const { targetId, properties } of resolveStyles(
-    asStyleDeclarations(document.linkStyles, edges, diagnostics),
-    new Set(edgeById.keys()),
-    diagnostics,
-  )) {
+  const edgeIds = new Set(edgeById.keys());
+  const { fallback, specific } = asStyleDeclarations(document.linkStyles, edges, diagnostics);
+
+  // Within each tier nothing changes: one `resolveStyles` call per tier
+  // means two `linkStyle default` statements still settle between
+  // themselves by ADR-0008's last-declaration-wins, because they are one
+  // tier and not one tier each.
+  for (const { targetId, properties } of resolveStyles(fallback, edgeIds, diagnostics)) {
     edgeById.get(targetId)!.style = properties;
+  }
+  for (const { targetId, properties } of resolveStyles(specific, edgeIds, diagnostics)) {
+    const edge = edgeById.get(targetId)!;
+    edge.style = overriding(edge.style, properties);
   }
 
   const validTargetIds = new Set<string>([
@@ -81,6 +96,32 @@ export function buildFlowchartModel(
   };
 
   return { graph, diagnostics };
+}
+
+/**
+ * One edge's fallback declarations with a specific statement's laid over
+ * them: same properties, the named ones taking the specific value.
+ *
+ * A tier is what an edge falls back *to*, not a set the specific statement
+ * swaps out. `linkStyle default stroke:#0f0,stroke-width:4px` beside
+ * `linkStyle 0 stroke:#f00` leaves edge 0 red *and* 4px wide, because the
+ * author wrote the width once and never took it back — a replacement would
+ * silently drop every property the specific statement did not happen to
+ * mention.
+ *
+ * The property keeps the position of its first declaration and takes the
+ * value of its last, which is the rule `resolveStyles` already applies
+ * within a tier, applied here between two.
+ */
+function overriding(
+  fallback: readonly StyleProperty[],
+  specific: readonly StyleProperty[],
+): StyleProperty[] {
+  const merged = new Map(fallback.map(({ property, value }) => [property, value]));
+  for (const { property, value } of specific) {
+    merged.set(property, value);
+  }
+  return [...merged].map(([property, value]) => ({ property, value }));
 }
 
 function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): GraphNode[] {
@@ -123,7 +164,15 @@ function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
 /**
  * Rewrites each `linkStyle` statement as the `StyleDecl` the shared
  * resolver reads, turning every address the author wrote into the id of the
- * edge it names.
+ * edge it names, and sorting the statements into the two tiers a
+ * `linkStyle` document has.
+ *
+ * A statement lands in `fallback` when it names `default` and in `specific`
+ * otherwise. A statement naming `default` beside an index is wholly a
+ * fallback statement: `default` already covers every edge of that same
+ * statement, index included, with those same declarations, so the index
+ * changes nothing it says — it only still has to resolve, so that an index
+ * naming no edge is diagnosed rather than waved through.
  *
  * **This is where an index stops existing.** Mermaid addresses an edge by
  * its declaration position and everything downstream of the model addresses
@@ -140,18 +189,29 @@ function asStyleDeclarations(
   linkStyles: readonly LinkStyleDecl[],
   edges: readonly GraphEdge[],
   diagnostics: Diagnostic[],
-): StyleDecl[] {
-  return linkStyles.map((linkStyle) => ({
-    styleKind: "style",
-    authoredAs: "linkStyle",
-    targetIds: linkStyle.targets.flatMap((target) =>
-      resolveAddress(target, edges, linkStyle, diagnostics),
-    ),
-    name: null,
-    properties: linkStyle.properties,
-    line: linkStyle.line,
-    column: linkStyle.column,
-  }));
+): { fallback: StyleDecl[]; specific: StyleDecl[] } {
+  const fallback: StyleDecl[] = [];
+  const specific: StyleDecl[] = [];
+
+  for (const linkStyle of linkStyles) {
+    const declaration: StyleDecl = {
+      styleKind: "style",
+      authoredAs: "linkStyle",
+      targetIds: linkStyle.targets.flatMap((target) =>
+        resolveAddress(target, edges, linkStyle, diagnostics),
+      ),
+      name: null,
+      properties: linkStyle.properties,
+      line: linkStyle.line,
+      column: linkStyle.column,
+    };
+    // Every statement reaches exactly one tier, so the gate inside
+    // `resolveStyles` still sees each written declaration once and a
+    // refused value is still reported once, at the line that wrote it.
+    (linkStyle.targets.includes(EVERY_EDGE) ? fallback : specific).push(declaration);
+  }
+
+  return { fallback, specific };
 }
 
 /** A zero-based edge declaration index, and nothing else — not `-1`, not `1.5`. */
@@ -172,10 +232,10 @@ const EVERY_EDGE = "default";
  * `default` is spent here, on the ids that exist, rather than carried
  * downstream as a wildcard. That is the same rule an index follows and it
  * buys the same thing: nothing past the model has to know an edge can be
- * addressed by anything but its id, and `linkStyle default` versus a
- * specific `linkStyle N` is then settled by `resolveStyles`' ordinary
- * last-declaration-wins pass (ADR-0008) rather than by a precedence rule
- * written a second time here.
+ * addressed by anything but its id. What it does not buy is the precedence
+ * between the two spellings — a fallback that beat a specific statement
+ * merely by being written below it would diverge from Mermaid — so that is
+ * decided by which tier the statement is sorted into, one caller up.
  */
 function resolveAddress(
   target: string,

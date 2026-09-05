@@ -2974,12 +2974,14 @@ linkStyle default stroke:#0f0
     ]);
   });
 
-  it("settles `linkStyle default` against a specific `linkStyle N` by ADR-0008's last-declaration-wins, in both source orders", () => {
-    // Not "specific beats default": ADR-0008 refuses a specificity model
-    // between author directives, so the two flatten into one ordered list
-    // per edge and the later line wins — which means writing the default
-    // *below* the specific one overrides it. Asserted in both orders
-    // because that is the half an author would guess wrong.
+  it("lets a specific `linkStyle N` beat `linkStyle default` on the way to the DOM, in both source orders", () => {
+    // `linkStyle default` is Mermaid's fallback for the links nothing else
+    // styles, so the specific line wins whichever order the two are written
+    // in. That is not a specificity model between author directives, which
+    // ADR-0008 refuses: its last-declaration-wins rule settles repeated
+    // declarations on one target, and `default` names no target at all.
+    // Asserted in both orders because the second one is where a fallback
+    // implemented as an ordinary declaration diverges from Mermaid.
     const styles = (source: string) =>
       Array.from(
         render(source, document.createElement("div")).svg!.querySelectorAll("path.siren-edge"),
@@ -2996,8 +2998,34 @@ B --> C[End]
     ]);
 
     expect(styles(`${edges}linkStyle 0 stroke:#f00\nlinkStyle default stroke:#0f0\n`)).toEqual([
-      ["A-B", "stroke:#0f0"],
+      ["A-B", "stroke:#f00"],
       ["B-C", "stroke:#0f0"],
+    ]);
+  });
+
+  it("leaves an edge wearing both tiers: the specific `linkStyle` takes over the property it names and the `default` keeps the rest", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle default stroke:#0f0,stroke-width:4px
+linkStyle 0 stroke:#f00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    // The 4px is written once in the whole document, on the fallback, so an
+    // implementation where the specific statement replaces the default
+    // wholesale loses it here — the arrow goes red and thin.
+    expect(
+      Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) => [
+        path.getAttribute("data-siren-id"),
+        path.getAttribute("style"),
+      ]),
+    ).toEqual([
+      ["A-B", "stroke:#f00;stroke-width:4px"],
+      ["B-C", "stroke:#0f0;stroke-width:4px"],
     ]);
   });
 
