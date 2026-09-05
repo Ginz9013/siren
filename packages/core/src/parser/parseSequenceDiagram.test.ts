@@ -663,4 +663,83 @@ describe("parseSequenceDiagram", () => {
     expect(document).toBeNull();
     expect(diagnostics.some((d) => d.severity === "error" && d.line === 2)).toBe(true);
   });
+
+  it("parses a top-level `timeline:` block through the shared timeline grammar, ending the diagram body there", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  A->>B: hi
+timeline:
+  step 1: enter A fade
+  step 2: highlight B glow
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(diagnostics).toEqual([]);
+    const sequenceDocument = document as SequenceDocument | null;
+    expect(sequenceDocument?.timeline).toEqual({
+      entries: [
+        { kind: "enter", step: 1, targetId: "A", effect: "fade", line: 6, column: 3 },
+        { kind: "highlight", step: 2, targetId: "B", effect: "glow", line: 7, column: 3 },
+      ],
+    });
+    // The block ends the body: nothing after `timeline:` became a statement.
+    expect(sequenceDocument?.statements.map((s) => s.kind)).toEqual([
+      "participant",
+      "participant",
+      "message",
+    ]);
+  });
+
+  it("leaves timeline null for a document that declares no timeline block", () => {
+    const source = `sequenceDiagram
+  participant A
+  A->>A: hi
+`;
+
+    const { document } = parseOk(source);
+
+    expect(document.timeline).toBeNull();
+  });
+  it("still reports `timeline:` inside a loop body as an unrecognized sequenceDiagram line", () => {
+    const source = `sequenceDiagram
+  participant A
+  loop retry
+    timeline:
+    A->>A: hi
+  end
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toContainEqual({
+      severity: "error",
+      message: 'Unrecognized sequenceDiagram line: "timeline:"',
+      line: 4,
+      column: 5,
+    });
+  });
+
+  it("reports a malformed timeline line with the shared timeline grammar's own diagnostics", () => {
+    const source = `sequenceDiagram
+  participant A
+  A->>A: hi
+timeline:
+  step 1: wiggle A fade
+  step 2: enter A
+  step 3: unhighlight A glow
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized timeline verb "wiggle" (expected "enter", "exit", "highlight", or "unhighlight")',
+      'Unknown enter effect "" (expected one of: fade, slide-left, slide-right, slide-top, slide-bottom)',
+      '"unhighlight" takes no effect, found trailing "glow" in "unhighlight A glow"',
+    ]);
+  });
+
 });

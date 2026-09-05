@@ -454,6 +454,7 @@ describe("buildGraphModel", () => {
           arrow: { line: "solid", head: "filled" },
         },
       ],
+      timeline: null,
     };
 
     const { graph, model, diagnostics } = buildGraphModel(document);

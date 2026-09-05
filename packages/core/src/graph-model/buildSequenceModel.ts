@@ -18,6 +18,7 @@ import type {
   SequenceRectStatement,
   SequenceStatement,
 } from "../contracts";
+import { resolveTimeline } from "./resolveTimeline";
 
 /**
  * A block-kind `SequenceStatement` — everything left once `message`,
@@ -129,11 +130,29 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
 
+  // A timeline target is a participant, and only a participant, for now:
+  // messages, control-flow blocks and box groupings carry `data-siren-id`
+  // too, and widening this set to them is a change of its own (ticket 04).
+  // Until then naming one of those ids is the resolver's ordinary
+  // unknown-id error, which is the honest answer — the timeline cannot
+  // reach them yet.
+  //
+  // The rules themselves live in `resolveTimeline`, shared with the
+  // flowchart and class models. Nothing about dropping an unknown id or
+  // keeping the earliest `enter` is sequence-specific, so a third copy of
+  // them here would only be a third place for them to drift.
+  const timeline = resolveTimeline(
+    document.timeline,
+    new Set(participants.map((p) => p.id)),
+    diagnostics,
+  );
+
   const model: SequenceModel = {
     title: document.title,
     participants,
     boxes,
     statements,
+    timeline,
   };
 
   return { model, diagnostics };

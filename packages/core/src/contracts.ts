@@ -323,8 +323,8 @@ export type SequenceStatement =
 
 /**
  * The parsed `sequenceDiagram` source: title, flat participants list, box
- * groupings, and the recursive statement tree. Produced by
- * `parseSequenceDiagram`. One arm of the `SirenDocument` union.
+ * groupings, the recursive statement tree, and an optional timeline block.
+ * Produced by `parseSequenceDiagram`. One arm of the `SirenDocument` union.
  */
 export interface SequenceDocument {
   kind: "sequence";
@@ -332,6 +332,13 @@ export interface SequenceDocument {
   participants: SequenceParticipantDecl[];
   boxes: SequenceBox[];
   statements: SequenceStatement[];
+  /**
+   * The `timeline:` block as written, or `null` when the document declares
+   * none at all (as opposed to declaring an empty one) — the same
+   * distinction `FlowchartDocument` and `ClassDocument` draw. The ids in it
+   * are resolved by `buildSequenceModel` and nowhere else.
+   */
+  timeline: SirenTimeline | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,13 +406,14 @@ export interface ResolvedSequenceBox {
 /**
  * The normalized in-memory sequence diagram produced by
  * `buildSequenceModel`: resolved ids, resolved lifeline extents, resolved
- * block participant-touch sets.
+ * block participant-touch sets, and the resolved timeline.
  */
 export interface SequenceModel {
   title: string | null;
   participants: ResolvedSequenceParticipant[];
   boxes: ResolvedSequenceBox[];
   statements: ResolvedSequenceStatement[];
+  timeline: ResolvedTimeline;
 }
 
 /** Result of `buildSequenceModel`. */
@@ -493,7 +501,8 @@ export interface PositionedBox {
 
 /**
  * The sequence diagram after layout: positioned participants/messages/
- * blocks/boxes/destroy-marks, ready for `renderSequenceToSVG`.
+ * blocks/boxes/destroy-marks plus the resolved timeline, ready for
+ * `renderSequenceToSVG`.
  */
 export interface PositionedSequenceDiagram {
   title: string | null;
@@ -501,6 +510,8 @@ export interface PositionedSequenceDiagram {
   boxes: PositionedBox[];
   /** Messages, blocks, and destroy marks, in document order. */
   elements: PositionedSequenceElement[];
+  /** Carried through `layoutSequence` unchanged; the rules are `resolveTimeline`'s. */
+  timeline: ResolvedTimeline;
   width: number;
   height: number;
 }

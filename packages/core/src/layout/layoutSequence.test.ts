@@ -70,6 +70,7 @@ function coreModel(): SequenceModel {
         },
       },
     ],
+    timeline: { totalSteps: 0, entries: [] },
   };
 }
 
@@ -183,6 +184,7 @@ describe("layoutSequence", () => {
           },
         },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -304,6 +306,7 @@ describe("layoutSequence", () => {
           } satisfies ResolvedSequenceBlock,
         },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -397,6 +400,7 @@ describe("layoutSequence", () => {
           } satisfies ResolvedSequenceBlock,
         },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -478,6 +482,7 @@ describe("layoutSequence", () => {
           } satisfies ResolvedSequenceBlock,
         },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -573,6 +578,7 @@ describe("layoutSequence", () => {
       ],
       boxes: [],
       statements: [{ kind: "block", block: outer }],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -666,6 +672,7 @@ describe("layoutSequence", () => {
         },
         message("m6", "A", "C", "after loop"),
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -718,6 +725,7 @@ describe("layoutSequence", () => {
           },
         },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const withBlock: SequenceModel = {
@@ -819,6 +827,7 @@ describe("layoutSequence", () => {
         },
         messageStatement("m2", "B", "C", "after create"),
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -852,6 +861,7 @@ describe("layoutSequence", () => {
         { kind: "destroy", id: "B" },
         messageStatement("m2", "A", "A", "carry on"),
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -910,6 +920,7 @@ describe("layoutSequence", () => {
         },
         messageStatement("m3", "A", "A", "after"),
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -939,6 +950,7 @@ describe("layoutSequence", () => {
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
       statements: [messageStatement("m1", "A", "B", "Hi")],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(withBottomRow, { measureText: fakeMeasurer });
@@ -973,6 +985,7 @@ describe("layoutSequence", () => {
         { kind: "destroy", id: "C" },
         { kind: "destroy", id: "A" },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const bare = layoutSequence(withoutBottomRow, { measureText: fakeMeasurer });
@@ -1000,6 +1013,7 @@ describe("layoutSequence", () => {
         },
       ],
       statements: [messageStatement("m1", "A", "C", "Ping")],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -1046,6 +1060,7 @@ describe("layoutSequence", () => {
         messageStatement("m2", "B", "C", "work"),
         { kind: "destroy", id: "C" },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     // The box wraps the rightmost lanes, so its padding sits beyond every
@@ -1082,6 +1097,7 @@ describe("layoutSequence", () => {
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
       statements: [messageStatement("m1", "A", "B", "first message")],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -1117,6 +1133,7 @@ describe("layoutSequence", () => {
           } satisfies ResolvedSequenceBlock,
         },
       ],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -1138,6 +1155,7 @@ describe("layoutSequence", () => {
         { id: "box:1", color: null, label: "Service tier", participantIds: ["A", "B"] },
       ],
       statements: [messageStatement("m1", "A", "B", "Ping")],
+      timeline: { totalSteps: 0, entries: [] },
     };
 
     const positioned = layoutSequence(model, { measureText: fakeMeasurer });
@@ -1152,4 +1170,21 @@ describe("layoutSequence", () => {
     // The background still covers every member lifeline end to end.
     expect(box.y + box.height).toBeGreaterThanOrEqual(positioned.participants[0].bottom);
   });
+  it("carries the model's resolved timeline through to the positioned diagram unchanged", () => {
+    const timeline = {
+      totalSteps: 2,
+      entries: [
+        { kind: "enter" as const, step: 1, targetId: "A", effect: "fade" as const },
+        { kind: "highlight" as const, step: 2, targetId: "B", effect: "glow" as const },
+      ],
+    };
+    const model: SequenceModel = { ...coreModel(), timeline };
+
+    const diagram = layoutSequence(model, { measureText: fakeMeasurer });
+
+    // Carry-through only: the resolution rules belong to `resolveTimeline`,
+    // and layout neither adds to nor reorders what it was handed.
+    expect(diagram.timeline).toEqual(timeline);
+  });
+
 });

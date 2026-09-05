@@ -106,10 +106,10 @@ function attachClickHooks(
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
  * createAnimationController; a class diagram runs layoutClassDiagram ->
- * renderClassDiagramToSVG -> createAnimationController, so it too returns a
- * working controller; a sequence diagram runs layoutSequence ->
- * renderSequenceToSVG and returns `controller: null` (no animation
- * integration for sequence diagrams yet). Mounts the resulting SVG into
+ * renderClassDiagramToSVG -> createAnimationController; a sequence diagram
+ * runs layoutSequence -> renderSequenceToSVG -> createAnimationController.
+ * All three return a working controller — one with `totalSteps: 0` when the
+ * document declares no `timeline:` block. Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
  * from every stage. A class diagram also has `options.onClick`, if one was
  * given, attached to whichever of its classes the author made clickable.
@@ -148,9 +148,9 @@ export function render(
       attachClickHooks(classSvg, options.onClick);
     }
 
-    // Unlike a sequence diagram, a class diagram animates: its classes and
-    // relationships carry `data-siren-id`, so the same controller that drives
-    // flowchart nodes and edges drives them unchanged.
+    // A class diagram animates: its classes and relationships carry
+    // `data-siren-id`, so the same controller that drives flowchart nodes and
+    // edges — and sequence participants — drives them unchanged.
     const classController = createAnimationController(
       classSvg,
       positionedClassDiagram.timeline,
@@ -169,7 +169,22 @@ export function render(
 
     container.replaceChildren(sequenceSvg);
 
-    return { svg: sequenceSvg, controller: null, diagnostics };
+    // A sequence diagram animates on the same terms as the other two kinds:
+    // its participants, lifelines, destroy marks, messages, blocks and box
+    // groupings all carry `data-siren-id`, and the controller drives every
+    // element wearing a named id (ADR-0009) — so a participant's two boxes
+    // and its lifeline move together under one timeline entry.
+    const sequenceController = createAnimationController(
+      sequenceSvg,
+      positionedSequence.timeline,
+    );
+    // `renderSequenceToSVG` does not stamp the initial `siren-pending` class
+    // the way `renderToSVG` and `renderClassDiagramToSVG` do, so step 0 is
+    // established here instead: `reset()` is by definition "the initial
+    // pending state", and it is a no-op for a diagram with no timeline.
+    sequenceController.reset();
+
+    return { svg: sequenceSvg, controller: sequenceController, diagnostics };
   }
 
   if (graphResult.graph === null) {

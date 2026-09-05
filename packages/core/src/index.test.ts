@@ -662,7 +662,7 @@ A[<script>alert(1)</script>] --> B[End]
     expect(controller.currentStep).toBe(2);
   });
 
-  it("mounts an SVG for a real sequenceDiagram source with participant and message elements, and returns a null controller with no diagnostics", () => {
+  it("mounts an SVG for a real sequenceDiagram source with participant and message elements, and returns an empty controller with no diagnostics", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant A
@@ -673,7 +673,7 @@ A->>B: Hello
     const result = render(source, container);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
 
@@ -752,7 +752,7 @@ A->>GHOST: Hello
     const result = render(SEQUENCE_CORE_EXAMPLE_SOURCE, container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
 
     // Three declared, never-destroyed participants, each drawn at both the
@@ -772,7 +772,7 @@ A->>GHOST: Hello
     const result = render(SEQUENCE_BLOCKS_EXAMPLE_SOURCE, container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
 
@@ -1064,7 +1064,7 @@ end
     const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
     const svg = result.svg!;
@@ -1312,7 +1312,7 @@ Animal <|-- Duck
     ).toBe("inheritance");
   });
 
-  it("returns a working animation controller for a classDiagram — unlike a sequence diagram's null one — reporting totalSteps 0 when the document declares no timeline: block", () => {
+  it("returns a working animation controller for a classDiagram, reporting totalSteps 0 when the document declares no timeline: block", () => {
     const container = document.createElement("div");
     const source = `classDiagram
 Animal <|-- Duck
@@ -2461,4 +2461,97 @@ click Sneaky call inspect() "<b>tooltip</b>"
     expect(rates.classList.contains("siren-highlight-glow")).toBe(false);
     expect(shelf.classList.contains("siren-highlight-outline")).toBe(false);
   });
+  it("returns a controller with totalSteps 0 — not null — for a sequenceDiagram with no timeline block", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    // The same thing a flowchart with no timeline block returns: a working
+    // controller that has nowhere to go, rather than no controller at all.
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+    expect(result.controller!.currentStep).toBe(0);
+  });
+
+  it("drives every element carrying a sequence participant's id — both participant rows and the lifeline — from one timeline entry", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+timeline:
+  step 1: enter A fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    // A is preamble-declared and never destroyed, so it is drawn three
+    // times under one id: top-row box, bottom-row box, lifeline. The count
+    // is asserted so a regression to first-match-only fails here.
+    const elementsForA = () =>
+      Array.from(result.svg!.querySelectorAll('[data-siren-id="A"]'));
+    expect(elementsForA()).toHaveLength(3);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-pending")),
+    ).toEqual([true, true, true]);
+
+    controller.next();
+
+    expect(elementsForA()).toHaveLength(3);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-enter-fade")),
+    ).toEqual([true, true, true]);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-pending")),
+    ).toEqual([false, false, false]);
+
+    // B was never named by the timeline, so it stays untouched throughout.
+    for (const el of Array.from(result.svg!.querySelectorAll('[data-siren-id="B"]'))) {
+      expect(el.classList.contains("siren-pending")).toBe(false);
+      expect(el.classList.contains("siren-enter-fade")).toBe(false);
+    }
+  });
+
+  it("reaches a destroyed participant's destroy mark too, since the mark carries the participant's id", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+destroy B
+timeline:
+  step 1: highlight B outline
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+
+    // B is destroyed, so it has no bottom-row box: its top-row box, its
+    // lifeline, and its destroy mark are the three elements wearing its id.
+    const elementsForB = () =>
+      Array.from(result.svg!.querySelectorAll('[data-siren-id="B"]'));
+    expect(elementsForB()).toHaveLength(3);
+    expect(
+      result.svg!.querySelectorAll('path.siren-destroy-mark[data-siren-id="B"]'),
+    ).toHaveLength(1);
+
+    controller.next();
+
+    expect(
+      elementsForB().map((el) => el.classList.contains("siren-highlight-outline")),
+    ).toEqual([true, true, true]);
+  });
+
 });

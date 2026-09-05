@@ -30,6 +30,7 @@ describe("buildSequenceModel", () => {
           arrow: { line: "dotted", head: "none" },
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -57,6 +58,7 @@ describe("buildSequenceModel", () => {
         { kind: "participant", id: "A", label: "Alice", participantKind: "participant", origin: "declared" },
         { kind: "participant", id: "B", label: "Bob", participantKind: "actor", origin: "declared" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -110,6 +112,7 @@ describe("buildSequenceModel", () => {
           arrow: { line: "solid", head: "filled" },
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -144,6 +147,7 @@ describe("buildSequenceModel", () => {
         },
         { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -168,6 +172,7 @@ describe("buildSequenceModel", () => {
         { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
         { kind: "destroy", id: "does-not-exist" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -198,6 +203,7 @@ describe("buildSequenceModel", () => {
         { kind: "autonumberOff" },
         { kind: "message", from: "A", to: "B", text: "after", arrow: { line: "solid", head: "filled" } },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -235,6 +241,7 @@ describe("buildSequenceModel", () => {
           body: [{ kind: "message", from: "B", to: "A", text: "bye", arrow: { line: "solid", head: "filled" } }],
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -276,6 +283,7 @@ describe("buildSequenceModel", () => {
         { kind: "rect", color: "rgb(0,0,255)", body: [msg()] },
         { kind: "loop", label: "again again", body: [msg()] },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -324,6 +332,7 @@ describe("buildSequenceModel", () => {
           ],
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -415,6 +424,7 @@ describe("buildSequenceModel", () => {
           ],
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -460,6 +470,7 @@ describe("buildSequenceModel", () => {
           ],
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -492,6 +503,7 @@ describe("buildSequenceModel", () => {
           body: [{ kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } }],
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -523,6 +535,7 @@ describe("buildSequenceModel", () => {
         { kind: "participant", id: "B", label: "Bob", participantKind: "actor", origin: "created" },
         { kind: "message", from: "A", to: "B", text: "hello", arrow: { line: "solid", head: "filled" } },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -573,6 +586,7 @@ describe("buildSequenceModel", () => {
         },
         { kind: "destroy", id: "B" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -599,6 +613,7 @@ describe("buildSequenceModel", () => {
         { kind: "destroy", id: "A" },
         { kind: "destroy", id: "A", line: 4, column: 1 },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -636,6 +651,7 @@ describe("buildSequenceModel", () => {
           column: 1,
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -670,6 +686,7 @@ describe("buildSequenceModel", () => {
         { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
         { kind: "participant", id: "C", label: "C", participantKind: "participant", origin: "declared" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -699,6 +716,7 @@ describe("buildSequenceModel", () => {
       statements: [
         { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -729,6 +747,7 @@ describe("buildSequenceModel", () => {
         { kind: "destroy", id: "B" },
         { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "created" },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -772,6 +791,7 @@ describe("buildSequenceModel", () => {
           arrow: { line: "solid", head: "filled" },
         },
       ],
+      timeline: null,
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
@@ -784,4 +804,107 @@ describe("buildSequenceModel", () => {
     );
     expect(messages.map((s) => s.message.id)).toEqual(["A-B"]);
   });
+  it("resolves the document's timeline block against the participant ids it holds", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "message",
+          from: "A",
+          to: "B",
+          text: "hi",
+          arrow: { line: "solid", head: "filled" },
+        },
+      ],
+      timeline: {
+        entries: [
+          { kind: "enter", step: 1, targetId: "A", effect: "fade", line: 5, column: 3 },
+          { kind: "highlight", step: 3, targetId: "B", effect: "glow", line: 6, column: 3 },
+        ],
+      },
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.timeline).toEqual({
+      totalSteps: 3,
+      entries: [
+        { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+        { kind: "highlight", step: 3, targetId: "B", effect: "glow" },
+      ],
+    });
+  });
+
+  it("resolves a null timeline block to an empty resolved timeline", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+      ],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.timeline).toEqual({ totalSteps: 0, entries: [] });
+  });
+
+  it("still rejects a timeline entry naming a message, block or box id — the valid-target set is participant ids only", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [{ color: null, label: "Group", participantIds: ["A", "B"], line: 2, column: 3 }],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: "retry",
+          body: [
+            {
+              kind: "message",
+              from: "A",
+              to: "B",
+              text: "hi",
+              arrow: { line: "solid", head: "filled" },
+            },
+          ],
+        },
+      ],
+      timeline: {
+        entries: [
+          { kind: "highlight", step: 1, targetId: "A-B", effect: "glow", line: 9, column: 3 },
+          { kind: "highlight", step: 2, targetId: "loop:1", effect: "glow", line: 10, column: 3 },
+          { kind: "highlight", step: 3, targetId: "box:1", effect: "glow", line: 11, column: 3 },
+        ],
+      },
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'timeline: references unknown id "A-B"',
+      'timeline: references unknown id "loop:1"',
+      'timeline: references unknown id "box:1"',
+    ]);
+    expect(model!.timeline).toEqual({ totalSteps: 0, entries: [] });
+  });
+
 });

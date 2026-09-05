@@ -42,6 +42,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     participants: [alice, bob],
     boxes: [],
     elements: [],
+    timeline: { totalSteps: 0, entries: [] },
     width: 300,
     height: 300,
   };
