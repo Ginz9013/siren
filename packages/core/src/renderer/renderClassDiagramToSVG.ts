@@ -95,7 +95,7 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   // Namespaces first, and nothing else before them: SVG has no z-index, so a
   // frame is behind the boxes it encloses only by being drawn before them.
   for (const namespace of diagram.namespaces) {
-    svg.appendChild(buildNamespace(namespace));
+    svg.appendChild(buildNamespace(namespace, pendingIds.has(namespace.id)));
   }
 
   for (const positionedClass of diagram.classes) {
@@ -110,7 +110,7 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   // Notes last: a note box is opaque, and it annotates the figure rather than
   // being part of it, so nothing drawn here should cover one.
   for (const note of diagram.notes) {
-    svg.appendChild(buildNote(note));
+    svg.appendChild(buildNote(note, pendingIds.has(note.id)));
   }
 
   return svg;
@@ -122,6 +122,11 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
  * only actions are `exit`/`highlight`/`unhighlight` must already be visible,
  * and one never mentioned in the timeline renders visible too — the same
  * rule as `renderToSVG`, and for the same reason.
+ *
+ * The rule covers all four addressable kinds — class, relationship, namespace
+ * and note — because `buildClassModel` resolves a timeline against all four
+ * id spaces. Anything an author can name in a `timeline:` block must be able
+ * to start hidden, or its `enter` reveals something already on screen.
  */
 function pendingElementIds(diagram: PositionedClassDiagram): Set<string> {
   const ids = new Set<string>();
@@ -385,9 +390,12 @@ function buildClass(positionedClass: PositionedClass, pending: boolean): SVGGEle
  * its member boxes, and a `<text class="siren-namespace-label">` centered on
  * the layout-assigned anchor in the strip along the frame's top edge.
  */
-function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
+function buildNamespace(
+  namespace: PositionedClassNamespace,
+  pending: boolean,
+): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-namespace");
+  g.setAttribute("class", pending ? "siren-namespace siren-pending" : "siren-namespace");
   g.setAttribute("data-siren-id", namespace.id);
 
   const frame = document.createElementNS(SVG_NS, "rect");
@@ -416,9 +424,9 @@ function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
  * by padding the one line it measured, so the box's center *is* where that
  * line goes.
  */
-function buildNote(note: PositionedClassNote): SVGGElement {
+function buildNote(note: PositionedClassNote, pending: boolean): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-note");
+  g.setAttribute("class", pending ? "siren-note siren-pending" : "siren-note");
   g.setAttribute("data-siren-id", note.id);
 
   if (note.linkPoints !== null) {

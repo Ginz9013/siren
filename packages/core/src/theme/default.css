@@ -685,6 +685,34 @@
     stroke-width var(--siren-highlight-duration) ease-out;
 }
 
+/*
+ * The class diagram's own `outline` rules. It needs its own because the two
+ * above are written against flowchart structure — `.siren-node` wrapping a
+ * `<rect>`, `.siren-edge` being the stroked `<path>` itself — and a class
+ * diagram is shaped differently: the highlight class lands on a
+ * `<g class="siren-class">` whose stroke lives on an inner
+ * `.siren-class-frame`, and on a `<g class="siren-relationship">` whose
+ * stroke lives on an inner `.siren-relationship-line`. Without these,
+ * `highlight X outline` in a class document is a timeline step on which
+ * nothing visibly happens — `glow` below already works for every kind, since
+ * a filter applies to a `<g>`'s whole subtree.
+ */
+.siren-class.siren-highlight-outline .siren-class-frame {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+.siren-relationship.siren-highlight-outline .siren-relationship-line {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
 .siren-highlight-glow {
   filter: drop-shadow(0 0 4px var(--siren-highlight-color))
     drop-shadow(0 0 8px var(--siren-highlight-color));

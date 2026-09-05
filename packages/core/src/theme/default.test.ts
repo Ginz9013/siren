@@ -144,6 +144,13 @@ note for Duck "Ducks are birds"
 note "Drawn from the keeper's ledger"
 
 click Duck href "https://example.com/duck" "Ducks are birds"
+
+timeline:
+step 1: enter Duck fade
+step 2: enter Animal-Duck slide-left
+step 3: enter namespace:1 fade, enter note:1 fade
+step 4: highlight Duck outline
+step 5: highlight Animal-Duck glow
 `;
 
 /**
@@ -463,6 +470,39 @@ describe("default theme coverage of the class renderer", () => {
     expect(getComputedStyle(frame).fill).toBe("rgb(255, 221, 221)");
     expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
     expect(getComputedStyle(line).stroke).toBe("rgb(204, 0, 0)");
+  });
+
+  it("gives a highlighted class and relationship the outline effect, not just the glow one", () => {
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+
+    // `siren-highlight-outline` is one of the four verbs' effects, and the
+    // controller lands it on a `.siren-class`/`.siren-relationship` group
+    // exactly as it lands it on a flowchart node or edge. The flowchart rules
+    // are written as `.siren-node ... rect` and `.siren-edge`, so neither
+    // selects anything in a class diagram: without a rule of its own,
+    // `highlight X outline` in a class document is a step on which nothing
+    // visibly happens — the same defect the coverage test above exists to
+    // catch, one level down.
+    const cases: [string, string][] = [
+      [".siren-class", ".siren-class-frame"],
+      [".siren-relationship", ".siren-relationship-line"],
+    ];
+
+    for (const [groupSelector, shapeSelector] of cases) {
+      const group = svg.querySelector(groupSelector);
+      const shape = group?.querySelector(shapeSelector);
+      if (group === null || group === undefined || shape === null || shape === undefined) {
+        throw new Error(`no ${shapeSelector} inside ${groupSelector}`);
+      }
+
+      const before = getComputedStyle(shape).stroke;
+      group.classList.add("siren-highlight-outline");
+      const after = getComputedStyle(shape).stroke;
+      group.classList.remove("siren-highlight-outline");
+
+      expect(after).not.toBe(before);
+      expect(after).toContain("--siren-highlight-color");
+    }
   });
 
   it("sets the theme's type on the class-diagram groups", () => {

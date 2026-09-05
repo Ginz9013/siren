@@ -510,6 +510,106 @@ describe("buildClassModel", () => {
     expect(model!.timeline.totalSteps).toBe(2);
   });
 
+  it("keeps only the earliest-step enter for one target, warning about the later one", () => {
+    // The same dedupe `buildFlowchartModel` applies. Without it a class with
+    // two `enter` actions is revealed and then revealed again, which the
+    // controller replays as a class change on a step where nothing should
+    // move — the animation a class diagram gets has to be the animation a
+    // flowchart gets, not a near-miss.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Animal" })],
+        timeline: {
+          entries: [
+            { kind: "enter", step: 3, targetId: "Animal", effect: "fade", line: 5, column: 1 },
+            { kind: "enter", step: 1, targetId: "Animal", effect: "slide-left", line: 6, column: 1 },
+          ],
+        },
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(model!.timeline.entries).toEqual([
+      { kind: "enter", step: 1, targetId: "Animal", effect: "slide-left" },
+    ]);
+    expect(model!.timeline.totalSteps).toBe(1);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics[0].line).toBe(5);
+    expect(diagnostics[0].message).toContain("Animal");
+    expect(diagnostics[0].message).toContain("enter");
+  });
+
+  it("drops an action that fires before its target has entered, with an error", () => {
+    // Also `buildFlowchartModel`'s rule. A highlight on a still-`siren-pending`
+    // element highlights nothing a reader can see, and the author has no way
+    // to tell that from a highlight the theme forgot.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Animal" })],
+        timeline: {
+          entries: [
+            { kind: "highlight", step: 1, targetId: "Animal", effect: "glow", line: 5, column: 1 },
+            { kind: "enter", step: 3, targetId: "Animal", effect: "fade", line: 6, column: 1 },
+          ],
+        },
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(model!.timeline.entries).toEqual([
+      { kind: "enter", step: 3, targetId: "Animal", effect: "fade" },
+    ]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("error");
+    expect(diagnostics[0].line).toBe(5);
+    expect(diagnostics[0].message).toContain("highlight");
+    expect(diagnostics[0].message).toContain("Animal");
+  });
+
+  it("warns when a relationship stays visible after one of its endpoint classes exits", () => {
+    // The same defect `buildFlowchartModel` warns about for an edge outliving
+    // its node: relationship visibility is not coupled to its endpoints'
+    // anywhere in the pipeline, so the line is left pointing at empty space.
+    // Advisory only — nothing is dropped, and the author fixes it by giving
+    // the relationship its own `exit`.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Animal" }), classDecl({ id: "Duck" })],
+        relationships: [relationship({ from: "Animal", to: "Duck" })],
+        timeline: {
+          entries: [{ kind: "exit", step: 2, targetId: "Animal", effect: "fade" }],
+        },
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(model!.timeline.entries).toHaveLength(1);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics[0].message).toContain("Animal-Duck");
+    expect(diagnostics[0].message).toContain("Animal");
+    expect(diagnostics[0].message).toContain("step 2");
+  });
+
+  it("does not warn when the relationship exits no later than its endpoint does", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Animal" }), classDecl({ id: "Duck" })],
+        relationships: [relationship({ from: "Animal", to: "Duck" })],
+        timeline: {
+          entries: [
+            { kind: "exit", step: 1, targetId: "Animal-Duck", effect: "fade" },
+            { kind: "exit", step: 2, targetId: "Animal", effect: "fade" },
+          ],
+        },
+      }),
+    );
+
+    expect(model).not.toBeNull();
+    expect(diagnostics).toEqual([]);
+  });
+
   it("drops a timeline entry naming a note that was dropped for an unknown target", () => {
     // The note's id never enters the model, so the timeline entry naming it
     // is unresolvable — reported on its own terms rather than silently.

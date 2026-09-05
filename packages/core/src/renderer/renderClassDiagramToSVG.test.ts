@@ -457,6 +457,43 @@ describe("renderClassDiagramToSVG", () => {
     );
   });
 
+  it("starts namespaces and notes with an enter action as siren-pending too", () => {
+    // `buildClassModel` gives namespaces and notes ids of their own and
+    // resolves a timeline against them, so an author can address one — and an
+    // addressable element that never starts hidden would appear from the
+    // first frame and then "enter" a diagram it was already in.
+    const diagram = {
+      ...buildDiagram([buildClass()]),
+      namespaces: [
+        buildNamespace({ id: "namespace:1" }),
+        buildNamespace({ id: "namespace:2", label: "Aviary" }),
+      ],
+      notes: [buildNote({ id: "note:1" }), buildNote({ id: "note:2" })],
+      timeline: {
+        totalSteps: 2,
+        entries: [
+          { kind: "enter", step: 1, targetId: "namespace:1", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "note:1", effect: "fade" },
+        ],
+      },
+    } satisfies PositionedClassDiagram;
+
+    const svg = renderClassDiagramToSVG(diagram);
+
+    expect(
+      svg.querySelector('g.siren-namespace[data-siren-id="namespace:1"]')?.getAttribute("class"),
+    ).toBe("siren-namespace siren-pending");
+    expect(
+      svg.querySelector('g.siren-namespace[data-siren-id="namespace:2"]')?.getAttribute("class"),
+    ).toBe("siren-namespace");
+    expect(svg.querySelector('g.siren-note[data-siren-id="note:1"]')?.getAttribute("class")).toBe(
+      "siren-note siren-pending",
+    );
+    expect(svg.querySelector('g.siren-note[data-siren-id="note:2"]')?.getAttribute("class")).toBe(
+      "siren-note",
+    );
+  });
+
   it("leaves an element whose only actions are exit or highlight visible from the start", () => {
     const diagram = buildDiagram(
       [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],

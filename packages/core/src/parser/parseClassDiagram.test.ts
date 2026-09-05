@@ -795,4 +795,74 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       });
     },
   );
+
+  it("parses a timeline: block into the same entry shape the flowchart parser produces", () => {
+    const source = `classDiagram
+  Animal <|-- Duck
+timeline:
+step 1: enter Animal fade
+step 2: enter Duck slide-left, enter Animal-Duck fade
+step 3: highlight Duck glow
+step 4: unhighlight Duck
+step 5: exit Animal slide-top
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.timeline).toEqual({
+      entries: [
+        { kind: "enter", step: 1, targetId: "Animal", effect: "fade", line: 4, column: 1 },
+        { kind: "enter", step: 2, targetId: "Duck", effect: "slide-left", line: 5, column: 1 },
+        { kind: "enter", step: 2, targetId: "Animal-Duck", effect: "fade", line: 5, column: 1 },
+        { kind: "highlight", step: 3, targetId: "Duck", effect: "glow", line: 6, column: 1 },
+        { kind: "unhighlight", step: 4, targetId: "Duck", line: 7, column: 1 },
+        { kind: "exit", step: 5, targetId: "Animal", effect: "slide-top", line: 8, column: 1 },
+      ],
+    });
+  });
+
+  it("keeps the colon inside a namespace or note id, which the model assigns as namespace:1 / note:1", () => {
+    // The entry grammar splits on whitespace *after* the step's own colon, so
+    // a second colon inside the target id is read as part of the id rather
+    // than ending the step. Worth pinning: it looks like it should not work.
+    const source = `classDiagram
+  namespace Zoo {
+    class Duck
+  }
+  note "Drawn from the ledger"
+timeline:
+step 1: enter namespace:1 fade
+step 2: enter note:1 fade
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.timeline?.entries.map((entry) => entry.targetId)).toEqual([
+      "namespace:1",
+      "note:1",
+    ]);
+  });
+
+  it("reports an unrecognized timeline verb the way the flowchart parser does, and returns no document", () => {
+    const source = `classDiagram
+  class Animal
+timeline:
+step 1: wibble Animal fade
+`;
+
+    const { document, diagnostics } = parseClassDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Unrecognized timeline verb "wibble" (expected "enter", "exit", "highlight", or "unhighlight")',
+        line: 4,
+        column: 1,
+      },
+    ]);
+  });
 });

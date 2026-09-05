@@ -1148,6 +1148,60 @@ Animal <|-- Duck
     ).toHaveLength(0);
   });
 
+  it("drives a classDiagram's classes and relationships through the same class transitions a flowchart's nodes and edges get", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+Animal <|-- Duck
+timeline:
+step 1: enter Duck fade
+step 2: enter Animal-Duck slide-left
+step 3: highlight Duck glow
+step 4: unhighlight Duck
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(4);
+
+    const animal = result.svg!.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    const duck = result.svg!.querySelector('g.siren-class[data-siren-id="Duck"]')!;
+    const relationship = result.svg!.querySelector(
+      'g.siren-relationship[data-siren-id="Animal-Duck"]',
+    )!;
+
+    // Only the two elements with an `enter` action start hidden.
+    expect(animal.classList.contains("siren-pending")).toBe(false);
+    expect(duck.classList.contains("siren-pending")).toBe(true);
+    expect(relationship.classList.contains("siren-pending")).toBe(true);
+
+    controller.next();
+    expect(duck.classList.contains("siren-pending")).toBe(false);
+    expect(duck.classList.contains("siren-enter-fade")).toBe(true);
+    expect(relationship.classList.contains("siren-pending")).toBe(true);
+
+    controller.next();
+    expect(relationship.classList.contains("siren-pending")).toBe(false);
+    expect(relationship.classList.contains("siren-enter-slide-left")).toBe(true);
+
+    controller.next();
+    expect(duck.classList.contains("siren-highlight-glow")).toBe(true);
+
+    controller.next();
+    expect(duck.classList.contains("siren-highlight-glow")).toBe(false);
+    expect(controller.currentStep).toBe(4);
+
+    controller.prev();
+    expect(duck.classList.contains("siren-highlight-glow")).toBe(true);
+
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(duck.classList.contains("siren-pending")).toBe(true);
+    expect(duck.classList.contains("siren-enter-fade")).toBe(false);
+    expect(relationship.classList.contains("siren-pending")).toBe(true);
+  });
+
   it("renders demos/class-diagram.html's example source (examples/class-core.srn) end to end with no error diagnostics, every declaration form, member text verbatim, and all eight relationship kinds", () => {
     const container = document.createElement("div");
 

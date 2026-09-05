@@ -14,7 +14,9 @@ import type {
   ClassStyleProperty,
   Diagnostic,
   ParseResult,
+  SirenTimeline,
 } from "../contracts";
+import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
 const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
 /**
@@ -364,8 +366,13 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * reported as the error it is. Every value captured by this function is
  * therefore untrusted until the model has passed it.
  *
- * Not yet recognized, and therefore reported as an unrecognized line: the
- * `timeline:` block. That arrives in a later ticket on this board.
+ * A `timeline:` block ends the diagram body and runs to the end of the
+ * document, exactly as it does in a flowchart — and it is parsed by the same
+ * grammar, `parseTimelineBlock`, rather than by a second copy of it here.
+ * Nothing about a timeline entry is diagram-kind-specific (ADR-0002 keeps the
+ * block separate from the structural definition precisely so it can name any
+ * id), so the ids in it are resolved by `buildClassModel` and validated
+ * nowhere else.
  */
 export function parseClassDiagram(source: string): ParseResult {
   const lines = source.split(/\r\n|\r|\n/);
@@ -415,6 +422,12 @@ export function parseClassDiagram(source: string): ParseResult {
    * assignment wins in every other statement-ordered format.
    */
   let direction: ClassDirection = "TB";
+  /**
+   * The `timeline:` block, once one has been opened. `null` until then, which
+   * is what tells `buildClassModel` the document declares no animation at all
+   * (as opposed to declaring an empty block).
+   */
+  let timeline: SirenTimeline | null = null;
 
   /**
    * Adds a declaration to the document, and — when it was written inside a
@@ -853,6 +866,35 @@ export function parseClassDiagram(source: string): ParseResult {
   };
 
   for (; index < lines.length; index++) {
+    const rawLine = lines[index];
+    const line = rawLine.trim();
+
+    if (timeline !== null) {
+      // Once the block is open it runs to the end of the document — the same
+      // one-way switch `parseFlowchart` makes, so a class statement written
+      // after `timeline:` is a timeline diagnostic rather than silently
+      // parsing as structure.
+      if (line.length === 0) {
+        continue;
+      }
+      const { entries, diagnostics: lineDiagnostics } = parseTimelineLine(
+        line,
+        index + 1,
+        rawLine.length - rawLine.trimStart().length + 1,
+      );
+      diagnostics.push(...lineDiagnostics);
+      if (lineDiagnostics.length > 0) {
+        sawError = true;
+      }
+      timeline.entries.push(...entries);
+      continue;
+    }
+
+    if (isTimelineHeader(line)) {
+      timeline = { entries: [] };
+      continue;
+    }
+
     index = parseStatement(index, null);
   }
 
@@ -869,7 +911,7 @@ export function parseClassDiagram(source: string): ParseResult {
     notes,
     interactions,
     styles,
-    timeline: null,
+    timeline,
   };
 
   return { document, diagnostics };
