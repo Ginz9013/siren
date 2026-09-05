@@ -142,7 +142,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildGraphModel(document);
 
     expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([{ id: "A", label: "Start", style: [] }]);
+    expect(graph!.nodes).toEqual([{ id: "A", label: "Start", style: { frame: [], text: [] } }]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
   });
@@ -514,7 +514,7 @@ describe("buildGraphModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model).toBeNull();
     expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([{ id: "A", label: "A", style: [] }]);
+    expect(graph!.nodes).toEqual([{ id: "A", label: "A", style: { frame: [], text: [] } }]);
   });
 
   it("dispatches a kind: \"class\" document to buildClassModel, leaving graph and model null and populating classModel", () => {
@@ -585,13 +585,16 @@ describe("buildGraphModel", () => {
 
     expect(diagnostics).toEqual([]);
     const byId = Object.fromEntries(graph!.nodes.map((n) => [n.id, n]));
-    expect(byId.A.style).toEqual([
-      { property: "fill", value: "#fdd" },
-      { property: "stroke", value: "#c00" },
-    ]);
+    expect(byId.A.style).toEqual({
+      frame: [
+        { property: "fill", value: "#fdd" },
+        { property: "stroke", value: "#c00" },
+      ],
+      text: [],
+    });
     // No declarations rather than an absent field: the renderer's "emit no
     // attribute" case is an empty list, not a missing one.
-    expect(byId.B.style).toEqual([]);
+    expect(byId.B.style).toEqual({ frame: [], text: [] });
   });
 
   it("reports a flowchart `style` on an id no node declares, in the shared resolver's own words", () => {
@@ -625,7 +628,7 @@ describe("buildGraphModel", () => {
         column: 1,
       },
     ]);
-    expect(graph!.nodes[0].style).toEqual([]);
+    expect(graph!.nodes[0].style).toEqual({ frame: [], text: [] });
   });
 
   it("puts a flowchart's style values through the one shared gate: a refused value is dropped and diagnosed, its sibling survives", () => {
@@ -663,7 +666,7 @@ describe("buildGraphModel", () => {
         column: 1,
       },
     ]);
-    expect(graph!.nodes[0].style).toEqual([{ property: "stroke", value: "#c00" }]);
+    expect(graph!.nodes[0].style).toEqual({ frame: [{ property: "stroke", value: "#c00" }], text: [] });
   });
 
   it("resolves a flowchart `linkStyle` index to the edge declared at that position, and carries its declarations on that edge's own id", () => {
@@ -700,7 +703,7 @@ describe("buildGraphModel", () => {
     // different id and fails here. And what comes out is keyed by the edge
     // id `timeline:` and `data-siren-id` already use — the index is spent
     // at this seam and travels no further.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       ["A-B", []],
       ["B-C", [{ property: "stroke", value: "#f00" }]],
       ["C-D", []],
@@ -745,7 +748,7 @@ describe("buildGraphModel", () => {
     ]);
     // One bad address is not a reason to throw away the rest of the
     // statement, exactly as one unknown id is not in `resolveStyles`.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       ["A-B", [{ property: "stroke", value: "#f00" }]],
       ["B-C", []],
     ]);
@@ -788,7 +791,7 @@ describe("buildGraphModel", () => {
         column: 1,
       },
     ]);
-    expect(two.graph!.edges.every((edge) => edge.style.length === 0)).toBe(true);
+    expect(two.graph!.edges.every((edge) => edge.style.frame.length === 0)).toBe(true);
 
     const one = buildGraphModel(documentWith(1));
     expect(one.diagnostics[0].message).toBe(
@@ -825,9 +828,55 @@ describe("buildGraphModel", () => {
     expect(diagnostics).toEqual([]);
     // Including the `#2` repeat, which has no index of its own that an
     // author would guess.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       ["A-B", [{ property: "stroke", value: "#0f0" }]],
       ["A-B#2", [{ property: "stroke", value: "#0f0" }]],
+    ]);
+  });
+
+  it("splits a `linkStyle`'s declarations into both halves, translating `color` even though an edge has nowhere to paint it", () => {
+    // Ticket 06 split every resolved style into a frame half and a text half,
+    // and the assertions above narrowed to `.frame` when they were reshaped.
+    // This is what that narrowing gave up, stated once instead of six times:
+    // an edge is one `<path>` with no `<text>`, so nothing an author writes
+    // about a link could quietly go missing.
+    //
+    // The routing rule in `resolveStyles` is deliberately kind-neutral: it does
+    // not know an edge from a class, so `color` is split off and translated to
+    // `fill` here exactly as a node's would be. The edge simply has nowhere to
+    // put it — one `<path>`, no `<text>` — so the renderer drops that half, and
+    // `index.test.ts` pins that it never lands on the path, which is the bug
+    // this ticket fixed one element over. Asserting the whole `AuthorStyle`
+    // rather than `.frame` is what keeps both ends of that arrangement visible
+    // from the model seam.
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [],
+      edges: [{ from: "A", to: "B", line: 2, column: 3 }],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["default"],
+          properties: [
+            { property: "stroke", value: "#f00" },
+            { property: "color", value: "#fff" },
+          ],
+          line: 3,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.edges.map((edge) => edge.style)).toEqual([
+      {
+        frame: [{ property: "stroke", value: "#f00" }],
+        text: [{ property: "fill", value: "#fff" }],
+      },
     ]);
   });
 
@@ -871,7 +920,7 @@ describe("buildGraphModel", () => {
     const styled = (document: SirenDocument) => {
       const { graph, diagnostics } = buildGraphModel(document);
       expect(diagnostics).toEqual([]);
-      return graph!.edges.map((edge) => [edge.id, edge.style]);
+      return graph!.edges.map((edge) => [edge.id, edge.style.frame]);
     };
 
     // The edge no specific `linkStyle` names keeps the fallback in both
@@ -930,7 +979,7 @@ describe("buildGraphModel", () => {
     // a tier is what the edge falls back *to*, not a set the specific
     // statement replaces. The width the author only ever wrote once is the
     // thing a wholesale replacement drops.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       [
         "A-B",
         [
@@ -985,10 +1034,13 @@ describe("buildGraphModel", () => {
     // decided by the tier: ADR-0008 settles them exactly as it settles two
     // `style` statements on one node — the second takes the property it
     // repeats and leaves the one it does not mention alone.
-    expect(graph!.edges[0].style).toEqual([
-      { property: "stroke", value: "#00f" },
-      { property: "stroke-width", value: "4px" },
-    ]);
+    expect(graph!.edges[0].style).toEqual({
+      frame: [
+        { property: "stroke", value: "#00f" },
+        { property: "stroke-width", value: "4px" },
+      ],
+      text: [],
+    });
   });
 
   it("lets no `linkStyle` index out of the model: an edge leaves with an id, its endpoints and its declarations, and nothing else", () => {

@@ -1247,22 +1247,31 @@ describe("layoutClassDiagram", () => {
           styles: [
             {
               targetId: "Duck",
-              properties: [
-                { property: "fill", value: "#fdd" },
-                { property: "stroke", value: "#c00" },
-              ],
+              style: {
+                frame: [
+                  { property: "fill", value: "#fdd" },
+                  { property: "stroke", value: "#c00" },
+                ],
+                text: [{ property: "fill", value: "#fff" }],
+              },
             },
           ],
         }),
         { measureText: fakeMeasurer },
       );
 
-      expect(classById(diagram, "Duck").style).toEqual([
-        { property: "fill", value: "#fdd" },
-        { property: "stroke", value: "#c00" },
-      ]);
+      // Both halves, unaltered. Layout sizes a class box from its text, but
+      // which declarations that text takes is `resolveStyles`' answer and
+      // this stage carries it rather than reading it.
+      expect(classById(diagram, "Duck").style).toEqual({
+        frame: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+        ],
+        text: [{ property: "fill", value: "#fff" }],
+      });
       // No declarations, so the renderer emits no `style` attribute at all.
-      expect(classById(diagram, "Animal").style).toEqual([]);
+      expect(classById(diagram, "Animal").style).toEqual({ frame: [], text: [] });
     });
 
     it("carries each class's resolved interaction through, and leaves a class named by none with null", () => {

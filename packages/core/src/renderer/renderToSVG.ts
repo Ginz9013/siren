@@ -50,7 +50,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     rect.setAttribute("y", String(node.y));
     rect.setAttribute("width", String(node.width));
     rect.setAttribute("height", String(node.height));
-    applyAuthorStyle(rect, node.style);
+    applyAuthorStyle(rect, node.style.frame);
     g.appendChild(rect);
 
     const text = document.createElementNS(SVG_NS, "text");
@@ -59,6 +59,16 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     text.setAttribute("text-anchor", "middle");
     text.setAttribute("dominant-baseline", "middle");
     text.textContent = node.label;
+    // The other half of the author's declaration. A node draws two things —
+    // the frame and this label — and `resolveStyles` already decided which
+    // of them each declaration is about, so there is nothing to sort here.
+    //
+    // No class is added for the sake of it. The theme reaches this element
+    // by `.siren-node text`, and an inline declaration outranks an element
+    // selector exactly as it outranks a class selector, so a
+    // `siren-node-label` mirroring `.siren-class-name` would change nothing
+    // about where this lands.
+    applyAuthorStyle(text, node.style.text);
     g.appendChild(text);
 
     svg.appendChild(g);
@@ -73,7 +83,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   // the right picture from an extra def, and under-minting would not.
   const arrowMarkerIdByStroke = new Map<string, string>();
   for (const edge of graph.edges) {
-    const stroke = strokeOf(edge.style);
+    const stroke = strokeOf(edge.style.frame);
     let arrowMarkerId = themeArrowId;
     if (stroke !== null) {
       const minted = arrowMarkerIdByStroke.get(stroke);
@@ -101,7 +111,13 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // names a `stroke` is given a marker of its own above, carrying that
     // color — which is why `stroke` colors the whole arrow here as it does
     // in Mermaid, rather than the line alone.
-    applyAuthorStyle(path, edge.style);
+    //
+    // Only the frame half: an edge draws no text, so `edge.style.text` — a
+    // `linkStyle 0 color:#f00` — has no element here to land on and is
+    // deliberately dropped rather than folded into this attribute, where
+    // `color` paints nothing and would tell the author their declaration
+    // worked.
+    applyAuthorStyle(path, edge.style.frame);
     svg.appendChild(path);
   }
 
@@ -113,11 +129,14 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  * inline `style` attribute, in declaration order, or leaves the element
  * without one when the author styled nothing.
  *
- * One function for a node's frame and for an edge's path, because the rule
- * is the same for both: land on the element the theme paints. Where the
- * author wrote the declarations — `style A`, `classDef`, `linkStyle 0` —
- * is not visible here, and must not be: `resolveStyles` settled what they
- * mean and `buildFlowchartModel` settled which element they belong to.
+ * One function for a node's frame, a node's label and an edge's path,
+ * because the rule is the same for all three: land on the element the theme
+ * paints. Which half of the author's declarations each one is handed is not
+ * decided here either — `resolveStyles` split them, and this function is
+ * told, in the vocabulary the element it writes to actually reads.
+ *
+ * Where the author wrote the declarations — `style A`, `classDef`,
+ * `linkStyle 0` — is not visible here, and must not be.
  *
  * Inline rather than a generated class rule, and on the drawn shape rather
  * than its enclosing `<g>` — both for the same cascade reason, recorded in

@@ -31,6 +31,39 @@ const readExample = (name: string): string =>
   readFileSync(new URL(`${name}.srn`, EXAMPLES_DIR), "utf8");
 
 /**
+ * Renders `source` into a container attached to a document carrying the
+ * default theme, and hands back the `<svg>`.
+ *
+ * Attached, and themed, because the tests using it ask what a declaration
+ * *computes to* rather than which attribute carries it — and an author
+ * declaration only means anything against the theme it is overriding.
+ * `getComputedStyle` on a detached element has no stylesheet to consult, so
+ * it could not tell the two answers apart.
+ *
+ * The stylesheet is read off disk rather than imported: vitest rewrites any
+ * `.css` module id to an empty string while `test.css` is false (this
+ * package's default), `?raw` included, and a silently empty theme would make
+ * every precedence assertion below vacuous instead of failing.
+ */
+function renderThemed(source: string): SVGSVGElement {
+  if (document.getElementById("siren-default-theme") === null) {
+    const style = document.createElement("style");
+    style.id = "siren-default-theme";
+    style.textContent = readFileSync(new URL("./theme/default.css", TEST_FILE_URL), "utf8");
+    document.head.appendChild(style);
+  }
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const { svg, diagnostics } = render(source, container);
+  expect(diagnostics).toEqual([]);
+  if (svg === null) {
+    throw new Error("render() produced no <svg>");
+  }
+  return svg;
+}
+
+/**
  * `markup` with every minted id scope collapsed to a fixed token.
  *
  * Marker ids are namespaced per render (`renderer/mintIdScope.ts`, which all
@@ -1883,6 +1916,55 @@ style Circle fill:#dfd
     expect(frameStyle("Shape")).toBeNull();
   });
 
+  it("lands a class diagram's `color` on every label the class draws, as the `fill` that paints them", () => {
+    // ADR-0008's amendment, landing. `fill:#111` darkens the box; before
+    // this, the theme went on painting dark text on it and no directive
+    // could say otherwise. The author writes `color` because that is what
+    // Mermaid's `classDef` documents, and the label carries `fill` because
+    // that is what paints SVG text — the translation is `resolveStyles`'.
+    const svg = renderThemed(`classDiagram
+class Animal {
+  <<abstract>>
+  +int age
+}
+class Duck
+Duck --|> Animal
+classDef highlight fill:#111,color:#fff
+cssClass "Animal" highlight
+`);
+
+    const animal = svg.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    // The frame keeps everything that is not a text property, unchanged.
+    expect(animal.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBe("fill:#111");
+
+    // All three of the texts a class draws, which is all three `style` and
+    // `classDef` can name: `buildRelationshipText` draws the labels and
+    // cardinalities of a relationship, which no styling statement targets.
+    for (const selector of [".siren-class-name", ".siren-class-annotation", ".siren-member"]) {
+      const label = animal.querySelector(selector)!;
+      expect([selector, label.getAttribute("style")]).toEqual([selector, "fill:#fff"]);
+
+      // Not just which element carries the attribute: what it computes to.
+      // This is the whole of the bug — an inline `color` on a `<text>` sits
+      // in a different property and leaves the computed `fill` exactly where
+      // the theme put it, so a renderer emitting the author's spelling
+      // verbatim would pass an attribute check and change nothing drawn.
+      //
+      // Sound only in a pair: jsdom does not model `!important` at all, so
+      // it over-prefers an inline declaration, and this assertion would keep
+      // passing if the theme ever grew one. `theme/default.test.ts` asserts
+      // separately that the stylesheet contains no `!important` — that is
+      // the check with teeth, and this one states what it protects.
+      expect([selector, getComputedStyle(label).fill]).toEqual([selector, "#fff"]);
+    }
+
+    // A class the `cssClass` did not name is left to the theme entirely.
+    const duckName = svg.querySelector(
+      'g.siren-class[data-siren-id="Duck"] .siren-class-name',
+    )!;
+    expect(duckName.getAttribute("style")).toBeNull();
+  });
+
   it("accepts Mermaid's `classDiagram-v2` header alias, rendering the identical diagram the `classDiagram` spelling does", () => {
     const body = `
 Animal <|-- Duck
@@ -2854,6 +2936,65 @@ class Earlier emphasis
     // so `fill` stays ahead of `stroke` in both nodes.
     expect(frameStyle("Later")).toBe("fill:#0f0;stroke:#c00");
     expect(frameStyle("Earlier")).toBe("fill:#fdd;stroke:#c00");
+  });
+
+  it("lands a flowchart node's `color` on its label text, leaving the frame everything else", () => {
+    // One rule, two diagram kinds: the same `classDef highlight
+    // fill:#111,color:#fff` darkens the box and lightens the text on it here
+    // exactly as it does in a class diagram, because the split is made once
+    // in `resolveStyles` and neither renderer gets a say in it.
+    const svg = renderThemed(`flowchart TD
+A[Start] --> B[End]
+classDef highlight fill:#111,color:#fff
+class A highlight
+`);
+
+    const node = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(node.querySelector("rect.siren-node-frame")!.getAttribute("style")).toBe("fill:#111");
+
+    // The node's label carries no class of its own — the theme reaches it by
+    // `.siren-node text` — and it needs none: an inline declaration outranks
+    // a class *or* an element selector alike, so a `siren-node-label` class
+    // added for symmetry with the class diagram would buy nothing here.
+    const label = node.querySelector("text")!;
+    expect(label.getAttribute("class")).toBeNull();
+    expect(label.getAttribute("style")).toBe("fill:#fff");
+
+    // The measurement this ticket turns on: `<text style="color:#fff">`
+    // computes to the theme's fill, unchanged, and only `fill` moves it. See
+    // the class-diagram test above for why a jsdom cascade assertion is
+    // sound here (`theme/default.test.ts` pins that the theme carries no
+    // `!important`, which is the half jsdom cannot model).
+    expect(getComputedStyle(label).fill).toBe("#fff");
+
+    const unstyled = svg.querySelector('g.siren-node[data-siren-id="B"] text')!;
+    expect(unstyled.getAttribute("style")).toBeNull();
+  });
+
+  it("keeps a `linkStyle`'s `color` off the edge path, where it would be the same bug one element over", () => {
+    // An edge is one `<path class="siren-edge">` and draws no text at all, so
+    // the author's `color` has nowhere to land. `resolveStyles` routes it
+    // into the text half anyway — the rule is about what a declaration
+    // *means*, and a resolver that asked "is this an edge?" would be the
+    // per-kind opinion the split exists to prevent — and this renderer
+    // simply has no element to apply it to.
+    //
+    // What must not happen is the thing this whole ticket is about: the
+    // declaration landing on the drawn shape instead, where `color` paints
+    // nothing and the author is told nothing.
+    const svg = renderThemed(`flowchart TD
+A[Start] --> B[End]
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+
+    const path = svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+    expect(path.getAttribute("style")).toBe("stroke:#f00");
+
+    // And there is genuinely no text on an edge to have missed: every
+    // `<text>` this diagram draws belongs to a node.
+    for (const text of Array.from(svg.querySelectorAll("text"))) {
+      expect(text.closest("g.siren-node")).not.toBeNull();
+    }
   });
 
   it("carries a `:::` written inside an edge line to the frame of whichever endpoint wore it", () => {

@@ -572,14 +572,16 @@ export interface GraphNode {
   id: string;
   label: string;
   /**
-   * Author declarations to emit as this node's inline `style` attribute, in
-   * declaration order, with rejected values already dropped.
+   * Author declarations to emit as this node's inline `style` attributes, in
+   * declaration order, with rejected values already dropped and each half
+   * addressed to one of the node's two drawn elements — the frame rect and
+   * the label `<text>`.
    *
-   * Empty when the author styled nothing — never absent — so "no styling" is
-   * one state rather than two, and the renderer's "emit no attribute" case is
-   * a length check rather than a presence check.
+   * Each half is empty when the author styled nothing — never absent — so
+   * "no styling" is one state rather than two, and the renderer's "emit no
+   * attribute" case is a length check rather than a presence check.
    */
-  style: StyleProperty[];
+  style: AuthorStyle;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
@@ -592,12 +594,18 @@ export interface GraphEdge {
    * declaration order, with rejected values already dropped — the same
    * shape, and the same empty-not-absent rule, as `GraphNode.style`.
    *
+   * An edge is drawn as one `<path>` and nothing else, so only `frame` has
+   * anywhere to land: a `linkStyle 0 color:#f00` fills `text` with a
+   * declaration the renderer has no element for. The routing rule stays
+   * kind-neutral on purpose — `resolveStyles` is read by three diagram
+   * kinds and knows what a declaration *means*, not what each kind draws.
+   *
    * The author wrote them as `linkStyle 0`, addressing this edge by its
    * declaration index. That index is gone by the time it reaches this
    * field: `buildFlowchartModel` resolved it to `id`, so an edge has one
    * name downstream of the model rather than a name and a position.
    */
-  style: StyleProperty[];
+  style: AuthorStyle;
 }
 
 /**
@@ -886,6 +894,34 @@ export interface StyleProperty {
 }
 
 /**
+ * One target's accepted author declarations, already split by which of the
+ * target's drawn elements each one is emitted onto.
+ *
+ * The split is made in `resolveStyles` and nowhere else, so a flowchart and
+ * a class diagram cannot end up with two opinions about what a text
+ * property is. A renderer receives the answer and picks the element.
+ *
+ * Both halves are empty rather than absent when the author declared
+ * nothing for them, so "no styling" stays one state, as `GraphNode.style`
+ * has always had it.
+ */
+export interface AuthorStyle {
+  /**
+   * The declarations bound for the shape the target is drawn as — a node's
+   * or a class's frame rect, an edge's whole path.
+   */
+  frame: StyleProperty[];
+  /**
+   * The declarations bound for the target's label text, in the vocabulary
+   * SVG paints text with: an author's `color` arrives here spelled `fill`,
+   * because an inline `color` sits in a different property and would never
+   * reach a `<text>`. Empty for a target the author gave no `color`, and
+   * ignored by a target that draws no text at all — a flowchart edge.
+   */
+  text: StyleProperty[];
+}
+
+/**
  * What an author-styling statement *does*, with each diagram kind's spelling
  * already normalized away.
  *
@@ -1018,7 +1054,8 @@ export interface ResolvedClassInteraction {
 /**
  * Author styling after model resolution: an apply-directive's `classDef`
  * flattened onto each target it applies to, in declaration order, with
- * rejected values already dropped.
+ * rejected values already dropped and the survivors split between the
+ * target's frame and its label text.
  *
  * `targetId` is a target's id in the sense the glossary gives that word —
  * the authored thing a style is attached to — so it is a class in a class
@@ -1026,7 +1063,7 @@ export interface ResolvedClassInteraction {
  */
 export interface ResolvedStyle {
   targetId: string;
-  properties: StyleProperty[];
+  style: AuthorStyle;
 }
 
 /**
@@ -1093,8 +1130,8 @@ export interface PositionedClass {
   attributes: PositionedClassCompartment | null;
   /** The method compartment, or `null` when the class declares none. */
   methods: PositionedClassCompartment | null;
-  /** Author declarations to emit as this element's inline `style` attribute. */
-  style: StyleProperty[];
+  /** Author declarations to emit as this class's inline `style` attributes: the frame's on the frame rect, the text's on every label the class draws. */
+  style: AuthorStyle;
   /** The link or click hook to attach, or `null`. */
   interaction: ResolvedClassInteraction | null;
 }

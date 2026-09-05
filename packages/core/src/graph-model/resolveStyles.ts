@@ -1,4 +1,9 @@
-import type { Diagnostic, ResolvedStyle, StyleDecl, StyleProperty } from "../contracts";
+import type {
+  Diagnostic,
+  ResolvedStyle,
+  StyleDecl,
+  StyleProperty,
+} from "../contracts";
 
 /**
  * Resolves a document's `style`/`classDef`/apply-directive statements into
@@ -30,6 +35,14 @@ import type { Diagnostic, ResolvedStyle, StyleDecl, StyleProperty } from "../con
  * decided here so the renderer emits a set with no repeats rather than
  * relying on it.
  *
+ * Each target's surviving declarations are split by the element they are
+ * about: `color` is the author's word for the label text and everything
+ * else is about the shape drawn behind it. The split is made here rather
+ * than in a renderer because it is a rule about what a declaration
+ * *means*, which is this module's subject, and because two renderers that
+ * each decided it could disagree — the same reason the validation gate
+ * lives here and the renderers re-check nothing.
+ *
  * Only targets that end up with at least one declaration appear in the
  * result, so a target whose every declaration was rejected is absent rather
  * than present-and-empty — the renderer's "no styles, no `style` attribute"
@@ -46,8 +59,16 @@ export function resolveStyles(
     definitions.set(declaration.name, acceptedProperties(declaration, diagnostics));
   }
 
-  /** Each styled target's declarations so far, in first-declared order. */
-  const byTargetId = new Map<string, Map<string, string>>();
+  /**
+   * Each styled target's declarations so far, in first-declared order,
+   * already sorted into the halves it will be emitted as.
+   *
+   * A half is keyed by the property as it will be *written*, so the two
+   * never collide: `fill:#111,color:#fff` is one declaration of `fill` in
+   * each half rather than one overwriting the other, and a second `color`
+   * still replaces the first.
+   */
+  const byTargetId = new Map<string, { frame: Map<string, string>; text: Map<string, string> }>();
 
   for (const declaration of declarations) {
     if (declaration.styleKind === "classDef") continue;
@@ -93,23 +114,61 @@ export function resolveStyles(
         continue;
       }
 
-      let properties = byTargetId.get(targetId);
-      if (properties === undefined) {
-        properties = new Map<string, string>();
-        byTargetId.set(targetId, properties);
+      let halves = byTargetId.get(targetId);
+      if (halves === undefined) {
+        halves = { frame: new Map<string, string>(), text: new Map<string, string>() };
+        byTargetId.set(targetId, halves);
       }
-      for (const { property, value } of applied) {
-        properties.set(property, value);
+      for (const accepted of applied) {
+        const asText = asTextDeclaration(accepted);
+        if (asText === null) {
+          halves.frame.set(accepted.property, accepted.value);
+        } else {
+          halves.text.set(asText.property, asText.value);
+        }
       }
     }
   }
 
   return [...byTargetId]
-    .filter(([, properties]) => properties.size > 0)
-    .map(([targetId, properties]) => ({
+    .filter(([, { frame, text }]) => frame.size + text.size > 0)
+    .map(([targetId, { frame, text }]) => ({
       targetId,
-      properties: [...properties].map(([property, value]) => ({ property, value })),
+      style: { frame: asProperties(frame), text: asProperties(text) },
     }));
+}
+
+/**
+ * The label-text declaration one accepted declaration becomes, or `null`
+ * when it stays on the frame.
+ *
+ * `color` in, `fill` out, and that translation is the whole of this
+ * function. An author writes `color` because that is what Mermaid's
+ * `classDef` documents, but SVG paints a `<text>` with `fill`: an inline
+ * `color:#fff` on a `<text>` leaves its computed `fill` exactly where the
+ * theme put it, so emitting the author's spelling verbatim would move the
+ * bug one element over rather than fix it. Normalizing the spelling once,
+ * here, is the same move `TD` → `TB` and `linkStyle 0` → an edge id make;
+ * nothing downstream has to know the word `color` exists.
+ *
+ * Matched case-insensitively, because CSS property names are, and because
+ * `strokeOf` in the flowchart renderer already reads them that way.
+ *
+ * `color` is the only text property, deliberately. `font-size` and its
+ * neighbours are genuine text properties Mermaid accepts, but
+ * `layoutClassDiagram` *measures* text to size the box drawn around it, so
+ * an author changing the font here would desynchronize the drawn text from
+ * the box computed for it. That is a layout question, and it is not this
+ * one. `stroke` is the frame's border everywhere else in this codebase and
+ * stays so here.
+ */
+function asTextDeclaration({ property, value }: StyleProperty): StyleProperty | null {
+  return property.toLowerCase() === "color" ? { property: "fill", value } : null;
+}
+
+/** One half's accumulated declarations, back as the list a renderer emits. */
+function asProperties(half: ReadonlyMap<string, string>): StyleProperty[] {
+  return [...half].map(([property, value]) => ({ property, value }));
 }
 
 /**

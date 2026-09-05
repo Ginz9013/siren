@@ -10,16 +10,16 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, style: [] },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, style: [] },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, style: [] },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, style: { frame: [], text: [] } },
     ],
     edges: [
       {
         id: "A-B",
         from: "A",
         to: "B",
-        style: [],
+        style: { frame: [], text: [] },
         points: [
           { x: 40, y: 20 },
           { x: 40, y: 100 },
@@ -29,7 +29,7 @@ function buildFixture(): PositionedGraph {
         id: "B-C",
         from: "B",
         to: "C",
-        style: [],
+        style: { frame: [], text: [] },
         points: [
           { x: 40, y: 120 },
           { x: 40, y: 200 },
@@ -57,9 +57,9 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, style: [] },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, style: [] },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, style: [] },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, style: { frame: [], text: [] } },
     ],
     edges: [],
     timeline: {
@@ -259,10 +259,13 @@ describe("renderToSVG", () => {
     // only ever be inherited by the frame and lose to the theme's own rule
     // (ADR-0008).
     const graph = buildFixture();
-    graph.nodes[0].style = [
-      { property: "fill", value: "#fdd" },
-      { property: "stroke", value: "#c00" },
-    ];
+    graph.nodes[0].style = {
+      frame: [
+        { property: "fill", value: "#fdd" },
+        { property: "stroke", value: "#c00" },
+      ],
+      text: [],
+    };
 
     const svg = renderToSVG(graph);
 
@@ -286,10 +289,13 @@ describe("renderToSVG", () => {
     // `.siren-edge { stroke: ... }` paints — an inline declaration there
     // outranks it without `!important` (ADR-0008).
     const graph = buildFixture();
-    graph.edges[0].style = [
-      { property: "stroke", value: "#f00" },
-      { property: "stroke-width", value: "4px" },
-    ];
+    graph.edges[0].style = {
+      frame: [
+        { property: "stroke", value: "#f00" },
+        { property: "stroke-width", value: "4px" },
+      ],
+      text: [],
+    };
 
     const svg = renderToSVG(graph);
 
@@ -310,7 +316,7 @@ describe("renderToSVG", () => {
     // a marker carrying it, as an inline `fill` that outranks the theme's
     // `.siren-arrow-fill` rule without `!important`.
     const graph = buildFixture();
-    graph.edges[0].style = [{ property: "stroke", value: "#f00" }];
+    graph.edges[0].style = { frame: [{ property: "stroke", value: "#f00" }], text: [] };
 
     const svg = renderToSVG(graph);
 
@@ -334,11 +340,14 @@ describe("renderToSVG", () => {
     // would give a two-color arrow, which is worse than the single-color one
     // this ticket replaced.
     const graph = buildFixture();
-    graph.edges[0].style = [
-      { property: "stroke", value: "#f00" },
-      { property: "stroke-width", value: "4px" },
-      { property: "STROKE", value: "#00f" },
-    ];
+    graph.edges[0].style = {
+      frame: [
+        { property: "stroke", value: "#f00" },
+        { property: "stroke-width", value: "4px" },
+        { property: "STROKE", value: "#00f" },
+      ],
+      text: [],
+    };
 
     const svg = renderToSVG(graph);
 

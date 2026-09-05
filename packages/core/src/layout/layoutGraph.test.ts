@@ -13,13 +13,13 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A", style: [] },
-      { id: "B", label: "B", style: [] },
-      { id: "C", label: "C", style: [] },
+      { id: "A", label: "A", style: { frame: [], text: [] } },
+      { id: "B", label: "B", style: { frame: [], text: [] } },
+      { id: "C", label: "C", style: { frame: [], text: [] } },
     ],
     edges: [
-      { id: "A-B", from: "A", to: "B", style: [] },
-      { id: "B-C", from: "B", to: "C", style: [] },
+      { id: "A-B", from: "A", to: "B", style: { frame: [], text: [] } },
+      { id: "B-C", from: "B", to: "C", style: { frame: [], text: [] } },
     ],
     timeline: { totalSteps: 0, entries: [] },
   };
@@ -136,20 +136,25 @@ describe("layoutGraph", () => {
   });
 
   it("passes each node's resolved author styling through unchanged onto PositionedNode.style", () => {
-    // Layout has no opinion about styling: the declarations, their order and
-    // the empty list of an unstyled node all arrive at the renderer exactly
-    // as `buildFlowchartModel` resolved them. What they *mean* was settled at
-    // `resolveStyles`, and this stage may not re-decide any of it.
+    // Layout has no opinion about styling: the declarations, their order, the
+    // half each one was sorted into and the empty halves of an unstyled node
+    // all arrive at the renderer exactly as `buildFlowchartModel` resolved
+    // them. What they *mean* was settled at `resolveStyles`, and this stage
+    // may not re-decide any of it — which is why the text half is carried
+    // here too rather than dropped as the half this stage has no use for.
     const base = chainGraph("TB");
     const graph: GraphModel = {
       ...base,
       nodes: [
         {
           ...base.nodes[0],
-          style: [
-            { property: "fill", value: "#fdd" },
-            { property: "stroke", value: "#c00" },
-          ],
+          style: {
+            frame: [
+              { property: "fill", value: "#fdd" },
+              { property: "stroke", value: "#c00" },
+            ],
+            text: [{ property: "fill", value: "#fff" }],
+          },
         },
         ...base.nodes.slice(1),
       ],
@@ -158,11 +163,14 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
-    expect(byId.A.style).toEqual([
-      { property: "fill", value: "#fdd" },
-      { property: "stroke", value: "#c00" },
-    ]);
-    expect(byId.B.style).toEqual([]);
+    expect(byId.A.style).toEqual({
+      frame: [
+        { property: "fill", value: "#fdd" },
+        { property: "stroke", value: "#c00" },
+      ],
+      text: [{ property: "fill", value: "#fff" }],
+    });
+    expect(byId.B.style).toEqual({ frame: [], text: [] });
   });
 
   it("passes each edge's resolved author styling through unchanged onto PositionedEdge.style", () => {
@@ -174,7 +182,10 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       ...base,
       edges: [
-        { ...base.edges[0], style: [{ property: "stroke", value: "#f00" }] },
+        {
+          ...base.edges[0],
+          style: { frame: [{ property: "stroke", value: "#f00" }], text: [] },
+        },
         ...base.edges.slice(1),
       ],
     };
@@ -182,7 +193,10 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
     const byId = Object.fromEntries(positioned.edges.map((e) => [e.id, e]));
-    expect(byId["A-B"].style).toEqual([{ property: "stroke", value: "#f00" }]);
-    expect(byId["B-C"].style).toEqual([]);
+    expect(byId["A-B"].style).toEqual({
+      frame: [{ property: "stroke", value: "#f00" }],
+      text: [],
+    });
+    expect(byId["B-C"].style).toEqual({ frame: [], text: [] });
   });
 });

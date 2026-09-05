@@ -1,4 +1,5 @@
 import type {
+  AuthorStyle,
   Diagnostic,
   FlowchartDocument,
   GraphEdge,
@@ -41,14 +42,19 @@ export function buildFlowchartModel(
   // spelling — names a node. `linkStyle` is the exception, and it is
   // resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  for (const { targetId, properties } of resolveStyles(
+  for (const { targetId, style } of resolveStyles(
     document.styles,
     new Set(nodeById.keys()),
     diagnostics,
   )) {
     // Every id `resolveStyles` returns is one it was handed, so this cannot
-    // miss; a node nothing styled keeps the empty list it was built with.
-    nodeById.get(targetId)!.style = properties;
+    // miss; a node nothing styled keeps the empty halves it was built with.
+    //
+    // Both halves are carried, not just the frame's: which of a node's
+    // elements a declaration is about was settled by `resolveStyles`, and
+    // re-deciding it here would be the second opinion that split is meant
+    // to prevent.
+    nodeById.get(targetId)!.style = style;
   }
 
   // The same resolver, the same gate, a different set of ids — reusing it
@@ -71,12 +77,12 @@ export function buildFlowchartModel(
   // means two `linkStyle default` statements still settle between
   // themselves by ADR-0008's last-declaration-wins, because they are one
   // tier and not one tier each.
-  for (const { targetId, properties } of resolveStyles(fallback, edgeIds, diagnostics)) {
-    edgeById.get(targetId)!.style = properties;
+  for (const { targetId, style } of resolveStyles(fallback, edgeIds, diagnostics)) {
+    edgeById.get(targetId)!.style = style;
   }
-  for (const { targetId, properties } of resolveStyles(specific, edgeIds, diagnostics)) {
+  for (const { targetId, style } of resolveStyles(specific, edgeIds, diagnostics)) {
     const edge = edgeById.get(targetId)!;
-    edge.style = overriding(edge.style, properties);
+    edge.style = overriding(edge.style, style);
   }
 
   const validTargetIds = new Set<string>([
@@ -113,7 +119,19 @@ export function buildFlowchartModel(
  * value of its last, which is the rule `resolveStyles` already applies
  * within a tier, applied here between two.
  */
-function overriding(
+function overriding(fallback: AuthorStyle, specific: AuthorStyle): AuthorStyle {
+  return {
+    frame: overridingProperties(fallback.frame, specific.frame),
+    // Half by half, because the two tiers are two statements about the same
+    // edge and each half is about a different element of it. Merging them
+    // together would let a `linkStyle default color:#fff` be taken back by
+    // a `linkStyle 0 stroke:#f00` that never mentioned the label.
+    text: overridingProperties(fallback.text, specific.text),
+  };
+}
+
+/** One half of `overriding`: the fallback's declarations with the specific statement's laid over them. */
+function overridingProperties(
   fallback: readonly StyleProperty[],
   specific: readonly StyleProperty[],
 ): StyleProperty[] {
@@ -124,13 +142,25 @@ function overriding(
   return [...merged].map(([property, value]) => ({ property, value }));
 }
 
+/**
+ * The styling a node or an edge is built with: declared nothing, in both
+ * halves.
+ *
+ * A fresh object each call rather than one shared constant, so two
+ * unstyled elements can never end up sharing the arrays a later assignment
+ * would have to be careful not to mutate.
+ */
+function unstyled(): AuthorStyle {
+  return { frame: [], text: [] };
+}
+
 function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): GraphNode[] {
   const nodesById = new Map<string, GraphNode>();
 
   for (const node of document.nodes) {
     const existing = nodesById.get(node.id);
     if (existing === undefined) {
-      nodesById.set(node.id, { id: node.id, label: node.label, style: [] });
+      nodesById.set(node.id, { id: node.id, label: node.label, style: unstyled() });
       continue;
     }
     if (existing.label !== node.label) {
@@ -157,7 +187,7 @@ function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
     const baseId = `${edge.from}-${edge.to}`;
     const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
 
-    return { id, from: edge.from, to: edge.to, style: [] };
+    return { id, from: edge.from, to: edge.to, style: unstyled() };
   });
 }
 

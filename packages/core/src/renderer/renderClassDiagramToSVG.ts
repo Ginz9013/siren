@@ -352,13 +352,38 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
   frame.setAttribute("y", String(positionedClass.y));
   frame.setAttribute("width", String(positionedClass.width));
   frame.setAttribute("height", String(positionedClass.height));
-  applyAuthorStyle(frame, positionedClass.style);
+  applyAuthorStyle(frame, positionedClass.style.frame);
   g.appendChild(frame);
+
+  /**
+   * Appends one of the class's labels, wearing whatever the author's
+   * `color` resolved to.
+   *
+   * Every `<text>` this class draws goes through here, because a `classDef`
+   * names the class and not one of its lines: an author who recolors a box
+   * meant its name, its annotation and its members alike. A relationship's
+   * label and cardinalities are drawn elsewhere and stay out of it — no
+   * `style` or `classDef` can name a relationship.
+   *
+   * The declaration lands on the `<text>` itself for the placement reason
+   * ADR-0008 gives the frame: the theme's `.siren-class-name`,
+   * `.siren-member` and `.siren-class-annotation` rules apply directly to
+   * these elements, so an inline declaration here outranks them without
+   * `!important`, while the same one on the enclosing `<g>` would only be
+   * inherited and lose. It is spelled `fill` rather than the author's
+   * `color` because `fill` is what paints SVG text; `resolveStyles` made
+   * that translation, and this renderer neither repeats nor second-guesses
+   * it.
+   */
+  const appendLabel = (label: SVGTextElement): void => {
+    applyAuthorStyle(label, positionedClass.style.text);
+    g.appendChild(label);
+  };
 
   const centerX = positionedClass.x + positionedClass.width / 2;
   const band = nameBand(positionedClass);
   if (positionedClass.annotation === null) {
-    g.appendChild(
+    appendLabel(
       buildCenteredText("siren-class-name", positionedClass.name, {
         x: centerX,
         y: (band.top + band.bottom) / 2,
@@ -370,13 +395,13 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
     // in Mermaid's guillemets, which is also why the layout measured it
     // without them.
     const split = (band.top + band.bottom) / 2;
-    g.appendChild(
+    appendLabel(
       buildCenteredText("siren-class-annotation", `«${positionedClass.annotation}»`, {
         x: centerX,
         y: (band.top + split) / 2,
       }),
     );
-    g.appendChild(
+    appendLabel(
       buildCenteredText("siren-class-name", positionedClass.name, {
         x: centerX,
         y: (split + band.bottom) / 2,
@@ -395,7 +420,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
       // textContent, never innerHTML — the hard invariant of every Siren
       // renderer: member text is author input and must render literally.
       text.textContent = member.text;
-      g.appendChild(text);
+      appendLabel(text);
     }
   }
 

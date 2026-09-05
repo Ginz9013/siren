@@ -112,13 +112,41 @@ is the shape of the fix when this is taken up.
 The leading option is to **route declarations by property** rather than to widen what one element
 receives: box properties (`fill`, `stroke`, `stroke-width`, ...) keep going to
 `.siren-class-frame`, and `color` — spelled exactly as Mermaid's `classDef` already spells it —
-is emitted onto the class's `<text>` elements instead. That keeps every argument in this ADR
-intact. It is still an inline `style` attribute, so it still outranks the theme's class rules
-without `!important`; it still lands directly on the element the theme styles, so nothing is
-resolved by inheritance; and the one validation gate in `buildClassModel` still sees every
+is emitted onto the class's `<text>` elements instead, where it is spelled `fill`. That keeps
+every argument in this ADR intact. It is still an inline `style` attribute, so it still outranks
+the theme's class rules without `!important`; it still lands directly on the element the theme
+styles, so nothing is resolved by inheritance; and the one validation gate still sees every
 declaration before it is emitted. It is also a compatibility gain rather than an invention:
 `color:` is what a Mermaid author already writes to recolor a label, and today Siren accepts that
 declaration and silently paints it onto a rect that has no text in it.
+
+The change of word on the way is not a detail, and this amendment said "emitted onto the class's
+`<text>` elements" for a while without saying it. SVG paints a `<text>` with `fill`; `color` names
+no paint in an SVG document at all, so an inline `color` on a label sits in a property nothing
+reads and leaves the computed `fill` exactly where the theme put it. Measured twice, once by each
+of two readers who did not believe it:
+
+```
+<text style="color:#fff">   computed fill = #1a1a2e   (the theme's, unchanged)
+<text style="fill:#fff">    computed fill = #ffffff   (the author's)
+```
+
+So emitting the author's spelling verbatim onto the right element would have shipped this
+amendment's own bug one element over: the declaration would move off the rect that has no text in
+it and onto the text, and still paint nothing, and the author would still have no directive that
+works. The routing is therefore a **translation** — the author writes `color`, the label carries
+`fill` — made once where every other authored spelling is normalized, in the model, so that
+nothing downstream of it sees the word `color`. That is the rule this codebase already follows
+turning `TD` into `TB`, `class` and `cssClass` into one apply-directive, and a `linkStyle` index
+into an edge id: an authored spelling is a compatibility surface, and one vocabulary lives behind
+it.
+
+The alternative that would let the author's spelling survive is to give the theme's text rules
+`fill: currentColor`, so that an inherited `color` reaches them. It is rejected on the placement
+argument above, which it inverts: every text rule would then resolve through inheritance, the one
+mechanism that argument exists to keep out of the cascade, and it would move the fix into
+`theme/default.css`, where a consumer redeclaring a rule could take it back without ever meaning
+to touch an author's directive.
 
 The alternative of translating an author's `fill` into a scoped `--siren-node-text` override is
 the "map author declarations onto the tokens" option this ADR already rejected, and rejects again

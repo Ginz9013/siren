@@ -26,7 +26,7 @@ function buildClass(overrides: Partial<PositionedClass> = {}): PositionedClass {
     height: 60,
     attributes: null,
     methods: null,
-    style: [],
+    style: { frame: [], text: [] },
     interaction: null,
     ...overrides,
   };
@@ -659,10 +659,13 @@ describe("renderClassDiagramToSVG", () => {
       const svg = renderClassDiagramToSVG(
         buildDiagram([
           buildClass({
-            style: [
-              { property: "fill", value: "#fdd" },
-              { property: "stroke", value: "#c00" },
-            ],
+            style: {
+              frame: [
+                { property: "fill", value: "#fdd" },
+                { property: "stroke", value: "#c00" },
+              ],
+              text: [],
+            },
           }),
         ]),
       );
@@ -679,10 +682,13 @@ describe("renderClassDiagramToSVG", () => {
       const svg = renderClassDiagramToSVG(
         buildDiagram([
           buildClass({
-            style: [
-              { property: "stroke-width", value: "4px" },
-              { property: "fill", value: "#eef" },
-            ],
+            style: {
+              frame: [
+                { property: "stroke-width", value: "4px" },
+                { property: "fill", value: "#eef" },
+              ],
+              text: [],
+            },
           }),
         ]),
       );
@@ -692,7 +698,56 @@ describe("renderClassDiagramToSVG", () => {
       );
     });
 
-    it("emits no style attribute for a class the author did not style", () => {
+    it("emits the text half onto every label the class draws, and onto nothing else", () => {
+      // The frame half and the text half go to different elements of the same
+      // class, and the boundary between them is drawn here once: a class's
+      // name, annotation and members wear the text half; the frame wears the
+      // frame half; a relationship's label wears neither, because no
+      // `style`, `classDef` or apply-directive can name a relationship.
+      const svg = renderClassDiagramToSVG(
+        buildDiagram(
+          [
+            buildClass({
+              ...COMPARTMENTED_CLASS,
+              annotation: "abstract",
+              style: {
+                frame: [{ property: "fill", value: "#111" }],
+                text: [{ property: "fill", value: "#fff" }],
+              },
+            }),
+          ],
+          [buildRelationship({ label: "owns", labelAnchor: { x: 70, y: 160 } })],
+        ),
+      );
+
+      expect(svg.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBe("fill:#111");
+      for (const label of Array.from(
+        svg.querySelectorAll(".siren-class-name, .siren-class-annotation, .siren-member"),
+      )) {
+        expect([label.getAttribute("class"), label.getAttribute("style")]).toEqual([
+          label.getAttribute("class"),
+          "fill:#fff",
+        ]);
+      }
+      expect(svg.querySelector(".siren-relationship-label")!.getAttribute("style")).toBeNull();
+    });
+
+    it("gives a class with no text declarations no style attribute on its labels", () => {
+      const svg = renderClassDiagramToSVG(
+        buildDiagram([
+          buildClass({
+            ...COMPARTMENTED_CLASS,
+            style: { frame: [{ property: "fill", value: "#111" }], text: [] },
+          }),
+        ]),
+      );
+
+      for (const label of Array.from(svg.querySelectorAll(".siren-class-name, .siren-member"))) {
+        expect(label.hasAttribute("style")).toBe(false);
+      }
+    });
+
+        it("emits no style attribute for a class the author did not style", () => {
       const svg = renderClassDiagramToSVG(buildDiagram([buildClass()]));
 
       expect(svg.querySelector("rect.siren-class-frame")?.hasAttribute("style")).toBe(false);

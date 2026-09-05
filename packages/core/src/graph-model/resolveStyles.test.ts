@@ -43,7 +43,7 @@ describe("resolveStyles", () => {
       );
 
       expect(styles).toEqual([
-        { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
       expect(diagnostics).toEqual([
         {
@@ -77,7 +77,7 @@ describe("resolveStyles", () => {
       );
 
       expect(styles).toEqual([
-        { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
       expect(diagnostics).toEqual([]);
     });
@@ -184,10 +184,57 @@ describe("resolveStyles", () => {
       expect(styles).toEqual([
         {
           targetId: "Shape",
-          properties: [
-            { property: "fill", value: "#00f" },
-            { property: "stroke", value: "#c00" },
-          ],
+          style: {
+            frame: [
+              { property: "fill", value: "#00f" },
+              { property: "stroke", value: "#c00" },
+            ],
+            text: [],
+          },
+        },
+      ]);
+      expect(diagnostics).toEqual([]);
+    });
+  });
+
+  /**
+   * ADR-0008's amendment, and the reason `ResolvedStyle` has two halves
+   * rather than one list: an author's `color` is about the label text and
+   * every other declaration is about the drawn shape behind it.
+   */
+  describe("routing a declaration to the frame or to the label text", () => {
+    it("splits one statement, translating the author's `color` into the `fill` that paints SVG text", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "style",
+            targetIds: ["Shape"],
+            properties: [
+              { property: "fill", value: "#111" },
+              { property: "color", value: "#fff" },
+            ],
+            line: 4,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      // `color` is what a Mermaid author writes and `fill` is what paints a
+      // `<text>`; an inline `color` on one would sit in a different property
+      // and never reach it. So the spelling is normalized here, once, exactly
+      // as `TD` becomes `TB` and a `linkStyle` index becomes an edge id —
+      // and nothing downstream of this module ever sees the word `color`.
+      expect(styles).toEqual([
+        {
+          targetId: "Shape",
+          style: {
+            frame: [{ property: "fill", value: "#111" }],
+            text: [{ property: "fill", value: "#fff" }],
+          },
         },
       ]);
       expect(diagnostics).toEqual([]);
@@ -217,7 +264,7 @@ describe("resolveStyles", () => {
       ]);
 
       expect(styles).toEqual([
-        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
       ]);
       expect(diagnostics).toEqual([
         {
@@ -236,7 +283,7 @@ describe("resolveStyles", () => {
       ]);
 
       expect(styles).toEqual([
-        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
       ]);
       expect(diagnostics).toEqual([
         {
@@ -250,7 +297,34 @@ describe("resolveStyles", () => {
       ]);
     });
 
-    it("drops an expression( value", () => {
+    it("puts a `color` through the gate on the way to the text half, quoting the word the author wrote", () => {
+      // Routing a declaration elsewhere must not route it around the gate:
+      // the text half becomes an inline `style` attribute on a `<text>`
+      // exactly as the frame half becomes one on a `<rect>`, so the same
+      // values are the same danger. The message names `color`, not the
+      // `fill` it would have been translated into — the author has to find
+      // the line they wrote.
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "color", value: "url(#evil)" },
+        { property: "fill", value: "#111" },
+      ]);
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#111" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "color" uses "url(", which can fetch a remote resource; ' +
+            "dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+        it("drops an expression( value", () => {
       const { styles, diagnostics } = resolveStyleStatement([
         { property: "width", value: "expression(alert(1))" },
       ]);
@@ -331,8 +405,8 @@ describe("resolveStyles", () => {
       );
 
       expect(styles).toEqual([
-        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
-        { targetId: "Duck", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
+        { targetId: "Duck", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
       ]);
       expect(diagnostics).toEqual([
         {
