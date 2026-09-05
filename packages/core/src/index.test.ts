@@ -3050,11 +3050,13 @@ A[Start]:::ghost --> B[End]:::ghost
     ]);
   });
 
-  it("still calls a chained `A --> B --> C` unrecognized, with or without a `:::` on it", () => {
-    // Widening an endpoint is not widening how many endpoints a line may
-    // have. Chaining is a separate compatibility gap, and a pattern that
-    // read the first two nodes of three and dropped the rest would draw a
-    // diagram the author did not write — worse than refusing the line.
+  it("draws a chained `A --> B --> C` as the two edges it declares, with or without a `:::` on it", () => {
+    // The deliberate reversal of board 3's pin, which refused these three
+    // lines so that whoever widened them had to do it on purpose. Its
+    // argument survives the reversal and is why this asserts ids rather
+    // than a count: reading the first two nodes of three and dropping the
+    // rest would draw a diagram the author never wrote, which is worse than
+    // the refusal it replaced. A chain is read whole or refused whole.
     for (const line of [
       "A --> B --> C",
       "A[Start] --> B[Mid] --> C[End]",
@@ -3065,11 +3067,45 @@ A[Start]:::ghost --> B[End]:::ghost
         document.createElement("div"),
       );
 
-      expect([line, result.diagnostics.map((d) => d.message)]).toEqual([
-        line,
-        [`Unrecognized flowchart line: "${line}"`],
-      ]);
+      expect([line, result.diagnostics]).toEqual([line, []]);
+      const edgeIds = Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) =>
+        path.getAttribute("data-siren-id"),
+      );
+      expect([line, edgeIds]).toEqual([line, ["A-B", "B-C"]]);
+      const nodeIds = Array.from(result.svg!.querySelectorAll("g.siren-node")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      );
+      expect([line, nodeIds]).toEqual([line, ["A", "B", "C"]]);
     }
+  });
+
+  it("lands a `:::` on both ends of a chain, and on every member of an `&` group, all the way in the DOM", () => {
+    const result = render(
+      `flowchart TD
+classDef hot fill:#fdd
+classDef cold fill:#ddf
+A:::hot --> B --> C:::cold
+D:::hot & E:::cold --> F
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    // A line that names more endpoints applies at more of them; the one
+    // that wore nothing still wears nothing.
+    expect(["A", "B", "C", "D", "E", "F"].map(frameStyle)).toEqual([
+      "fill:#fdd",
+      null,
+      "fill:#ddf",
+      "fill:#fdd",
+      "fill:#ddf",
+      null,
+    ]);
   });
 
   it("carries a flowchart author's `linkStyle` all the way to the DOM: the inline style lands on the path of the edge the index addresses, and on no other", () => {

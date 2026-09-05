@@ -289,8 +289,15 @@ const SILENTLY_WRONG = 2;
  * supposed to travel. `fc-header-graph-tb` and `fc-header-graph-lr` are now
  * `supported`: `graph` is read as the spelling of `flowchart` it has always
  * been, so both documents draw, in the direction their header named.
+ *
+ * It fell by three more, to 34, when a line stopped being one statement.
+ * `fc-edge-chained`, `fc-stmt-ampersand` and `fc-stmt-semicolon` are all
+ * `supported`: an edge line is read as the chain of endpoints it may be
+ * rather than as exactly two, either end of an arrow may name several nodes
+ * with `&`, and `;` ends a statement so a line may carry more than one.
+ * Three rows, one change — how an edge line is read.
  */
-const REJECTED = 37;
+const REJECTED = 34;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -934,6 +934,294 @@ timeline:
     ]);
   });
 
+  it("reads a chained `A --> B --> C` as one edge per arrow, declaring every node on the line", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A --> B --> C
+`);
+
+    // The edge ids `timeline:` and `linkStyle` end up addressing are
+    // `${from}-${to}`, so the pairs are what a chain has to get right — a
+    // count alone would pass for `A-B` twice.
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+    ]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("keeps one edge per arrow at length: a four-node chain is three edges, not two", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A[Start] --> B --> C --> D[End]
+`);
+
+    // Three links rather than two. A two-node chain cannot tell a loop that
+    // stops one short from a correct one, and stopping short is the likely
+    // bug here — it would silently drop the tail of every longer chain.
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+      ["C", "D"],
+    ]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "B"],
+      ["C", "C"],
+      ["D", "End"],
+    ]);
+  });
+
+  it("expands an `&` group on either side of the arrow into one edge per member", () => {
+    const fromGroup = parseFlowchartOk(`flowchart TD
+  A & B --> C
+`);
+    const toGroup = parseFlowchartOk(`flowchart TD
+  A --> B & C
+`);
+
+    expect(fromGroup.diagnostics).toEqual([]);
+    expect(fromGroup.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "B-C",
+    ]);
+    expect(fromGroup.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+
+    expect(toGroup.diagnostics).toEqual([]);
+    expect(toGroup.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-B",
+      "A-C",
+    ]);
+    expect(toGroup.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("pairs an `&` group on both sides source-outermost, the order Mermaid produces", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A & B --> C & D
+`);
+
+    // The order is Mermaid's own, not a preference. `FlowDB.addLink` in
+    // mermaid 11.17.2 is `for (const start of _start) { for (const end of
+    // _end) { ... } }` — sources outermost — and running that parser on
+    // this exact source produces A-C, A-D, B-C, B-D in that order.
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "A-D",
+      "B-C",
+      "B-D",
+    ]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("continues a chain from the whole group the last arrow named, so `&` and chaining compose", () => {
+    const oneThenChain = parseFlowchartOk(`flowchart TD
+  A & B --> C --> D
+`);
+    const groupThenChain = parseFlowchartOk(`flowchart TD
+  A & B --> C & D --> E
+`);
+
+    // What composition means: each arrow pairs the group before it with the
+    // group after it, and the next arrow starts from that same second
+    // group — not from the line's first group. So `A & B --> C --> D` is
+    // three edges, and D is reached only from C. Read off mermaid 11.17.2
+    // by running its flowchart parser on both sources.
+    expect(oneThenChain.diagnostics).toEqual([]);
+    expect(oneThenChain.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "B-C",
+      "C-D",
+    ]);
+
+    // And when that second group has several members, every one of them
+    // continues the chain: C-E and D-E, and still nothing from A or B to E.
+    expect(groupThenChain.diagnostics).toEqual([]);
+    expect(groupThenChain.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "A-D",
+      "B-C",
+      "B-D",
+      "C-E",
+      "D-E",
+    ]);
+    expect(groupThenChain.document.nodes.map((node) => node.id)).toEqual([
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+    ]);
+  });
+
+  it("ends a statement at `;`, so one line may carry several and a trailing one is spare", () => {
+    // In Mermaid `;` is a separator that is also allowed to trail, because
+    // an empty statement is legal: running mermaid 11.17.2's own flowchart
+    // parser accepts `A --> B;`, `A --> B; B --> C`, `A --> B; B --> C;`,
+    // `A --> B ; ; B --> C` and a line that is nothing but `;`, and gives
+    // the same two edges for every spelling that names them. So the rule is
+    // "`;` ends a statement", and what lies between two of them may be
+    // nothing at all.
+    for (const line of [
+      "A --> B; B --> C;",
+      "A --> B; B --> C",
+      "A-->B;B-->C;",
+      "A --> B ; ; B --> C",
+    ]) {
+      const { document, diagnostics } = parseFlowchartOk(`flowchart TD\n${line}\n`);
+
+      expect([line, diagnostics]).toEqual([line, []]);
+      expect([line, document.edges.map((edge) => `${edge.from}-${edge.to}`)]).toEqual([
+        line,
+        ["A-B", "B-C"],
+      ]);
+      expect([line, document.nodes.map((node) => node.id)]).toEqual([line, ["A", "B", "C"]]);
+    }
+  });
+
+  it("lets a `;` trail any statement kind, and reads a lone `;` as no statement at all", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  ;
+  classDef hot fill:#fdd;
+  A[Start]:::hot;
+  A --> B[End];
+  style B stroke:#00f;
+  linkStyle 0 stroke:#f00;
+  class B hot;
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "End"],
+    ]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
+    expect(document.styles.map((style) => [style.styleKind, style.authoredAs, style.name])).toEqual(
+      [
+        ["classDef", "classDef", "hot"],
+        ["apply", ":::", "hot"],
+        ["style", "style", null],
+        ["apply", "class", "hot"],
+      ],
+    );
+    expect(document.linkStyles.map((linkStyle) => linkStyle.targets)).toEqual([["0"]]);
+  });
+
+  it("keeps a `;` and an `&` that are inside a label out of the split", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A[one; two] --> B[three & four]
+`);
+
+    // `A[a;b]` and `A[a&b]` are ordinary labels in Mermaid — checked
+    // against its own parser — so a splitter that did not know where a
+    // label starts would cut them into nonsense.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "one; two"],
+      ["B", "three & four"],
+    ]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
+  });
+
+  it("diagnoses only the statement that is wrong when a line carries several, at that statement's own column", () => {
+    const { document, diagnostics } = parseSiren(`flowchart TD
+  A --> B; nonsense here
+`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized flowchart line: "nonsense here"',
+        line: 2,
+        column: 12,
+      },
+    ]);
+  });
+
+  it("applies a `:::` at every endpoint a chained or `&` line multiplies, and once per endpoint", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A:::hot --> B --> C:::cold
+  D --> E:::warm --> F
+  G:::hot & H:::cold --> I:::warm
+`);
+
+    expect(diagnostics).toEqual([]);
+    // Once per endpoint that wore one — not once per link the endpoint
+    // takes part in. E sits in the middle of a chain and so belongs to two
+    // edges; it still applies `warm` a single time.
+    expect(document.styles.map((style) => [style.targetIds, style.name])).toEqual([
+      [["A"], "hot"],
+      [["C"], "cold"],
+      [["E"], "warm"],
+      [["G"], "hot"],
+      [["H"], "cold"],
+      [["I"], "warm"],
+    ]);
+    expect(document.styles.every((style) => style.authoredAs === ":::")).toBe(true);
+    // And the shorthand still claims no label, so every node keeps its id.
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "B"],
+      ["C", "C"],
+      ["D", "D"],
+      ["E", "E"],
+      ["F", "F"],
+      ["G", "G"],
+      ["H", "H"],
+      ["I", "I"],
+    ]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-B",
+      "B-C",
+      "D-E",
+      "E-F",
+      "G-I",
+      "H-I",
+    ]);
+  });
+
+  it("refuses a chain whole, declaring nothing from the endpoints it could read", () => {
+    // The property board 3's pin was protecting, kept now that the line is
+    // accepted: reading some of a line's nodes and dropping the rest would
+    // draw a diagram nobody wrote. The redeclaration warning is what makes
+    // "nothing was taken" observable — `A` already has a label, so if the
+    // first endpoint had been declared before the refusal there would be a
+    // warning sitting next to the error.
+    const shape = parseSiren(`flowchart TD
+  A[Start]
+  A[Other] --> B[(DB)] --> C
+`);
+
+    expect(shape.document).toBeNull();
+    expect(shape.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Siren does not draw a cylinder (`A[(text)]`) yet: "A[Other] --> B[(DB)] --> C"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+
+    // Same rule for an endpoint that is not readable at all — here a thick
+    // arrow, which is a later board's, in the middle of the line.
+    const unreadable = parseSiren(`flowchart TD
+  A[Start]
+  A[Other] --> B ==> C
+`);
+
+    expect(unreadable.document).toBeNull();
+    expect(unreadable.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized flowchart line: "A[Other] --> B ==> C"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
   it("leaves a flowchart document that declares no styling with an empty styles list", () => {
     const { document } = parseFlowchartOk(`flowchart TD
   A[Start] --> B[End]

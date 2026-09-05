@@ -463,8 +463,15 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A --> B --> C`,
-    status: "rejected",
+    status: "supported",
     meaning: "A chain declares both edges: A to B and B to C.",
+    assert: (result) => {
+      // The ids, not the count: `timeline:` and `linkStyle` both address an
+      // edge as `${from}-${to}`, so two edges named wrong is a different
+      // picture from two edges named right.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+    },
   },
 
   // -------------------------------------------------------------------------
@@ -475,16 +482,26 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A & B --> C`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A & B --> C` declares two edges, A to C and B to C.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
+      // Both pairings, and neither an `A-B` the `&` never asked for.
+      expectSame("edges", edges(result), ["A-C", "B-C"]);
+    },
   },
   {
     id: "fc-stmt-semicolon",
     kind: "flowchart",
     source: `flowchart TB
       A --> B; B --> C;`,
-    status: "rejected",
+    status: "supported",
     meaning: "`;` separates statements written on one line.",
+    assert: (result) => {
+      // Two statements on one line, and the trailing `;` adds no third.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+    },
   },
   {
     id: "fc-stmt-subgraph",

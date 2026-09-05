@@ -116,19 +116,156 @@ const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
 const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
 
 /**
- * `A[Start] --> B[End]`, with each endpoint free to carry the same
- * `[label]` and `:::name` an endpoint written on a line of its own may
- * carry — the shorthand works wherever a node can be written, as it does in
- * Mermaid, rather than only at a standalone declaration.
+ * **One** endpoint of an edge line: an id, free to carry the same `[label]`
+ * and `:::name` an endpoint written on a line of its own may carry — the
+ * shorthand works wherever a node can be written, as it does in Mermaid,
+ * rather than only at a standalone declaration.
  *
- * Anchored at both ends, so a chained `A --> B --> C` stays an
- * unrecognized line: chaining is a separate compatibility gap, and reading
- * the first two nodes of three while dropping the rest would be a wrong
- * answer where there is currently an honest refusal.
+ * One endpoint rather than a whole line, because a line may name any number
+ * of them: `A --> B --> C` is a chain of three. The line is cut into
+ * endpoints first (`splitOutsideLabel`) and each piece read with this, so
+ * how many endpoints a line has is not something a pattern has to encode.
+ *
+ * Anchored at both ends, which is what keeps a partial read impossible: an
+ * endpoint that does not match refuses the **whole** statement, so no
+ * chain is ever half-consumed. That is board 3's argument for pinning
+ * chains as rejected, kept rather than discarded — reading some of the
+ * nodes on a line and dropping the rest would draw a diagram nobody wrote,
+ * which is worse than an honest refusal.
  */
-const EDGE_RE =
-  /^(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?\s*$/;
-const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
+const ENDPOINT_RE = /^(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?$/;
+
+/** The one arrow form Siren draws. Every other Mermaid arrow is a later board's. */
+const ARROW = "-->";
+
+/**
+ * What joins the endpoints of one **group** — the several nodes an edge
+ * line may name at one end of an arrow, as in `A & B --> C`.
+ */
+const GROUP_SEPARATOR = "&";
+
+/**
+ * What ends a statement written inside a line, so that a line is not
+ * necessarily one statement: `A --> B; B --> C`.
+ *
+ * A **separator that is also allowed to trail**, which is what Mermaid does
+ * — checked against its own flowchart parser, which takes `A --> B;`,
+ * `A --> B; B --> C`, `A --> B ; ; B --> C` and a line that is nothing but
+ * `;` alike. An empty statement is legal there and is simply nothing, so
+ * asking whether `;` "terminates" or "separates" has one answer here:
+ * it ends a statement, and what lies between two of them may be nothing.
+ */
+const STATEMENT_END = ";";
+
+/**
+ * The three statements that carry a **declaration list**, where a `;` is
+ * not a statement end but a value the security gate has to see.
+ *
+ * The one place `;` stops separating, and a deliberate divergence from
+ * Mermaid rather than an oversight. Mermaid does end the statement there —
+ * `style A fill:#fdd;position:fixed,stroke:#c00` leaves it holding
+ * `fill:#fdd` and invents a **node** called `position:fixed,stroke:#c00` —
+ * which is a silent mis-render, the exact failure mode this board exists to
+ * remove. Siren instead hands the whole list to `resolveStyles`, whose gate
+ * refuses a value containing `;` by name: "would smuggle in a second
+ * declaration". Splitting here would delete that diagnostic and quietly
+ * apply the half of the value that came first.
+ *
+ * A `;` that merely *trails* such a statement is still spare, so
+ * `classDef hot fill:#fdd;` reads as `classDef hot fill:#fdd` does.
+ */
+const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
+
+/** One place a node was written on an edge line, as written there. */
+interface EdgeEndpoint {
+  id: string;
+  label: string | undefined;
+  definitionName: string | undefined;
+}
+
+/**
+ * One endpoint, or `null` when the text is not one — which refuses the
+ * statement it came from rather than half of it.
+ */
+function readEndpoint(text: string): EdgeEndpoint | null {
+  const match = ENDPOINT_RE.exec(text.trim());
+  if (match === null) {
+    return null;
+  }
+  return { id: match[1], label: match[2], definitionName: match[3] };
+}
+
+/**
+ * Cuts `text` at every `separator` that lies **outside** a `[...]` label.
+ *
+ * The bracket depth is the whole point. `;`, `&` and `-->` all mean
+ * something between statements and nothing inside a label: `A[a;b]`,
+ * `A[a&b]` and `A[a-->b]` are ordinary labels in Mermaid, and a splitter
+ * that did not know where a label starts would cut them into nonsense —
+ * the same class of bug `UNIMPLEMENTED_BRACKET_FORMS` exists to keep out.
+ *
+ * Always returns at least one piece, and never trims: a caller that needs
+ * a column needs the offsets left alone.
+ */
+function splitOutsideLabel(text: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "[") {
+      depth++;
+      continue;
+    }
+    if (text[i] === "]") {
+      if (depth > 0) {
+        depth--;
+      }
+      continue;
+    }
+    if (depth === 0 && text.startsWith(separator, i)) {
+      parts.push(text.slice(start, i));
+      i += separator.length - 1;
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/**
+ * The statements one source line carries, each with the column it starts
+ * at — so a diagnostic on the second statement of a line points at the
+ * second statement rather than at the line.
+ *
+ * Empty pieces are dropped rather than diagnosed, which is what makes `;`
+ * both a separator and a terminator at once: a trailing `;`, a doubled one
+ * and a line that is only `;` all leave nothing behind, exactly as in
+ * Mermaid. A blank line falls out of the same rule, with no case of its
+ * own.
+ */
+function splitStatements(rawLine: string): { text: string; column: number }[] {
+  const statements: { text: string; column: number }[] = [];
+  let offset = 0;
+  for (const piece of splitOutsideLabel(rawLine, STATEMENT_END)) {
+    const text = piece.trim();
+    if (text.length > 0) {
+      const column = offset + (piece.length - piece.trimStart().length) + 1;
+      if (DECLARATION_LIST_RE.test(text)) {
+        // Runs to the end of the line, minus whatever `;` trails it — see
+        // `DECLARATION_LIST_RE`. Taken from the raw line so that the `;`
+        // characters inside the list survive verbatim for the gate to read.
+        statements.push({
+          text: rawLine.slice(column - 1).replace(/[\s;]+$/, ""),
+          column,
+        });
+        return statements;
+      }
+      statements.push({ text, column });
+    }
+    offset += piece.length + STATEMENT_END.length;
+  }
+  return statements;
+}
 
 /**
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
@@ -349,191 +486,246 @@ export function parseFlowchart(source: string): ParseResult {
     }
   };
 
-  for (let i = 0; i < lines.length; i++) {
+  // Labelled because a line is no longer necessarily one statement: two of
+  // the branches below end the whole document rather than the statement,
+  // and they have to say which loop they mean.
+  readLines: for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const lineNumber = i + 1;
-    const line = rawLine.trim();
-    const column = rawLine.length - rawLine.trimStart().length + 1;
 
-    if (line.length === 0) {
-      continue;
-    }
+    for (const statement of splitStatements(rawLine)) {
+      const line = statement.text;
+      const column = statement.column;
 
-    if (mode === "before-header") {
-      const headerDirection = matchFlowchartHeader(line);
-      if (headerDirection === null) {
-        diagnostics.push({
-          severity: "error",
-          message: `Expected ${listAcceptedHeaders()}, found "${line}"`,
+      if (mode === "before-header") {
+        const headerDirection = matchFlowchartHeader(line);
+        if (headerDirection === null) {
+          diagnostics.push({
+            severity: "error",
+            message: `Expected ${listAcceptedHeaders()}, found "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          break readLines;
+        }
+        direction = headerDirection;
+        mode = "flowchart";
+        continue;
+      }
+
+      if (isTimelineHeader(line)) {
+        // Once the block is open it runs to the end of the document, so the
+        // header is read once and never looked for again — a second
+        // `timeline:` is a line inside the block, which the shared grammar
+        // reports as unrecognized exactly as it does for the other two kinds.
+        // Draining is `parseTimelineBody`'s job; what stays here is only this
+        // parser's own decision: where the block starts, and that a diagnostic
+        // inside it costs the whole document.
+        const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
+          lines,
+          i + 1,
+        );
+        diagnostics.push(...bodyDiagnostics);
+        // Every diagnostic the shared grammar reports is error-severity, so a
+        // non-empty list is exactly the old per-branch `sawError = true`.
+        if (bodyDiagnostics.length > 0) {
+          sawError = true;
+        }
+        timeline = { entries };
+        break readLines;
+      }
+
+      const arrowParts = splitOutsideLabel(line, ARROW);
+      if (arrowParts.length > 1) {
+        // Every outcome below ends the statement. An arrow says the author
+        // meant an edge, so a statement carrying one is never handed on to
+        // the node and styling patterns to be read as something else.
+        const last = arrowParts[arrowParts.length - 1];
+        if (
+          last.trim().length === 0 &&
+          arrowParts.slice(0, -1).every((part) => part.trim().length > 0)
+        ) {
+          diagnostics.push({
+            severity: "error",
+            message: `Malformed edge: missing target after "-->" in "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+
+        // A group per arrow-separated piece: one end of an arrow may name
+        // several nodes, `A & B --> C`.
+        const groups: (EdgeEndpoint | null)[][] = arrowParts.map((part) =>
+          splitOutsideLabel(part, GROUP_SEPARATOR).map(readEndpoint),
+        );
+        if (groups.flat().some((endpoint) => endpoint === null)) {
+          // One unreadable endpoint refuses the whole statement — the rule
+          // `ENDPOINT_RE` is anchored for. Nothing has been declared yet, so
+          // there is no half-drawn chain to take back.
+          diagnostics.push({
+            severity: "error",
+            message: `Unrecognized flowchart line: "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+
+        // Every endpoint read, so the casts below are the narrowing the
+        // check above earned.
+        const chain = groups as EdgeEndpoint[][];
+        const written = chain.flat();
+
+        // Asked of every endpoint before any of them is declared, so a shape
+        // written anywhere on the line refuses the line rather than leaving
+        // the endpoints before it drawn. `some` stops at the first, which is
+        // one diagnostic per statement.
+        if (
+          written.some((endpoint) =>
+            refuseUnimplementedForm(endpoint.label, line, lineNumber, column),
+          )
+        ) {
+          continue;
+        }
+
+        // Declared once each, left to right as written — before any edge, so
+        // a `:::` on an endpoint two arrows along applies exactly once rather
+        // than once per link it takes part in.
+        for (const endpoint of written) {
+          addNodeAsWritten(
+            endpoint.id,
+            endpoint.label,
+            endpoint.definitionName,
+            lineNumber,
+            column,
+          );
+        }
+        // Sources outermost, which is Mermaid's order: `FlowDB.addLink` is
+        // `for (const start of _start) for (const end of _end)`, so
+        // `A & B --> C & D` is A-C, A-D, B-C, B-D.
+        for (let link = 0; link + 1 < chain.length; link++) {
+          for (const from of chain[link]) {
+            for (const to of chain[link + 1]) {
+              edges.push({ from: from.id, to: to.id, line: lineNumber, column });
+            }
+          }
+        }
+        continue;
+      }
+
+      const classDefMatch = CLASS_DEF_RE.exec(line);
+      if (classDefMatch !== null) {
+        // A definition targets nothing: which nodes end up with it is decided
+        // by whoever applies it, in `resolveStyles`' own pass. Checked before
+        // `style` and before a node declaration only because it is the more
+        // specific keyword, not because the order can matter.
+        styles.push({
+          styleKind: "classDef",
+          authoredAs: "classDef",
+          targetIds: [],
+          name: classDefMatch[1],
+          properties: readStyleProperties(classDefMatch[2], lineNumber, column),
           line: lineNumber,
           column,
         });
-        sawError = true;
-        break;
-      }
-      direction = headerDirection;
-      mode = "flowchart";
-      continue;
-    }
-
-    if (isTimelineHeader(line)) {
-      // Once the block is open it runs to the end of the document, so the
-      // header is read once and never looked for again — a second
-      // `timeline:` is a line inside the block, which the shared grammar
-      // reports as unrecognized exactly as it does for the other two kinds.
-      // Draining is `parseTimelineBody`'s job; what stays here is only this
-      // parser's own decision: where the block starts, and that a diagnostic
-      // inside it costs the whole document.
-      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
-        lines,
-        i + 1,
-      );
-      diagnostics.push(...bodyDiagnostics);
-      // Every diagnostic the shared grammar reports is error-severity, so a
-      // non-empty list is exactly the old per-branch `sawError = true`.
-      if (bodyDiagnostics.length > 0) {
-        sawError = true;
-      }
-      timeline = { entries };
-      break;
-    }
-
-    const edgeMatch = EDGE_RE.exec(line);
-    if (edgeMatch !== null) {
-      const [, fromId, fromLabel, fromDefinition, toId, toLabel, toDefinition] =
-        edgeMatch;
-      if (
-        refuseUnimplementedForm(fromLabel, line, lineNumber, column) ||
-        refuseUnimplementedForm(toLabel, line, lineNumber, column)
-      ) {
         continue;
       }
-      addNodeAsWritten(fromId, fromLabel, fromDefinition, lineNumber, column);
-      addNodeAsWritten(toId, toLabel, toDefinition, lineNumber, column);
-      edges.push({ from: fromId, to: toId, line: lineNumber, column });
-      continue;
-    }
 
-    const malformedEdgeMatch = MALFORMED_EDGE_RE.exec(line);
-    if (malformedEdgeMatch !== null) {
+      const classApplyMatch = CLASS_APPLY_RE.exec(line);
+      if (classApplyMatch !== null) {
+        styles.push({
+          styleKind: "apply",
+          authoredAs: "class",
+          targetIds: splitTargetIds(classApplyMatch[1]),
+          name: classApplyMatch[2],
+          properties: [],
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const linkStyleMatch = LINK_STYLE_RE.exec(line);
+      if (linkStyleMatch !== null) {
+        // The address goes through untouched — see `LINK_STYLE_RE`. The
+        // declarations do not: they are read by the same splitter `style` and
+        // `classDef` use, so all three statements accept one declaration list
+        // and diagnose a bad segment in one wording.
+        linkStyles.push({
+          targets: splitTargetIds(linkStyleMatch[1]),
+          properties: readStyleProperties(linkStyleMatch[2], lineNumber, column),
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const styleMatch = STYLE_RE.exec(line);
+      if (styleMatch !== null) {
+        // Naming a node in a `style` statement does not declare it: styling is
+        // about something that already exists, and whether it does is
+        // `resolveStyles`' question, asked once against the model's ids.
+        //
+        // `targetIds` holds the one node this statement targets. It is a
+        // list because the apply-directive targets many.
+        styles.push({
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: [styleMatch[1]],
+          name: null,
+          properties: readStyleProperties(styleMatch[2], lineNumber, column),
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const bracketFormMatch = BRACKET_FORM_RE.exec(line);
+      if (bracketFormMatch !== null) {
+        // Asked before `NODE_RE`, because `NODE_RE` would take the form's own
+        // punctuation as a label — which is the swallow this refuses.
+        if (
+          refuseUnimplementedForm(
+            bracketFormMatch[1],
+            line,
+            lineNumber,
+            column,
+          )
+        ) {
+          continue;
+        }
+      }
+
+      const nodeMatch = NODE_RE.exec(line);
+      if (nodeMatch !== null) {
+        const [, id, label, definitionName] = nodeMatch;
+        addNodeAsWritten(id, label, definitionName, lineNumber, column);
+        continue;
+      }
+
+      const nodeClassMatch = NODE_CLASS_RE.exec(line);
+      if (nodeClassMatch !== null) {
+        const [, id, definitionName] = nodeClassMatch;
+        // Written without a label, so it applies a definition and claims no
+        // label — `addNodeAsWritten` holds what that means, for this spelling
+        // and for an edge's bare endpoint alike.
+        addNodeAsWritten(id, undefined, definitionName, lineNumber, column);
+        continue;
+      }
+
       diagnostics.push({
         severity: "error",
-        message: `Malformed edge: missing target after "-->" in "${line}"`,
+        message: `Unrecognized flowchart line: "${line}"`,
         line: lineNumber,
         column,
       });
       sawError = true;
       continue;
     }
-
-    const classDefMatch = CLASS_DEF_RE.exec(line);
-    if (classDefMatch !== null) {
-      // A definition targets nothing: which nodes end up with it is decided
-      // by whoever applies it, in `resolveStyles`' own pass. Checked before
-      // `style` and before a node declaration only because it is the more
-      // specific keyword, not because the order can matter.
-      styles.push({
-        styleKind: "classDef",
-        authoredAs: "classDef",
-        targetIds: [],
-        name: classDefMatch[1],
-        properties: readStyleProperties(classDefMatch[2], lineNumber, column),
-        line: lineNumber,
-        column,
-      });
-      continue;
-    }
-
-    const classApplyMatch = CLASS_APPLY_RE.exec(line);
-    if (classApplyMatch !== null) {
-      styles.push({
-        styleKind: "apply",
-        authoredAs: "class",
-        targetIds: splitTargetIds(classApplyMatch[1]),
-        name: classApplyMatch[2],
-        properties: [],
-        line: lineNumber,
-        column,
-      });
-      continue;
-    }
-
-    const linkStyleMatch = LINK_STYLE_RE.exec(line);
-    if (linkStyleMatch !== null) {
-      // The address goes through untouched — see `LINK_STYLE_RE`. The
-      // declarations do not: they are read by the same splitter `style` and
-      // `classDef` use, so all three statements accept one declaration list
-      // and diagnose a bad segment in one wording.
-      linkStyles.push({
-        targets: splitTargetIds(linkStyleMatch[1]),
-        properties: readStyleProperties(linkStyleMatch[2], lineNumber, column),
-        line: lineNumber,
-        column,
-      });
-      continue;
-    }
-
-    const styleMatch = STYLE_RE.exec(line);
-    if (styleMatch !== null) {
-      // Naming a node in a `style` statement does not declare it: styling is
-      // about something that already exists, and whether it does is
-      // `resolveStyles`' question, asked once against the model's ids.
-      //
-      // `targetIds` holds the one node this statement targets. It is a
-      // list because the apply-directive targets many.
-      styles.push({
-        styleKind: "style",
-        authoredAs: "style",
-        targetIds: [styleMatch[1]],
-        name: null,
-        properties: readStyleProperties(styleMatch[2], lineNumber, column),
-        line: lineNumber,
-        column,
-      });
-      continue;
-    }
-
-    const bracketFormMatch = BRACKET_FORM_RE.exec(line);
-    if (bracketFormMatch !== null) {
-      // Asked before `NODE_RE`, because `NODE_RE` would take the form's own
-      // punctuation as a label — which is the swallow this refuses.
-      if (
-        refuseUnimplementedForm(
-          bracketFormMatch[1],
-          line,
-          lineNumber,
-          column,
-        )
-      ) {
-        continue;
-      }
-    }
-
-    const nodeMatch = NODE_RE.exec(line);
-    if (nodeMatch !== null) {
-      const [, id, label, definitionName] = nodeMatch;
-      addNodeAsWritten(id, label, definitionName, lineNumber, column);
-      continue;
-    }
-
-    const nodeClassMatch = NODE_CLASS_RE.exec(line);
-    if (nodeClassMatch !== null) {
-      const [, id, definitionName] = nodeClassMatch;
-      // Written without a label, so it applies a definition and claims no
-      // label — `addNodeAsWritten` holds what that means, for this spelling
-      // and for an edge's bare endpoint alike.
-      addNodeAsWritten(id, undefined, definitionName, lineNumber, column);
-      continue;
-    }
-
-    diagnostics.push({
-      severity: "error",
-      message: `Unrecognized flowchart line: "${line}"`,
-      line: lineNumber,
-      column,
-    });
-    sawError = true;
-    continue;
   }
 
   if (mode === "before-header" || direction === null) {
