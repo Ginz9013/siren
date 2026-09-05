@@ -2693,12 +2693,153 @@ step 1: enter B fade
     expect(frame().getAttribute("style")).toBe("fill:#fdd");
   });
 
-  it("still calls a flowchart `classDef`, `class` and `:::` line unrecognized — this slice added `style` and only `style`", () => {
-    for (const line of [
-      "classDef emphasis fill:#fdd",
-      "class A emphasis",
-      "linkStyle 0 stroke:#c00",
-    ]) {
+  it("gives a flowchart `classDef` its effect only through `class`: one definition reaches every node named, a node may carry two, and a definition nothing applies draws nothing", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+B --> C[Ignored]
+classDef emphasis fill:#fdd
+classDef thick stroke-width:3px
+class A,B emphasis
+class B thick
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("fill:#fdd;stroke-width:3px");
+    // `thick` is defined and applied to B only, so C — which no statement
+    // names — keeps no attribute at all.
+    expect(frameStyle("C")).toBeNull();
+  });
+
+  it("carries a `:::` shorthand to the DOM in both forms, including on a node that also appears in an edge", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+classDef emphasis fill:#fdd
+A[Start]:::emphasis
+A --> B[End]
+B:::emphasis
+B --> C[Plain]
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("fill:#fdd");
+    expect(frameStyle("C")).toBeNull();
+    // The shorthand styles the node without disturbing the graph: B still
+    // carries the label its edge declaration gave it, and both edges exist.
+    expect(
+      result.svg!.querySelector('g.siren-node[data-siren-id="B"] text')!.textContent,
+    ).toBe("End");
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(2);
+  });
+
+  it("resolves a flowchart `classDef` written after the statement that applies it, for both the `class` and the `:::` spelling", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start]:::emphasis
+A --> B[End]
+class B emphasis
+classDef emphasis fill:#fdd
+`;
+
+    const result = render(source, container);
+
+    // Collecting the definitions is a pass of its own in the shared
+    // resolver, so a flowchart gets the class diagram's forward reference
+    // rather than a parser-order restriction of its own.
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("fill:#fdd");
+  });
+
+  it("drops only the unknown target of a flowchart `class A,Ghost name`, and names the keyword the author actually typed when no classDef defines the name", () => {
+    const result = render(
+      `flowchart TD
+A[Start] --> B[End]
+B:::ghost
+classDef emphasis fill:#fdd
+class A,Ghost emphasis
+class A missing
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'class "Ghost" references an id that does not exist; dropping the declaration.',
+        line: 5,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'class applies "missing", which no classDef defines; dropping the declaration.',
+        line: 6,
+        column: 1,
+      },
+    ]);
+    // One unknown target drops itself, not the statement: A is still styled.
+    expect(
+      result
+        .svg!.querySelector('g.siren-node[data-siren-id="A"] rect.siren-node-frame')!
+        .getAttribute("style"),
+    ).toBe("fill:#fdd");
+  });
+
+  it("flattens a flowchart's `style` and `classDef` into one ordered list per node, last declaration of a property winning (ADR-0008)", () => {
+    const result = render(
+      `flowchart TD
+Later[Later] --> Earlier[Earlier]
+classDef emphasis fill:#fdd,stroke:#c00
+class Later emphasis
+style Later fill:#0f0
+style Earlier fill:#0f0
+class Earlier emphasis
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    // Nothing about being a `classDef` or a `style` wins; writing last does.
+    // The property keeps the position of its first declaration either way,
+    // so `fill` stays ahead of `stroke` in both nodes.
+    expect(frameStyle("Later")).toBe("fill:#0f0;stroke:#c00");
+    expect(frameStyle("Earlier")).toBe("fill:#fdd;stroke:#c00");
+  });
+
+  it("still calls a flowchart `linkStyle` line unrecognized — this slice added `classDef`, `class` and `:::`, and only those", () => {
+    for (const line of ["linkStyle 0 stroke:#c00", "linkStyle default stroke:#c00"]) {
       const result = render(
         `flowchart TD\nA[Start] --> B[End]\n${line}\n`,
         document.createElement("div"),

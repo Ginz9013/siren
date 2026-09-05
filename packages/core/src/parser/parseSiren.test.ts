@@ -522,6 +522,112 @@ timeline:
     ]);
   });
 
+  it("records a flowchart `classDef` as a named definition that targets nothing on its own", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  classDef emphasis fill:#fdd,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // Byte-for-byte the shape a class diagram's `classDef` parses to: it
+    // defines a name and targets nothing, and pairing it with whoever
+    // applies it is `resolveStyles`' pass, not the parser's.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: "emphasis",
+        properties: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("records a flowchart `class A,B name` as the apply-directive, under the keyword the author typed", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  class A,B emphasis
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // One canonical kind for both spellings: a flowchart writes `class` and
+    // a class diagram writes `cssClass`, and only `authoredAs` — which no
+    // logic reads, only diagnostics quote — remembers which.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: "class",
+        targetIds: ["A", "B"],
+        name: "emphasis",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("applies a definition at the node declaration itself in both `:::` forms, and the bare form claims no label from a node an edge already labelled", () => {
+    const source = `flowchart TD
+  A[Start]:::emphasis
+  A --> B[End]
+  B:::emphasis
+  C:::emphasis
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    // The bare form is a shorthand for applying, not for declaring a label:
+    // it gives an id nothing else declares the id as its label, and leaves
+    // the label an edge already wrote alone rather than fighting it.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "End"],
+      ["C", "C"],
+    ]);
+    // One apply-directive per shorthand, quoting `:::` — the keyword the
+    // author typed. Telling them their `class` is wrong points at a line
+    // they never wrote.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "emphasis",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["B"],
+        name: "emphasis",
+        properties: [],
+        line: 4,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["C"],
+        name: "emphasis",
+        properties: [],
+        line: 5,
+        column: 3,
+      },
+    ]);
+  });
+
   it("leaves a flowchart document that declares no styling with an empty styles list", () => {
     const { document } = parseFlowchartOk(`flowchart TD
   A[Start] --> B[End]

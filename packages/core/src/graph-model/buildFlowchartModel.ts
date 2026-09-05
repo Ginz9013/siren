@@ -33,10 +33,12 @@ export function buildFlowchartModel(
   const nodes = resolveNodes(document, diagnostics);
   const edges = assignEdgeIds(document);
 
-  // A `style` statement names a node. An edge is addressed by `linkStyle`,
-  // by declaration index, which this document cannot yet write — so an edge
-  // id here is an id `style` does not accept, and the shared resolver says so
-  // in the same words it says it to a class diagram.
+  // Every styling statement a flowchart can write — `style`, `classDef`, and
+  // the apply-directive in both its `class` and its `:::` spelling — names a
+  // node. An edge is addressed by `linkStyle`, by declaration index, which
+  // this document cannot yet write — so an edge id here is an id no styling
+  // statement accepts, and the shared resolver says so in the same words it
+  // says it to a class diagram.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   for (const { targetId, properties } of resolveStyles(
     document.styles,
