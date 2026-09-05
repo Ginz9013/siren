@@ -21,13 +21,33 @@
       <code>$</code> static), attributes and methods with types and return types, and all eight
       Mermaid relationship kinds — inheritance, realization, composition, aggregation,
       association, link, dependency and dashed link — one of them
-      (<code>Keeper "1" --&gt; "*" Animal</code>) carrying multiplicity at both ends.
+      (<code>Keeper "1" --&gt; "*" Animal</code>) carrying multiplicity at both ends. The second
+      document adds the structural features layered on top of those: <code>direction</code>, a
+      <code>namespace</code> frame, <code>&lt;&lt;interface&gt;&gt;</code> and
+      <code>&lt;&lt;abstract&gt;&gt;</code> annotations, a generic class
+      (<code>class Registry~T~</code>, drawn as <code>Registry&lt;T&gt;</code>), and both note
+      forms — free and attached.
     </p>
 
     <h2>Core features</h2>
     <p class="status" id="status">Loading…</p>
 
     <div id="siren-container"></div>
+
+    <h2>Namespaces, annotations, generics and notes</h2>
+    <p class="intro">
+      A <code>direction LR</code> document whose <code>Shapes</code> namespace frames the three
+      classes declared inside it, with <code>Shape</code> annotated
+      <code>&lt;&lt;interface&gt;&gt;</code> and <code>Renderer</code> annotated
+      <code>&lt;&lt;abstract&gt;&gt;</code>. <code>Registry~T~</code> carries its generic
+      parameter into its drawn name and a nested one (<code>Map~String, List~T~~</code>) into a
+      member type — both in angle brackets, as Mermaid draws them. A free
+      <code>note "…"</code> stands alone; <code>note for Registry "…"</code> draws a connector
+      back to the class it annotates.
+    </p>
+    <p class="status" id="structure-status">Loading…</p>
+
+    <div id="siren-structure-container"></div>
 
     <!--
       Like demos/sequence-diagram.html, this page imports the real Vite
@@ -36,18 +56,20 @@
       no animation controller to drive and board would add nothing here. Run
       `pnpm --filter @siren/core build` first.
 
-      The example document lives at examples/class-core.srn as a standalone
-      .srn file — loaded here via fetch(), not inlined — mirroring
-      demos/sequence-diagram.html's example-loading pattern. Note: fetch() of
-      a local file is blocked by the browser's file:// CORS policy, so this
-      page must be served over http(s), e.g. `python3 -m http.server` from the
-      repo root — opening the .html file directly by double-clicking it will
-      fail to load the example.
+      The example documents live at examples/class-core.srn and
+      examples/class-structure.srn as standalone .srn files — loaded here via
+      fetch(), not inlined — mirroring demos/sequence-diagram.html's
+      example-loading pattern. Note: fetch() of a local file is blocked by the
+      browser's file:// CORS policy, so this page must be served over http(s),
+      e.g. `python3 -m http.server` from the repo root — opening the .html
+      file directly by double-clicking it will fail to load the examples.
 
-      This page shows the core syntax only — classes, members and the eight
-      relationship kinds. Annotations, generics, namespaces, notes, direction,
-      and the interaction and styling directives all parse and render, but a
-      later ticket extends this page to exercise them.
+      Between them the two documents cover the class syntax this board draws:
+      classes, members and the eight relationship kinds in the first;
+      direction, namespaces, annotations, generics and notes in the second.
+      The interaction (click) and styling (style/classDef/cssClass) directives
+      parse and render too, but they are behavioral rather than structural and
+      a later ticket exercises them here.
     -->
     <script type="module">
       import { render } from "../packages/core/dist/siren-core.js";
@@ -60,10 +82,15 @@
         return response.text();
       }
 
-      const source = await loadExample("../examples/class-core.srn");
+      const [source, structureSource] = await Promise.all([
+        loadExample("../examples/class-core.srn"),
+        loadExample("../examples/class-structure.srn"),
+      ]);
 
       const container = document.getElementById("siren-container");
       const statusEl = document.getElementById("status");
+      const structureContainer = document.getElementById("siren-structure-container");
+      const structureStatusEl = document.getElementById("structure-status");
       const themeBtn = document.getElementById("theme-btn");
 
       // Proves the design tokens in packages/core/src/theme/default.css are
@@ -94,26 +121,43 @@
         },
       };
 
-      const result = render(source, container, { measureText });
+      function renderExample(exampleSource, targetContainer, targetStatusEl) {
+        const result = render(exampleSource, targetContainer, { measureText });
 
-      for (const diagnostic of result.diagnostics) {
-        console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
-      }
+        for (const diagnostic of result.diagnostics) {
+          console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+        }
 
-      if (result.svg === null) {
-        statusEl.textContent = "Render failed — see console diagnostics.";
-      } else {
+        if (result.svg === null) {
+          targetStatusEl.textContent = "Render failed — see console diagnostics.";
+          return;
+        }
+
         const count = (selector) => result.svg.querySelectorAll(selector).length;
         const kinds = new Set(
           Array.from(result.svg.querySelectorAll("g.siren-relationship")).map((g) =>
             g.getAttribute("data-siren-relationship"),
           ),
         );
-        statusEl.textContent =
-          `Rendered ${count("g.siren-class")} classes, ` +
-          `${count("g.siren-relationship")} relationships across ${kinds.size} kinds, ` +
-          `${count("text.siren-member")} member lines.`;
+        const parts = [
+          `${count("g.siren-class")} classes`,
+          `${count("g.siren-relationship")} relationships across ${kinds.size} kinds`,
+          `${count("text.siren-member")} member lines`,
+        ];
+        if (count("g.siren-namespace") > 0) {
+          parts.push(`${count("g.siren-namespace")} namespace frames`);
+        }
+        if (count("text.siren-class-annotation") > 0) {
+          parts.push(`${count("text.siren-class-annotation")} annotations`);
+        }
+        if (count("g.siren-note") > 0) {
+          parts.push(`${count("g.siren-note")} notes`);
+        }
+        targetStatusEl.textContent = `Rendered ${parts.join(", ")}.`;
       }
+
+      renderExample(source, container, statusEl);
+      renderExample(structureSource, structureContainer, structureStatusEl);
     </script>
   </body>
 </html>

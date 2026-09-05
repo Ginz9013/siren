@@ -215,6 +215,57 @@ Registry ..> Animal : looks up
 Zebra .. Habitat
 `;
 
+/**
+ * Kept identical to demos/class-diagram.html's second fetched example,
+ * examples/class-structure.srn — duplicated inline for the same reason as the
+ * constants above (no `node:fs` typings in this package). If the two ever
+ * drift, this test and the demo page stop exercising the same source.
+ *
+ * Where CLASS_CORE_EXAMPLE_SOURCE covers declarations, members and the eight
+ * relationship kinds, this one covers the structural features layered on top:
+ * a `direction` statement, a `namespace` frame, an `<<interface>>` and an
+ * `<<abstract>>` annotation, a generic class (with a nested generic member
+ * type), a free note and a note attached to a class.
+ */
+const CLASS_STRUCTURE_EXAMPLE_SOURCE = `classDiagram
+direction LR
+
+namespace Shapes {
+  class Shape {
+    <<interface>>
+    +String name
+    +area() float
+  }
+  class Square {
+    +float side
+    +area() float
+  }
+  class Circle {
+    +float radius
+    +area() float
+  }
+}
+
+class Registry~T~ {
+  -Map~String, List~T~~ entries
+  +register(String name, T item)
+  +lookup(String name) T
+}
+
+class Renderer {
+  <<abstract>>
+  +draw(Shape shape)*
+}
+
+Square ..|> Shape
+Circle ..|> Shape
+Registry ..> Shape : caches
+Renderer ..> Shape : draws
+
+note "Every structural feature in one document"
+note for Registry "One registry per shape kind"
+`;
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -1177,6 +1228,180 @@ Animal <|-- Duck
         (t) => t.textContent,
       ),
     ).toEqual(["1", "*"]);
+  });
+
+  it("renders demos/class-diagram.html's second example source (examples/class-structure.srn) end to end, drawing the namespace frame behind the class boxes it encloses, both annotations, the generic class name in angle brackets, and both notes", () => {
+    const container = document.createElement("div");
+
+    const result = render(CLASS_STRUCTURE_EXAMPLE_SOURCE, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+
+    const classGroups = Array.from(result.svg!.querySelectorAll("g.siren-class"));
+    expect(classGroups.map((g) => g.getAttribute("data-siren-id")).sort()).toEqual([
+      "Circle",
+      "Registry",
+      "Renderer",
+      "Shape",
+      "Square",
+    ]);
+
+    // One namespace, addressed by the model's generated id, painted before
+    // (behind) every class box so its frame cannot cover them.
+    const namespaceGroups = Array.from(result.svg!.querySelectorAll("g.siren-namespace"));
+    expect(namespaceGroups.map((g) => g.getAttribute("data-siren-id"))).toEqual([
+      "namespace:1",
+    ]);
+    expect(namespaceGroups[0].querySelector("text.siren-namespace-label")!.textContent).toBe(
+      "Shapes",
+    );
+    const painted = Array.from(result.svg!.querySelectorAll("g.siren-namespace, g.siren-class"));
+    expect(painted[0]).toBe(namespaceGroups[0]);
+
+    // The frame encloses each of its three member boxes, and none of the two
+    // classes declared outside it.
+    const box = (element: Element) => {
+      const rect = element.querySelector("rect")!;
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      return {
+        left: x,
+        top: y,
+        right: x + Number(rect.getAttribute("width")),
+        bottom: y + Number(rect.getAttribute("height")),
+      };
+    };
+    const frame = box(namespaceGroups[0]);
+    const encloses = (id: string) => {
+      const inner = box(
+        result.svg!.querySelector(`g.siren-class[data-siren-id="${id}"]`)!,
+      );
+      return (
+        inner.left >= frame.left &&
+        inner.top >= frame.top &&
+        inner.right <= frame.right &&
+        inner.bottom <= frame.bottom
+      );
+    };
+    expect(["Shape", "Square", "Circle"].map(encloses)).toEqual([true, true, true]);
+    expect(["Registry", "Renderer"].map(encloses)).toEqual([false, false]);
+
+    // Annotations render in Mermaid's guillemets, alongside the class name.
+    const shape = result.svg!.querySelector('g.siren-class[data-siren-id="Shape"]')!;
+    expect(shape.querySelector("text.siren-class-annotation")!.textContent).toBe("«interface»");
+    expect(shape.querySelector("text.siren-class-name")!.textContent).toBe("Shape");
+    expect(
+      result
+        .svg!.querySelector('g.siren-class[data-siren-id="Renderer"]')!
+        .querySelector("text.siren-class-annotation")!.textContent,
+    ).toBe("«abstract»");
+    // An unannotated class emits no annotation text at all.
+    expect(
+      result
+        .svg!.querySelector('g.siren-class[data-siren-id="Square"]')!
+        .querySelector("text.siren-class-annotation"),
+    ).toBeNull();
+
+    // The generic is part of the drawn name, in angle brackets; the id it is
+    // addressed by stays the bare class name. Nested generics in a member's
+    // type are converted by the same rule.
+    const registry = result.svg!.querySelector('g.siren-class[data-siren-id="Registry"]')!;
+    expect(registry.querySelector("text.siren-class-name")!.textContent).toBe("Registry<T>");
+    expect(
+      Array.from(registry.querySelectorAll("text.siren-member")).map((t) => t.textContent),
+    ).toEqual([
+      "-Map<String, List<T>> entries",
+      "+register(String name, T item)",
+      "+lookup(String name) T",
+    ]);
+
+    // Both notes, numbered by source order. The free one is a box on its own;
+    // the attached one also draws a connector to the class it annotates.
+    const noteGroups = Array.from(result.svg!.querySelectorAll("g.siren-note"));
+    expect(noteGroups.map((g) => g.getAttribute("data-siren-id"))).toEqual([
+      "note:1",
+      "note:2",
+    ]);
+    expect(noteGroups.map((g) => g.querySelector("text.siren-note-text")!.textContent)).toEqual([
+      "Every structural feature in one document",
+      "One registry per shape kind",
+    ]);
+    expect(noteGroups[0].querySelector("path.siren-note-link")).toBeNull();
+    expect(noteGroups[1].querySelector("path.siren-note-link")).not.toBeNull();
+  });
+
+  it("lays a classDiagram out left-to-right for `direction LR` — subclasses beside their parent rather than below it — where the same document without the statement stacks them top-to-bottom", () => {
+    const body = `
+Animal <|-- Duck
+Animal <|-- Fish
+`;
+    const positions = (source: string) => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      const frames = new Map<string, { x: number; y: number }>();
+      for (const group of Array.from(result.svg!.querySelectorAll("g.siren-class"))) {
+        const rect = group.querySelector("rect.siren-class-frame")!;
+        frames.set(group.getAttribute("data-siren-id")!, {
+          x: Number(rect.getAttribute("x")),
+          y: Number(rect.getAttribute("y")),
+        });
+      }
+      return frames;
+    };
+
+    const topToBottom = positions(`classDiagram${body}`);
+    const leftToRight = positions(`classDiagram\ndirection LR${body}`);
+
+    // Default (TB): each subclass sits below Animal, all three on one column
+    // band — the rank axis is vertical.
+    expect(topToBottom.get("Duck")!.y).toBeGreaterThan(topToBottom.get("Animal")!.y);
+    expect(topToBottom.get("Fish")!.y).toBeGreaterThan(topToBottom.get("Animal")!.y);
+
+    // LR: the same edges now run along x instead — subclasses are to the
+    // right of Animal and at the same rank, not below it.
+    expect(leftToRight.get("Duck")!.x).toBeGreaterThan(leftToRight.get("Animal")!.x);
+    expect(leftToRight.get("Fish")!.x).toBeGreaterThan(leftToRight.get("Animal")!.x);
+
+    // The two axes swap roles: siblings share the rank coordinate and spread
+    // along the cross axis, so TB puts Duck and Fish on one row and LR puts
+    // them in one column.
+    expect(topToBottom.get("Duck")!.y).toBe(topToBottom.get("Fish")!.y);
+    expect(topToBottom.get("Duck")!.x).not.toBe(topToBottom.get("Fish")!.x);
+    expect(leftToRight.get("Duck")!.x).toBe(leftToRight.get("Fish")!.x);
+    expect(leftToRight.get("Duck")!.y).not.toBe(leftToRight.get("Fish")!.y);
+  });
+
+  it("surfaces the model's error diagnostic — without throwing, and still rendering the rest — for a classDiagram whose `note for` names a class that does not exist", () => {
+    const container = document.createElement("div");
+    // `Dcuk` is a typo for `Duck`: naming a class in a `note for` does not
+    // declare it, so the note is dropped rather than conjuring a sixth box.
+    const source = `classDiagram
+Animal <|-- Duck
+note for Dcuk "can fly, can swim"
+note "the rest of the document still renders"
+`;
+
+    let result: SirenRenderResult | undefined;
+    expect(() => {
+      result = render(source, container);
+    }).not.toThrow();
+
+    expect(
+      result!.diagnostics.some(
+        (d) => d.severity === "error" && d.message.includes("Dcuk"),
+      ),
+    ).toBe(true);
+
+    expect(result!.svg).not.toBeNull();
+    expect(result!.svg!.querySelectorAll("g.siren-class")).toHaveLength(2);
+    expect(result!.svg!.querySelectorAll("g.siren-relationship")).toHaveLength(1);
+    // Only the surviving note is drawn, and it keeps the id its source
+    // position gave it — dropping the first note does not renumber it.
+    const notes = Array.from(result!.svg!.querySelectorAll("g.siren-note"));
+    expect(notes.map((g) => g.getAttribute("data-siren-id"))).toEqual(["note:2"]);
   });
 
   it("produces an error diagnostic (and drops the action, without throwing) for a highlight action referencing an element before it becomes visible, while the rest of the diagram still renders", () => {
