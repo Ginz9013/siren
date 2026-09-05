@@ -21,9 +21,6 @@ const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
  * `FlowchartDocument`. Never throws on malformed input — syntax problems
  * are reported as diagnostics instead.
  *
- * Extracted verbatim from what used to be `parseSiren`'s own body — zero
- * behavior change, only the `kind: "flowchart"` tag is new.
- *
  * The `timeline:` block itself is no longer parsed here: its grammar and its
  * body drain both live in `parseTimelineBlock`, which all three diagram kinds
  * call, so they read one vocabulary instead of copies that drift. This

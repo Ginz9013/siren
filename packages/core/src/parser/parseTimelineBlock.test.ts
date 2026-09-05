@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { parseTimelineBody, parseTimelineBodyLine } from "./parseTimelineBlock";
+import { parseTimelineBody } from "./parseTimelineBlock";
 
-describe("parseTimelineBodyLine", () => {
-  it("numbers an entry by the line it was given and by the column its indentation implies", () => {
-    const { entries, diagnostics } = parseTimelineBodyLine(
+describe("parseTimelineBody", () => {
+  it("derives an entry's column from the indentation of the line it was written on", () => {
+    const lines = [
+      "flowchart TD",
+      "  A[Start]",
+      "  B[Stop]",
+      "  A --> B",
+      "",
+      "timeline:",
       "    step 1: enter Duck fade",
-      7,
-    );
+    ];
+
+    const { entries, diagnostics } = parseTimelineBody(lines, 6);
 
     expect(diagnostics).toEqual([]);
     expect(entries).toEqual([
@@ -22,18 +29,23 @@ describe("parseTimelineBodyLine", () => {
   });
 
   it("contributes neither an entry nor a diagnostic for a blank line", () => {
-    expect(parseTimelineBodyLine("", 3)).toEqual({
-      entries: [],
-      diagnostics: [],
-    });
-    expect(parseTimelineBodyLine("   \t ", 4)).toEqual({
-      entries: [],
+    const lines = ["timeline:", "", "  step 1: enter A fade", "   \t "];
+
+    expect(parseTimelineBody(lines, 1)).toEqual({
+      entries: [
+        {
+          kind: "enter",
+          step: 1,
+          targetId: "A",
+          effect: "fade",
+          line: 3,
+          column: 3,
+        },
+      ],
       diagnostics: [],
     });
   });
-});
 
-describe("parseTimelineBody", () => {
   it("drains every line from startIndex to the end, numbered by its place in the document", () => {
     const lines = [
       "flowchart TD",

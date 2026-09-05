@@ -174,7 +174,7 @@ function parseTimelineLine(
  * — where the block starts, and what a diagnostic inside it costs the
  * document.
  */
-export function parseTimelineBodyLine(
+function parseTimelineBodyLine(
   rawLine: string,
   lineNumber: number,
 ): TimelineLineResult {
