@@ -1,0 +1,37 @@
+classDiagram
+direction LR
+
+namespace Shapes {
+  class Shape {
+    <<interface>>
+    +String name
+    +area() float
+  }
+  class Square {
+    +float side
+    +area() float
+  }
+  class Circle {
+    +float radius
+    +area() float
+  }
+}
+
+class Registry~T~ {
+  -Map~String, List~T~~ entries
+  +register(String name, T item)
+  +lookup(String name) T
+}
+
+class Renderer {
+  <<abstract>>
+  +draw(Shape shape)*
+}
+
+Square ..|> Shape
+Circle ..|> Shape
+Registry ..> Shape : caches
+Renderer ..> Shape : draws
+
+note "Every structural feature in one document"
+note for Registry "One registry per shape kind"

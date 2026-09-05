@@ -89,6 +89,71 @@ end
 `;
 
 /**
+ * A Siren document exercising every class-diagram feature the renderer has a
+ * distinct class or shape for: a class with attributes *and* methods (so both
+ * compartment dividers are drawn), every visibility marker and both
+ * classifiers, an annotation, a generic, a namespace, an attached and a free
+ * note, all eight relationship kinds — so every endpoint marker and both line
+ * styles appear — a relationship label, and multiplicity at both ends.
+ *
+ * Inline rather than read from `examples/class-core.srn`, for the same reason
+ * `EVERY_FEATURE` is: exhaustive *class* coverage is a different goal from a
+ * demo example's, and an example narrowed for the demo's sake must not
+ * quietly narrow what the theme is checked against. It is deliberately wider
+ * than what the renderer draws today — the later tickets that start emitting
+ * namespace frames, notes and annotations then fail this file until they
+ * theme what they added.
+ */
+const EVERY_CLASS_FEATURE = `classDiagram
+direction TB
+namespace Zoo {
+  class Animal {
+    <<abstract>>
+    +int age
+    #bool warmBlooded
+    ~String tag
+    +isMammal() bool
+    +run()*
+  }
+  class Duck {
+    -String beakColor
+    +quack() String
+  }
+}
+class Flyer {
+  <<interface>>
+  +fly() bool
+}
+class Registry~T~ {
+  -int cachedCount$
+  +lookup(String name) Animal$
+}
+Feather : +String color
+
+Animal <|-- Duck
+Animal <|-- Fish
+Duck ..|> Flyer : implements
+Habitat *-- Animal : houses
+Duck o-- Feather : plumage
+Keeper "1" --> "*" Animal : cares for
+Keeper -- Habitat
+Registry ..> Animal : looks up
+Fish .. Habitat
+
+note for Duck "Ducks are birds"
+note "Drawn from the keeper's ledger"
+
+click Duck href "https://example.com/duck" "Ducks are birds"
+
+timeline:
+step 1: enter Duck fade
+step 2: enter Animal-Duck slide-left
+step 3: enter namespace:1 fade, enter note:1 fade
+step 4: highlight Duck outline
+step 5: highlight Animal-Duck glow
+`;
+
+/**
  * Renders `source` with `default.css` applied to the document, and returns
  * the `<svg>`. Attached to the document on purpose: `getComputedStyle` only
  * reports a cascade for an element that is actually in a document with the
@@ -147,6 +212,41 @@ function describeElement(element: Element): string {
  * heavily commented by design) must never count as coverage.
  */
 const themeRules = defaultThemeCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
+/**
+ * Every drawn element in `svg` that neither the theme nor the renderer gives
+ * a visible paint, described for a failure message. An unstroked, unfilled
+ * shape is simply not there (SVG's initial `stroke: none`), and a `<text>`
+ * left to SVG's initial `fill: black` is invisible on a dark theme and on a
+ * dark-filled box.
+ *
+ * The sequence block below does this inline; it predates this helper and is
+ * left as it stands rather than churned — the safety net stays where it is.
+ */
+function paintlessElements(svg: SVGSVGElement): string[] {
+  const paintless: string[] = [];
+  for (const element of Array.from(svg.querySelectorAll("rect, circle, line, path, text"))) {
+    const style = getComputedStyle(element);
+
+    if (element.tagName === "text") {
+      if (style.fill === "") {
+        paintless.push(describeElement(element));
+      }
+      continue;
+    }
+
+    // Either the theme strokes it, or *something* fills it — the theme, or a
+    // `fill` attribute the renderer set itself.
+    const stroked = style.stroke !== "" && style.stroke !== "none";
+    const themeFill = style.fill !== "" && style.fill !== "none";
+    const rendererFill =
+      element.getAttribute("fill") !== null && element.getAttribute("fill") !== "none";
+    if (!stroked && !themeFill && !rendererFill) {
+      paintless.push(describeElement(element));
+    }
+  }
+  return [...new Set(paintless)].sort();
+}
 
 /** Every `siren-*` class the renderer put on an element in `svg`. */
 function emittedSirenClasses(svg: SVGSVGElement): string[] {
@@ -266,6 +366,168 @@ describe("default theme coverage of the sequence renderer", () => {
     // applied indiscriminately, the author's "Blue" would be repainted.
     expect(getComputedStyle(uncolored[0]).fill).not.toBe("");
     expect(getComputedStyle(colored[0]).fill).toBe("");
+  });
+});
+
+describe("default theme coverage of the class renderer", () => {
+  it("has a rule selecting every class the class renderer emits", () => {
+    const emitted = emittedSirenClasses(renderThemedSVG(EVERY_CLASS_FEATURE));
+    expect(emitted.length).toBeGreaterThan(0);
+
+    const unthemed = emitted.filter(
+      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
+    );
+    expect(unthemed).toEqual([]);
+  });
+
+  it("gives every drawn element a paint, including the ones carrying no class", () => {
+    expect(paintlessElements(renderThemedSVG(EVERY_CLASS_FEATURE))).toEqual([]);
+  });
+
+  it("fills a hollow endpoint with the surface color, not with nothing", () => {
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+
+    // The two diamonds are one shape drawn twice; `siren-arrow-fill` versus
+    // `siren-arrow-hollow` is the *whole* difference between composition and
+    // aggregation on screen, and the triangle is shared outright between
+    // inheritance and realization. A hollow shape left unfilled is not a
+    // hollow shape: it falls back to SVG's initial `fill: black` — the same
+    // picture as the filled diamond — and if a theme were to say
+    // `fill: none` instead, the relationship line would run visibly through
+    // the middle of the head.
+    const shapeOf = (markerId: string): SVGElement => {
+      const shape = svg.querySelector(`#${markerId} path`);
+      if (shape === null) {
+        throw new Error(`no endpoint shape in <marker id="${markerId}">`);
+      }
+      return shape as SVGElement;
+    };
+    const filledDiamond = shapeOf("siren-class-diamond-filled");
+    const hollowDiamond = shapeOf("siren-class-diamond-hollow");
+    const triangle = shapeOf("siren-class-triangle");
+    expect(hollowDiamond.getAttribute("d")).toBe(filledDiamond.getAttribute("d"));
+
+    for (const hollow of [hollowDiamond, triangle]) {
+      const fill = getComputedStyle(hollow).fill;
+      expect(fill).not.toBe("");
+      expect(fill).not.toBe("none");
+      expect(fill).not.toBe(getComputedStyle(filledDiamond).fill);
+    }
+  });
+
+  it("leaves each relationship the dash the renderer gave it", () => {
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+
+    // In a real browser an author stylesheet rule beats a presentation
+    // attribute, so a `stroke-dasharray` (or a `stroke-dasharray: none`) in
+    // the theme would silently discard the renderer's per-relationship dash —
+    // and that dash is the only difference between a dependency and an
+    // association, and between a dashed link and a link. Both spellings are
+    // in this document, so both are checked.
+    const dashed = Array.from(
+      svg.querySelectorAll('[data-siren-relationship="dependency"] .siren-relationship-line'),
+    );
+    const solid = Array.from(
+      svg.querySelectorAll('[data-siren-relationship="association"] .siren-relationship-line'),
+    );
+    expect(dashed.length).toBeGreaterThan(0);
+    expect(solid.length).toBeGreaterThan(0);
+
+    for (const line of [...dashed, ...solid]) {
+      expect(getComputedStyle(line).strokeDasharray).toBe("");
+    }
+    expect(dashed[0].getAttribute("stroke-dasharray")).not.toBeNull();
+    expect(solid[0].getAttribute("stroke-dasharray")).toBeNull();
+  });
+
+  it("lets an author's inline style win over its rules", () => {
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+
+    // The premise of the board's `style`/`classDef`/`cssClass` support: those
+    // directives are emitted as an inline `style` attribute, so the theme is
+    // the global default and an author directive is a local override, with no
+    // competition between them. That only holds while no rule here is
+    // `!important` — one such declaration would make the author's own
+    // emphasis silently unreachable.
+    //
+    // Which is why the stylesheet's own text is checked as well as the
+    // cascade: jsdom does not model `!important` at all (verified — an inline
+    // style wins over an `!important` rule there), so the `getComputedStyle`
+    // assertions below would go on passing after exactly the change they
+    // exist to catch. The text check is the one with teeth; the cascade
+    // assertions state what the text check is protecting.
+    expect(themeRules).not.toMatch(/!\s*important/);
+
+    const frame = svg.querySelector(".siren-class-frame");
+    const line = svg.querySelector(".siren-relationship-line");
+    if (frame === null || line === null) {
+      throw new Error("no class frame or relationship line to style");
+    }
+
+    frame.setAttribute("style", "fill: rgb(255, 221, 221); stroke: rgb(204, 0, 0)");
+    line.setAttribute("style", "stroke: rgb(204, 0, 0)");
+
+    expect(getComputedStyle(frame).fill).toBe("rgb(255, 221, 221)");
+    expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
+    expect(getComputedStyle(line).stroke).toBe("rgb(204, 0, 0)");
+  });
+
+  it("gives a highlighted class and relationship the outline effect, not just the glow one", () => {
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+
+    // `siren-highlight-outline` is one of the four verbs' effects, and the
+    // controller lands it on a `.siren-class`/`.siren-relationship` group
+    // exactly as it lands it on a flowchart node or edge. The flowchart rules
+    // are written as `.siren-node ... rect` and `.siren-edge`, so neither
+    // selects anything in a class diagram: without a rule of its own,
+    // `highlight X outline` in a class document is a step on which nothing
+    // visibly happens — the same defect the coverage test above exists to
+    // catch, one level down.
+    // Every element kind a `timeline:` block can name, not just the two that
+    // happened to have rules. Enumerating only the working ones is how this
+    // guard missed that `highlight namespace:1 outline` resolved to nothing:
+    // the verb parsed, the model accepted it, the controller set the class,
+    // and the picture did not change.
+    const cases: [string, string][] = [
+      [".siren-class", ".siren-class-frame"],
+      [".siren-relationship", ".siren-relationship-line"],
+      [".siren-namespace", ".siren-namespace-frame"],
+      [".siren-note", ".siren-note-frame"],
+    ];
+
+    for (const [groupSelector, shapeSelector] of cases) {
+      const group = svg.querySelector(groupSelector);
+      const shape = group?.querySelector(shapeSelector);
+      if (group === null || group === undefined || shape === null || shape === undefined) {
+        throw new Error(`no ${shapeSelector} inside ${groupSelector}`);
+      }
+
+      const before = getComputedStyle(shape).stroke;
+      group.classList.add("siren-highlight-outline");
+      const after = getComputedStyle(shape).stroke;
+      group.classList.remove("siren-highlight-outline");
+
+      expect(after).not.toBe(before);
+      expect(after).toContain("--siren-highlight-color");
+    }
+  });
+
+  it("sets the theme's type on the class-diagram groups", () => {
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+
+    // The `<text>` children carry no font of their own and inherit the
+    // group's, exactly as a sequence diagram's do — so a group left out of
+    // the shared font rule renders every member line in the browser's default
+    // serif at the browser's default size, while `layoutClassDiagram` sized
+    // the box from the theme's font. The box and its text would disagree.
+    const groups = Array.from(svg.querySelectorAll(".siren-class, .siren-relationship"));
+    expect(groups.length).toBeGreaterThan(0);
+
+    const untyped = groups.filter((group) => {
+      const style = getComputedStyle(group);
+      return style.fontFamily === "" || style.fontSize === "";
+    });
+    expect(untyped.map(describeElement)).toEqual([]);
   });
 });
 

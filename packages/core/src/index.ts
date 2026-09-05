@@ -2,12 +2,36 @@ import { parseSiren } from "./parser/parseSiren";
 import { buildGraphModel } from "./graph-model/buildGraphModel";
 import { layoutGraph } from "./layout/layoutGraph";
 import { layoutSequence } from "./layout/layoutSequence";
+import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
+import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import type { Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
 
 export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+
+/**
+ * The class a reader clicked, handed to `RenderOptions.onClick`.
+ *
+ * Only a class the author gave a *callback* interaction (`click X call fn()`,
+ * `callback X "fn"`) is ever reported. An `href` interaction is a link: the
+ * browser navigates it, and `render()` neither intercepts nor reports it.
+ *
+ * `action` and `argument` are kept apart rather than handed over as the one
+ * string `fn(arg)` the author wrote. Re-parsing that string is not reliably
+ * possible — an author's argument may itself contain brackets, commas and
+ * quotes — and it is the renderer's own split: it emits `data-siren-click`
+ * and `data-siren-click-arg` as two attributes for exactly that reason.
+ */
+export interface InteractionTarget {
+  /** The clicked class's id — its `data-siren-id`. */
+  id: string;
+  /** The callback name the author wrote: `showDetails` for `call showDetails("a")`. */
+  action: string;
+  /** The literal argument the author wrote, or `null` when they wrote none. */
+  argument: string | null;
+}
 
 /** Options accepted by the public `render()` entry point. */
 export interface RenderOptions {
@@ -18,6 +42,17 @@ export interface RenderOptions {
    * measurer is wired in by the browser demo instead.
    */
   measureText?: TextMeasurer;
+
+  /**
+   * Called when a reader clicks a class the author made clickable with a
+   * callback interaction. Omitting it leaves those elements with no listener
+   * at all — the markup is identical either way, and a click does nothing.
+   *
+   * The callback names a function in *the caller's* code, never one this
+   * package looks up and invokes: a diagram is untrusted text, so what it can
+   * ask for is a name, and what happens next stays the host's decision.
+   */
+  onClick?: (target: InteractionTarget) => void;
 }
 
 const DEFAULT_CHAR_WIDTH = 8;
@@ -40,13 +75,44 @@ const defaultMeasurer: TextMeasurer = {
 };
 
 /**
+ * Attaches `onClick` to every element the class renderer marked with a click
+ * hook, reading the target's identity back off the attributes it put there.
+ *
+ * One listener per hooked element rather than one delegated listener on the
+ * `<svg>`: a click anywhere else in the diagram then reaches no handler of
+ * ours at all, instead of reaching one that decides to do nothing. The
+ * listeners need no removing — the whole tree is dropped when the container's
+ * children are next replaced.
+ */
+function attachClickHooks(
+  svg: SVGSVGElement,
+  onClick: (target: InteractionTarget) => void,
+): void {
+  for (const element of Array.from(svg.querySelectorAll("[data-siren-click]"))) {
+    const id = element.getAttribute("data-siren-id");
+    const action = element.getAttribute("data-siren-click");
+    // The renderer writes both attributes onto the same element, so this
+    // skips nothing it produced; it is here because the DOM cannot say so.
+    if (id === null || action === null) continue;
+    const argument = element.getAttribute("data-siren-click-arg");
+
+    element.addEventListener("click", () => {
+      onClick({ id, action, argument });
+    });
+  }
+}
+
+/**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
- * createAnimationController; a sequence diagram runs layoutSequence ->
+ * createAnimationController; a class diagram runs layoutClassDiagram ->
+ * renderClassDiagramToSVG -> createAnimationController, so it too returns a
+ * working controller; a sequence diagram runs layoutSequence ->
  * renderSequenceToSVG and returns `controller: null` (no animation
  * integration for sequence diagrams yet). Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
- * from every stage.
+ * from every stage. A class diagram also has `options.onClick`, if one was
+ * given, attached to whichever of its classes the author made clickable.
  */
 export function render(
   source: string,
@@ -65,6 +131,33 @@ export function render(
 
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
+
+  if (parseResult.document.kind === "class") {
+    if (graphResult.classModel === null) {
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedClassDiagram = layoutClassDiagram(graphResult.classModel, { measureText });
+    const classSvg = renderClassDiagramToSVG(positionedClassDiagram);
+
+    container.replaceChildren(classSvg);
+
+    // The class diagram is the only kind that emits a click hook today, so
+    // this is the only branch that wires one up.
+    if (options.onClick !== undefined) {
+      attachClickHooks(classSvg, options.onClick);
+    }
+
+    // Unlike a sequence diagram, a class diagram animates: its classes and
+    // relationships carry `data-siren-id`, so the same controller that drives
+    // flowchart nodes and edges drives them unchanged.
+    const classController = createAnimationController(
+      classSvg,
+      positionedClassDiagram.timeline,
+    );
+
+    return { svg: classSvg, controller: classController, diagnostics };
+  }
 
   if (parseResult.document.kind === "sequence") {
     if (graphResult.model === null) {

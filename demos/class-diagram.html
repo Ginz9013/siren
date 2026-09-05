@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — class diagram demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren class diagram demo</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+    <p class="intro">
+      One <code>classDiagram</code> document exercising all three declaration forms —
+      <code>class Flyer</code>, the block form <code>class Animal { … }</code>, and the inline
+      <code>Feather : +String color</code> form — plus implicit declaration from a relationship
+      (<code>Habitat</code> and <code>Keeper</code> are named nowhere else), every visibility
+      marker (<code>+ - # ~</code>), both classifiers (<code>*</code> abstract,
+      <code>$</code> static), attributes and methods with types and return types, and all eight
+      Mermaid relationship kinds — inheritance, realization, composition, aggregation,
+      association, link, dependency and dashed link — one of them
+      (<code>Keeper "1" --&gt; "*" Animal</code>) carrying multiplicity at both ends. The second
+      document adds the structural features layered on top of those: <code>direction</code>, a
+      <code>namespace</code> frame, <code>&lt;&lt;interface&gt;&gt;</code> and
+      <code>&lt;&lt;abstract&gt;&gt;</code> annotations, a generic class
+      (<code>class Registry~T~</code>, drawn as <code>Registry&lt;T&gt;</code>), and both note
+      forms — free and attached.
+    </p>
+
+    <h2>Core features</h2>
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <h2>Namespaces, annotations, generics and notes</h2>
+    <p class="intro">
+      A <code>direction LR</code> document whose <code>Shapes</code> namespace frames the three
+      classes declared inside it, with <code>Shape</code> annotated
+      <code>&lt;&lt;interface&gt;&gt;</code> and <code>Renderer</code> annotated
+      <code>&lt;&lt;abstract&gt;&gt;</code>. <code>Registry~T~</code> carries its generic
+      parameter into its drawn name and a nested one (<code>Map~String, List~T~~</code>) into a
+      member type — both in angle brackets, as Mermaid draws them. A free
+      <code>note "…"</code> stands alone; <code>note for Registry "…"</code> draws a connector
+      back to the class it annotates.
+    </p>
+    <p class="status" id="structure-status">Loading…</p>
+
+    <div id="siren-structure-container"></div>
+
+    <h2>Everything at once, animated</h2>
+    <p class="intro">
+      <code>examples/class-full.srn</code> — the board's closing example, with every in-scope
+      feature in one document: <code>%%</code> comments, <code>direction LR</code>, a
+      <code>namespace</code>, all four declaration forms, all four visibility markers, both
+      classifiers, annotations, a generic class with a nested generic member type, all eight
+      relationship kinds (two carrying a label and multiplicity at both ends), both note forms,
+      a <code>click … call</code> callback and a <code>click … href</code> link, and
+      <code>style</code> + <code>classDef</code> + <code>cssClass</code>. Its
+      <code>timeline:</code> block animates all four addressable kinds — classes, relationships,
+      the <code>namespace</code> frame and a note — so <strong>Next</strong> and
+      <strong>Reset</strong> below drive the same <code>AnimationController</code> a flowchart
+      returns. <code>Track</code> is clickable (its callback is reported to the handler this page
+      passed to <code>render()</code>, and shown below); <code>Playable</code> is a real link.
+    </p>
+    <p class="status" id="full-status">Loading…</p>
+    <p class="status">
+      <!--
+        Reusing .theme-toggle, the only button style demos/demo-chrome.css
+        declares (and the only one it themes for dark mode). That file is a
+        shared page-chrome stylesheet, so this page borrows its button rule
+        rather than growing a second one of its own.
+      -->
+      <button id="full-next" type="button" class="theme-toggle">Next</button>
+      <button id="full-reset" type="button" class="theme-toggle">Reset</button>
+      <span id="full-click-status">Click Track to see its callback.</span>
+    </p>
+
+    <div id="siren-full-container"></div>
+
+    <!--
+      Like demos/sequence-diagram.html, this page imports the real Vite
+      library build of @siren/core directly (packages/core/dist/siren-core.js),
+      not @siren/board. Run `pnpm --filter @siren/core build` first.
+
+      Board is the right host for a page that shows *one* diagram
+      (demos/step-reveal.html), since it owns a container outright — its own
+      full-bleed sizing, pan/zoom viewport and floating Prev/Next/Reset bar.
+      This page shows three side by side and needs the third one's callback
+      interaction delivered, which BoardOptions has no field for, so it calls
+      render() itself and drives the returned controller from the two buttons
+      above — the same controller board would have driven.
+
+      The example documents live at examples/class-core.srn,
+      examples/class-structure.srn and examples/class-full.srn as standalone
+      .srn files — loaded here via fetch(), not inlined — mirroring
+      demos/sequence-diagram.html's example-loading pattern. Note: fetch() of
+      a local file is blocked by the browser's file:// CORS policy, so this
+      page must be served over http(s), e.g. `python3 -m http.server` from the
+      repo root — opening the .html file directly by double-clicking it will
+      fail to load the examples.
+
+      Between them the three documents cover every piece of class syntax this
+      board draws: classes, members and the eight relationship kinds in the
+      first; direction, namespaces, annotations, generics and notes in the
+      second; all of that plus interaction, styling and animation, in one
+      document, in the third.
+    -->
+    <script type="module">
+      import { render } from "../packages/core/dist/siren-core.js";
+
+      async function loadExample(path) {
+        const response = await fetch(path);
+        if (!response.ok) {
+          throw new Error(`Failed to load ${path}: ${response.status}`);
+        }
+        return response.text();
+      }
+
+      const [source, structureSource, fullSource] = await Promise.all([
+        loadExample("../examples/class-core.srn"),
+        loadExample("../examples/class-structure.srn"),
+        loadExample("../examples/class-full.srn"),
+      ]);
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const structureContainer = document.getElementById("siren-structure-container");
+      const structureStatusEl = document.getElementById("structure-status");
+      const fullContainer = document.getElementById("siren-full-container");
+      const fullStatusEl = document.getElementById("full-status");
+      const fullNextBtn = document.getElementById("full-next");
+      const fullResetBtn = document.getElementById("full-reset");
+      const fullClickStatusEl = document.getElementById("full-click-status");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
+
+      // jsdom-safe fixed-width-per-character estimate is fine for tests, but
+      // this is a real browser: measure with a real <canvas> 2D context so a
+      // class box is sized from its widest member line's actual glyph metrics
+      // instead of a rough per-character guess.
+      const measureCanvas = document.createElement("canvas");
+      const measureCtx = measureCanvas.getContext("2d");
+      measureCtx.font = "14px system-ui, sans-serif";
+      const measureText = {
+        measure(text) {
+          const metrics = measureCtx.measureText(text);
+          return { width: metrics.width, height: 24 };
+        },
+      };
+
+      function renderExample(exampleSource, targetContainer, targetStatusEl, options = {}) {
+        const result = render(exampleSource, targetContainer, { measureText, ...options });
+
+        for (const diagnostic of result.diagnostics) {
+          console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+        }
+
+        if (result.svg === null) {
+          targetStatusEl.textContent = "Render failed — see console diagnostics.";
+          return result;
+        }
+
+        const count = (selector) => result.svg.querySelectorAll(selector).length;
+        const kinds = new Set(
+          Array.from(result.svg.querySelectorAll("g.siren-relationship")).map((g) =>
+            g.getAttribute("data-siren-relationship"),
+          ),
+        );
+        const parts = [
+          `${count("g.siren-class")} classes`,
+          `${count("g.siren-relationship")} relationships across ${kinds.size} kinds`,
+          `${count("text.siren-member")} member lines`,
+        ];
+        if (count("g.siren-namespace") > 0) {
+          parts.push(`${count("g.siren-namespace")} namespace frames`);
+        }
+        if (count("text.siren-class-annotation") > 0) {
+          parts.push(`${count("text.siren-class-annotation")} annotations`);
+        }
+        if (count("g.siren-note") > 0) {
+          parts.push(`${count("g.siren-note")} notes`);
+        }
+        targetStatusEl.textContent = `Rendered ${parts.join(", ")}.`;
+        return result;
+      }
+
+      renderExample(source, container, statusEl);
+      renderExample(structureSource, structureContainer, structureStatusEl);
+
+      // The third example is the only one carrying a `timeline:` block, so it
+      // is the only one with a controller to drive. `render()` returns the
+      // same AnimationController a flowchart does — a class diagram animates,
+      // unlike a sequence diagram, whose controller is still null.
+      const fullResult = renderExample(fullSource, fullContainer, fullStatusEl, {
+        onClick: (target) => {
+          const argument = target.argument === null ? "" : `"${target.argument}"`;
+          fullClickStatusEl.textContent = `onClick: ${target.id} → ${target.action}(${argument})`;
+        },
+      });
+
+      const controller = fullResult.controller;
+      const summary = fullStatusEl.textContent;
+
+      function showStep() {
+        fullStatusEl.textContent =
+          `${summary} Step ${controller.currentStep} of ${controller.totalSteps}.`;
+        // next() is a no-op past the last step, so the button says so rather
+        // than sitting there looking broken.
+        fullNextBtn.disabled = controller.currentStep >= controller.totalSteps;
+      }
+
+      if (controller === null) {
+        fullNextBtn.disabled = true;
+        fullResetBtn.disabled = true;
+      } else {
+        fullNextBtn.addEventListener("click", () => {
+          controller.next();
+          showStep();
+        });
+        fullResetBtn.addEventListener("click", () => {
+          controller.reset();
+          showStep();
+        });
+        showStep();
+      }
+    </script>
+  </body>
+</html>

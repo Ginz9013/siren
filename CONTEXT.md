@@ -69,12 +69,20 @@ _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "err
 diagnostic" for the level)
 
 **Diagram kind**:
-Which diagram a Siren document declares in its header — `flowchart TD|LR` or `sequenceDiagram`.
-Carried as `SirenDocument.kind` and dispatched on by `parseSiren`, `buildGraphModel`, and
-`render()`, each of which routes to that kind's own parser/model/layout/renderer. Flowcharts lay
-out through `layoutGraph` (dagre); sequence diagrams through `layoutSequence` (hand-rolled lanes
-and rows) — the two share no layout code.
+Which diagram a Siren document declares in its header — `flowchart TD|LR`, `sequenceDiagram`, or
+`classDiagram`. Carried as `SirenDocument.kind` and dispatched on by `parseSiren`,
+`buildGraphModel`, and `render()`, each of which routes to that kind's own
+parser/model/layout/renderer.
 _Avoid_: diagram type, mode
+
+**Graph-shaped diagram**:
+A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class
+diagrams today; state, ER, requirement and C4 when they land. Every one of them sizes its own
+boxes and labels and then calls `layoutDirectedGraph`, the single place in the codebase that
+imports dagre (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
+and its amendment). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
+and has its own `layoutSequence`.
+_Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre diagram
 
 **Participant**:
 One vertical lane in a sequence diagram, declared explicitly as `participant X` (drawn as a box)
@@ -118,3 +126,82 @@ block (which wraps messages in time, not participants in space) and from a parti
 shape.
 _Avoid_: box (alone — the word is overloaded three ways: this grouping, a participant's rect, and
 a block's bounding rect; always qualify it)
+
+**Class**:
+One box in a class diagram — the class-diagram counterpart of a flowchart node. Created by a
+`class` statement (bare, block, or the inline `Animal : +int age` member form) or implicitly by
+being named in a relationship, exactly as `A --> B` creates two flowchart nodes. Its id is the
+declared name, with a generic parameter *not* part of it: `class Registry~T~` has the id
+`Registry` and draws as `Registry<T>`. A second declaration of the same name merges members
+rather than erroring. May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
+author-chosen text), drawn in guillemets above the name — an annotation labels the class it
+is written in, unlike a note, which is a box of its own.
+_Avoid_: CSS class (the codebase is full of `siren-*` CSS classes and of these boxes — say
+"class" only for the box, and "CSS class" for the other; the `classDef`/`cssClass` directives
+name the CSS-ish sense, not this one), node, entity, box
+
+**Member**:
+One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
+`-` private, `#` protected, `~` package), an optional classifier (`*` abstract, `$` static), a
+name, an optional type, and — for methods — a parameter list and an optional return type.
+Rendered verbatim, as the author spelled it. Attributes and methods draw in two separate
+compartments, in declaration order within each, with a divider above every populated one.
+_Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
+(alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
+member" when the kind matters)
+
+**Relationship**:
+A directed edge between two classes, carrying one of Mermaid's eight types, an optional `: label`
+and optional multiplicity strings at each end. Its id follows the flowchart edge convention
+exactly: `${fromId}-${toId}`, then `#2` for a repeat pair. The type is modeled as two axes — a
+`line` (`solid` | `dashed`) and an endpoint marker at each end (`none` | `triangle` |
+`diamondFilled` | `diamondHollow` | `arrow`) — whose named compositions are `inheritance`,
+`composition`, `aggregation`, `association`, `link`, `dependency`, `realization` and `dashedLink`,
+reported as `data-siren-relationship`.
+_Avoid_: edge (that is flowchart vocabulary; each of the three kinds names its connector
+differently — flowchart *edge*, sequence *message*, class *relationship* — and only the
+flowchart edge is a `.siren-edge`), association (that is one of the eight types, not the
+category), arrow, link (also one of the eight types)
+
+**Namespace**:
+A named group of classes drawn as an enclosing frame behind the boxes it holds, laid out as a
+dagre compound-graph cluster. The third grouping construct in the codebase and the only spatial
+one in a graph-shaped diagram — a sequence diagram's **box grouping** bands participant lanes, and
+its **control-flow block** wraps statements in time. Addressable in a `timeline:` block under a
+generated id (`namespace:1`, `namespace:2`, … in source order).
+_Avoid_: package, module, cluster (that is the dagre-side word `layoutDirectedGraph` uses for the
+mechanism, not the authored construct), group, box
+
+**Note**:
+A free-standing annotation box in a class diagram, either attached to one class
+(`note for Shelf "..."`, drawn with a connector to that class's box) or standing alone
+(`note "..."`). Laid out as an ordinary node in the graph, so the layout engine itself guarantees
+it never overlaps a class box — at the cost of occupying a rank. Addressable in a `timeline:`
+block under a generated id (`note:1`, `note:2`, … in source order, which a dropped note does not
+renumber).
+_Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
+own), comment (that is a `%%` line, which is stripped before parsing and draws nothing), label,
+callout
+
+**Author style**:
+A `style`/`classDef`/`cssClass` declaration in a class-diagram document, emitted as an inline
+`style` attribute on the drawn shape. A **local override within one document**, as opposed to a
+**design token**, which is the global default for every diagram — the two do not compete, see
+[ADR-0008](docs/adr/0008-author-styling-sits-alongside-the-token-theme.md). Property names must be
+plain CSS identifiers and values may not contain `url(`, `expression(`, `;` or `\`; a rejected
+declaration is dropped with an error diagnostic and its siblings still apply. Reaches a class's
+frame only, never its label text — so a style hard-coding an opaque fill is theme-blind, and
+examples in this repo use translucent fills for that reason.
+_Avoid_: theme, custom style, CSS class (a `classDef` defines a named set of declarations, not a
+CSS class — nothing it produces reaches a stylesheet), inline style (that is the mechanism, not
+the authored thing)
+
+**Interaction target**:
+A class the author made clickable, with `click X href "url"` / `link X "url"` (rendered as an
+`<a class="siren-link">` wrapper) or `click X call fn()` / `callback X "fn"` (rendered as a
+`data-siren-click` hook that `render()` reports to `options.onClick`). Both forms are author input
+reaching a live sink, so the URL is checked against an `http`/`https`/`mailto` allowlist — a
+scheme-relative or otherwise disallowed URL is dropped with an error diagnostic — and a callback
+is only ever a *name* handed to the host, never a function this package looks up and invokes.
+_Avoid_: link (that is one of the two forms), handler, action (that is the callback-name field of
+one, not the whole thing), hotspot

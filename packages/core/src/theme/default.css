@@ -55,6 +55,11 @@
   --siren-stroke-width: 1.5;
   --siren-highlight-stroke-width: 3;
   --siren-lifeline-dash: 4 4;
+  /* A note's connector is dashed, as UML draws one — its own token rather than
+     the lifeline's, which belongs to a different diagram kind. Declaring it
+     here is safe where a *color* token would not be: a dash pattern carries no
+     light/dark value, so freezing it at `:root` costs nothing. */
+  --siren-note-link-dash: 4 4;
   /* A box groups participants drawn on top of it, so it reads as a tint. */
   --siren-box-fill-opacity: 0.35;
 
@@ -124,12 +129,20 @@
  *    to declare above and are declared there.
  */
 
-/* Shared type for the sequence diagram's grouping elements; the `<text>`
-   children inherit it and only restate what they change. */
+/* Shared type for the sequence and class diagrams' grouping elements; the
+   `<text>` children inherit it and only restate what they change. The class
+   groups belong here rather than in a rule of their own: `layoutClassDiagram`
+   sizes every class box from text measured in this font at this size, so a
+   group left out renders its members in the browser's default face and the
+   box no longer fits what it holds. */
 .siren-participant,
 .siren-message,
 .siren-block,
-.siren-box {
+.siren-box,
+.siren-class,
+.siren-relationship,
+.siren-namespace,
+.siren-note {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -281,6 +294,177 @@
   font-size: var(--siren-title-font-size);
   font-weight: 600;
   fill: var(--siren-node-text);
+}
+
+/*
+ * Class diagram, per the frozen SVG conventions in
+ * renderClassDiagramToSVG.ts. Same two rules as the sequence block above, for
+ * the same reasons: the flowchart's five color tokens are reused rather than
+ * extended with class-diagram-specific ones (a class box *is* a node, a
+ * relationship *is* an edge), and every one of them is named at the point of
+ * use rather than aliased into a new `--siren-*` declared in `:root`, which
+ * would freeze its light value above the demos' `<body>`-scoped dark
+ * override.
+ */
+
+/*
+ * A class frame takes no `rx`: UML draws a class as a square-cornered box
+ * divided into compartments, and the dividers below run the frame's full
+ * width — a rounded corner would leave them poking past the outline.
+ */
+.siren-class-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/* Same weight as a sequence block's caption: the name titles the box. */
+.siren-class-name {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * A compartment divider is part of the frame, not a connector, so it tracks
+ * the frame's stroke rather than the edge color.
+ */
+.siren-class-divider {
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-member {
+  fill: var(--siren-node-text);
+}
+
+/*
+ * `stroke-dasharray` is deliberately absent here and must stay absent, for
+ * the same reason it is on `.siren-message-arrow` above: the renderer sets it
+ * per relationship as a presentation attribute, and it is the *only* thing
+ * separating a dependency from an association and a dashed link from a link.
+ * An author rule outranks a presentation attribute, so declaring a dash (or a
+ * `none`) here would flatten all four of those into two.
+ *
+ * `fill` is absent for a different reason: the renderer writes `fill="none"`
+ * onto the path itself, because a relationship's points make an open,
+ * multi-segment path that a default fill would paint as a polygon over the
+ * classes it connects.
+ */
+.siren-relationship-line {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-relationship-label {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
+ * Multiplicity is secondary type annotating the line rather than naming the
+ * relationship, so it tracks the line's color — the `.siren-autonumber`
+ * precedent.
+ */
+.siren-multiplicity {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-edge-stroke);
+}
+
+/*
+ * The hollow endpoint shapes — UML's inheritance/realization triangle and its
+ * aggregation diamond. Outlined in the line's own color, and filled with the
+ * surface the diagram sits on rather than left unfilled: this is the one rule
+ * here that changes what a diagram *means*.
+ *
+ * The two diamonds are the same `<path>` shape drawn twice, told apart only
+ * by this class versus `.siren-arrow-fill` (see renderClassDiagramToSVG.ts's
+ * `buildDefs`) — so with no fill declared, SVG's initial `fill: black` makes
+ * an aggregation identical to a composition. `fill: none` is not the fix
+ * either: an unfilled head lets the relationship line run straight through
+ * its middle. `--siren-node-fill` is the surface token — a class box's own
+ * fill — so a head sitting against a class box, and one crossing empty
+ * canvas, both read as hollow in either theme.
+ */
+.siren-arrow-hollow {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * An annotation (`«interface»`) names the *kind* of thing the class is rather
+ * than the class itself, so it takes the secondary type size the sequence
+ * diagram's captions use, under the name's own weight. Drawing it smaller than
+ * the line `layoutClassDiagram` measured also absorbs the guillemets the
+ * renderer adds, which that measurement does not include.
+ */
+.siren-class-annotation {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
+ * A namespace frame encloses class boxes that are drawn *over* it, so it is
+ * outlined and not filled: a fill here would sit behind the whole group and
+ * tint nothing usefully, while still hiding whatever the frame overlaps. It
+ * tracks the node stroke because it is a container of boxes, not a connector.
+ */
+.siren-namespace-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/*
+ * No `font-size` on either label below: `layoutClassDiagram` measures a
+ * namespace's label and a note's text in the group font declared above and
+ * sizes the frame and the box from it, so shrinking or growing them here would
+ * leave the drawn text disagreeing with the box that was built to hold it.
+ */
+.siren-namespace-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/* A note is a box of text like a class box, so it takes the same surface. */
+.siren-note-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+.siren-note-text {
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The `<a>` wrapped around a class the author gave an `href`. It sets a
+ * cursor and nothing else, deliberately: recoloring the class would make a
+ * linked box read as a different *kind* of class rather than as the same
+ * class you can follow, and an author's own `style` on that class would then
+ * be arguing with the theme over the same box. The pointer is the whole
+ * affordance — without it a link is indistinguishable from any other box
+ * until a reader happens to click it.
+ */
+.siren-link {
+  cursor: pointer;
+}
+
+/*
+ * The connector from a note to the class it annotates. Dashed — UML's own
+ * convention, and what keeps it from reading as a ninth relationship type.
+ * The dash is the theme's to set here, unlike on `.siren-relationship-line`:
+ * the renderer sets none on a connector, and every connector is dashed, so
+ * nothing per-element is being overridden. `fill` is absent because the
+ * renderer writes `fill="none"` onto the path itself, for the same reason a
+ * relationship line carries it.
+ */
+.siren-note-link {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+  stroke-dasharray: var(--siren-note-link-dash);
 }
 
 /*
@@ -494,6 +678,50 @@
 }
 
 .siren-edge.siren-highlight-outline {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * The class diagram's own `outline` rules. It needs its own because the two
+ * above are written against flowchart structure — `.siren-node` wrapping a
+ * `<rect>`, `.siren-edge` being the stroked `<path>` itself — and a class
+ * diagram is shaped differently: the highlight class lands on a
+ * `<g class="siren-class">` whose stroke lives on an inner
+ * `.siren-class-frame`, and on a `<g class="siren-relationship">` whose
+ * stroke lives on an inner `.siren-relationship-line`. Without these,
+ * `highlight X outline` in a class document is a timeline step on which
+ * nothing visibly happens — `glow` below already works for every kind, since
+ * a filter applies to a `<g>`'s whole subtree.
+ */
+.siren-class.siren-highlight-outline .siren-class-frame {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+.siren-relationship.siren-highlight-outline .siren-relationship-line {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * A namespace and a note are addressable from a `timeline:` block exactly as
+ * a class and a relationship are, so `highlight namespace:1 outline` has to
+ * do something. Without these two rules it resolved to nothing at all — the
+ * verb parsed, the model accepted it, the controller set the class, and the
+ * picture did not change.
+ */
+.siren-namespace.siren-highlight-outline .siren-namespace-frame,
+.siren-note.siren-highlight-outline .siren-note-frame {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);
   transition:

@@ -1,44 +1,19 @@
 import type {
   Diagnostic,
   Direction,
-  EnterExitEffect,
   FlowchartDocument,
-  HighlightEffect,
   ParseResult,
   SirenEdge,
   SirenNode,
   SirenTimeline,
-  TimelineActionKind,
-  TimelineEntry,
 } from "../contracts";
+import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
 const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|LR)\s*$/;
-const TIMELINE_HEADER_RE = /^timeline:\s*$/;
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
   /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
 const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
-const TIMELINE_ENTRY_RE = /^step\s+(\d+):\s*(.+)$/;
-// A verb, a target id, and an optional trailing effect token (unhighlight
-// takes none; every other verb requires one — validated below, not here).
-const TIMELINE_ACTION_RE = /^(\S+)\s+(\S+)(?:\s+(\S+))?$/;
-
-const ENTER_EXIT_EFFECTS = new Set<EnterExitEffect>([
-  "fade",
-  "slide-left",
-  "slide-right",
-  "slide-top",
-  "slide-bottom",
-]);
-
-const EFFECTS_BY_KIND: Readonly<
-  Partial<Record<string, ReadonlySet<string> | null>>
-> = {
-  enter: ENTER_EXIT_EFFECTS,
-  exit: ENTER_EXIT_EFFECTS,
-  highlight: new Set<HighlightEffect>(["outline", "glow"]),
-  unhighlight: null,
-};
 
 /**
  * Parses Siren flowchart source text (a `flowchart TD|LR` header, node/edge
@@ -48,6 +23,12 @@ const EFFECTS_BY_KIND: Readonly<
  *
  * Extracted verbatim from what used to be `parseSiren`'s own body — zero
  * behavior change, only the `kind: "flowchart"` tag is new.
+ *
+ * The `timeline:` grammar itself is no longer here: it moved to
+ * `parseTimelineBlock`, which the class parser calls too, so both kinds read
+ * one vocabulary instead of two copies that drift. This function still owns
+ * *where* the block starts and what a diagnostic inside it costs the
+ * document; only the entry grammar is shared.
  */
 export function parseFlowchart(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
@@ -104,7 +85,7 @@ export function parseFlowchart(source: string): ParseResult {
       continue;
     }
 
-    if (TIMELINE_HEADER_RE.test(line)) {
+    if (isTimelineHeader(line)) {
       mode = "timeline";
       timeline = timeline ?? { entries: [] };
       continue;
@@ -158,89 +139,18 @@ export function parseFlowchart(source: string): ParseResult {
     }
 
     if (mode === "timeline") {
-      const entryMatch = TIMELINE_ENTRY_RE.exec(line);
-      if (entryMatch === null) {
-        diagnostics.push({
-          severity: "error",
-          message: `Unrecognized timeline line: "${line}"`,
-          line: lineNumber,
-          column,
-        });
+      const { entries, diagnostics: lineDiagnostics } = parseTimelineLine(
+        line,
+        lineNumber,
+        column,
+      );
+      diagnostics.push(...lineDiagnostics);
+      // Every diagnostic the shared grammar reports is error-severity, so a
+      // non-empty list is exactly the old per-branch `sawError = true`.
+      if (lineDiagnostics.length > 0) {
         sawError = true;
-        continue;
       }
-
-      const step = Number.parseInt(entryMatch[1], 10);
-      const actions = entryMatch[2].split(",").map((part) => part.trim());
-      for (const action of actions) {
-        const actionMatch = TIMELINE_ACTION_RE.exec(action);
-        if (actionMatch === null) {
-          diagnostics.push({
-            severity: "error",
-            message: `Unrecognized timeline action: "${action}"`,
-            line: lineNumber,
-            column,
-          });
-          sawError = true;
-          continue;
-        }
-        const [, verb, targetId, effect] = actionMatch;
-        const allowedEffects = EFFECTS_BY_KIND[verb];
-        if (allowedEffects === undefined) {
-          diagnostics.push({
-            severity: "error",
-            message: `Unrecognized timeline verb "${verb}" (expected "enter", "exit", "highlight", or "unhighlight")`,
-            line: lineNumber,
-            column,
-          });
-          sawError = true;
-          continue;
-        }
-        const kind = verb as TimelineActionKind;
-
-        if (allowedEffects === null) {
-          if (effect !== undefined) {
-            diagnostics.push({
-              severity: "error",
-              message: `"unhighlight" takes no effect, found trailing "${effect}" in "${action}"`,
-              line: lineNumber,
-              column,
-            });
-            sawError = true;
-            continue;
-          }
-          const entry: TimelineEntry = {
-            kind,
-            step,
-            targetId,
-            line: lineNumber,
-            column,
-          };
-          (timeline as SirenTimeline).entries.push(entry);
-          continue;
-        }
-
-        if (effect === undefined || !allowedEffects.has(effect)) {
-          diagnostics.push({
-            severity: "error",
-            message: `Unknown ${kind} effect "${effect ?? ""}" (expected one of: ${[...allowedEffects].join(", ")})`,
-            line: lineNumber,
-            column,
-          });
-          sawError = true;
-          continue;
-        }
-
-        const entry: TimelineEntry = {
-          kind,
-          step,
-          targetId,
-          effect: effect as EnterExitEffect | HighlightEffect,
-          line: lineNumber,
-          column,
-        };
-        (timeline as SirenTimeline).entries.push(entry);
-      }
+      (timeline as SirenTimeline).entries.push(...entries);
       continue;
     }
   }
