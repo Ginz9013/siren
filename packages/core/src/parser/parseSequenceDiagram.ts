@@ -15,7 +15,7 @@ import type {
   SequenceStatement,
   SirenTimeline,
 } from "../contracts";
-import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
+import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
 
@@ -657,22 +657,17 @@ export function parseSequenceDiagram(source: string): ParseResult {
   // sequence-specific copy of it.
   let timeline: SirenTimeline | null = null;
   if (terminatorKeyword === TIMELINE_TERMINATOR) {
-    timeline = { entries: [] };
-    for (; state.index < lines.length; state.index++) {
-      const rawLine = lines[state.index];
-      const line = rawLine.trim();
-      if (line.length === 0) continue;
-      const { entries, diagnostics: lineDiagnostics } = parseTimelineLine(
-        line,
-        state.index + 1,
-        rawLine.length - rawLine.trimStart().length + 1,
-      );
-      diagnostics.push(...lineDiagnostics);
-      if (lineDiagnostics.length > 0) {
-        state.sawError = true;
-      }
-      timeline.entries.push(...entries);
+    const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
+      lines,
+      state.index,
+    );
+    diagnostics.push(...bodyDiagnostics);
+    // Every diagnostic the shared body reports is error-severity, so a
+    // non-empty list is exactly what used to be a per-line `sawError = true`.
+    if (bodyDiagnostics.length > 0) {
+      state.sawError = true;
     }
+    timeline = { entries };
   }
 
   if (state.sawError) {

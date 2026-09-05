@@ -8,7 +8,7 @@ import type {
   SirenTimeline,
 } from "../contracts";
 import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
-import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
+import { isTimelineHeader, parseTimelineBodyLine } from "./parseTimelineBlock";
 
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
@@ -139,10 +139,15 @@ export function parseFlowchart(source: string): ParseResult {
     }
 
     if (mode === "timeline") {
-      const { entries, diagnostics: lineDiagnostics } = parseTimelineLine(
-        line,
+      // One line at a time rather than `parseTimelineBody`, which the class
+      // and sequence parsers call: this loop re-checks `isTimelineHeader`
+      // above before it gets here, so a repeated `timeline:` inside the block
+      // is a no-op for a flowchart where it is an unrecognized timeline line
+      // for the other two. Handing the rest of the document to the shared
+      // drain would quietly change that.
+      const { entries, diagnostics: lineDiagnostics } = parseTimelineBodyLine(
+        rawLine,
         lineNumber,
-        column,
       );
       diagnostics.push(...lineDiagnostics);
       // Every diagnostic the shared grammar reports is error-severity, so a
