@@ -24,8 +24,12 @@ export interface Diagnostic {
   column?: number;
 }
 
-/** Flowchart layout direction, taken from the `flowchart TD|LR` header. */
-export type Direction = "TD" | "LR";
+/**
+ * Flowchart layout direction, taken from the `flowchart ...` header. `TD` is
+ * Mermaid's alias for `TB` and is normalized away by the parser, so nothing
+ * downstream ever sees it.
+ */
+export type Direction = "TB" | "BT" | "LR" | "RL";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =
@@ -636,10 +640,9 @@ export interface SirenRenderResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Layout direction of a class diagram, from its `direction` statement.
- * Wider than the flowchart header's `TD|LR` on purpose: Mermaid accepts all
- * four here, and this board deliberately does not widen the flowchart
- * header to match.
+ * Layout direction of a class diagram, from its `direction` statement. Spells
+ * the same four values as `Direction`; the two are collapsed into one type by
+ * the next ticket on this board.
  */
 export type ClassDirection = "TB" | "BT" | "LR" | "RL";
 

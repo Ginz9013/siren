@@ -42,7 +42,8 @@ timeline:
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
-    expect(document.direction).toBe("TD");
+    // `flowchart TD` still parses; it resolves to the one spelling, `TB`.
+    expect(document.direction).toBe("TB");
     expect(document.nodes.map((n) => n.id).sort()).toEqual(["A", "B", "C"]);
     expect(document.edges).toHaveLength(2);
     expect(document.edges.map((e) => ({ from: e.from, to: e.to }))).toEqual([
@@ -64,6 +65,58 @@ timeline:
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
     expect(document.direction).toBe("LR");
+  });
+
+  it("accepts flowchart TB, the spelling Mermaid's own documentation leads with", () => {
+    const source = `flowchart TB
+  A[Start]
+  A --> B[End]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.direction).toBe("TB");
+  });
+
+  it("accepts the BT and RL headers a class diagram has always accepted", () => {
+    for (const direction of ["BT", "RL"] as const) {
+      const source = `flowchart ${direction}
+  A[Start]
+  A --> B[End]
+`;
+
+      const { document, diagnostics } = parseFlowchartOk(source);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.direction).toBe(direction);
+    }
+  });
+
+  it("normalizes the TD alias to TB, so nothing downstream sees two spellings of one direction", () => {
+    const source = `flowchart TD
+  A[Start]
+  A --> B[End]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.direction).toBe("TB");
+  });
+
+  it("names every accepted flowchart direction when it rejects a header", () => {
+    const source = `flowchart SIDEWAYS
+  A[Start]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    const message = diagnostics[0].message;
+    for (const spelling of ["TB", "BT", "LR", "RL"]) {
+      expect(message).toContain(`flowchart ${spelling}`);
+    }
   });
 
   it("reports an error diagnostic and returns a null document for a malformed edge line, without throwing", () => {

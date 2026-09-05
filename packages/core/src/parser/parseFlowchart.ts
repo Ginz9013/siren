@@ -9,14 +9,14 @@ import type {
 } from "../contracts";
 import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
-const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|LR)\s*$/;
+const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|TB|BT|LR|RL)\s*$/;
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
   /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
 const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
 
 /**
- * Parses Siren flowchart source text (a `flowchart TD|LR` header, node/edge
+ * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header, node/edge
  * declarations, and an optional `timeline:` block) into a
  * `FlowchartDocument`. Never throws on malformed input — syntax problems
  * are reported as diagnostics instead.
@@ -73,14 +73,17 @@ export function parseFlowchart(source: string): ParseResult {
       if (headerMatch === null) {
         diagnostics.push({
           severity: "error",
-          message: `Expected "flowchart TD" or "flowchart LR", found "${line}"`,
+          message: `Expected "flowchart TB", "flowchart BT", "flowchart LR", or "flowchart RL", found "${line}"`,
           line: lineNumber,
           column,
         });
         sawError = true;
         break;
       }
-      direction = headerMatch[1] as Direction;
+      // `TD` and `TB` are two spellings of one direction. The parser is the
+      // only module that knows which the author wrote, so it is where the
+      // alias dies: everything downstream sees one vocabulary.
+      direction = headerMatch[1] === "TD" ? "TB" : (headerMatch[1] as Direction);
       mode = "flowchart";
       continue;
     }

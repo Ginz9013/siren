@@ -3,7 +3,12 @@ import { parseClassDiagram } from "./parseClassDiagram";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 
-const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|LR)\s*$/;
+const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|TB|BT|LR|RL)\s*$/;
+// Spelled out rather than derived from the regex: a diagnostic is read by an
+// author, and `TD` is deliberately absent — it parses, but `TB` is the
+// spelling to teach.
+const HEADER_SPELLINGS =
+  `"flowchart TB", "flowchart BT", "flowchart LR", "flowchart RL", "sequenceDiagram", or "classDiagram"`;
 const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
 const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
 
@@ -40,7 +45,7 @@ function stripComments(lines: readonly string[]): string[] {
 
 /**
  * Sniffs the first non-blank line of Siren source text and dispatches to
- * `parseFlowchart` (`flowchart TD|LR` header) or `parseSequenceDiagram`
+ * `parseFlowchart` (`flowchart TB|BT|LR|RL` header) or `parseSequenceDiagram`
  * (`sequenceDiagram` header), after stripping `%%` comments from the whole
  * document. Never throws on malformed input — an unrecognized header is
  * reported as a diagnostic instead.
@@ -53,8 +58,7 @@ export function parseSiren(source: string): ParseResult {
     const diagnostics: Diagnostic[] = [
       {
         severity: "error",
-        message:
-          'Empty document: expected a "flowchart TD", "flowchart LR", "sequenceDiagram", or "classDiagram" header',
+        message: `Empty document: expected a ${HEADER_SPELLINGS} header`,
         line: 1,
         column: 1,
       },
@@ -85,7 +89,7 @@ export function parseSiren(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [
     {
       severity: "error",
-      message: `Expected "flowchart TD", "flowchart LR", "sequenceDiagram", or "classDiagram", found "${trimmed}"`,
+      message: `Expected ${HEADER_SPELLINGS}, found "${trimmed}"`,
       line: firstNonBlankIndex + 1,
       column,
     },

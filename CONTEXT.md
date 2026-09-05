@@ -77,11 +77,19 @@ _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "err
 diagnostic" for the level)
 
 **Diagram kind**:
-Which diagram a Siren document declares in its header — `flowchart TD|LR`, `sequenceDiagram`, or
-`classDiagram`. Carried as `SirenDocument.kind` and dispatched on by `parseSiren`,
-`buildGraphModel`, and `render()`, each of which routes to that kind's own
+Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
+`sequenceDiagram`, or `classDiagram`. Carried as `SirenDocument.kind` and dispatched on by
+`parseSiren`, `buildGraphModel`, and `render()`, each of which routes to that kind's own
 parser/model/layout/renderer.
 _Avoid_: diagram type, mode
+
+**Direction**:
+Which way a diagram's layout runs — `TB` top-to-bottom, `BT` bottom-to-top, `LR` left-to-right,
+`RL` right-to-left — written in a flowchart's header (`flowchart TB`) or a class diagram's
+`direction` statement. `TD` is Mermaid's alias for `TB`, not a fifth direction: the flowchart
+parser normalizes it away, so nothing downstream ever sees two spellings of one direction.
+_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it, and it belongs inside
+`layoutDirectedGraph`), TD (say `TB`)
 
 **Graph-shaped diagram**:
 A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class

@@ -384,6 +384,18 @@ step 5: unhighlight B
 `;
 
 describe("render", () => {
+  it("renders a flowchart declared with any of the four directions, and with the TD alias", () => {
+    for (const header of ["TB", "BT", "LR", "RL", "TD"]) {
+      const container = document.createElement("div");
+
+      const result = render(`flowchart ${header}\nA[Start] --> B[End]\n`, container);
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.svg).not.toBeNull();
+      expect(result.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
+    }
+  });
+
   it("mounts an SVG into the container with one siren-node group per node and one siren-edge path per edge, each carrying data-siren-id", () => {
     const container = document.createElement("div");
 

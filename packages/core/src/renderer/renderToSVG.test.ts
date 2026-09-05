@@ -8,7 +8,7 @@ import type { PositionedGraph } from "../contracts";
  */
 function buildFixture(): PositionedGraph {
   return {
-    direction: "TD",
+    direction: "TB",
     nodes: [
       { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40 },
       { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40 },
@@ -53,7 +53,7 @@ function buildFixture(): PositionedGraph {
  */
 function buildNonEnterFixture(): PositionedGraph {
   return {
-    direction: "TD",
+    direction: "TB",
     nodes: [
       { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40 },
       { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40 },
