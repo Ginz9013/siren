@@ -663,4 +663,120 @@ describe("parseSequenceDiagram", () => {
     expect(document).toBeNull();
     expect(diagnostics.some((d) => d.severity === "error" && d.line === 2)).toBe(true);
   });
+
+  it("parses a top-level `timeline:` block through the shared timeline grammar, ending the diagram body there", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  A->>B: hi
+timeline:
+  step 1: enter A fade
+  step 2: highlight B glow
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(diagnostics).toEqual([]);
+    const sequenceDocument = document as SequenceDocument | null;
+    expect(sequenceDocument?.timeline).toEqual({
+      entries: [
+        { kind: "enter", step: 1, targetId: "A", effect: "fade", line: 6, column: 3 },
+        { kind: "highlight", step: 2, targetId: "B", effect: "glow", line: 7, column: 3 },
+      ],
+    });
+    // The block ends the body: nothing after `timeline:` became a statement.
+    expect(sequenceDocument?.statements.map((s) => s.kind)).toEqual([
+      "participant",
+      "participant",
+      "message",
+    ]);
+  });
+
+  it("leaves timeline null for a document that declares no timeline block", () => {
+    const source = `sequenceDiagram
+  participant A
+  A->>A: hi
+`;
+
+    const { document } = parseOk(source);
+
+    expect(document.timeline).toBeNull();
+  });
+  // All three of the ticket's named body kinds, not just `loop`: the rule is
+  // that `TIMELINE_TERMINATOR` reaches only the top-level `parseBody` call, and
+  // a body that opens its own terminator set must not inherit it. `alt` also
+  // covers the branch case (`else` opens a fresh body of the same block).
+  it.each([
+    {
+      body: "loop",
+      source: `sequenceDiagram
+  participant A
+  loop retry
+    timeline:
+    A->>A: hi
+  end
+`,
+      line: 4,
+      column: 5,
+    },
+    {
+      body: "alt (second branch)",
+      source: `sequenceDiagram
+  participant A
+  alt ok
+    A->>A: hi
+  else fallback
+    timeline:
+  end
+`,
+      line: 6,
+      column: 5,
+    },
+    {
+      body: "box",
+      source: `sequenceDiagram
+  box Blue Team
+    participant A
+    timeline:
+  end
+  A->>A: hi
+`,
+      line: 4,
+      column: 5,
+    },
+  ])(
+    "still reports `timeline:` inside a $body body as an unrecognized sequenceDiagram line",
+    ({ source, line, column }) => {
+      const { document, diagnostics } = parseSequenceDiagram(source);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toContainEqual({
+        severity: "error",
+        message: 'Unrecognized sequenceDiagram line: "timeline:"',
+        line,
+        column,
+      });
+    },
+  );
+
+  it("reports a malformed timeline line with the shared timeline grammar's own diagnostics", () => {
+    const source = `sequenceDiagram
+  participant A
+  A->>A: hi
+timeline:
+  step 1: wiggle A fade
+  step 2: enter A
+  step 3: unhighlight A glow
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized timeline verb "wiggle" (expected "enter", "exit", "highlight", or "unhighlight")',
+      'Unknown enter effect "" (expected one of: fade, slide-left, slide-right, slide-top, slide-bottom)',
+      '"unhighlight" takes no effect, found trailing "glow" in "unhighlight A glow"',
+    ]);
+  });
+
 });

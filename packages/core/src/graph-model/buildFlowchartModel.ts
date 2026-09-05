@@ -4,9 +4,8 @@ import type {
   GraphEdge,
   GraphModel,
   GraphNode,
-  ResolvedTimelineEntry,
-  TimelineEntry,
 } from "../contracts";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `FlowchartDocument` into a validated `GraphModel`:
@@ -35,9 +34,9 @@ export function buildFlowchartModel(
     ...edges.map((e) => e.id),
   ]);
 
-  const { entries, totalSteps } = resolveTimeline(document, validTargetIds, diagnostics);
+  const { entries, totalSteps } = resolveTimeline(document.timeline, validTargetIds, diagnostics);
 
-  warnOnEdgesOutlivingTheirEndpoints(entries, edges, diagnostics);
+  warnOnConnectorsOutlivingTheirEndpoints(entries, edges, "edge", diagnostics);
 
   const graph: GraphModel = {
     direction: document.direction,
@@ -47,148 +46,6 @@ export function buildFlowchartModel(
   };
 
   return { graph, diagnostics };
-}
-
-function resolveTimeline(
-  document: FlowchartDocument,
-  validTargetIds: Set<string>,
-  diagnostics: Diagnostic[],
-): { entries: ResolvedTimelineEntry[]; totalSteps: number } {
-  const entries: ResolvedTimelineEntry[] = [];
-  let totalSteps = 0;
-
-  if (document.timeline === null) {
-    return { entries, totalSteps };
-  }
-
-  // Pass 1: drop unknown-id entries, and dedupe enter/exit (the numerically
-  // earliest step wins, regardless of source declaration order — next()/
-  // prev() always walk entries in step order, so "first" must mean "first
-  // in time," not "first line in the file." Ties on the same step keep
-  // whichever was declared first.)
-  const winnerByDedupeKey = new Map<string, TimelineEntry>();
-  for (const entry of document.timeline.entries) {
-    if (entry.kind !== "enter" && entry.kind !== "exit") continue;
-    if (!validTargetIds.has(entry.targetId)) continue;
-
-    const dedupeKey = `${entry.kind}:${entry.targetId}`;
-    const current = winnerByDedupeKey.get(dedupeKey);
-    if (current === undefined || entry.step < current.step) {
-      winnerByDedupeKey.set(dedupeKey, entry);
-    }
-  }
-
-  const kept: TimelineEntry[] = [];
-
-  for (const entry of document.timeline.entries) {
-    if (!validTargetIds.has(entry.targetId)) {
-      diagnostics.push({
-        severity: "error",
-        message: `timeline: references unknown id "${entry.targetId}"`,
-        line: entry.line,
-        column: entry.column,
-      });
-      continue;
-    }
-
-    if (entry.kind === "enter" || entry.kind === "exit") {
-      const dedupeKey = `${entry.kind}:${entry.targetId}`;
-      if (winnerByDedupeKey.get(dedupeKey) !== entry) {
-        diagnostics.push({
-          severity: "warning",
-          message: `timeline: "${entry.targetId}" already has a "${entry.kind}" action; keeping the earliest-step occurrence.`,
-          line: entry.line,
-          column: entry.column,
-        });
-        continue;
-      }
-    }
-
-    kept.push(entry);
-  }
-
-  // Pass 2: compute each target's "becomes visible at step" — its own kept
-  // `enter` step, or 0 if it's never entered — and reject any
-  // highlight/exit/unhighlight action whose step comes before that.
-  const visibleAtStep = new Map<string, number>();
-  for (const entry of kept) {
-    if (entry.kind === "enter") {
-      visibleAtStep.set(entry.targetId, entry.step);
-    }
-  }
-
-  for (const entry of kept) {
-    if (entry.kind === "highlight" || entry.kind === "exit" || entry.kind === "unhighlight") {
-      const visibleStep = visibleAtStep.get(entry.targetId) ?? 0;
-      if (entry.step < visibleStep) {
-        diagnostics.push({
-          severity: "error",
-          message: `timeline: "${entry.kind}" on "${entry.targetId}" at step ${entry.step} comes before it becomes visible (step ${visibleStep})`,
-          line: entry.line,
-          column: entry.column,
-        });
-        continue;
-      }
-    }
-
-    entries.push({
-      kind: entry.kind,
-      step: entry.step,
-      targetId: entry.targetId,
-      effect: entry.effect,
-    });
-
-    if (entry.step > totalSteps) {
-      totalSteps = entry.step;
-    }
-  }
-
-  return { entries, totalSteps };
-}
-
-/**
- * Warns when an edge remains visible after a node it connects to has
- * exited — the edge would render pointing at (or from) an invisible
- * endpoint, an arrow with no visible source or target. Advisory only:
- * does not drop the exit action or change what renders, since edge
- * visibility isn't coupled to its endpoints' visibility in renderToSVG.ts
- * — an author who wants the edge gone too must give it its own `exit`.
- * One warning per affected edge, naming whichever endpoint exits first.
- */
-function warnOnEdgesOutlivingTheirEndpoints(
-  entries: ResolvedTimelineEntry[],
-  edges: GraphEdge[],
-  diagnostics: Diagnostic[],
-): void {
-  const edgeIds = new Set(edges.map((e) => e.id));
-  const nodeExitStep = new Map<string, number>();
-  const edgeExitStep = new Map<string, number>();
-
-  for (const entry of entries) {
-    if (entry.kind !== "exit") continue;
-    (edgeIds.has(entry.targetId) ? edgeExitStep : nodeExitStep).set(entry.targetId, entry.step);
-  }
-
-  for (const edge of edges) {
-    const fromExit = nodeExitStep.get(edge.from);
-    const toExit = nodeExitStep.get(edge.to);
-    if (fromExit === undefined && toExit === undefined) continue;
-
-    const earliestNodeExit = Math.min(
-      ...[fromExit, toExit].filter((step): step is number => step !== undefined),
-    );
-    const endpointId = fromExit === earliestNodeExit ? edge.from : edge.to;
-
-    const edgeExit = edgeExitStep.get(edge.id);
-    if (edgeExit !== undefined && edgeExit <= earliestNodeExit) continue;
-
-    diagnostics.push({
-      severity: "warning",
-      message:
-        `timeline: edge "${edge.id}" remains visible after its endpoint "${endpointId}" ` +
-        `exits at step ${earliestNodeExit} — add "exit ${edge.id} ..." at or before step ${earliestNodeExit}`,
-    });
-  }
 }
 
 function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): GraphNode[] {

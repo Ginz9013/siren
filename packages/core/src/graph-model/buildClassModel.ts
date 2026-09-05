@@ -13,10 +13,9 @@ import type {
   ResolvedClassNote,
   ResolvedClassRelationship,
   ResolvedClassStyle,
-  ResolvedTimeline,
-  ResolvedTimelineEntry,
-  TimelineEntry,
 } from "../contracts";
+import { generatedId } from "./generatedId";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `ClassDocument` into a validated `ClassModel`: repeat
@@ -66,8 +65,12 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const styles = resolveStyles(document, classesById, diagnostics);
 
+  // Classes, relationships, namespaces and notes share one id space, the way
+  // flowchart node and edge ids do, so an author animates any element of the
+  // diagram the same way — and the shared resolver never has to learn which
+  // kind of element an id belongs to.
   const timeline = resolveTimeline(
-    document,
+    document.timeline,
     new Set([
       ...classes.map((c) => c.id),
       ...relationships.map((r) => r.id),
@@ -77,7 +80,12 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     diagnostics,
   );
 
-  warnOnRelationshipsOutlivingTheirEndpoints(timeline.entries, relationships, diagnostics);
+  warnOnConnectorsOutlivingTheirEndpoints(
+    timeline.entries,
+    relationships,
+    "relationship",
+    diagnostics,
+  );
 
   const model: ClassModel = {
     direction: document.direction,
@@ -92,29 +100,6 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   return { model, diagnostics };
 }
-
-/**
- * What separates a generated id's kind from its number — `namespace:1`,
- * `note:1`.
- *
- * A colon rather than the `-` these ids used to use, because classes,
- * relationships, namespaces and notes share one id space and `-` is already
- * spoken for: a relationship's id is `${from}-${to}`, so a class named
- * `namespace` pointing at a class named `1` produces `namespace-1` — the
- * same string the first namespace held. Both `timeline:` addressing and
- * `data-siren-id` were then ambiguous, with no diagnostic to say so.
- *
- * A class id is `\w+` (the parser's rule), which cannot contain a `:`, so
- * no relationship id can ever spell one of these. The separator makes the
- * collision structurally impossible rather than merely unlikely, which is
- * why this is a constant with a reason attached and not an incidental `-`.
- *
- * The cost is that an author addressing a namespace in a `timeline:` block
- * writes `step 1: enter namespace:1 fade`. The timeline entry grammar takes
- * everything after the step's own colon and splits it on whitespace, so a
- * colon inside the id is read as part of the id.
- */
-const ID_SEPARATOR = ":";
 
 /**
  * One class under construction, plus the set of member line texts it has
@@ -210,7 +195,7 @@ function resolveClasses(
  * `buildSequenceModel` gives its blocks — while the name the author wrote
  * becomes the frame's `label`.
  *
- * The `:` separator is load-bearing, not decoration: see `ID_SEPARATOR`.
+ * The `:` separator is load-bearing, not decoration: see `generatedId`.
  *
  * Membership is recorded on both sides, so the renderer can walk from
  * either: the namespace lists its class ids, and each member class carries
@@ -233,7 +218,7 @@ function resolveNamespaces(
   const claimedBy = new Map<string, string>();
 
   return document.namespaces.map((namespace, index) => {
-    const id = `namespace${ID_SEPARATOR}${index + 1}`;
+    const id = generatedId("namespace", index + 1);
     const classIds: string[] = [];
 
     for (const classId of namespace.classIds) {
@@ -355,7 +340,7 @@ function resolveNotes(
     }
 
     notes.push({
-      id: `note${ID_SEPARATOR}${index + 1}`,
+      id: generatedId("note", index + 1),
       text: note.text,
       targetId: note.targetId,
     });
@@ -713,172 +698,6 @@ function resolveStyles(
       classId,
       properties: [...properties].map(([property, value]) => ({ property, value })),
     }));
-}
-
-/**
- * Resolves the `timeline:` block against the ids this model just assigned —
- * classes, relationships, namespaces and notes share one id space, extending
- * the way flowchart node and edge ids do, so an author animates any element
- * of the diagram the same way. An entry naming an id none of them holds is
- * dropped with an error diagnostic, leaving the rest of the timeline and the
- * model intact.
- *
- * Beyond reference resolution it applies the same ordering rules
- * `buildFlowchartModel` does — one `enter`/`exit` per target with the
- * earliest step winning, and no action on a target that is not visible yet —
- * because a class diagram's animation is meant to *be* a flowchart's, not to
- * resemble it. A rule applied to one kind and not the other is a document
- * that behaves differently for no reason the author can see.
- */
-function resolveTimeline(
-  document: ClassDocument,
-  validTargetIds: Set<string>,
-  diagnostics: Diagnostic[],
-): ResolvedTimeline {
-  const entries: ResolvedTimelineEntry[] = [];
-  let totalSteps = 0;
-
-  if (document.timeline === null) {
-    return { totalSteps, entries };
-  }
-
-  // Which `enter`/`exit` survives for each target: the numerically earliest
-  // step, regardless of the order the actions were written in — `next()` and
-  // `prev()` walk the timeline in step order, so "first" has to mean first in
-  // time. A tie keeps whichever was declared first.
-  const winnerByDedupeKey = new Map<string, TimelineEntry>();
-  for (const entry of document.timeline.entries) {
-    if (entry.kind !== "enter" && entry.kind !== "exit") continue;
-    if (!validTargetIds.has(entry.targetId)) continue;
-
-    const dedupeKey = `${entry.kind}:${entry.targetId}`;
-    const current = winnerByDedupeKey.get(dedupeKey);
-    if (current === undefined || entry.step < current.step) {
-      winnerByDedupeKey.set(dedupeKey, entry);
-    }
-  }
-
-  const kept: TimelineEntry[] = [];
-
-  for (const entry of document.timeline.entries) {
-    if (!validTargetIds.has(entry.targetId)) {
-      diagnostics.push({
-        severity: "error",
-        message: `timeline: references unknown id "${entry.targetId}"`,
-        line: entry.line,
-        column: entry.column,
-      });
-      continue;
-    }
-
-    if (entry.kind === "enter" || entry.kind === "exit") {
-      const dedupeKey = `${entry.kind}:${entry.targetId}`;
-      if (winnerByDedupeKey.get(dedupeKey) !== entry) {
-        diagnostics.push({
-          severity: "warning",
-          message: `timeline: "${entry.targetId}" already has a "${entry.kind}" action; keeping the earliest-step occurrence.`,
-          line: entry.line,
-          column: entry.column,
-        });
-        continue;
-      }
-    }
-
-    kept.push(entry);
-  }
-
-  // When each target becomes visible: its own kept `enter` step, or 0 for one
-  // that is never entered and so is on screen from the start. An action
-  // before that moment addresses something the reader cannot see.
-  const visibleAtStep = new Map<string, number>();
-  for (const entry of kept) {
-    if (entry.kind === "enter") {
-      visibleAtStep.set(entry.targetId, entry.step);
-    }
-  }
-
-  for (const entry of kept) {
-    if (entry.kind !== "enter") {
-      const visibleStep = visibleAtStep.get(entry.targetId) ?? 0;
-      if (entry.step < visibleStep) {
-        diagnostics.push({
-          severity: "error",
-          message: `timeline: "${entry.kind}" on "${entry.targetId}" at step ${entry.step} comes before it becomes visible (step ${visibleStep})`,
-          line: entry.line,
-          column: entry.column,
-        });
-        continue;
-      }
-    }
-
-    entries.push({
-      kind: entry.kind,
-      step: entry.step,
-      targetId: entry.targetId,
-      effect: entry.effect,
-    });
-
-    if (entry.step > totalSteps) {
-      totalSteps = entry.step;
-    }
-  }
-
-  return { totalSteps, entries };
-}
-
-/**
- * Warns when a relationship remains visible after a class it connects has
- * exited — the line would be drawn from or into empty space.
- *
- * The rule is `buildFlowchartModel`'s edge-outliving-its-endpoint warning,
- * and it transfers because its premise does: `renderClassDiagramToSVG` gives
- * each relationship its own group and its own `data-siren-id`, and
- * `createAnimationController` toggles each target independently, so nothing
- * anywhere hides a relationship because a class it touches went away. An
- * author who wants the line gone must say `exit` on the relationship too.
- *
- * Advisory only, exactly as for flowcharts: the `exit` still applies and the
- * diagram still renders. One warning per affected relationship, naming
- * whichever endpoint leaves first.
- */
-function warnOnRelationshipsOutlivingTheirEndpoints(
-  entries: ResolvedTimelineEntry[],
-  relationships: ResolvedClassRelationship[],
-  diagnostics: Diagnostic[],
-): void {
-  const relationshipIds = new Set(relationships.map((r) => r.id));
-  const classExitStep = new Map<string, number>();
-  const relationshipExitStep = new Map<string, number>();
-
-  for (const entry of entries) {
-    if (entry.kind !== "exit") continue;
-    (relationshipIds.has(entry.targetId) ? relationshipExitStep : classExitStep).set(
-      entry.targetId,
-      entry.step,
-    );
-  }
-
-  for (const relationship of relationships) {
-    const fromExit = classExitStep.get(relationship.from);
-    const toExit = classExitStep.get(relationship.to);
-    if (fromExit === undefined && toExit === undefined) continue;
-
-    const earliestClassExit = Math.min(
-      ...[fromExit, toExit].filter((step): step is number => step !== undefined),
-    );
-    const endpointId = fromExit === earliestClassExit ? relationship.from : relationship.to;
-
-    const relationshipExit = relationshipExitStep.get(relationship.id);
-    if (relationshipExit !== undefined && relationshipExit <= earliestClassExit) continue;
-
-    diagnostics.push({
-      severity: "warning",
-      message:
-        `timeline: relationship "${relationship.id}" remains visible after its endpoint ` +
-        `"${endpointId}" exits at step ${earliestClassExit} — add ` +
-        `"exit ${relationship.id} ..." at or before step ${earliestClassExit}`,
-    });
-  }
 }
 
 /**

@@ -18,6 +18,8 @@ import type {
   SequenceRectStatement,
   SequenceStatement,
 } from "../contracts";
+import { generatedId } from "./generatedId";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
  * A block-kind `SequenceStatement` — everything left once `message`,
@@ -104,18 +106,52 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
 
+  // A timeline target is a participant, a message, a control-flow block or
+  // a box grouping — exactly the four things `renderSequenceToSVG` stamps
+  // `data-siren-id` on, and so exactly the things an author can see and
+  // might want to animate. A destroy mark is not a fifth: it carries its
+  // participant's id, so it moves with the participant (ADR-0009).
+  //
+  // The rules themselves live in `resolveTimeline`, shared with the
+  // flowchart and class models. Nothing about dropping an unknown id or
+  // keeping the earliest `enter` is sequence-specific, so a third copy of
+  // them here would only be a third place for them to drift.
+  const validTargetIds = new Set(participants.map((p) => p.id));
+  for (const box of boxes) validTargetIds.add(box.id);
+  collectStatementIds(statements, validTargetIds);
+
+  const timeline = resolveTimeline(document.timeline, validTargetIds, diagnostics);
+
+  // A message is the sequence diagram's connector and its endpoints are the
+  // two participants it joins, so the rule flowchart applies to an edge and
+  // class applies to a relationship applies here unchanged — one arrow left
+  // pointing at a lane that has animated away.
+  //
+  // Not to be confused with the `destroy` warning the message walk above
+  // raises. That one is about the diagram's own structure, is true of a still
+  // frame, and fires whether or not anything animates; this one is about the
+  // timeline, and an author reading both is being told about two different
+  // defects in the same arrow.
+  warnOnConnectorsOutlivingTheirEndpoints(
+    timeline.entries,
+    collectMessages(statements),
+    "message",
+    diagnostics,
+  );
+
   const model: SequenceModel = {
     title: document.title,
     participants,
     boxes,
     statements,
+    timeline,
   };
 
   return { model, diagnostics };
 }
 
 /**
- * Resolves the document's `box` groupings to `box-${n}` ids, 1-based in
+ * Resolves the document's `box` groupings to `box:${n}` ids, 1-based in
  * declaration order.
  *
  * Boxes group *declarations*, not statements: they live in the preamble
@@ -133,7 +169,7 @@ function resolveBoxes(document: SequenceDocument, diagnostics: Diagnostic[]): Re
   const declaredIds = new Set(document.participants.map((p) => p.id));
 
   return document.boxes.map((box, index) => {
-    const id = `box-${index + 1}`;
+    const id = generatedId("box", index + 1);
     const participantIds = box.participantIds.filter((participantId) => {
       if (declaredIds.has(participantId)) return true;
       diagnostics.push({
@@ -306,14 +342,15 @@ function resolveBlock(
   participantsById: Map<string, ResolvedSequenceParticipant>,
   state: ResolutionState,
 ): ResolvedSequenceBlock {
-  // Block id: `${kind}-${n}`, a 1-based counter per block kind, in document
-  // order — assigned here, before recursing into the block's body, so
-  // nested blocks (which are walked immediately after, still ahead of this
-  // block's later siblings) receive ids that reflect source order across
-  // the whole flattened tree, not just within their own nesting level.
+  // Block id: `${kind}:${n}` (the separator is load-bearing — see
+  // `generatedId`), a 1-based counter per block kind, in document order —
+  // assigned here, before recursing into the block's body, so nested blocks
+  // (which are walked immediately after, still ahead of this block's later
+  // siblings) receive ids that reflect source order across the whole
+  // flattened tree, not just within their own nesting level.
   const n = (state.blockCounters.get(statement.kind) ?? 0) + 1;
   state.blockCounters.set(statement.kind, n);
-  const id = `${statement.kind}-${n}`;
+  const id = generatedId(statement.kind, n);
 
   // Pre-order: the block occupies the position just before its body's
   // statements do.
@@ -366,4 +403,67 @@ function resolveBlock(
     touchedParticipantIds: [...touched],
     branches,
   };
+}
+
+/**
+ * Walks the resolved statement tree rooted at `statements` in document order,
+ * calling `visit` for each message and each block.
+ *
+ * Recursive, and that is the whole point: blocks nest to any depth and a
+ * message is more often written inside one than at the top level, so anything
+ * derived from "every message" or "every block" is spread across branch bodies
+ * rather than sitting in a flat list. A walk of `statements` alone finds
+ * `loop:1` but not the message inside it.
+ *
+ * Every branch of an `alt`/`par`/`critical` is walked. The branches are
+ * alternatives at read time, but all of them are drawn, so all of them hold
+ * ids an author can name and arrows that can be left pointing at a lane that
+ * has gone.
+ *
+ * One walk with a visitor rather than one walk per caller: the two callers
+ * below want different things out of the same traversal (a set of ids, a list
+ * of messages), and the traversal is the part that would drift.
+ */
+function walkStatements(
+  statements: readonly ResolvedSequenceStatement[],
+  visit: {
+    message?: (message: ResolvedSequenceMessage) => void;
+    block?: (block: ResolvedSequenceBlock) => void;
+  },
+): void {
+  for (const statement of statements) {
+    if (statement.kind === "message") {
+      visit.message?.(statement.message);
+      continue;
+    }
+    if (statement.kind === "block") {
+      visit.block?.(statement.block);
+      for (const branch of statement.block.branches) {
+        walkStatements(branch.statements, visit);
+      }
+    }
+  }
+}
+
+/**
+ * Every id a `timeline:` block may name from the statement tree: each
+ * message's, and each control-flow block's.
+ */
+function collectStatementIds(
+  statements: readonly ResolvedSequenceStatement[],
+  into: Set<string>,
+): void {
+  walkStatements(statements, {
+    message: (message) => into.add(message.id),
+    block: (block) => into.add(block.id),
+  });
+}
+
+/** Every message in the statement tree, in document order. */
+function collectMessages(
+  statements: readonly ResolvedSequenceStatement[],
+): ResolvedSequenceMessage[] {
+  const messages: ResolvedSequenceMessage[] = [];
+  walkStatements(statements, { message: (message) => messages.push(message) });
+  return messages;
 }

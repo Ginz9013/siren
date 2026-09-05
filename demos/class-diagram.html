@@ -204,8 +204,10 @@
 
       // The third example is the only one carrying a `timeline:` block, so it
       // is the only one with a controller to drive. `render()` returns the
-      // same AnimationController a flowchart does — a class diagram animates,
-      // unlike a sequence diagram, whose controller is still null.
+      // same AnimationController a flowchart does. Every diagram kind now
+      // animates — a sequence diagram included — and a document with no
+      // `timeline:` block gets a controller with `totalSteps: 0` rather than
+      // a null one, so there is nothing to special-case.
       const fullResult = renderExample(fullSource, fullContainer, fullStatusEl, {
         onClick: (target) => {
           const argument = target.argument === null ? "" : `"${target.argument}"`;

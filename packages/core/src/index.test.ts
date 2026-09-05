@@ -1,367 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { render, type InteractionTarget } from "./index";
 import type { SirenRenderResult } from "./contracts";
+import { readdirSync, readFileSync } from "node:fs";
 
 /**
- * Kept identical to demos/sequence-diagram.html's fetched example,
- * examples/sequence-core.srn — duplicated inline here (rather than read via
- * `node:fs`) because this package has no `@types/node`/Node-built-in typings
- * configured (`tsc --noEmit` has no `lib`/`types` for them) and adding one is
- * outside this ticket's write scope (`packages/core/package.json` is not in
- * it). If the two ever drift, this test and the demo page stop exercising
- * the same source.
- */
-const SEQUENCE_CORE_EXAMPLE_SOURCE = `sequenceDiagram
-title Core sequence diagram feature tour
-participant Client
-actor User
-participant Server
-
-autonumber
-User->Client: Open app
-Client->>Server: Fetch profile
-Server-->>Client: Profile data
-autonumber off
-Client->Server: Plain request
-Client-->Server: Plain dotted request
-Client->>Server: Solid filled arrowhead
-Client-->>Server: Dotted filled arrowhead
-Client<<->>Server: Solid bidirectional
-Client<<-->>Server: Dotted bidirectional
-Client-xServer: Solid cross (lost message)
-Client--xServer: Dotted cross (lost message)
-Client-)Server: Solid open (async)
-Client--)Server: Dotted open (async)
-`;
-
-/**
- * Kept identical to demos/sequence-diagram.html's second fetched example,
- * examples/sequence-blocks.srn — duplicated inline for the same reason as
- * SEQUENCE_CORE_EXAMPLE_SOURCE above (no `node:fs` typings in this package).
+ * This test file's own URL.
  *
- * Exercises all seven control-flow block kinds, with `alt` nested inside
- * `loop`. Lane order is Client, Server, Cache, and the blocks deliberately
- * touch different lane spans: `loop` (with its nested `alt`) only ever
- * touches Client and Server, while `par` reaches across to Cache.
+ * It is read into a binding rather than used inline below on purpose: Vite
+ * rewrites the *literal* `new URL("...", import.meta.url)` form into a
+ * dev-server asset URL (`http://localhost:3000/@fs/...`), which `readFileSync`
+ * rejects with "The URL must be of scheme file". Going through a binding keeps
+ * it the real `file:` URL that resolution against disk needs.
  */
-const SEQUENCE_BLOCKS_EXAMPLE_SOURCE = `sequenceDiagram
-title Control-flow block tour
-participant Client
-participant Server
-participant Cache
-
-loop Every minute
-  Client->>Server: Poll for work
-  alt is fresh
-    Server-->>Client: Fresh data
-  else is stale
-    Server-->>Client: Stale marker
-  else is missing
-    Server--xClient: Not found
-  end
-end
-opt Warm the cache
-  Client->>Server: Prime hint
-end
-par Fan out
-  Client->>Server: Task A
-and Second branch
-  Client->>Cache: Task B
-end
-critical Acquire lock
-  Client->>Cache: Lock
-option Timeout
-  Cache-->>Client: Busy
-end
-break Fatal error
-  Server--xClient: Abort
-end
-rect rgb(240, 248, 255)
-  Client->>Cache: Highlighted exchange
-end
-`;
+const TEST_FILE_URL = import.meta.url;
 
 /**
- * Kept identical to demos/sequence-diagram.html's third fetched example,
- * examples/sequence-full.srn — duplicated inline for the same reason as the
- * two constants above (no `node:fs` typings in this package).
- *
- * The board's closing example: every in-scope feature in one document —
- * `participant` and `actor` declarations, a `box` grouping, `title`,
- * `autonumber`/`autonumber off`, all ten arrow forms, a self-message, all
- * seven block kinds with `alt` nested inside `loop`, and `create`/`destroy`
- * both at the top level (`Ledger`) and inside a block body (`Retry`,
- * destroyed from inside the nested `alt`; `Auditor`, created inside `opt`
- * and never destroyed).
+ * The repository's `examples/` directory, resolved relative to *this file*
+ * rather than to `process.cwd()`, so the suite reads the same documents
+ * whether it is run from the repo root (`pnpm -r test`) or from
+ * `packages/core` (`npx vitest run`).
  */
-const SEQUENCE_FULL_EXAMPLE_SOURCE = `sequenceDiagram
-title Checkout — every sequence feature
-box Blue Storefront
-  actor Shopper
-  participant Web
-end
-participant Orders
-participant Payments
-
-autonumber
-Shopper->>Web: Open checkout
-Web->>Orders: Create draft order
-Orders->>Orders: Validate line items
-Orders-->>Web: Draft ready
-autonumber off
-
-create participant Ledger
-Web->>Ledger: Open ledger entry
-Web->Payments: Quote fees
-Web-->Payments: Re-quote after tax
-Web<<->>Payments: Agree currency
-Web<<-->>Payments: Confirm currency
-
-loop Every authorization attempt
-  Web->>Payments: Authorize
-  create participant Retry
-  Web->>Retry: Schedule a retry
-  alt approved
-    Payments-->>Web: Approved
-    destroy Retry
-  else declined
-    Payments-xWeb: Declined
-  else timed out
-    Payments--xWeb: No response
-  end
-end
-opt Shopper opted into the audit trail
-  create actor Auditor
-  Web-)Auditor: Notify audit trail
-end
-par Settle
-  Orders->>Payments: Capture funds
-and Record
-  Orders->>Auditor: Record capture
-end
-critical Reserve stock
-  Orders->>Ledger: Post reservation
-option Warehouse offline
-  Ledger--)Orders: Deferred
-end
-break Fraud detected
-  Payments--xOrders: Hard decline
-end
-rect rgb(240, 248, 255)
-  Web-->>Shopper: Show confirmation
-end
-destroy Ledger
-Web-->>Shopper: Email receipt
-`;
+const EXAMPLES_DIR = new URL("../../../examples/", TEST_FILE_URL);
 
 /**
- * Kept identical to demos/class-diagram.html's fetched example,
- * examples/class-core.srn — duplicated inline for the same reason as the
- * sequence constants above (no `node:fs` typings in this package). If the
- * two ever drift, this test and the demo page stop exercising the same
- * source.
- *
- * Exercises the class-diagram features that are in scope up to this ticket:
- * all three declaration forms (`class X`, the block form, and the inline
- * `X : +member` form), implicit declaration from a relationship (`Habitat`
- * and `Keeper` are named nowhere else), every visibility marker and both
- * classifiers, attributes and methods with types and return types, and all
- * eight relationship kinds — one of them with multiplicity at both ends.
- * Annotations, generics, namespaces and notes are deliberately absent: they
- * parse, but nothing downstream draws them until later tickets on this board.
+ * Reads one of the repository's `examples/*.srn` documents straight from disk,
+ * so that every example test exercises the same bytes the demo pages fetch —
+ * there is no inline copy left to drift from them.
  */
-const CLASS_CORE_EXAMPLE_SOURCE = `classDiagram
-class Animal {
-  +int age
-  +String gender
-  #bool warmBlooded
-  ~String tag
-  +isMammal() bool
-  +mate(Animal partner) Animal
-}
-class Duck {
-  -String beakColor
-  +swim()
-  +quack() String
-}
-class Fish {
-  -int sizeInFeet
-  #canEat() bool
-}
-class Zebra {
-  +bool isWild
-  +run()*
-}
-class Flyer {
-  +fly() bool
-}
-class Registry {
-  -int cachedCount$
-  +lookup(String name) Animal$
-}
-
-Feather : +String color
-Feather : +float lengthInCm
-
-Animal <|-- Duck
-Animal <|-- Fish
-Animal <|-- Zebra
-Duck ..|> Flyer : implements
-Habitat *-- Animal : houses
-Duck o-- Feather : plumage
-Keeper "1" --> "*" Animal : cares for
-Keeper -- Habitat
-Registry ..> Animal : looks up
-Zebra .. Habitat
-`;
-
-/**
- * Kept identical to demos/class-diagram.html's second fetched example,
- * examples/class-structure.srn — duplicated inline for the same reason as the
- * constants above (no `node:fs` typings in this package). If the two ever
- * drift, this test and the demo page stop exercising the same source.
- *
- * Where CLASS_CORE_EXAMPLE_SOURCE covers declarations, members and the eight
- * relationship kinds, this one covers the structural features layered on top:
- * a `direction` statement, a `namespace` frame, an `<<interface>>` and an
- * `<<abstract>>` annotation, a generic class (with a nested generic member
- * type), a free note and a note attached to a class.
- */
-const CLASS_STRUCTURE_EXAMPLE_SOURCE = `classDiagram
-direction LR
-
-namespace Shapes {
-  class Shape {
-    <<interface>>
-    +String name
-    +area() float
-  }
-  class Square {
-    +float side
-    +area() float
-  }
-  class Circle {
-    +float radius
-    +area() float
-  }
-}
-
-class Registry~T~ {
-  -Map~String, List~T~~ entries
-  +register(String name, T item)
-  +lookup(String name) T
-}
-
-class Renderer {
-  <<abstract>>
-  +draw(Shape shape)*
-}
-
-Square ..|> Shape
-Circle ..|> Shape
-Registry ..> Shape : caches
-Renderer ..> Shape : draws
-
-note "Every structural feature in one document"
-note for Registry "One registry per shape kind"
-`;
-
-/**
- * Kept identical to demos/class-diagram.html's third fetched example,
- * examples/class-full.srn — duplicated inline for the same reason as the
- * constants above (no `node:fs` typings in this package). If the two ever
- * drift, this test and the demo page stop exercising the same source.
- *
- * The board's closing example: every in-scope class-diagram feature in one
- * document. `%%` comments, `direction`, a `namespace`, block/bare/inline/
- * implicit declaration, all four visibility markers, both classifiers,
- * `<<abstract>>` and `<<interface>>` annotations, a generic class with a
- * nested generic member type, all eight relationship kinds — two of them
- * carrying a label and multiplicity at both ends — both note forms, a
- * callback and an href interaction, `style` + `classDef` + `cssClass`, and a
- * `timeline:` block that animates all four addressable kinds: classes,
- * relationships, the namespace and a note.
- */
-const CLASS_FULL_EXAMPLE_SOURCE = `%% examples/class-full.srn — every class-diagram feature Siren draws, in one
-%% document. Comment lines like these are stripped in every diagram kind.
-classDiagram
-direction LR
-
-namespace catalog {
-  class Media {
-    <<abstract>>
-    +String title
-    #int durationInSeconds
-    -bool licensed
-    ~String catalogKey
-    +play()*
-    +describe() String
-  }
-  class Track {
-    +String artist
-    +int bpm
-    +play()
-    +remix(Track other) Track
-  }
-  class Podcast {
-    +String host
-    +int episode
-    +play()
-  }
-}
-
-class Playable {
-  <<interface>>
-  +play()
-  +stop()
-}
-
-class Shelf~T~ {
-  -Map~String, List~T~~ byGenre
-  -int loadedCount$
-  +add(String genre, T item)
-  +find(String genre) List~T~
-  +clear()$
-}
-
-class Player
-
-Listener : +String name
-Listener : +rate(Media item, int stars) bool
-
-Media <|-- Track
-Media <|-- Podcast
-Track ..|> Playable
-Shelf "1" *-- "0..*" Media : holds
-Media o-- Artwork : cover
-Listener "1" --> "0..*" Media : rates
-Listener -- Player
-Player ..> Shelf : reads
-Artwork .. Player %% a dashed link, drawn without either endpoint marker
-
-note "Every class-diagram feature Siren draws, in one document"
-note for Shelf "One shelf per media kind"
-
-click Track call showDetails("track") "Inspect this class"
-click Playable href "https://mermaid.js.org/syntax/classDiagram.html" "Mermaid class syntax"
-
-%% Author styling: one class styled directly, and two more by a classDef the
-%% cssClass statement applies. The fills carry an alpha channel deliberately --
-%% an author style reaches a class's frame but not its label text, so an opaque
-%% light fill would leave the dark theme's light label text unreadable on it.
-style Track fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
-classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
-cssClass "Player,Artwork" external
-
-timeline:
-  step 1: enter namespace:1 fade
-  step 2: enter Track slide-top, enter Podcast slide-bottom
-  step 3: enter Media-Track fade, enter Media-Podcast fade
-  step 4: enter Playable fade, enter Track-Playable slide-left
-  step 5: enter note:2 fade, highlight Shelf outline
-  step 6: highlight Listener-Media glow, unhighlight Shelf
-  step 7: unhighlight Listener-Media, exit note:2 slide-right
-`;
+const readExample = (name: string): string =>
+  readFileSync(new URL(`${name}.srn`, EXAMPLES_DIR), "utf8");
 
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
@@ -483,6 +150,59 @@ step 2: enter C fade
     expect(nodeB.classList.contains("siren-pending")).toBe(true);
     expect(nodeC.classList.contains("siren-pending")).toBe(true);
     expect(result.controller!.totalSteps).toBe(2);
+  });
+
+  it("hands back every diagram kind already in the exact class state reset() produces", () => {
+    // The one rule behind step 0, asserted as one rule: what a reader sees
+    // before touching the controller *is* `reset()`'s output, for all three
+    // kinds. `computeClassStateAtStep(timeline, 0)` decides it and nothing
+    // else recomputes it, so a second opinion cannot quietly grow back — this
+    // test fails the moment a rendered diagram and `reset()` disagree.
+    const classStateById = (svg: SVGSVGElement): string[] =>
+      Array.from(svg.querySelectorAll("[data-siren-id]")).map(
+        (el) =>
+          `${el.getAttribute("data-siren-id")}: ${Array.from(el.classList).sort().join(" ")}`,
+      );
+
+    const sources = [
+      `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+step 1: enter B fade
+step 2: enter C fade
+`,
+      `classDiagram
+Animal <|-- Duck
+timeline:
+step 1: enter Duck fade
+step 2: enter Animal-Duck slide-left
+`,
+      `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+timeline:
+  step 1: enter A fade
+`,
+    ];
+
+    for (const source of sources) {
+      const container = document.createElement("div");
+      const result = render(source, container);
+
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      const asRendered = classStateById(result.svg!);
+
+      // Guards the comparison against passing vacuously: each source names an
+      // `enter`, so something must actually start pending for there to be a
+      // step-0 state worth agreeing about.
+      expect(asRendered.some((entry) => entry.includes("siren-pending"))).toBe(true);
+
+      result.controller!.reset();
+
+      expect(classStateById(result.svg!)).toEqual(asRendered);
+    }
   });
 
   it("reports totalSteps of 0 and renders every element immediately visible when there is no timeline: block", () => {
@@ -662,7 +382,7 @@ A[<script>alert(1)</script>] --> B[End]
     expect(controller.currentStep).toBe(2);
   });
 
-  it("mounts an SVG for a real sequenceDiagram source with participant and message elements, and returns a null controller with no diagnostics", () => {
+  it("mounts an SVG for a real sequenceDiagram source with participant and message elements, and returns an empty controller with no diagnostics", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant A
@@ -673,7 +393,7 @@ A->>B: Hello
     const result = render(source, container);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
 
@@ -746,13 +466,34 @@ A->>GHOST: Hello
     ).toBe(true);
   });
 
+  it("renders every .srn document in examples/ with no error diagnostics, naming the offending file when one fails", () => {
+    const files = readdirSync(EXAMPLES_DIR)
+      .filter((name) => name.endsWith(".srn"))
+      .sort();
+
+    // Guard against the enumeration silently finding nothing: an empty list
+    // would make every assertion below vacuous.
+    expect(files.length).toBeGreaterThan(0);
+
+    for (const file of files) {
+      const source = readFileSync(new URL(file, EXAMPLES_DIR), "utf8");
+      const result = render(source, document.createElement("div"));
+
+      expect(
+        result.diagnostics.filter((d) => d.severity === "error"),
+        `examples/${file} produced error diagnostics`,
+      ).toEqual([]);
+      expect(result.svg, `examples/${file} rendered no SVG`).not.toBeNull();
+    }
+  });
+
   it("renders demos/sequence-diagram.html's example source (examples/sequence-core.srn) end to end with no error diagnostics, both participant kinds, all ten arrow forms, a title, and autonumber labels", () => {
     const container = document.createElement("div");
 
-    const result = render(SEQUENCE_CORE_EXAMPLE_SOURCE, container);
+    const result = render(readExample("sequence-core"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
 
     // Three declared, never-destroyed participants, each drawn at both the
@@ -769,58 +510,58 @@ A->>GHOST: Hello
   it("renders demos/sequence-diagram.html's control-flow example (examples/sequence-blocks.srn) end to end with one siren-block group per block, nested inside its parent block, with a divider per extra branch", () => {
     const container = document.createElement("div");
 
-    const result = render(SEQUENCE_BLOCKS_EXAMPLE_SOURCE, container);
+    const result = render(readExample("sequence-blocks"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller).toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
 
     const blocks = Array.from(result.svg!.querySelectorAll("g.siren-block"));
     expect(blocks.map((g) => g.getAttribute("data-siren-id")).sort()).toEqual([
-      "alt-1",
-      "break-1",
-      "critical-1",
-      "loop-1",
-      "opt-1",
-      "par-1",
-      "rect-1",
+      "alt:1",
+      "break:1",
+      "critical:1",
+      "loop:1",
+      "opt:1",
+      "par:1",
+      "rect:1",
     ]);
     for (const block of blocks) {
       const id = block.getAttribute("data-siren-id")!;
-      expect(block.getAttribute("data-siren-block-kind")).toBe(id.split("-")[0]);
+      expect(block.getAttribute("data-siren-block-kind")).toBe(id.split(":")[0]);
     }
 
     const byId = (id: string) =>
       result.svg!.querySelector(`g.siren-block[data-siren-id="${id}"]`)!;
 
     // `alt` is written inside `loop`, so its group is a descendant of loop's.
-    expect(byId("loop-1").contains(byId("alt-1"))).toBe(true);
-    expect(byId("alt-1").contains(byId("loop-1"))).toBe(false);
+    expect(byId("loop:1").contains(byId("alt:1"))).toBe(true);
+    expect(byId("alt:1").contains(byId("loop:1"))).toBe(false);
 
     // One divider per branch after the first: alt has if + 2 else, par has
     // 2 and-branches, critical has if + 1 option, the rest are single-branch.
     const dividerCount = (id: string) =>
       byId(id).querySelectorAll(":scope > line.siren-block-divider").length;
-    expect(dividerCount("alt-1")).toBe(2);
-    expect(dividerCount("par-1")).toBe(1);
-    expect(dividerCount("critical-1")).toBe(1);
-    expect(dividerCount("loop-1")).toBe(0);
-    expect(dividerCount("opt-1")).toBe(0);
-    expect(dividerCount("break-1")).toBe(0);
-    expect(dividerCount("rect-1")).toBe(0);
+    expect(dividerCount("alt:1")).toBe(2);
+    expect(dividerCount("par:1")).toBe(1);
+    expect(dividerCount("critical:1")).toBe(1);
+    expect(dividerCount("loop:1")).toBe(0);
+    expect(dividerCount("opt:1")).toBe(0);
+    expect(dividerCount("break:1")).toBe(0);
+    expect(dividerCount("rect:1")).toBe(0);
 
     // Header and branch conditions come through as literal text.
     const labelsOf = (id: string) =>
       Array.from(byId(id).querySelectorAll(":scope > text.siren-block-label")).map(
         (t) => t.textContent,
       );
-    expect(labelsOf("loop-1")).toEqual(["Every minute"]);
-    expect(labelsOf("alt-1")).toEqual(["is fresh", "is stale", "is missing"]);
-    expect(labelsOf("par-1")).toEqual(["Fan out", "Second branch"]);
-    expect(labelsOf("critical-1")).toEqual(["Acquire lock", "Timeout"]);
-    expect(labelsOf("break-1")).toEqual(["Fatal error"]);
-    expect(labelsOf("opt-1")).toEqual(["Warm the cache"]);
+    expect(labelsOf("loop:1")).toEqual(["Every minute"]);
+    expect(labelsOf("alt:1")).toEqual(["is fresh", "is stale", "is missing"]);
+    expect(labelsOf("par:1")).toEqual(["Fan out", "Second branch"]);
+    expect(labelsOf("critical:1")).toEqual(["Acquire lock", "Timeout"]);
+    expect(labelsOf("break:1")).toEqual(["Fatal error"]);
+    expect(labelsOf("opt:1")).toEqual(["Warm the cache"]);
 
     // A block spans the lanes its body touches: loop (and its nested alt)
     // only reach Server, par reaches all the way out to Cache.
@@ -828,7 +569,7 @@ A->>GHOST: Hello
       Number(
         byId(id).querySelector(":scope > rect")!.getAttribute("width"),
       );
-    expect(frameWidth("par-1")).toBeGreaterThan(frameWidth("loop-1"));
+    expect(frameWidth("par:1")).toBeGreaterThan(frameWidth("loop:1"));
 
     // Messages inside blocks still render, addressable by id.
     expect(
@@ -909,7 +650,7 @@ Web->>Orders: Create order
     const boxes = result.svg!.querySelectorAll("g.siren-box");
     expect(boxes).toHaveLength(1);
     const box = boxes[0]!;
-    expect(box.getAttribute("data-siren-id")).toBe("box-1");
+    expect(box.getAttribute("data-siren-id")).toBe("box:1");
     expect(box.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
 
     const laneX = (id: string) =>
@@ -933,6 +674,34 @@ Web->>Orders: Create order
       child.classList.contains("siren-participant"),
     );
     expect(children.indexOf(box)).toBeLessThan(firstParticipantIndex);
+  });
+
+  it("keeps a box grouping's generated id out of the message id space, so a `box`-to-`1` message cannot spell the first box's id", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+box Blue Storefront
+  participant box
+end
+participant 1
+box->>1: hi
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const idOf = (selector: string) =>
+      result.svg!.querySelector(selector)!.getAttribute("data-siren-id");
+
+    // The message keeps the connector convention, `${from}-${to}`; the box
+    // grouping moves out of its way with a separator no participant id can
+    // contain.
+    expect(idOf("g.siren-message")).toBe("box-1");
+    expect(idOf("g.siren-box")).toBe("box:1");
+
+    // Where both spellings were `box-1`, each id now addresses one element.
+    expect(result.svg!.querySelectorAll('[data-siren-id="box-1"]')).toHaveLength(1);
+    expect(result.svg!.querySelectorAll('[data-siren-id="box:1"]')).toHaveLength(1);
   });
 
   it("renders exactly one siren-title carrying the title text, and no title element at all when the document declares none", () => {
@@ -1033,10 +802,14 @@ end
   it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, and create/destroy inside and outside blocks", () => {
     const container = document.createElement("div");
 
-    const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
+    const result = render(readExample("sequence-full"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller).toBeNull();
+    // The example's own `timeline:` block, seven steps of it. What those steps
+    // drive is asserted by the timeline test at the end of this file; here it
+    // is only pinned so that a structural change to the example cannot quietly
+    // drop it.
+    expect(result.controller!.totalSteps).toBe(7);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
     const svg = result.svg!;
@@ -1112,19 +885,19 @@ end
     // All seven block kinds, with `alt` nested inside `loop`.
     const blocks = Array.from(svg.querySelectorAll("g.siren-block"));
     expect(blocks.map((g) => g.getAttribute("data-siren-id")).sort()).toEqual([
-      "alt-1",
-      "break-1",
-      "critical-1",
-      "loop-1",
-      "opt-1",
-      "par-1",
-      "rect-1",
+      "alt:1",
+      "break:1",
+      "critical:1",
+      "loop:1",
+      "opt:1",
+      "par:1",
+      "rect:1",
     ]);
     const block = (id: string) =>
       svg.querySelector(`g.siren-block[data-siren-id="${id}"]`)!;
-    expect(block("loop-1").contains(block("alt-1"))).toBe(true);
+    expect(block("loop:1").contains(block("alt:1"))).toBe(true);
     expect(
-      block("alt-1").querySelectorAll(":scope > line.siren-block-divider"),
+      block("alt:1").querySelectorAll(":scope > line.siren-block-divider"),
     ).toHaveLength(2);
 
     // One box background, behind the two lanes it groups.
@@ -1284,7 +1057,7 @@ Animal <|-- Duck
     ).toBe("inheritance");
   });
 
-  it("returns a working animation controller for a classDiagram — unlike a sequence diagram's null one — reporting totalSteps 0 when the document declares no timeline: block", () => {
+  it("returns a working animation controller for a classDiagram, reporting totalSteps 0 when the document declares no timeline: block", () => {
     const container = document.createElement("div");
     const source = `classDiagram
 Animal <|-- Duck
@@ -1358,7 +1131,7 @@ step 4: unhighlight Duck
   it("renders demos/class-diagram.html's example source (examples/class-core.srn) end to end with no error diagnostics, every declaration form, member text verbatim, and all eight relationship kinds", () => {
     const container = document.createElement("div");
 
-    const result = render(CLASS_CORE_EXAMPLE_SOURCE, container);
+    const result = render(readExample("class-core"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.svg).not.toBeNull();
@@ -1440,7 +1213,7 @@ step 4: unhighlight Duck
   it("renders demos/class-diagram.html's second example source (examples/class-structure.srn) end to end, drawing the namespace frame behind the class boxes it encloses, both annotations, the generic class name in angle brackets, and both notes", () => {
     const container = document.createElement("div");
 
-    const result = render(CLASS_STRUCTURE_EXAMPLE_SOURCE, container);
+    const result = render(readExample("class-structure"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.svg).not.toBeNull();
@@ -2151,7 +1924,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
     const container = document.createElement("div");
     const clicks: InteractionTarget[] = [];
 
-    const result = render(CLASS_FULL_EXAMPLE_SOURCE, container, {
+    const result = render(readExample("class-full"), container, {
       onClick: (target) => clicks.push(target),
     });
 
@@ -2344,7 +2117,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
 
   it("drives examples/class-full.srn's timeline through all four addressable kinds — a class, a relationship, the namespace and a note — with next(), prev() and reset()", () => {
     const container = document.createElement("div");
-    const result = render(CLASS_FULL_EXAMPLE_SOURCE, container);
+    const result = render(readExample("class-full"), container);
 
     expect(result.diagnostics).toEqual([]);
     const controller = result.controller!;
@@ -2432,5 +2205,373 @@ click Sneaky call inspect() "<b>tooltip</b>"
     ]);
     expect(rates.classList.contains("siren-highlight-glow")).toBe(false);
     expect(shelf.classList.contains("siren-highlight-outline")).toBe(false);
+  });
+  it("returns a controller with totalSteps 0 — not null — for a sequenceDiagram with no timeline block", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    // The same thing a flowchart with no timeline block returns: a working
+    // controller that has nowhere to go, rather than no controller at all.
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+    expect(result.controller!.currentStep).toBe(0);
+  });
+
+  it("drives every element carrying a sequence participant's id — both participant rows and the lifeline — from one timeline entry", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+timeline:
+  step 1: enter A fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    // A is preamble-declared and never destroyed, so it is drawn three
+    // times under one id: top-row box, bottom-row box, lifeline. The count
+    // is asserted so a regression to first-match-only fails here.
+    const elementsForA = () =>
+      Array.from(result.svg!.querySelectorAll('[data-siren-id="A"]'));
+    expect(elementsForA()).toHaveLength(3);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-pending")),
+    ).toEqual([true, true, true]);
+
+    controller.next();
+
+    expect(elementsForA()).toHaveLength(3);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-enter-fade")),
+    ).toEqual([true, true, true]);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-pending")),
+    ).toEqual([false, false, false]);
+
+    // B was never named by the timeline, so it stays untouched throughout.
+    for (const el of Array.from(result.svg!.querySelectorAll('[data-siren-id="B"]'))) {
+      expect(el.classList.contains("siren-pending")).toBe(false);
+      expect(el.classList.contains("siren-enter-fade")).toBe(false);
+    }
+  });
+
+  it("keeps a message that outlives an exited participant purely advisory: the warning is a warning, the SVG and controller still work, and the exit still applies", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+timeline:
+  step 1: exit A fade
+`;
+
+    const result = render(source, container);
+
+    // Advisory, not fatal: severity "warning", and no error alongside it.
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'timeline: message "A-B" remains visible after its endpoint "A" exits at step 1 — ' +
+          'add "exit A-B ..." at or before step 1',
+      },
+    ]);
+
+    // The document still renders and still animates.
+    expect(result.svg).not.toBeNull();
+    expect(container.firstChild).toBe(result.svg);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    const elementsForA = () =>
+      Array.from(result.svg!.querySelectorAll('[data-siren-id="A"]'));
+    const message = result.svg!.querySelector('[data-siren-id="A-B"]')!;
+    // A is preamble-declared and never destroyed: top-row box, bottom-row
+    // box, lifeline.
+    expect(elementsForA()).toHaveLength(3);
+    expect(message).not.toBeNull();
+
+    controller.next();
+
+    // The exit still applies, to every element wearing A's id.
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-exit-fade")),
+    ).toEqual([true, true, true]);
+    // And the message is left exactly as drawn — which is the defect the
+    // warning exists to describe, not one this package repairs.
+    expect(message.classList.contains("siren-exit-fade")).toBe(false);
+    expect(message.classList.contains("siren-pending")).toBe(false);
+
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(
+      elementsForA().map((el) => el.classList.contains("siren-exit-fade")),
+    ).toEqual([false, false, false]);
+  });
+
+  it("reaches a destroyed participant's destroy mark too, since the mark carries the participant's id", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+destroy B
+timeline:
+  step 1: highlight B outline
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+
+    // B is destroyed, so it has no bottom-row box: its top-row box, its
+    // lifeline, and its destroy mark are the three elements wearing its id.
+    const elementsForB = () =>
+      Array.from(result.svg!.querySelectorAll('[data-siren-id="B"]'));
+    expect(elementsForB()).toHaveLength(3);
+    expect(
+      result.svg!.querySelectorAll('path.siren-destroy-mark[data-siren-id="B"]'),
+    ).toHaveLength(1);
+
+    controller.next();
+
+    expect(
+      elementsForB().map((el) => el.classList.contains("siren-highlight-outline")),
+    ).toEqual([true, true, true]);
+  });
+
+  it("fades a box grouping's background band from `enter box:1 fade`, without touching the participants it groups — they are siblings of the tagged group, not children", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+box Blue Storefront
+  participant A
+  participant B
+end
+A->>B: Hello
+timeline:
+  step 1: enter box:1 fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    const boxElements = Array.from(result.svg!.querySelectorAll('[data-siren-id="box:1"]'));
+    expect(boxElements).toHaveLength(1);
+    const boxGroup = boxElements[0]!;
+    expect(boxGroup.classList.contains("siren-box")).toBe(true);
+    expect(boxGroup.classList.contains("siren-pending")).toBe(true);
+
+    controller.next();
+
+    expect(boxGroup.classList.contains("siren-enter-fade")).toBe(true);
+    expect(boxGroup.classList.contains("siren-pending")).toBe(false);
+
+    // The band and the label are inside the tagged group and carry no id of
+    // their own, so they move with the box rather than being driven
+    // separately — asserted as the renderer actually builds it.
+    expect(boxGroup.querySelectorAll("rect.siren-box-background")).toHaveLength(1);
+    const label = boxGroup.querySelector("text.siren-box-label")!;
+    // `box Blue Storefront` splits into colour `Blue` and label
+    // `Storefront` — the parser's existing rule, untouched here.
+    expect(label.textContent).toBe("Storefront");
+    expect(label.getAttribute("data-siren-id")).toBeNull();
+
+    // The grouped participants are drawn beside the band, not within it, so
+    // `enter box:1` leaves them alone.
+    expect(boxGroup.querySelector('[data-siren-id="A"]')).toBeNull();
+    for (const el of Array.from(result.svg!.querySelectorAll('[data-siren-id="A"]'))) {
+      expect(el.classList.contains("siren-enter-fade")).toBe(false);
+      expect(el.classList.contains("siren-pending")).toBe(false);
+    }
+  });
+
+  it("outlines a control-flow block's frame from `highlight loop:1 outline`, carrying its label and dividers with it, while a nested block and message keep their own ids and their own classes", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+loop retry
+  alt ok
+    A->>B: yes
+  else no
+    B->>A: no
+  end
+end
+timeline:
+  step 1: highlight loop:1 outline
+  step 2: highlight alt:1 glow
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(2);
+
+    const loopElements = Array.from(result.svg!.querySelectorAll('[data-siren-id="loop:1"]'));
+    expect(loopElements).toHaveLength(1);
+    const loopGroup = loopElements[0]!;
+    const altGroup = result.svg!.querySelector('[data-siren-id="alt:1"]')!;
+    const messageGroup = result.svg!.querySelector('[data-siren-id="A-B"]')!;
+
+    // The renderer nests children inside their block's group, so the alt and
+    // the message live inside the loop's tagged group while still wearing
+    // ids of their own.
+    expect(loopGroup.contains(altGroup)).toBe(true);
+    expect(altGroup.contains(messageGroup)).toBe(true);
+
+    controller.next();
+
+    expect(loopGroup.classList.contains("siren-highlight-outline")).toBe(true);
+    // The loop's own frame and header label are inside the tagged group and
+    // hold no id, so they animate with it.
+    expect(loopGroup.querySelectorAll("rect.siren-block-frame").length).toBeGreaterThan(0);
+    expect(loopGroup.querySelector("text.siren-block-label")!.textContent).toBe("retry");
+    // Having an id of its own is what makes an element separately driven:
+    // the nested alt and message are inside the loop's group but do not take
+    // the loop's class.
+    expect(altGroup.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(messageGroup.classList.contains("siren-highlight-outline")).toBe(false);
+
+    controller.next();
+
+    expect(altGroup.classList.contains("siren-highlight-glow")).toBe(true);
+    // The `else` divider is the alt's own, inside the alt's tagged group and
+    // unlabelled by any id, so it rides along with `alt:1`.
+    const dividers = Array.from(altGroup.querySelectorAll("line.siren-block-divider"));
+    expect(dividers).toHaveLength(1);
+    expect(dividers[0]!.getAttribute("data-siren-id")).toBeNull();
+    expect(dividers[0]!.classList.contains("siren-highlight-glow")).toBe(false);
+  });
+
+
+  it("drives examples/sequence-full.srn's timeline through all four addressable kinds — a box grouping, a message, a control-flow block and a participant — with zero diagnostics, next(), prev() and reset()", () => {
+    const container = document.createElement("div");
+    const source = readExample("sequence-full");
+
+    // Drift guard: the source above is read from examples/sequence-full.srn
+    // on disk, not from an inline copy, so editing the example changes what
+    // this test renders. The marker is the example's own final timeline step.
+    expect(source).toContain("step 7: exit box:1 fade");
+
+    const result = render(source, container);
+
+    // Zero diagnostics, not merely zero errors: the closing example has to be
+    // clean against the advisory message-outlives-its-participant warning too,
+    // which is why `Retry` and the one message touching it exit together.
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(7);
+
+    const pendingIds = () =>
+      Array.from(result.svg!.querySelectorAll(".siren-pending"))
+        .map((el) => el.getAttribute("data-siren-id"))
+        .sort();
+
+    // Everything with an `enter` starts hidden. `Retry` is listed three times
+    // because a created-then-destroyed participant is drawn three times under
+    // one id — top-row box, lifeline, destroy mark — and all three are driven
+    // by its single timeline entry (ADR-0009).
+    expect(pendingIds()).toEqual([
+      "Retry",
+      "Retry",
+      "Retry",
+      "Shopper-Web",
+      "Web-Retry",
+      "box:1",
+    ]);
+
+    const boxGroup = result.svg!.querySelector('[data-siren-id="box:1"]')!;
+    const openCheckout = result.svg!.querySelector('g.siren-message[data-siren-id="Shopper-Web"]')!;
+    const createDraft = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Orders"]')!;
+    const loopBlock = result.svg!.querySelector('[data-siren-id="loop:1"]')!;
+    const rectBlock = result.svg!.querySelector('[data-siren-id="rect:1"]')!;
+    const scheduleRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry"]')!;
+    const retryElements = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="Retry"]'));
+    expect(retryElements()).toHaveLength(3);
+
+    // Step 1: the box grouping's band and the first arrow.
+    controller.next();
+    expect(boxGroup.classList.contains("siren-pending")).toBe(false);
+    expect(boxGroup.classList.contains("siren-enter-fade")).toBe(true);
+    expect(openCheckout.classList.contains("siren-enter-slide-left")).toBe(true);
+
+    // Step 2: a message highlight on an arrow that was never hidden.
+    controller.next();
+    expect(createDraft.classList.contains("siren-highlight-glow")).toBe(true);
+
+    // Step 3: that highlight lifted, and a control-flow block outlined.
+    controller.next();
+    expect(createDraft.classList.contains("siren-highlight-glow")).toBe(false);
+    expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // Step 4: a participant enters — every element wearing its id at once.
+    controller.next();
+    expect(retryElements().map((el) => el.classList.contains("siren-enter-slide-top"))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(retryElements().map((el) => el.classList.contains("siren-pending"))).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(scheduleRetry.classList.contains("siren-enter-slide-bottom")).toBe(true);
+
+    // Step 5: the participant leaves, and the one message touching it leaves
+    // with it — the pairing that keeps this example warning-free.
+    controller.next();
+    expect(retryElements().map((el) => el.classList.contains("siren-exit-slide-top"))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(scheduleRetry.classList.contains("siren-exit-slide-right")).toBe(true);
+
+    // Step 6: the loop's outline lifted, the rect block's raised.
+    controller.next();
+    expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // Step 7: the box grouping exits.
+    controller.next();
+    expect(controller.currentStep).toBe(7);
+    expect(boxGroup.classList.contains("siren-exit-fade")).toBe(true);
+
+    // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(boxGroup.classList.contains("siren-exit-fade")).toBe(false);
+    expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // And reset returns all four kinds to their initial state.
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(pendingIds()).toEqual([
+      "Retry",
+      "Retry",
+      "Retry",
+      "Shopper-Web",
+      "Web-Retry",
+      "box:1",
+    ]);
+    expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);
   });
 });

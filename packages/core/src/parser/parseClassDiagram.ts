@@ -17,7 +17,7 @@ import type {
   SirenTimeline,
 } from "../contracts";
 import { matchClassDirection } from "./parseDirection";
-import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
+import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
 /**
@@ -869,30 +869,23 @@ export function parseClassDiagram(source: string): ParseResult {
     const rawLine = lines[index];
     const line = rawLine.trim();
 
-    if (timeline !== null) {
+    if (isTimelineHeader(line)) {
       // Once the block is open it runs to the end of the document — the same
       // one-way switch `parseFlowchart` makes, so a class statement written
       // after `timeline:` is a timeline diagnostic rather than silently
-      // parsing as structure.
-      if (line.length === 0) {
-        continue;
-      }
-      const { entries, diagnostics: lineDiagnostics } = parseTimelineLine(
-        line,
+      // parsing as structure. Draining it is `parseTimelineBody`'s job, so
+      // this parser keeps only the decision that is its own: where the block
+      // starts, and that a diagnostic inside it costs the whole document.
+      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
+        lines,
         index + 1,
-        rawLine.length - rawLine.trimStart().length + 1,
       );
-      diagnostics.push(...lineDiagnostics);
-      if (lineDiagnostics.length > 0) {
+      diagnostics.push(...bodyDiagnostics);
+      if (bodyDiagnostics.length > 0) {
         sawError = true;
       }
-      timeline.entries.push(...entries);
-      continue;
-    }
-
-    if (isTimelineHeader(line)) {
-      timeline = { entries: [] };
-      continue;
+      timeline = { entries };
+      break;
     }
 
     index = parseStatement(index, null);

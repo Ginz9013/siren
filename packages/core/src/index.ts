@@ -7,7 +7,12 @@ import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
-import type { Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+import type {
+  AnimationController,
+  Diagnostic,
+  SirenRenderResult,
+  TextMeasurer,
+} from "./contracts";
 
 export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
 
@@ -103,13 +108,34 @@ function attachClickHooks(
 }
 
 /**
+ * Puts a freshly rendered diagram into step 0 — the initial `siren-pending`
+ * state — for whichever kind just rendered.
+ *
+ * `reset()` is by definition "the initial pending state", computed from
+ * `computeClassStateAtStep(timeline, 0)`, and it is a no-op for a diagram
+ * with no timeline. That is why no renderer stamps `siren-pending` itself:
+ * two of them used to, each with a private copy of the "elements with an
+ * `enter` action start hidden" rule, and a third copy for sequence would
+ * have been three answers to a question `computeClassStateAtStep` already
+ * answers. One call site, one rule, no drift.
+ *
+ * Every caller must invoke this in the *same synchronous task* as its
+ * `container.replaceChildren(...)`, which is why this takes a controller
+ * rather than doing the mounting itself: nothing is painted between the two,
+ * so the reader never sees a frame of a to-be-hidden element.
+ */
+function establishStepZero(controller: AnimationController): void {
+  controller.reset();
+}
+
+/**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
  * createAnimationController; a class diagram runs layoutClassDiagram ->
- * renderClassDiagramToSVG -> createAnimationController, so it too returns a
- * working controller; a sequence diagram runs layoutSequence ->
- * renderSequenceToSVG and returns `controller: null` (no animation
- * integration for sequence diagrams yet). Mounts the resulting SVG into
+ * renderClassDiagramToSVG -> createAnimationController; a sequence diagram
+ * runs layoutSequence -> renderSequenceToSVG -> createAnimationController.
+ * All three return a working controller — one with `totalSteps: 0` when the
+ * document declares no `timeline:` block. Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
  * from every stage. A class diagram also has `options.onClick`, if one was
  * given, attached to whichever of its classes the author made clickable.
@@ -148,13 +174,14 @@ export function render(
       attachClickHooks(classSvg, options.onClick);
     }
 
-    // Unlike a sequence diagram, a class diagram animates: its classes and
-    // relationships carry `data-siren-id`, so the same controller that drives
-    // flowchart nodes and edges drives them unchanged.
+    // A class diagram animates: its classes and relationships carry
+    // `data-siren-id`, so the same controller that drives flowchart nodes and
+    // edges — and sequence participants — drives them unchanged.
     const classController = createAnimationController(
       classSvg,
       positionedClassDiagram.timeline,
     );
+    establishStepZero(classController);
 
     return { svg: classSvg, controller: classController, diagnostics };
   }
@@ -169,7 +196,18 @@ export function render(
 
     container.replaceChildren(sequenceSvg);
 
-    return { svg: sequenceSvg, controller: null, diagnostics };
+    // A sequence diagram animates on the same terms as the other two kinds:
+    // its participants, lifelines, destroy marks, messages, control-flow
+    // blocks and box groupings all carry `data-siren-id`, and the controller drives every
+    // element wearing a named id (ADR-0009) — so a participant's two boxes
+    // and its lifeline move together under one timeline entry.
+    const sequenceController = createAnimationController(
+      sequenceSvg,
+      positionedSequence.timeline,
+    );
+    establishStepZero(sequenceController);
+
+    return { svg: sequenceSvg, controller: sequenceController, diagnostics };
   }
 
   if (graphResult.graph === null) {
@@ -182,6 +220,7 @@ export function render(
   container.replaceChildren(svg);
 
   const controller = createAnimationController(svg, positioned.timeline);
+  establishStepZero(controller);
 
   return { svg, controller, diagnostics };
 }

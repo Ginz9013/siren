@@ -68,9 +68,14 @@ const DASH_PATTERN = "6,4";
  * relationship (line with the markers and dash its
  * `{ line, fromEnd, toEnd }` triple calls for, label, multiplicity), one
  * `<g class="siren-namespace">` per namespace frame and one
- * `<g class="siren-note">` per note, plus the initial `siren-pending` class
- * on elements with an `enter` action in the resolved timeline (see
- * `pendingElementIds` for the exact rule).
+ * `<g class="siren-note">` per note.
+ *
+ * Nothing here reads `diagram.timeline`. The initial `siren-pending` state is
+ * not this function's to decide: `createAnimationController(...).reset()`
+ * establishes it in `render()` for all three diagram kinds, out of the same
+ * `computeClassStateAtStep` that every later step comes from. A copy of that
+ * rule here would be a second opinion on step 0 that has to agree with the
+ * controller's, forever, by hand.
  *
  * Document order is the paint order: namespace frames, then classes, then
  * relationships, then notes.
@@ -88,66 +93,39 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   svg.setAttribute("height", String(diagram.height));
   svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
 
-  const pendingIds = pendingElementIds(diagram);
-
   svg.appendChild(buildDefs());
 
   // Namespaces first, and nothing else before them: SVG has no z-index, so a
   // frame is behind the boxes it encloses only by being drawn before them.
   for (const namespace of diagram.namespaces) {
-    svg.appendChild(buildNamespace(namespace, pendingIds.has(namespace.id)));
+    svg.appendChild(buildNamespace(namespace));
   }
 
   for (const positionedClass of diagram.classes) {
-    const group = buildClass(positionedClass, pendingIds.has(positionedClass.id));
+    const group = buildClass(positionedClass);
     svg.appendChild(wrapInteraction(group, positionedClass.interaction));
   }
 
   for (const relationship of diagram.relationships) {
-    svg.appendChild(buildRelationship(relationship, pendingIds.has(relationship.id)));
+    svg.appendChild(buildRelationship(relationship));
   }
 
   // Notes last: a note box is opaque, and it annotates the figure rather than
   // being part of it, so nothing drawn here should cover one.
   for (const note of diagram.notes) {
-    svg.appendChild(buildNote(note, pendingIds.has(note.id)));
+    svg.appendChild(buildNote(note));
   }
 
   return svg;
 }
 
 /**
- * Ids of elements with an `enter` action in the diagram's resolved
- * timeline. Only these start hidden as `siren-pending`; an element whose
- * only actions are `exit`/`highlight`/`unhighlight` must already be visible,
- * and one never mentioned in the timeline renders visible too — the same
- * rule as `renderToSVG`, and for the same reason.
- *
- * The rule covers all four addressable kinds — class, relationship, namespace
- * and note — because `buildClassModel` resolves a timeline against all four
- * id spaces. Anything an author can name in a `timeline:` block must be able
- * to start hidden, or its `enter` reveals something already on screen.
- */
-function pendingElementIds(diagram: PositionedClassDiagram): Set<string> {
-  const ids = new Set<string>();
-  for (const entry of diagram.timeline.entries) {
-    if (entry.kind === "enter") {
-      ids.add(entry.targetId);
-    }
-  }
-  return ids;
-}
-
-/**
  * Builds the `<g class="siren-relationship">` for one relationship: a
  * `<path class="siren-relationship-line">` following the layout's points.
  */
-function buildRelationship(
-  relationship: PositionedClassRelationship,
-  pending: boolean,
-): SVGGElement {
+function buildRelationship(relationship: PositionedClassRelationship): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", pending ? "siren-relationship siren-pending" : "siren-relationship");
+  g.setAttribute("class", "siren-relationship");
   g.setAttribute("data-siren-id", relationship.id);
   g.setAttribute("data-siren-relationship", relationshipTypeName(relationship));
 
@@ -313,9 +291,9 @@ function pointsToPathData(points: Point[]): string {
  * As on `.siren-node`, `data-siren-id` and the animation classes land on
  * this enclosing `<g>`; its parts carry none of their own.
  */
-function buildClass(positionedClass: PositionedClass, pending: boolean): SVGGElement {
+function buildClass(positionedClass: PositionedClass): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", pending ? "siren-class siren-pending" : "siren-class");
+  g.setAttribute("class", "siren-class");
   g.setAttribute("data-siren-id", positionedClass.id);
 
   // First child, before the frame: SVG surfaces a `<title>` as the hover
@@ -390,12 +368,9 @@ function buildClass(positionedClass: PositionedClass, pending: boolean): SVGGEle
  * its member boxes, and a `<text class="siren-namespace-label">` centered on
  * the layout-assigned anchor in the strip along the frame's top edge.
  */
-function buildNamespace(
-  namespace: PositionedClassNamespace,
-  pending: boolean,
-): SVGGElement {
+function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", pending ? "siren-namespace siren-pending" : "siren-namespace");
+  g.setAttribute("class", "siren-namespace");
   g.setAttribute("data-siren-id", namespace.id);
 
   const frame = document.createElementNS(SVG_NS, "rect");
@@ -424,9 +399,9 @@ function buildNamespace(
  * by padding the one line it measured, so the box's center *is* where that
  * line goes.
  */
-function buildNote(note: PositionedClassNote, pending: boolean): SVGGElement {
+function buildNote(note: PositionedClassNote): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", pending ? "siren-note siren-pending" : "siren-note");
+  g.setAttribute("class", "siren-note");
   g.setAttribute("data-siren-id", note.id);
 
   if (note.linkPoints !== null) {

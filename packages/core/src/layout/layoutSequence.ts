@@ -380,6 +380,9 @@ export function layoutSequence(
     participants,
     boxes,
     elements,
+    // Carried straight through: the timeline names ids, and layout assigns
+    // coordinates — neither has anything to say about the other.
+    timeline: model.timeline,
     width:
       Math.max(rightmostParticipantEdge, rightmostBlockEdge, rightmostBoxEdge) + RIGHT_MARGIN,
     height: lifelineBottom,

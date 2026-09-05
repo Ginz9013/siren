@@ -13,9 +13,23 @@ import type {
   SequenceParticipantOrigin,
   SequenceParticipantStatement,
   SequenceStatement,
+  SirenTimeline,
 } from "../contracts";
+import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
+
+/**
+ * The pseudo-terminator that ends a statement body at a `timeline:` header.
+ *
+ * It is passed only to the top-level `parseBody` call, which is what makes
+ * `timeline:` end the diagram body there and stay an unrecognized line
+ * inside a `loop`/`alt`/`box` body: a block body's terminator set is its
+ * own (`end`, `else`, `and`, `option`) and never includes this. Recognized
+ * by `isTimelineHeader` rather than by `matchLeadingKeyword`, so the header
+ * spelling stays owned by the shared timeline grammar.
+ */
+const TIMELINE_TERMINATOR = "timeline:";
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/;
 const TITLE_RE = /^title\s+(.+)$/;
 /** The lone participant id argument of a `destroy` statement. */
@@ -251,6 +265,13 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     let matchedTerminator: string | null = null;
     let terminatorLabel: string | null = null;
     for (const term of terminators) {
+      if (term === TIMELINE_TERMINATOR) {
+        if (isTimelineHeader(line)) {
+          matchedTerminator = term;
+          break;
+        }
+        continue;
+      }
       const m = matchLeadingKeyword(line, term);
       if (m.matched) {
         matchedTerminator = term;
@@ -626,7 +647,28 @@ export function parseSequenceDiagram(source: string): ParseResult {
   }
   state.index++;
 
-  const { statements } = parseBody(state, []);
+  const { statements, terminatorKeyword } = parseBody(state, [TIMELINE_TERMINATOR]);
+
+  // Once `timeline:` has ended the body the block runs to the end of the
+  // document — the same one-way switch `parseFlowchart` and
+  // `parseClassDiagram` make, so a sequence statement written after it is a
+  // timeline diagnostic rather than something that silently parses as
+  // structure. Its lines go through the shared grammar, never a
+  // sequence-specific copy of it.
+  let timeline: SirenTimeline | null = null;
+  if (terminatorKeyword === TIMELINE_TERMINATOR) {
+    const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
+      lines,
+      state.index,
+    );
+    diagnostics.push(...bodyDiagnostics);
+    // Every diagnostic the shared body reports is error-severity, so a
+    // non-empty list is exactly what used to be a per-line `sawError = true`.
+    if (bodyDiagnostics.length > 0) {
+      state.sawError = true;
+    }
+    timeline = { entries };
+  }
 
   if (state.sawError) {
     return { document: null, diagnostics };
@@ -649,6 +691,7 @@ export function parseSequenceDiagram(source: string): ParseResult {
     participants: state.participants,
     boxes: state.boxes,
     statements,
+    timeline,
   };
 
   return { document, diagnostics };
