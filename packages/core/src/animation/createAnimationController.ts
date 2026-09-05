@@ -98,6 +98,9 @@ function applyClassState(svg: SVGSVGElement, state: Map<string, Set<string>>): v
     // its lifeline, all three under one id -- see ADR-0009.
     const elements = svg.querySelectorAll(`[data-siren-id="${targetId}"]`);
 
+    // `Array.from` rather than iterating the NodeList: this package's `lib` is
+    // ["ES2022", "DOM"] without "DOM.Iterable", so a NodeList is not iterable
+    // here.
     for (const el of Array.from(elements)) {
       for (const c of Array.from(el.classList)) {
         if (isEffectClass(c) && !targetClasses.has(c)) el.classList.remove(c);

@@ -63,8 +63,9 @@ A target is the *authored thing*, not one drawn element: an id may be worn by se
 (a sequence participant is drawn in both participant rows, alongside its lifeline) and they all
 animate together — see
 [ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md).
-_Avoid_: animated element, node/edge (flowchart-only vocabulary — this term is what replaced it),
-timeline reference, animation target
+_Avoid_: animated element, "nodes and edges" as a collective name for what a timeline can name
+(that is flowchart-only vocabulary, and this term is what replaced it — **node** and **edge**
+remain the right words for those two things themselves), timeline reference, animation target
 
 **Design token**:
 A `--siren-*` CSS custom property in `packages/core/src/theme/default.css` — the single source of
@@ -94,8 +95,8 @@ Which way a diagram's layout runs — `TB` top-to-bottom, `BT` bottom-to-top, `L
 normalize it away through the same rule, so nothing downstream ever sees two spellings of one
 direction — including `layoutDirectedGraph`, which takes these four values as dagre's `rankdir`
 with nothing left to map.
-_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it, and it belongs inside
-`layoutDirectedGraph`), TD (say `TB`)
+_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — it survives as
+`layoutDirectedGraph`'s input field name, and nowhere else), TD (say `TB`)
 
 **Graph-shaped diagram**:
 A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class

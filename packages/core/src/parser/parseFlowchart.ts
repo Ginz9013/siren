@@ -7,12 +7,9 @@ import type {
   SirenNode,
   SirenTimeline,
 } from "../contracts";
-import { DIRECTION_ALTERNATION, normalizeDirection } from "./parseDirection";
+import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
-const FLOWCHART_HEADER_RE = new RegExp(
-  `^flowchart\\s+(${DIRECTION_ALTERNATION})\\s*$`,
-);
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
   /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
@@ -72,21 +69,18 @@ export function parseFlowchart(source: string): ParseResult {
     }
 
     if (mode === "before-header") {
-      const headerMatch = FLOWCHART_HEADER_RE.exec(line);
-      if (headerMatch === null) {
+      const headerDirection = matchFlowchartHeader(line);
+      if (headerDirection === null) {
         diagnostics.push({
           severity: "error",
-          message: `Expected "flowchart TB", "flowchart BT", "flowchart LR", or "flowchart RL", found "${line}"`,
+          message: `Expected ${listAcceptedHeaders()}, found "${line}"`,
           line: lineNumber,
           column,
         });
         sawError = true;
         break;
       }
-      // The parser is the only module that knows which spelling the author
-      // wrote, so it is where the alias dies: everything downstream sees one
-      // vocabulary.
-      direction = normalizeDirection(headerMatch[1]);
+      direction = headerDirection;
       mode = "flowchart";
       continue;
     }

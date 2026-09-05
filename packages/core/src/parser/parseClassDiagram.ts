@@ -16,7 +16,7 @@ import type {
   ParseResult,
   SirenTimeline,
 } from "../contracts";
-import { DIRECTION_ALTERNATION, normalizeDirection } from "./parseDirection";
+import { matchClassDirection } from "./parseDirection";
 import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
 const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
@@ -73,7 +73,6 @@ const NOTE_RE = /^note\s+"([^"]*)"$/;
 const NOTE_FOR_RE = /^note\s+for\s+(\w+)\s+"([^"]*)"$/;
 
 /** A `direction TB|BT|LR|RL` statement. */
-const DIRECTION_RE = new RegExp(`^direction\\s+(${DIRECTION_ALTERNATION})$`);
 
 /**
  * `click Shape href "https://example.com"`, with Mermaid's optional
@@ -507,9 +506,9 @@ export function parseClassDiagram(source: string): ParseResult {
     const lineNumber = startIndex + 1;
     const column = rawLine.length - rawLine.trimStart().length + 1;
 
-    const directionMatch = DIRECTION_RE.exec(line);
-    if (directionMatch !== null) {
-      direction = normalizeDirection(directionMatch[1]);
+    const directionStatement = matchClassDirection(line);
+    if (directionStatement !== null) {
+      direction = directionStatement;
       return startIndex;
     }
 

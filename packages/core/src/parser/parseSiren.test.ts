@@ -265,7 +265,7 @@ timeline:
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
-  it("dispatches a flowchart TD document to parseFlowchart, tagged kind: \"flowchart\"", () => {
+  it("dispatches a flowchart document to parseFlowchart, tagged kind: \"flowchart\"", () => {
     const source = `flowchart TD
   A[Start]
   A --> B[End]

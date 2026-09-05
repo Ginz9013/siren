@@ -42,6 +42,9 @@ function buildTimeline(): ResolvedTimeline {
   };
 }
 
+/** The three elements `buildSharedIdSvg` draws, in document order. */
+const SHARED_ID_CLASSES = ["siren-participant", "siren-lifeline", "siren-participant"] as const;
+
 /**
  * A fixture in the shape a sequence diagram produces: one participant id worn
  * by three drawn elements — the top row's box, its lifeline, and the bottom
@@ -51,7 +54,7 @@ function buildTimeline(): ResolvedTimeline {
 function buildSharedIdSvg(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
 
-  for (const className of ["siren-participant", "siren-lifeline", "siren-participant"]) {
+  for (const className of SHARED_ID_CLASSES) {
     const el = document.createElementNS(SVG_NS, "g");
     el.setAttribute("class", className);
     el.setAttribute("data-siren-id", "A");
@@ -136,12 +139,12 @@ describe("createAnimationController", () => {
 
     controller.reset();
 
-    for (const el of allWithId(svg, "A")) {
+    allWithId(svg, "A").forEach((el, index) => {
       expect(el.classList.contains("siren-pending")).toBe(true);
       expect(el.classList.contains("siren-enter-fade")).toBe(false);
-      // The class that says what the element *is* is never touched.
-      expect(el.classList.contains("siren-participant") || el.classList.contains("siren-lifeline")).toBe(true);
-    }
+      // The class that says what each element *is* is never touched.
+      expect(el.classList.contains(SHARED_ID_CLASSES[index])).toBe(true);
+    });
   });
 
   it("applies a target's effect classes to every element carrying its id, not just the first", () => {
