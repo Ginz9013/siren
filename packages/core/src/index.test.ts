@@ -1,376 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { render, type InteractionTarget } from "./index";
 import type { SirenRenderResult } from "./contracts";
+import { readdirSync, readFileSync } from "node:fs";
 
 /**
- * Kept identical to demos/sequence-diagram.html's fetched example,
- * examples/sequence-core.srn — duplicated inline here (rather than read via
- * `node:fs`) because this package has no `@types/node`/Node-built-in typings
- * configured (`tsc --noEmit` has no `lib`/`types` for them) and adding one is
- * outside this ticket's write scope (`packages/core/package.json` is not in
- * it). If the two ever drift, this test and the demo page stop exercising
- * the same source.
- */
-const SEQUENCE_CORE_EXAMPLE_SOURCE = `sequenceDiagram
-title Core sequence diagram feature tour
-participant Client
-actor User
-participant Server
-
-autonumber
-User->Client: Open app
-Client->>Server: Fetch profile
-Server-->>Client: Profile data
-autonumber off
-Client->Server: Plain request
-Client-->Server: Plain dotted request
-Client->>Server: Solid filled arrowhead
-Client-->>Server: Dotted filled arrowhead
-Client<<->>Server: Solid bidirectional
-Client<<-->>Server: Dotted bidirectional
-Client-xServer: Solid cross (lost message)
-Client--xServer: Dotted cross (lost message)
-Client-)Server: Solid open (async)
-Client--)Server: Dotted open (async)
-`;
-
-/**
- * Kept identical to demos/sequence-diagram.html's second fetched example,
- * examples/sequence-blocks.srn — duplicated inline for the same reason as
- * SEQUENCE_CORE_EXAMPLE_SOURCE above (no `node:fs` typings in this package).
+ * This test file's own URL.
  *
- * Exercises all seven control-flow block kinds, with `alt` nested inside
- * `loop`. Lane order is Client, Server, Cache, and the blocks deliberately
- * touch different lane spans: `loop` (with its nested `alt`) only ever
- * touches Client and Server, while `par` reaches across to Cache.
+ * It is read into a binding rather than used inline below on purpose: Vite
+ * rewrites the *literal* `new URL("...", import.meta.url)` form into a
+ * dev-server asset URL (`http://localhost:3000/@fs/...`), which `readFileSync`
+ * rejects with "The URL must be of scheme file". Going through a binding keeps
+ * it the real `file:` URL that resolution against disk needs.
  */
-const SEQUENCE_BLOCKS_EXAMPLE_SOURCE = `sequenceDiagram
-title Control-flow block tour
-participant Client
-participant Server
-participant Cache
-
-loop Every minute
-  Client->>Server: Poll for work
-  alt is fresh
-    Server-->>Client: Fresh data
-  else is stale
-    Server-->>Client: Stale marker
-  else is missing
-    Server--xClient: Not found
-  end
-end
-opt Warm the cache
-  Client->>Server: Prime hint
-end
-par Fan out
-  Client->>Server: Task A
-and Second branch
-  Client->>Cache: Task B
-end
-critical Acquire lock
-  Client->>Cache: Lock
-option Timeout
-  Cache-->>Client: Busy
-end
-break Fatal error
-  Server--xClient: Abort
-end
-rect rgb(240, 248, 255)
-  Client->>Cache: Highlighted exchange
-end
-`;
+const TEST_FILE_URL = import.meta.url;
 
 /**
- * Kept identical to demos/sequence-diagram.html's third fetched example,
- * examples/sequence-full.srn — duplicated inline for the same reason as the
- * two constants above (no `node:fs` typings in this package).
- *
- * The board's closing example: every in-scope feature in one document —
- * `participant` and `actor` declarations, a `box` grouping, `title`,
- * `autonumber`/`autonumber off`, all ten arrow forms, a self-message, all
- * seven block kinds with `alt` nested inside `loop`, and `create`/`destroy`
- * both at the top level (`Ledger`) and inside a block body (`Retry`,
- * destroyed from inside the nested `alt`; `Auditor`, created inside `opt`
- * and never destroyed).
+ * The repository's `examples/` directory, resolved relative to *this file*
+ * rather than to `process.cwd()`, so the suite reads the same documents
+ * whether it is run from the repo root (`pnpm -r test`) or from
+ * `packages/core` (`npx vitest run`).
  */
-const SEQUENCE_FULL_EXAMPLE_SOURCE = `sequenceDiagram
-title Checkout — every sequence feature
-box Blue Storefront
-  actor Shopper
-  participant Web
-end
-participant Orders
-participant Payments
-
-autonumber
-Shopper->>Web: Open checkout
-Web->>Orders: Create draft order
-Orders->>Orders: Validate line items
-Orders-->>Web: Draft ready
-autonumber off
-
-create participant Ledger
-Web->>Ledger: Open ledger entry
-Web->Payments: Quote fees
-Web-->Payments: Re-quote after tax
-Web<<->>Payments: Agree currency
-Web<<-->>Payments: Confirm currency
-
-loop Every authorization attempt
-  Web->>Payments: Authorize
-  create participant Retry
-  Web->>Retry: Schedule a retry
-  alt approved
-    Payments-->>Web: Approved
-    destroy Retry
-  else declined
-    Payments-xWeb: Declined
-  else timed out
-    Payments--xWeb: No response
-  end
-end
-opt Shopper opted into the audit trail
-  create actor Auditor
-  Web-)Auditor: Notify audit trail
-end
-par Settle
-  Orders->>Payments: Capture funds
-and Record
-  Orders->>Auditor: Record capture
-end
-critical Reserve stock
-  Orders->>Ledger: Post reservation
-option Warehouse offline
-  Ledger--)Orders: Deferred
-end
-break Fraud detected
-  Payments--xOrders: Hard decline
-end
-rect rgb(240, 248, 255)
-  Web-->>Shopper: Show confirmation
-end
-destroy Ledger
-Web-->>Shopper: Email receipt
-
-timeline:
-  step 1: enter box:1 fade, enter Shopper-Web slide-left
-  step 2: highlight Web-Orders glow
-  step 3: unhighlight Web-Orders, highlight loop:1 outline
-  step 4: enter Retry slide-top, enter Web-Retry slide-bottom
-  step 5: exit Retry slide-top, exit Web-Retry slide-right
-  step 6: unhighlight loop:1, highlight rect:1 outline
-  step 7: exit box:1 fade
-`;
+const EXAMPLES_DIR = new URL("../../../examples/", TEST_FILE_URL);
 
 /**
- * Kept identical to demos/class-diagram.html's fetched example,
- * examples/class-core.srn — duplicated inline for the same reason as the
- * sequence constants above (no `node:fs` typings in this package). If the
- * two ever drift, this test and the demo page stop exercising the same
- * source.
- *
- * Exercises the class-diagram features that are in scope up to this ticket:
- * all three declaration forms (`class X`, the block form, and the inline
- * `X : +member` form), implicit declaration from a relationship (`Habitat`
- * and `Keeper` are named nowhere else), every visibility marker and both
- * classifiers, attributes and methods with types and return types, and all
- * eight relationship kinds — one of them with multiplicity at both ends.
- * Annotations, generics, namespaces and notes are deliberately absent: they
- * parse, but nothing downstream draws them until later tickets on this board.
+ * Reads one of the repository's `examples/*.srn` documents straight from disk,
+ * so that every example test exercises the same bytes the demo pages fetch —
+ * there is no inline copy left to drift from them.
  */
-const CLASS_CORE_EXAMPLE_SOURCE = `classDiagram
-class Animal {
-  +int age
-  +String gender
-  #bool warmBlooded
-  ~String tag
-  +isMammal() bool
-  +mate(Animal partner) Animal
-}
-class Duck {
-  -String beakColor
-  +swim()
-  +quack() String
-}
-class Fish {
-  -int sizeInFeet
-  #canEat() bool
-}
-class Zebra {
-  +bool isWild
-  +run()*
-}
-class Flyer {
-  +fly() bool
-}
-class Registry {
-  -int cachedCount$
-  +lookup(String name) Animal$
-}
-
-Feather : +String color
-Feather : +float lengthInCm
-
-Animal <|-- Duck
-Animal <|-- Fish
-Animal <|-- Zebra
-Duck ..|> Flyer : implements
-Habitat *-- Animal : houses
-Duck o-- Feather : plumage
-Keeper "1" --> "*" Animal : cares for
-Keeper -- Habitat
-Registry ..> Animal : looks up
-Zebra .. Habitat
-`;
-
-/**
- * Kept identical to demos/class-diagram.html's second fetched example,
- * examples/class-structure.srn — duplicated inline for the same reason as the
- * constants above (no `node:fs` typings in this package). If the two ever
- * drift, this test and the demo page stop exercising the same source.
- *
- * Where CLASS_CORE_EXAMPLE_SOURCE covers declarations, members and the eight
- * relationship kinds, this one covers the structural features layered on top:
- * a `direction` statement, a `namespace` frame, an `<<interface>>` and an
- * `<<abstract>>` annotation, a generic class (with a nested generic member
- * type), a free note and a note attached to a class.
- */
-const CLASS_STRUCTURE_EXAMPLE_SOURCE = `classDiagram
-direction LR
-
-namespace Shapes {
-  class Shape {
-    <<interface>>
-    +String name
-    +area() float
-  }
-  class Square {
-    +float side
-    +area() float
-  }
-  class Circle {
-    +float radius
-    +area() float
-  }
-}
-
-class Registry~T~ {
-  -Map~String, List~T~~ entries
-  +register(String name, T item)
-  +lookup(String name) T
-}
-
-class Renderer {
-  <<abstract>>
-  +draw(Shape shape)*
-}
-
-Square ..|> Shape
-Circle ..|> Shape
-Registry ..> Shape : caches
-Renderer ..> Shape : draws
-
-note "Every structural feature in one document"
-note for Registry "One registry per shape kind"
-`;
-
-/**
- * Kept identical to demos/class-diagram.html's third fetched example,
- * examples/class-full.srn — duplicated inline for the same reason as the
- * constants above (no `node:fs` typings in this package). If the two ever
- * drift, this test and the demo page stop exercising the same source.
- *
- * The board's closing example: every in-scope class-diagram feature in one
- * document. `%%` comments, `direction`, a `namespace`, block/bare/inline/
- * implicit declaration, all four visibility markers, both classifiers,
- * `<<abstract>>` and `<<interface>>` annotations, a generic class with a
- * nested generic member type, all eight relationship kinds — two of them
- * carrying a label and multiplicity at both ends — both note forms, a
- * callback and an href interaction, `style` + `classDef` + `cssClass`, and a
- * `timeline:` block that animates all four addressable kinds: classes,
- * relationships, the namespace and a note.
- */
-const CLASS_FULL_EXAMPLE_SOURCE = `%% examples/class-full.srn — every class-diagram feature Siren draws, in one
-%% document. Comment lines like these are stripped in every diagram kind.
-classDiagram
-direction LR
-
-namespace catalog {
-  class Media {
-    <<abstract>>
-    +String title
-    #int durationInSeconds
-    -bool licensed
-    ~String catalogKey
-    +play()*
-    +describe() String
-  }
-  class Track {
-    +String artist
-    +int bpm
-    +play()
-    +remix(Track other) Track
-  }
-  class Podcast {
-    +String host
-    +int episode
-    +play()
-  }
-}
-
-class Playable {
-  <<interface>>
-  +play()
-  +stop()
-}
-
-class Shelf~T~ {
-  -Map~String, List~T~~ byGenre
-  -int loadedCount$
-  +add(String genre, T item)
-  +find(String genre) List~T~
-  +clear()$
-}
-
-class Player
-
-Listener : +String name
-Listener : +rate(Media item, int stars) bool
-
-Media <|-- Track
-Media <|-- Podcast
-Track ..|> Playable
-Shelf "1" *-- "0..*" Media : holds
-Media o-- Artwork : cover
-Listener "1" --> "0..*" Media : rates
-Listener -- Player
-Player ..> Shelf : reads
-Artwork .. Player %% a dashed link, drawn without either endpoint marker
-
-note "Every class-diagram feature Siren draws, in one document"
-note for Shelf "One shelf per media kind"
-
-click Track call showDetails("track") "Inspect this class"
-click Playable href "https://mermaid.js.org/syntax/classDiagram.html" "Mermaid class syntax"
-
-%% Author styling: one class styled directly, and two more by a classDef the
-%% cssClass statement applies. The fills carry an alpha channel deliberately --
-%% an author style reaches a class's frame but not its label text, so an opaque
-%% light fill would leave the dark theme's light label text unreadable on it.
-style Track fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
-classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
-cssClass "Player,Artwork" external
-
-timeline:
-  step 1: enter namespace:1 fade
-  step 2: enter Track slide-top, enter Podcast slide-bottom
-  step 3: enter Media-Track fade, enter Media-Podcast fade
-  step 4: enter Playable fade, enter Track-Playable slide-left
-  step 5: enter note:2 fade, highlight Shelf outline
-  step 6: highlight Listener-Media glow, unhighlight Shelf
-  step 7: unhighlight Listener-Media, exit note:2 slide-right
-`;
+const readExample = (name: string): string =>
+  readFileSync(new URL(`${name}.srn`, EXAMPLES_DIR), "utf8");
 
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
@@ -808,10 +466,31 @@ A->>GHOST: Hello
     ).toBe(true);
   });
 
+  it("renders every .srn document in examples/ with no error diagnostics, naming the offending file when one fails", () => {
+    const files = readdirSync(EXAMPLES_DIR)
+      .filter((name) => name.endsWith(".srn"))
+      .sort();
+
+    // Guard against the enumeration silently finding nothing: an empty list
+    // would make every assertion below vacuous.
+    expect(files.length).toBeGreaterThan(0);
+
+    for (const file of files) {
+      const source = readFileSync(new URL(file, EXAMPLES_DIR), "utf8");
+      const result = render(source, document.createElement("div"));
+
+      expect(
+        result.diagnostics.filter((d) => d.severity === "error"),
+        `examples/${file} produced error diagnostics`,
+      ).toEqual([]);
+      expect(result.svg, `examples/${file} rendered no SVG`).not.toBeNull();
+    }
+  });
+
   it("renders demos/sequence-diagram.html's example source (examples/sequence-core.srn) end to end with no error diagnostics, both participant kinds, all ten arrow forms, a title, and autonumber labels", () => {
     const container = document.createElement("div");
 
-    const result = render(SEQUENCE_CORE_EXAMPLE_SOURCE, container);
+    const result = render(readExample("sequence-core"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.controller!.totalSteps).toBe(0);
@@ -831,7 +510,7 @@ A->>GHOST: Hello
   it("renders demos/sequence-diagram.html's control-flow example (examples/sequence-blocks.srn) end to end with one siren-block group per block, nested inside its parent block, with a divider per extra branch", () => {
     const container = document.createElement("div");
 
-    const result = render(SEQUENCE_BLOCKS_EXAMPLE_SOURCE, container);
+    const result = render(readExample("sequence-blocks"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.controller!.totalSteps).toBe(0);
@@ -1123,7 +802,7 @@ end
   it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, and create/destroy inside and outside blocks", () => {
     const container = document.createElement("div");
 
-    const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
+    const result = render(readExample("sequence-full"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     // The example's own `timeline:` block, seven steps of it. What those steps
@@ -1452,7 +1131,7 @@ step 4: unhighlight Duck
   it("renders demos/class-diagram.html's example source (examples/class-core.srn) end to end with no error diagnostics, every declaration form, member text verbatim, and all eight relationship kinds", () => {
     const container = document.createElement("div");
 
-    const result = render(CLASS_CORE_EXAMPLE_SOURCE, container);
+    const result = render(readExample("class-core"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.svg).not.toBeNull();
@@ -1534,7 +1213,7 @@ step 4: unhighlight Duck
   it("renders demos/class-diagram.html's second example source (examples/class-structure.srn) end to end, drawing the namespace frame behind the class boxes it encloses, both annotations, the generic class name in angle brackets, and both notes", () => {
     const container = document.createElement("div");
 
-    const result = render(CLASS_STRUCTURE_EXAMPLE_SOURCE, container);
+    const result = render(readExample("class-structure"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.svg).not.toBeNull();
@@ -2245,7 +1924,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
     const container = document.createElement("div");
     const clicks: InteractionTarget[] = [];
 
-    const result = render(CLASS_FULL_EXAMPLE_SOURCE, container, {
+    const result = render(readExample("class-full"), container, {
       onClick: (target) => clicks.push(target),
     });
 
@@ -2438,7 +2117,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
 
   it("drives examples/class-full.srn's timeline through all four addressable kinds — a class, a relationship, the namespace and a note — with next(), prev() and reset()", () => {
     const container = document.createElement("div");
-    const result = render(CLASS_FULL_EXAMPLE_SOURCE, container);
+    const result = render(readExample("class-full"), container);
 
     expect(result.diagnostics).toEqual([]);
     const controller = result.controller!;
@@ -2784,7 +2463,14 @@ timeline:
 
   it("drives examples/sequence-full.srn's timeline through all four addressable kinds — a box grouping, a message, a control-flow block and a participant — with zero diagnostics, next(), prev() and reset()", () => {
     const container = document.createElement("div");
-    const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
+    const source = readExample("sequence-full");
+
+    // Drift guard: the source above is read from examples/sequence-full.srn
+    // on disk, not from an inline copy, so editing the example changes what
+    // this test renders. The marker is the example's own final timeline step.
+    expect(source).toContain("step 7: exit box:1 fade");
+
+    const result = render(source, container);
 
     // Zero diagnostics, not merely zero errors: the closing example has to be
     // clean against the advisory message-outlives-its-participant warning too,

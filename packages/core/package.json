@@ -19,6 +19,7 @@
     "@dagrejs/dagre": "^3.1.1"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
     "jsdom": "^25.0.1",
     "typescript": "^5.6.3",
     "vite": "^8.2.2",
