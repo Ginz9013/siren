@@ -500,8 +500,9 @@ export interface PositionedBox {
 }
 
 /**
- * The sequence diagram after layout: positioned participants/messages/
- * blocks/boxes/destroy-marks plus the resolved timeline, ready for
+ * The sequence diagram after layout: positioned participants, messages,
+ * control-flow blocks, box groupings and destroy marks, plus the resolved
+ * timeline, ready for
  * `renderSequenceToSVG`.
  */
 export interface PositionedSequenceDiagram {

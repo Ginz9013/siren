@@ -170,8 +170,8 @@ export function render(
     container.replaceChildren(sequenceSvg);
 
     // A sequence diagram animates on the same terms as the other two kinds:
-    // its participants, lifelines, destroy marks, messages, blocks and box
-    // groupings all carry `data-siren-id`, and the controller drives every
+    // its participants, lifelines, destroy marks, messages, control-flow
+    // blocks and box groupings all carry `data-siren-id`, and the controller drives every
     // element wearing a named id (ADR-0009) — so a participant's two boxes
     // and its lifeline move together under one timeline entry.
     const sequenceController = createAnimationController(
@@ -182,6 +182,16 @@ export function render(
     // the way `renderToSVG` and `renderClassDiagramToSVG` do, so step 0 is
     // established here instead: `reset()` is by definition "the initial
     // pending state", and it is a no-op for a diagram with no timeline.
+    //
+    // Deliberately not fixed by teaching the renderer to stamp it. Those two
+    // renderers each carry their own private `pendingElementIds` copy, so
+    // symmetry that way means a third copy of a rule `computeClassStateAtStep`
+    // already owns. The convergence worth having runs the other way -- delete
+    // both copies and let `reset()` establish step 0 for all three kinds.
+    //
+    // Safe because `container.replaceChildren` above and this call sit in one
+    // synchronous task: the SVG is never painted in its unstamped state, so
+    // there is no flash of a to-be-hidden element.
     sequenceController.reset();
 
     return { svg: sequenceSvg, controller: sequenceController, diagnostics };

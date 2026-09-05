@@ -862,7 +862,7 @@ describe("buildSequenceModel", () => {
     expect(model!.timeline).toEqual({ totalSteps: 0, entries: [] });
   });
 
-  it("still rejects a timeline entry naming a message, block or box id — the valid-target set is participant ids only", () => {
+  it("still rejects a timeline entry naming a message, control-flow block or box grouping id — the valid-target set is participant ids only", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,

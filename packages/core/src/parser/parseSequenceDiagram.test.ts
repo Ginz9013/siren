@@ -702,25 +702,62 @@ timeline:
 
     expect(document.timeline).toBeNull();
   });
-  it("still reports `timeline:` inside a loop body as an unrecognized sequenceDiagram line", () => {
-    const source = `sequenceDiagram
+  // All three of the ticket's named body kinds, not just `loop`: the rule is
+  // that `TIMELINE_TERMINATOR` reaches only the top-level `parseBody` call, and
+  // a body that opens its own terminator set must not inherit it. `alt` also
+  // covers the branch case (`else` opens a fresh body of the same block).
+  it.each([
+    {
+      body: "loop",
+      source: `sequenceDiagram
   participant A
   loop retry
     timeline:
     A->>A: hi
   end
-`;
-
-    const { document, diagnostics } = parseSequenceDiagram(source);
-
-    expect(document).toBeNull();
-    expect(diagnostics).toContainEqual({
-      severity: "error",
-      message: 'Unrecognized sequenceDiagram line: "timeline:"',
+`,
       line: 4,
       column: 5,
-    });
-  });
+    },
+    {
+      body: "alt (second branch)",
+      source: `sequenceDiagram
+  participant A
+  alt ok
+    A->>A: hi
+  else fallback
+    timeline:
+  end
+`,
+      line: 6,
+      column: 5,
+    },
+    {
+      body: "box",
+      source: `sequenceDiagram
+  box Blue Team
+    participant A
+    timeline:
+  end
+  A->>A: hi
+`,
+      line: 4,
+      column: 5,
+    },
+  ])(
+    "still reports `timeline:` inside a $body body as an unrecognized sequenceDiagram line",
+    ({ source, line, column }) => {
+      const { document, diagnostics } = parseSequenceDiagram(source);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toContainEqual({
+        severity: "error",
+        message: 'Unrecognized sequenceDiagram line: "timeline:"',
+        line,
+        column,
+      });
+    },
+  );
 
   it("reports a malformed timeline line with the shared timeline grammar's own diagnostics", () => {
     const source = `sequenceDiagram
