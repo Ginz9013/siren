@@ -21,11 +21,11 @@
       <code>critical</code>/<code>option</code>, <code>break</code>, and <code>rect</code> —
       including an <code>alt</code> nested inside a <code>loop</code>. The third puts every
       in-scope feature into one document, adding <code>create</code>/<code>destroy</code>
-      participant lifecycle (both at the top level and inside a block body) and a
-      <code>box</code> participant grouping. Sequence diagrams render fully visible and static —
-      there is no Prev/Next/Reset control here, unlike the flowchart step-reveal demos, since
-      <code>SirenRenderResult.controller</code> is always <code>null</code> for a sequence
-      diagram (see spec.md's Non-goals).
+      participant lifecycle (both at the top level and inside a block body), a <code>box</code>
+      participant grouping, and a <code>timeline:</code> block — so it has a
+      <strong>Next</strong>/<strong>Reset</strong> control of its own below. The first two carry
+      no <code>timeline:</code> block and so render fully visible and static: a document without
+      one still gets a controller, it simply has nowhere to go.
     </p>
 
     <h2>Core features</h2>
@@ -47,19 +47,40 @@
       <code>create</code>/<code>destroy</code> both at the top level (<code>Ledger</code>) and
       inside a block body (<code>Retry</code>, destroyed from inside the nested <code>alt</code>;
       <code>Auditor</code>, created inside <code>opt</code> and never destroyed — so its lifeline
-      starts partway down the page and runs to the bottom, with no top-row box).
+      starts partway down the page and runs to the bottom, with no top-row box). Its
+      <code>timeline:</code> block animates all four addressable kinds — a participant, a message,
+      a control-flow block and a <code>box</code> grouping — so <strong>Next</strong> and
+      <strong>Reset</strong> below drive the same <code>AnimationController</code> a flowchart or
+      a class diagram returns. Watch <code>Retry</code> at step 4: one timeline entry moves its
+      participant box, its lifeline and its destroy mark together, because all three carry its id.
     </p>
     <p class="status" id="full-status">Loading…</p>
+    <p class="status">
+      <!--
+        Reusing .theme-toggle, the only button style demos/demo-chrome.css
+        declares (and the only one it themes for dark mode). That file is a
+        shared page-chrome stylesheet, so this page borrows its button rule
+        rather than growing a second one of its own.
+      -->
+      <button id="full-next" type="button" class="theme-toggle">Next</button>
+      <button id="full-reset" type="button" class="theme-toggle">Reset</button>
+    </p>
 
     <div id="siren-full-container"></div>
 
     <!--
       Unlike demos/step-reveal.html and demos/complex-showcase.html, this
       page imports the real Vite library build of @siren/core directly
-      (packages/core/dist/siren-core.js), not @siren/board: sequence
-      diagrams have no timeline/animation controller to wire up (board's
-      whole job), so board would add nothing here. Run
+      (packages/core/dist/siren-core.js), not @siren/board. Run
       `pnpm --filter @siren/core build` first.
+
+      Board is the right host for a page that shows *one* diagram
+      (demos/step-reveal.html), since it owns a container outright — its own
+      full-bleed sizing, pan/zoom viewport and floating Prev/Next/Reset bar.
+      This page shows three side by side, so it calls render() itself and
+      drives the third one's returned controller from the two buttons above —
+      the same controller board would have driven. Same arrangement as
+      demos/class-diagram.html.
 
       The example documents live at examples/sequence-core.srn,
       examples/sequence-blocks.srn and examples/sequence-full.srn as
@@ -94,6 +115,8 @@
       const blocksStatusEl = document.getElementById("blocks-status");
       const fullContainer = document.getElementById("siren-full-container");
       const fullStatusEl = document.getElementById("full-status");
+      const fullNextBtn = document.getElementById("full-next");
+      const fullResetBtn = document.getElementById("full-reset");
       const themeBtn = document.getElementById("theme-btn");
 
       // Proves the design tokens in packages/core/src/theme/default.css are
@@ -133,7 +156,7 @@
 
         if (result.svg === null) {
           targetStatusEl.textContent = "Render failed — see console diagnostics.";
-          return;
+          return result;
         }
 
         const count = (selector) => result.svg.querySelectorAll(selector).length;
@@ -148,11 +171,44 @@
           parts.push(`${count("path.siren-destroy-mark")} destroyed lifelines`);
         }
         targetStatusEl.textContent = `Rendered ${parts.join(", ")}.`;
+        return result;
       }
 
       renderExample(source, container, statusEl);
       renderExample(blocksSource, blocksContainer, blocksStatusEl);
-      renderExample(fullSource, fullContainer, fullStatusEl);
+
+      // The third example is the only one carrying a `timeline:` block, so it
+      // is the only one with steps to walk — the first two would each get a
+      // controller of their own with totalSteps 0. The null check below is
+      // therefore only about a render that failed outright, which is the one
+      // case render() still has no controller for.
+      const fullResult = renderExample(fullSource, fullContainer, fullStatusEl);
+
+      const controller = fullResult.controller;
+      const summary = fullStatusEl.textContent;
+
+      function showStep() {
+        fullStatusEl.textContent =
+          `${summary} Step ${controller.currentStep} of ${controller.totalSteps}.`;
+        // next() is a no-op past the last step, so the button says so rather
+        // than sitting there looking broken.
+        fullNextBtn.disabled = controller.currentStep >= controller.totalSteps;
+      }
+
+      if (controller === null) {
+        fullNextBtn.disabled = true;
+        fullResetBtn.disabled = true;
+      } else {
+        fullNextBtn.addEventListener("click", () => {
+          controller.next();
+          showStep();
+        });
+        fullResetBtn.addEventListener("click", () => {
+          controller.reset();
+          showStep();
+        });
+        showStep();
+      }
     </script>
   </body>
 </html>

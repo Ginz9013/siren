@@ -468,10 +468,11 @@
 }
 
 /*
- * Step-reveal states: elements with an `enter` action render with
- * `siren-pending` initially (invisible; renderToSVG.ts only marks elements
- * that actually have an `enter` action). `controller.next()` swaps that for
- * `siren-enter-{effect}`.
+ * Step-reveal states: elements with an `enter` action carry `siren-pending`
+ * at step 0 (invisible). No renderer marks them — `createAnimationController`
+ * does, from `computeClassStateAtStep(timeline, 0)`, which every kind's
+ * `render()` establishes by resetting the controller once. `next()` recomputes
+ * that state for the next step, swapping the class for `siren-enter-{effect}`.
  */
 .siren-pending {
   opacity: 0;

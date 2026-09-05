@@ -55,14 +55,17 @@ _Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highli
 the verb matters)
 
 **Timeline target**:
-Anything a timeline action can name by id: a flowchart node or edge, or a class, relationship,
-namespace or note in a class diagram. Every one of them carries `data-siren-id` in the rendered
-SVG, which is how the animation controller finds it — so a diagram kind gains animation by tagging
-its drawn elements with the ids the timeline uses, not by teaching the controller anything new.
+Anything a timeline action can name by id: a flowchart node or edge; a class, relationship,
+namespace or note in a class diagram; a participant, message, control-flow block or box grouping
+in a sequence diagram. Every one of them carries `data-siren-id` in the rendered SVG, which is how
+the animation controller finds it — so a diagram kind gains animation by tagging its drawn
+elements with the ids the timeline uses, not by teaching the controller anything new.
 A target is the *authored thing*, not one drawn element: an id may be worn by several elements
-(a sequence participant is drawn in both participant rows, alongside its lifeline) and they all
-animate together — see
-[ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md).
+(a sequence participant is drawn in both participant rows, alongside its lifeline, and its
+destroy mark carries that same id) and they all animate together — see
+[ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md). A destroy mark is
+therefore not a fifth sequence target: it animates when its participant does, and there is no id
+that names it alone.
 _Avoid_: animated element, "nodes and edges" as a collective name for what a timeline can name
 (that is flowchart-only vocabulary, and this term is what replaced it — **node** and **edge**
 remain the right words for those two things themselves), timeline reference, animation target
@@ -133,7 +136,8 @@ The dashed vertical line running down a participant's lane, spanning the extent 
 participant comes into existence and where it stops. A `create participant X` statement starts it
 partway down instead of at the top; a `destroy X` statement ends it early with an X mark instead
 of at the bottom.
-_Avoid_: timeline (that is the animation block — a lifeline is structural, not animated), axis
+_Avoid_: timeline (that is the animation block — a lifeline is structural; it does animate, but
+under its participant's id rather than one of its own), axis
 
 **Participant row**:
 The horizontal band at the top of a sequence diagram holding every participant's box or icon, and
@@ -153,14 +157,19 @@ arrow (say "arrow" only for the drawn line/head, not the message itself)
 A `loop`/`alt`/`opt`/`par`/`critical`/`break`/`rect` region wrapping a run of statements in a
 sequence diagram, nestable to any depth. Drawn as a frame spanning every participant lane its body
 touches, with one divider per extra branch (`else`/`and`/`option`). `rect` is the exception: a
-filled background highlight with no frame.
+filled background highlight with no frame. Addressable in a `timeline:` block under a generated
+id — its kind, then a 1-based counter per kind in source order: `loop:1`, `alt:2`, `rect:1`. The
+colon is load-bearing: a participant id is `\w+`, so no message id (`${from}-${to}`) can ever
+spell one of these.
 _Avoid_: block (alone — too vague), group, section, box
 
 **Box grouping**:
 A `box <color> <label> ... end` region wrapping participant declarations, drawn as a colored
 background band behind those lanes for the diagram's full height. Distinct from a control-flow
 block (which wraps messages in time, not participants in space) and from a participant's own box
-shape.
+shape. Addressable in a `timeline:` block under a generated id (`box:1`, `box:2`, … in declaration
+order); animating it moves the band and its label, never the participants it groups, which are
+drawn beside the band rather than inside it.
 _Avoid_: box (alone — the word is overloaded three ways: this grouping, a participant's rect, and
 a block's bounding rect; always qualify it)
 

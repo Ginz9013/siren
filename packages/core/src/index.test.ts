@@ -152,6 +152,15 @@ rect rgb(240, 248, 255)
 end
 destroy Ledger
 Web-->>Shopper: Email receipt
+
+timeline:
+  step 1: enter box:1 fade, enter Shopper-Web slide-left
+  step 2: highlight Web-Orders glow
+  step 3: unhighlight Web-Orders, highlight loop:1 outline
+  step 4: enter Retry slide-top, enter Web-Retry slide-bottom
+  step 5: exit Retry slide-top, exit Web-Retry slide-right
+  step 6: unhighlight loop:1, highlight rect:1 outline
+  step 7: exit box:1 fade
 `;
 
 /**
@@ -1117,7 +1126,11 @@ end
     const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.controller!.totalSteps).toBe(0);
+    // The example's own `timeline:` block, seven steps of it. What those steps
+    // drive is asserted by the timeline test at the end of this file; here it
+    // is only pinned so that a structural change to the example cannot quietly
+    // drop it.
+    expect(result.controller!.totalSteps).toBe(7);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
     const svg = result.svg!;
@@ -2768,4 +2781,111 @@ timeline:
     expect(dividers[0]!.classList.contains("siren-highlight-glow")).toBe(false);
   });
 
+
+  it("drives examples/sequence-full.srn's timeline through all four addressable kinds — a box grouping, a message, a control-flow block and a participant — with zero diagnostics, next(), prev() and reset()", () => {
+    const container = document.createElement("div");
+    const result = render(SEQUENCE_FULL_EXAMPLE_SOURCE, container);
+
+    // Zero diagnostics, not merely zero errors: the closing example has to be
+    // clean against the advisory message-outlives-its-participant warning too,
+    // which is why `Retry` and the one message touching it exit together.
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(7);
+
+    const pendingIds = () =>
+      Array.from(result.svg!.querySelectorAll(".siren-pending"))
+        .map((el) => el.getAttribute("data-siren-id"))
+        .sort();
+
+    // Everything with an `enter` starts hidden. `Retry` is listed three times
+    // because a created-then-destroyed participant is drawn three times under
+    // one id — top-row box, lifeline, destroy mark — and all three are driven
+    // by its single timeline entry (ADR-0009).
+    expect(pendingIds()).toEqual([
+      "Retry",
+      "Retry",
+      "Retry",
+      "Shopper-Web",
+      "Web-Retry",
+      "box:1",
+    ]);
+
+    const boxGroup = result.svg!.querySelector('[data-siren-id="box:1"]')!;
+    const openCheckout = result.svg!.querySelector('g.siren-message[data-siren-id="Shopper-Web"]')!;
+    const createDraft = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Orders"]')!;
+    const loopBlock = result.svg!.querySelector('[data-siren-id="loop:1"]')!;
+    const rectBlock = result.svg!.querySelector('[data-siren-id="rect:1"]')!;
+    const scheduleRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry"]')!;
+    const retryElements = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="Retry"]'));
+    expect(retryElements()).toHaveLength(3);
+
+    // Step 1: the box grouping's band and the first arrow.
+    controller.next();
+    expect(boxGroup.classList.contains("siren-pending")).toBe(false);
+    expect(boxGroup.classList.contains("siren-enter-fade")).toBe(true);
+    expect(openCheckout.classList.contains("siren-enter-slide-left")).toBe(true);
+
+    // Step 2: a message highlight on an arrow that was never hidden.
+    controller.next();
+    expect(createDraft.classList.contains("siren-highlight-glow")).toBe(true);
+
+    // Step 3: that highlight lifted, and a control-flow block outlined.
+    controller.next();
+    expect(createDraft.classList.contains("siren-highlight-glow")).toBe(false);
+    expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // Step 4: a participant enters — every element wearing its id at once.
+    controller.next();
+    expect(retryElements().map((el) => el.classList.contains("siren-enter-slide-top"))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(retryElements().map((el) => el.classList.contains("siren-pending"))).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(scheduleRetry.classList.contains("siren-enter-slide-bottom")).toBe(true);
+
+    // Step 5: the participant leaves, and the one message touching it leaves
+    // with it — the pairing that keeps this example warning-free.
+    controller.next();
+    expect(retryElements().map((el) => el.classList.contains("siren-exit-slide-top"))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(scheduleRetry.classList.contains("siren-exit-slide-right")).toBe(true);
+
+    // Step 6: the loop's outline lifted, the rect block's raised.
+    controller.next();
+    expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // Step 7: the box grouping exits.
+    controller.next();
+    expect(controller.currentStep).toBe(7);
+    expect(boxGroup.classList.contains("siren-exit-fade")).toBe(true);
+
+    // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(boxGroup.classList.contains("siren-exit-fade")).toBe(false);
+    expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // And reset returns all four kinds to their initial state.
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(pendingIds()).toEqual([
+      "Retry",
+      "Retry",
+      "Retry",
+      "Shopper-Web",
+      "Web-Retry",
+      "box:1",
+    ]);
+    expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);
+  });
 });
