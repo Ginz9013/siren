@@ -238,8 +238,8 @@ describe("the corpus, case by case", () => {
  * Mermaid document that draws the wrong picture with no diagnostic is the
  * worst failure mode this repo has, and this number's destination is zero.
  *
- * Two of the eight cannot get there by being rejected, and are named so that
- * nobody mistakes them for the board failing to finish: `seq-loop` and
+ * Two of the three left cannot get there by being rejected, and are named so
+ * that nobody mistakes them for the board failing to finish: `seq-loop` and
  * `seq-alt-else`. Siren never draws a control-flow block's **keyword** — the
  * frame, the label and the divider are all there, but `loop`, `alt`, `else`,
  * `opt`, `par` and `critical` all render identically, and those mean different
@@ -256,7 +256,7 @@ describe("the corpus, case by case", () => {
  * that rises because code got worse is. Only a human can tell those apart, so
  * say which in the commit.
  */
-const SILENTLY_WRONG = 8;
+const SILENTLY_WRONG = 3;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -266,8 +266,14 @@ const SILENTLY_WRONG = 8;
  * across its three tables; its flowchart table's "rejected" column says 29
  * while the prose under it enumerates 27, and 27 is what running the cases
  * gives.
+ *
+ * It went **up** by five, from 33, when the flowchart parser stopped
+ * swallowing the bracket shapes it does not draw — the one rise this number
+ * is allowed, and `silently-wrong` fell by the same five. Those five drew a
+ * rectangle labelled with the shape's own punctuation and said nothing; they
+ * now say which shape Siren cannot draw yet. Worse numbers, honest ones.
  */
-const REJECTED = 33;
+const REJECTED = 38;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -322,36 +322,24 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A[(DB)]`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning: "`A[(text)]` is a cylinder labelled `text` — the label carries no parentheses.",
-    assert: (result) => {
-      // The wrong picture, recorded: a plain rectangle whose label is the
-      // shape's own punctuation. `NODE_RE`'s `\[([^\]]*)\]` takes anything
-      // between the brackets as the label.
-      expectSame("nodes", nodes(result), ["A[(DB)]"]);
-    },
   },
   {
     id: "fc-shape-parallelogram",
     kind: "flowchart",
     source: `flowchart TB
       A[/Process/]`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning: "`A[/text/]` is a parallelogram labelled `text`.",
-    assert: (result) => {
-      expectSame("nodes", nodes(result), ["A[/Process/]"]);
-    },
   },
   {
     id: "fc-shape-trapezoid",
     kind: "flowchart",
     source: `flowchart TB
       A[/Trapezoid\\]`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning: "`A[/text\\]` is a trapezoid labelled `text`.",
-    assert: (result) => {
-      expectSame("nodes", nodes(result), ["A[/Trapezoid\\]"]);
-    },
   },
 
   // -------------------------------------------------------------------------
@@ -487,24 +475,16 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A["Quoted, with comma"]`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning: "Quotes fence a label containing punctuation; the quotes are not part of it.",
-    assert: (result) => {
-      // The wrong picture, recorded: the quotes reach the drawn label.
-      expectSame("nodes", nodes(result), [`A["Quoted, with comma"]`]);
-    },
   },
   {
     id: "fc-text-markdown",
     kind: "flowchart",
     source: `flowchart TB
       A["\`**bold**\`"]`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning: "A Markdown string draws **bold** as bold text.",
-    assert: (result) => {
-      // The wrong picture, recorded: backticks and asterisks drawn literally.
-      expectSame("nodes", nodes(result), ['A["`**bold**`"]']);
-    },
   },
 
   // -------------------------------------------------------------------------

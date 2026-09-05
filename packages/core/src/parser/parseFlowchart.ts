@@ -17,8 +17,95 @@ import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 /**
  * A node declaration, with the optional `:::name` shorthand that applies a
  * `classDef` at the declaration itself. `A[Start]:::emphasis`.
+ *
+ * `[^\]]*` still reads the label loosely, but it no longer gets first
+ * refusal on the line: `UNIMPLEMENTED_BRACKET_FORMS` is asked first, and
+ * everything it names never reaches here. Widening this pattern without
+ * reading that one re-opens the bug that comment exists to close.
  */
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*(?::::(\w+))?\s*$/;
+
+/**
+ * Everything Mermaid writes *inside* `[...]` that is not a plain label — six
+ * node shapes and two label forms — paired with the name Mermaid gives it.
+ *
+ * **This list is refused, not swallowed.** That is the policy, and it is the
+ * whole reason this constant exists: while a construct is unimplemented,
+ * reject it — never render something else in its place. `NODE_RE`'s
+ * `[^\]]*` used to take any bracket content as a label, so `A[(DB)]` drew a
+ * rectangle labelled `(DB)` and said nothing. That disguised *not
+ * implemented* as *supported*, and it hid the gap from
+ * `src/compat/corpus.ts` — the instrument built to measure exactly this. A
+ * mislabelled rectangle is a worse answer than a refusal, because the author
+ * never learns anything is missing.
+ *
+ * None of these is a permanent refusal. The shapes arrive on their own
+ * board and quoting on this one, and each `described` is written for the
+ * author who will read it: it names the shape Mermaid means, so the answer
+ * is "wait" rather than "rewrite your line". Whoever implements one deletes
+ * its row here.
+ *
+ * Every form is anchored at **both ends** of the bracket content on purpose.
+ * An over-tight pattern would be its own compatibility bug, traded for the
+ * one it fixed: `A[a/b]`, `A[x (y)]`, `A[100%]` and `A[say "hi" now]` are
+ * ordinary labels that merely *contain* a character a form also opens with,
+ * and they still draw as rectangles.
+ */
+const UNIMPLEMENTED_BRACKET_FORMS: ReadonlyArray<{
+  open: string;
+  close: string;
+  described: string;
+}> = [
+  { open: "(", close: ")", described: "a cylinder (`A[(text)]`)" },
+  { open: "[", close: "]", described: "a subroutine box (`A[[text]]`)" },
+  { open: "/", close: "/", described: "a parallelogram (`A[/text/]`)" },
+  { open: "\\", close: "\\", described: "a parallelogram alt (`A[\\text\\]`)" },
+  { open: "/", close: "\\", described: "a trapezoid (`A[/text\\]`)" },
+  { open: "\\", close: "/", described: "a trapezoid alt (`A[\\text/]`)" },
+  // Before the plain quoted label, because it is the same fence with
+  // backticks inside it: the list is read most specific first, so an
+  // author who wrote Markdown is told about Markdown.
+  {
+    open: '"`',
+    close: '`"',
+    described: "a Markdown string label (a quoted label fenced in backticks)",
+  },
+  { open: '"', close: '"', described: 'a quoted label (`A["text"]`)' },
+];
+
+/**
+ * What Mermaid means by this bracket content, when it means something Siren
+ * does not draw yet — as the prose a diagnostic quotes. `null` when the
+ * content is an ordinary label, which is the common case.
+ *
+ * The length test is what keeps the fences from overlapping themselves:
+ * `A[/]` is a label reading `/`, not an empty parallelogram.
+ */
+function unimplementedFormIn(content: string): string | null {
+  for (const form of UNIMPLEMENTED_BRACKET_FORMS) {
+    if (
+      content.length >= form.open.length + form.close.length &&
+      content.startsWith(form.open) &&
+      content.endsWith(form.close)
+    ) {
+      return form.described;
+    }
+  }
+  return null;
+}
+
+/**
+ * A node written with brackets, read **greedily**: the content is whatever
+ * lies between the first `[` and the last `]`.
+ *
+ * It accepts nothing — `NODE_RE` still decides what a node declaration is.
+ * This pattern exists only to ask what the author meant, which needs the
+ * greedy read `NODE_RE` deliberately does not have: `A[[Subroutine]]` is
+ * invisible to `[^\]]*`, so without this it would fall all the way through
+ * to "unrecognized line", and an author who wrote a subroutine box deserves
+ * to be told Siren does not draw one yet.
+ */
+const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
 
 /**
  * The bare `A:::emphasis` shorthand — the same application written without a
@@ -182,6 +269,36 @@ export function parseFlowchart(source: string): ParseResult {
     });
   };
 
+  /**
+   * Refuses one place a node was written, when what was written there is a
+   * bracket form Siren does not draw yet — naming which one. `true` when the
+   * line was refused, so the caller stops reading it.
+   *
+   * Shared by the two places a label can appear, for the reason
+   * `addNodeAsWritten` is shared: where a node was written must not decide
+   * what it means, so `A[(DB)] --> B` cannot quietly draw the cylinder that
+   * `A[(DB)]` on a line of its own refuses.
+   */
+  const refuseUnimplementedForm = (
+    content: string | undefined,
+    line: string,
+    lineNumber: number,
+    column: number,
+  ): boolean => {
+    const form = content === undefined ? null : unimplementedFormIn(content);
+    if (form === null) {
+      return false;
+    }
+    diagnostics.push({
+      severity: "error",
+      message: `Siren does not draw ${form} yet: "${line}"`,
+      line: lineNumber,
+      column,
+    });
+    sawError = true;
+    return true;
+  };
+
   const addNode = (id: string, label: string, line: number, column: number) => {
     const existing = nodesById.get(id);
     if (existing === undefined) {
@@ -284,6 +401,12 @@ export function parseFlowchart(source: string): ParseResult {
     if (edgeMatch !== null) {
       const [, fromId, fromLabel, fromDefinition, toId, toLabel, toDefinition] =
         edgeMatch;
+      if (
+        refuseUnimplementedForm(fromLabel, line, lineNumber, column) ||
+        refuseUnimplementedForm(toLabel, line, lineNumber, column)
+      ) {
+        continue;
+      }
       addNodeAsWritten(fromId, fromLabel, fromDefinition, lineNumber, column);
       addNodeAsWritten(toId, toLabel, toDefinition, lineNumber, column);
       edges.push({ from: fromId, to: toId, line: lineNumber, column });
@@ -367,6 +490,22 @@ export function parseFlowchart(source: string): ParseResult {
         column,
       });
       continue;
+    }
+
+    const bracketFormMatch = BRACKET_FORM_RE.exec(line);
+    if (bracketFormMatch !== null) {
+      // Asked before `NODE_RE`, because `NODE_RE` would take the form's own
+      // punctuation as a label — which is the swallow this refuses.
+      if (
+        refuseUnimplementedForm(
+          bracketFormMatch[1],
+          line,
+          lineNumber,
+          column,
+        )
+      ) {
+        continue;
+      }
     }
 
     const nodeMatch = NODE_RE.exec(line);

@@ -150,6 +150,146 @@ timeline:
     expect(diagnostics[0].severity).toBe("warning");
   });
 
+  /**
+   * The guard on the narrowing below. A label is allowed to *contain* a
+   * character that also opens a shape — `a/b`, `x (y)` and `100%` are
+   * ordinary labels, and an over-tight pattern that refused them would be
+   * its own compatibility bug, traded for the one it fixed.
+   */
+  it("keeps drawing a label that merely contains a character a shape opener also uses", () => {
+    const source = `flowchart TB
+  A[a/b]
+  B[x (y)]
+  C[100%]
+  D[Plain label]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual([
+      "a/b",
+      "x (y)",
+      "100%",
+      "Plain label",
+    ]);
+  });
+
+  it("rejects `A[(DB)]` as a cylinder instead of drawing a rectangle labelled `(DB)`", () => {
+    const source = `flowchart TB
+  A[(DB)]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)]"',
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("names each slash-and-backslash bracket shape rather than reading its punctuation as a label", () => {
+    // Mermaid's own four names for the four pairings, so the diagnostic
+    // tells an author which shape it thinks they wrote.
+    const forms: ReadonlyArray<[string, string]> = [
+      ["A[/Process/]", "a parallelogram (`A[/text/]`)"],
+      ["A[\\Process\\]", "a parallelogram alt (`A[\\text\\]`)"],
+      ["A[/Trapezoid\\]", "a trapezoid (`A[/text\\]`)"],
+      ["A[\\Trapezoid/]", "a trapezoid alt (`A[\\text/]`)"],
+    ];
+
+    for (const [declaration, described] of forms) {
+      const { document, diagnostics } = parseSiren(
+        `flowchart TB\n  ${declaration}\n`,
+      );
+
+      expect(document).toBeNull();
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        `Siren does not draw ${described} yet: "${declaration}"`,
+      ]);
+    }
+  });
+
+  it("names the subroutine box in `A[[Subroutine]]` instead of calling the line unrecognized", () => {
+    // Already an error today, but the wrong one: an author who wrote valid
+    // Mermaid is told their line makes no sense rather than that this one
+    // shape is not drawn yet, which is the difference between "wait" and
+    // "rewrite it".
+    const source = `flowchart TB
+  A[[Subroutine]]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw a subroutine box (`A[[text]]`) yet: "A[[Subroutine]]"',
+    ]);
+  });
+
+  it("rejects a quoted label instead of drawing the quotation marks as part of it", () => {
+    const source = `flowchart TB
+  A["Quoted, with comma"]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw a quoted label (`A["text"]`) yet: ' +
+        '"A["Quoted, with comma"]"',
+    ]);
+  });
+
+  it("leaves a quote in the middle of a label alone — only a fenced label is a quoted one", () => {
+    const source = `flowchart TB
+  A[say "hi" now]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(['say "hi" now']);
+  });
+
+  it("names a Markdown string label as Markdown, not merely as a quoted label", () => {
+    // Mermaid draws **bold** as bold text here. Siren drew the backticks
+    // and the asterisks; naming the construct is what tells an author the
+    // feature is missing rather than that their quoting was wrong.
+    const source = `flowchart TB
+  A["\`**bold**\`"]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      "Siren does not draw a Markdown string label (a quoted label fenced " +
+        'in backticks) yet: "A["`**bold**`"]"',
+    ]);
+  });
+
+  it("refuses a shape written at an edge endpoint too — where it is written must not decide what it means", () => {
+    const source = `flowchart TB
+  A[(DB)] --> B[Read]
+  C[Write] --> D[/Report/]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)] --> B[Read]"',
+      'Siren does not draw a parallelogram (`A[/text/]`) yet: "C[Write] --> D[/Report/]"',
+    ]);
+  });
+
   it("parses all four timeline verbs with the correct kind/targetId/step, and effect only where expected", () => {
     const source = `flowchart TD
   A[Start]
