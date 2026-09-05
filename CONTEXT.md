@@ -108,7 +108,9 @@ diagnostic" for the level)
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
 `sequenceDiagram`, or `classDiagram`. Carried as `SirenDocument.kind` and dispatched on by
 `parseSiren`, `buildGraphModel`, and `render()`, each of which routes to that kind's own
-parser/model/layout/renderer.
+parser/model/layout/renderer. `graph` is Mermaid's original spelling of `flowchart` and opens the
+same kind: like `TD`, it is normalized away in `parseDirection`, so no document, model or renderer
+downstream ever learns which of the two words the author wrote.
 _Avoid_: diagram type, mode
 
 **Direction**:

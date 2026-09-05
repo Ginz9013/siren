@@ -191,7 +191,8 @@ function splitTargetIds(text: string): string[] {
 }
 
 /**
- * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header, node/edge
+ * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header — or
+ * `graph`, Mermaid's original spelling of the same word — node/edge
  * declarations, author styling statements, and an optional `timeline:` block) into a
  * `FlowchartDocument`. Never throws on malformed input — syntax problems
  * are reported as diagnostics instead.

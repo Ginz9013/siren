@@ -106,6 +106,25 @@ function edges(result: SirenRenderResult): string[] {
   return elements(result, "path.siren-edge").map(idOf);
 }
 
+/**
+ * The centre of one flowchart node's frame — how a direction is visible in
+ * the result, the way `classBox` makes a class diagram's visible.
+ *
+ * The centre rather than the corner, because the two nodes of a chain rarely
+ * have the same width: `A[Start]` and `B[End]` sit in one column under `TB`,
+ * and only their centres say so.
+ */
+function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const frame = svgOf(result).querySelector(
+    `g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`,
+  );
+  if (frame === null) throw new Error(`no node "${id}" was drawn`);
+  return {
+    x: Number(frame.getAttribute("x")) + Number(frame.getAttribute("width")) / 2,
+    y: Number(frame.getAttribute("y")) + Number(frame.getAttribute("height")) / 2,
+  };
+}
+
 /** The inline author style on one node's frame, or `""` when it carries none. */
 function nodeStyle(result: SirenRenderResult, id: string): string {
   const frame = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] rect`);
@@ -238,16 +257,38 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `graph TB
       A[Start] --> B[End]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`graph` is Mermaid's older spelling of `flowchart`, and still valid.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      // The direction the header named, read off the picture: `TB` puts the
+      // target below its source. Asserting the nodes alone would pass for a
+      // document whose header word was accepted and whose direction was not.
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn below A", to.y > from.y, true);
+      expectSame("and in the same column", to.x === from.x, true);
+    },
   },
   {
     id: "fc-header-graph-lr",
     kind: "flowchart",
     source: `graph LR
       A[Start] --> B[End]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`graph LR` opens a left-to-right flowchart.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      // `LR` lays the same two nodes out as a row, which is what separates
+      // this entry from the one above: both headers parse, and only the
+      // geometry says the direction survived the alias.
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn to the right of A", to.x > from.x, true);
+      expectSame("and in the same row", to.y === from.y, true);
+    },
   },
 
   // -------------------------------------------------------------------------

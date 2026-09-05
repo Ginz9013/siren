@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
 import type {
   ClassDocument,
@@ -105,6 +106,24 @@ timeline:
     expect(document.direction).toBe("TB");
   });
 
+  it("reads a `graph` header as the `flowchart` header it is a spelling of, direction for direction", () => {
+    // Mermaid's original keyword, and still the one most documents in the
+    // wild open with. Compared against the `flowchart` document rather than
+    // against a hand-written expectation on purpose: the claim is not "graph
+    // parses", it is that nothing downstream can tell which word was
+    // written, `TD` alias included.
+    for (const spelling of ["TB", "TD", "BT", "LR", "RL"]) {
+      const body = `
+  A[Start]
+  A --> B[End]
+`;
+
+      expect(parseSiren(`graph ${spelling}${body}`)).toEqual(
+        parseSiren(`flowchart ${spelling}${body}`),
+      );
+    }
+  });
+
   it("names every accepted flowchart direction when it rejects a header", () => {
     const source = `flowchart SIDEWAYS
   A[Start]
@@ -116,6 +135,26 @@ timeline:
     const message = diagnostics[0].message;
     for (const spelling of ["TB", "BT", "LR", "RL"]) {
       expect(message).toContain(`flowchart ${spelling}`);
+    }
+  });
+
+  it("names `graph` as well as `flowchart` when either the dispatcher or the flowchart parser rejects a header", () => {
+    // An author who wrote `graph SIDEWAYS` got their keyword right and their
+    // direction wrong. A list naming only the `flowchart` spellings would
+    // send them off to rewrite the half of the line that was fine, so the
+    // accepted set is stated in full — from both places that state it, which
+    // is what `listAcceptedHeaders` exists to keep identical.
+    const messages = [
+      parseSiren("graph SIDEWAYS\n  A[Start]\n").diagnostics[0].message,
+      parseFlowchart("graph SIDEWAYS\n  A[Start]\n").diagnostics[0].message,
+    ];
+
+    for (const message of messages) {
+      for (const keyword of ["flowchart", "graph"]) {
+        for (const direction of ["TB", "BT", "LR", "RL"]) {
+          expect(message).toContain(`${keyword} ${direction}`);
+        }
+      }
     }
   });
 

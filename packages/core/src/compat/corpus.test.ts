@@ -284,8 +284,13 @@ const SILENTLY_WRONG = 2;
  * It went up by one again, to 39, for the same reason and on the same trade:
  * `seq-activation-shorthand` left `silently-wrong` when `MESSAGE_RE` stopped
  * matching the `+`/`-` marker and throwing it away.
+ *
+ * It fell by two, to 37 — the first fall, and the direction this number is
+ * supposed to travel. `fc-header-graph-tb` and `fc-header-graph-lr` are now
+ * `supported`: `graph` is read as the spelling of `flowchart` it has always
+ * been, so both documents draw, in the direction their header named.
  */
-const REJECTED = 39;
+const REJECTED = 37;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
