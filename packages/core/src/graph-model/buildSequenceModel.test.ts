@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SequenceDocument } from "../contracts";
+import type { SequenceDocument, SequenceStatement } from "../contracts";
 import { buildSequenceModel } from "./buildSequenceModel";
 
 describe("buildSequenceModel", () => {
@@ -212,7 +212,7 @@ describe("buildSequenceModel", () => {
     expect(messages.map((s) => s.message.autonumber)).toEqual([null, 1, 2, null]);
   });
 
-  it("assigns stable per-kind block ids in document order, e.g. a second top-level loop gets loop-2", () => {
+  it("assigns stable per-kind block ids in document order, e.g. a second top-level loop gets loop:2", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -245,7 +245,57 @@ describe("buildSequenceModel", () => {
     const blocks = model!.statements.filter(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     );
-    expect(blocks.map((s) => s.block.id)).toEqual(["loop-1", "loop-2"]);
+    expect(blocks.map((s) => s.block.id)).toEqual(["loop:1", "loop:2"]);
+  });
+
+  it("separates a block id's kind from its number with a colon, which no `\\w+` participant id can contain, for all seven block kinds", () => {
+    const msg = (): SequenceStatement => ({
+      kind: "message",
+      from: "A",
+      to: "B",
+      text: "x",
+      arrow: { line: "solid", head: "filled" },
+    });
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "loop", label: "again", body: [msg()] },
+        { kind: "alt", branches: [{ label: "yes", body: [msg()] }] },
+        { kind: "opt", label: "maybe", body: [msg()] },
+        { kind: "par", branches: [{ label: "fan out", body: [msg()] }] },
+        { kind: "critical", branches: [{ label: "lock", body: [msg()] }] },
+        { kind: "break", label: "boom", body: [msg()] },
+        { kind: "rect", color: "rgb(0,0,255)", body: [msg()] },
+        { kind: "loop", label: "again again", body: [msg()] },
+      ],
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+
+    const blocks = model!.statements.filter(
+      (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
+    );
+    expect(blocks.map((s) => s.block.id)).toEqual([
+      "loop:1",
+      "alt:1",
+      "opt:1",
+      "par:1",
+      "critical:1",
+      "break:1",
+      "rect:1",
+      "loop:2",
+    ]);
   });
 
   it("resolves an alt block's branch labels unchanged, with each branch's body resolved independently", () => {
@@ -602,7 +652,7 @@ describe("buildSequenceModel", () => {
     expect(diagnostics[0]!.line).toBe(7);
   });
 
-  it("assigns each box a stable box-n id in declaration order, passing its color, label and members through", () => {
+  it("assigns each box a stable box:n id in declaration order, passing its color, label and members through", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -627,8 +677,8 @@ describe("buildSequenceModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model).not.toBeNull();
     expect(model!.boxes).toEqual([
-      { id: "box-1", color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
-      { id: "box-2", color: null, label: null, participantIds: ["C"] },
+      { id: "box:1", color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
+      { id: "box:2", color: null, label: null, participantIds: ["C"] },
     ]);
   });
 
@@ -655,12 +705,12 @@ describe("buildSequenceModel", () => {
 
     expect(model).not.toBeNull();
     expect(model!.boxes).toEqual([
-      { id: "box-1", color: null, label: "Services", participantIds: ["A"] },
+      { id: "box:1", color: null, label: "Services", participantIds: ["A"] },
     ]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
     expect(diagnostics[0]!.message).toContain("does-not-exist");
-    expect(diagnostics[0]!.message).toContain("box-1");
+    expect(diagnostics[0]!.message).toContain("box:1");
     expect(diagnostics[0]!.line).toBe(2);
   });
 

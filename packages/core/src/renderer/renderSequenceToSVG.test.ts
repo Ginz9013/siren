@@ -407,7 +407,7 @@ describe("renderSequenceToSVG", () => {
 
   it("renders a loop block as a siren-block group with a frame rect at its exact bounding box and a top-left condition label", () => {
     const block: PositionedBlock = {
-      id: "loop-1",
+      id: "loop:1",
       kind: "loop",
       label: "n < 5",
       x: 40,
@@ -422,7 +422,7 @@ describe("renderSequenceToSVG", () => {
     const groups = svg.querySelectorAll("g.siren-block");
     expect(groups).toHaveLength(1);
 
-    const group = svg.querySelector('g.siren-block[data-siren-id="loop-1"]')!;
+    const group = svg.querySelector('g.siren-block[data-siren-id="loop:1"]')!;
     expect(group).not.toBeNull();
     expect(group.getAttribute("data-siren-block-kind")).toBe("loop");
 
@@ -447,7 +447,7 @@ describe("renderSequenceToSVG", () => {
 
   it("renders one divider line + branch label per branch after the first, for an alt with three branches", () => {
     const block: PositionedBlock = {
-      id: "alt-1",
+      id: "alt:1",
       kind: "alt",
       label: "x == 1",
       x: 20,
@@ -462,7 +462,7 @@ describe("renderSequenceToSVG", () => {
     };
     const svg = renderSequenceToSVG(buildBlockFixture(block));
 
-    const group = svg.querySelector('g.siren-block[data-siren-id="alt-1"]')!;
+    const group = svg.querySelector('g.siren-block[data-siren-id="alt:1"]')!;
     const dividers = group.querySelectorAll("line.siren-block-divider");
     expect(dividers).toHaveLength(2);
     expect(dividers[0]!.getAttribute("y1")).toBe("90");
@@ -491,7 +491,7 @@ describe("renderSequenceToSVG", () => {
       toX: 220,
     };
     const block: PositionedBlock = {
-      id: "rect-1",
+      id: "rect:1",
       kind: "rect",
       label: "rgb(191, 223, 255)",
       x: 20,
@@ -503,7 +503,7 @@ describe("renderSequenceToSVG", () => {
     };
     const svg = renderSequenceToSVG(buildBlockFixture(block));
 
-    const group = svg.querySelector('g.siren-block[data-siren-id="rect-1"]')!;
+    const group = svg.querySelector('g.siren-block[data-siren-id="rect:1"]')!;
 
     // No outlined frame, no header/branch labels — distinct from the other
     // six block kinds.
@@ -529,7 +529,7 @@ describe("renderSequenceToSVG", () => {
 
   it("renders a nested block as a nested siren-block group, visually enclosed by its parent's un-obscuring frame", () => {
     const innerBlock: PositionedBlock = {
-      id: "alt-1",
+      id: "alt:1",
       kind: "alt",
       label: "y > 0",
       x: 60,
@@ -540,7 +540,7 @@ describe("renderSequenceToSVG", () => {
       children: [],
     };
     const outerBlock: PositionedBlock = {
-      id: "loop-1",
+      id: "loop:1",
       kind: "loop",
       label: "n < 5",
       x: 40,
@@ -555,8 +555,8 @@ describe("renderSequenceToSVG", () => {
     const allBlocks = svg.querySelectorAll("g.siren-block");
     expect(allBlocks).toHaveLength(2);
 
-    const outerGroup = svg.querySelector('g.siren-block[data-siren-id="loop-1"]')!;
-    const innerGroup = outerGroup.querySelector('g.siren-block[data-siren-id="alt-1"]');
+    const outerGroup = svg.querySelector('g.siren-block[data-siren-id="loop:1"]')!;
+    const innerGroup = outerGroup.querySelector('g.siren-block[data-siren-id="alt:1"]');
     expect(innerGroup).not.toBeNull();
 
     // The outer frame is unfilled, so it never paints over the nested
@@ -598,7 +598,7 @@ describe("renderSequenceToSVG", () => {
   it("renders a destroy mark that sits inside a block as a mark nested in that block's group", () => {
     const mark: PositionedDestroyMark = { participantId: "Bob", x: 220, y: 120 };
     const block: PositionedBlock = {
-      id: "loop-1",
+      id: "loop:1",
       kind: "loop",
       label: "retrying",
       x: 40,
@@ -611,13 +611,13 @@ describe("renderSequenceToSVG", () => {
     const svg = renderSequenceToSVG(buildBlockFixture(block));
 
     expect(svg.querySelectorAll("path.siren-destroy-mark")).toHaveLength(1);
-    const group = svg.querySelector('g.siren-block[data-siren-id="loop-1"]')!;
+    const group = svg.querySelector('g.siren-block[data-siren-id="loop:1"]')!;
     expect(group.querySelector('path.siren-destroy-mark[data-siren-id="Bob"]')).not.toBeNull();
   });
 
   it("renders a box as a siren-box group with a background rect at its bounding box, painted before every participant, lifeline and message it groups", () => {
     const box: PositionedBox = {
-      id: "box-1",
+      id: "box:1",
       color: "rgb(200, 220, 240)",
       label: "Service Layer",
       x: 10,
@@ -630,7 +630,7 @@ describe("renderSequenceToSVG", () => {
     const groups = svg.querySelectorAll("g.siren-box");
     expect(groups).toHaveLength(1);
 
-    const group = svg.querySelector('g.siren-box[data-siren-id="box-1"]')!;
+    const group = svg.querySelector('g.siren-box[data-siren-id="box:1"]')!;
     expect(group).not.toBeNull();
 
     const background = group.querySelector("rect")!;
@@ -663,7 +663,7 @@ describe("renderSequenceToSVG", () => {
 
   it("renders a box's label as text inside its group when given, none when absent, and via textContent only", () => {
     const labelled: PositionedBox = {
-      id: "box-1",
+      id: "box:1",
       color: null,
       label: "<b>Service Layer</b>",
       x: 10,
@@ -671,18 +671,18 @@ describe("renderSequenceToSVG", () => {
       width: 280,
       height: 292,
     };
-    const unlabelled: PositionedBox = { ...labelled, id: "box-2", label: null };
+    const unlabelled: PositionedBox = { ...labelled, id: "box:2", label: null };
 
     const labelledSvg = renderSequenceToSVG(buildBoxFixture([labelled]));
     const unlabelledSvg = renderSequenceToSVG(buildBoxFixture([unlabelled]));
 
-    const labelledGroup = labelledSvg.querySelector('g.siren-box[data-siren-id="box-1"]')!;
+    const labelledGroup = labelledSvg.querySelector('g.siren-box[data-siren-id="box:1"]')!;
     const texts = labelledGroup.querySelectorAll("text");
     expect(texts).toHaveLength(1);
     expect(texts[0]!.textContent).toBe("<b>Service Layer</b>");
     expect(labelledSvg.querySelectorAll("b")).toHaveLength(0);
 
-    const unlabelledGroup = unlabelledSvg.querySelector('g.siren-box[data-siren-id="box-2"]')!;
+    const unlabelledGroup = unlabelledSvg.querySelector('g.siren-box[data-siren-id="box:2"]')!;
     expect(unlabelledGroup.querySelectorAll("text")).toHaveLength(0);
   });
 
@@ -718,7 +718,7 @@ describe("renderSequenceToSVG", () => {
     // element rather than a top-level one.
     diagram.participants[0]!.bottom = 180;
     const block: PositionedBlock = {
-      id: "loop-1",
+      id: "loop:1",
       kind: "loop",
       label: "each retry",
       x: 20,
@@ -763,7 +763,7 @@ describe("renderSequenceToSVG", () => {
 
   it("leaves an uncolored box's background fill to the theme while honouring an explicit box color", () => {
     const uncolored: PositionedBox = {
-      id: "box-1",
+      id: "box:1",
       color: null,
       label: null,
       x: 10,
@@ -771,20 +771,20 @@ describe("renderSequenceToSVG", () => {
       width: 140,
       height: 292,
     };
-    const colored: PositionedBox = { ...uncolored, id: "box-2", color: "#eef", x: 150 };
+    const colored: PositionedBox = { ...uncolored, id: "box:2", color: "#eef", x: 150 };
 
     const svg = renderSequenceToSVG(buildBoxFixture([uncolored, colored]));
 
     expect(svg.querySelectorAll("g.siren-box")).toHaveLength(2);
-    const uncoloredRect = svg.querySelector('g.siren-box[data-siren-id="box-1"] rect')!;
-    const coloredRect = svg.querySelector('g.siren-box[data-siren-id="box-2"] rect')!;
+    const uncoloredRect = svg.querySelector('g.siren-box[data-siren-id="box:1"] rect')!;
+    const coloredRect = svg.querySelector('g.siren-box[data-siren-id="box:2"] rect')!;
     expect(uncoloredRect.getAttribute("fill")).toBeNull();
     expect(coloredRect.getAttribute("fill")).toBe("#eef");
   });
 
   it("renders block header labels and branch divider labels via textContent only, never as parsed markup", () => {
     const block: PositionedBlock = {
-      id: "alt-1",
+      id: "alt:1",
       kind: "alt",
       label: "<b>x == 1</b>",
       x: 20,

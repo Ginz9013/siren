@@ -778,49 +778,49 @@ A->>GHOST: Hello
 
     const blocks = Array.from(result.svg!.querySelectorAll("g.siren-block"));
     expect(blocks.map((g) => g.getAttribute("data-siren-id")).sort()).toEqual([
-      "alt-1",
-      "break-1",
-      "critical-1",
-      "loop-1",
-      "opt-1",
-      "par-1",
-      "rect-1",
+      "alt:1",
+      "break:1",
+      "critical:1",
+      "loop:1",
+      "opt:1",
+      "par:1",
+      "rect:1",
     ]);
     for (const block of blocks) {
       const id = block.getAttribute("data-siren-id")!;
-      expect(block.getAttribute("data-siren-block-kind")).toBe(id.split("-")[0]);
+      expect(block.getAttribute("data-siren-block-kind")).toBe(id.split(":")[0]);
     }
 
     const byId = (id: string) =>
       result.svg!.querySelector(`g.siren-block[data-siren-id="${id}"]`)!;
 
     // `alt` is written inside `loop`, so its group is a descendant of loop's.
-    expect(byId("loop-1").contains(byId("alt-1"))).toBe(true);
-    expect(byId("alt-1").contains(byId("loop-1"))).toBe(false);
+    expect(byId("loop:1").contains(byId("alt:1"))).toBe(true);
+    expect(byId("alt:1").contains(byId("loop:1"))).toBe(false);
 
     // One divider per branch after the first: alt has if + 2 else, par has
     // 2 and-branches, critical has if + 1 option, the rest are single-branch.
     const dividerCount = (id: string) =>
       byId(id).querySelectorAll(":scope > line.siren-block-divider").length;
-    expect(dividerCount("alt-1")).toBe(2);
-    expect(dividerCount("par-1")).toBe(1);
-    expect(dividerCount("critical-1")).toBe(1);
-    expect(dividerCount("loop-1")).toBe(0);
-    expect(dividerCount("opt-1")).toBe(0);
-    expect(dividerCount("break-1")).toBe(0);
-    expect(dividerCount("rect-1")).toBe(0);
+    expect(dividerCount("alt:1")).toBe(2);
+    expect(dividerCount("par:1")).toBe(1);
+    expect(dividerCount("critical:1")).toBe(1);
+    expect(dividerCount("loop:1")).toBe(0);
+    expect(dividerCount("opt:1")).toBe(0);
+    expect(dividerCount("break:1")).toBe(0);
+    expect(dividerCount("rect:1")).toBe(0);
 
     // Header and branch conditions come through as literal text.
     const labelsOf = (id: string) =>
       Array.from(byId(id).querySelectorAll(":scope > text.siren-block-label")).map(
         (t) => t.textContent,
       );
-    expect(labelsOf("loop-1")).toEqual(["Every minute"]);
-    expect(labelsOf("alt-1")).toEqual(["is fresh", "is stale", "is missing"]);
-    expect(labelsOf("par-1")).toEqual(["Fan out", "Second branch"]);
-    expect(labelsOf("critical-1")).toEqual(["Acquire lock", "Timeout"]);
-    expect(labelsOf("break-1")).toEqual(["Fatal error"]);
-    expect(labelsOf("opt-1")).toEqual(["Warm the cache"]);
+    expect(labelsOf("loop:1")).toEqual(["Every minute"]);
+    expect(labelsOf("alt:1")).toEqual(["is fresh", "is stale", "is missing"]);
+    expect(labelsOf("par:1")).toEqual(["Fan out", "Second branch"]);
+    expect(labelsOf("critical:1")).toEqual(["Acquire lock", "Timeout"]);
+    expect(labelsOf("break:1")).toEqual(["Fatal error"]);
+    expect(labelsOf("opt:1")).toEqual(["Warm the cache"]);
 
     // A block spans the lanes its body touches: loop (and its nested alt)
     // only reach Server, par reaches all the way out to Cache.
@@ -828,7 +828,7 @@ A->>GHOST: Hello
       Number(
         byId(id).querySelector(":scope > rect")!.getAttribute("width"),
       );
-    expect(frameWidth("par-1")).toBeGreaterThan(frameWidth("loop-1"));
+    expect(frameWidth("par:1")).toBeGreaterThan(frameWidth("loop:1"));
 
     // Messages inside blocks still render, addressable by id.
     expect(
@@ -909,7 +909,7 @@ Web->>Orders: Create order
     const boxes = result.svg!.querySelectorAll("g.siren-box");
     expect(boxes).toHaveLength(1);
     const box = boxes[0]!;
-    expect(box.getAttribute("data-siren-id")).toBe("box-1");
+    expect(box.getAttribute("data-siren-id")).toBe("box:1");
     expect(box.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
 
     const laneX = (id: string) =>
@@ -933,6 +933,34 @@ Web->>Orders: Create order
       child.classList.contains("siren-participant"),
     );
     expect(children.indexOf(box)).toBeLessThan(firstParticipantIndex);
+  });
+
+  it("keeps a box grouping's generated id out of the message id space, so a `box`-to-`1` message cannot spell the first box's id", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+box Blue Storefront
+  participant box
+end
+participant 1
+box->>1: hi
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+
+    const idOf = (selector: string) =>
+      result.svg!.querySelector(selector)!.getAttribute("data-siren-id");
+
+    // The message keeps the connector convention, `${from}-${to}`; the box
+    // grouping moves out of its way with a separator no participant id can
+    // contain.
+    expect(idOf("g.siren-message")).toBe("box-1");
+    expect(idOf("g.siren-box")).toBe("box:1");
+
+    // Where both spellings were `box-1`, each id now addresses one element.
+    expect(result.svg!.querySelectorAll('[data-siren-id="box-1"]')).toHaveLength(1);
+    expect(result.svg!.querySelectorAll('[data-siren-id="box:1"]')).toHaveLength(1);
   });
 
   it("renders exactly one siren-title carrying the title text, and no title element at all when the document declares none", () => {
@@ -1112,19 +1140,19 @@ end
     // All seven block kinds, with `alt` nested inside `loop`.
     const blocks = Array.from(svg.querySelectorAll("g.siren-block"));
     expect(blocks.map((g) => g.getAttribute("data-siren-id")).sort()).toEqual([
-      "alt-1",
-      "break-1",
-      "critical-1",
-      "loop-1",
-      "opt-1",
-      "par-1",
-      "rect-1",
+      "alt:1",
+      "break:1",
+      "critical:1",
+      "loop:1",
+      "opt:1",
+      "par:1",
+      "rect:1",
     ]);
     const block = (id: string) =>
       svg.querySelector(`g.siren-block[data-siren-id="${id}"]`)!;
-    expect(block("loop-1").contains(block("alt-1"))).toBe(true);
+    expect(block("loop:1").contains(block("alt:1"))).toBe(true);
     expect(
-      block("alt-1").querySelectorAll(":scope > line.siren-block-divider"),
+      block("alt:1").querySelectorAll(":scope > line.siren-block-divider"),
     ).toHaveLength(2);
 
     // One box background, behind the two lanes it groups.

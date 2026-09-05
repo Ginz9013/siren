@@ -269,7 +269,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "loop-1",
+            id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B"],
             branches: [
@@ -357,7 +357,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "alt-1",
+            id: "alt:1",
             kind: "alt",
             touchedParticipantIds: ["A", "B"],
             branches: [
@@ -453,7 +453,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "opt-1",
+            id: "opt:1",
             kind: "opt",
             // Touches only the outer lanes A and C — B is declared but not referenced.
             touchedParticipantIds: ["A", "C"],
@@ -507,19 +507,19 @@ describe("layoutSequence", () => {
       },
     };
     const innermost: ResolvedSequenceBlock = {
-      id: "par-1",
+      id: "par:1",
       kind: "par",
       touchedParticipantIds: ["B", "C"],
       branches: [{ label: "path 1", statements: [innermostMessage] }],
     };
     const middle: ResolvedSequenceBlock = {
-      id: "alt-1",
+      id: "alt:1",
       kind: "alt",
       touchedParticipantIds: ["B", "C"],
       branches: [{ label: "ready", statements: [{ kind: "block", block: innermost }] }],
     };
     const outer: ResolvedSequenceBlock = {
-      id: "loop-1",
+      id: "loop:1",
       kind: "loop",
       touchedParticipantIds: ["A", "B", "C"],
       branches: [
@@ -638,7 +638,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "loop-1",
+            id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B", "C"],
             branches: [
@@ -649,7 +649,7 @@ describe("layoutSequence", () => {
                   {
                     kind: "block",
                     block: {
-                      id: "alt-1",
+                      id: "alt:1",
                       kind: "alt",
                       touchedParticipantIds: ["B", "C"],
                       branches: [
@@ -726,7 +726,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "alt-1",
+            id: "alt:1",
             kind: "alt",
             touchedParticipantIds: ["A", "B"],
             branches: [
@@ -893,7 +893,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "loop-1",
+            id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "C"],
             branches: [
@@ -993,7 +993,7 @@ describe("layoutSequence", () => {
       ],
       boxes: [
         {
-          id: "box-1",
+          id: "box:1",
           color: "rgb(200, 220, 255)",
           label: "Service tier",
           participantIds: ["A", "B"],
@@ -1006,7 +1006,7 @@ describe("layoutSequence", () => {
 
     expect(positioned.boxes).toHaveLength(1);
     const box = positioned.boxes[0];
-    expect(box.id).toBe("box-1");
+    expect(box.id).toBe("box:1");
     expect(box.color).toBe("rgb(200, 220, 255)");
     expect(box.label).toBe("Service tier");
 
@@ -1052,7 +1052,7 @@ describe("layoutSequence", () => {
     // participant box the width already accounted for.
     const withBox: SequenceModel = {
       ...withoutBox,
-      boxes: [{ id: "box-1", color: null, label: null, participantIds: ["B", "C"] }],
+      boxes: [{ id: "box:1", color: null, label: null, participantIds: ["B", "C"] }],
     };
 
     const positionedWithout = layoutSequence(withoutBox, { measureText: fakeMeasurer });
@@ -1105,7 +1105,7 @@ describe("layoutSequence", () => {
         {
           kind: "block",
           block: {
-            id: "loop-1",
+            id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B"],
             branches: [
@@ -1135,7 +1135,7 @@ describe("layoutSequence", () => {
       title: "Grouped",
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [
-        { id: "box-1", color: null, label: "Service tier", participantIds: ["A", "B"] },
+        { id: "box:1", color: null, label: "Service tier", participantIds: ["A", "B"] },
       ],
       statements: [messageStatement("m1", "A", "B", "Ping")],
     };

@@ -34,6 +34,31 @@ type BlockStatement =
   | SequenceRectStatement;
 
 /**
+ * What separates a generated id's kind from its number — `box:1`, `loop:1`,
+ * `alt:2`.
+ *
+ * A colon rather than a `-`, because participants, messages, control-flow
+ * blocks and box groupings share one `data-siren-id` space and `-` is
+ * already spoken for: a message's id is `${from}-${to}`, so a participant
+ * named `box` messaging a participant named `1` produces `box-1` — the same
+ * string the first box grouping held. Both `timeline:` addressing and
+ * `data-siren-id` were then ambiguous, with no diagnostic to say so.
+ *
+ * A participant id is `\w+` (the parser's rule), which cannot contain a
+ * `:`, so no message id can ever spell one of these. The separator makes
+ * the collision structurally impossible rather than merely unlikely, which
+ * is why this is a constant with a reason attached and not an incidental
+ * `-`. `buildClassModel`'s `ID_SEPARATOR` answers the same question for
+ * `namespace:1` and `note:1`.
+ *
+ * The cost is that an author addressing a block in a `timeline:` block
+ * writes `step 1: enter loop:1 fade`. The timeline entry grammar takes
+ * everything after the step's own colon and splits it on whitespace, so a
+ * colon inside the id is read as part of the id.
+ */
+const ID_SEPARATOR = ":";
+
+/**
  * Mutable resolution state threaded by reference through the whole
  * (recursive) statement tree, so that order-sensitive rules — the
  * explicit-reference rule, message-pair-repeat counting, autonumbering, and
@@ -115,7 +140,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 }
 
 /**
- * Resolves the document's `box` groupings to `box-${n}` ids, 1-based in
+ * Resolves the document's `box` groupings to `box:${n}` ids, 1-based in
  * declaration order.
  *
  * Boxes group *declarations*, not statements: they live in the preamble
@@ -133,7 +158,7 @@ function resolveBoxes(document: SequenceDocument, diagnostics: Diagnostic[]): Re
   const declaredIds = new Set(document.participants.map((p) => p.id));
 
   return document.boxes.map((box, index) => {
-    const id = `box-${index + 1}`;
+    const id = `box${ID_SEPARATOR}${index + 1}`;
     const participantIds = box.participantIds.filter((participantId) => {
       if (declaredIds.has(participantId)) return true;
       diagnostics.push({
@@ -306,14 +331,15 @@ function resolveBlock(
   participantsById: Map<string, ResolvedSequenceParticipant>,
   state: ResolutionState,
 ): ResolvedSequenceBlock {
-  // Block id: `${kind}-${n}`, a 1-based counter per block kind, in document
-  // order — assigned here, before recursing into the block's body, so
-  // nested blocks (which are walked immediately after, still ahead of this
-  // block's later siblings) receive ids that reflect source order across
-  // the whole flattened tree, not just within their own nesting level.
+  // Block id: `${kind}:${n}` (the separator is `ID_SEPARATOR`, and
+  // load-bearing), a 1-based counter per block kind, in document order —
+  // assigned here, before recursing into the block's body, so nested blocks
+  // (which are walked immediately after, still ahead of this block's later
+  // siblings) receive ids that reflect source order across the whole
+  // flattened tree, not just within their own nesting level.
   const n = (state.blockCounters.get(statement.kind) ?? 0) + 1;
   state.blockCounters.set(statement.kind, n);
-  const id = `${statement.kind}-${n}`;
+  const id = `${statement.kind}${ID_SEPARATOR}${n}`;
 
   // Pre-order: the block occupies the position just before its body's
   // statements do.
