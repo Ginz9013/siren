@@ -863,8 +863,17 @@ export interface StyleDecl {
    * their `cssClass` is wrong points at a line they never wrote.
    */
   authoredAs: string;
-  /** The classes targeted by `style`/`apply`; empty for `classDef`. */
-  classIds: string[];
+  /**
+   * The ids this statement targets — one for `style`, one or more for the
+   * apply-directive, none for `classDef`, which defines rather than
+   * targets.
+   *
+   * Not `classIds`: since flowchart gained `style`, these are as often node
+   * ids as class ids, and `resolveStyles` — the one resolver both kinds
+   * call — already read them as targets. `ClassNamespace.classIds` keeps
+   * that name because its members really are classes.
+   */
+  targetIds: string[];
   /** The definition name of `classDef`/`apply`; `null` for `style`. */
   name: string | null;
   /** The declarations of `style`/`classDef`; empty for `apply`. */

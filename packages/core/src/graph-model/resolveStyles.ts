@@ -72,7 +72,7 @@ export function resolveStyles(
       applied = acceptedProperties(declaration, diagnostics);
     }
 
-    for (const targetId of declaration.classIds) {
+    for (const targetId of declaration.targetIds) {
       // Naming a target in a styling statement does not declare it, exactly
       // as `note for` and `click` do not: styling is about something that
       // already exists. One unknown target drops itself, not the statement,

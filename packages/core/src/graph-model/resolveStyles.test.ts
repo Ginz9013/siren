@@ -16,7 +16,7 @@ function styleDecl(
 ) {
   return {
     authoredAs: overrides.styleKind,
-    classIds: [],
+    targetIds: [],
     name: null,
     properties: [],
     ...overrides,
@@ -32,7 +32,7 @@ describe("resolveStyles", () => {
         [
           styleDecl({
             styleKind: "style",
-            classIds: ["Shape", "Ghost"],
+            targetIds: ["Shape", "Ghost"],
             properties: [{ property: "fill", value: "#fdd" }],
             line: 4,
             column: 1,
@@ -63,7 +63,7 @@ describe("resolveStyles", () => {
           styleDecl({
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: "emphasis",
           }),
           styleDecl({
@@ -95,7 +95,7 @@ describe("resolveStyles", () => {
           styleDecl({
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: "emphsis",
             line: 6,
             column: 1,
@@ -129,7 +129,7 @@ describe("resolveStyles", () => {
           styleDecl({
             styleKind: "apply",
             authoredAs: "class",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: "nope",
             line: 3,
             column: 1,
@@ -142,7 +142,7 @@ describe("resolveStyles", () => {
           styleDecl({
             styleKind: "apply",
             authoredAs: "class",
-            classIds: ["Ghost"],
+            targetIds: ["Ghost"],
             name: "emphasis",
             line: 5,
             column: 1,
@@ -165,7 +165,7 @@ describe("resolveStyles", () => {
         [
           styleDecl({
             styleKind: "style",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             properties: [
               { property: "fill", value: "#fdd" },
               { property: "stroke", value: "#c00" },
@@ -173,7 +173,7 @@ describe("resolveStyles", () => {
           }),
           styleDecl({
             styleKind: "style",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             properties: [{ property: "fill", value: "#00f" }],
           }),
         ],
@@ -203,7 +203,7 @@ describe("resolveStyles", () => {
     function resolveStyleStatement(properties: { property: string; value: string }[]) {
       const diagnostics: Diagnostic[] = [];
       const styles = resolveStyles(
-        [styleDecl({ styleKind: "style", classIds: ["Shape"], properties, line: 4, column: 1 })],
+        [styleDecl({ styleKind: "style", targetIds: ["Shape"], properties, line: 4, column: 1 })],
         new Set(["Shape"]),
         diagnostics,
       );
@@ -322,7 +322,7 @@ describe("resolveStyles", () => {
           styleDecl({
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape", "Duck"],
+            targetIds: ["Shape", "Duck"],
             name: "emphasis",
           }),
         ],

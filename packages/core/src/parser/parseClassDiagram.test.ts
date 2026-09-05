@@ -622,7 +622,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       {
         styleKind: "style",
         authoredAs: "style",
-        classIds: ["Shape"],
+        targetIds: ["Shape"],
         name: null,
         properties: [
           { property: "fill", value: "#fdd" },
@@ -647,7 +647,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       {
         styleKind: "classDef",
         authoredAs: "classDef",
-        classIds: [],
+        targetIds: [],
         name: "emphasis",
         properties: [{ property: "fill", value: "#fdd" }],
         line: 2,
@@ -656,7 +656,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       {
         styleKind: "apply",
         authoredAs: "cssClass",
-        classIds: ["Shape", "Other"],
+        targetIds: ["Shape", "Other"],
         name: "emphasis",
         properties: [],
         line: 3,

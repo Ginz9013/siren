@@ -7,8 +7,8 @@ import type {
   SirenNode,
   SirenTimeline,
   StyleDecl,
-  StyleProperty,
 } from "../contracts";
+import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
@@ -26,73 +26,6 @@ const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
  * told so rather than being silently ignored until they land.
  */
 const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
-
-/**
- * Splits a declaration list on the commas that separate declarations,
- * ignoring the ones inside a value's parentheses — so `fill:rgb(255, 0, 0)`
- * stays one declaration rather than three fragments, two of which have no
- * `:` and would be diagnosed as malformed.
- *
- * An unbalanced parenthesis is treated as a problem with that value, never
- * with the list: an unclosed `(` runs to the end of the list and a stray `)`
- * is ignored, so the declarations after it still separate normally.
- */
-function splitDeclarations(text: string): string[] {
-  const segments: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (character === "(") {
-      depth += 1;
-    } else if (character === ")") {
-      depth = Math.max(0, depth - 1);
-    } else if (character === "," && depth === 0) {
-      segments.push(text.slice(start, index));
-      start = index + 1;
-    }
-  }
-  segments.push(text.slice(start));
-  return segments;
-}
-
-/**
- * Splits a `fill:#fdd,stroke:#c00` declaration list into its pairs,
- * preserving author order. Only the first `:` of a segment separates
- * property from value, so a value containing a colon survives intact.
- *
- * A segment with no `:` at all has no readable shape, so it is returned in
- * `malformed` for the caller to diagnose.
- *
- * The values themselves are not inspected here. Rejecting `url(` and
- * `expression(` is `resolveStyles`' job, and it is the only place that
- * judgement is made — ADR-0008 calls that gate the styling security
- * boundary, and a second opinion in a parser is how one boundary becomes
- * two that disagree.
- */
-function parseStyleProperties(text: string): {
-  properties: StyleProperty[];
-  malformed: string[];
-} {
-  const properties: StyleProperty[] = [];
-  const malformed: string[] = [];
-  for (const segment of splitDeclarations(text)) {
-    const trimmed = segment.trim();
-    if (trimmed.length === 0) {
-      continue;
-    }
-    const separator = trimmed.indexOf(":");
-    if (separator === -1) {
-      malformed.push(trimmed);
-      continue;
-    }
-    properties.push({
-      property: trimmed.slice(0, separator).trim(),
-      value: trimmed.slice(separator + 1).trim(),
-    });
-  }
-  return { properties, malformed };
-}
 
 /**
  * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header, node/edge
@@ -229,12 +162,12 @@ export function parseFlowchart(source: string): ParseResult {
       // about something that already exists, and whether it does is
       // `resolveStyles`' question, asked once against the model's ids.
       //
-      // `classIds` holds the one node this statement targets. It is a list
-      // because the apply-directive targets many.
+      // `targetIds` holds the one node this statement targets. It is a
+      // list because the apply-directive targets many.
       styles.push({
         styleKind: "style",
         authoredAs: "style",
-        classIds: [styleMatch[1]],
+        targetIds: [styleMatch[1]],
         name: null,
         properties,
         line: lineNumber,

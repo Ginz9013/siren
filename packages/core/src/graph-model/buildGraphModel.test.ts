@@ -550,7 +550,7 @@ describe("buildGraphModel", () => {
         {
           styleKind: "style",
           authoredAs: "style",
-          classIds: ["A"],
+          targetIds: ["A"],
           name: null,
           properties: [
             { property: "fill", value: "#fdd" },
@@ -586,7 +586,7 @@ describe("buildGraphModel", () => {
         {
           styleKind: "style",
           authoredAs: "style",
-          classIds: ["Ghost"],
+          targetIds: ["Ghost"],
           name: null,
           properties: [{ property: "fill", value: "#fdd" }],
           line: 3,
@@ -619,7 +619,7 @@ describe("buildGraphModel", () => {
         {
           styleKind: "style",
           authoredAs: "style",
-          classIds: ["A"],
+          targetIds: ["A"],
           name: null,
           properties: [
             { property: "fill", value: "url(#evil)" },

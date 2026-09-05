@@ -476,7 +476,7 @@ timeline:
       {
         styleKind: "style",
         authoredAs: "style",
-        classIds: ["A"],
+        targetIds: ["A"],
         name: null,
         properties: [
           { property: "fill", value: "#fdd" },

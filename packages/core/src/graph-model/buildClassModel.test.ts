@@ -886,7 +886,7 @@ describe("buildClassModel", () => {
           {
             styleKind: "style",
             authoredAs: "style",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: null,
             properties: [
               { property: "fill", value: "#fdd" },
@@ -927,14 +927,14 @@ describe("buildClassModel", () => {
           {
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape", "Duck"],
+            targetIds: ["Shape", "Duck"],
             name: "emphasis",
             properties: [],
           },
           {
             styleKind: "classDef",
             authoredAs: "classDef",
-            classIds: [],
+            targetIds: [],
             name: "emphasis",
             properties: [
               { property: "fill", value: "#fdd" },
@@ -944,7 +944,7 @@ describe("buildClassModel", () => {
           {
             styleKind: "style",
             authoredAs: "style",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: null,
             properties: [{ property: "fill", value: "#00f" }],
           },
@@ -980,14 +980,14 @@ describe("buildClassModel", () => {
           {
             styleKind: "classDef",
             authoredAs: "classDef",
-            classIds: [],
+            targetIds: [],
             name: "warm",
             properties: [{ property: "fill", value: "#fdd" }],
           },
           {
             styleKind: "classDef",
             authoredAs: "classDef",
-            classIds: [],
+            targetIds: [],
             name: "cool",
             properties: [
               { property: "fill", value: "#ddf" },
@@ -997,14 +997,14 @@ describe("buildClassModel", () => {
           {
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: "warm",
             properties: [],
           },
           {
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: "cool",
             properties: [],
           },
@@ -1032,7 +1032,7 @@ describe("buildClassModel", () => {
           {
             styleKind: "style",
             authoredAs: "style",
-            classIds: ["Ghost"],
+            targetIds: ["Ghost"],
             name: null,
             properties: [{ property: "fill", value: "#fdd" }],
             line: 4,
@@ -1041,7 +1041,7 @@ describe("buildClassModel", () => {
           {
             styleKind: "style",
             authoredAs: "style",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: null,
             properties: [{ property: "fill", value: "#00f" }],
           },
@@ -1072,14 +1072,14 @@ describe("buildClassModel", () => {
           {
             styleKind: "classDef",
             authoredAs: "classDef",
-            classIds: [],
+            targetIds: [],
             name: "emphasis",
             properties: [{ property: "fill", value: "#fdd" }],
           },
           {
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape", "Ghost"],
+            targetIds: ["Shape", "Ghost"],
             name: "emphasis",
             properties: [],
             line: 6,
@@ -1111,14 +1111,14 @@ describe("buildClassModel", () => {
           {
             styleKind: "classDef",
             authoredAs: "classDef",
-            classIds: [],
+            targetIds: [],
             name: "emphasis",
             properties: [{ property: "fill", value: "#fdd" }],
           },
           {
             styleKind: "apply",
             authoredAs: "cssClass",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: "emphsis",
             properties: [],
             line: 6,
@@ -1157,7 +1157,7 @@ describe("buildClassModel", () => {
           {
             styleKind: "style",
             authoredAs: "style",
-            classIds: ["Shape"],
+            targetIds: ["Shape"],
             name: null,
             properties,
             line: 4,
@@ -1314,7 +1314,7 @@ describe("buildClassModel", () => {
             {
               styleKind: "classDef",
               authoredAs: "classDef",
-              classIds: [],
+              targetIds: [],
               name: "emphasis",
               properties: [
                 { property: "fill", value: "url(#evil)" },
@@ -1326,14 +1326,14 @@ describe("buildClassModel", () => {
             {
               styleKind: "apply",
               authoredAs: "cssClass",
-              classIds: ["Shape"],
+              targetIds: ["Shape"],
               name: "emphasis",
               properties: [],
             },
             {
               styleKind: "apply",
               authoredAs: "cssClass",
-              classIds: ["Duck"],
+              targetIds: ["Duck"],
               name: "emphasis",
               properties: [],
             },
