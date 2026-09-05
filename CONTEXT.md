@@ -37,6 +37,11 @@ _Avoid_: viewport, camera, zoom level (say "view" for the combined pan+zoom stat
 The `timeline:` section of a Siren document. Lists step entries that assign animation actions to
 timeline targets by id. Deliberately separate from the diagram's structural definition — see
 [ADR-0002](docs/adr/0002-animation-timeline-is-a-separate-block.md).
+A document declares it at most once. `timeline:` opens the block and nothing closes it: every
+remaining line of the document belongs to it. A second `timeline:` is therefore a line *inside*
+the block, not a new one, and since it is not a step entry all three diagram kinds report the same
+error-severity diagnostic for it — `Unrecognized timeline line: "timeline:"` — which costs the
+whole document, exactly as any other unrecognized line in the block does.
 _Avoid_: animation block, timeline section
 
 **Step**:

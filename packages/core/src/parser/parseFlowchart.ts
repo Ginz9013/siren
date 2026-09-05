@@ -8,7 +8,7 @@ import type {
   SirenTimeline,
 } from "../contracts";
 import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
-import { isTimelineHeader, parseTimelineBodyLine } from "./parseTimelineBlock";
+import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
@@ -24,11 +24,11 @@ const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
  * Extracted verbatim from what used to be `parseSiren`'s own body — zero
  * behavior change, only the `kind: "flowchart"` tag is new.
  *
- * The `timeline:` grammar itself is no longer here: it moved to
- * `parseTimelineBlock`, which the class parser calls too, so both kinds read
- * one vocabulary instead of two copies that drift. This function still owns
- * *where* the block starts and what a diagnostic inside it costs the
- * document; only the entry grammar is shared.
+ * The `timeline:` block itself is no longer parsed here: its grammar and its
+ * body drain both live in `parseTimelineBlock`, which all three diagram kinds
+ * call, so they read one vocabulary instead of copies that drift. This
+ * function still owns *where* the block starts and what a diagnostic inside
+ * it costs the document, and nothing else about it.
  */
 export function parseFlowchart(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
@@ -39,7 +39,7 @@ export function parseFlowchart(source: string): ParseResult {
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
 
-  let mode: "before-header" | "flowchart" | "timeline" = "before-header";
+  let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
 
   const addNode = (id: string, label: string, line: number, column: number) => {
@@ -86,51 +86,49 @@ export function parseFlowchart(source: string): ParseResult {
     }
 
     if (isTimelineHeader(line)) {
-      mode = "timeline";
-      timeline = timeline ?? { entries: [] };
+      // Once the block is open it runs to the end of the document, so the
+      // header is read once and never looked for again — a second
+      // `timeline:` is a line inside the block, which the shared grammar
+      // reports as unrecognized exactly as it does for the other two kinds.
+      // Draining is `parseTimelineBody`'s job; what stays here is only this
+      // parser's own decision: where the block starts, and that a diagnostic
+      // inside it costs the whole document.
+      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
+        lines,
+        i + 1,
+      );
+      diagnostics.push(...bodyDiagnostics);
+      // Every diagnostic the shared grammar reports is error-severity, so a
+      // non-empty list is exactly the old per-branch `sawError = true`.
+      if (bodyDiagnostics.length > 0) {
+        sawError = true;
+      }
+      timeline = { entries };
+      break;
+    }
+
+    const edgeMatch = EDGE_RE.exec(line);
+    if (edgeMatch !== null) {
+      const [, fromId, fromLabel, toId, toLabel] = edgeMatch;
+      if (fromLabel !== undefined) {
+        addNode(fromId, fromLabel, lineNumber, column);
+      } else if (!nodesById.has(fromId)) {
+        nodesById.set(fromId, { id: fromId, label: fromId, line: lineNumber, column });
+      }
+      if (toLabel !== undefined) {
+        addNode(toId, toLabel, lineNumber, column);
+      } else if (!nodesById.has(toId)) {
+        nodesById.set(toId, { id: toId, label: toId, line: lineNumber, column });
+      }
+      edges.push({ from: fromId, to: toId, line: lineNumber, column });
       continue;
     }
 
-    if (mode === "flowchart") {
-      const edgeMatch = EDGE_RE.exec(line);
-      if (edgeMatch !== null) {
-        const [, fromId, fromLabel, toId, toLabel] = edgeMatch;
-        if (fromLabel !== undefined) {
-          addNode(fromId, fromLabel, lineNumber, column);
-        } else if (!nodesById.has(fromId)) {
-          nodesById.set(fromId, { id: fromId, label: fromId, line: lineNumber, column });
-        }
-        if (toLabel !== undefined) {
-          addNode(toId, toLabel, lineNumber, column);
-        } else if (!nodesById.has(toId)) {
-          nodesById.set(toId, { id: toId, label: toId, line: lineNumber, column });
-        }
-        edges.push({ from: fromId, to: toId, line: lineNumber, column });
-        continue;
-      }
-
-      const malformedEdgeMatch = MALFORMED_EDGE_RE.exec(line);
-      if (malformedEdgeMatch !== null) {
-        diagnostics.push({
-          severity: "error",
-          message: `Malformed edge: missing target after "-->" in "${line}"`,
-          line: lineNumber,
-          column,
-        });
-        sawError = true;
-        continue;
-      }
-
-      const nodeMatch = NODE_RE.exec(line);
-      if (nodeMatch !== null) {
-        const [, id, label] = nodeMatch;
-        addNode(id, label, lineNumber, column);
-        continue;
-      }
-
+    const malformedEdgeMatch = MALFORMED_EDGE_RE.exec(line);
+    if (malformedEdgeMatch !== null) {
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized flowchart line: "${line}"`,
+        message: `Malformed edge: missing target after "-->" in "${line}"`,
         line: lineNumber,
         column,
       });
@@ -138,26 +136,21 @@ export function parseFlowchart(source: string): ParseResult {
       continue;
     }
 
-    if (mode === "timeline") {
-      // One line at a time rather than `parseTimelineBody`, which the class
-      // and sequence parsers call: this loop re-checks `isTimelineHeader`
-      // above before it gets here, so a repeated `timeline:` inside the block
-      // is a no-op for a flowchart where it is an unrecognized timeline line
-      // for the other two. Handing the rest of the document to the shared
-      // drain would quietly change that.
-      const { entries, diagnostics: lineDiagnostics } = parseTimelineBodyLine(
-        rawLine,
-        lineNumber,
-      );
-      diagnostics.push(...lineDiagnostics);
-      // Every diagnostic the shared grammar reports is error-severity, so a
-      // non-empty list is exactly the old per-branch `sawError = true`.
-      if (lineDiagnostics.length > 0) {
-        sawError = true;
-      }
-      (timeline as SirenTimeline).entries.push(...entries);
+    const nodeMatch = NODE_RE.exec(line);
+    if (nodeMatch !== null) {
+      const [, id, label] = nodeMatch;
+      addNode(id, label, lineNumber, column);
       continue;
     }
+
+    diagnostics.push({
+      severity: "error",
+      message: `Unrecognized flowchart line: "${line}"`,
+      line: lineNumber,
+      column,
+    });
+    sawError = true;
+    continue;
   }
 
   if (mode === "before-header" || direction === null) {

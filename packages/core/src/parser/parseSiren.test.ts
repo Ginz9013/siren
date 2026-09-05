@@ -414,4 +414,49 @@ classDiagram
     expect(document).toBeNull();
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
+
+  it("reports the same error for a second timeline: inside an open timeline block, in all three diagram kinds", () => {
+    // The block is declared once. A repeated header inside it is not a
+    // second block and not a no-op: it is a line the timeline grammar does
+    // not recognise, in every kind. Each source below puts the repeat at
+    // line 5, column 3, so the three diagnostics must be identical objects
+    // — a future divergence between the kinds fails here rather than being
+    // discovered by an extraction three boards later.
+    const repeated = {
+      flowchart: `flowchart TD
+  A[Start]
+timeline:
+  step 1: enter A fade
+  timeline:
+`,
+      class: `classDiagram
+  Animal <|-- Duck
+timeline:
+  step 1: enter Animal fade
+  timeline:
+`,
+      sequence: `sequenceDiagram
+  participant A as Alice
+timeline:
+  step 1: enter A fade
+  timeline:
+`,
+    };
+
+    const expected: Diagnostic[] = [
+      {
+        severity: "error",
+        message: 'Unrecognized timeline line: "timeline:"',
+        line: 5,
+        column: 3,
+      },
+    ];
+
+    for (const [kind, source] of Object.entries(repeated)) {
+      const { document, diagnostics } = parseSiren(source);
+
+      expect(document, kind).toBeNull();
+      expect(diagnostics, kind).toEqual(expected);
+    }
+  });
 });
