@@ -3634,4 +3634,123 @@ Alice-)Bob: open
       for (const container of containers) container.remove();
     }
   });
+
+  it("renders demos/flowchart-styling.html's example source (examples/flowchart-styling.srn) end to end with zero diagnostics — `style`, `classDef`, both spellings of the apply-directive, `linkStyle` by index, by list and by `default`, and a `color` beside a `fill`", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-styling"), container);
+
+    // Zero diagnostics of *any* severity, which is a stronger claim than the
+    // `examples/` enumeration test above makes: that one filters to error
+    // severity, so a warning would slip through it. The closing example is
+    // the document a demo page ships, so a warning in it is a defect in one
+    // or the other.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // The document declares no `timeline:` block, so the controller is the
+    // empty one — the styling this example is about needs no animation to
+    // be visible.
+    expect(result.controller!.totalSteps).toBe(0);
+
+    const nodeIds = Array.from(svg.querySelectorAll("g.siren-node")).map((g) =>
+      g.getAttribute("data-siren-id"),
+    );
+    expect(nodeIds).toEqual(["Source", "Parse", "Resolve", "Layout", "Render", "Output"]);
+
+    const edgeIds = Array.from(svg.querySelectorAll("path.siren-edge")).map((p) =>
+      p.getAttribute("data-siren-id"),
+    );
+    expect(edgeIds).toEqual([
+      "Source-Parse",
+      "Parse-Resolve",
+      "Resolve-Layout",
+      "Layout-Render",
+      "Render-Output",
+    ]);
+
+    const frameStyleOf = (id: string): string | null =>
+      svg
+        .querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+    const labelStyleOf = (id: string): string | null =>
+      svg.querySelector(`g.siren-node[data-siren-id="${id}"] text`)!.getAttribute("style");
+
+    // --- `classDef` + the two spellings of the apply-directive ---
+    //
+    // `classDef stage` reaches `Parse` and `Resolve` through `class
+    // Parse,Resolve stage` and `Layout` through the standalone
+    // `Layout:::stage`. All three frames are byte-identical, which is the
+    // observable form of "the two spellings are one directive": nothing
+    // downstream of the parser can tell which one an author wrote.
+    const stageFrame = "fill:#3b82f633;stroke:#3b82f6;stroke-width:2";
+    expect(frameStyleOf("Parse")).toBe(stageFrame);
+    expect(frameStyleOf("Resolve")).toBe(stageFrame);
+    expect(frameStyleOf("Layout")).toBe(stageFrame);
+    // `stage` names no `color`, so none of the three labels is styled at all.
+    expect(labelStyleOf("Parse")).toBeNull();
+    expect(labelStyleOf("Resolve")).toBeNull();
+    expect(labelStyleOf("Layout")).toBeNull();
+
+    // --- the `A:::name` shorthand written inside an edge line, on both ends ---
+    //
+    // `Source[Source]:::terminal` is the source end of the first edge and
+    // `Output[Output]:::terminal` the target end of the last, so the
+    // shorthand is exercised on each side of a `-->`.
+    const terminalFrame = "fill:#1e293b;stroke:#0f172a;stroke-width:2";
+    expect(frameStyleOf("Source")).toBe(terminalFrame);
+    expect(frameStyleOf("Output")).toBe(terminalFrame);
+
+    // --- `color` beside a `fill`, in a `classDef` and in a `style` ---
+    //
+    // The author writes `color`; the label carries `fill`, because that is
+    // what paints SVG text (ADR-0008's amendment). The frame keeps every
+    // other property and never sees the word `color`.
+    expect(labelStyleOf("Source")).toBe("fill:#f8fafc");
+    expect(labelStyleOf("Output")).toBe("fill:#f8fafc");
+    expect(frameStyleOf("Render")).toBe("fill:#f59e0b;stroke:#b45309;stroke-width:2");
+    expect(labelStyleOf("Render")).toBe("fill:#1f2937");
+    for (const id of nodeIds) {
+      expect(frameStyleOf(id!)).not.toContain("color:");
+    }
+
+    // --- `linkStyle` by index, by list, and by `default` ---
+    const edgeStyleOf = (id: string): string | null =>
+      svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!.getAttribute("style");
+
+    // Edge 0 by index. It keeps the fallback's `stroke-width` and takes the
+    // specific statement's `stroke`: the two tiers merge property by
+    // property rather than one replacing the other.
+    expect(edgeStyleOf("Source-Parse")).toBe("stroke:#f43f5e;stroke-width:2");
+    // Edges 1 and 2 are named by no specific statement, so they are what
+    // `linkStyle default` is for.
+    expect(edgeStyleOf("Parse-Resolve")).toBe("stroke:#94a3b8;stroke-width:2");
+    expect(edgeStyleOf("Resolve-Layout")).toBe("stroke:#94a3b8;stroke-width:2");
+    // Edges 3 and 4 by one `linkStyle 3,4`, which overrides both fallback
+    // properties.
+    expect(edgeStyleOf("Layout-Render")).toBe("stroke:#3b82f6;stroke-width:3");
+    expect(edgeStyleOf("Render-Output")).toBe("stroke:#3b82f6;stroke-width:3");
+
+    // --- a styled edge's arrowhead takes its color ---
+    //
+    // Three distinct strokes, so three minted markers, plus the theme's own
+    // — which stays defined whether or not any edge references it.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(4);
+    const markerRefOf = (edgeId: string): string =>
+      svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!.getAttribute("marker-end")!;
+    const headFillOf = (edgeId: string): string | null =>
+      svg
+        .querySelector(`defs > marker#${markerRefOf(edgeId).slice("url(#".length, -1)} path`)!
+        .getAttribute("style");
+
+    expect(headFillOf("Source-Parse")).toBe("fill:#f43f5e");
+    expect(headFillOf("Parse-Resolve")).toBe("fill:#94a3b8");
+    expect(headFillOf("Layout-Render")).toBe("fill:#3b82f6");
+    // One marker per distinct color, not per styled edge: the two edges
+    // sharing a color share a def.
+    expect(markerRefOf("Parse-Resolve")).toBe(markerRefOf("Resolve-Layout"));
+    expect(markerRefOf("Layout-Render")).toBe(markerRefOf("Render-Output"));
+    expect(markerRefOf("Source-Parse")).not.toBe(markerRefOf("Parse-Resolve"));
+  });
 });

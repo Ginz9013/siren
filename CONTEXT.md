@@ -82,6 +82,21 @@ redeclaring these in their own CSS, not by passing a JS theme object — see
 [ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md).
 _Avoid_: CSS variable, theme variable
 
+**Id scope**:
+The `__` plus exactly eight characters that every id *inside* one rendered SVG is suffixed with —
+`siren-arrow__k3f9a1x2` — minted once per `render()` call by `renderer/mintIdScope.ts` and used by
+all three renderers. It exists because an SVG `url(#id)` reference resolves against the whole
+**page**, never against the SVG it is written in, so two diagrams sharing a fixed marker id would
+both draw the first one's arrowheads.
+The consumer-visible consequence, and the reason this is in the glossary rather than only in that
+module: **Siren's markup is not byte-reproducible.** Two renders of one document differ in exactly
+these tokens and in nothing else. Anyone diffing or snapshotting output has to normalize them
+(`__` plus eight characters, and no `siren-*` name contains an underscore, so the boundary is
+unambiguous), nothing may cache or hardcode a marker id, and a test that needs one reads it out of
+the DOM.
+_Avoid_: namespace (that is the class-diagram construct), prefix, hash (it is a random token, and
+deliberately not a content hash — see the module for why), salt
+
 **Diagnostic**:
 A non-fatal, structured message (`severity: 'error' | 'warning'`) describing a problem in a Siren
 document — an unresolved timeline reference, a duplicate node id, etc. Returned from `render()`,
@@ -189,7 +204,9 @@ author-chosen text), drawn in guillemets above the name — an annotation labels
 is written in, unlike a note, which is a box of its own.
 _Avoid_: CSS class (the codebase is full of `siren-*` CSS classes and of these boxes — say
 "class" only for the box, and "CSS class" for the other; the `classDef`/`cssClass` directives
-name the CSS-ish sense, not this one), node, entity, box
+name the CSS-ish sense, not this one, and so does a flowchart's apply-directive, which Mermaid
+spells `class A,B name` — that statement is about styling a **node** and never about one of these
+boxes, so say "the apply-directive" for it), node, entity, box
 
 **Member**:
 One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
@@ -235,17 +252,40 @@ own), comment (that is a `%%` line, which is stripped before parsing and draws n
 callout
 
 **Author style**:
-A `style`/`classDef`/`cssClass` declaration in a class-diagram document, emitted as an inline
-`style` attribute on the drawn shape. A **local override within one document**, as opposed to a
-**design token**, which is the global default for every diagram — the two do not compete, see
-[ADR-0008](docs/adr/0008-author-styling-sits-alongside-the-token-theme.md). Property names must be
-plain CSS identifiers and values may not contain `url(`, `expression(`, `;` or `\`; a rejected
-declaration is dropped with an error diagnostic and its siblings still apply. Reaches a class's
-frame only, never its label text — so a style hard-coding an opaque fill is theme-blind, and
-examples in this repo use translucent fills for that reason.
-_Avoid_: theme, custom style, CSS class (a `classDef` defines a named set of declarations, not a
-CSS class — nothing it produces reaches a stylesheet), inline style (that is the mechanism, not
-the authored thing)
+A styling declaration written in the document, emitted as an inline `style` attribute on the
+element it is about. A **local override within one document**, as opposed to a **design token**,
+which is the global default for every diagram — the two do not compete, see
+[ADR-0008](docs/adr/0008-author-styling-sits-alongside-the-token-theme.md). A flowchart accepts
+four directives: `style A fill:#fdd` straight onto one node, `classDef name ...` defining a named
+set that applies to nothing on its own, the apply-directive that applies one such set to a list of
+targets, and `linkStyle` — the only one that reaches an **edge**. A class diagram accepts the
+first three. A sequence diagram accepts none, deliberately: Mermaid has no `style` there, so
+adding one would be Siren invention rather than compatibility.
+The apply-directive has two authored spellings and is **one directive**: Mermaid writes
+`class A,B name` in a flowchart and `cssClass "A,B" name` in a class diagram, plus the flowchart
+shorthand `A:::name` (standalone, or on either endpoint of an edge line). All three normalize at
+the parser to one `apply` kind, so nothing downstream branches on which was written — the same
+rule that turns `TD` into `TB`. The authored spelling survives only as `authoredAs`, so that a
+diagnostic can quote the keyword the author actually typed and nothing else can act on it.
+**`linkStyle` addresses an edge by declaration index; everything downstream uses the edge id.**
+`linkStyle 0`, `linkStyle 0,2` and `linkStyle default` are what an author writes, and the model
+resolves each index to the edge id `A-B` that `timeline:` and `data-siren-id` already use, so an
+index never reaches a renderer. `default` is a **fallback tier**, not another declaration: it
+covers every edge no specific `linkStyle` named, a specific one wins for the edge it names
+whichever order the two were written in, and the two merge property by property rather than one
+replacing the other.
+`color` reaches label text, in both diagram kinds — the author's spelling, translated once in the
+model to the `fill` that actually paints SVG text. Every other property goes to the frame, and a
+styled edge's arrowhead takes the edge's own `stroke` via a marker minted per distinct color.
+Property names must be plain CSS identifiers and values may not contain `url(`, `expression(`, `;`
+or `\`; a rejected declaration is dropped with an error diagnostic and its siblings still apply.
+That gate is `graph-model/resolveStyles.ts` and only there — no renderer re-checks anything.
+_Avoid_: theme, custom style, inline style (that is the mechanism, not the authored thing), CSS
+class (a `classDef` defines a named set of declarations, not a CSS class — nothing it produces
+reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `class`, which is
+the third sense of that word in this codebase after the class-diagram box and the `siren-*` CSS
+classes — say "the apply-directive" for the statement, and see **Class**), link style (two words —
+`linkStyle` is a directive spelled one way)
 
 **Interaction target**:
 A class the author made clickable, with `click X href "url"` / `link X "url"` (rendered as an

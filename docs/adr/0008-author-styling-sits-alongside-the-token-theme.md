@@ -13,7 +13,7 @@ properties in their own CSS.
 The two are given different jobs rather than made to compete. The token theme remains the
 **global default for every diagram kind** — ADR-0004 is unchanged and unnarrowed by this. An
 author directive is a **local override, scoped to the one document that declares it**, resolved by
-`buildClassModel` into a `ResolvedClassStyle` per styled class and emitted by
+`buildClassModel` into a `ResolvedStyle` per styled class and emitted by
 `renderClassDiagramToSVG` as an inline `style` attribute on that class's drawn shape (the
 `<rect class="siren-class-frame">`, not its enclosing `<g class="siren-class">`).
 
@@ -72,10 +72,14 @@ tokens remain the right tool for anything meant to follow the theme, and author 
 documented as local emphasis rather than as a theming mechanism.
 
 Because the declarations are emitted verbatim, the validation gate stays load-bearing and stays in
-exactly one place: `buildClassModel` rejects a value containing `url(`, `expression(`, `;` or a
-backslash, and the renderer re-checks nothing. Anything that widens the styling syntax later must
-widen that gate deliberately, not incidentally — the renderer will faithfully emit whatever reaches
-it.
+exactly one place: `graph-model/resolveStyles.ts` rejects a value containing `url(`, `expression(`,
+`;` or a backslash, and no renderer re-checks anything. Anything that widens the styling syntax
+later must widen that gate deliberately, not incidentally — a renderer will faithfully emit
+whatever reaches it. (The gate was written as a private function of `buildClassModel` while the
+class diagram was the only kind that styled anything, and was lifted into that shared module when
+the flowchart became the second caller. It moved; it did not loosen, and there is still exactly one
+of it. Anyone adding a check should add it there and nowhere else — a second copy is how two
+diagram kinds end up disagreeing about what is safe.)
 
 There is no specificity model between author directives, consistent with the board's non-goal:
 `style`, `classDef` and `cssClass` all flatten into one ordered property list per class, last
@@ -153,9 +157,34 @@ the "map author declarations onto the tokens" option this ADR already rejected, 
 for the same reason: it only works for the properties that happen to have a token, and it makes
 the author's declaration mean something they did not write.
 
-Until that lands, author styling stays documented as local emphasis with a known limit — a style
-reaches a class's frame, never its label text — and translucent fills remain the recommended way
-to stay theme-safe.
+**This landed, as written, on board 3 (`.scratch/siren-author-styling-slice/`).** The routing is
+the leading option above and nothing else: `resolveStyles` splits each target's surviving
+declarations into a frame half and a text half, translating the author's `color` into the `fill`
+the label carries, and both renderers emit the halves onto the two elements. It reaches every
+label a class draws (`.siren-class-name`, `.siren-member`, `.siren-class-annotation`) and a
+flowchart node's label, which the same board gave author styling for the first time. An edge is
+the one target with no text of its own, so a `linkStyle`'s `color` is routed into the text half
+and lands nowhere — deliberately, because a resolver that asked "is this an edge?" would be the
+per-kind opinion the split exists to prevent.
+
+So the known limit this amendment recorded — "a style reaches a class's frame, never its label
+text" — is gone, and any sentence still saying it is out of date. Translucent fills are no longer
+a *workaround*; they remain the right choice when an author wants a box that still follows
+whichever theme it is rendered under, and an opaque fill is now a real alternative provided it
+brings its own `color`. `examples/class-full.srn` takes the first choice and
+`examples/flowchart-styling.srn` shows both.
+
+The status of this ADR stays `accepted`, unamended in the front matter, because nothing here was
+overturned: the decision is inline `style` attributes on the element the theme styles, and routing
+`color` to the label is that same decision applied to a second element rather than a departure
+from it. Worth saying explicitly, because this repo has no `superseded` convention to fall back on
+— every ADR in `docs/adr/` is `status: accepted`, and the only precedent for a decision whose
+detail moved is ADR-0001, which records the move in an `## Amendment` section and states plainly
+that the decision itself is unchanged. This section follows that precedent. **If a future decision
+genuinely does overturn part of an ADR, the proposal is to add `status: superseded-in-part` plus a
+`superseded-by:` key naming the later ADR to the front matter, and to say in the body which
+paragraphs it replaces** — but that mechanism should be introduced by the ADR that first needs it,
+not invented here by one that does not.
 
 ## Amendment (`linkStyle default` is a fallback tier, not a competing declaration)
 

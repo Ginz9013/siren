@@ -62,9 +62,16 @@ click Track call showDetails("track") "Inspect this class"
 click Playable href "https://mermaid.js.org/syntax/classDiagram.html" "Mermaid class syntax"
 
 %% Author styling: one class styled directly, and two more by a classDef the
-%% cssClass statement applies. The fills carry an alpha channel deliberately --
-%% an author style reaches a class's frame but not its label text, so an opaque
-%% light fill would leave the dark theme's light label text unreadable on it.
+%% cssClass statement applies. The fills still carry an alpha channel, but the
+%% reason has changed. It used to be the only way out of a gap: a style reached
+%% a class's frame and never its label text, so an opaque fill left the theme's
+%% own label color stranded on top of it. `color` now reaches label text in
+%% both diagram kinds, so an opaque fill is a real option -- as long as it
+%% brings a `color` of its own. Translucent is kept here because it is still
+%% the better default and not because it is the only one: it needs no paired
+%% color, and it lets the themed background through, so these boxes follow
+%% whichever theme they are rendered under instead of pinning one.
+%% examples/flowchart-styling.srn shows the other choice.
 style Track fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
 classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
 cssClass "Player,Artwork" external

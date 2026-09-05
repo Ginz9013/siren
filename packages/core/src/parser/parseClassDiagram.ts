@@ -284,19 +284,35 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * **Interaction and styling are validated for syntax shape only, and that
  * is deliberate.** A `click X href "javascript:alert(1)"` and a
  * `style X fill:url(#evil)` are well-formed statements, so they parse here
- * with no diagnostic. Both are to be rejected by `buildClassModel`, which
- * will own the `http`/`https`/`mailto` URL allowlist and the rejected
- * style-function list (`url(`, `expression(`) — see the board's
- * "Interaction target" decision.
+ * with no diagnostic and reach the model as ordinary declarations.
  *
- * That check is **not written yet**: `buildClassModel` currently resolves
- * `interactions` and `styles` to empty arrays, so today these statements
- * parse and then vanish. Nothing renders them either, so the effect is
- * inert rather than unsafe — but do not read this paragraph as describing
- * a check that already runs.
+ * Both are refused downstream, and by two separate gates in two separate
+ * modules. Which is which is worth naming exactly, because a check added to
+ * the wrong one is a check that guards one diagram kind and silently misses
+ * the other:
  *
- * The split is not an oversight: this
- * parser answers "what did the author write", one stage answers "is that
+ * - The `http`/`https`/`mailto` URL allowlist lives in `buildClassModel`'s
+ *   `resolveInteractions`. `click`/`link`/`callback` are class-diagram
+ *   directives and no other parser produces one, so that gate has no second
+ *   caller to be shared with.
+ * - The style-value gate — the plain-CSS-identifier rule for a property
+ *   name, and the refusal of a value carrying `url(`, `expression(`, `;` or
+ *   a backslash — lives in `graph-model/resolveStyles.ts`, which every
+ *   diagram kind that accepts author styling calls. **That module is what
+ *   ADR-0008 means by the security boundary for styling**: the one place a
+ *   value is checked before a renderer emits it verbatim into an inline
+ *   `style` attribute, and no renderer re-checks anything. It was a private
+ *   function of `buildClassModel` while the class diagram was the only kind
+ *   that styled anything; the flowchart made it the second caller and it
+ *   was lifted out rather than copied. A newly rejected property, value
+ *   shape or sink belongs there and nowhere else.
+ *
+ * Both gates run today. A refused declaration is dropped with an
+ * error-severity diagnostic reported at the line that wrote it, and its
+ * siblings in the same statement still apply.
+ *
+ * The split between this file and those two is not an oversight: this
+ * parser answers "what did the author write", the model answers "is that
  * safe to render", and putting the second question here would mean a
  * hostile URL silently changed what the document *is* rather than being
  * reported as the error it is. Every value captured by this function is
