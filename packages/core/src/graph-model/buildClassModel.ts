@@ -13,7 +13,6 @@ import type {
   ResolvedClassNote,
   ResolvedClassRelationship,
   ResolvedClassStyle,
-  ResolvedTimeline,
   ResolvedTimelineEntry,
 } from "../contracts";
 import { resolveTimeline } from "./resolveTimeline";
@@ -114,7 +113,7 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
  * why this is a constant with a reason attached and not an incidental `-`.
  *
  * The cost is that an author addressing a namespace in a `timeline:` block
- * writes `step 1: enter namespace:1 fade`. The timeline entry grammar takes
+ * writes `step 1: enter namespace:1 fade`. The timeline action grammar takes
  * everything after the step's own colon and splits it on whitespace, so a
  * colon inside the id is read as part of the id.
  */

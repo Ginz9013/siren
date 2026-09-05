@@ -47,6 +47,9 @@ export function resolveTimeline(
   // step, regardless of the order the actions were written in — `next()` and
   // `prev()` walk the timeline in step order, so "first" has to mean first in
   // time. A tie keeps whichever was declared first.
+  // The `:` here is a Map key separator and nothing more -- unrelated to the
+  // `:` that separates a generated id's kind from its number (`loop:1`). It is
+  // unambiguous because `TimelineActionKind` is four colon-free verbs.
   const winnerByDedupeKey = new Map<string, TimelineEntry>();
   for (const entry of timeline.entries) {
     if (entry.kind !== "enter" && entry.kind !== "exit") continue;

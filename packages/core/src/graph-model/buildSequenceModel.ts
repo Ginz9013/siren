@@ -52,7 +52,7 @@ type BlockStatement =
  * `namespace:1` and `note:1`.
  *
  * The cost is that an author addressing a block in a `timeline:` block
- * writes `step 1: enter loop:1 fade`. The timeline entry grammar takes
+ * writes `step 1: enter loop:1 fade`. The timeline action grammar takes
  * everything after the step's own colon and splits it on whitespace, so a
  * colon inside the id is read as part of the id.
  */
