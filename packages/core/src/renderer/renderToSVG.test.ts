@@ -117,6 +117,31 @@ describe("renderToSVG", () => {
     expect(text.textContent).toBe("Process");
   });
 
+  it("names each node's rect siren-node-frame, so the theme paints the rect itself and not a descendant", () => {
+    const svg = renderToSVG(buildFixture());
+
+    // The class diagram already works this way (`<rect class="siren-class-frame">`
+    // inside `<g class="siren-class">`), and ADR-0008 is written in those terms:
+    // an author's `style` directive is emitted onto the element the theme styles,
+    // so the two kinds have to name that element the same way. Without a class of
+    // its own the flowchart frame is reachable only as `.siren-node rect` — an
+    // anonymous descendant, which is the one shape ADR-0008's placement argument
+    // tells an author not to reason about.
+    const frames = Array.from(svg.querySelectorAll("g.siren-node > rect"));
+    expect(frames).toHaveLength(3);
+    expect(frames.map((frame) => frame.getAttribute("class"))).toEqual([
+      "siren-node-frame",
+      "siren-node-frame",
+      "siren-node-frame",
+    ]);
+
+    // `data-siren-id` and the animation classes stay on the enclosing `<g>`;
+    // the frame gains a class, it does not take the group's identity over.
+    for (const frame of frames) {
+      expect(frame.getAttribute("data-siren-id")).toBeNull();
+    }
+  });
+
   it("sizes the root svg to the graph's full width/height via width/height and viewBox", () => {
     const svg = renderToSVG(buildFixture());
 

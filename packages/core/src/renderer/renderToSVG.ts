@@ -5,8 +5,10 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 /**
  * Builds a real `SVGSVGElement` from a `PositionedGraph`, per the frozen
  * SVG conventions in spec.md ("SVG conventions" bullet list): one
- * `<g class="siren-node">` per node, one `<path class="siren-edge">` per
- * edge, and `data-siren-id` on both.
+ * `<g class="siren-node">` per node, wrapping a
+ * `<rect class="siren-node-frame">` and its label, one
+ * `<path class="siren-edge">` per edge, and `data-siren-id` on the group and
+ * the path.
  *
  * Nothing here reads `graph.timeline`. The initial `siren-pending` state is
  * not this function's to decide: `createAnimationController(...).reset()`
@@ -29,6 +31,13 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     g.setAttribute("data-siren-id", node.id);
 
     const rect = document.createElementNS(SVG_NS, "rect");
+    // The drawn shape carries a class of its own, mirroring the class
+    // diagram's `<rect class="siren-class-frame">`. The theme selects it
+    // directly, so an author's inline `style` lands on exactly the element the
+    // theme paints rather than on an anonymous descendant of the group — the
+    // placement ADR-0008 argues for. `data-siren-id` and the animation classes
+    // stay on the enclosing `<g>`.
+    rect.setAttribute("class", "siren-node-frame");
     rect.setAttribute("x", String(node.x));
     rect.setAttribute("y", String(node.y));
     rect.setAttribute("width", String(node.width));
