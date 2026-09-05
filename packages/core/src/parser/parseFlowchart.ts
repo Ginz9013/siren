@@ -2,6 +2,7 @@ import type {
   Diagnostic,
   Direction,
   FlowchartDocument,
+  LinkStyleDecl,
   ParseResult,
   SirenEdge,
   SirenNode,
@@ -51,11 +52,26 @@ const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
 /**
  * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
  * nothing on its own, spelled exactly as a class diagram spells it.
- *
- * `linkStyle` is still an unrecognized line, so an author who writes one is
- * told so rather than being silently ignored until it lands.
  */
 const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+
+/**
+ * `linkStyle 0 stroke:#f00` — the one styling statement that reaches an
+ * edge, which `style` cannot: Mermaid addresses an edge by its declaration
+ * index rather than by a name the author chose.
+ *
+ * The addresses are captured as written and left that way. Turning `0` into
+ * the edge id `A-B` is `buildFlowchartModel`'s job, since only the model
+ * knows which edges exist and what they are called — so this pattern is
+ * deliberately incurious about whether an address is a number at all.
+ *
+ * The address list is greedy and backtracks the same way `CLASS_APPLY_RE`'s
+ * does, which is what lets one pattern read `linkStyle 0`, `linkStyle 0,2`
+ * and `linkStyle default` without three: `[\w,\s]` cannot cross the first
+ * `:` of the declarations, so it gives back everything up to the space that
+ * separates the two halves.
+ */
+const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
 
 /**
  * `class A,B emphasis` — this kind's spelling of the apply-directive, which
@@ -71,10 +87,14 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
 
 /**
- * Splits the `A,B` target list of an apply-directive, discarding the empty
- * segments a trailing or doubled comma leaves behind. Whether each id names
- * a node that exists is `resolveStyles`' question, asked once against the
- * model's ids — naming a node in a styling statement does not declare it.
+ * Splits the comma-separated target list an apply-directive (`class A,B
+ * name`) and a `linkStyle 0,2` both write, discarding the empty segments a
+ * trailing or doubled comma leaves behind.
+ *
+ * It answers nothing about what the segments *are*. Whether an id names a
+ * node is `resolveStyles`' question, asked once against the model's ids;
+ * whether an address names an edge is `buildFlowchartModel`'s. Naming
+ * something in a styling statement does not declare it, in either spelling.
  */
 function splitTargetIds(text: string): string[] {
   return text
@@ -102,6 +122,7 @@ export function parseFlowchart(source: string): ParseResult {
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];
   const styles: StyleDecl[] = [];
+  const linkStyles: LinkStyleDecl[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
 
@@ -313,6 +334,21 @@ export function parseFlowchart(source: string): ParseResult {
       continue;
     }
 
+    const linkStyleMatch = LINK_STYLE_RE.exec(line);
+    if (linkStyleMatch !== null) {
+      // The address goes through untouched — see `LINK_STYLE_RE`. The
+      // declarations do not: they are read by the same splitter `style` and
+      // `classDef` use, so all three statements accept one declaration list
+      // and diagnose a bad segment in one wording.
+      linkStyles.push({
+        targets: splitTargetIds(linkStyleMatch[1]),
+        properties: readStyleProperties(linkStyleMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
     const styleMatch = STYLE_RE.exec(line);
     if (styleMatch !== null) {
       // Naming a node in a `style` statement does not declare it: styling is
@@ -374,6 +410,7 @@ export function parseFlowchart(source: string): ParseResult {
     nodes: Array.from(nodesById.values()),
     edges,
     styles,
+    linkStyles,
     timeline,
   };
 

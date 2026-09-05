@@ -745,4 +745,64 @@ timeline:
 
     expect(document.styles).toEqual([]);
   });
+
+  it("records a flowchart `linkStyle 0` as a link-style statement addressing an edge by declaration index", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  linkStyle 0 stroke:#f00,stroke-width:2px
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // The address stays exactly as the author wrote it. Which edge `0`
+    // names is `buildFlowchartModel`'s question, asked against the edge ids
+    // it assigns — the parser only owns the statement's shape.
+    expect(document.linkStyles).toEqual([
+      {
+        targets: ["0"],
+        properties: [
+          { property: "stroke", value: "#f00" },
+          { property: "stroke-width", value: "2px" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+    // It is not a `style`: a `style` targets an id, and there is no id here
+    // to target yet.
+    expect(document.styles).toEqual([]);
+  });
+
+  it("reads a linkStyle's declarations with the same splitter every other styling statement uses", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  linkStyle 0 stroke:#f00,oops
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized style declaration: "oops"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads a linkStyle's `0,2` as several addresses, in the order written", () => {
+    const source = `flowchart TD
+  A[Start] --> B[Middle]
+  B --> C[End]
+  linkStyle 0,2 stroke:#f00
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.linkStyles[0].targets).toEqual(["0", "2"]);
+  });
 });

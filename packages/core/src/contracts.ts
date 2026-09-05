@@ -85,6 +85,39 @@ export interface SirenTimeline {
 }
 
 /**
+ * A `linkStyle 0 stroke:#f00` statement, as written — the one author-styling
+ * statement that reaches an edge, and the one that does not address its
+ * targets by id.
+ *
+ * It is kept apart from `StyleDecl` for exactly that reason. Mermaid
+ * addresses an edge by its declaration index, and an index is an authored
+ * spelling rather than a name: `buildFlowchartModel` resolves it to the edge
+ * id (`A-B`, `A-B#2`) that `timeline:` and `data-siren-id` already use, and
+ * hands the shared `resolveStyles` a `StyleDecl` like any other. Putting an
+ * index into `StyleDecl.targetIds` — a field every diagram kind reads as
+ * ids — would give one edge two names and let one of them travel.
+ */
+export interface LinkStyleDecl {
+  /**
+   * The edges this statement addresses, exactly as authored and in the
+   * order written: a zero-based declaration index (`"0"`), or `"default"`
+   * for every edge in the document.
+   *
+   * Deliberately not `targetIds`: these are addresses, not ids, and nothing
+   * has checked yet that any of them names an edge. Whether `"0"` resolves,
+   * and to what, is `buildFlowchartModel`'s question — the parser owns only
+   * the statement's shape.
+   */
+  targets: string[];
+  /** The declarations to apply, in author order. Values are not validated
+   * here — the gate is `resolveStyles`', reached once the addresses have
+   * become ids. */
+  properties: StyleProperty[];
+  line?: number;
+  column?: number;
+}
+
+/**
  * The parsed flowchart document: a flowchart header, its nodes/edges, its
  * author-styling statements, and an optional timeline block. One arm of the
  * `SirenDocument` union.
@@ -101,6 +134,15 @@ export interface FlowchartDocument {
    * kind it was handed.
    */
   styles: StyleDecl[];
+  /**
+   * `linkStyle` statements as written, in source order — the edge half of
+   * author styling, which `styles` cannot express because it addresses its
+   * targets by index rather than by id.
+   *
+   * Empty when the author wrote none, never absent, so "styled no edge" is
+   * one state rather than two.
+   */
+  linkStyles: LinkStyleDecl[];
   timeline: SirenTimeline | null;
 }
 
@@ -545,6 +587,17 @@ export interface GraphEdge {
   id: string;
   from: string;
   to: string;
+  /**
+   * Author declarations to emit as this edge's inline `style` attribute, in
+   * declaration order, with rejected values already dropped — the same
+   * shape, and the same empty-not-absent rule, as `GraphNode.style`.
+   *
+   * The author wrote them as `linkStyle 0`, addressing this edge by its
+   * declaration index. That index is gone by the time it reaches this
+   * field: `buildFlowchartModel` resolved it to `id`, so an edge has one
+   * name downstream of the model rather than a name and a position.
+   */
+  style: StyleProperty[];
 }
 
 /**

@@ -62,6 +62,14 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     path.setAttribute("data-siren-id", edge.id);
     path.setAttribute("d", pointsToPathData(edge.points));
     path.setAttribute("marker-end", "url(#siren-arrow)");
+    // The path is the whole drawn edge, so unlike a node there is no frame
+    // to choose: this is the element the theme's `.siren-edge` paints and
+    // the element the animation classes land on alike. It is also as far as
+    // the declarations reach — the arrowhead is one shared `<marker>` in
+    // `<defs>`, whose content inherits from its own ancestors rather than
+    // from the path referencing it, so an author's `stroke` recolors the
+    // line and leaves the arrowhead the theme's color.
+    applyAuthorStyle(path, edge.style);
     svg.appendChild(path);
   }
 
@@ -72,6 +80,12 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  * Writes the author's resolved `style` declarations onto `element` as an
  * inline `style` attribute, in declaration order, or leaves the element
  * without one when the author styled nothing.
+ *
+ * One function for a node's frame and for an edge's path, because the rule
+ * is the same for both: land on the element the theme paints. Where the
+ * author wrote the declarations — `style A`, `classDef`, `linkStyle 0` —
+ * is not visible here, and must not be: `resolveStyles` settled what they
+ * mean and `buildFlowchartModel` settled which element they belong to.
  *
  * Inline rather than a generated class rule, and on the drawn shape rather
  * than its enclosing `<g>` — both for the same cascade reason, recorded in

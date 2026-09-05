@@ -19,6 +19,7 @@ function buildFixture(): PositionedGraph {
         id: "A-B",
         from: "A",
         to: "B",
+        style: [],
         points: [
           { x: 40, y: 20 },
           { x: 40, y: 100 },
@@ -28,6 +29,7 @@ function buildFixture(): PositionedGraph {
         id: "B-C",
         from: "B",
         to: "C",
+        style: [],
         points: [
           { x: 40, y: 120 },
           { x: 40, y: 200 },
@@ -254,6 +256,46 @@ describe("renderToSVG", () => {
 
     for (const frame of Array.from(svg.querySelectorAll("rect.siren-node-frame"))) {
       expect(frame.getAttribute("style")).toBeNull();
+    }
+  });
+
+  it("emits an edge's resolved author styling as an inline style attribute on its path, leaving an unstyled edge without one", () => {
+    // On the path itself, because that is the element the theme's
+    // `.siren-edge { stroke: ... }` paints — an inline declaration there
+    // outranks it without `!important` (ADR-0008).
+    const graph = buildFixture();
+    graph.edges[0].style = [
+      { property: "stroke", value: "#f00" },
+      { property: "stroke-width", value: "4px" },
+    ];
+
+    const svg = renderToSVG(graph);
+
+    const path = (id: string) => svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    expect(path("A-B").getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
+    expect(path("B-C").getAttribute("style")).toBeNull();
+  });
+
+  it("leaves the arrowhead the theme's color when an edge is styled: the marker is one shared def, and a marker does not inherit from the path that references it", () => {
+    // The honest consequence of where the arrowhead lives, asserted rather
+    // than wished away: `stroke` on an edge recolors the line and not its
+    // arrowhead. There is one `<marker>` for the whole diagram, its fill
+    // comes from `.siren-arrow-fill` in the theme, and SVG marker content
+    // inherits from the marker's own ancestors — not from the referencing
+    // path. Per-edge arrowhead color would need a marker per edge, which is
+    // a different ticket.
+    const graph = buildFixture();
+    graph.edges[0].style = [{ property: "stroke", value: "#f00" }];
+
+    const svg = renderToSVG(graph);
+
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
+    const arrowPath = svg.querySelector("defs marker#siren-arrow path")!;
+    expect(arrowPath.getAttribute("class")).toBe("siren-arrow-fill");
+    expect(arrowPath.getAttribute("fill")).toBeNull();
+    expect(arrowPath.getAttribute("style")).toBeNull();
+    for (const path of Array.from(svg.querySelectorAll("path.siren-edge"))) {
+      expect(path.getAttribute("marker-end")).toBe("url(#siren-arrow)");
     }
   });
 });

@@ -16,6 +16,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" },
         { from: "B", to: "C" },
       ],
+      linkStyles: [],
       styles: [],
       timeline: null,
     };
@@ -39,6 +40,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" },
         { from: "A", to: "B" },
       ],
+      linkStyles: [],
       styles: [],
       timeline: null,
     };
@@ -63,6 +65,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" },
         { from: "B", to: "C" },
       ],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -104,6 +107,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -130,6 +134,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "Begin" },
       ],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: null,
     };
@@ -151,6 +156,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      linkStyles: [],
       styles: [],
       timeline: null,
     };
@@ -172,6 +178,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -207,6 +214,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -235,6 +243,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -262,6 +271,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [{ kind: "exit", step: 3, targetId: "A", effect: "fade" }],
@@ -283,6 +293,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "B", label: "B" }],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -311,6 +322,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -338,6 +350,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -376,6 +389,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [{ kind: "exit", step: 5, targetId: "A", effect: "fade" }],
@@ -407,6 +421,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -436,6 +451,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" }, // A-B: edge exits at the same step as A
         { from: "B", to: "C" }, // B-C: neither B nor C ever exits
       ],
+      linkStyles: [],
       styles: [],
       timeline: {
         entries: [
@@ -488,6 +504,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      linkStyles: [],
       styles: [],
       timeline: null,
     };
@@ -546,6 +563,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      linkStyles: [],
       styles: [
         {
           styleKind: "style",
@@ -582,6 +600,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      linkStyles: [],
       styles: [
         {
           styleKind: "style",
@@ -615,6 +634,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      linkStyles: [],
       styles: [
         {
           styleKind: "style",
@@ -644,5 +664,202 @@ describe("buildGraphModel", () => {
       },
     ]);
     expect(graph!.nodes[0].style).toEqual([{ property: "stroke", value: "#c00" }]);
+  });
+
+  it("resolves a flowchart `linkStyle` index to the edge declared at that position, and carries its declarations on that edge's own id", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+        { id: "C", label: "C" },
+        { id: "D", label: "D" },
+      ],
+      edges: [
+        { from: "A", to: "B" },
+        { from: "B", to: "C" },
+        { from: "C", to: "D" },
+      ],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["1"],
+          properties: [{ property: "stroke", value: "#f00" }],
+          line: 5,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    // Three edges, so an off-by-one in either direction lands on a
+    // different id and fails here. And what comes out is keyed by the edge
+    // id `timeline:` and `data-siren-id` already use — the index is spent
+    // at this seam and travels no further.
+    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+      ["A-B", []],
+      ["B-C", [{ property: "stroke", value: "#f00" }]],
+      ["C-D", []],
+    ]);
+  });
+
+  it("costs a malformed `linkStyle` address itself, leaving the addresses beside it in the same statement applied", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+        { id: "C", label: "C" },
+      ],
+      edges: [
+        { from: "A", to: "B" },
+        { from: "B", to: "C" },
+      ],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["0", "x"],
+          properties: [{ property: "stroke", value: "#f00" }],
+          line: 4,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'linkStyle addresses "x", which is neither an edge index nor "default"; dropping the declaration.',
+        line: 4,
+        column: 1,
+      },
+    ]);
+    // One bad address is not a reason to throw away the rest of the
+    // statement, exactly as one unknown id is not in `resolveStyles`.
+    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+      ["A-B", [{ property: "stroke", value: "#f00" }]],
+      ["B-C", []],
+    ]);
+  });
+
+  it("names both the index and how many edges the document has when a `linkStyle` addresses an edge that is not there", () => {
+    const documentWith = (edgeCount: number): SirenDocument => ({
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+        { id: "C", label: "C" },
+      ],
+      edges: [
+        { from: "A", to: "B" },
+        { from: "B", to: "C" },
+      ].slice(0, edgeCount),
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["9"],
+          properties: [{ property: "stroke", value: "#f00" }],
+          line: 4,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    });
+
+    // The count is the actionable half: "9 is too high" is only useful next
+    // to how high the author may go.
+    const two = buildGraphModel(documentWith(2));
+    expect(two.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          "linkStyle index 9 addresses no edge in a document with 2 edges; dropping the declaration.",
+        line: 4,
+        column: 1,
+      },
+    ]);
+    expect(two.graph!.edges.every((edge) => edge.style.length === 0)).toBe(true);
+
+    const one = buildGraphModel(documentWith(1));
+    expect(one.diagnostics[0].message).toBe(
+      "linkStyle index 9 addresses no edge in a document with 1 edge; dropping the declaration.",
+    );
+  });
+
+  it("spends a `linkStyle default` on every edge id in the document, so the renderer still sees only ids", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [
+        { from: "A", to: "B" },
+        { from: "A", to: "B" },
+      ],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["default"],
+          properties: [{ property: "stroke", value: "#0f0" }],
+          line: 4,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    // Including the `#2` repeat, which has no index of its own that an
+    // author would guess.
+    expect(graph!.edges.map((edge) => [edge.id, edge.style])).toEqual([
+      ["A-B", [{ property: "stroke", value: "#0f0" }]],
+      ["A-B#2", [{ property: "stroke", value: "#0f0" }]],
+    ]);
+  });
+
+  it("lets no `linkStyle` index out of the model: an edge leaves with an id, its endpoints and its declarations, and nothing else", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      styles: [],
+      linkStyles: [
+        {
+          targets: ["0", "default"],
+          properties: [{ property: "stroke", value: "#f00" }],
+          line: 3,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph } = buildGraphModel(document);
+
+    // The index and `default` are both authored spellings, spent here. If
+    // either survived as a field, layout and the renderer would have a
+    // second way to name an edge and would be free to disagree with the
+    // first — which is exactly what `timeline:` and `data-siren-id` already
+    // rely on not happening.
+    expect(Object.keys(graph!.edges[0]).sort()).toEqual(["from", "id", "style", "to"]);
+    expect(Object.keys(graph!).sort()).toEqual(["direction", "edges", "nodes", "timeline"]);
   });
 });

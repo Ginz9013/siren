@@ -18,8 +18,8 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
       { id: "C", label: "C", style: [] },
     ],
     edges: [
-      { id: "A-B", from: "A", to: "B" },
-      { id: "B-C", from: "B", to: "C" },
+      { id: "A-B", from: "A", to: "B", style: [] },
+      { id: "B-C", from: "B", to: "C", style: [] },
     ],
     timeline: { totalSteps: 0, entries: [] },
   };
@@ -163,5 +163,26 @@ describe("layoutGraph", () => {
       { property: "stroke", value: "#c00" },
     ]);
     expect(byId.B.style).toEqual([]);
+  });
+
+  it("passes each edge's resolved author styling through unchanged onto PositionedEdge.style", () => {
+    // The same rule the node styling above follows, and the reason
+    // `linkStyle`'s index has to die at the model: what arrives here is
+    // already keyed by edge id, so layout reattaches declarations to routes
+    // without ever asking which position an edge was declared at.
+    const base = chainGraph("TB");
+    const graph: GraphModel = {
+      ...base,
+      edges: [
+        { ...base.edges[0], style: [{ property: "stroke", value: "#f00" }] },
+        ...base.edges.slice(1),
+      ],
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.edges.map((e) => [e.id, e]));
+    expect(byId["A-B"].style).toEqual([{ property: "stroke", value: "#f00" }]);
+    expect(byId["B-C"].style).toEqual([]);
   });
 });

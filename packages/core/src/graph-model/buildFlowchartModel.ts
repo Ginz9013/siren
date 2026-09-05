@@ -4,6 +4,8 @@ import type {
   GraphEdge,
   GraphModel,
   GraphNode,
+  LinkStyleDecl,
+  StyleDecl,
 } from "../contracts";
 import { resolveStyles } from "./resolveStyles";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
@@ -33,12 +35,10 @@ export function buildFlowchartModel(
   const nodes = resolveNodes(document, diagnostics);
   const edges = assignEdgeIds(document);
 
-  // Every styling statement a flowchart can write — `style`, `classDef`, and
-  // the apply-directive in both its `class` and its `:::` spelling — names a
-  // node. An edge is addressed by `linkStyle`, by declaration index, which
-  // this document cannot yet write — so an edge id here is an id no styling
-  // statement accepts, and the shared resolver says so in the same words it
-  // says it to a class diagram.
+  // Every styling statement a flowchart can write except one — `style`,
+  // `classDef`, and the apply-directive in both its `class` and its `:::`
+  // spelling — names a node. `linkStyle` is the exception, and it is
+  // resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   for (const { targetId, properties } of resolveStyles(
     document.styles,
@@ -48,6 +48,20 @@ export function buildFlowchartModel(
     // Every id `resolveStyles` returns is one it was handed, so this cannot
     // miss; a node nothing styled keeps the empty list it was built with.
     nodeById.get(targetId)!.style = properties;
+  }
+
+  // The same resolver, the same gate, a different set of ids — the second
+  // call is what keeps `linkStyle` from growing a styling pipeline of its
+  // own. What it is handed has already stopped being about indices:
+  // `asStyleDeclarations` spends every address on the edge ids assigned
+  // just above, so nothing past this point can name an edge by position.
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  for (const { targetId, properties } of resolveStyles(
+    asStyleDeclarations(document.linkStyles, edges, diagnostics),
+    new Set(edgeById.keys()),
+    diagnostics,
+  )) {
+    edgeById.get(targetId)!.style = properties;
   }
 
   const validTargetIds = new Set<string>([
@@ -102,6 +116,97 @@ function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
     const baseId = `${edge.from}-${edge.to}`;
     const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
 
-    return { id, from: edge.from, to: edge.to };
+    return { id, from: edge.from, to: edge.to, style: [] };
   });
+}
+
+/**
+ * Rewrites each `linkStyle` statement as the `StyleDecl` the shared
+ * resolver reads, turning every address the author wrote into the id of the
+ * edge it names.
+ *
+ * **This is where an index stops existing.** Mermaid addresses an edge by
+ * its declaration position and everything downstream of the model addresses
+ * it by id, so one of the two has to end somewhere; it ends here, in the
+ * one function that can see both. The result is indistinguishable from a
+ * `style` statement — same kind, same `targetIds`, same trip through the
+ * same gate — which is why no layout, renderer or timeline code has to know
+ * that `linkStyle` exists.
+ *
+ * `authoredAs` stays `linkStyle` because a diagnostic may quote it, and an
+ * author who wrote `linkStyle 0` never wrote the word `style`.
+ */
+function asStyleDeclarations(
+  linkStyles: readonly LinkStyleDecl[],
+  edges: readonly GraphEdge[],
+  diagnostics: Diagnostic[],
+): StyleDecl[] {
+  return linkStyles.map((linkStyle) => ({
+    styleKind: "style",
+    authoredAs: "linkStyle",
+    targetIds: linkStyle.targets.flatMap((target) =>
+      resolveAddress(target, edges, linkStyle, diagnostics),
+    ),
+    name: null,
+    properties: linkStyle.properties,
+    line: linkStyle.line,
+    column: linkStyle.column,
+  }));
+}
+
+/** A zero-based edge declaration index, and nothing else — not `-1`, not `1.5`. */
+const EDGE_INDEX_RE = /^\d+$/;
+
+/** Mermaid's `linkStyle default`: the author's document-wide default for edges. */
+const EVERY_EDGE = "default";
+
+/**
+ * The edge ids one authored address names: one for an index that lands,
+ * every id for `default`, none for an address that names no edge.
+ *
+ * An address that names nothing costs itself and not the statement beside
+ * it, which is the rule `resolveStyles` already applies to an unknown id —
+ * so a `linkStyle 0,x` still paints edge 0, and the author is told about
+ * `x` rather than left to notice.
+ *
+ * `default` is spent here, on the ids that exist, rather than carried
+ * downstream as a wildcard. That is the same rule an index follows and it
+ * buys the same thing: nothing past the model has to know an edge can be
+ * addressed by anything but its id, and `linkStyle default` versus a
+ * specific `linkStyle N` is then settled by `resolveStyles`' ordinary
+ * last-declaration-wins pass (ADR-0008) rather than by a precedence rule
+ * written a second time here.
+ */
+function resolveAddress(
+  target: string,
+  edges: readonly GraphEdge[],
+  linkStyle: LinkStyleDecl,
+  diagnostics: Diagnostic[],
+): string[] {
+  if (target === EVERY_EDGE) {
+    return edges.map((edge) => edge.id);
+  }
+
+  if (!EDGE_INDEX_RE.test(target)) {
+    diagnostics.push({
+      severity: "error",
+      message: `linkStyle addresses "${target}", which is neither an edge index nor "default"; dropping the declaration.`,
+      line: linkStyle.line,
+      column: linkStyle.column,
+    });
+    return [];
+  }
+
+  const index = Number(target);
+  const edge = edges[index];
+  if (edge === undefined) {
+    diagnostics.push({
+      severity: "error",
+      message: `linkStyle index ${index} addresses no edge in a document with ${edges.length} edge${edges.length === 1 ? "" : "s"}; dropping the declaration.`,
+      line: linkStyle.line,
+      column: linkStyle.column,
+    });
+    return [];
+  }
+  return [edge.id];
 }

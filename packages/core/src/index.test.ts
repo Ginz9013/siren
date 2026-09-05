@@ -2913,17 +2913,148 @@ A[Start]:::ghost --> B[End]:::ghost
     }
   });
 
-  it("still calls a flowchart `linkStyle` line unrecognized — this slice added `classDef`, `class` and `:::`, and only those", () => {
-    for (const line of ["linkStyle 0 stroke:#c00", "linkStyle default stroke:#c00"]) {
-      const result = render(
-        `flowchart TD\nA[Start] --> B[End]\n${line}\n`,
-        document.createElement("div"),
-      );
+  it("carries a flowchart author's `linkStyle` all the way to the DOM: the inline style lands on the path of the edge the index addresses, and on no other", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+C --> D[Done]
+linkStyle 1 stroke:#f00,stroke-width:4px
+`;
 
-      expect([line, result.diagnostics.map((d) => d.message)]).toEqual([
-        line,
-        [`Unrecognized flowchart line: "${line}"`],
-      ]);
-    }
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const path = (id: string) =>
+      result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+
+    // Three edges, so an off-by-one paints a different arrow and fails here.
+    expect(path("B-C").getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
+    expect(path("A-B").getAttribute("style")).toBeNull();
+    expect(path("C-D").getAttribute("style")).toBeNull();
+  });
+
+  it("applies a `linkStyle 0,2` to each edge in the list and to no edge between them", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+C --> D[Done]
+linkStyle 0,2 stroke:#f00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const styled = Array.from(result.svg!.querySelectorAll("path.siren-edge"))
+      .filter((path) => path.getAttribute("style") === "stroke:#f00")
+      .map((path) => path.getAttribute("data-siren-id"));
+    expect(styled).toEqual(["A-B", "C-D"]);
+  });
+
+  it("paints every edge from one `linkStyle default`, and reads `default` as an address rather than as a number", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle default stroke:#0f0
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) => [
+        path.getAttribute("data-siren-id"),
+        path.getAttribute("style"),
+      ]),
+    ).toEqual([
+      ["A-B", "stroke:#0f0"],
+      ["B-C", "stroke:#0f0"],
+    ]);
+  });
+
+  it("settles `linkStyle default` against a specific `linkStyle N` by ADR-0008's last-declaration-wins, in both source orders", () => {
+    // Not "specific beats default": ADR-0008 refuses a specificity model
+    // between author directives, so the two flatten into one ordered list
+    // per edge and the later line wins — which means writing the default
+    // *below* the specific one overrides it. Asserted in both orders
+    // because that is the half an author would guess wrong.
+    const styles = (source: string) =>
+      Array.from(
+        render(source, document.createElement("div")).svg!.querySelectorAll("path.siren-edge"),
+      ).map((path) => [path.getAttribute("data-siren-id"), path.getAttribute("style")]);
+
+    const edges = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+`;
+
+    expect(styles(`${edges}linkStyle default stroke:#0f0\nlinkStyle 0 stroke:#f00\n`)).toEqual([
+      ["A-B", "stroke:#f00"],
+      ["B-C", "stroke:#0f0"],
+    ]);
+
+    expect(styles(`${edges}linkStyle 0 stroke:#f00\nlinkStyle default stroke:#0f0\n`)).toEqual([
+      ["A-B", "stroke:#0f0"],
+      ["B-C", "stroke:#0f0"],
+    ]);
+  });
+
+  it("puts a `linkStyle` value through the one shared gate: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the one a `style` gets", () => {
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TD
+A[Start] --> B[End]
+linkStyle 0 stroke:url(#evil),stroke-width:4px
+`,
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Style value for "stroke" uses "url(", which can fetch a remote resource; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(
+      result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+    ).toBe("stroke-width:4px");
+    // Not merely off the attribute: nowhere in the document. The one
+    // `url(` the markup may contain is the renderer's own marker reference.
+    expect(container.innerHTML.includes("url(#evil")).toBe(false);
+  });
+
+  it("lets a styled edge animate: the author's declarations and the animation classes ride the same path element without disturbing each other", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+linkStyle 0 stroke:#f00
+timeline:
+step 1: enter A-B fade
+`;
+
+    const result = render(source, container);
+    const path = () => result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    // Unlike a node — whose frame carries the style while its `<g>` carries
+    // the classes — an edge is one element wearing both, so this is where a
+    // renderer that wrote its animation state as an inline attribute would
+    // eat the author's declarations.
+    expect(path().classList.contains("siren-pending")).toBe(true);
+    expect(path().getAttribute("style")).toBe("stroke:#f00");
+
+    result.controller!.next();
+    expect(path().classList.contains("siren-pending")).toBe(false);
+    expect(path().classList.contains("siren-enter-fade")).toBe(true);
+    expect(path().getAttribute("style")).toBe("stroke:#f00");
+
+    result.controller!.reset();
+    expect(path().classList.contains("siren-pending")).toBe(true);
+    expect(path().getAttribute("style")).toBe("stroke:#f00");
   });
 });
