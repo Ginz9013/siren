@@ -1,0 +1,79 @@
+%% examples/class-full.srn — every class-diagram feature Siren draws, in one
+%% document. Comment lines like these are stripped in every diagram kind.
+classDiagram
+direction LR
+
+namespace catalog {
+  class Media {
+    <<abstract>>
+    +String title
+    #int durationInSeconds
+    -bool licensed
+    ~String catalogKey
+    +play()*
+    +describe() String
+  }
+  class Track {
+    +String artist
+    +int bpm
+    +play()
+    +remix(Track other) Track
+  }
+  class Podcast {
+    +String host
+    +int episode
+    +play()
+  }
+}
+
+class Playable {
+  <<interface>>
+  +play()
+  +stop()
+}
+
+class Shelf~T~ {
+  -Map~String, List~T~~ byGenre
+  -int loadedCount$
+  +add(String genre, T item)
+  +find(String genre) List~T~
+  +clear()$
+}
+
+class Player
+
+Listener : +String name
+Listener : +rate(Media item, int stars) bool
+
+Media <|-- Track
+Media <|-- Podcast
+Track ..|> Playable
+Shelf "1" *-- "0..*" Media : holds
+Media o-- Artwork : cover
+Listener "1" --> "0..*" Media : rates
+Listener -- Player
+Player ..> Shelf : reads
+Artwork .. Player %% a dashed link, drawn without either endpoint marker
+
+note "Every class-diagram feature Siren draws, in one document"
+note for Shelf "One shelf per media kind"
+
+click Track call showDetails("track") "Inspect this class"
+click Playable href "https://mermaid.js.org/syntax/classDiagram.html" "Mermaid class syntax"
+
+%% Author styling: one class styled directly, and two more by a classDef the
+%% cssClass statement applies. The fills carry an alpha channel deliberately --
+%% an author style reaches a class's frame but not its label text, so an opaque
+%% light fill would leave the dark theme's light label text unreadable on it.
+style Track fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
+classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
+cssClass "Player,Artwork" external
+
+timeline:
+  step 1: enter namespace:1 fade
+  step 2: enter Track slide-top, enter Podcast slide-bottom
+  step 3: enter Media-Track fade, enter Media-Podcast fade
+  step 4: enter Playable fade, enter Track-Playable slide-left
+  step 5: enter note:2 fade, highlight Shelf outline
+  step 6: highlight Listener-Media glow, unhighlight Shelf
+  step 7: unhighlight Listener-Media, exit note:2 slide-right

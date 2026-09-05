@@ -266,6 +266,103 @@ note "Every structural feature in one document"
 note for Registry "One registry per shape kind"
 `;
 
+/**
+ * Kept identical to demos/class-diagram.html's third fetched example,
+ * examples/class-full.srn — duplicated inline for the same reason as the
+ * constants above (no `node:fs` typings in this package). If the two ever
+ * drift, this test and the demo page stop exercising the same source.
+ *
+ * The board's closing example: every in-scope class-diagram feature in one
+ * document. `%%` comments, `direction`, a `namespace`, block/bare/inline/
+ * implicit declaration, all four visibility markers, both classifiers,
+ * `<<abstract>>` and `<<interface>>` annotations, a generic class with a
+ * nested generic member type, all eight relationship kinds — two of them
+ * carrying a label and multiplicity at both ends — both note forms, a
+ * callback and an href interaction, `style` + `classDef` + `cssClass`, and a
+ * `timeline:` block that animates all four addressable kinds: classes,
+ * relationships, the namespace and a note.
+ */
+const CLASS_FULL_EXAMPLE_SOURCE = `%% examples/class-full.srn — every class-diagram feature Siren draws, in one
+%% document. Comment lines like these are stripped in every diagram kind.
+classDiagram
+direction LR
+
+namespace catalog {
+  class Media {
+    <<abstract>>
+    +String title
+    #int durationInSeconds
+    -bool licensed
+    ~String catalogKey
+    +play()*
+    +describe() String
+  }
+  class Track {
+    +String artist
+    +int bpm
+    +play()
+    +remix(Track other) Track
+  }
+  class Podcast {
+    +String host
+    +int episode
+    +play()
+  }
+}
+
+class Playable {
+  <<interface>>
+  +play()
+  +stop()
+}
+
+class Shelf~T~ {
+  -Map~String, List~T~~ byGenre
+  -int loadedCount$
+  +add(String genre, T item)
+  +find(String genre) List~T~
+  +clear()$
+}
+
+class Player
+
+Listener : +String name
+Listener : +rate(Media item, int stars) bool
+
+Media <|-- Track
+Media <|-- Podcast
+Track ..|> Playable
+Shelf "1" *-- "0..*" Media : holds
+Media o-- Artwork : cover
+Listener "1" --> "0..*" Media : rates
+Listener -- Player
+Player ..> Shelf : reads
+Artwork .. Player %% a dashed link, drawn without either endpoint marker
+
+note "Every class-diagram feature Siren draws, in one document"
+note for Shelf "One shelf per media kind"
+
+click Track call showDetails("track") "Inspect this class"
+click Playable href "https://mermaid.js.org/syntax/classDiagram.html" "Mermaid class syntax"
+
+%% Author styling: one class styled directly, and two more by a classDef the
+%% cssClass statement applies. The fills carry an alpha channel deliberately --
+%% an author style reaches a class's frame but not its label text, so an opaque
+%% light fill would leave the dark theme's light label text unreadable on it.
+style Track fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
+classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
+cssClass "Player,Artwork" external
+
+timeline:
+  step 1: enter namespace:1 fade
+  step 2: enter Track slide-top, enter Podcast slide-bottom
+  step 3: enter Media-Track fade, enter Media-Podcast fade
+  step 4: enter Playable fade, enter Track-Playable slide-left
+  step 5: enter note:2 fade, highlight Shelf outline
+  step 6: highlight Listener-Media glow, unhighlight Shelf
+  step 7: unhighlight Listener-Media, exit note:2 slide-right
+`;
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -1599,5 +1696,685 @@ click Fish href "https://example.com/fish" "Fish facts"
     expect(link!.getAttribute("class")).toBe("siren-link");
     expect(link!.getAttribute("href")).toBe("https://example.com/fish");
     expect(fish.querySelector("title")!.textContent).toBe("Fish facts");
+  });
+
+  it("ignores `%%` comments in all three diagram kinds — whole-line, indented and trailing a line of real syntax — rendering the same diagram as the same document without them", () => {
+    const commented = {
+      flowchart: `%% a flowchart that counts
+flowchart TD
+  %% the first node
+  A[Start] --> B[End] %% and the edge to it
+`,
+      sequence: `%% a sequence that counts
+sequenceDiagram
+  %% the caller
+  participant Client %% trailing the declaration
+  participant Server
+  Client->>Server: Fetch %% trailing the message
+`,
+      class: `%% a class diagram that counts
+classDiagram
+  %% the base class
+  Animal <|-- Duck %% trailing the relationship
+`,
+    };
+    const uncommented = {
+      flowchart: `flowchart TD
+  A[Start] --> B[End]
+`,
+      sequence: `sequenceDiagram
+  participant Client
+  participant Server
+  Client->>Server: Fetch
+`,
+      class: `classDiagram
+  Animal <|-- Duck
+`,
+    };
+
+    for (const kind of ["flowchart", "sequence", "class"] as const) {
+      const withComments = document.createElement("div");
+      const withoutComments = document.createElement("div");
+      const commentedResult = render(commented[kind], withComments);
+      const plainResult = render(uncommented[kind], withoutComments);
+
+      expect([kind, commentedResult.diagnostics]).toEqual([kind, []]);
+      expect([kind, plainResult.diagnostics]).toEqual([kind, []]);
+      // The strongest statement available at this seam: a commented document
+      // and its comment-free twin are the *same drawing*, so no comment text
+      // survived into a label and no comment shifted the layout.
+      expect([kind, withComments.innerHTML]).toEqual([kind, withoutComments.innerHTML]);
+      expect([kind, withComments.innerHTML.includes("counts")]).toEqual([kind, false]);
+    }
+  });
+
+  it("reports the empty-document diagnostic, without throwing, for a document that is nothing but `%%` comments", () => {
+    const container = document.createElement("div");
+    const source = `%% classDiagram
+%% Animal <|-- Duck
+  %% nothing here is syntax
+`;
+
+    let result: SirenRenderResult | undefined;
+    expect(() => {
+      result = render(source, container);
+    }).not.toThrow();
+
+    expect(result!.svg).toBeNull();
+    expect(result!.controller).toBeNull();
+    expect(
+      result!.diagnostics.some(
+        (d) => d.severity === "error" && d.message.includes("Empty document"),
+      ),
+    ).toBe(true);
+    expect(container.children).toHaveLength(0);
+  });
+
+  it("gives each of the eight relationship spellings its own line style and endpoint markers through render(), backed by four distinct <marker> defs whose two same-shaped diamonds are told apart by fill class", () => {
+    // Expectations read off spec.md's relationship list, not off the
+    // renderer: `{ line, decorated end }` per Mermaid spelling.
+    const forms = [
+      { statement: "Base <|-- Sub", type: "inheritance", dashed: false, start: "triangle", end: null },
+      { statement: "Whole *-- Part", type: "composition", dashed: false, start: "diamondFilled", end: null },
+      { statement: "Owner o-- Owned", type: "aggregation", dashed: false, start: "diamondHollow", end: null },
+      { statement: "Source --> Target", type: "association", dashed: false, start: null, end: "arrow" },
+      { statement: "Left -- Right", type: "link", dashed: false, start: null, end: null },
+      { statement: "User ..> Used", type: "dependency", dashed: true, start: null, end: "arrow" },
+      { statement: "Impl ..|> Iface", type: "realization", dashed: true, start: null, end: "triangle" },
+      { statement: "One .. Two", type: "dashedLink", dashed: true, start: null, end: null },
+    ] as const;
+
+    const container = document.createElement("div");
+    const source = `classDiagram\n${forms.map((f) => f.statement).join("\n")}\n`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const relationships = Array.from(result.svg!.querySelectorAll("g.siren-relationship"));
+    expect(relationships).toHaveLength(8);
+
+    // Which `<marker>` def each endpoint shape resolved to, learned from the
+    // DOM rather than assumed, so the distinctness assertions below are about
+    // the shapes and not about ids this test hard-coded.
+    const markerIdByShape = new Map<string, string>();
+
+    for (const form of forms) {
+      const group = relationships.find(
+        (g) => g.getAttribute("data-siren-relationship") === form.type,
+      );
+      expect([form.statement, group !== undefined]).toEqual([form.statement, true]);
+
+      const line = group!.querySelector("path.siren-relationship-line")!;
+      expect([form.statement, line.getAttribute("stroke-dasharray") !== null]).toEqual([
+        form.statement,
+        form.dashed,
+      ]);
+
+      for (const [attribute, shape] of [
+        ["marker-start", form.start],
+        ["marker-end", form.end],
+      ] as const) {
+        const reference = line.getAttribute(attribute);
+        expect([form.statement, attribute, reference !== null]).toEqual([
+          form.statement,
+          attribute,
+          shape !== null,
+        ]);
+        if (shape === null) continue;
+
+        const markerId = reference!.replace(/^url\(#/, "").replace(/\)$/, "");
+        // The def has to exist, or the endpoint silently draws nothing.
+        expect([form.statement, result.svg!.querySelector(`defs marker#${markerId}`)]).not.toEqual(
+          [form.statement, null],
+        );
+        const already = markerIdByShape.get(shape);
+        if (already !== undefined) expect([shape, markerId]).toEqual([shape, already]);
+        markerIdByShape.set(shape, markerId);
+      }
+    }
+
+    // Four endpoint shapes, four distinct defs. Sharing one would make a
+    // composition indistinguishable from an aggregation on screen.
+    const shapes = ["triangle", "diamondFilled", "diamondHollow", "arrow"];
+    expect(Array.from(markerIdByShape.keys()).sort()).toEqual([...shapes].sort());
+    expect(new Set(markerIdByShape.values()).size).toBe(4);
+
+    // The two diamonds are drawn from the same path shape on purpose, so the
+    // *only* thing that separates a filled diamond from a hollow one is the
+    // fill class the theme hangs its color off. Distinct ids alone would pass
+    // while both rendered identically.
+    const markerShapePath = (shape: string) =>
+      result.svg!.querySelector(`defs marker#${markerIdByShape.get(shape)!} path`)!;
+    expect(markerShapePath("diamondFilled").getAttribute("d")).toBe(
+      markerShapePath("diamondHollow").getAttribute("d"),
+    );
+    expect(markerShapePath("diamondFilled").getAttribute("class")).not.toBe(
+      markerShapePath("diamondHollow").getAttribute("class"),
+    );
+  });
+
+  it("renders a label and both multiplicity strings on any relationship spelling, not only on the association it was first built for", () => {
+    const container = document.createElement("div");
+    // Multiplicity and a label on a decorated *from* end (composition) and on
+    // a dashed one (dependency) — the two cases an implementation wired for
+    // `A "1" --> "*" B` alone would miss.
+    const source = `classDiagram
+Fleet "1" *-- "0..*" Vehicle : owns
+Report "*" ..> "1" Database : reads from
+Plain -- Bare
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const textsOf = (id: string, selector: string) =>
+      Array.from(
+        result
+          .svg!.querySelector(`g.siren-relationship[data-siren-id="${id}"]`)!
+          .querySelectorAll(selector),
+      ).map((t) => t.textContent);
+
+    expect(textsOf("Fleet-Vehicle", "text.siren-relationship-label")).toEqual(["owns"]);
+    expect(textsOf("Fleet-Vehicle", "text.siren-multiplicity")).toEqual(["1", "0..*"]);
+    expect(textsOf("Report-Database", "text.siren-relationship-label")).toEqual(["reads from"]);
+    expect(textsOf("Report-Database", "text.siren-multiplicity")).toEqual(["*", "1"]);
+
+    // A relationship given neither renders neither, rather than empty <text>.
+    expect(textsOf("Plain-Bare", "text.siren-relationship-label")).toEqual([]);
+    expect(textsOf("Plain-Bare", "text.siren-multiplicity")).toEqual([]);
+  });
+
+  it("holds the href allowlist end to end: every disallowed URL spelling is dropped with an error diagnostic and reaches the DOM as no <a> at all, while the class itself still renders", () => {
+    // One document per URL so a single rejection cannot be masked by another
+    // statement's diagnostic, and so the "no <a> anywhere" check is total.
+    const refused = [
+      'javascript:alert(1)',
+      'JaVaScRiPt:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'vbscript:msgbox(1)',
+      // Scheme-relative: no scheme of its own, so it borrows the page's.
+      '//evil.example/steal',
+      '\\\\evil.example/steal',
+      '/\\evil.example/steal',
+    ];
+
+    for (const url of refused) {
+      const container = document.createElement("div");
+      const source = `classDiagram\nAnimal <|-- Duck\nclick Duck href "${url}"\n`;
+
+      const result = render(source, container);
+
+      const errors = result.diagnostics.filter((d) => d.severity === "error");
+      expect([url, errors.length]).toEqual([url, 1]);
+      expect([url, errors[0].message.includes("Duck")]).toEqual([url, true]);
+
+      // The interaction is gone, not merely inert: no link element, no href
+      // attribute anywhere in the tree, and no click hook either.
+      expect([url, result.svg!.querySelectorAll("a").length]).toEqual([url, 0]);
+      expect([url, result.svg!.querySelectorAll("[href]").length]).toEqual([url, 0]);
+      expect([url, result.svg!.querySelectorAll("[data-siren-click]").length]).toEqual([url, 0]);
+      // Dropping the interaction drops only the interaction.
+      expect([url, result.svg!.querySelectorAll("g.siren-class").length]).toEqual([url, 2]);
+    }
+  });
+
+  it("still admits the URL forms the allowlist exists to allow — http, https, mailto and a relative path — writing each into the <a class=\"siren-link\"> href", () => {
+    const allowed = [
+      "https://example.com/duck",
+      "http://example.com/duck",
+      "mailto:keeper@example.com",
+      "./docs/duck.html",
+      "#duck",
+    ];
+
+    for (const url of allowed) {
+      const container = document.createElement("div");
+      const source = `classDiagram\nAnimal <|-- Duck\nclick Duck href "${url}"\n`;
+
+      const result = render(source, container);
+
+      expect([url, result.diagnostics]).toEqual([url, []]);
+      const link = result.svg!.querySelector("a.siren-link");
+      expect([url, link !== null]).toEqual([url, true]);
+      expect([url, link!.getAttribute("href")]).toEqual([url, url]);
+      expect([url, link!.querySelector('g.siren-class[data-siren-id="Duck"]') !== null]).toEqual([
+        url,
+        true,
+      ]);
+    }
+  });
+
+  it("puts a `link` statement's URL through the same allowlist as `click ... href`, rather than past it", () => {
+    const good = document.createElement("div");
+    const goodResult = render(
+      `classDiagram\nAnimal <|-- Duck\nlink Duck "https://example.com/duck"\n`,
+      good,
+    );
+    expect(goodResult.diagnostics).toEqual([]);
+    expect(goodResult.svg!.querySelector("a.siren-link")!.getAttribute("href")).toBe(
+      "https://example.com/duck",
+    );
+
+    const bad = document.createElement("div");
+    const badResult = render(
+      `classDiagram\nAnimal <|-- Duck\nlink Duck "javascript:alert(1)"\n`,
+      bad,
+    );
+    expect(
+      badResult.diagnostics.filter((d) => d.severity === "error").length,
+    ).toBe(1);
+    expect(badResult.svg!.querySelectorAll("a")).toHaveLength(0);
+    expect(badResult.svg!.querySelectorAll("g.siren-class")).toHaveLength(2);
+  });
+
+  it("holds the style-value gate end to end: a refused value never reaches the inline style attribute, its siblings in the same statement still do, and each refusal is its own error diagnostic", () => {
+    const container = document.createElement("div");
+    // Every refused spelling in one statement per class, each paired with a
+    // legitimate sibling declaration that must survive the rejection.
+    const source = `classDiagram
+class Fetches
+class Executes
+class Smuggles
+class Escapes
+Fetches -- Executes
+Smuggles -- Escapes
+style Fetches fill:url(#evil),stroke:#c00
+style Executes fill:expression(alert(1)),stroke:#c00
+style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Escapes fill:u\\72 l(#evil),stroke:#c00
+`;
+
+    const result = render(source, container);
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(4);
+
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`)!
+        .getAttribute("style");
+
+    // Only the sibling survives, in each case.
+    for (const id of ["Fetches", "Executes", "Smuggles", "Escapes"]) {
+      expect([id, frameStyle(id)]).toEqual([id, "stroke:#c00"]);
+    }
+
+    // And nothing refused is anywhere in the serialized document, in any
+    // attribute — the gate is about what the browser is handed, not about
+    // which element it was handed on.
+    const markup = container.innerHTML;
+    for (const forbidden of ["url(", "expression(", "position:fixed", "\\"]) {
+      expect([forbidden, markup.includes(forbidden)]).toEqual([forbidden, false]);
+    }
+  });
+
+  it("carries `classDef` + `cssClass` through render() the same way a `style` statement is carried, with a later `style` overriding the declaration it shares", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+class Shape
+class Square
+class Circle
+Square ..|> Shape
+Circle ..|> Shape
+classDef emphasis fill:#fdd,stroke:#c00
+cssClass "Square,Circle" emphasis
+style Circle fill:#dfd
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("Square")).toBe("fill:#fdd;stroke:#c00");
+    // A property declared twice keeps its first position and its last value.
+    expect(frameStyle("Circle")).toBe("fill:#dfd;stroke:#c00");
+    // A `classDef` applies to nothing on its own.
+    expect(frameStyle("Shape")).toBeNull();
+  });
+
+  it("accepts Mermaid's `classDiagram-v2` header alias, rendering the identical diagram the `classDiagram` spelling does", () => {
+    const body = `
+Animal <|-- Duck
+class Duck {
+  +quack() String
+}
+`;
+    const v1 = document.createElement("div");
+    const v2 = document.createElement("div");
+
+    const v1Result = render(`classDiagram${body}`, v1);
+    const v2Result = render(`classDiagram-v2${body}`, v2);
+
+    expect(v1Result.diagnostics).toEqual([]);
+    expect(v2Result.diagnostics).toEqual([]);
+    expect(v2.innerHTML).toBe(v1.innerHTML);
+  });
+
+  it("renders markup-looking member, annotation, note, relationship-label, multiplicity and tooltip text as literal visible text, never as parsed markup", () => {
+    const container = document.createElement("div");
+    const injected = `<script>alert(1)</script>`;
+    // A namespace label is deliberately absent from this list: `namespace \w+`
+    // is the whole grammar, so a namespace name cannot spell markup in the
+    // first place. Every *other* free-text position in a classDiagram is here.
+    const source = `classDiagram
+class Sneaky {
+  <<${injected}>>
+  +<b>bold</b> field
+}
+class Plain
+Sneaky "<i>1</i>" --> "<i>*</i>" Plain : <svg onload=alert(1)>
+note for Plain "<iframe src=javascript:alert(1)></iframe>"
+click Sneaky call inspect() "<b>tooltip</b>"
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    // Not one element of the injected markup exists as an element: every
+    // author string went in through textContent, so it is text.
+    for (const tag of ["script", "img", "b", "i", "svg", "iframe"]) {
+      expect([tag, result.svg!.querySelectorAll(tag).length]).toEqual([tag, 0]);
+    }
+
+    const textOf = (selector: string) => result.svg!.querySelector(selector)!.textContent;
+    expect(textOf("text.siren-class-annotation")).toBe(`«${injected}»`);
+    expect(textOf("text.siren-member")).toBe("+<b>bold</b> field");
+    expect(textOf("text.siren-relationship-label")).toBe("<svg onload=alert(1)>");
+    expect(textOf("text.siren-note-text")).toBe("<iframe src=javascript:alert(1)></iframe>");
+    expect(textOf("title")).toBe("<b>tooltip</b>");
+    expect(
+      Array.from(result.svg!.querySelectorAll("text.siren-multiplicity")).map((t) => t.textContent),
+    ).toEqual(["<i>1</i>", "<i>*</i>"]);
+  });
+
+  it("renders demos/class-diagram.html's comprehensive example source (examples/class-full.srn) end to end with zero diagnostics — every declaration form, member form, annotation, generic, namespace, both notes, all eight relationship kinds, an interaction and an author style, in one document", () => {
+    const container = document.createElement("div");
+    const clicks: InteractionTarget[] = [];
+
+    const result = render(CLASS_FULL_EXAMPLE_SOURCE, container, {
+      onClick: (target) => clicks.push(target),
+    });
+
+    // Zero diagnostics of any severity: the closing example is the document
+    // the demo page ships, so anything it makes the pipeline complain about
+    // is a defect in one or the other.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+
+    // --- declarations: block, bare, inline, and implicit-from-relationship ---
+    const classIds = Array.from(result.svg!.querySelectorAll("g.siren-class"))
+      .map((g) => g.getAttribute("data-siren-id"))
+      .sort();
+    expect(classIds).toEqual([
+      // Artwork is named only by two relationships; Listener only by inline
+      // members; Player only by a bare `class Player`.
+      "Artwork",
+      "Listener",
+      "Media",
+      "Playable",
+      "Player",
+      "Podcast",
+      "Shelf",
+      "Track",
+    ]);
+
+    const classGroup = (id: string) =>
+      result.svg!.querySelector(`g.siren-class[data-siren-id="${id}"]`)!;
+    const membersOf = (id: string) =>
+      Array.from(classGroup(id).querySelectorAll("text.siren-member")).map((t) => t.textContent);
+
+    // --- members: all four visibility markers, both classifiers, types,
+    // parameter lists and return types, verbatim and in declaration order ---
+    expect(membersOf("Media")).toEqual([
+      "+String title",
+      "#int durationInSeconds",
+      "-bool licensed",
+      "~String catalogKey",
+      "+play()*",
+      "+describe() String",
+    ]);
+    expect(classGroup("Media").querySelectorAll("line.siren-class-divider")).toHaveLength(2);
+    expect(membersOf("Listener")).toEqual([
+      "+String name",
+      "+rate(Media item, int stars) bool",
+    ]);
+    // A bare `class Player` has no members, so no compartment and no divider.
+    expect(membersOf("Player")).toEqual([]);
+    expect(classGroup("Player").querySelectorAll("line.siren-class-divider")).toHaveLength(0);
+
+    // --- generics: angle brackets in the drawn name and in a nested member type ---
+    expect(classGroup("Shelf").querySelector("text.siren-class-name")!.textContent).toBe(
+      "Shelf<T>",
+    );
+    expect(membersOf("Shelf")).toEqual([
+      "-Map<String, List<T>> byGenre",
+      "-int loadedCount$",
+      "+add(String genre, T item)",
+      "+find(String genre) List<T>",
+      "+clear()$",
+    ]);
+
+    // --- annotations ---
+    expect(classGroup("Media").querySelector("text.siren-class-annotation")!.textContent).toBe(
+      "«abstract»",
+    );
+    expect(classGroup("Playable").querySelector("text.siren-class-annotation")!.textContent).toBe(
+      "«interface»",
+    );
+    expect(classGroup("Track").querySelector("text.siren-class-annotation")).toBeNull();
+
+    // --- namespace: one frame, painted first, enclosing exactly its members ---
+    const namespaceGroup = result.svg!.querySelector("g.siren-namespace")!;
+    expect(namespaceGroup.getAttribute("data-siren-id")).toBe("namespace:1");
+    expect(namespaceGroup.querySelector("text.siren-namespace-label")!.textContent).toBe("catalog");
+    expect(
+      Array.from(result.svg!.querySelectorAll("g.siren-namespace, g.siren-class"))[0],
+    ).toBe(namespaceGroup);
+    const box = (element: Element) => {
+      const rect = element.querySelector("rect")!;
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      return {
+        left: x,
+        top: y,
+        right: x + Number(rect.getAttribute("width")),
+        bottom: y + Number(rect.getAttribute("height")),
+      };
+    };
+    const frame = box(namespaceGroup);
+    const encloses = (id: string) => {
+      const inner = box(classGroup(id));
+      return (
+        inner.left >= frame.left &&
+        inner.top >= frame.top &&
+        inner.right <= frame.right &&
+        inner.bottom <= frame.bottom
+      );
+    };
+    expect(["Media", "Track", "Podcast"].map(encloses)).toEqual([true, true, true]);
+    expect(["Playable", "Shelf", "Player", "Listener", "Artwork"].map(encloses)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+
+    // --- relationships: nine statements covering all eight kinds ---
+    const relationships = Array.from(result.svg!.querySelectorAll("g.siren-relationship"));
+    expect(relationships.map((g) => g.getAttribute("data-siren-id"))).toEqual([
+      "Media-Track",
+      "Media-Podcast",
+      "Track-Playable",
+      "Shelf-Media",
+      "Media-Artwork",
+      "Listener-Media",
+      "Listener-Player",
+      "Player-Shelf",
+      "Artwork-Player",
+    ]);
+    expect(
+      new Set(relationships.map((g) => g.getAttribute("data-siren-relationship"))),
+    ).toEqual(
+      new Set([
+        "inheritance",
+        "realization",
+        "composition",
+        "aggregation",
+        "association",
+        "link",
+        "dependency",
+        "dashedLink",
+      ]),
+    );
+    // Both of the two relationships that carry a label and multiplicity —
+    // one on a decorated from-end (composition), one on a to-end (association).
+    const textsOf = (id: string, selector: string) =>
+      Array.from(
+        result
+          .svg!.querySelector(`g.siren-relationship[data-siren-id="${id}"]`)!
+          .querySelectorAll(selector),
+      ).map((t) => t.textContent);
+    expect(textsOf("Shelf-Media", "text.siren-relationship-label")).toEqual(["holds"]);
+    expect(textsOf("Shelf-Media", "text.siren-multiplicity")).toEqual(["1", "0..*"]);
+    expect(textsOf("Listener-Media", "text.siren-relationship-label")).toEqual(["rates"]);
+    expect(textsOf("Listener-Media", "text.siren-multiplicity")).toEqual(["1", "0..*"]);
+
+    // --- notes: free one has no connector, attached one does ---
+    const notes = Array.from(result.svg!.querySelectorAll("g.siren-note"));
+    expect(notes.map((g) => g.getAttribute("data-siren-id"))).toEqual(["note:1", "note:2"]);
+    expect(notes.map((g) => g.querySelector("text.siren-note-text")!.textContent)).toEqual([
+      "Every class-diagram feature Siren draws, in one document",
+      "One shelf per media kind",
+    ]);
+    expect(notes[0].querySelector("path.siren-note-link")).toBeNull();
+    expect(notes[1].querySelector("path.siren-note-link")).not.toBeNull();
+
+    // --- direction LR: the realization runs along x, so the interface it
+    // points at is to the right of the class implementing it ---
+    const frameX = (id: string) =>
+      Number(classGroup(id).querySelector("rect.siren-class-frame")!.getAttribute("x"));
+    expect(frameX("Playable")).toBeGreaterThan(frameX("Track"));
+
+    // --- interaction: one callback, one link, each with its tooltip ---
+    expect(classGroup("Track").getAttribute("data-siren-click")).toBe("showDetails");
+    expect(classGroup("Track").getAttribute("data-siren-click-arg")).toBe("track");
+    expect(classGroup("Track").querySelector("title")!.textContent).toBe("Inspect this class");
+    const link = classGroup("Playable").parentElement!;
+    expect(link.tagName).toBe("a");
+    expect(link.getAttribute("class")).toBe("siren-link");
+    expect(link.getAttribute("href")).toBe("https://mermaid.js.org/syntax/classDiagram.html");
+    classGroup("Track").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toEqual([{ id: "Track", action: "showDetails", argument: "track" }]);
+
+    // --- author styling: `style` on one class, `classDef` + `cssClass` on two ---
+    const frameStyle = (id: string) =>
+      classGroup(id).querySelector("rect.siren-class-frame")!.getAttribute("style");
+    expect(frameStyle("Track")).toBe("fill:#f59e0b33;stroke:#f59e0b;stroke-width:2");
+    expect(frameStyle("Player")).toBe("fill:#3b82f633;stroke:#3b82f6;stroke-width:2");
+    // Applied to a class that only ever existed implicitly, too.
+    expect(frameStyle("Artwork")).toBe("fill:#3b82f633;stroke:#3b82f6;stroke-width:2");
+    expect(frameStyle("Media")).toBeNull();
+
+    // --- `%%` comments: neither the header comment nor the trailing one
+    // survives anywhere in the drawing ---
+    expect(container.innerHTML).not.toContain("%%");
+    expect(container.innerHTML).not.toContain("without either endpoint marker");
+  });
+
+  it("drives examples/class-full.srn's timeline through all four addressable kinds — a class, a relationship, the namespace and a note — with next(), prev() and reset()", () => {
+    const container = document.createElement("div");
+    const result = render(CLASS_FULL_EXAMPLE_SOURCE, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(7);
+
+    const pendingIds = () =>
+      Array.from(result.svg!.querySelectorAll(".siren-pending"))
+        .map((el) => el.getAttribute("data-siren-id"))
+        .sort();
+
+    // Exactly the eight elements with an `enter` action start hidden, across
+    // all four kinds an author can address. The free note (`note:1`) and
+    // every class with no `enter` are visible from the start.
+    expect(pendingIds()).toEqual([
+      "Media-Podcast",
+      "Media-Track",
+      "Playable",
+      "Podcast",
+      "Track",
+      "Track-Playable",
+      "namespace:1",
+      "note:2",
+    ]);
+
+    const namespaceGroup = result.svg!.querySelector('g.siren-namespace[data-siren-id="namespace:1"]')!;
+    const attachedNote = result.svg!.querySelector('g.siren-note[data-siren-id="note:2"]')!;
+    const freeNote = result.svg!.querySelector('g.siren-note[data-siren-id="note:1"]')!;
+    const track = result.svg!.querySelector('g.siren-class[data-siren-id="Track"]')!;
+    const shelf = result.svg!.querySelector('g.siren-class[data-siren-id="Shelf"]')!;
+    const rates = result.svg!.querySelector(
+      'g.siren-relationship[data-siren-id="Listener-Media"]',
+    )!;
+
+    expect(freeNote.classList.contains("siren-pending")).toBe(false);
+
+    // Step 1: the namespace frame — an element that is neither a class nor a
+    // relationship — enters on its own.
+    controller.next();
+    expect(namespaceGroup.classList.contains("siren-pending")).toBe(false);
+    expect(namespaceGroup.classList.contains("siren-enter-fade")).toBe(true);
+    expect(track.classList.contains("siren-pending")).toBe(true);
+
+    // Step 2: a class, with a directional slide.
+    controller.next();
+    expect(track.classList.contains("siren-pending")).toBe(false);
+    expect(track.classList.contains("siren-enter-slide-top")).toBe(true);
+
+    controller.next(); // step 3 — the two inheritance relationships
+    controller.next(); // step 4 — Playable and its realization
+
+    // Step 5: a note enters, and a never-hidden class is highlighted.
+    controller.next();
+    expect(attachedNote.classList.contains("siren-pending")).toBe(false);
+    expect(attachedNote.classList.contains("siren-enter-fade")).toBe(true);
+    expect(shelf.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // Step 6: a relationship highlight, and the class highlight lifted.
+    controller.next();
+    expect(rates.classList.contains("siren-highlight-glow")).toBe(true);
+    expect(shelf.classList.contains("siren-highlight-outline")).toBe(false);
+
+    // Step 7: the note exits.
+    controller.next();
+    expect(controller.currentStep).toBe(7);
+    expect(attachedNote.classList.contains("siren-exit-slide-right")).toBe(true);
+    expect(rates.classList.contains("siren-highlight-glow")).toBe(false);
+
+    // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(attachedNote.classList.contains("siren-exit-slide-right")).toBe(false);
+    expect(rates.classList.contains("siren-highlight-glow")).toBe(true);
+
+    // And reset returns every one of the four kinds to its initial state.
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(pendingIds()).toEqual([
+      "Media-Podcast",
+      "Media-Track",
+      "Playable",
+      "Podcast",
+      "Track",
+      "Track-Playable",
+      "namespace:1",
+      "note:2",
+    ]);
+    expect(rates.classList.contains("siren-highlight-glow")).toBe(false);
+    expect(shelf.classList.contains("siren-highlight-outline")).toBe(false);
   });
 });

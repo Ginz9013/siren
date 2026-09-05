@@ -49,27 +49,63 @@
 
     <div id="siren-structure-container"></div>
 
+    <h2>Everything at once, animated</h2>
+    <p class="intro">
+      <code>examples/class-full.srn</code> — the board's closing example, with every in-scope
+      feature in one document: <code>%%</code> comments, <code>direction LR</code>, a
+      <code>namespace</code>, all four declaration forms, all four visibility markers, both
+      classifiers, annotations, a generic class with a nested generic member type, all eight
+      relationship kinds (two carrying a label and multiplicity at both ends), both note forms,
+      a <code>click … call</code> callback and a <code>click … href</code> link, and
+      <code>style</code> + <code>classDef</code> + <code>cssClass</code>. Its
+      <code>timeline:</code> block animates all four addressable kinds — classes, relationships,
+      the <code>namespace</code> frame and a note — so <strong>Next</strong> and
+      <strong>Reset</strong> below drive the same <code>AnimationController</code> a flowchart
+      returns. <code>Track</code> is clickable (its callback is reported to the handler this page
+      passed to <code>render()</code>, and shown below); <code>Playable</code> is a real link.
+    </p>
+    <p class="status" id="full-status">Loading…</p>
+    <p class="status">
+      <!--
+        Reusing .theme-toggle, the only button style demos/demo-chrome.css
+        declares (and the only one it themes for dark mode). That file is a
+        shared page-chrome stylesheet, so this page borrows its button rule
+        rather than growing a second one of its own.
+      -->
+      <button id="full-next" type="button" class="theme-toggle">Next</button>
+      <button id="full-reset" type="button" class="theme-toggle">Reset</button>
+      <span id="full-click-status">Click Track to see its callback.</span>
+    </p>
+
+    <div id="siren-full-container"></div>
+
     <!--
       Like demos/sequence-diagram.html, this page imports the real Vite
       library build of @siren/core directly (packages/core/dist/siren-core.js),
-      not @siren/board: this example carries no timeline: block, so there is
-      no animation controller to drive and board would add nothing here. Run
-      `pnpm --filter @siren/core build` first.
+      not @siren/board. Run `pnpm --filter @siren/core build` first.
 
-      The example documents live at examples/class-core.srn and
-      examples/class-structure.srn as standalone .srn files — loaded here via
-      fetch(), not inlined — mirroring demos/sequence-diagram.html's
-      example-loading pattern. Note: fetch() of a local file is blocked by the
-      browser's file:// CORS policy, so this page must be served over http(s),
-      e.g. `python3 -m http.server` from the repo root — opening the .html
-      file directly by double-clicking it will fail to load the examples.
+      Board is the right host for a page that shows *one* diagram
+      (demos/step-reveal.html), since it owns a container outright — its own
+      full-bleed sizing, pan/zoom viewport and floating Prev/Next/Reset bar.
+      This page shows three side by side and needs the third one's callback
+      interaction delivered, which BoardOptions has no field for, so it calls
+      render() itself and drives the returned controller from the two buttons
+      above — the same controller board would have driven.
 
-      Between them the two documents cover the class syntax this board draws:
-      classes, members and the eight relationship kinds in the first;
-      direction, namespaces, annotations, generics and notes in the second.
-      The interaction (click) and styling (style/classDef/cssClass) directives
-      parse and render too, but they are behavioral rather than structural and
-      a later ticket exercises them here.
+      The example documents live at examples/class-core.srn,
+      examples/class-structure.srn and examples/class-full.srn as standalone
+      .srn files — loaded here via fetch(), not inlined — mirroring
+      demos/sequence-diagram.html's example-loading pattern. Note: fetch() of
+      a local file is blocked by the browser's file:// CORS policy, so this
+      page must be served over http(s), e.g. `python3 -m http.server` from the
+      repo root — opening the .html file directly by double-clicking it will
+      fail to load the examples.
+
+      Between them the three documents cover every piece of class syntax this
+      board draws: classes, members and the eight relationship kinds in the
+      first; direction, namespaces, annotations, generics and notes in the
+      second; all of that plus interaction, styling and animation, in one
+      document, in the third.
     -->
     <script type="module">
       import { render } from "../packages/core/dist/siren-core.js";
@@ -82,15 +118,21 @@
         return response.text();
       }
 
-      const [source, structureSource] = await Promise.all([
+      const [source, structureSource, fullSource] = await Promise.all([
         loadExample("../examples/class-core.srn"),
         loadExample("../examples/class-structure.srn"),
+        loadExample("../examples/class-full.srn"),
       ]);
 
       const container = document.getElementById("siren-container");
       const statusEl = document.getElementById("status");
       const structureContainer = document.getElementById("siren-structure-container");
       const structureStatusEl = document.getElementById("structure-status");
+      const fullContainer = document.getElementById("siren-full-container");
+      const fullStatusEl = document.getElementById("full-status");
+      const fullNextBtn = document.getElementById("full-next");
+      const fullResetBtn = document.getElementById("full-reset");
+      const fullClickStatusEl = document.getElementById("full-click-status");
       const themeBtn = document.getElementById("theme-btn");
 
       // Proves the design tokens in packages/core/src/theme/default.css are
@@ -121,8 +163,8 @@
         },
       };
 
-      function renderExample(exampleSource, targetContainer, targetStatusEl) {
-        const result = render(exampleSource, targetContainer, { measureText });
+      function renderExample(exampleSource, targetContainer, targetStatusEl, options = {}) {
+        const result = render(exampleSource, targetContainer, { measureText, ...options });
 
         for (const diagnostic of result.diagnostics) {
           console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
@@ -130,7 +172,7 @@
 
         if (result.svg === null) {
           targetStatusEl.textContent = "Render failed — see console diagnostics.";
-          return;
+          return result;
         }
 
         const count = (selector) => result.svg.querySelectorAll(selector).length;
@@ -154,10 +196,48 @@
           parts.push(`${count("g.siren-note")} notes`);
         }
         targetStatusEl.textContent = `Rendered ${parts.join(", ")}.`;
+        return result;
       }
 
       renderExample(source, container, statusEl);
       renderExample(structureSource, structureContainer, structureStatusEl);
+
+      // The third example is the only one carrying a `timeline:` block, so it
+      // is the only one with a controller to drive. `render()` returns the
+      // same AnimationController a flowchart does — a class diagram animates,
+      // unlike a sequence diagram, whose controller is still null.
+      const fullResult = renderExample(fullSource, fullContainer, fullStatusEl, {
+        onClick: (target) => {
+          const argument = target.argument === null ? "" : `"${target.argument}"`;
+          fullClickStatusEl.textContent = `onClick: ${target.id} → ${target.action}(${argument})`;
+        },
+      });
+
+      const controller = fullResult.controller;
+      const summary = fullStatusEl.textContent;
+
+      function showStep() {
+        fullStatusEl.textContent =
+          `${summary} Step ${controller.currentStep} of ${controller.totalSteps}.`;
+        // next() is a no-op past the last step, so the button says so rather
+        // than sitting there looking broken.
+        fullNextBtn.disabled = controller.currentStep >= controller.totalSteps;
+      }
+
+      if (controller === null) {
+        fullNextBtn.disabled = true;
+        fullResetBtn.disabled = true;
+      } else {
+        fullNextBtn.addEventListener("click", () => {
+          controller.next();
+          showStep();
+        });
+        fullResetBtn.addEventListener("click", () => {
+          controller.reset();
+          showStep();
+        });
+        showStep();
+      }
     </script>
   </body>
 </html>
