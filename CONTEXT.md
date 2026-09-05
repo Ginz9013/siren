@@ -86,8 +86,10 @@ _Avoid_: diagram type, mode
 **Direction**:
 Which way a diagram's layout runs — `TB` top-to-bottom, `BT` bottom-to-top, `LR` left-to-right,
 `RL` right-to-left — written in a flowchart's header (`flowchart TB`) or a class diagram's
-`direction` statement. `TD` is Mermaid's alias for `TB`, not a fifth direction: the flowchart
-parser normalizes it away, so nothing downstream ever sees two spellings of one direction.
+`direction` statement. `TD` is Mermaid's alias for `TB`, not a fifth direction: both parsers
+normalize it away through the same rule, so nothing downstream ever sees two spellings of one
+direction — including `layoutDirectedGraph`, which takes these four values as dagre's `rankdir`
+with nothing left to map.
 _Avoid_: orientation, flow direction, rankdir (that is dagre's word for it, and it belongs inside
 `layoutDirectedGraph`), TD (say `TB`)
 

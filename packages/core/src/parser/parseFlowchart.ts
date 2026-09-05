@@ -7,9 +7,12 @@ import type {
   SirenNode,
   SirenTimeline,
 } from "../contracts";
+import { DIRECTION_ALTERNATION, normalizeDirection } from "./parseDirection";
 import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
-const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|TB|BT|LR|RL)\s*$/;
+const FLOWCHART_HEADER_RE = new RegExp(
+  `^flowchart\\s+(${DIRECTION_ALTERNATION})\\s*$`,
+);
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
   /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
@@ -80,10 +83,10 @@ export function parseFlowchart(source: string): ParseResult {
         sawError = true;
         break;
       }
-      // `TD` and `TB` are two spellings of one direction. The parser is the
-      // only module that knows which the author wrote, so it is where the
-      // alias dies: everything downstream sees one vocabulary.
-      direction = headerMatch[1] === "TD" ? "TB" : (headerMatch[1] as Direction);
+      // The parser is the only module that knows which spelling the author
+      // wrote, so it is where the alias dies: everything downstream sees one
+      // vocabulary.
+      direction = normalizeDirection(headerMatch[1]);
       mode = "flowchart";
       continue;
     }

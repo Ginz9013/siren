@@ -1,9 +1,12 @@
 import type { Diagnostic, ParseResult } from "../contracts";
 import { parseClassDiagram } from "./parseClassDiagram";
+import { DIRECTION_ALTERNATION } from "./parseDirection";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 
-const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|TB|BT|LR|RL)\s*$/;
+const FLOWCHART_HEADER_RE = new RegExp(
+  `^flowchart\\s+(${DIRECTION_ALTERNATION})\\s*$`,
+);
 // Spelled out rather than derived from the regex: a diagnostic is read by an
 // author, and `TD` is deliberately absent — it parses, but `TB` is the
 // spelling to teach.

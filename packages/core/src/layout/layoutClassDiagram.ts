@@ -1,5 +1,5 @@
 import type {
-  ClassDirection,
+  Direction,
   ClassMember,
   ClassModel,
   LayoutOptions,
@@ -17,7 +17,6 @@ import type {
 import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
-  type RankDirection,
 } from "./layoutDirectedGraph";
 
 /** Horizontal padding between a class box's edge and its widest text line. */
@@ -224,20 +223,6 @@ function planClassBox(
     methods,
   };
 }
-
-/**
- * Maps a class diagram's `direction` statement onto the shared layout core's
- * rank directions. The two vocabularies spell the same four values, but they
- * are separate types on purpose — `ClassDirection` is a pipeline contract,
- * `RankDirection` is the core's own — so the mapping is written out rather
- * than cast across.
- */
-const RANK_DIRECTION: Record<ClassDirection, RankDirection> = {
-  TB: "TB",
-  BT: "BT",
-  LR: "LR",
-  RL: "RL",
-};
 
 /** Any axis-aligned rectangle in diagram coordinates — here, a class box. */
 interface Rect {
@@ -484,7 +469,7 @@ export function layoutClassDiagram(
   );
 
   const laidOut = layoutDirectedGraph({
-    rankdir: RANK_DIRECTION[model.direction],
+    rankdir: model.direction,
     nodes: [
       ...model.classes.map((cls) => {
         const plan = planById.get(cls.id)!;

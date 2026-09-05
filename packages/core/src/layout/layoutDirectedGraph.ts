@@ -1,12 +1,5 @@
 import dagre from "@dagrejs/dagre";
-import type { Point } from "../contracts";
-
-/**
- * Rank direction accepted by the shared layout core: top-to-bottom,
- * bottom-to-top, left-to-right, right-to-left. Diagram kinds map their own
- * direction vocabulary (flowchart's `TD`, for example) onto these.
- */
-export type RankDirection = "TB" | "BT" | "LR" | "RL";
+import type { Direction, Point } from "../contracts";
 
 /** A box to place. Sizes are given by the caller; this module never measures. */
 export interface DirectedGraphLayoutNode {
@@ -38,7 +31,7 @@ export interface DirectedGraphLayoutEdge {
 
 /** Everything the shared layout core needs to place a directed graph. */
 export interface DirectedGraphLayoutInput {
-  rankdir: RankDirection;
+  rankdir: Direction;
   nodes: DirectedGraphLayoutNode[];
   edges: DirectedGraphLayoutEdge[];
 }

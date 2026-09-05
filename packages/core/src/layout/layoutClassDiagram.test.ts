@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
-  ClassDirection,
+  Direction,
   ClassMember,
   ClassModel,
   Point,
@@ -902,7 +902,7 @@ describe("layoutClassDiagram", () => {
      * shape a real diagram produced when this defect was spotted by looking at
      * a rendered picture.
      */
-    function cornerArrival(direction: ClassDirection): PositionedClassDiagram {
+    function cornerArrival(direction: Direction): PositionedClassDiagram {
       return layoutClassDiagram(
         classModel({
           direction,

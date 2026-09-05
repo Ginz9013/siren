@@ -25,9 +25,13 @@ export interface Diagnostic {
 }
 
 /**
- * Flowchart layout direction, taken from the `flowchart ...` header. `TD` is
- * Mermaid's alias for `TB` and is normalized away by the parser, so nothing
- * downstream ever sees it.
+ * Layout direction, shared by every diagram kind that has one: a flowchart's
+ * `flowchart ...` header and a class diagram's `direction` statement. `TD` is
+ * Mermaid's alias for `TB` and is normalized away by the parser (see
+ * `normalizeDirection`), so nothing downstream ever sees it.
+ *
+ * `layoutDirectedGraph` takes this type directly as its `rankdir` — the four
+ * values are dagre's own, so there is nothing left to map.
  */
 export type Direction = "TB" | "BT" | "LR" | "RL";
 
@@ -639,13 +643,6 @@ export interface SirenRenderResult {
 // Class diagram — parser-level (pre graph-model) types
 // ---------------------------------------------------------------------------
 
-/**
- * Layout direction of a class diagram, from its `direction` statement. Spells
- * the same four values as `Direction`; the two are collapsed into one type by
- * the next ticket on this board.
- */
-export type ClassDirection = "TB" | "BT" | "LR" | "RL";
-
 /** Whether a class member is an attribute (no parameter list) or a method. */
 export type ClassMemberKind = "attribute" | "method";
 
@@ -824,7 +821,7 @@ export interface ClassStyleDecl {
  */
 export interface ClassDocument {
   kind: "class";
-  direction: ClassDirection;
+  direction: Direction;
   classes: ClassDecl[];
   relationships: ClassRelationship[];
   namespaces: ClassNamespace[];
@@ -912,7 +909,7 @@ export interface ResolvedClassStyle {
  * interactions and styles, and the resolved timeline.
  */
 export interface ClassModel {
-  direction: ClassDirection;
+  direction: Direction;
   classes: ResolvedClass[];
   relationships: ResolvedClassRelationship[];
   namespaces: ResolvedClassNamespace[];
@@ -1026,7 +1023,7 @@ export interface PositionedClassNote {
  * `renderClassDiagramToSVG`.
  */
 export interface PositionedClassDiagram {
-  direction: ClassDirection;
+  direction: Direction;
   classes: PositionedClass[];
   relationships: PositionedClassRelationship[];
   /** Namespace frames, drawn before (behind) the classes they enclose. */
