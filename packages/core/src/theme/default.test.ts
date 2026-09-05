@@ -483,9 +483,16 @@ describe("default theme coverage of the class renderer", () => {
     // `highlight X outline` in a class document is a step on which nothing
     // visibly happens — the same defect the coverage test above exists to
     // catch, one level down.
+    // Every element kind a `timeline:` block can name, not just the two that
+    // happened to have rules. Enumerating only the working ones is how this
+    // guard missed that `highlight namespace:1 outline` resolved to nothing:
+    // the verb parsed, the model accepted it, the controller set the class,
+    // and the picture did not change.
     const cases: [string, string][] = [
       [".siren-class", ".siren-class-frame"],
       [".siren-relationship", ".siren-relationship-line"],
+      [".siren-namespace", ".siren-namespace-frame"],
+      [".siren-note", ".siren-note-frame"],
     ];
 
     for (const [groupSelector, shapeSelector] of cases) {

@@ -713,6 +713,22 @@
     stroke-width var(--siren-highlight-duration) ease-out;
 }
 
+/*
+ * A namespace and a note are addressable from a `timeline:` block exactly as
+ * a class and a relationship are, so `highlight namespace:1 outline` has to
+ * do something. Without these two rules it resolved to nothing at all — the
+ * verb parsed, the model accepted it, the controller set the class, and the
+ * picture did not change.
+ */
+.siren-namespace.siren-highlight-outline .siren-namespace-frame,
+.siren-note.siren-highlight-outline .siren-note-frame {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
 .siren-highlight-glow {
   filter: drop-shadow(0 0 4px var(--siren-highlight-color))
     drop-shadow(0 0 8px var(--siren-highlight-color));
