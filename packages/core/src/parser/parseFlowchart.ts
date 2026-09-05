@@ -2,22 +2,110 @@ import type {
   Diagnostic,
   Direction,
   FlowchartDocument,
+  LinkStyleDecl,
   ParseResult,
   SirenEdge,
   SirenNode,
   SirenTimeline,
+  StyleDecl,
+  StyleProperty,
 } from "../contracts";
+import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
-const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
+/**
+ * A node declaration, with the optional `:::name` shorthand that applies a
+ * `classDef` at the declaration itself. `A[Start]:::emphasis`.
+ */
+const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*(?::::(\w+))?\s*$/;
+
+/**
+ * The bare `A:::emphasis` shorthand — the same application written without a
+ * label. It stays a pattern of its own so that a bare `A` on a line by
+ * itself keeps being an unrecognized line rather than silently declaring a
+ * node: what makes this a declaration is the `:::`.
+ */
+const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
+
+/**
+ * `A[Start] --> B[End]`, with each endpoint free to carry the same
+ * `[label]` and `:::name` an endpoint written on a line of its own may
+ * carry — the shorthand works wherever a node can be written, as it does in
+ * Mermaid, rather than only at a standalone declaration.
+ *
+ * Anchored at both ends, so a chained `A --> B --> C` stays an
+ * unrecognized line: chaining is a separate compatibility gap, and reading
+ * the first two nodes of three while dropping the rest would be a wrong
+ * answer where there is currently an honest refusal.
+ */
 const EDGE_RE =
-  /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
+  /^(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?\s*$/;
 const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
 
 /**
+ * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
+ * node, spelled exactly as a class diagram spells it.
+ */
+const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
+
+/**
+ * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
+ * nothing on its own, spelled exactly as a class diagram spells it.
+ */
+const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+
+/**
+ * `linkStyle 0 stroke:#f00` — the one styling statement that reaches an
+ * edge, which `style` cannot: Mermaid addresses an edge by its declaration
+ * index rather than by a name the author chose.
+ *
+ * The addresses are captured as written and left that way. Turning `0` into
+ * the edge id `A-B` is `buildFlowchartModel`'s job, since only the model
+ * knows which edges exist and what they are called — so this pattern is
+ * deliberately incurious about whether an address is a number at all.
+ *
+ * The address list is greedy and backtracks the same way `CLASS_APPLY_RE`'s
+ * does, which is what lets one pattern read `linkStyle 0`, `linkStyle 0,2`
+ * and `linkStyle default` without three: `[\w,\s]` cannot cross the first
+ * `:` of the declarations, so it gives back everything up to the space that
+ * separates the two halves.
+ */
+const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
+
+/**
+ * `class A,B emphasis` — this kind's spelling of the apply-directive, which
+ * a class diagram spells `cssClass "A,B" emphasis`. Both normalize to the
+ * one `apply` kind here, so no model, renderer or test downstream learns
+ * that two spellings exist.
+ *
+ * The target list is greedy up to the trailing name: `[\w\s,]` swallows the
+ * whole tail and backtracks until a bare `\w+` is left for the definition
+ * name, which is what lets `class A, B emphasis` be read the same as
+ * `class A,B emphasis` without a second pattern.
+ */
+const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
+
+/**
+ * Splits the comma-separated target list an apply-directive (`class A,B
+ * name`) and a `linkStyle 0,2` both write, discarding the empty segments a
+ * trailing or doubled comma leaves behind.
+ *
+ * It answers nothing about what the segments *are*. Whether an id names a
+ * node is `resolveStyles`' question, asked once against the model's ids;
+ * whether an address names an edge is `buildFlowchartModel`'s. Naming
+ * something in a styling statement does not declare it, in either spelling.
+ */
+function splitTargetIds(text: string): string[] {
+  return text
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+}
+
+/**
  * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header, node/edge
- * declarations, and an optional `timeline:` block) into a
+ * declarations, author styling statements, and an optional `timeline:` block) into a
  * `FlowchartDocument`. Never throws on malformed input — syntax problems
  * are reported as diagnostics instead.
  *
@@ -33,11 +121,66 @@ export function parseFlowchart(source: string): ParseResult {
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];
+  const styles: StyleDecl[] = [];
+  const linkStyles: LinkStyleDecl[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
+
+  /**
+   * Reads the declaration list of a `style`/`classDef` statement, turning
+   * each segment that is not a `property:value` pair into an error
+   * diagnostic on that statement's line. The split itself is
+   * `parseStyleProperties`' — shared with the class diagram — because every
+   * kind's styling statements read one declaration list; only where the
+   * diagnostic lands is this parser's to know.
+   */
+  const readStyleProperties = (
+    text: string,
+    lineNumber: number,
+    column: number,
+  ): StyleProperty[] => {
+    const { properties, malformed } = parseStyleProperties(text);
+    for (const segment of malformed) {
+      diagnostics.push({
+        severity: "error",
+        message: `Unrecognized style declaration: "${segment}"`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+    }
+    return properties;
+  };
+
+  /**
+   * Records the `:::name` shorthand as what it is: the apply-directive,
+   * written at the declaration instead of on a line of its own. It produces
+   * the same statement `class A name` produces, so nothing downstream — the
+   * shared resolver included — learns that the shorthand exists.
+   *
+   * `authoredAs` is `:::` rather than `class` because it is what a
+   * diagnostic may quote, and an author who wrote `A:::ghost` never wrote
+   * the word `class`.
+   */
+  const applyAtDeclaration = (
+    id: string,
+    definitionName: string,
+    line: number,
+    column: number,
+  ) => {
+    styles.push({
+      styleKind: "apply",
+      authoredAs: ":::",
+      targetIds: [id],
+      name: definitionName,
+      properties: [],
+      line,
+      column,
+    });
+  };
 
   const addNode = (id: string, label: string, line: number, column: number) => {
     const existing = nodesById.get(id);
@@ -52,6 +195,39 @@ export function parseFlowchart(source: string): ParseResult {
         line,
         column,
       });
+    }
+  };
+
+  /**
+   * Reads one place a node was written — a line of its own or either end of
+   * an edge — with whatever it was written with there.
+   *
+   * The three spellings differ only in what they hand this function, which
+   * is why they share it: the shorthand works wherever a node can be
+   * written, so where it was written must not be what decides what it does.
+   *
+   * The label and the definition are independent. A label declares, so a
+   * labelled mention goes through `addNode` and can raise the redeclaration
+   * warning; an unlabelled one only applies, so it declares the node just
+   * when nothing else has and leaves a label written elsewhere for that id
+   * alone. That second rule is ticket 04's, for the standalone `A:::name`,
+   * and an edge's bare endpoint has always followed it — they are one rule
+   * written once here rather than two copies free to drift.
+   */
+  const addNodeAsWritten = (
+    id: string,
+    label: string | undefined,
+    definitionName: string | undefined,
+    line: number,
+    column: number,
+  ) => {
+    if (label !== undefined) {
+      addNode(id, label, line, column);
+    } else if (!nodesById.has(id)) {
+      nodesById.set(id, { id, label: id, line, column });
+    }
+    if (definitionName !== undefined) {
+      applyAtDeclaration(id, definitionName, line, column);
     }
   };
 
@@ -106,17 +282,10 @@ export function parseFlowchart(source: string): ParseResult {
 
     const edgeMatch = EDGE_RE.exec(line);
     if (edgeMatch !== null) {
-      const [, fromId, fromLabel, toId, toLabel] = edgeMatch;
-      if (fromLabel !== undefined) {
-        addNode(fromId, fromLabel, lineNumber, column);
-      } else if (!nodesById.has(fromId)) {
-        nodesById.set(fromId, { id: fromId, label: fromId, line: lineNumber, column });
-      }
-      if (toLabel !== undefined) {
-        addNode(toId, toLabel, lineNumber, column);
-      } else if (!nodesById.has(toId)) {
-        nodesById.set(toId, { id: toId, label: toId, line: lineNumber, column });
-      }
+      const [, fromId, fromLabel, fromDefinition, toId, toLabel, toDefinition] =
+        edgeMatch;
+      addNodeAsWritten(fromId, fromLabel, fromDefinition, lineNumber, column);
+      addNodeAsWritten(toId, toLabel, toDefinition, lineNumber, column);
       edges.push({ from: fromId, to: toId, line: lineNumber, column });
       continue;
     }
@@ -133,10 +302,87 @@ export function parseFlowchart(source: string): ParseResult {
       continue;
     }
 
+    const classDefMatch = CLASS_DEF_RE.exec(line);
+    if (classDefMatch !== null) {
+      // A definition targets nothing: which nodes end up with it is decided
+      // by whoever applies it, in `resolveStyles`' own pass. Checked before
+      // `style` and before a node declaration only because it is the more
+      // specific keyword, not because the order can matter.
+      styles.push({
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: classDefMatch[1],
+        properties: readStyleProperties(classDefMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    const classApplyMatch = CLASS_APPLY_RE.exec(line);
+    if (classApplyMatch !== null) {
+      styles.push({
+        styleKind: "apply",
+        authoredAs: "class",
+        targetIds: splitTargetIds(classApplyMatch[1]),
+        name: classApplyMatch[2],
+        properties: [],
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    const linkStyleMatch = LINK_STYLE_RE.exec(line);
+    if (linkStyleMatch !== null) {
+      // The address goes through untouched — see `LINK_STYLE_RE`. The
+      // declarations do not: they are read by the same splitter `style` and
+      // `classDef` use, so all three statements accept one declaration list
+      // and diagnose a bad segment in one wording.
+      linkStyles.push({
+        targets: splitTargetIds(linkStyleMatch[1]),
+        properties: readStyleProperties(linkStyleMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    const styleMatch = STYLE_RE.exec(line);
+    if (styleMatch !== null) {
+      // Naming a node in a `style` statement does not declare it: styling is
+      // about something that already exists, and whether it does is
+      // `resolveStyles`' question, asked once against the model's ids.
+      //
+      // `targetIds` holds the one node this statement targets. It is a
+      // list because the apply-directive targets many.
+      styles.push({
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: [styleMatch[1]],
+        name: null,
+        properties: readStyleProperties(styleMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
     const nodeMatch = NODE_RE.exec(line);
     if (nodeMatch !== null) {
-      const [, id, label] = nodeMatch;
-      addNode(id, label, lineNumber, column);
+      const [, id, label, definitionName] = nodeMatch;
+      addNodeAsWritten(id, label, definitionName, lineNumber, column);
+      continue;
+    }
+
+    const nodeClassMatch = NODE_CLASS_RE.exec(line);
+    if (nodeClassMatch !== null) {
+      const [, id, definitionName] = nodeClassMatch;
+      // Written without a label, so it applies a definition and claims no
+      // label — `addNodeAsWritten` holds what that means, for this spelling
+      // and for an edge's bare endpoint alike.
+      addNodeAsWritten(id, undefined, definitionName, lineNumber, column);
       continue;
     }
 
@@ -163,6 +409,8 @@ export function parseFlowchart(source: string): ParseResult {
     direction,
     nodes: Array.from(nodesById.values()),
     edges,
+    styles,
+    linkStyles,
     timeline,
   };
 

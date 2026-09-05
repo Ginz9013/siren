@@ -1,6 +1,5 @@
 import type {
   ClassRelationshipEnd,
-  ClassStyleProperty,
   Point,
   PositionedClass,
   PositionedClassCompartment,
@@ -9,7 +8,9 @@ import type {
   PositionedClassNote,
   PositionedClassRelationship,
   ResolvedClassInteraction,
+  StyleProperty,
 } from "../contracts";
+import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -22,17 +23,23 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * because Mermaid decorates the from-end (`Animal <|-- Duck`) as often as
  * the to-end (`Duck ..|> Flyer`).
  */
-const TRIANGLE_MARKER_ID = "siren-class-triangle";
-const DIAMOND_FILLED_MARKER_ID = "siren-class-diamond-filled";
-const DIAMOND_HOLLOW_MARKER_ID = "siren-class-diamond-hollow";
-const ARROW_MARKER_ID = "siren-class-arrow";
+const TRIANGLE_MARKER_NAME = "siren-class-triangle";
+const DIAMOND_FILLED_MARKER_NAME = "siren-class-diamond-filled";
+const DIAMOND_HOLLOW_MARKER_NAME = "siren-class-diamond-hollow";
+const ARROW_MARKER_NAME = "siren-class-arrow";
 
-const END_MARKER_ID: Record<ClassRelationshipEnd, string | null> = {
+/**
+ * The *base* name of each endpoint's marker — never an id on its own. Every
+ * id this renderer mints is that base name plus the render's own scope
+ * (`mintIdScope`), because `url(#id)` resolves against the whole document
+ * rather than against the SVG it is written in.
+ */
+const END_MARKER_NAME: Record<ClassRelationshipEnd, string | null> = {
   none: null,
-  triangle: TRIANGLE_MARKER_ID,
-  diamondFilled: DIAMOND_FILLED_MARKER_ID,
-  diamondHollow: DIAMOND_HOLLOW_MARKER_ID,
-  arrow: ARROW_MARKER_ID,
+  triangle: TRIANGLE_MARKER_NAME,
+  diamondFilled: DIAMOND_FILLED_MARKER_NAME,
+  diamondHollow: DIAMOND_HOLLOW_MARKER_NAME,
+  arrow: ARROW_MARKER_NAME,
 };
 
 /**
@@ -93,7 +100,12 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   svg.setAttribute("height", String(diagram.height));
   svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
 
-  svg.appendChild(buildDefs());
+  // Every marker id below is namespaced by this one freshly drawn token —
+  // see `mintIdScope`. Four fixed ids here rather than the flowchart's one,
+  // so the exposure was four times the size and the fix is the same fix.
+  const scope = mintIdScope();
+
+  svg.appendChild(buildDefs(scope));
 
   // Namespaces first, and nothing else before them: SVG has no z-index, so a
   // frame is behind the boxes it encloses only by being drawn before them.
@@ -107,7 +119,7 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   }
 
   for (const relationship of diagram.relationships) {
-    svg.appendChild(buildRelationship(relationship));
+    svg.appendChild(buildRelationship(relationship, scope));
   }
 
   // Notes last: a note box is opaque, and it annotates the figure rather than
@@ -123,7 +135,10 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
  * Builds the `<g class="siren-relationship">` for one relationship: a
  * `<path class="siren-relationship-line">` following the layout's points.
  */
-function buildRelationship(relationship: PositionedClassRelationship): SVGGElement {
+function buildRelationship(
+  relationship: PositionedClassRelationship,
+  scope: string,
+): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-relationship");
   g.setAttribute("data-siren-id", relationship.id);
@@ -137,13 +152,13 @@ function buildRelationship(relationship: PositionedClassRelationship): SVGGEleme
   // over the classes it connects.
   line.setAttribute("fill", "none");
 
-  const startMarker = END_MARKER_ID[relationship.fromEnd];
+  const startMarker = END_MARKER_NAME[relationship.fromEnd];
   if (startMarker !== null) {
-    line.setAttribute("marker-start", `url(#${startMarker})`);
+    line.setAttribute("marker-start", `url(#${startMarker}${scope})`);
   }
-  const endMarker = END_MARKER_ID[relationship.toEnd];
+  const endMarker = END_MARKER_NAME[relationship.toEnd];
   if (endMarker !== null) {
-    line.setAttribute("marker-end", `url(#${endMarker})`);
+    line.setAttribute("marker-end", `url(#${endMarker}${scope})`);
   }
   if (relationship.line === "dashed") {
     line.setAttribute("stroke-dasharray", DASH_PATTERN);
@@ -219,25 +234,50 @@ function relationshipTypeName(relationship: PositionedClassRelationship): string
  * lands exactly on the path's endpoint — both for the reasons recorded in
  * `renderToSVG.ts`.
  */
-function buildDefs(): SVGDefsElement {
+function buildDefs(scope: string): SVGDefsElement {
   const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
   // A hollow shape has to be filled with the surface color rather than left
   // unfilled: an unfilled UML triangle/diamond lets the relationship line
   // show straight through the middle of the head.
   defs.appendChild(
-    buildMarker(TRIANGLE_MARKER_ID, 12, 10, "M0,0 L12,5 L0,10 Z", "siren-arrow-hollow"),
+    buildMarker(
+      `${TRIANGLE_MARKER_NAME}${scope}`,
+      12,
+      10,
+      "M0,0 L12,5 L0,10 Z",
+      "siren-arrow-hollow",
+    ),
   );
   defs.appendChild(
-    buildMarker(DIAMOND_FILLED_MARKER_ID, 14, 10, "M0,5 L7,0 L14,5 L7,10 Z", "siren-arrow-fill"),
+    buildMarker(
+      `${DIAMOND_FILLED_MARKER_NAME}${scope}`,
+      14,
+      10,
+      "M0,5 L7,0 L14,5 L7,10 Z",
+      "siren-arrow-fill",
+    ),
   );
   defs.appendChild(
-    buildMarker(DIAMOND_HOLLOW_MARKER_ID, 14, 10, "M0,5 L7,0 L14,5 L7,10 Z", "siren-arrow-hollow"),
+    buildMarker(
+      `${DIAMOND_HOLLOW_MARKER_NAME}${scope}`,
+      14,
+      10,
+      "M0,5 L7,0 L14,5 L7,10 Z",
+      "siren-arrow-hollow",
+    ),
   );
   // The association/dependency head is an open V — two strokes, never
   // closed, so it must not be filled (the `siren-arrow-stroke` precedent
   // from the sequence renderer's open marker).
   defs.appendChild(
-    buildMarker(ARROW_MARKER_ID, 8, 8, "M0,0 L8,4 L0,8", "siren-arrow-stroke", true),
+    buildMarker(
+      `${ARROW_MARKER_NAME}${scope}`,
+      8,
+      8,
+      "M0,0 L8,4 L0,8",
+      "siren-arrow-stroke",
+      true,
+    ),
   );
   return defs;
 }
@@ -312,13 +352,38 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
   frame.setAttribute("y", String(positionedClass.y));
   frame.setAttribute("width", String(positionedClass.width));
   frame.setAttribute("height", String(positionedClass.height));
-  applyAuthorStyle(frame, positionedClass.style);
+  applyAuthorStyle(frame, positionedClass.style.frame);
   g.appendChild(frame);
+
+  /**
+   * Appends one of the class's labels, wearing whatever the author's
+   * `color` resolved to.
+   *
+   * Every `<text>` this class draws goes through here, because a `classDef`
+   * names the class and not one of its lines: an author who recolors a box
+   * meant its name, its annotation and its members alike. A relationship's
+   * label and cardinalities are drawn elsewhere and stay out of it — no
+   * `style` or `classDef` can name a relationship.
+   *
+   * The declaration lands on the `<text>` itself for the placement reason
+   * ADR-0008 gives the frame: the theme's `.siren-class-name`,
+   * `.siren-member` and `.siren-class-annotation` rules apply directly to
+   * these elements, so an inline declaration here outranks them without
+   * `!important`, while the same one on the enclosing `<g>` would only be
+   * inherited and lose. It is spelled `fill` rather than the author's
+   * `color` because `fill` is what paints SVG text; `resolveStyles` made
+   * that translation, and this renderer neither repeats nor second-guesses
+   * it.
+   */
+  const appendLabel = (label: SVGTextElement): void => {
+    applyAuthorStyle(label, positionedClass.style.text);
+    g.appendChild(label);
+  };
 
   const centerX = positionedClass.x + positionedClass.width / 2;
   const band = nameBand(positionedClass);
   if (positionedClass.annotation === null) {
-    g.appendChild(
+    appendLabel(
       buildCenteredText("siren-class-name", positionedClass.name, {
         x: centerX,
         y: (band.top + band.bottom) / 2,
@@ -330,13 +395,13 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
     // in Mermaid's guillemets, which is also why the layout measured it
     // without them.
     const split = (band.top + band.bottom) / 2;
-    g.appendChild(
+    appendLabel(
       buildCenteredText("siren-class-annotation", `«${positionedClass.annotation}»`, {
         x: centerX,
         y: (band.top + split) / 2,
       }),
     );
-    g.appendChild(
+    appendLabel(
       buildCenteredText("siren-class-name", positionedClass.name, {
         x: centerX,
         y: (split + band.bottom) / 2,
@@ -355,7 +420,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
       // textContent, never innerHTML — the hard invariant of every Siren
       // renderer: member text is author input and must render literally.
       text.textContent = member.text;
-      g.appendChild(text);
+      appendLabel(text);
     }
   }
 
@@ -535,7 +600,7 @@ function wrapInteraction(
  * truth. This attribute is a CSS sink, never an HTML one: nothing is parsed as
  * markup, so the hard `textContent`-never-`innerHTML` invariant is untouched.
  */
-function applyAuthorStyle(element: SVGElement, style: ClassStyleProperty[]): void {
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
   if (style.length === 0) {
     return;
   }

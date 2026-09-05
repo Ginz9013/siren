@@ -30,6 +30,54 @@ const EXAMPLES_DIR = new URL("../../../examples/", TEST_FILE_URL);
 const readExample = (name: string): string =>
   readFileSync(new URL(`${name}.srn`, EXAMPLES_DIR), "utf8");
 
+/**
+ * Renders `source` into a container attached to a document carrying the
+ * default theme, and hands back the `<svg>`.
+ *
+ * Attached, and themed, because the tests using it ask what a declaration
+ * *computes to* rather than which attribute carries it — and an author
+ * declaration only means anything against the theme it is overriding.
+ * `getComputedStyle` on a detached element has no stylesheet to consult, so
+ * it could not tell the two answers apart.
+ *
+ * The stylesheet is read off disk rather than imported: vitest rewrites any
+ * `.css` module id to an empty string while `test.css` is false (this
+ * package's default), `?raw` included, and a silently empty theme would make
+ * every precedence assertion below vacuous instead of failing.
+ */
+function renderThemed(source: string): SVGSVGElement {
+  if (document.getElementById("siren-default-theme") === null) {
+    const style = document.createElement("style");
+    style.id = "siren-default-theme";
+    style.textContent = readFileSync(new URL("./theme/default.css", TEST_FILE_URL), "utf8");
+    document.head.appendChild(style);
+  }
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const { svg, diagnostics } = render(source, container);
+  expect(diagnostics).toEqual([]);
+  if (svg === null) {
+    throw new Error("render() produced no <svg>");
+  }
+  return svg;
+}
+
+/**
+ * `markup` with every minted id scope collapsed to a fixed token.
+ *
+ * Marker ids are namespaced per render (`renderer/mintIdScope.ts`, which all
+ * three renderers mint from), because `url(#id)` resolves against the whole
+ * document rather than against the SVG it is written in. The direct cost is
+ * that markup is no longer byte-reproducible across renders — so a comparison
+ * asking "are these two the same *drawing*?" has to collapse exactly those
+ * tokens, and nothing else: every other byte is still compared verbatim, and
+ * the `__` prefix no `siren-*` class name contains is what makes the
+ * substitution unambiguous.
+ */
+const sameDrawing = (markup: string): string =>
+  markup.replace(/__[0-9a-z]{8}(?![0-9a-z])/g, "__SCOPE");
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -1484,7 +1532,7 @@ click Duck call showDetails("mallard")
 
     // The hook is markup either way: `render()` attaches a listener to it or
     // does not, and nothing about the document a consumer gets back changes.
-    expect(withoutHandler.innerHTML).toBe(withHandler.innerHTML);
+    expect(sameDrawing(withoutHandler.innerHTML)).toBe(sameDrawing(withHandler.innerHTML));
     expect(
       result.svg!.querySelector('g.siren-class[data-siren-id="Duck"]')!
         .getAttribute("data-siren-click"),
@@ -1572,7 +1620,10 @@ classDiagram
       // The strongest statement available at this seam: a commented document
       // and its comment-free twin are the *same drawing*, so no comment text
       // survived into a label and no comment shifted the layout.
-      expect([kind, withComments.innerHTML]).toEqual([kind, withoutComments.innerHTML]);
+      expect([kind, sameDrawing(withComments.innerHTML)]).toEqual([
+        kind,
+        sameDrawing(withoutComments.innerHTML),
+      ]);
       expect([kind, withComments.innerHTML.includes("counts")]).toEqual([kind, false]);
     }
   });
@@ -1865,6 +1916,55 @@ style Circle fill:#dfd
     expect(frameStyle("Shape")).toBeNull();
   });
 
+  it("lands a class diagram's `color` on every label the class draws, as the `fill` that paints them", () => {
+    // ADR-0008's amendment, landing. `fill:#111` darkens the box; before
+    // this, the theme went on painting dark text on it and no directive
+    // could say otherwise. The author writes `color` because that is what
+    // Mermaid's `classDef` documents, and the label carries `fill` because
+    // that is what paints SVG text — the translation is `resolveStyles`'.
+    const svg = renderThemed(`classDiagram
+class Animal {
+  <<abstract>>
+  +int age
+}
+class Duck
+Duck --|> Animal
+classDef highlight fill:#111,color:#fff
+cssClass "Animal" highlight
+`);
+
+    const animal = svg.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    // The frame keeps everything that is not a text property, unchanged.
+    expect(animal.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBe("fill:#111");
+
+    // All three of the texts a class draws, which is all three `style` and
+    // `classDef` can name: `buildRelationshipText` draws the labels and
+    // cardinalities of a relationship, which no styling statement targets.
+    for (const selector of [".siren-class-name", ".siren-class-annotation", ".siren-member"]) {
+      const label = animal.querySelector(selector)!;
+      expect([selector, label.getAttribute("style")]).toEqual([selector, "fill:#fff"]);
+
+      // Not just which element carries the attribute: what it computes to.
+      // This is the whole of the bug — an inline `color` on a `<text>` sits
+      // in a different property and leaves the computed `fill` exactly where
+      // the theme put it, so a renderer emitting the author's spelling
+      // verbatim would pass an attribute check and change nothing drawn.
+      //
+      // Sound only in a pair: jsdom does not model `!important` at all, so
+      // it over-prefers an inline declaration, and this assertion would keep
+      // passing if the theme ever grew one. `theme/default.test.ts` asserts
+      // separately that the stylesheet contains no `!important` — that is
+      // the check with teeth, and this one states what it protects.
+      expect([selector, getComputedStyle(label).fill]).toEqual([selector, "#fff"]);
+    }
+
+    // A class the `cssClass` did not name is left to the theme entirely.
+    const duckName = svg.querySelector(
+      'g.siren-class[data-siren-id="Duck"] .siren-class-name',
+    )!;
+    expect(duckName.getAttribute("style")).toBeNull();
+  });
+
   it("accepts Mermaid's `classDiagram-v2` header alias, rendering the identical diagram the `classDiagram` spelling does", () => {
     const body = `
 Animal <|-- Duck
@@ -1880,7 +1980,7 @@ class Duck {
 
     expect(v1Result.diagnostics).toEqual([]);
     expect(v2Result.diagnostics).toEqual([]);
-    expect(v2.innerHTML).toBe(v1.innerHTML);
+    expect(sameDrawing(v2.innerHTML)).toBe(sameDrawing(v1.innerHTML));
   });
 
   it("renders markup-looking member, annotation, note, relationship-label, multiplicity and tooltip text as literal visible text, never as parsed markup", () => {
@@ -2573,5 +2673,1084 @@ timeline:
     ]);
     expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
     expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);
+  });
+
+  it("carries a flowchart author's `style` all the way to the DOM: inline style on the node's frame rect, and no attribute at all on a node nothing styled", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+style A fill:#fdd,stroke:#c00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frame = (id: string) =>
+      result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!;
+
+    expect(frame("A").getAttribute("style")).toBe("fill:#fdd;stroke:#c00");
+    expect(frame("B").getAttribute("style")).toBeNull();
+  });
+
+  it("reports the identical diagnostic for a `style` on an id that does not exist, whichever diagram kind wrote it", () => {
+    // One resolver, one gate, one wording. The two kinds put the statement on
+    // the same line and column so the diagnostics must be equal objects — a
+    // future divergence fails here rather than being found by an author.
+    const flowchart = render(
+      `flowchart TD
+A[Start]
+style Ghost fill:#fdd
+`,
+      document.createElement("div"),
+    );
+    const classDiagram = render(
+      `classDiagram
+class Shape
+style Ghost fill:#fdd
+`,
+      document.createElement("div"),
+    );
+
+    expect(flowchart.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(flowchart.diagnostics).toEqual(classDiagram.diagnostics);
+  });
+
+  it("holds the style-value gate identically for a flowchart: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the class diagram's", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+Fetches[Fetches] --> Executes[Executes]
+Smuggles[Smuggles] --> Escapes[Escapes]
+style Fetches fill:url(#evil),stroke:#c00
+style Executes fill:expression(alert(1)),stroke:#c00
+style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Escapes fill:u\\72 l(#evil),stroke:#c00
+`;
+
+    const result = render(source, container);
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(4);
+    expect(errors.map((d) => d.message)).toEqual([
+      'Style value for "fill" uses "url(", which can fetch a remote resource; dropping the declaration.',
+      'Style value for "fill" uses "expression(", which can execute script; dropping the declaration.',
+      'Style value for "fill" contains ";", which would smuggle in a second declaration; dropping the declaration.',
+      'Style value for "fill" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.',
+    ]);
+
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    // Only the sibling survives, in each case.
+    for (const id of ["Fetches", "Executes", "Smuggles", "Escapes"]) {
+      expect([id, frameStyle(id)]).toEqual([id, "stroke:#c00"]);
+    }
+
+    // And nothing refused is anywhere in the serialized document, in any
+    // attribute — the gate is about what the browser is handed, not about
+    // which element it was handed on.
+    const markup = container.innerHTML;
+    for (const forbidden of ["url(#evil", "expression(", "position:fixed", "\\"]) {
+      expect([forbidden, markup.includes(forbidden)]).toEqual([forbidden, false]);
+    }
+  });
+
+  it("lets a styled flowchart node animate: the inline style rides on the frame while the group takes siren-pending and siren-enter-fade", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+style B fill:#fdd
+timeline:
+step 1: enter B fade
+`;
+
+    const result = render(source, container);
+    const group = () => result.svg!.querySelector('g.siren-node[data-siren-id="B"]')!;
+    const frame = () => group().querySelector("rect.siren-node-frame")!;
+
+    expect(result.diagnostics).toEqual([]);
+    // The two live on different elements on purpose (ADR-0008): the frame
+    // carries the author's declarations, the group carries the animation
+    // classes, so neither can overwrite the other.
+    expect(group().classList.contains("siren-pending")).toBe(true);
+    expect(frame().getAttribute("style")).toBe("fill:#fdd");
+
+    result.controller!.next();
+    expect(group().classList.contains("siren-pending")).toBe(false);
+    expect(group().classList.contains("siren-enter-fade")).toBe(true);
+    expect(frame().getAttribute("style")).toBe("fill:#fdd");
+
+    result.controller!.reset();
+    expect(group().classList.contains("siren-pending")).toBe(true);
+    expect(frame().getAttribute("style")).toBe("fill:#fdd");
+  });
+
+  it("gives a flowchart `classDef` its effect only through `class`: one definition reaches every node named, a node may carry two, and a definition nothing applies draws nothing", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+B --> C[Ignored]
+classDef emphasis fill:#fdd
+classDef thick stroke-width:3px
+class A,B emphasis
+class B thick
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("fill:#fdd;stroke-width:3px");
+    // `thick` is defined and applied to B only, so C — which no statement
+    // names — keeps no attribute at all.
+    expect(frameStyle("C")).toBeNull();
+  });
+
+  it("carries a `:::` shorthand to the DOM in both forms, including on a node that also appears in an edge", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+classDef emphasis fill:#fdd
+A[Start]:::emphasis
+A --> B[End]
+B:::emphasis
+B --> C[Plain]
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("fill:#fdd");
+    expect(frameStyle("C")).toBeNull();
+    // The shorthand styles the node without disturbing the graph: B still
+    // carries the label its edge declaration gave it, and both edges exist.
+    expect(
+      result.svg!.querySelector('g.siren-node[data-siren-id="B"] text')!.textContent,
+    ).toBe("End");
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(2);
+  });
+
+  it("resolves a flowchart `classDef` written after the statement that applies it, for both the `class` and the `:::` spelling", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start]:::emphasis
+A --> B[End]
+class B emphasis
+classDef emphasis fill:#fdd
+`;
+
+    const result = render(source, container);
+
+    // Collecting the definitions is a pass of its own in the shared
+    // resolver, so a flowchart gets the class diagram's forward reference
+    // rather than a parser-order restriction of its own.
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("fill:#fdd");
+  });
+
+  it("drops only the unknown target of a flowchart `class A,Ghost name`, and names the keyword the author actually typed when no classDef defines the name", () => {
+    const result = render(
+      `flowchart TD
+A[Start] --> B[End]
+B:::ghost
+classDef emphasis fill:#fdd
+class A,Ghost emphasis
+class A missing
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'class "Ghost" references an id that does not exist; dropping the declaration.',
+        line: 5,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'class applies "missing", which no classDef defines; dropping the declaration.',
+        line: 6,
+        column: 1,
+      },
+    ]);
+    // One unknown target drops itself, not the statement: A is still styled.
+    expect(
+      result
+        .svg!.querySelector('g.siren-node[data-siren-id="A"] rect.siren-node-frame')!
+        .getAttribute("style"),
+    ).toBe("fill:#fdd");
+  });
+
+  it("flattens a flowchart's `style` and `classDef` into one ordered list per node, last declaration of a property winning (ADR-0008)", () => {
+    const result = render(
+      `flowchart TD
+Later[Later] --> Earlier[Earlier]
+classDef emphasis fill:#fdd,stroke:#c00
+class Later emphasis
+style Later fill:#0f0
+style Earlier fill:#0f0
+class Earlier emphasis
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    // Nothing about being a `classDef` or a `style` wins; writing last does.
+    // The property keeps the position of its first declaration either way,
+    // so `fill` stays ahead of `stroke` in both nodes.
+    expect(frameStyle("Later")).toBe("fill:#0f0;stroke:#c00");
+    expect(frameStyle("Earlier")).toBe("fill:#fdd;stroke:#c00");
+  });
+
+  it("lands a flowchart node's `color` on its label text, leaving the frame everything else", () => {
+    // One rule, two diagram kinds: the same `classDef highlight
+    // fill:#111,color:#fff` darkens the box and lightens the text on it here
+    // exactly as it does in a class diagram, because the split is made once
+    // in `resolveStyles` and neither renderer gets a say in it.
+    const svg = renderThemed(`flowchart TD
+A[Start] --> B[End]
+classDef highlight fill:#111,color:#fff
+class A highlight
+`);
+
+    const node = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(node.querySelector("rect.siren-node-frame")!.getAttribute("style")).toBe("fill:#111");
+
+    // The node's label carries no class of its own — the theme reaches it by
+    // `.siren-node text` — and it needs none: an inline declaration outranks
+    // a class *or* an element selector alike, so a `siren-node-label` class
+    // added for symmetry with the class diagram would buy nothing here.
+    const label = node.querySelector("text")!;
+    expect(label.getAttribute("class")).toBeNull();
+    expect(label.getAttribute("style")).toBe("fill:#fff");
+
+    // The measurement this ticket turns on: `<text style="color:#fff">`
+    // computes to the theme's fill, unchanged, and only `fill` moves it. See
+    // the class-diagram test above for why a jsdom cascade assertion is
+    // sound here (`theme/default.test.ts` pins that the theme carries no
+    // `!important`, which is the half jsdom cannot model).
+    expect(getComputedStyle(label).fill).toBe("#fff");
+
+    const unstyled = svg.querySelector('g.siren-node[data-siren-id="B"] text')!;
+    expect(unstyled.getAttribute("style")).toBeNull();
+  });
+
+  it("keeps a `linkStyle`'s `color` off the edge path, where it would be the same bug one element over", () => {
+    // An edge is one `<path class="siren-edge">` and draws no text at all, so
+    // the author's `color` has nowhere to land. `resolveStyles` routes it
+    // into the text half anyway — the rule is about what a declaration
+    // *means*, and a resolver that asked "is this an edge?" would be the
+    // per-kind opinion the split exists to prevent — and this renderer
+    // simply has no element to apply it to.
+    //
+    // What must not happen is the thing this whole ticket is about: the
+    // declaration landing on the drawn shape instead, where `color` paints
+    // nothing and the author is told nothing.
+    const svg = renderThemed(`flowchart TD
+A[Start] --> B[End]
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+
+    const path = svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+    expect(path.getAttribute("style")).toBe("stroke:#f00");
+
+    // And there is genuinely no text on an edge to have missed: every
+    // `<text>` this diagram draws belongs to a node.
+    for (const text of Array.from(svg.querySelectorAll("text"))) {
+      expect(text.closest("g.siren-node")).not.toBeNull();
+    }
+  });
+
+  it("carries a `:::` written inside an edge line to the frame of whichever endpoint wore it", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+classDef emphasis fill:#fdd
+classDef cool stroke:#00f
+A[Start]:::emphasis --> B[End]:::cool
+B --> C[Plain]
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("stroke:#00f");
+    expect(frameStyle("C")).toBeNull();
+    // Styling an endpoint does not disturb the graph it is written in.
+    const label = (id: string) =>
+      result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"] text`)!.textContent;
+    expect([label("A"), label("B"), label("C")]).toEqual(["Start", "End", "Plain"]);
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(2);
+  });
+
+  it("reports a `:::` inside an edge line that names no classDef once per occurrence, quoting `:::`", () => {
+    const result = render(
+      `flowchart TD
+A[Start]:::ghost --> B[End]:::ghost
+`,
+      document.createElement("div"),
+    );
+
+    // Two endpoints wore the typo, so the author is told twice — once per
+    // thing that will not be styled — under the keyword they typed.
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
+        line: 2,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
+        line: 2,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("still calls a chained `A --> B --> C` unrecognized, with or without a `:::` on it", () => {
+    // Widening an endpoint is not widening how many endpoints a line may
+    // have. Chaining is a separate compatibility gap, and a pattern that
+    // read the first two nodes of three and dropped the rest would draw a
+    // diagram the author did not write — worse than refusing the line.
+    for (const line of [
+      "A --> B --> C",
+      "A[Start] --> B[Mid] --> C[End]",
+      "A:::emphasis --> B --> C",
+    ]) {
+      const result = render(
+        `flowchart TD\nclassDef emphasis fill:#fdd\n${line}\n`,
+        document.createElement("div"),
+      );
+
+      expect([line, result.diagnostics.map((d) => d.message)]).toEqual([
+        line,
+        [`Unrecognized flowchart line: "${line}"`],
+      ]);
+    }
+  });
+
+  it("carries a flowchart author's `linkStyle` all the way to the DOM: the inline style lands on the path of the edge the index addresses, and on no other", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+C --> D[Done]
+linkStyle 1 stroke:#f00,stroke-width:4px
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const path = (id: string) =>
+      result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+
+    // Three edges, so an off-by-one paints a different arrow and fails here.
+    expect(path("B-C").getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
+    expect(path("A-B").getAttribute("style")).toBeNull();
+    expect(path("C-D").getAttribute("style")).toBeNull();
+  });
+
+  it("applies a `linkStyle 0,2` to each edge in the list and to no edge between them", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+C --> D[Done]
+linkStyle 0,2 stroke:#f00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const styled = Array.from(result.svg!.querySelectorAll("path.siren-edge"))
+      .filter((path) => path.getAttribute("style") === "stroke:#f00")
+      .map((path) => path.getAttribute("data-siren-id"));
+    expect(styled).toEqual(["A-B", "C-D"]);
+  });
+
+  it("paints every edge from one `linkStyle default`, and reads `default` as an address rather than as a number", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle default stroke:#0f0
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) => [
+        path.getAttribute("data-siren-id"),
+        path.getAttribute("style"),
+      ]),
+    ).toEqual([
+      ["A-B", "stroke:#0f0"],
+      ["B-C", "stroke:#0f0"],
+    ]);
+  });
+
+  it("lets a specific `linkStyle N` beat `linkStyle default` on the way to the DOM, in both source orders", () => {
+    // `linkStyle default` is Mermaid's fallback for the links nothing else
+    // styles, so the specific line wins whichever order the two are written
+    // in. That is not a specificity model between author directives, which
+    // ADR-0008 refuses: its last-declaration-wins rule settles repeated
+    // declarations on one target, and `default` names no target at all.
+    // Asserted in both orders because the second one is where a fallback
+    // implemented as an ordinary declaration diverges from Mermaid.
+    const styles = (source: string) =>
+      Array.from(
+        render(source, document.createElement("div")).svg!.querySelectorAll("path.siren-edge"),
+      ).map((path) => [path.getAttribute("data-siren-id"), path.getAttribute("style")]);
+
+    const edges = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+`;
+
+    expect(styles(`${edges}linkStyle default stroke:#0f0\nlinkStyle 0 stroke:#f00\n`)).toEqual([
+      ["A-B", "stroke:#f00"],
+      ["B-C", "stroke:#0f0"],
+    ]);
+
+    expect(styles(`${edges}linkStyle 0 stroke:#f00\nlinkStyle default stroke:#0f0\n`)).toEqual([
+      ["A-B", "stroke:#f00"],
+      ["B-C", "stroke:#0f0"],
+    ]);
+  });
+
+  it("leaves an edge wearing both tiers: the specific `linkStyle` takes over the property it names and the `default` keeps the rest", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle default stroke:#0f0,stroke-width:4px
+linkStyle 0 stroke:#f00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    // The 4px is written once in the whole document, on the fallback, so an
+    // implementation where the specific statement replaces the default
+    // wholesale loses it here — the arrow goes red and thin.
+    expect(
+      Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) => [
+        path.getAttribute("data-siren-id"),
+        path.getAttribute("style"),
+      ]),
+    ).toEqual([
+      ["A-B", "stroke:#f00;stroke-width:4px"],
+      ["B-C", "stroke:#0f0;stroke-width:4px"],
+    ]);
+  });
+
+  it("puts a `linkStyle` value through the one shared gate: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the one a `style` gets", () => {
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TD
+A[Start] --> B[End]
+linkStyle 0 stroke:url(#evil),stroke-width:4px
+`,
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Style value for "stroke" uses "url(", which can fetch a remote resource; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(
+      result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+    ).toBe("stroke-width:4px");
+    // Not merely off the attribute: nowhere in the document. The one
+    // `url(` the markup may contain is the renderer's own marker reference.
+    expect(container.innerHTML.includes("url(#evil")).toBe(false);
+  });
+
+  it("lets a styled edge animate: the author's declarations and the animation classes ride the same path element without disturbing each other", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+linkStyle 0 stroke:#f00
+timeline:
+step 1: enter A-B fade
+`;
+
+    const result = render(source, container);
+    const path = () => result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    // Unlike a node — whose frame carries the style while its `<g>` carries
+    // the classes — an edge is one element wearing both, so this is where a
+    // renderer that wrote its animation state as an inline attribute would
+    // eat the author's declarations.
+    expect(path().classList.contains("siren-pending")).toBe(true);
+    expect(path().getAttribute("style")).toBe("stroke:#f00");
+
+    result.controller!.next();
+    expect(path().classList.contains("siren-pending")).toBe(false);
+    expect(path().classList.contains("siren-enter-fade")).toBe(true);
+    expect(path().getAttribute("style")).toBe("stroke:#f00");
+
+    result.controller!.reset();
+    expect(path().classList.contains("siren-pending")).toBe(true);
+    expect(path().getAttribute("style")).toBe("stroke:#f00");
+  });
+  it("scopes a flowchart's marker ids to the SVG that defines them, so two diagrams on one page share no id and each edge points at its own diagram's arrowhead", () => {
+    // `url(#siren-arrow)` resolves against the whole *document*, not against
+    // the SVG it is written in, so a fixed marker id means the browser hands
+    // every diagram on the page the *first* diagram's marker. Measured before
+    // this was fixed: two flowcharts rendered onto one page produced
+    // ids = ["siren-arrow", "siren-arrow"]. Harmless only for as long as
+    // every marker is identical — the moment one carries an author's color it
+    // is a cross-diagram miscolor.
+    const source = `flowchart TD
+A[Start] --> B[End]
+`;
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+
+    try {
+      const one = render(source, first);
+      const two = render(source, second);
+      expect([one.diagnostics, two.diagnostics]).toEqual([[], []]);
+
+      // The probe that found this, asserted: every id in the page, checked
+      // for duplicates.
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      // And the consequence that matters: the second diagram's edges point at
+      // the second diagram's marker, not at the first's.
+      for (const svg of [one.svg!, two.svg!]) {
+        const edges = Array.from(svg.querySelectorAll("path.siren-edge"));
+        expect(edges.length).toBeGreaterThan(0);
+        for (const edge of edges) {
+          const reference = edge.getAttribute("marker-end");
+          expect(reference).toMatch(/^url\(#.+\)$/);
+          const id = reference!.slice("url(#".length, -1);
+          expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+          expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+        }
+      }
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+  it("scopes a class diagram's marker ids the same way, so two class diagrams on one page share no id and each relationship's endpoints resolve inside its own SVG", () => {
+    // The class diagram has the identical exposure — `siren-class-triangle`,
+    // `siren-class-diamond-filled`, `siren-class-diamond-hollow` and
+    // `siren-class-arrow` were all fixed ids — and four markers rather than
+    // one, so fixing only the flowchart would be half a fix.
+    const source = `classDiagram
+Animal <|-- Duck
+Habitat *-- Animal
+Duck o-- Feather
+Keeper --> Animal
+`;
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+
+    try {
+      const one = render(source, first);
+      const two = render(source, second);
+      expect([one.diagnostics, two.diagnostics]).toEqual([[], []]);
+
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      for (const svg of [one.svg!, two.svg!]) {
+        const lines = Array.from(svg.querySelectorAll("path.siren-relationship-line"));
+        expect(lines.length).toBe(4);
+        const referenced = lines.flatMap((line) => [
+          line.getAttribute("marker-start"),
+          line.getAttribute("marker-end"),
+        ]);
+        expect(referenced.filter((reference) => reference !== null).length).toBeGreaterThan(0);
+        for (const reference of referenced) {
+          if (reference === null) continue;
+          expect(reference).toMatch(/^url\(#.+\)$/);
+          const id = reference.slice("url(#".length, -1);
+          expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+          expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+        }
+      }
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+  it("colors a styled edge's arrowhead with the edge's own `stroke`, while an edge nothing styled keeps the theme's shared marker", () => {
+    // Mermaid colors the whole arrow, line and head. Siren coloured only the
+    // line, because one shared `<marker>` in `<defs>` cannot inherit from the
+    // path that references it — so the head has to be a marker of its own,
+    // carrying the author's color as an inline `fill` that outranks the
+    // theme's `.siren-arrow-fill` rule without `!important` (ADR-0008's
+    // cascade argument, applied to the one element the theme paints).
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle 0 stroke:#f00
+`;
+
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const markerFor = (edgeId: string): SVGElement => {
+      const reference = svg
+        .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!
+        .getAttribute("marker-end")!;
+      expect(reference).toMatch(/^url\(#.+\)$/);
+      const marker = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)}`);
+      expect(marker).not.toBeNull();
+      return marker as SVGElement;
+    };
+
+    // The styled edge's head is red — asserted as the marker's own fill, not
+    // merely as "a second marker exists".
+    const styledHead = markerFor("A-B").querySelector("path")!;
+    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+
+    // The unstyled edge still takes its head from the theme: no fill of its
+    // own, just the class `--siren-edge-stroke` reaches it through.
+    const themeHead = markerFor("B-C").querySelector("path")!;
+    expect(themeHead.getAttribute("class")).toBe("siren-arrow-fill");
+    expect(themeHead.getAttribute("style")).toBeNull();
+    expect(themeHead.getAttribute("fill")).toBeNull();
+
+    expect(markerFor("A-B")).not.toBe(markerFor("B-C"));
+    // The line is still painted too: this replaces neither half of the arrow.
+    expect(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+    ).toBe("stroke:#f00");
+  });
+  it("mints one arrowhead per distinct color rather than per styled edge, so twelve edges sharing one `linkStyle default` share one marker", () => {
+    // The decision this pins: a marker is a pure function of its color, so
+    // fifty edges sharing a color want one def and not fifty identical ones.
+    // Nothing observable is lost — two edges of the same color have the same
+    // arrowhead by definition — and the DOM stops growing with the edge count.
+    const container = document.createElement("div");
+    const chain = Array.from({ length: 12 }, (_, index) => `N${index} --> N${index + 1}`);
+    const source = `flowchart TD
+${chain.join("\n")}
+linkStyle default stroke:#0f0
+linkStyle 3 stroke:#00f
+`;
+
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const markerIdOf = (edgeId: string): string =>
+      svg
+        .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!
+        .getAttribute("marker-end")!;
+
+    // Eleven green edges, all pointing at one marker; the twelfth is blue and
+    // has its own. Plus the theme's own marker, which is always defined.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(3);
+
+    const green = new Set(
+      chain
+        .map((_, index) => `N${index}-N${index + 1}`)
+        .filter((edgeId) => edgeId !== "N3-N4")
+        .map(markerIdOf),
+    );
+    expect(green.size).toBe(1);
+    expect(markerIdOf("N3-N4")).not.toBe([...green][0]);
+
+    const fillOf = (reference: string): string | null =>
+      svg
+        .querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
+        .getAttribute("style");
+    expect(fillOf([...green][0]!)).toBe("fill:#0f0");
+    expect(fillOf(markerIdOf("N3-N4"))).toBe("fill:#00f");
+  });
+  it("mints no arrowhead for a `linkStyle` that names no `stroke`, and leaves a document with no `linkStyle` emitting exactly the one marker it always did", () => {
+    // There is no color to carry, so there is nothing a marker of this edge's
+    // own could say that the theme's does not — and minting one anyway would
+    // freeze the arrowhead at the token's value at render time, quietly
+    // taking it out of the theme's hands.
+    const widthOnly = document.createElement("div");
+    const widthOnlyResult = render(
+      `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle 0 stroke-width:4px
+`,
+      widthOnly,
+    );
+    expect(widthOnlyResult.diagnostics).toEqual([]);
+    expect(widthOnlyResult.svg!.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(
+      widthOnlyResult.svg!
+        .querySelector('path.siren-edge[data-siren-id="A-B"]')!
+        .getAttribute("marker-end"),
+    ).toBe(
+      widthOnlyResult.svg!
+        .querySelector('path.siren-edge[data-siren-id="B-C"]')!
+        .getAttribute("marker-end"),
+    );
+
+    const unstyled = document.createElement("div");
+    const unstyledResult = render(
+      `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+`,
+      unstyled,
+    );
+    expect(unstyledResult.diagnostics).toEqual([]);
+    expect(unstyledResult.svg!.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(
+      unstyledResult.svg!.querySelector("defs > marker path")!.getAttribute("style"),
+    ).toBeNull();
+  });
+  it("leaves every sequence arrowhead the theme's to paint: each marker's shape carries only its theme class, and no sequence marker carries an author color", () => {
+    // A characterization test, written before the sequence renderer's ids
+    // were scoped and green from the moment it was written. Author styling
+    // for sequence diagrams is a board non-goal, so the whole exposure being
+    // fixed here is the *invisible* one: `--siren-*` reaches a sequence
+    // arrowhead through the marker's shape class and through nothing else,
+    // and scoping the marker's id must not put a color on it or take the
+    // token's reach away. `fill="none"` on the open head is shape, not
+    // color — an unclosed V that must never be filled in.
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant Alice
+participant Bob
+Alice->>Bob: filled
+Alice<<->>Bob: bidirectional
+Alice-xBob: cross
+Alice-)Bob: open
+`;
+
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const markers = Array.from(svg.querySelectorAll("defs > marker"));
+    expect(markers).toHaveLength(3);
+
+    for (const marker of markers) {
+      const shape = marker.querySelector("path")!;
+      // The class is the whole mechanism: the theme selects it, so a
+      // consumer's `--siren-*` redeclaration reaches the arrowhead.
+      expect([marker.id, shape.getAttribute("class")]).toEqual([
+        marker.id,
+        expect.stringMatching(/^siren-arrow-(fill|stroke)$/),
+      ]);
+      // Nothing an author wrote lands here, and nothing freezes the
+      // theme's value at render time.
+      expect([marker.id, shape.getAttribute("style")]).toEqual([marker.id, null]);
+      expect([marker.id, shape.getAttribute("stroke")]).toEqual([marker.id, null]);
+      // `fill` is either absent or the literal `none` — the open head's
+      // "never close this V", which is shape rather than color. No marker
+      // names a color here at all.
+      const fill = shape.getAttribute("fill");
+      expect([marker.id, fill === null || fill === "none"]).toEqual([marker.id, true]);
+    }
+
+    // And every message that carries a head points at one of exactly those
+    // three markers — no fourth, per-message marker was minted.
+    const referenced = new Set(
+      Array.from(svg.querySelectorAll("path.siren-message-arrow")).flatMap((path) =>
+        [path.getAttribute("marker-start"), path.getAttribute("marker-end")].filter(
+          (reference): reference is string => reference !== null,
+        ),
+      ),
+    );
+    expect(referenced.size).toBe(3);
+  });
+  it("scopes a sequence diagram's marker ids the same way, so two sequence diagrams on one page share no id and each message's arrowhead resolves inside its own SVG", () => {
+    // The third and last renderer with fixed ids: `siren-arrow-filled`,
+    // `siren-arrow-cross` and `siren-arrow-open`. The exposure here is the
+    // pre-existing invisible one rather than one author styling activated —
+    // a sequence marker carries no author color, by board non-goal — and it
+    // becomes visible the moment two sequence diagrams sit in *different CSS
+    // contexts*, which ADR-0004 invites by letting a consumer scope
+    // `--siren-*` to a container: both define `siren-arrow-filled`, the
+    // second diagram's `url(#siren-arrow-filled)` resolves to the first's
+    // marker, and its arrowheads take the first container's theme.
+    const source = `sequenceDiagram
+participant Alice
+participant Bob
+Alice->>Bob: filled
+Alice<<->>Bob: bidirectional
+Alice-xBob: cross
+Alice-)Bob: open
+`;
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+
+    try {
+      const one = render(source, first);
+      const two = render(source, second);
+      expect([one.diagnostics, two.diagnostics]).toEqual([[], []]);
+
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      for (const svg of [one.svg!, two.svg!]) {
+        const arrows = Array.from(svg.querySelectorAll("path.siren-message-arrow"));
+        expect(arrows.length).toBe(4);
+        const referenced = arrows.flatMap((arrow) => [
+          arrow.getAttribute("marker-start"),
+          arrow.getAttribute("marker-end"),
+        ]);
+        expect(referenced.filter((reference) => reference !== null).length).toBeGreaterThan(0);
+        for (const reference of referenced) {
+          if (reference === null) continue;
+          expect(reference).toMatch(/^url\(#.+\)$/);
+          const id = reference.slice("url(#".length, -1);
+          expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+          expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+        }
+      }
+
+      // `filled` and `bidirectionalFilled` still share one marker inside a
+      // render — deliberate sharing, since `orient="auto-start-reverse"`
+      // makes the one def point outward at either end. Scoping the id must
+      // not accidentally split them into two defs.
+      expect(one.svg!.querySelectorAll("defs > marker")).toHaveLength(3);
+      const arrowOf = (index: number): Element =>
+        one.svg!.querySelectorAll("path.siren-message-arrow")[index]!;
+      expect(arrowOf(1).getAttribute("marker-end")).toBe(arrowOf(0).getAttribute("marker-end"));
+      expect(arrowOf(1).getAttribute("marker-start")).toBe(arrowOf(0).getAttribute("marker-end"));
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+  it("shares no id across a page holding two diagrams of each of the three kinds", () => {
+    // The claim the three renderers only make together. 05c could assert it
+    // of four flowchart/class diagrams; with the sequence renderer scoped it
+    // holds for a page of every kind Siren draws, which is what "no duplicate
+    // ids on a page" was supposed to mean all along.
+    const sources = [
+      `flowchart TD
+A[Start] --> B[End]
+`,
+      `classDiagram
+Animal <|-- Duck
+Habitat *-- Animal
+Duck o-- Feather
+Keeper --> Animal
+`,
+      `sequenceDiagram
+participant Alice
+participant Bob
+Alice->>Bob: filled
+Alice-xBob: cross
+Alice-)Bob: open
+`,
+    ];
+    const containers = [...sources, ...sources].map(() => document.createElement("div"));
+    document.body.append(...containers);
+
+    try {
+      const results = [...sources, ...sources].map((source, index) =>
+        render(source, containers[index]!),
+      );
+      expect(results.map((result) => result.diagnostics)).toEqual(results.map(() => []));
+
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      // Six diagrams, each minting at least one marker id.
+      expect(ids.length).toBeGreaterThanOrEqual(6);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      // And every reference on the page resolves inside the SVG that wrote
+      // it, which is the consequence a duplicate id would silently break.
+      for (const result of results) {
+        const svg = result.svg!;
+        for (const element of Array.from(svg.querySelectorAll("[marker-start], [marker-end]"))) {
+          for (const attribute of ["marker-start", "marker-end"]) {
+            const reference = element.getAttribute(attribute);
+            if (reference === null) continue;
+            const id = reference.slice("url(#".length, -1);
+            expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+            expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+          }
+        }
+      }
+    } finally {
+      for (const container of containers) container.remove();
+    }
+  });
+
+  it("renders demos/flowchart-styling.html's example source (examples/flowchart-styling.srn) end to end with zero diagnostics — `style`, `classDef`, both spellings of the apply-directive, `linkStyle` by index, by list and by `default`, and a `color` beside a `fill`", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-styling"), container);
+
+    // Zero diagnostics of *any* severity, which is a stronger claim than the
+    // `examples/` enumeration test above makes: that one filters to error
+    // severity, so a warning would slip through it. The closing example is
+    // the document a demo page ships, so a warning in it is a defect in one
+    // or the other.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // The document declares no `timeline:` block, so the controller is the
+    // empty one — the styling this example is about needs no animation to
+    // be visible.
+    expect(result.controller!.totalSteps).toBe(0);
+
+    const nodeIds = Array.from(svg.querySelectorAll("g.siren-node")).map((g) =>
+      g.getAttribute("data-siren-id"),
+    );
+    expect(nodeIds).toEqual(["Source", "Parse", "Resolve", "Layout", "Render", "Output"]);
+
+    const edgeIds = Array.from(svg.querySelectorAll("path.siren-edge")).map((p) =>
+      p.getAttribute("data-siren-id"),
+    );
+    expect(edgeIds).toEqual([
+      "Source-Parse",
+      "Parse-Resolve",
+      "Resolve-Layout",
+      "Layout-Render",
+      "Render-Output",
+    ]);
+
+    const frameStyleOf = (id: string): string | null =>
+      svg
+        .querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+    const labelStyleOf = (id: string): string | null =>
+      svg.querySelector(`g.siren-node[data-siren-id="${id}"] text`)!.getAttribute("style");
+
+    // --- `classDef` + the two spellings of the apply-directive ---
+    //
+    // `classDef stage` reaches `Parse` and `Resolve` through `class
+    // Parse,Resolve stage` and `Layout` through the standalone
+    // `Layout:::stage`. All three frames are byte-identical, which is the
+    // observable form of "the two spellings are one directive": nothing
+    // downstream of the parser can tell which one an author wrote.
+    const stageFrame = "fill:#3b82f633;stroke:#3b82f6;stroke-width:2";
+    expect(frameStyleOf("Parse")).toBe(stageFrame);
+    expect(frameStyleOf("Resolve")).toBe(stageFrame);
+    expect(frameStyleOf("Layout")).toBe(stageFrame);
+    // `stage` names no `color`, so none of the three labels is styled at all.
+    expect(labelStyleOf("Parse")).toBeNull();
+    expect(labelStyleOf("Resolve")).toBeNull();
+    expect(labelStyleOf("Layout")).toBeNull();
+
+    // --- the `A:::name` shorthand written inside an edge line, on both ends ---
+    //
+    // `Source[Source]:::terminal` is the source end of the first edge and
+    // `Output[Output]:::terminal` the target end of the last, so the
+    // shorthand is exercised on each side of a `-->`.
+    const terminalFrame = "fill:#1e293b;stroke:#0f172a;stroke-width:2";
+    expect(frameStyleOf("Source")).toBe(terminalFrame);
+    expect(frameStyleOf("Output")).toBe(terminalFrame);
+
+    // --- `color` beside a `fill`, in a `classDef` and in a `style` ---
+    //
+    // The author writes `color`; the label carries `fill`, because that is
+    // what paints SVG text (ADR-0008's amendment). The frame keeps every
+    // other property and never sees the word `color`.
+    expect(labelStyleOf("Source")).toBe("fill:#f8fafc");
+    expect(labelStyleOf("Output")).toBe("fill:#f8fafc");
+    expect(frameStyleOf("Render")).toBe("fill:#f59e0b;stroke:#b45309;stroke-width:2");
+    expect(labelStyleOf("Render")).toBe("fill:#1f2937");
+    for (const id of nodeIds) {
+      expect(frameStyleOf(id!)).not.toContain("color:");
+    }
+
+    // --- `linkStyle` by index, by list, and by `default` ---
+    const edgeStyleOf = (id: string): string | null =>
+      svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!.getAttribute("style");
+
+    // Edge 0 by index. It keeps the fallback's `stroke-width` and takes the
+    // specific statement's `stroke`: the two tiers merge property by
+    // property rather than one replacing the other.
+    expect(edgeStyleOf("Source-Parse")).toBe("stroke:#f43f5e;stroke-width:2");
+    // Edges 1 and 2 are named by no specific statement, so they are what
+    // `linkStyle default` is for.
+    expect(edgeStyleOf("Parse-Resolve")).toBe("stroke:#94a3b8;stroke-width:2");
+    expect(edgeStyleOf("Resolve-Layout")).toBe("stroke:#94a3b8;stroke-width:2");
+    // Edges 3 and 4 by one `linkStyle 3,4`, which overrides both fallback
+    // properties.
+    expect(edgeStyleOf("Layout-Render")).toBe("stroke:#3b82f6;stroke-width:3");
+    expect(edgeStyleOf("Render-Output")).toBe("stroke:#3b82f6;stroke-width:3");
+
+    // --- a styled edge's arrowhead takes its color ---
+    //
+    // Three distinct strokes, so three minted markers, plus the theme's own
+    // — which stays defined whether or not any edge references it.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(4);
+    const markerRefOf = (edgeId: string): string =>
+      svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!.getAttribute("marker-end")!;
+    const headFillOf = (edgeId: string): string | null =>
+      svg
+        .querySelector(`defs > marker#${markerRefOf(edgeId).slice("url(#".length, -1)} path`)!
+        .getAttribute("style");
+
+    expect(headFillOf("Source-Parse")).toBe("fill:#f43f5e");
+    expect(headFillOf("Parse-Resolve")).toBe("fill:#94a3b8");
+    expect(headFillOf("Layout-Render")).toBe("fill:#3b82f6");
+    // One marker per distinct color, not per styled edge: the two edges
+    // sharing a color share a def.
+    expect(markerRefOf("Parse-Resolve")).toBe(markerRefOf("Resolve-Layout"));
+    expect(markerRefOf("Layout-Render")).toBe(markerRefOf("Render-Output"));
+    expect(markerRefOf("Source-Parse")).not.toBe(markerRefOf("Parse-Resolve"));
   });
 });

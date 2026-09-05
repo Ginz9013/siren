@@ -459,4 +459,350 @@ timeline:
       expect(diagnostics, kind).toEqual(expected);
     }
   });
+
+  it("records a flowchart `style` statement as a StyleDecl instead of calling the line unrecognized", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  style A fill:#fdd,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // The same shape a class diagram's `style` parses to — one statement,
+    // one target, its declarations in author order — because the contract
+    // is the language's, not the class diagram's.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: ["A"],
+        name: null,
+        properties: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("keeps a value's own commas and colons inside one flowchart declaration", () => {
+    const source = `flowchart TD
+  A[Start]
+  style A fill:rgb(255, 0, 0),stroke-width:2px
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles[0].properties).toEqual([
+      { property: "fill", value: "rgb(255, 0, 0)" },
+      { property: "stroke-width", value: "2px" },
+    ]);
+  });
+
+  it("diagnoses a flowchart style segment that is not a property:value pair, keeping the pairs around it", () => {
+    const source = `flowchart TD
+  A[Start]
+  style A fill:#fdd,oops,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized style declaration: "oops"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("records a flowchart `classDef` as a named definition that targets nothing on its own", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  classDef emphasis fill:#fdd,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // Byte-for-byte the shape a class diagram's `classDef` parses to: it
+    // defines a name and targets nothing, and pairing it with whoever
+    // applies it is `resolveStyles`' pass, not the parser's.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: "emphasis",
+        properties: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("records a flowchart `class A,B name` as the apply-directive, under the keyword the author typed", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  class A,B emphasis
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // One canonical kind for both spellings: a flowchart writes `class` and
+    // a class diagram writes `cssClass`, and only `authoredAs` — which no
+    // logic reads, only diagnostics quote — remembers which.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: "class",
+        targetIds: ["A", "B"],
+        name: "emphasis",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("applies a definition at the node declaration itself in both `:::` forms, and the bare form claims no label from a node an edge already labelled", () => {
+    const source = `flowchart TD
+  A[Start]:::emphasis
+  A --> B[End]
+  B:::emphasis
+  C:::emphasis
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    // The bare form is a shorthand for applying, not for declaring a label:
+    // it gives an id nothing else declares the id as its label, and leaves
+    // the label an edge already wrote alone rather than fighting it.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "End"],
+      ["C", "C"],
+    ]);
+    // One apply-directive per shorthand, quoting `:::` — the keyword the
+    // author typed. Telling them their `class` is wrong points at a line
+    // they never wrote.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "emphasis",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["B"],
+        name: "emphasis",
+        properties: [],
+        line: 4,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["C"],
+        name: "emphasis",
+        properties: [],
+        line: 5,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("applies a `:::` shorthand written on a labelled edge endpoint, declaring both endpoints as usual", () => {
+    const source = `flowchart TD
+  A[Start]:::emphasis --> B[End]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    // The shorthand rides along with the endpoint; it does not take the
+    // label away from it, and the far endpoint is untouched.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "End"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([["A", "B"]]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "emphasis",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("lets the bare `A:::name --> B` apply without claiming a label, keeping one an earlier edge wrote", () => {
+    const source = `flowchart TD
+  A --> B[End]
+  B:::emphasis --> C
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    // Ticket 04's rule for the standalone bare form, in the edge position:
+    // the shorthand applies, and declares only what nothing else has. So B
+    // keeps `End` rather than being redeclared as its own id, and no
+    // redeclaration warning fires.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "End"],
+      ["C", "C"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+    ]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["B"],
+        name: "emphasis",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads the `:::` shorthand on either edge endpoint and on both at once", () => {
+    const source = `flowchart TD
+  A --> B[End]:::emphasis
+  A:::warm --> C:::cold
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "End"],
+      ["C", "C"],
+    ]);
+    // Three positions, three apply-directives, in the order the author
+    // wrote them — and on one line, the source endpoint before the target.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["B"],
+        name: "emphasis",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "warm",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["C"],
+        name: "cold",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("leaves a flowchart document that declares no styling with an empty styles list", () => {
+    const { document } = parseFlowchartOk(`flowchart TD
+  A[Start] --> B[End]
+`);
+
+    expect(document.styles).toEqual([]);
+  });
+
+  it("records a flowchart `linkStyle 0` as a link-style statement addressing an edge by declaration index", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  linkStyle 0 stroke:#f00,stroke-width:2px
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // The address stays exactly as the author wrote it. Which edge `0`
+    // names is `buildFlowchartModel`'s question, asked against the edge ids
+    // it assigns — the parser only owns the statement's shape.
+    expect(document.linkStyles).toEqual([
+      {
+        targets: ["0"],
+        properties: [
+          { property: "stroke", value: "#f00" },
+          { property: "stroke-width", value: "2px" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+    // It is not a `style`: a `style` targets an id, and there is no id here
+    // to target yet.
+    expect(document.styles).toEqual([]);
+  });
+
+  it("reads a linkStyle's declarations with the same splitter every other styling statement uses", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  linkStyle 0 stroke:#f00,oops
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized style declaration: "oops"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads a linkStyle's `0,2` as several addresses, in the order written", () => {
+    const source = `flowchart TD
+  A[Start] --> B[Middle]
+  B --> C[End]
+  linkStyle 0,2 stroke:#f00
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.linkStyles[0].targets).toEqual(["0", "2"]);
+  });
 });

@@ -1,0 +1,47 @@
+%% examples/flowchart-styling.srn — every flowchart author-styling directive
+%% Siren accepts, in one document. Comment lines like these are stripped in
+%% every diagram kind.
+%%
+%% A file of its own rather than more lines in examples/complex-showcase.srn:
+%% that document is the flowchart animation showcase, and its 22 steps are
+%% what a reader is there to follow. Styling 11 nodes and 14 edges on top of
+%% them would leave two stories competing in one file, and every edge index a
+%% linkStyle names would then depend on an edge order the timeline owns.
+%% Here nothing moves, so what a directive paints is the only thing to see.
+flowchart LR
+
+%% A classDef only *defines* a named set of declarations. It styles nothing
+%% until a statement applies it, so `stage` and `terminal` below have no
+%% effect on their own — and either may be written after the statement that
+%% applies it.
+classDef stage fill:#3b82f633,stroke:#3b82f6,stroke-width:2
+classDef terminal fill:#1e293b,stroke:#0f172a,stroke-width:2,color:#f8fafc
+
+%% The `:::name` shorthand, written inside an edge line — on the source end
+%% of the first edge and on the target end of the last.
+Source[Source]:::terminal --> Parse[Parse]
+Parse --> Resolve[Resolve]
+Resolve --> Layout[Layout]
+Layout --> Render[Render]
+Render --> Output[Output]:::terminal
+
+%% The apply-directive. Mermaid spells it `class` in a flowchart and
+%% `cssClass` in a class diagram; both parse to one directive, so these two
+%% lines and the `:::terminal` above are three spellings of one thing.
+class Parse,Resolve stage
+Layout:::stage
+
+%% `style` applies declarations straight to one node. `color` rides beside
+%% `fill` here: the box takes the amber fill and the *label* takes the dark
+%% color, so an opaque fill no longer costs the text its legibility.
+style Render fill:#f59e0b,stroke:#b45309,stroke-width:2,color:#1f2937
+
+%% `linkStyle` is the one statement that reaches an edge, and it addresses
+%% one by declaration index rather than by name. `default` is a fallback
+%% tier, not a competing statement: it paints every edge no specific
+%% statement named, and the two merge property by property — edge 0 below
+%% ends up with the specific statement's stroke and the fallback's width,
+%% because the author wrote that width once and never took it back.
+linkStyle default stroke:#94a3b8,stroke-width:2
+linkStyle 0 stroke:#f43f5e
+linkStyle 3,4 stroke:#3b82f6,stroke-width:3

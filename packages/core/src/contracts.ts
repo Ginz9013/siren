@@ -85,14 +85,64 @@ export interface SirenTimeline {
 }
 
 /**
- * The parsed flowchart document: a flowchart header, its nodes/edges, and
- * an optional timeline block. One arm of the `SirenDocument` union.
+ * A `linkStyle 0 stroke:#f00` statement, as written — the one author-styling
+ * statement that reaches an edge, and the one that does not address its
+ * targets by id.
+ *
+ * It is kept apart from `StyleDecl` for exactly that reason. Mermaid
+ * addresses an edge by its declaration index, and an index is an authored
+ * spelling rather than a name: `buildFlowchartModel` resolves it to the edge
+ * id (`A-B`, `A-B#2`) that `timeline:` and `data-siren-id` already use, and
+ * hands the shared `resolveStyles` a `StyleDecl` like any other. Putting an
+ * index into `StyleDecl.targetIds` — a field every diagram kind reads as
+ * ids — would give one edge two names and let one of them travel.
+ */
+export interface LinkStyleDecl {
+  /**
+   * The edges this statement addresses, exactly as authored and in the
+   * order written: a zero-based declaration index (`"0"`), or `"default"`
+   * for every edge in the document.
+   *
+   * Deliberately not `targetIds`: these are addresses, not ids, and nothing
+   * has checked yet that any of them names an edge. Whether `"0"` resolves,
+   * and to what, is `buildFlowchartModel`'s question — the parser owns only
+   * the statement's shape.
+   */
+  targets: string[];
+  /** The declarations to apply, in author order. Values are not validated
+   * here — the gate is `resolveStyles`', reached once the addresses have
+   * become ids. */
+  properties: StyleProperty[];
+  line?: number;
+  column?: number;
+}
+
+/**
+ * The parsed flowchart document: a flowchart header, its nodes/edges, its
+ * author-styling statements, and an optional timeline block. One arm of the
+ * `SirenDocument` union.
  */
 export interface FlowchartDocument {
   kind: "flowchart";
   direction: Direction;
   nodes: SirenNode[];
   edges: SirenEdge[];
+  /**
+   * Author-styling statements as written, in source order. The same
+   * `StyleDecl` a class diagram parses to — the contract is the language's,
+   * not one kind's — so `resolveStyles` reads both without knowing which
+   * kind it was handed.
+   */
+  styles: StyleDecl[];
+  /**
+   * `linkStyle` statements as written, in source order — the edge half of
+   * author styling, which `styles` cannot express because it addresses its
+   * targets by index rather than by id.
+   *
+   * Empty when the author wrote none, never absent, so "styled no edge" is
+   * one state rather than two.
+   */
+  linkStyles: LinkStyleDecl[];
   timeline: SirenTimeline | null;
 }
 
@@ -521,6 +571,17 @@ export interface PositionedSequenceDiagram {
 export interface GraphNode {
   id: string;
   label: string;
+  /**
+   * Author declarations to emit as this node's inline `style` attributes, in
+   * declaration order, with rejected values already dropped and each half
+   * addressed to one of the node's two drawn elements — the frame rect and
+   * the label `<text>`.
+   *
+   * Each half is empty when the author styled nothing — never absent — so
+   * "no styling" is one state rather than two, and the renderer's "emit no
+   * attribute" case is a length check rather than a presence check.
+   */
+  style: AuthorStyle;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
@@ -528,6 +589,23 @@ export interface GraphEdge {
   id: string;
   from: string;
   to: string;
+  /**
+   * Author declarations to emit as this edge's inline `style` attribute, in
+   * declaration order, with rejected values already dropped — the same
+   * shape, and the same empty-not-absent rule, as `GraphNode.style`.
+   *
+   * An edge is drawn as one `<path>` and nothing else, so only `frame` has
+   * anywhere to land: a `linkStyle 0 color:#f00` fills `text` with a
+   * declaration the renderer has no element for. The routing rule stays
+   * kind-neutral on purpose — `resolveStyles` is read by three diagram
+   * kinds and knows what a declaration *means*, not what each kind draws.
+   *
+   * The author wrote them as `linkStyle 0`, addressing this edge by its
+   * declaration index. That index is gone by the time it reaches this
+   * field: `buildFlowchartModel` resolved it to `id`, so an edge has one
+   * name downstream of the model rather than a name and a position.
+   */
+  style: AuthorStyle;
 }
 
 /**
@@ -810,27 +888,85 @@ export interface ClassInteraction {
 }
 
 /** One `property:value` pair of an author style declaration. */
-export interface ClassStyleProperty {
+export interface StyleProperty {
   property: string;
   value: string;
 }
 
-/** Which author-styling statement a `ClassStyleDecl` came from. */
-export type ClassStyleDeclKind = "style" | "classDef" | "cssClass";
+/**
+ * One target's accepted author declarations, already split by which of the
+ * target's drawn elements each one is emitted onto.
+ *
+ * The split is made in `resolveStyles` and nowhere else, so a flowchart and
+ * a class diagram cannot end up with two opinions about what a text
+ * property is. A renderer receives the answer and picks the element.
+ *
+ * Both halves are empty rather than absent when the author declared
+ * nothing for them, so "no styling" stays one state, as `GraphNode.style`
+ * has always had it.
+ */
+export interface AuthorStyle {
+  /**
+   * The declarations bound for the shape the target is drawn as — a node's
+   * or a class's frame rect, an edge's whole path.
+   */
+  frame: StyleProperty[];
+  /**
+   * The declarations bound for the target's label text, in the vocabulary
+   * SVG paints text with: an author's `color` arrives here spelled `fill`,
+   * because an inline `color` sits in a different property and would never
+   * reach a `<text>`. Empty for a target the author gave no `color`, and
+   * ignored by a target that draws no text at all — a flowchart edge.
+   */
+  text: StyleProperty[];
+}
 
 /**
- * A `style X fill:#fdd`, `classDef name fill:#fdd`, or `cssClass "A,B"
- * name` statement, as written. Values are not validated here — rejecting
- * `url(`/`expression(` is `buildClassModel`'s job.
+ * What an author-styling statement *does*, with each diagram kind's spelling
+ * already normalized away.
+ *
+ * `apply` is the apply-directive — Mermaid's `cssClass` in a class diagram
+ * and its `class` in a flowchart. It is named for the role rather than for
+ * either spelling: `class` would read inside this package as "a class
+ * diagram's class", the sense `ClassDecl`, `classIds` and `ResolvedClass`
+ * already own, and `cssClass` is one kind's word for a statement both kinds
+ * write. The spelling an author used survives in `StyleDecl.authoredAs`.
  */
-export interface ClassStyleDecl {
-  styleKind: ClassStyleDeclKind;
-  /** The classes targeted by `style`/`cssClass`; empty for `classDef`. */
-  classIds: string[];
-  /** The definition name of `classDef`/`cssClass`; `null` for `style`. */
+export type StyleDeclKind = "style" | "classDef" | "apply";
+
+/**
+ * A `style X fill:#fdd`, `classDef name fill:#fdd`, or apply-directive
+ * (`cssClass "A,B" name`) statement, as written. Values are not validated
+ * here — rejecting `url(`/`expression(` is `resolveStyles`' job.
+ */
+export interface StyleDecl {
+  styleKind: StyleDeclKind;
+  /**
+   * The keyword the author actually typed, which is the only thing a
+   * diagnostic about this statement may quote.
+   *
+   * `styleKind` is what the statement *means* and is normalized at the
+   * parser, so it cannot answer this: a flowchart spells the
+   * apply-directive `class` and a class diagram spells it `cssClass`, and
+   * both arrive here as one kind. Telling an author who wrote `class` that
+   * their `cssClass` is wrong points at a line they never wrote.
+   */
+  authoredAs: string;
+  /**
+   * The ids this statement targets — one for `style`, one or more for the
+   * apply-directive, none for `classDef`, which defines rather than
+   * targets.
+   *
+   * Not `classIds`: since flowchart gained `style`, these are as often node
+   * ids as class ids, and `resolveStyles` — the one resolver both kinds
+   * call — already read them as targets. `ClassNamespace.classIds` keeps
+   * that name because its members really are classes.
+   */
+  targetIds: string[];
+  /** The definition name of `classDef`/`apply`; `null` for `style`. */
   name: string | null;
-  /** The declarations of `style`/`classDef`; empty for `cssClass`. */
-  properties: ClassStyleProperty[];
+  /** The declarations of `style`/`classDef`; empty for `apply`. */
+  properties: StyleProperty[];
   line?: number;
   column?: number;
 }
@@ -849,7 +985,7 @@ export interface ClassDocument {
   namespaces: ClassNamespace[];
   notes: ClassNote[];
   interactions: ClassInteraction[];
-  styles: ClassStyleDecl[];
+  styles: StyleDecl[];
   timeline: SirenTimeline | null;
 }
 
@@ -916,13 +1052,18 @@ export interface ResolvedClassInteraction {
 }
 
 /**
- * Author styling after model resolution: `classDef`/`cssClass` flattened
- * onto each class it applies to, in declaration order, with rejected
- * values already dropped.
+ * Author styling after model resolution: an apply-directive's `classDef`
+ * flattened onto each target it applies to, in declaration order, with
+ * rejected values already dropped and the survivors split between the
+ * target's frame and its label text.
+ *
+ * `targetId` is a target's id in the sense the glossary gives that word —
+ * the authored thing a style is attached to — so it is a class in a class
+ * diagram and a node in a flowchart, and this type never has to know which.
  */
-export interface ResolvedClassStyle {
-  classId: string;
-  properties: ClassStyleProperty[];
+export interface ResolvedStyle {
+  targetId: string;
+  style: AuthorStyle;
 }
 
 /**
@@ -937,7 +1078,7 @@ export interface ClassModel {
   namespaces: ResolvedClassNamespace[];
   notes: ResolvedClassNote[];
   interactions: ResolvedClassInteraction[];
-  styles: ResolvedClassStyle[];
+  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
 }
 
@@ -989,8 +1130,8 @@ export interface PositionedClass {
   attributes: PositionedClassCompartment | null;
   /** The method compartment, or `null` when the class declares none. */
   methods: PositionedClassCompartment | null;
-  /** Author declarations to emit as this element's inline `style` attribute. */
-  style: ClassStyleProperty[];
+  /** Author declarations to emit as this class's inline `style` attributes: the frame's on the frame rect, the text's on every label the class draws. */
+  style: AuthorStyle;
   /** The link or click hook to attach, or `null`. */
   interaction: ResolvedClassInteraction | null;
 }

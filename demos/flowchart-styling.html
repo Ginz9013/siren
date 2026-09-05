@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — flowchart author styling demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren flowchart author styling</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+    <p class="intro">
+      <code>examples/flowchart-styling.srn</code> — every author-styling directive a flowchart
+      accepts, in one document: <code>style</code> applied to one node, <code>classDef</code>
+      defining a named set, and both spellings of the apply-directive
+      (<code>class Parse,Resolve stage</code> and the <code>Layout:::stage</code> shorthand,
+      which is also written inside an edge line on <code>Source</code> and <code>Output</code>).
+      Edges are addressed the way Mermaid addresses them, by declaration index:
+      <code>linkStyle 0</code>, <code>linkStyle 3,4</code>, and <code>linkStyle default</code> —
+      a fallback tier rather than a competing statement, so the first edge keeps the fallback's
+      <code>stroke-width</code> while taking its own <code>stroke</code>. Each distinct edge color
+      gets its own arrowhead. <code>Render</code> and the two <code>terminal</code> nodes carry a
+      <code>color</code> beside their <code>fill</code>: the author writes <code>color</code> and
+      the label carries <code>fill</code>, because that is what paints SVG text. Toggle the theme
+      to see the difference an author style makes — an opaque fill stays put in either theme,
+      which is why it now has to bring its own text color, while the translucent
+      <code>stage</code> fill lets the theme through. See
+      <a href="./complex-showcase.html">the complex showcase</a> for the animation side of the
+      same diagram kind.
+    </p>
+
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Same mechanism as demos/step-reveal.html and demos/complex-showcase.html:
+      imports the real Vite library build of @siren/board, and loads its
+      example document via fetch() from examples/flowchart-styling.srn (not
+      inlined), so the page and packages/core/src/index.test.ts read the same
+      bytes. Run `pnpm --filter @siren/core build && pnpm --filter @siren/board
+      build` first. Must be served over http(s) — file:// will fail fetch()
+      due to CORS.
+
+      controls: false, unlike the other two flowchart demos. This document
+      declares no `timeline:` block on purpose — it is about what a directive
+      paints, not about when it appears — so its controller reports
+      totalSteps 0 and board's Prev/Next/Reset bar would sit there doing
+      nothing. Pan and zoom are unaffected: they belong to board's viewport
+      layer (ADR-0007), not to the bar.
+
+      @siren/board owns rendering, the text measurer, full-bleed sizing and
+      error display — see ADR-0005 and ADR-0006. This page keeps only what
+      board deliberately doesn't own: fetching the source, the theme toggle,
+      and the summary line below.
+    -->
+    <script type="module">
+      import { createBoard } from "../packages/board/dist/siren-board.js";
+
+      const source = await fetch("../examples/flowchart-styling.srn").then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load examples/flowchart-styling.srn: ${response.status}`);
+        }
+        return response.text();
+      });
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      // Unrelated to @siren/board, which never touches this attribute
+      // (ADR-0006) — theming stays this page's own concern.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
+
+      let failed = false;
+      const board = createBoard(container, {
+        source,
+        controls: false,
+        onDiagnostics: (diagnostics) => {
+          for (const diagnostic of diagnostics) {
+            console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+          }
+          // The example is expected to render clean, so a diagnostic of any
+          // severity is worth saying out loud on the page rather than only
+          // in the console — this document is the one the test suite pins at
+          // zero diagnostics.
+          failed = diagnostics.length > 0;
+        },
+      });
+
+      // Counted off the mounted SVG rather than asserted: the point of a demo
+      // page is that an author can see the directives landed without reading
+      // a test. Marker ids are scoped per render, so they are counted, never
+      // named.
+      const svg = container.querySelector("svg");
+      if (svg === null || failed) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        const count = (selector) => svg.querySelectorAll(selector).length;
+        statusEl.textContent = [
+          `${count("g.siren-node")} nodes, ${count("rect.siren-node-frame[style]")} of them styled`,
+          `${count("g.siren-node text[style]")} styled labels`,
+          `${count("path.siren-edge[style]")} of ${count("path.siren-edge")} edges styled`,
+          `${count("defs > marker")} arrowhead markers`,
+        ].join(", ") + ".";
+      }
+    </script>
+  </body>
+</html>

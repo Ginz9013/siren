@@ -1,0 +1,423 @@
+import { describe, expect, it } from "vitest";
+import type { Diagnostic, StyleDecl } from "../contracts";
+import { resolveStyles } from "./resolveStyles";
+
+/**
+ * A styling statement with the fields a test does not care about defaulted.
+ *
+ * `authoredAs` defaults to the kind, which is right for `style` and
+ * `classDef`: every diagram kind spells those two the way they mean them.
+ * `apply` is no author's word for anything, so the signature makes a test
+ * about the apply-directive state the spelling it is about.
+ */
+function styleDecl(
+  overrides: Partial<StyleDecl> &
+    ({ styleKind: "style" | "classDef" } | { styleKind: "apply"; authoredAs: string }),
+) {
+  return {
+    authoredAs: overrides.styleKind,
+    targetIds: [],
+    name: null,
+    properties: [],
+    ...overrides,
+  } satisfies StyleDecl;
+}
+
+describe("resolveStyles", () => {
+  describe("resolution rules", () => {
+    it("drops a target nothing declares, still applying the statement to the targets that exist", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "style",
+            targetIds: ["Shape", "Ghost"],
+            properties: [{ property: "fill", value: "#fdd" }],
+            line: 4,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("pairs an apply-directive with a definition written below it", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            targetIds: ["Shape"],
+            name: "emphasis",
+          }),
+          styleDecl({
+            styleKind: "classDef",
+            name: "emphasis",
+            properties: [{ property: "fill", value: "#fdd" }],
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([]);
+    });
+
+    it("errors when an apply-directive names a definition nothing defines, styling the target with nothing", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "classDef",
+            name: "emphasis",
+            properties: [{ property: "fill", value: "#fdd" }],
+          }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            targetIds: ["Shape"],
+            name: "emphsis",
+            line: 6,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'cssClass applies "emphsis", which no classDef defines; dropping the declaration.',
+          line: 6,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("names the keyword the author wrote, not the canonical kind it parsed to", () => {
+      // A flowchart spells the apply-directive `class` where a class diagram
+      // spells it `cssClass`. Both parse to one kind, so the kind cannot be
+      // what a diagnostic quotes: an author who wrote `class` and is told
+      // about `cssClass` is being pointed at a line they did not write.
+      const diagnostics: Diagnostic[] = [];
+
+      resolveStyles(
+        [
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "class",
+            targetIds: ["Shape"],
+            name: "nope",
+            line: 3,
+            column: 1,
+          }),
+          styleDecl({
+            styleKind: "classDef",
+            name: "emphasis",
+            properties: [{ property: "fill", value: "#fdd" }],
+          }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "class",
+            targetIds: ["Ghost"],
+            name: "emphasis",
+            line: 5,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        'class applies "nope", which no classDef defines; dropping the declaration.',
+        'class "Ghost" references an id that does not exist; dropping the declaration.',
+      ]);
+    });
+
+    it("keeps a repeated property in its first-declared position and gives it its last value", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "style",
+            targetIds: ["Shape"],
+            properties: [
+              { property: "fill", value: "#fdd" },
+              { property: "stroke", value: "#c00" },
+            ],
+          }),
+          styleDecl({
+            styleKind: "style",
+            targetIds: ["Shape"],
+            properties: [{ property: "fill", value: "#00f" }],
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        {
+          targetId: "Shape",
+          style: {
+            frame: [
+              { property: "fill", value: "#00f" },
+              { property: "stroke", value: "#c00" },
+            ],
+            text: [],
+          },
+        },
+      ]);
+      expect(diagnostics).toEqual([]);
+    });
+  });
+
+  /**
+   * ADR-0008's amendment, and the reason `ResolvedStyle` has two halves
+   * rather than one list: an author's `color` is about the label text and
+   * every other declaration is about the drawn shape behind it.
+   */
+  describe("routing a declaration to the frame or to the label text", () => {
+    it("splits one statement, translating the author's `color` into the `fill` that paints SVG text", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "style",
+            targetIds: ["Shape"],
+            properties: [
+              { property: "fill", value: "#111" },
+              { property: "color", value: "#fff" },
+            ],
+            line: 4,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      // `color` is what a Mermaid author writes and `fill` is what paints a
+      // `<text>`; an inline `color` on one would sit in a different property
+      // and never reach it. So the spelling is normalized here, once, exactly
+      // as `TD` becomes `TB` and a `linkStyle` index becomes an edge id —
+      // and nothing downstream of this module ever sees the word `color`.
+      expect(styles).toEqual([
+        {
+          targetId: "Shape",
+          style: {
+            frame: [{ property: "fill", value: "#111" }],
+            text: [{ property: "fill", value: "#fff" }],
+          },
+        },
+      ]);
+      expect(diagnostics).toEqual([]);
+    });
+  });
+  /**
+   * ADR-0008's security boundary. Whatever survives here becomes an inline
+   * `style` attribute on a rendered element, and the renderer re-checks
+   * nothing — so a declaration accepted here is one the browser will act on.
+   */
+  describe("the validation gate", () => {
+    /** A `style Shape <properties>` statement over a target that exists. */
+    function resolveStyleStatement(properties: { property: string; value: string }[]) {
+      const diagnostics: Diagnostic[] = [];
+      const styles = resolveStyles(
+        [styleDecl({ styleKind: "style", targetIds: ["Shape"], properties, line: 4, column: 1 })],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+      return { styles, diagnostics };
+    }
+
+    it("drops a property that is not a plain CSS identifier", () => {
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "a;b", value: "red" },
+        { property: "stroke", value: "#c00" },
+      ]);
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: 'Style property "a;b" is not a plain CSS identifier; dropping the declaration.',
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("drops a url( value, leaving the other declarations of the same statement", () => {
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "fill", value: "url(#evil)" },
+        { property: "stroke", value: "#c00" },
+      ]);
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "fill" uses "url(", which can fetch a remote resource; ' +
+            "dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("puts a `color` through the gate on the way to the text half, quoting the word the author wrote", () => {
+      // Routing a declaration elsewhere must not route it around the gate:
+      // the text half becomes an inline `style` attribute on a `<text>`
+      // exactly as the frame half becomes one on a `<rect>`, so the same
+      // values are the same danger. The message names `color`, not the
+      // `fill` it would have been translated into — the author has to find
+      // the line they wrote.
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "color", value: "url(#evil)" },
+        { property: "fill", value: "#111" },
+      ]);
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#111" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "color" uses "url(", which can fetch a remote resource; ' +
+            "dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+        it("drops an expression( value", () => {
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "width", value: "expression(alert(1))" },
+      ]);
+
+      expect(styles).toEqual([]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "width" uses "expression(", which can execute script; ' +
+            "dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("drops a value carrying a `;`, which would smuggle in a second declaration", () => {
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "fill", value: "#fdd;position:fixed" },
+      ]);
+
+      expect(styles).toEqual([]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "fill" contains ";", which would smuggle in a second declaration; ' +
+            "dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("drops a value carrying a backslash, which can spell a rejected function as a CSS escape", () => {
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "fill", value: "\\75 rl(#evil)" },
+      ]);
+
+      expect(styles).toEqual([]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "fill" contains "\\", which can spell a rejected function as a ' +
+            "CSS escape; dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
+    it("reports a rejected classDef declaration once, at the classDef, not once per target applying it", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "classDef",
+            name: "emphasis",
+            properties: [
+              { property: "fill", value: "url(#evil)" },
+              { property: "stroke", value: "#c00" },
+            ],
+            line: 2,
+            column: 1,
+          }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            targetIds: ["Shape", "Duck"],
+            name: "emphasis",
+          }),
+        ],
+        new Set(["Shape", "Duck"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
+        { targetId: "Duck", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "fill" uses "url(", which can fetch a remote resource; ' +
+            "dropping the declaration.",
+          line: 2,
+          column: 1,
+        },
+      ]);
+    });
+  });
+});

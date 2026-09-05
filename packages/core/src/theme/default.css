@@ -70,14 +70,40 @@
   --siren-highlight-duration: 300ms;
 }
 
-/* Node/edge base styling, per the frozen SVG conventions in renderToSVG.ts. */
-.siren-node rect {
+/*
+ * Node/edge base styling, per the frozen SVG conventions in renderToSVG.ts.
+ *
+ * The node's drawn shape is selected by its own class, not as `.siren-node
+ * rect`, and that is not a naming tidy-up: per ADR-0008 an author's `style`
+ * directive is emitted as an inline `style` attribute on *the element the
+ * theme styles*, because a directly-applied declaration beats an inherited
+ * one regardless of specificity. Which element that is therefore has to be
+ * something an author and a maintainer can name, and it has to be named the
+ * same way in every diagram kind — this is `.siren-class-frame`'s counterpart
+ * for the flowchart, and the two are now read the same way.
+ *
+ * `.siren-node rect` keeps working for a consumer who already wrote it: the
+ * frame is still a `<rect>` inside `.siren-node`, and that selector now also
+ * outranks this rule on specificity where before the two tied.
+ */
+.siren-node-frame {
   fill: var(--siren-node-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);
 }
 
+/*
+ * The label keeps its element selector, deliberately. The ADR argument above
+ * is about *inheritance*, and it does not reach here: this rule already
+ * applies directly to the `<text>` it names, exactly as the frame rule above
+ * now does, so a declaration emitted onto that `<text>` would outrank it with
+ * or without a class. A node draws exactly one piece of text, so there is
+ * also nothing here for a class to tell apart — unlike a class box, whose
+ * name, annotation and members are three differently-styled texts and so
+ * carry three classes of their own. Give this one a class when something
+ * actually needs to name it, not before.
+ */
 .siren-node text {
   /* text-anchor/dominant-baseline are set as SVG presentation attributes by
      renderToSVG.ts, not here — CSS would win over them and could silently
@@ -663,14 +689,14 @@
  * `transition` works cleanly (no competing animation is ever declared for
  * `stroke`/`stroke-width`/`filter`, unlike `opacity`/`transform`). `outline`
  * needs a descendant selector for nodes (the visible stroke lives on the
- * inner `<rect>`, since `data-siren-id`/the highlight class land on the
- * outer `<g class="siren-node">` per renderToSVG.ts) but applies directly
- * for edges (the highlight class lands on the `<path class="siren-edge">`
- * itself, which already carries `stroke`). `glow` uses an SVG filter, which
- * applies to a `<g>`'s whole subtree as a unit, so no descendant selector
- * is needed there.
+ * inner `.siren-node-frame`, since `data-siren-id`/the highlight class land
+ * on the outer `<g class="siren-node">` per renderToSVG.ts) but applies
+ * directly for edges (the highlight class lands on the
+ * `<path class="siren-edge">` itself, which already carries `stroke`).
+ * `glow` uses an SVG filter, which applies to a `<g>`'s whole subtree as a
+ * unit, so no descendant selector is needed there.
  */
-.siren-node.siren-highlight-outline rect {
+.siren-node.siren-highlight-outline .siren-node-frame {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);
   transition:
@@ -688,12 +714,13 @@
 
 /*
  * The class diagram's own `outline` rules. It needs its own because the two
- * above are written against flowchart structure — `.siren-node` wrapping a
- * `<rect>`, `.siren-edge` being the stroked `<path>` itself — and a class
- * diagram is shaped differently: the highlight class lands on a
+ * above name flowchart classes: the highlight class lands on a
  * `<g class="siren-class">` whose stroke lives on an inner
  * `.siren-class-frame`, and on a `<g class="siren-relationship">` whose
- * stroke lives on an inner `.siren-relationship-line`. Without these,
+ * stroke lives on an inner `.siren-relationship-line`. The *shape* of the
+ * two node rules is now the same one — a group carrying the highlight class
+ * wrapping a named frame that carries the stroke — which is exactly why the
+ * only thing separating them is which names they use. Without these,
  * `highlight X outline` in a class document is a timeline step on which
  * nothing visibly happens — `glow` below already works for every kind, since
  * a filter applies to a `<g>`'s whole subtree.

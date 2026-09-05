@@ -1,12 +1,15 @@
-import type { PositionedGraph } from "../contracts";
+import type { PositionedGraph, StyleProperty } from "../contracts";
+import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /**
  * Builds a real `SVGSVGElement` from a `PositionedGraph`, per the frozen
  * SVG conventions in spec.md ("SVG conventions" bullet list): one
- * `<g class="siren-node">` per node, one `<path class="siren-edge">` per
- * edge, and `data-siren-id` on both.
+ * `<g class="siren-node">` per node, wrapping a
+ * `<rect class="siren-node-frame">` and its label, one
+ * `<path class="siren-edge">` per edge, and `data-siren-id` on the group and
+ * the path.
  *
  * Nothing here reads `graph.timeline`. The initial `siren-pending` state is
  * not this function's to decide: `createAnimationController(...).reset()`
@@ -21,7 +24,14 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   svg.setAttribute("height", String(graph.height));
   svg.setAttribute("viewBox", `0 0 ${graph.width} ${graph.height}`);
 
-  svg.appendChild(buildDefs());
+  // Every id this SVG mints is namespaced by one freshly drawn token. See
+  // `mintIdScope`: a marker id is a *document*-wide name, not an SVG-wide
+  // one, so without this the second diagram on a page silently borrows the
+  // first's arrowheads.
+  const scope = mintIdScope();
+  const themeArrowId = `siren-arrow${scope}`;
+  const defs = buildDefs(themeArrowId);
+  svg.appendChild(defs);
 
   for (const node of graph.nodes) {
     const g = document.createElementNS(SVG_NS, "g");
@@ -29,10 +39,18 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     g.setAttribute("data-siren-id", node.id);
 
     const rect = document.createElementNS(SVG_NS, "rect");
+    // The drawn shape carries a class of its own, mirroring the class
+    // diagram's `<rect class="siren-class-frame">`. The theme selects it
+    // directly, so an author's inline `style` lands on exactly the element the
+    // theme paints rather than on an anonymous descendant of the group — the
+    // placement ADR-0008 argues for. `data-siren-id` and the animation classes
+    // stay on the enclosing `<g>`.
+    rect.setAttribute("class", "siren-node-frame");
     rect.setAttribute("x", String(node.x));
     rect.setAttribute("y", String(node.y));
     rect.setAttribute("width", String(node.width));
     rect.setAttribute("height", String(node.height));
+    applyAuthorStyle(rect, node.style.frame);
     g.appendChild(rect);
 
     const text = document.createElementNS(SVG_NS, "text");
@@ -41,29 +59,161 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     text.setAttribute("text-anchor", "middle");
     text.setAttribute("dominant-baseline", "middle");
     text.textContent = node.label;
+    // The other half of the author's declaration. A node draws two things —
+    // the frame and this label — and `resolveStyles` already decided which
+    // of them each declaration is about, so there is nothing to sort here.
+    //
+    // No class is added for the sake of it. The theme reaches this element
+    // by `.siren-node text`, and an inline declaration outranks an element
+    // selector exactly as it outranks a class selector, so a
+    // `siren-node-label` mirroring `.siren-class-name` would change nothing
+    // about where this lands.
+    applyAuthorStyle(text, node.style.text);
     g.appendChild(text);
 
     svg.appendChild(g);
   }
 
+  // One arrowhead per distinct color, not per styled edge. A marker is a
+  // pure function of the color it carries, so two edges of one color have
+  // the same arrowhead by definition and a second def for it would be a
+  // second copy of the same picture — fifty edges under one `linkStyle
+  // default` would otherwise mint fifty. Distinctness is by the declaration's
+  // exact text, so `#f00` and `red` are two colors here: over-minting draws
+  // the right picture from an extra def, and under-minting would not.
+  const arrowMarkerIdByStroke = new Map<string, string>();
   for (const edge of graph.edges) {
+    const stroke = strokeOf(edge.style.frame);
+    let arrowMarkerId = themeArrowId;
+    if (stroke !== null) {
+      const minted = arrowMarkerIdByStroke.get(stroke);
+      if (minted === undefined) {
+        arrowMarkerId = `siren-arrow-${arrowMarkerIdByStroke.size + 1}${scope}`;
+        arrowMarkerIdByStroke.set(stroke, arrowMarkerId);
+        defs.appendChild(buildArrowMarker(arrowMarkerId, stroke));
+      } else {
+        arrowMarkerId = minted;
+      }
+    }
+
     const path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("class", "siren-edge");
     path.setAttribute("data-siren-id", edge.id);
     path.setAttribute("d", pointsToPathData(edge.points));
-    path.setAttribute("marker-end", "url(#siren-arrow)");
+    path.setAttribute("marker-end", `url(#${arrowMarkerId})`);
+    // The path is the whole drawn edge, so unlike a node there is no frame
+    // to choose: this is the element the theme's `.siren-edge` paints and
+    // the element the animation classes land on alike.
+    //
+    // The arrowhead is the one part of the arrow these declarations cannot
+    // reach: a `<marker>` lives in `<defs>` and its content inherits from
+    // its own ancestors, never from the path referencing it. So an edge that
+    // names a `stroke` is given a marker of its own above, carrying that
+    // color — which is why `stroke` colors the whole arrow here as it does
+    // in Mermaid, rather than the line alone.
+    //
+    // Only the frame half: an edge draws no text, so `edge.style.text` — a
+    // `linkStyle 0 color:#f00` — has no element here to land on and is
+    // deliberately dropped rather than folded into this attribute, where
+    // `color` paints nothing and would tell the author their declaration
+    // worked.
+    applyAuthorStyle(path, edge.style.frame);
     svg.appendChild(path);
   }
 
   return svg;
 }
 
-/** Builds the shared `<defs>` block, including the `siren-arrow` marker every edge references. */
-function buildDefs(): SVGDefsElement {
-  const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
+/**
+ * Writes the author's resolved `style` declarations onto `element` as an
+ * inline `style` attribute, in declaration order, or leaves the element
+ * without one when the author styled nothing.
+ *
+ * One function for a node's frame, a node's label and an edge's path,
+ * because the rule is the same for all three: land on the element the theme
+ * paints. Which half of the author's declarations each one is handed is not
+ * decided here either — `resolveStyles` split them, and this function is
+ * told, in the vocabulary the element it writes to actually reads.
+ *
+ * Where the author wrote the declarations — `style A`, `classDef`,
+ * `linkStyle 0` — is not visible here, and must not be.
+ *
+ * Inline rather than a generated class rule, and on the drawn shape rather
+ * than its enclosing `<g>` — both for the same cascade reason, recorded in
+ * ADR-0008. The theme styles `.siren-node-frame` directly, so an inline
+ * declaration on the frame outranks it without needing `!important`, while
+ * the same declaration on the `<g>` would only ever be *inherited* by the
+ * frame and so would lose to the theme's own rule — and would leak down onto
+ * the node's `<text>`, which the author did not ask to recolor.
+ *
+ * The `<g>` is left alone for a second reason too: it is where the animation
+ * controller stamps `siren-pending` and `siren-enter-*`, and an attribute
+ * this function wrote there would be one more thing those classes have to
+ * share a element with.
+ *
+ * The values are written verbatim. They are author input, but they arrive
+ * here having already passed `resolveStyles`' gate (no `url(`, no
+ * `expression(`, no `;`, no backslash), and re-checking here would fork that
+ * single source of truth. This attribute is a CSS sink, never an HTML one:
+ * nothing is parsed as markup.
+ */
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
+  if (style.length === 0) {
+    return;
+  }
+  element.setAttribute(
+    "style",
+    style.map(({ property, value }) => `${property}:${value}`).join(";"),
+  );
+}
 
-  const marker = document.createElementNS(SVG_NS, "marker");
-  marker.setAttribute("id", "siren-arrow");
+/**
+ * The `stroke` an edge's author style resolves to, or `null` when it names
+ * none.
+ *
+ * `null` is the whole reason an unstyled edge — and an edge whose
+ * `linkStyle` sets only `stroke-width` — mints no marker: there is no color
+ * to carry, so the theme's shared arrowhead is still the right answer and a
+ * per-edge copy of it would be a copy that says nothing.
+ *
+ * Case-insensitive because CSS property names are, and the *last* match
+ * because that is the one a browser applies out of the inline attribute
+ * these same declarations are written to. The arrowhead has to be the color
+ * the line actually takes, not the color it was first told to take.
+ */
+function strokeOf(style: StyleProperty[]): string | null {
+  let stroke: string | null = null;
+  for (const { property, value } of style) {
+    if (property.toLowerCase() === "stroke") {
+      stroke = value;
+    }
+  }
+  return stroke;
+}
+
+/** Builds the shared `<defs>` block, including the arrow marker an unstyled edge references. */
+function buildDefs(themeArrowId: string): SVGDefsElement {
+  const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
+  defs.appendChild(buildArrowMarker(themeArrowId, null));
+  return defs;
+}
+
+/**
+ * Builds one arrowhead `<marker>`: the theme's when `fill` is `null`, and an
+ * edge's own when it is a color.
+ *
+ * The color is written as an inline `style` rather than as a `fill`
+ * attribute, and the `siren-arrow-fill` class stays on either way. That is
+ * ADR-0008's cascade argument applied to the arrowhead: a presentation
+ * attribute loses to *any* stylesheet rule, so `fill="#f00"` here would be
+ * silently overruled by the theme's own `.siren-arrow-fill { fill:
+ * var(--siren-edge-stroke) }`, while an inline declaration outranks it
+ * without needing `!important`. Keeping the class also keeps the theme in
+ * charge of every arrowhead no author colored.
+ */
+function buildArrowMarker(id: string, fill: string | null): SVGMarkerElement {
+  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
+  marker.setAttribute("id", id);
   // userSpaceOnUse (not the SVG default, strokeWidth) keeps the arrowhead a
   // fixed absolute size regardless of the edge's current stroke-width —
   // otherwise it silently doubles when an edge is highlighted (stroke-width
@@ -87,10 +237,12 @@ function buildDefs(): SVGDefsElement {
   // the edge's own stroke, the same way every other themeable part of the
   // SVG is class-driven rather than hardcoded here.
   arrowPath.setAttribute("class", "siren-arrow-fill");
+  if (fill !== null) {
+    arrowPath.setAttribute("style", `fill:${fill}`);
+  }
   marker.appendChild(arrowPath);
 
-  defs.appendChild(marker);
-  return defs;
+  return marker;
 }
 
 /** Converts a layout-assigned point path into an SVG `<path>` `d` attribute. */

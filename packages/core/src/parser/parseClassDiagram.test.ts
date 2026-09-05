@@ -621,7 +621,8 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(document.styles).toEqual([
       {
         styleKind: "style",
-        classIds: ["Shape"],
+        authoredAs: "style",
+        targetIds: ["Shape"],
         name: null,
         properties: [
           { property: "fill", value: "#fdd" },
@@ -645,20 +646,39 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(document.styles).toEqual([
       {
         styleKind: "classDef",
-        classIds: [],
+        authoredAs: "classDef",
+        targetIds: [],
         name: "emphasis",
         properties: [{ property: "fill", value: "#fdd" }],
         line: 2,
         column: 3,
       },
       {
-        styleKind: "cssClass",
-        classIds: ["Shape", "Other"],
+        styleKind: "apply",
+        authoredAs: "cssClass",
+        targetIds: ["Shape", "Other"],
         name: "emphasis",
         properties: [],
         line: 3,
         column: 3,
       },
+    ]);
+  });
+
+  it("normalizes the authored `cssClass` to the canonical apply kind, as `direction TD` normalizes to TB", () => {
+    // Mermaid spells the apply-directive `cssClass` here and `class` in a
+    // flowchart. One kind reaches the model, so nothing downstream learns
+    // that two spellings exist; the spelling survives only in `authoredAs`,
+    // which is what a diagnostic quotes back at the author.
+    const parsed = parseOk(`classDiagram
+  classDef emphasis fill:#fdd
+  cssClass "Shape" emphasis
+`);
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.document.styles.map((style) => [style.styleKind, style.authoredAs])).toEqual([
+      ["classDef", "classDef"],
+      ["apply", "cssClass"],
     ]);
   });
 

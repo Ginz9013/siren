@@ -594,7 +594,7 @@ export function layoutClassDiagram(
    * renderer must give no `style` attribute at all.
    */
   const styleByClassId = new Map(
-    model.styles.map((style) => [style.classId, style.properties]),
+    model.styles.map(({ targetId, style }) => [targetId, style]),
   );
 
   /**
@@ -645,7 +645,7 @@ export function layoutClassDiagram(
       height: box.height,
       attributes: place(plan.attributes),
       methods: place(plan.methods),
-      style: styleByClassId.get(cls.id) ?? [],
+      style: styleByClassId.get(cls.id) ?? { frame: [], text: [] },
       interaction: interactionByClassId.get(cls.id) ?? null,
     };
   });

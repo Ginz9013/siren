@@ -10,15 +10,16 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40 },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40 },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40 },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, style: { frame: [], text: [] } },
     ],
     edges: [
       {
         id: "A-B",
         from: "A",
         to: "B",
+        style: { frame: [], text: [] },
         points: [
           { x: 40, y: 20 },
           { x: 40, y: 100 },
@@ -28,6 +29,7 @@ function buildFixture(): PositionedGraph {
         id: "B-C",
         from: "B",
         to: "C",
+        style: { frame: [], text: [] },
         points: [
           { x: 40, y: 120 },
           { x: 40, y: 200 },
@@ -55,9 +57,9 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40 },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40 },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40 },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, style: { frame: [], text: [] } },
     ],
     edges: [],
     timeline: {
@@ -71,6 +73,24 @@ function buildNonEnterFixture(): PositionedGraph {
     width: 80,
     height: 240,
   };
+}
+
+/**
+ * The `<marker>` one edge path points at, found by following its own
+ * `marker-end` rather than by naming an id.
+ *
+ * No test may spell a marker id: since marker ids became scoped per render
+ * (`mintIdScope` in renderToSVG.ts), the id is a freshly minted name and the
+ * only durable fact about it is that the reference resolves inside this same
+ * SVG.
+ */
+function markerFor(svg: SVGSVGElement, edgeId: string): SVGElement {
+  const path = svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`);
+  const reference = path?.getAttribute("marker-end") ?? "";
+  expect(reference).toMatch(/^url\(#.+\)$/);
+  const marker = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)}`);
+  expect(marker).not.toBeNull();
+  return marker as SVGElement;
 }
 
 describe("renderToSVG", () => {
@@ -117,6 +137,31 @@ describe("renderToSVG", () => {
     expect(text.textContent).toBe("Process");
   });
 
+  it("names each node's rect siren-node-frame, so the theme paints the rect itself and not a descendant", () => {
+    const svg = renderToSVG(buildFixture());
+
+    // The class diagram already works this way (`<rect class="siren-class-frame">`
+    // inside `<g class="siren-class">`), and ADR-0008 is written in those terms:
+    // an author's `style` directive is emitted onto the element the theme styles,
+    // so the two kinds have to name that element the same way. Without a class of
+    // its own the flowchart frame is reachable only as `.siren-node rect` — an
+    // anonymous descendant, which is the one shape ADR-0008's placement argument
+    // tells an author not to reason about.
+    const frames = Array.from(svg.querySelectorAll("g.siren-node > rect"));
+    expect(frames).toHaveLength(3);
+    expect(frames.map((frame) => frame.getAttribute("class"))).toEqual([
+      "siren-node-frame",
+      "siren-node-frame",
+      "siren-node-frame",
+    ]);
+
+    // `data-siren-id` and the animation classes stay on the enclosing `<g>`;
+    // the frame gains a class, it does not take the group's identity over.
+    for (const frame of frames) {
+      expect(frame.getAttribute("data-siren-id")).toBeNull();
+    }
+  });
+
   it("sizes the root svg to the graph's full width/height via width/height and viewBox", () => {
     const svg = renderToSVG(buildFixture());
 
@@ -152,22 +197,26 @@ describe("renderToSVG", () => {
     expect(svg.querySelectorAll("script")).toHaveLength(0);
   });
 
-  it("marks every edge path with the siren-arrow marker and defines that marker in defs", () => {
+  it("marks every edge path with an arrow marker defined in this same SVG's defs", () => {
     const svg = renderToSVG(buildFixture());
 
-    const edgePaths = svg.querySelectorAll("path.siren-edge");
-    for (const path of Array.from(edgePaths)) {
-      expect(path.getAttribute("marker-end")).toBe("url(#siren-arrow)");
+    const edgePaths = Array.from(svg.querySelectorAll("path.siren-edge"));
+    expect(edgePaths.length).toBeGreaterThan(0);
+    for (const path of edgePaths) {
+      const reference = path.getAttribute("marker-end");
+      // Not a literal id: the id is minted per render, so what has to hold is
+      // that the reference resolves *here* — a reference resolving elsewhere
+      // is the cross-diagram bug scoping exists to prevent.
+      expect(reference).toMatch(/^url\(#.+\)$/);
+      const id = reference!.slice("url(#".length, -1);
+      expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
     }
-
-    const marker = svg.querySelector("defs marker#siren-arrow");
-    expect(marker).not.toBeNull();
   });
 
   it("sizes the arrow marker so its tip lands exactly on the path's endpoint, with no overshoot into the node, and stays a fixed absolute size regardless of stroke-width", () => {
     const svg = renderToSVG(buildFixture());
 
-    const marker = svg.querySelector("defs marker#siren-arrow")!;
+    const marker = markerFor(svg, "A-B");
 
     // markerUnits must be userSpaceOnUse, not the SVG default (strokeWidth) —
     // otherwise the marker silently doubles in size whenever an edge's
@@ -198,8 +247,113 @@ describe("renderToSVG", () => {
     // near-black background (reported by the user testing the dark-theme
     // toggle demo). It must carry a class the shipped theme can target,
     // the same way every other themeable part of the SVG does.
-    const arrowPath = svg.querySelector("defs marker#siren-arrow path")!;
+    const arrowPath = markerFor(svg, "A-B").querySelector("path")!;
     expect(arrowPath.getAttribute("class")).toBe("siren-arrow-fill");
     expect(arrowPath.getAttribute("fill")).toBeNull();
+  });
+
+  it("emits the node's resolved author styling as an inline style attribute on its frame rect, in declaration order", () => {
+    // On the rect, not the enclosing <g>: the theme selects
+    // `.siren-node-frame` directly, so an inline declaration there outranks
+    // it without `!important`, while the same declaration on the group would
+    // only ever be inherited by the frame and lose to the theme's own rule
+    // (ADR-0008).
+    const graph = buildFixture();
+    graph.nodes[0].style = {
+      frame: [
+        { property: "fill", value: "#fdd" },
+        { property: "stroke", value: "#c00" },
+      ],
+      text: [],
+    };
+
+    const svg = renderToSVG(graph);
+
+    const frame = svg.querySelector('g.siren-node[data-siren-id="A"] rect.siren-node-frame')!;
+    expect(frame.getAttribute("style")).toBe("fill:#fdd;stroke:#c00");
+    expect(
+      svg.querySelector('g.siren-node[data-siren-id="A"]')!.getAttribute("style"),
+    ).toBeNull();
+  });
+
+  it("leaves an unstyled node's frame without a style attribute at all, rather than an empty one", () => {
+    const svg = renderToSVG(buildFixture());
+
+    for (const frame of Array.from(svg.querySelectorAll("rect.siren-node-frame"))) {
+      expect(frame.getAttribute("style")).toBeNull();
+    }
+  });
+
+  it("emits an edge's resolved author styling as an inline style attribute on its path, leaving an unstyled edge without one", () => {
+    // On the path itself, because that is the element the theme's
+    // `.siren-edge { stroke: ... }` paints — an inline declaration there
+    // outranks it without `!important` (ADR-0008).
+    const graph = buildFixture();
+    graph.edges[0].style = {
+      frame: [
+        { property: "stroke", value: "#f00" },
+        { property: "stroke-width", value: "4px" },
+      ],
+      text: [],
+    };
+
+    const svg = renderToSVG(graph);
+
+    const path = (id: string) => svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    expect(path("A-B").getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
+    expect(path("B-C").getAttribute("style")).toBeNull();
+  });
+
+  it("gives a styled edge an arrowhead of its own stroke color, and leaves every unstyled edge sharing the theme's marker", () => {
+    // This reverses what ticket 05 pinned here. That test asserted the honest
+    // consequence of one shared `<marker>` — `stroke` recolored the line and
+    // left the head the theme's color — and named a marker per edge as the
+    // fix a different ticket would have to make. This is that ticket:
+    // Mermaid colors the whole arrow, and now so does Siren.
+    //
+    // A marker still does not inherit from the path referencing it; nothing
+    // about SVG changed. What changed is that an edge naming a color is given
+    // a marker carrying it, as an inline `fill` that outranks the theme's
+    // `.siren-arrow-fill` rule without `!important`.
+    const graph = buildFixture();
+    graph.edges[0].style = { frame: [{ property: "stroke", value: "#f00" }], text: [] };
+
+    const svg = renderToSVG(graph);
+
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(2);
+
+    const styledHead = markerFor(svg, "A-B").querySelector("path")!;
+    expect(styledHead.getAttribute("class")).toBe("siren-arrow-fill");
+    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+
+    const themeHead = markerFor(svg, "B-C").querySelector("path")!;
+    expect(themeHead.getAttribute("class")).toBe("siren-arrow-fill");
+    expect(themeHead.getAttribute("fill")).toBeNull();
+    expect(themeHead.getAttribute("style")).toBeNull();
+
+    expect(markerFor(svg, "A-B")).not.toBe(markerFor(svg, "B-C"));
+  });
+  it("colors the arrowhead with the `stroke` the line actually takes — the last one declared, whatever its case", () => {
+    // The declarations are emitted verbatim into one inline attribute, so the
+    // browser paints the line with the *last* `stroke` in the list, matching
+    // case-insensitively as CSS does. An arrowhead reading the first one
+    // would give a two-color arrow, which is worse than the single-color one
+    // this ticket replaced.
+    const graph = buildFixture();
+    graph.edges[0].style = {
+      frame: [
+        { property: "stroke", value: "#f00" },
+        { property: "stroke-width", value: "4px" },
+        { property: "STROKE", value: "#00f" },
+      ],
+      text: [],
+    };
+
+    const svg = renderToSVG(graph);
+
+    expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style")).toBe(
+      "stroke:#f00;stroke-width:4px;STROKE:#00f",
+    );
+    expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("fill:#00f");
   });
 });

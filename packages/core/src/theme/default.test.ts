@@ -369,6 +369,194 @@ describe("default theme coverage of the sequence renderer", () => {
   });
 });
 
+/**
+ * A flowchart exercising every class the flowchart renderer emits — node
+ * groups, node frames, edges, the shared arrowhead, and (from the `timeline:`
+ * block) `siren-pending`. The `highlight` steps stamp nothing at step 0, which
+ * is the controller's business rather than the renderer's; they are here so
+ * that a renderer which one day *did* stamp highlight state would be caught by
+ * the coverage check below rather than shipping unthemed.
+ */
+const EVERY_FLOWCHART_FEATURE = `flowchart TB
+A[Start]
+A --> B[Fetch data]
+B --> C[Publish]
+
+timeline:
+step 1: enter B fade, enter A-B fade
+step 2: highlight B outline
+step 3: highlight C glow
+`;
+
+describe("default theme coverage of the flowchart renderer", () => {
+  it("has a rule selecting every class the flowchart renderer emits", () => {
+    const emitted = emittedSirenClasses(renderThemedSVG(EVERY_FLOWCHART_FEATURE));
+    expect(emitted.length).toBeGreaterThan(0);
+
+    const unthemed = emitted.filter(
+      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
+    );
+    expect(unthemed).toEqual([]);
+  });
+
+  it("gives every drawn element a paint, including the ones carrying no class", () => {
+    expect(paintlessElements(renderThemedSVG(EVERY_FLOWCHART_FEATURE))).toEqual([]);
+  });
+
+  it("reaches a node's frame by its own class, never as an anonymous rect descendant", () => {
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+
+    // ADR-0008's placement argument is written in terms of the element the
+    // theme styles: an author's `style` directive is emitted onto that
+    // element, so which element it is has to be something an author can name.
+    // The class diagram already answers that with `.siren-class-frame`; a
+    // flowchart frame reachable only as `.siren-node rect` gives the same
+    // question a different answer for no reason a reader could see.
+    //
+    // Checked against the stylesheet's text as well as the cascade, because
+    // the cascade alone cannot tell the two selectors apart — today both match
+    // the same single `<rect>`, and the whole point of the change is that they
+    // stop being interchangeable once an author can name one of them.
+    expect(themeRules).toMatch(/\.siren-node-frame(?![\w-])/);
+    expect(themeRules).not.toMatch(/\.siren-node(?![\w-])[^,{}]*\brect\b/);
+
+    const frames = Array.from(svg.querySelectorAll(".siren-node-frame"));
+    expect(frames.length).toBeGreaterThan(0);
+    for (const frame of frames) {
+      expect(getComputedStyle(frame).fill).not.toBe("");
+      expect(getComputedStyle(frame).stroke).not.toBe("");
+    }
+  });
+
+  it("keeps a consumer's existing `.siren-node rect` rule working", () => {
+    // Naming the frame is a *public CSS surface* change: `.siren-node rect` is
+    // what a consumer's own stylesheet has been written against since the
+    // first release, and it must not quietly stop applying.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+
+    const frame = svg.querySelector(".siren-node-frame");
+    if (frame === null) {
+      throw new Error("no node frame to restyle");
+    }
+
+    // What could actually have broken is *matching*: the theme no longer
+    // writes `.siren-node rect`, so the question is whether that selector
+    // still selects anything. It does — the frame is still a `<rect>` inside
+    // `.siren-node`, it merely gained a class — and this asserts it rather
+    // than assuming it.
+    //
+    // Specificity is deliberately not asserted here: jsdom's cascade is not
+    // specificity-aware (verified — a bare `rect { ... }` rule overrides
+    // `.siren-node-frame` from either side of the theme), so any such
+    // assertion would pass vacuously. It is arithmetic instead:
+    // `.siren-node rect` is (0,1,1) and the theme's `.siren-node-frame` is
+    // (0,1,0), so an existing consumer override wins from anywhere in the
+    // document, where before the two tied at (0,1,1) and source order decided.
+    // The change can only make such an override more reliable, never less.
+    const consumer = document.createElement("style");
+    consumer.textContent = ".siren-node rect { fill: rgb(1, 2, 3); }";
+    document.head.appendChild(consumer);
+    try {
+      expect(getComputedStyle(frame).fill).toBe("rgb(1, 2, 3)");
+    } finally {
+      consumer.remove();
+    }
+
+    // The negative control, so the assertion above cannot pass by accident:
+    // the same declaration behind a selector that does *not* describe the
+    // frame leaves the theme's own paint in place.
+    const decoy = document.createElement("style");
+    decoy.textContent = ".siren-node > circle { fill: rgb(1, 2, 3); }";
+    document.head.appendChild(decoy);
+    try {
+      expect(getComputedStyle(frame).fill).not.toBe("rgb(1, 2, 3)");
+    } finally {
+      decoy.remove();
+    }
+  });
+
+  it("still gives a highlighted node the outline effect after the frame is named", () => {
+    // Characterization: the outline rule was written as
+    // `.siren-node.siren-highlight-outline rect` and now names
+    // `.siren-node-frame`, matching the same element and matching how the
+    // class diagram's own outline rule is written. Behaviour is meant to be
+    // identical, which is exactly why it needs pinning — a selector edit that
+    // silently stops matching turns `highlight X outline` into a step on
+    // which nothing visibly happens, the same defect the class-diagram
+    // outline test above exists to catch.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+
+    const group = svg.querySelector(".siren-node");
+    const shape = group?.querySelector(".siren-node-frame");
+    if (group === null || group === undefined || shape === null || shape === undefined) {
+      throw new Error("no .siren-node-frame inside .siren-node");
+    }
+
+    const before = getComputedStyle(shape).stroke;
+    group.classList.add("siren-highlight-outline");
+    const after = getComputedStyle(shape).stroke;
+    group.classList.remove("siren-highlight-outline");
+
+    expect(after).not.toBe(before);
+    expect(after).toContain("--siren-highlight-color");
+  });
+
+  it("lets an author's inline style win over its node-frame rule", () => {
+    // The premise of the board's flowchart `style`/`classDef` support, and the
+    // reason the frame is the element that carries the attribute: an inline
+    // declaration on the drawn shape outranks the theme without `!important`.
+    // The same guard the class diagram already has, one kind over.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+
+    const frame = svg.querySelector(".siren-node-frame");
+    if (frame === null) {
+      throw new Error("no node frame to style");
+    }
+
+    frame.setAttribute("style", "fill: rgb(255, 221, 221); stroke: rgb(204, 0, 0)");
+    expect(getComputedStyle(frame).fill).toBe("rgb(255, 221, 221)");
+    expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
+  });
+
+  it("leaves an unstyled arrowhead resolving through `--siren-edge-stroke`, and lets an author-colored one win over that rule", () => {
+    // Per-edge arrowheads must not quietly take the arrow out of the theme's
+    // hands. An edge nobody styled keeps pointing at a marker whose fill is
+    // still the *token*, so a consumer redeclaring `--siren-edge-stroke`
+    // recolors it exactly as before; only the edge that named a color of its
+    // own stops following.
+    const svg = renderThemedSVG(`flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle 0 stroke:#f00
+`);
+
+    const headFor = (edgeId: string): SVGElement => {
+      const reference = svg
+        .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)
+        ?.getAttribute("marker-end");
+      const head =
+        reference == null
+          ? null
+          : svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`);
+      if (head === null) {
+        throw new Error(`no arrowhead for edge ${edgeId}`);
+      }
+      return head as SVGElement;
+    };
+
+    // jsdom does not resolve `var()`, which is what makes this readable: the
+    // unstyled head's fill *is* the token, so redeclaring the token is what
+    // paints it.
+    expect(getComputedStyle(headFor("B-C")).fill).toContain("--siren-edge-stroke");
+
+    // The author's color is an inline declaration on the drawn shape, so it
+    // outranks the theme's `.siren-arrow-fill` rule without `!important` —
+    // ADR-0008's cascade argument, one element further in.
+    expect(getComputedStyle(headFor("A-B")).fill).toBe("#f00");
+    expect(getComputedStyle(headFor("A-B")).fill).not.toContain("--siren-edge-stroke");
+  });
+});
+
 describe("default theme coverage of the class renderer", () => {
   it("has a rule selecting every class the class renderer emits", () => {
     const emitted = emittedSirenClasses(renderThemedSVG(EVERY_CLASS_FEATURE));
@@ -395,16 +583,28 @@ describe("default theme coverage of the class renderer", () => {
     // picture as the filled diamond — and if a theme were to say
     // `fill: none` instead, the relationship line would run visibly through
     // the middle of the head.
-    const shapeOf = (markerId: string): SVGElement => {
-      const shape = svg.querySelector(`#${markerId} path`);
+    //
+    // Found by following the relationship that uses each shape rather than by
+    // naming a marker id: ids are minted per render now (`mintIdScope`), so
+    // the durable handle on "the filled diamond" is "whatever a composition
+    // points at".
+    const shapeOf = (relationshipType: string): SVGElement => {
+      const line = svg.querySelector(
+        `g.siren-relationship[data-siren-relationship="${relationshipType}"] path`,
+      );
+      const reference = line?.getAttribute("marker-start") ?? line?.getAttribute("marker-end");
+      const shape =
+        reference == null
+          ? null
+          : svg.querySelector(`#${reference.slice("url(#".length, -1)} path`);
       if (shape === null) {
-        throw new Error(`no endpoint shape in <marker id="${markerId}">`);
+        throw new Error(`no endpoint shape for a ${relationshipType} relationship`);
       }
       return shape as SVGElement;
     };
-    const filledDiamond = shapeOf("siren-class-diamond-filled");
-    const hollowDiamond = shapeOf("siren-class-diamond-hollow");
-    const triangle = shapeOf("siren-class-triangle");
+    const filledDiamond = shapeOf("composition");
+    const hollowDiamond = shapeOf("aggregation");
+    const triangle = shapeOf("inheritance");
     expect(hollowDiamond.getAttribute("d")).toBe(filledDiamond.getAttribute("d"));
 
     for (const hollow of [hollowDiamond, triangle]) {

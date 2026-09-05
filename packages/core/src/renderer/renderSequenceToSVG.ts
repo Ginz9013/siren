@@ -8,6 +8,7 @@ import type {
   PositionedSequenceElement,
   SequenceArrowHead,
 } from "../contracts";
+import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -46,19 +47,34 @@ const BOX_LABEL_PADDING_Y = 14;
 const ACTOR_ICON_BAND_RATIO = 0.6;
 
 /**
- * Marker id in `<defs>` for each arrowhead style, or `null` for `"none"`
- * (no marker at all). `"filled"` and `"bidirectionalFilled"` share the same
- * marker id — `orient="auto-start-reverse"` on the `<marker>` def makes the
- * one def point outward correctly whether it's used as `marker-start` or
- * `marker-end`, so `bidirectionalFilled` just applies it at both ends
- * rather than needing a second mirrored def.
+ * The `<marker>` shapes an arrowhead can take. `filled` and
+ * `bidirectionalFilled` are one shape, not two:
+ * `orient="auto-start-reverse"` on the def makes the single marker point
+ * outward correctly whether it is applied as `marker-start` or `marker-end`,
+ * so `bidirectionalFilled` applies that one def at both ends rather than
+ * needing a second, mirrored one.
  */
-const HEAD_MARKER_ID: Record<SequenceArrowHead, string | null> = {
+const FILLED_MARKER_NAME = "siren-arrow-filled";
+const CROSS_MARKER_NAME = "siren-arrow-cross";
+const OPEN_MARKER_NAME = "siren-arrow-open";
+
+/**
+ * The *base* name of each arrowhead style's marker, or `null` for `"none"`
+ * (no marker at all) — never an id on its own. Every id this renderer mints
+ * is that base name plus the render's own scope (`mintIdScope`), because
+ * `url(#id)` resolves against the whole document rather than against the SVG
+ * it is written in.
+ *
+ * Two heads mapping to one base name is the deliberate sharing described
+ * above, and scoping does not disturb it: one base name is still one minted
+ * id, and one minted id is still one def.
+ */
+const HEAD_MARKER_NAME: Record<SequenceArrowHead, string | null> = {
   none: null,
-  filled: "siren-arrow-filled",
-  bidirectionalFilled: "siren-arrow-filled",
-  cross: "siren-arrow-cross",
-  open: "siren-arrow-open",
+  filled: FILLED_MARKER_NAME,
+  bidirectionalFilled: FILLED_MARKER_NAME,
+  cross: CROSS_MARKER_NAME,
+  open: OPEN_MARKER_NAME,
 };
 
 /**
@@ -82,7 +98,15 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   svg.setAttribute("height", String(diagram.height));
   svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
 
-  svg.appendChild(buildDefs());
+  // Every marker id below is namespaced by this one freshly drawn token —
+  // see `mintIdScope`. A sequence marker carries no author color (styling
+  // sequence diagrams is a board non-goal), so the collision this closes is
+  // the invisible kind: two sequence diagrams in different CSS contexts,
+  // which ADR-0004 invites, would otherwise define one id and the second
+  // would draw the first container's themed arrowheads.
+  const scope = mintIdScope();
+
+  svg.appendChild(buildDefs(scope));
 
   if (diagram.title !== null) {
     svg.appendChild(buildTitle(diagram.title, diagram.width));
@@ -115,7 +139,7 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   }
 
   for (const element of diagram.elements) {
-    const node = buildSequenceElement(element);
+    const node = buildSequenceElement(element, scope);
     if (node !== null) {
       svg.appendChild(node);
     }
@@ -161,12 +185,15 @@ function buildBox(box: PositionedBox): SVGGElement {
 }
 
 /** Dispatches one `PositionedSequenceElement` to its builder. */
-function buildSequenceElement(element: PositionedSequenceElement): SVGElement | null {
+function buildSequenceElement(
+  element: PositionedSequenceElement,
+  scope: string,
+): SVGElement | null {
   switch (element.kind) {
     case "message":
-      return buildMessage(element.message);
+      return buildMessage(element.message, scope);
     case "block":
-      return buildBlock(element.block);
+      return buildBlock(element.block, scope);
     case "destroyMark":
       return buildDestroyMark(element.mark);
   }
@@ -206,7 +233,7 @@ function buildDestroyMark(mark: PositionedDestroyMark): SVGPathElement {
  * rendered afterward, in document order, so they paint on top of this
  * block's own frame/fill.
  */
-function buildBlock(block: PositionedBlock): SVGGElement {
+function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-block");
   g.setAttribute("data-siren-id", block.id);
@@ -241,7 +268,7 @@ function buildBlock(block: PositionedBlock): SVGGElement {
   }
 
   for (const child of block.children) {
-    const node = buildSequenceElement(child);
+    const node = buildSequenceElement(child, scope);
     if (node !== null) {
       g.appendChild(node);
     }
@@ -311,7 +338,7 @@ function buildTitle(title: string, diagramWidth: number): SVGTextElement {
  * `<text class="siren-message-label">`, and — when autonumbering was
  * active for this message — an adjacent `<text class="siren-autonumber">`.
  */
-function buildMessage(message: PositionedMessage): SVGGElement {
+function buildMessage(message: PositionedMessage, scope: string): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-message");
   g.setAttribute("data-siren-id", message.id);
@@ -320,8 +347,9 @@ function buildMessage(message: PositionedMessage): SVGGElement {
   path.setAttribute("class", "siren-message-arrow");
   path.setAttribute("d", `M${message.fromX},${message.y} L${message.toX},${message.y}`);
 
-  const markerId = HEAD_MARKER_ID[message.arrow.head];
-  if (markerId !== null) {
+  const markerName = HEAD_MARKER_NAME[message.arrow.head];
+  if (markerName !== null) {
+    const markerId = `${markerName}${scope}`;
     path.setAttribute("marker-end", `url(#${markerId})`);
     if (message.arrow.head === "bidirectionalFilled") {
       path.setAttribute("marker-start", `url(#${markerId})`);
@@ -354,19 +382,20 @@ function buildMessage(message: PositionedMessage): SVGGElement {
 
 /**
  * Builds the shared `<defs>` block: one `<marker>` per distinct arrowhead
- * shape (`"none"` needs none; `"filled"`/`"bidirectionalFilled"` share one).
+ * shape (`"none"` needs none; `"filled"`/`"bidirectionalFilled"` share one),
+ * each id being its base name plus this render's `scope`.
  */
-function buildDefs(): SVGDefsElement {
+function buildDefs(scope: string): SVGDefsElement {
   const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
-  defs.appendChild(buildFilledMarker());
-  defs.appendChild(buildCrossMarker());
-  defs.appendChild(buildOpenMarker());
+  defs.appendChild(buildFilledMarker(scope));
+  defs.appendChild(buildCrossMarker(scope));
+  defs.appendChild(buildOpenMarker(scope));
   return defs;
 }
 
-function buildFilledMarker(): SVGMarkerElement {
+function buildFilledMarker(scope: string): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
-  marker.setAttribute("id", "siren-arrow-filled");
+  marker.setAttribute("id", `${FILLED_MARKER_NAME}${scope}`);
   marker.setAttribute("markerUnits", "userSpaceOnUse");
   marker.setAttribute("markerWidth", "8");
   marker.setAttribute("markerHeight", "6");
@@ -381,9 +410,9 @@ function buildFilledMarker(): SVGMarkerElement {
   return marker;
 }
 
-function buildCrossMarker(): SVGMarkerElement {
+function buildCrossMarker(scope: string): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
-  marker.setAttribute("id", "siren-arrow-cross");
+  marker.setAttribute("id", `${CROSS_MARKER_NAME}${scope}`);
   marker.setAttribute("markerUnits", "userSpaceOnUse");
   marker.setAttribute("markerWidth", "8");
   marker.setAttribute("markerHeight", "8");
@@ -398,9 +427,9 @@ function buildCrossMarker(): SVGMarkerElement {
   return marker;
 }
 
-function buildOpenMarker(): SVGMarkerElement {
+function buildOpenMarker(scope: string): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
-  marker.setAttribute("id", "siren-arrow-open");
+  marker.setAttribute("id", `${OPEN_MARKER_NAME}${scope}`);
   marker.setAttribute("markerUnits", "userSpaceOnUse");
   marker.setAttribute("markerWidth", "8");
   marker.setAttribute("markerHeight", "8");

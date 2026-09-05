@@ -10,12 +10,13 @@ import type {
   ClassNote,
   ClassRelationship,
   ClassRelationshipEnd,
-  ClassStyleDecl,
-  ClassStyleProperty,
   Diagnostic,
   ParseResult,
   SirenTimeline,
+  StyleDecl,
+  StyleProperty,
 } from "../contracts";
+import { parseStyleProperties } from "./parseDeclarationList";
 import { matchClassDirection } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
@@ -118,7 +119,12 @@ const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
  *
  * The two are kept as separate declarations rather than being resolved
  * against each other here: pairing a `cssClass` with its `classDef`, in
- * either source order, is `buildClassModel`'s job.
+ * either source order, is `resolveStyles`' job.
+ *
+ * `cssClass` is this kind's spelling of the apply-directive — a flowchart
+ * writes `class` — so it is normalized to the `apply` kind here, the way
+ * `parseDirection` normalizes `TD` to `TB`. The spelling itself is carried
+ * on as `authoredAs`, because it is the word a diagnostic has to quote.
  */
 const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const CSS_CLASS_RE = /^cssClass\s+"([^"]*)"\s+(\w+)$/;
@@ -130,76 +136,6 @@ const MEMBER_NAME_RE = /^[A-Za-z_]\w*$/;
 
 const VISIBILITY_MARKERS = new Set<string>(["+", "-", "#", "~"]);
 const CLASSIFIER_MARKERS = new Set<string>(["*", "$"]);
-
-/**
- * Splits a declaration list on the commas that separate declarations,
- * ignoring the ones inside a value's parentheses. Only a comma at paren
- * depth 0 is a separator, so `fill:rgb(255, 0, 0)` stays one declaration
- * rather than becoming three fragments, two of which have no `:` and would
- * be diagnosed as malformed.
- *
- * An unbalanced parenthesis is treated as a problem with that value, never
- * with the list: an unclosed `(` runs to the end of the list, keeping the
- * text inside one value rather than dropping it, and a stray `)` is
- * ignored — the depth floor is 0 — so the declarations after it still
- * separate normally. Whether such a value is usable is `buildClassModel`'s
- * judgement, as it is for every other value here.
- */
-function splitDeclarations(text: string): string[] {
-  const segments: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (character === "(") {
-      depth += 1;
-    } else if (character === ")") {
-      depth = Math.max(0, depth - 1);
-    } else if (character === "," && depth === 0) {
-      segments.push(text.slice(start, index));
-      start = index + 1;
-    }
-  }
-  segments.push(text.slice(start));
-  return segments;
-}
-
-/**
- * Splits a `fill:#fdd,stroke:#c00` declaration list into its pairs,
- * preserving author order. Only the first `:` of a segment separates
- * property from value, so a value containing a colon survives intact.
- *
- * A segment with no `:` at all has no readable shape, so it is returned in
- * `malformed` for the caller to diagnose — the same treatment an
- * unreadable member line gets.
- *
- * The values themselves are not inspected here. `url(` and `expression(`
- * are rejected by `buildClassModel`, not by this parser — see the note on
- * `parseClassDiagram`.
- */
-function parseStyleProperties(text: string): {
-  properties: ClassStyleProperty[];
-  malformed: string[];
-} {
-  const properties: ClassStyleProperty[] = [];
-  const malformed: string[] = [];
-  for (const segment of splitDeclarations(text)) {
-    const trimmed = segment.trim();
-    if (trimmed.length === 0) {
-      continue;
-    }
-    const separator = trimmed.indexOf(":");
-    if (separator === -1) {
-      malformed.push(trimmed);
-      continue;
-    }
-    properties.push({
-      property: trimmed.slice(0, separator).trim(),
-      value: trimmed.slice(separator + 1).trim(),
-    });
-  }
-  return { properties, malformed };
-}
 
 /**
  * Strips one layer of surrounding quotes from a `call fn("arg")`
@@ -348,19 +284,35 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * **Interaction and styling are validated for syntax shape only, and that
  * is deliberate.** A `click X href "javascript:alert(1)"` and a
  * `style X fill:url(#evil)` are well-formed statements, so they parse here
- * with no diagnostic. Both are to be rejected by `buildClassModel`, which
- * will own the `http`/`https`/`mailto` URL allowlist and the rejected
- * style-function list (`url(`, `expression(`) — see the board's
- * "Interaction target" decision.
+ * with no diagnostic and reach the model as ordinary declarations.
  *
- * That check is **not written yet**: `buildClassModel` currently resolves
- * `interactions` and `styles` to empty arrays, so today these statements
- * parse and then vanish. Nothing renders them either, so the effect is
- * inert rather than unsafe — but do not read this paragraph as describing
- * a check that already runs.
+ * Both are refused downstream, and by two separate gates in two separate
+ * modules. Which is which is worth naming exactly, because a check added to
+ * the wrong one is a check that guards one diagram kind and silently misses
+ * the other:
  *
- * The split is not an oversight: this
- * parser answers "what did the author write", one stage answers "is that
+ * - The `http`/`https`/`mailto` URL allowlist lives in `buildClassModel`'s
+ *   `resolveInteractions`. `click`/`link`/`callback` are class-diagram
+ *   directives and no other parser produces one, so that gate has no second
+ *   caller to be shared with.
+ * - The style-value gate — the plain-CSS-identifier rule for a property
+ *   name, and the refusal of a value carrying `url(`, `expression(`, `;` or
+ *   a backslash — lives in `graph-model/resolveStyles.ts`, which every
+ *   diagram kind that accepts author styling calls. **That module is what
+ *   ADR-0008 means by the security boundary for styling**: the one place a
+ *   value is checked before a renderer emits it verbatim into an inline
+ *   `style` attribute, and no renderer re-checks anything. It was a private
+ *   function of `buildClassModel` while the class diagram was the only kind
+ *   that styled anything; the flowchart made it the second caller and it
+ *   was lifted out rather than copied. A newly rejected property, value
+ *   shape or sink belongs there and nowhere else.
+ *
+ * Both gates run today. A refused declaration is dropped with an
+ * error-severity diagnostic reported at the line that wrote it, and its
+ * siblings in the same statement still apply.
+ *
+ * The split between this file and those two is not an oversight: this
+ * parser answers "what did the author write", the model answers "is that
  * safe to render", and putting the second question here would mean a
  * hostile URL silently changed what the document *is* rather than being
  * reported as the error it is. Every value captured by this function is
@@ -406,7 +358,7 @@ export function parseClassDiagram(source: string): ParseResult {
   const namespaces: ClassNamespace[] = [];
   const notes: ClassNote[] = [];
   const interactions: ClassInteraction[] = [];
-  const styles: ClassStyleDecl[] = [];
+  const styles: StyleDecl[] = [];
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
   /**
@@ -473,7 +425,7 @@ export function parseClassDiagram(source: string): ParseResult {
     text: string,
     lineNumber: number,
     column: number,
-  ): ClassStyleProperty[] => {
+  ): StyleProperty[] => {
     const { properties, malformed } = parseStyleProperties(text);
     for (const segment of malformed) {
       diagnostics.push({
@@ -629,7 +581,8 @@ export function parseClassDiagram(source: string): ParseResult {
     if (classDefMatch !== null) {
       styles.push({
         styleKind: "classDef",
-        classIds: [],
+        authoredAs: "classDef",
+        targetIds: [],
         name: classDefMatch[1],
         properties: readStyleProperties(classDefMatch[2], lineNumber, column),
         line: lineNumber,
@@ -641,8 +594,9 @@ export function parseClassDiagram(source: string): ParseResult {
     const cssClassMatch = CSS_CLASS_RE.exec(line);
     if (cssClassMatch !== null) {
       styles.push({
-        styleKind: "cssClass",
-        classIds: cssClassMatch[1]
+        styleKind: "apply",
+        authoredAs: "cssClass",
+        targetIds: cssClassMatch[1]
           .split(",")
           .map((id) => id.trim())
           .filter((id) => id.length > 0),
@@ -656,11 +610,12 @@ export function parseClassDiagram(source: string): ParseResult {
 
     const styleMatch = STYLE_RE.exec(line);
     if (styleMatch !== null) {
-      // `classIds` is a list because `cssClass` targets many; a `style`
+      // `targetIds` is a list because `cssClass` targets many; a `style`
       // statement fills it with its single target.
       styles.push({
         styleKind: "style",
-        classIds: [styleMatch[1]],
+        authoredAs: "style",
+        targetIds: [styleMatch[1]],
         name: null,
         properties: readStyleProperties(styleMatch[2], lineNumber, column),
         line: lineNumber,
