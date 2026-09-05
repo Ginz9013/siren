@@ -1028,4 +1028,138 @@ describe("buildSequenceModel", () => {
     ]);
   });
 
+  it("warns once when a message stays on screen after a participant it touches exits, naming the message and that participant", () => {
+    // The flowchart's edge-outlives-its-node rule, applied to the third
+    // connector. Distinct from the `destroy` warning this file already
+    // covers: nothing here is destroyed, the lifeline runs full height, and
+    // the defect is only visible while the animation plays.
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } },
+      ],
+      timeline: {
+        entries: [{ kind: "exit", step: 2, targetId: "A", effect: "fade", line: 7, column: 3 }],
+      },
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'timeline: message "A-B" remains visible after its endpoint "A" exits at step 2 — ' +
+          'add "exit A-B ..." at or before step 2',
+      },
+    ]);
+    // Advisory only: the exit still applies and the message still resolves.
+    expect(model!.timeline.entries).toEqual([
+      { kind: "exit", step: 2, targetId: "A", effect: "fade" },
+    ]);
+    expect(model!.statements).toContainEqual({
+      kind: "message",
+      message: {
+        id: "A-B",
+        from: "A",
+        to: "B",
+        text: "hi",
+        arrow: { line: "solid", head: "filled" },
+        autonumber: null,
+      },
+    });
+  });
+  it("reaches a message nested inside a block branch, warning about it just as it would about one at the top level", () => {
+    // Most messages are written inside a loop or an alt, so a rule that only
+    // saw the top-level statement list would miss the common case entirely.
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: "retry",
+          body: [
+            {
+              kind: "alt",
+              branches: [
+                {
+                  label: "ok",
+                  body: [
+                    { kind: "message", from: "A", to: "B", text: "deep", arrow: { line: "solid", head: "filled" } },
+                  ],
+                },
+                {
+                  label: "not ok",
+                  body: [
+                    { kind: "message", from: "B", to: "A", text: "deeper still", arrow: { line: "solid", head: "filled" } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      timeline: {
+        entries: [{ kind: "exit", step: 3, targetId: "A", effect: "fade", line: 14, column: 3 }],
+      },
+    };
+
+    const { diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'timeline: message "A-B" remains visible after its endpoint "A" exits at step 3 — ' +
+        'add "exit A-B ..." at or before step 3',
+      'timeline: message "B-A" remains visible after its endpoint "A" exits at step 3 — ' +
+        'add "exit B-A ..." at or before step 3',
+    ]);
+  });
+  it("goes quiet once the message is given its own exit at or before the participant's", () => {
+    // The way the author acts on the warning. It also pins the wiring the
+    // shared rule depends on: a message id has to be recognised as a
+    // connector, not mistaken for a fourth kind of endpoint.
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } },
+      ],
+      timeline: {
+        entries: [
+          { kind: "exit", step: 2, targetId: "A-B", effect: "fade", line: 7, column: 3 },
+          { kind: "exit", step: 2, targetId: "A", effect: "fade", line: 8, column: 3 },
+        ],
+      },
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.timeline.entries).toEqual([
+      { kind: "exit", step: 2, targetId: "A-B", effect: "fade" },
+      { kind: "exit", step: 2, targetId: "A", effect: "fade" },
+    ]);
+  });
 });

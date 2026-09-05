@@ -129,3 +129,74 @@ export function resolveTimeline(
 
   return { totalSteps, entries };
 }
+
+/**
+ * Warns when a connector remains visible after an endpoint it joins has
+ * exited — a line left drawn from or into empty space.
+ *
+ * A connector is anything joining two ids: a flowchart edge, a class
+ * relationship, a sequence message. `connectorNoun` is the word for the one
+ * at hand (`"edge"`, `"relationship"`, `"message"`) and is the only thing
+ * that differed between the three copies this replaces — the rule, the
+ * tie-break and the wording were already identical, which is why they are
+ * written here once.
+ *
+ * The premise is the same for all three kinds and is what makes the warning
+ * necessary rather than merely tidy: every renderer gives a connector its
+ * own group and its own `data-siren-id`, and `createAnimationController`
+ * toggles each target independently (ADR-0009), so nothing anywhere hides a
+ * connector because an endpoint it touches went away.
+ *
+ * Advisory only: nothing is dropped and the diagram still renders exactly as
+ * authored. An author who wants the connector gone must give it its own
+ * `exit` — and once they have, at or before the endpoint's step, the warning
+ * goes quiet. One warning per affected connector, naming whichever endpoint
+ * leaves first.
+ */
+export function warnOnConnectorsOutlivingTheirEndpoints(
+  entries: readonly ResolvedTimelineEntry[],
+  connectors: readonly { id: string; from: string; to: string }[],
+  connectorNoun: string,
+  diagnostics: Diagnostic[],
+): void {
+  // An `exit` names either a connector or something else; only a connector's
+  // own exit can excuse it, and only a non-connector's exit can strand it, so
+  // the two are kept apart. Everything that is not a connector counts as a
+  // potential endpoint — a target that is neither is simply never looked up.
+  const connectorIds = new Set(connectors.map((connector) => connector.id));
+  const endpointExitStep = new Map<string, number>();
+  const connectorExitStep = new Map<string, number>();
+
+  for (const entry of entries) {
+    if (entry.kind !== "exit") continue;
+    (connectorIds.has(entry.targetId) ? connectorExitStep : endpointExitStep).set(
+      entry.targetId,
+      entry.step,
+    );
+  }
+
+  for (const connector of connectors) {
+    const fromExit = endpointExitStep.get(connector.from);
+    const toExit = endpointExitStep.get(connector.to);
+    if (fromExit === undefined && toExit === undefined) continue;
+
+    // The step the connector has to be gone by is the earlier of its two
+    // endpoints' exits, so that is the one the warning names. An exact tie
+    // keeps `from`, arbitrarily but stably.
+    const earliestEndpointExit = Math.min(
+      ...[fromExit, toExit].filter((step): step is number => step !== undefined),
+    );
+    const endpointId = fromExit === earliestEndpointExit ? connector.from : connector.to;
+
+    const connectorExit = connectorExitStep.get(connector.id);
+    if (connectorExit !== undefined && connectorExit <= earliestEndpointExit) continue;
+
+    diagnostics.push({
+      severity: "warning",
+      message:
+        `timeline: ${connectorNoun} "${connector.id}" remains visible after its endpoint ` +
+        `"${endpointId}" exits at step ${earliestEndpointExit} — add ` +
+        `"exit ${connector.id} ..." at or before step ${earliestEndpointExit}`,
+    });
+  }
+}

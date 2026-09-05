@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../contracts";
-import { resolveTimeline } from "./resolveTimeline";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 describe("resolveTimeline", () => {
   it("returns an empty timeline and reports nothing when there is no timeline block", () => {
@@ -154,5 +154,94 @@ describe("resolveTimeline", () => {
 
     expect(resolved.totalSteps).toBe(5);
     expect(resolved.entries.map((e) => e.step)).toEqual([1, 5]);
+  });
+});
+
+describe("warnOnConnectorsOutlivingTheirEndpoints", () => {
+  it("warns once per connector still on screen after an endpoint exits, spelling the caller's noun into the message, and stays quiet about a connector whose endpoints never leave", () => {
+    // The message text is the one `buildFlowchartModel` and `buildClassModel`
+    // have always produced, with the noun as the only variable — their own
+    // tests still assert it and are not edited by this extraction.
+    const diagnostics: Diagnostic[] = [];
+
+    warnOnConnectorsOutlivingTheirEndpoints(
+      [{ kind: "exit", step: 5, targetId: "A", effect: "fade" }],
+      [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-C", from: "B", to: "C" },
+      ],
+      "message",
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'timeline: message "A-B" remains visible after its endpoint "A" exits at step 5 — ' +
+          'add "exit A-B ..." at or before step 5',
+      },
+    ]);
+  });
+  it("names whichever endpoint leaves first when both do, and the `to` endpoint when it is the only one that leaves", () => {
+    // "First" is the earliest exit step, not the endpoint written first: the
+    // warning tells the author the step by which the connector has to be gone,
+    // and that is the earlier of the two. An exact tie keeps `from`.
+    const diagnostics: Diagnostic[] = [];
+
+    warnOnConnectorsOutlivingTheirEndpoints(
+      [
+        { kind: "exit", step: 7, targetId: "A", effect: "fade" },
+        { kind: "exit", step: 3, targetId: "B", effect: "fade" },
+        { kind: "exit", step: 4, targetId: "D", effect: "fade" },
+        { kind: "exit", step: 2, targetId: "E", effect: "fade" },
+        { kind: "exit", step: 2, targetId: "F", effect: "fade" },
+      ],
+      [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "C-D", from: "C", to: "D" },
+        { id: "E-F", from: "E", to: "F" },
+      ],
+      "edge",
+      diagnostics,
+    );
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'timeline: edge "A-B" remains visible after its endpoint "B" exits at step 3 — ' +
+        'add "exit A-B ..." at or before step 3',
+      'timeline: edge "C-D" remains visible after its endpoint "D" exits at step 4 — ' +
+        'add "exit C-D ..." at or before step 4',
+      'timeline: edge "E-F" remains visible after its endpoint "E" exits at step 2 — ' +
+        'add "exit E-F ..." at or before step 2',
+    ]);
+  });
+  it("stays quiet about a connector that exits at or before its endpoint, and still warns about one that exits too late", () => {
+    // The warning exists to catch an arrow left pointing at empty space. A
+    // connector already gone by the time its endpoint leaves is not that, so
+    // an author who took the advice does not keep hearing it.
+    const diagnostics: Diagnostic[] = [];
+
+    warnOnConnectorsOutlivingTheirEndpoints(
+      [
+        { kind: "exit", step: 5, targetId: "A", effect: "fade" },
+        { kind: "exit", step: 5, targetId: "A-B", effect: "fade" },
+        { kind: "exit", step: 5, targetId: "C", effect: "fade" },
+        { kind: "exit", step: 2, targetId: "C-D", effect: "fade" },
+        { kind: "exit", step: 5, targetId: "E", effect: "fade" },
+        { kind: "exit", step: 8, targetId: "E-F", effect: "fade" },
+      ],
+      [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "C-D", from: "C", to: "D" },
+        { id: "E-F", from: "E", to: "F" },
+      ],
+      "relationship",
+      diagnostics,
+    );
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'timeline: relationship "E-F" remains visible after its endpoint "E" exits at step 5 — ' +
+        'add "exit E-F ..." at or before step 5',
+    ]);
   });
 });

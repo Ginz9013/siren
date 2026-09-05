@@ -13,9 +13,9 @@ import type {
   ResolvedClassNote,
   ResolvedClassRelationship,
   ResolvedClassStyle,
-  ResolvedTimelineEntry,
 } from "../contracts";
-import { resolveTimeline } from "./resolveTimeline";
+import { generatedId } from "./generatedId";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `ClassDocument` into a validated `ClassModel`: repeat
@@ -80,7 +80,12 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     diagnostics,
   );
 
-  warnOnRelationshipsOutlivingTheirEndpoints(timeline.entries, relationships, diagnostics);
+  warnOnConnectorsOutlivingTheirEndpoints(
+    timeline.entries,
+    relationships,
+    "relationship",
+    diagnostics,
+  );
 
   const model: ClassModel = {
     direction: document.direction,
@@ -95,29 +100,6 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   return { model, diagnostics };
 }
-
-/**
- * What separates a generated id's kind from its number — `namespace:1`,
- * `note:1`.
- *
- * A colon rather than the `-` these ids used to use, because classes,
- * relationships, namespaces and notes share one id space and `-` is already
- * spoken for: a relationship's id is `${from}-${to}`, so a class named
- * `namespace` pointing at a class named `1` produces `namespace-1` — the
- * same string the first namespace held. Both `timeline:` addressing and
- * `data-siren-id` were then ambiguous, with no diagnostic to say so.
- *
- * A class id is `\w+` (the parser's rule), which cannot contain a `:`, so
- * no relationship id can ever spell one of these. The separator makes the
- * collision structurally impossible rather than merely unlikely, which is
- * why this is a constant with a reason attached and not an incidental `-`.
- *
- * The cost is that an author addressing a namespace in a `timeline:` block
- * writes `step 1: enter namespace:1 fade`. The timeline action grammar takes
- * everything after the step's own colon and splits it on whitespace, so a
- * colon inside the id is read as part of the id.
- */
-const ID_SEPARATOR = ":";
 
 /**
  * One class under construction, plus the set of member line texts it has
@@ -213,7 +195,7 @@ function resolveClasses(
  * `buildSequenceModel` gives its blocks — while the name the author wrote
  * becomes the frame's `label`.
  *
- * The `:` separator is load-bearing, not decoration: see `ID_SEPARATOR`.
+ * The `:` separator is load-bearing, not decoration: see `generatedId`.
  *
  * Membership is recorded on both sides, so the renderer can walk from
  * either: the namespace lists its class ids, and each member class carries
@@ -236,7 +218,7 @@ function resolveNamespaces(
   const claimedBy = new Map<string, string>();
 
   return document.namespaces.map((namespace, index) => {
-    const id = `namespace${ID_SEPARATOR}${index + 1}`;
+    const id = generatedId("namespace", index + 1);
     const classIds: string[] = [];
 
     for (const classId of namespace.classIds) {
@@ -358,7 +340,7 @@ function resolveNotes(
     }
 
     notes.push({
-      id: `note${ID_SEPARATOR}${index + 1}`,
+      id: generatedId("note", index + 1),
       text: note.text,
       targetId: note.targetId,
     });
@@ -716,61 +698,6 @@ function resolveStyles(
       classId,
       properties: [...properties].map(([property, value]) => ({ property, value })),
     }));
-}
-
-/**
- * Warns when a relationship remains visible after a class it connects has
- * exited — the line would be drawn from or into empty space.
- *
- * The rule is `buildFlowchartModel`'s edge-outliving-its-endpoint warning,
- * and it transfers because its premise does: `renderClassDiagramToSVG` gives
- * each relationship its own group and its own `data-siren-id`, and
- * `createAnimationController` toggles each target independently, so nothing
- * anywhere hides a relationship because a class it touches went away. An
- * author who wants the line gone must say `exit` on the relationship too.
- *
- * Advisory only, exactly as for flowcharts: the `exit` still applies and the
- * diagram still renders. One warning per affected relationship, naming
- * whichever endpoint leaves first.
- */
-function warnOnRelationshipsOutlivingTheirEndpoints(
-  entries: ResolvedTimelineEntry[],
-  relationships: ResolvedClassRelationship[],
-  diagnostics: Diagnostic[],
-): void {
-  const relationshipIds = new Set(relationships.map((r) => r.id));
-  const classExitStep = new Map<string, number>();
-  const relationshipExitStep = new Map<string, number>();
-
-  for (const entry of entries) {
-    if (entry.kind !== "exit") continue;
-    (relationshipIds.has(entry.targetId) ? relationshipExitStep : classExitStep).set(
-      entry.targetId,
-      entry.step,
-    );
-  }
-
-  for (const relationship of relationships) {
-    const fromExit = classExitStep.get(relationship.from);
-    const toExit = classExitStep.get(relationship.to);
-    if (fromExit === undefined && toExit === undefined) continue;
-
-    const earliestClassExit = Math.min(
-      ...[fromExit, toExit].filter((step): step is number => step !== undefined),
-    );
-    const endpointId = fromExit === earliestClassExit ? relationship.from : relationship.to;
-
-    const relationshipExit = relationshipExitStep.get(relationship.id);
-    if (relationshipExit !== undefined && relationshipExit <= earliestClassExit) continue;
-
-    diagnostics.push({
-      severity: "warning",
-      message:
-        `timeline: relationship "${relationship.id}" remains visible after its endpoint ` +
-        `"${endpointId}" exits at step ${earliestClassExit} — add ` +
-        `"exit ${relationship.id} ..." at or before step ${earliestClassExit}`,
-    });
-  }
 }
 
 /**

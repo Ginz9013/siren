@@ -18,7 +18,8 @@ import type {
   SequenceRectStatement,
   SequenceStatement,
 } from "../contracts";
-import { resolveTimeline } from "./resolveTimeline";
+import { generatedId } from "./generatedId";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
  * A block-kind `SequenceStatement` — everything left once `message`,
@@ -33,31 +34,6 @@ type BlockStatement =
   | SequenceCriticalStatement
   | SequenceBreakStatement
   | SequenceRectStatement;
-
-/**
- * What separates a generated id's kind from its number — `box:1`, `loop:1`,
- * `alt:2`.
- *
- * A colon rather than a `-`, because participants, messages, control-flow
- * blocks and box groupings share one `data-siren-id` space and `-` is
- * already spoken for: a message's id is `${from}-${to}`, so a participant
- * named `box` messaging a participant named `1` produces `box-1` — the same
- * string the first box grouping held. Both `timeline:` addressing and
- * `data-siren-id` were then ambiguous, with no diagnostic to say so.
- *
- * A participant id is `\w+` (the parser's rule), which cannot contain a
- * `:`, so no message id can ever spell one of these. The separator makes
- * the collision structurally impossible rather than merely unlikely, which
- * is why this is a constant with a reason attached and not an incidental
- * `-`. `buildClassModel`'s `ID_SEPARATOR` answers the same question for
- * `namespace:1` and `note:1`.
- *
- * The cost is that an author addressing a block in a `timeline:` block
- * writes `step 1: enter loop:1 fade`. The timeline action grammar takes
- * everything after the step's own colon and splits it on whitespace, so a
- * colon inside the id is read as part of the id.
- */
-const ID_SEPARATOR = ":";
 
 /**
  * Mutable resolution state threaded by reference through the whole
@@ -146,6 +122,23 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const timeline = resolveTimeline(document.timeline, validTargetIds, diagnostics);
 
+  // A message is the sequence diagram's connector and its endpoints are the
+  // two participants it joins, so the rule flowchart applies to an edge and
+  // class applies to a relationship applies here unchanged — one arrow left
+  // pointing at a lane that has animated away.
+  //
+  // Not to be confused with the `destroy` warning the message walk above
+  // raises. That one is about the diagram's own structure, is true of a still
+  // frame, and fires whether or not anything animates; this one is about the
+  // timeline, and an author reading both is being told about two different
+  // defects in the same arrow.
+  warnOnConnectorsOutlivingTheirEndpoints(
+    timeline.entries,
+    collectMessages(statements),
+    "message",
+    diagnostics,
+  );
+
   const model: SequenceModel = {
     title: document.title,
     participants,
@@ -176,7 +169,7 @@ function resolveBoxes(document: SequenceDocument, diagnostics: Diagnostic[]): Re
   const declaredIds = new Set(document.participants.map((p) => p.id));
 
   return document.boxes.map((box, index) => {
-    const id = `box${ID_SEPARATOR}${index + 1}`;
+    const id = generatedId("box", index + 1);
     const participantIds = box.participantIds.filter((participantId) => {
       if (declaredIds.has(participantId)) return true;
       diagnostics.push({
@@ -349,15 +342,15 @@ function resolveBlock(
   participantsById: Map<string, ResolvedSequenceParticipant>,
   state: ResolutionState,
 ): ResolvedSequenceBlock {
-  // Block id: `${kind}:${n}` (the separator is `ID_SEPARATOR`, and
-  // load-bearing), a 1-based counter per block kind, in document order —
+  // Block id: `${kind}:${n}` (the separator is load-bearing — see
+  // `generatedId`), a 1-based counter per block kind, in document order —
   // assigned here, before recursing into the block's body, so nested blocks
   // (which are walked immediately after, still ahead of this block's later
   // siblings) receive ids that reflect source order across the whole
   // flattened tree, not just within their own nesting level.
   const n = (state.blockCounters.get(statement.kind) ?? 0) + 1;
   state.blockCounters.set(statement.kind, n);
-  const id = `${statement.kind}${ID_SEPARATOR}${n}`;
+  const id = generatedId(statement.kind, n);
 
   // Pre-order: the block occupies the position just before its body's
   // statements do.
@@ -443,4 +436,33 @@ function collectStatementIds(
       }
     }
   }
+}
+
+/**
+ * Every message in the resolved statement tree rooted at `statements`, in
+ * document order.
+ *
+ * Recursive for the same reason `collectStatementIds` is: a message is more
+ * often written inside a `loop` or an `alt` than at the top level, so a walk
+ * of `statements` alone would miss the ordinary case. Every branch of an
+ * `alt`/`par`/`critical` is walked — the branches are alternatives at read
+ * time, but all of them are drawn, so all of them hold arrows that can be
+ * left pointing at a participant that has gone.
+ */
+function collectMessages(
+  statements: readonly ResolvedSequenceStatement[],
+  into: ResolvedSequenceMessage[] = [],
+): ResolvedSequenceMessage[] {
+  for (const statement of statements) {
+    if (statement.kind === "message") {
+      into.push(statement.message);
+      continue;
+    }
+    if (statement.kind === "block") {
+      for (const branch of statement.block.branches) {
+        collectMessages(branch.statements, into);
+      }
+    }
+  }
+  return into;
 }

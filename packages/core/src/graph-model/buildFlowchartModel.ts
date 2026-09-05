@@ -4,9 +4,8 @@ import type {
   GraphEdge,
   GraphModel,
   GraphNode,
-  ResolvedTimelineEntry,
 } from "../contracts";
-import { resolveTimeline } from "./resolveTimeline";
+import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `FlowchartDocument` into a validated `GraphModel`:
@@ -37,7 +36,7 @@ export function buildFlowchartModel(
 
   const { entries, totalSteps } = resolveTimeline(document.timeline, validTargetIds, diagnostics);
 
-  warnOnEdgesOutlivingTheirEndpoints(entries, edges, diagnostics);
+  warnOnConnectorsOutlivingTheirEndpoints(entries, edges, "edge", diagnostics);
 
   const graph: GraphModel = {
     direction: document.direction,
@@ -47,51 +46,6 @@ export function buildFlowchartModel(
   };
 
   return { graph, diagnostics };
-}
-
-/**
- * Warns when an edge remains visible after a node it connects to has
- * exited — the edge would render pointing at (or from) an invisible
- * endpoint, an arrow with no visible source or target. Advisory only:
- * does not drop the exit action or change what renders, since edge
- * visibility isn't coupled to its endpoints' visibility in renderToSVG.ts
- * — an author who wants the edge gone too must give it its own `exit`.
- * One warning per affected edge, naming whichever endpoint exits first.
- */
-function warnOnEdgesOutlivingTheirEndpoints(
-  entries: ResolvedTimelineEntry[],
-  edges: GraphEdge[],
-  diagnostics: Diagnostic[],
-): void {
-  const edgeIds = new Set(edges.map((e) => e.id));
-  const nodeExitStep = new Map<string, number>();
-  const edgeExitStep = new Map<string, number>();
-
-  for (const entry of entries) {
-    if (entry.kind !== "exit") continue;
-    (edgeIds.has(entry.targetId) ? edgeExitStep : nodeExitStep).set(entry.targetId, entry.step);
-  }
-
-  for (const edge of edges) {
-    const fromExit = nodeExitStep.get(edge.from);
-    const toExit = nodeExitStep.get(edge.to);
-    if (fromExit === undefined && toExit === undefined) continue;
-
-    const earliestNodeExit = Math.min(
-      ...[fromExit, toExit].filter((step): step is number => step !== undefined),
-    );
-    const endpointId = fromExit === earliestNodeExit ? edge.from : edge.to;
-
-    const edgeExit = edgeExitStep.get(edge.id);
-    if (edgeExit !== undefined && edgeExit <= earliestNodeExit) continue;
-
-    diagnostics.push({
-      severity: "warning",
-      message:
-        `timeline: edge "${edge.id}" remains visible after its endpoint "${endpointId}" ` +
-        `exits at step ${earliestNodeExit} — add "exit ${edge.id} ..." at or before step ${earliestNodeExit}`,
-    });
-  }
 }
 
 function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): GraphNode[] {
