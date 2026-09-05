@@ -1,6 +1,5 @@
 import type {
   ClassRelationshipEnd,
-  ClassStyleProperty,
   Point,
   PositionedClass,
   PositionedClassCompartment,
@@ -9,6 +8,7 @@ import type {
   PositionedClassNote,
   PositionedClassRelationship,
   ResolvedClassInteraction,
+  StyleProperty,
 } from "../contracts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -535,7 +535,7 @@ function wrapInteraction(
  * truth. This attribute is a CSS sink, never an HTML one: nothing is parsed as
  * markup, so the hard `textContent`-never-`innerHTML` invariant is untouched.
  */
-function applyAuthorStyle(element: SVGElement, style: ClassStyleProperty[]): void {
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
   if (style.length === 0) {
     return;
   }

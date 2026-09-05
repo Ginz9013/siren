@@ -10,11 +10,11 @@ import type {
   ClassNote,
   ClassRelationship,
   ClassRelationshipEnd,
-  ClassStyleDecl,
-  ClassStyleProperty,
   Diagnostic,
   ParseResult,
   SirenTimeline,
+  StyleDecl,
+  StyleProperty,
 } from "../contracts";
 import { matchClassDirection } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -118,7 +118,12 @@ const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
  *
  * The two are kept as separate declarations rather than being resolved
  * against each other here: pairing a `cssClass` with its `classDef`, in
- * either source order, is `buildClassModel`'s job.
+ * either source order, is `resolveStyles`' job.
+ *
+ * `cssClass` is this kind's spelling of the apply-directive — a flowchart
+ * writes `class` — so it is normalized to the `apply` kind here, the way
+ * `parseDirection` normalizes `TD` to `TB`. The spelling itself is carried
+ * on as `authoredAs`, because it is the word a diagnostic has to quote.
  */
 const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const CSS_CLASS_RE = /^cssClass\s+"([^"]*)"\s+(\w+)$/;
@@ -142,7 +147,7 @@ const CLASSIFIER_MARKERS = new Set<string>(["*", "$"]);
  * with the list: an unclosed `(` runs to the end of the list, keeping the
  * text inside one value rather than dropping it, and a stray `)` is
  * ignored — the depth floor is 0 — so the declarations after it still
- * separate normally. Whether such a value is usable is `buildClassModel`'s
+ * separate normally. Whether such a value is usable is `resolveStyles`'
  * judgement, as it is for every other value here.
  */
 function splitDeclarations(text: string): string[] {
@@ -174,14 +179,14 @@ function splitDeclarations(text: string): string[] {
  * unreadable member line gets.
  *
  * The values themselves are not inspected here. `url(` and `expression(`
- * are rejected by `buildClassModel`, not by this parser — see the note on
+ * are rejected by `resolveStyles`, not by this parser — see the note on
  * `parseClassDiagram`.
  */
 function parseStyleProperties(text: string): {
-  properties: ClassStyleProperty[];
+  properties: StyleProperty[];
   malformed: string[];
 } {
-  const properties: ClassStyleProperty[] = [];
+  const properties: StyleProperty[] = [];
   const malformed: string[] = [];
   for (const segment of splitDeclarations(text)) {
     const trimmed = segment.trim();
@@ -406,7 +411,7 @@ export function parseClassDiagram(source: string): ParseResult {
   const namespaces: ClassNamespace[] = [];
   const notes: ClassNote[] = [];
   const interactions: ClassInteraction[] = [];
-  const styles: ClassStyleDecl[] = [];
+  const styles: StyleDecl[] = [];
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
   /**
@@ -473,7 +478,7 @@ export function parseClassDiagram(source: string): ParseResult {
     text: string,
     lineNumber: number,
     column: number,
-  ): ClassStyleProperty[] => {
+  ): StyleProperty[] => {
     const { properties, malformed } = parseStyleProperties(text);
     for (const segment of malformed) {
       diagnostics.push({
@@ -629,6 +634,7 @@ export function parseClassDiagram(source: string): ParseResult {
     if (classDefMatch !== null) {
       styles.push({
         styleKind: "classDef",
+        authoredAs: "classDef",
         classIds: [],
         name: classDefMatch[1],
         properties: readStyleProperties(classDefMatch[2], lineNumber, column),
@@ -641,7 +647,8 @@ export function parseClassDiagram(source: string): ParseResult {
     const cssClassMatch = CSS_CLASS_RE.exec(line);
     if (cssClassMatch !== null) {
       styles.push({
-        styleKind: "cssClass",
+        styleKind: "apply",
+        authoredAs: "cssClass",
         classIds: cssClassMatch[1]
           .split(",")
           .map((id) => id.trim())
@@ -660,6 +667,7 @@ export function parseClassDiagram(source: string): ParseResult {
       // statement fills it with its single target.
       styles.push({
         styleKind: "style",
+        authoredAs: "style",
         classIds: [styleMatch[1]],
         name: null,
         properties: readStyleProperties(styleMatch[2], lineNumber, column),

@@ -1,12 +1,26 @@
 import { describe, expect, it } from "vitest";
-import type { ClassStyleDecl, Diagnostic } from "../contracts";
+import type { Diagnostic, StyleDecl } from "../contracts";
 import { resolveStyles } from "./resolveStyles";
 
-/** A styling statement with the fields a test does not care about defaulted. */
+/**
+ * A styling statement with the fields a test does not care about defaulted.
+ *
+ * `authoredAs` defaults to the kind, which is right for `style` and
+ * `classDef`: every diagram kind spells those two the way they mean them.
+ * `apply` is no author's word for anything, so the signature makes a test
+ * about the apply-directive state the spelling it is about.
+ */
 function styleDecl(
-  overrides: Partial<ClassStyleDecl> & { styleKind: ClassStyleDecl["styleKind"] },
+  overrides: Partial<StyleDecl> &
+    ({ styleKind: "style" | "classDef" } | { styleKind: "apply"; authoredAs: string }),
 ) {
-  return { classIds: [], name: null, properties: [], ...overrides } satisfies ClassStyleDecl;
+  return {
+    authoredAs: overrides.styleKind,
+    classIds: [],
+    name: null,
+    properties: [],
+    ...overrides,
+  } satisfies StyleDecl;
 }
 
 describe("resolveStyles", () => {
@@ -29,7 +43,7 @@ describe("resolveStyles", () => {
       );
 
       expect(styles).toEqual([
-        { classId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+        { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
       ]);
       expect(diagnostics).toEqual([
         {
@@ -46,7 +60,12 @@ describe("resolveStyles", () => {
 
       const styles = resolveStyles(
         [
-          styleDecl({ styleKind: "cssClass", classIds: ["Shape"], name: "emphasis" }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            classIds: ["Shape"],
+            name: "emphasis",
+          }),
           styleDecl({
             styleKind: "classDef",
             name: "emphasis",
@@ -58,7 +77,7 @@ describe("resolveStyles", () => {
       );
 
       expect(styles).toEqual([
-        { classId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+        { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
       ]);
       expect(diagnostics).toEqual([]);
     });
@@ -74,7 +93,8 @@ describe("resolveStyles", () => {
             properties: [{ property: "fill", value: "#fdd" }],
           }),
           styleDecl({
-            styleKind: "cssClass",
+            styleKind: "apply",
+            authoredAs: "cssClass",
             classIds: ["Shape"],
             name: "emphsis",
             line: 6,
@@ -94,6 +114,47 @@ describe("resolveStyles", () => {
           line: 6,
           column: 1,
         },
+      ]);
+    });
+
+    it("names the keyword the author wrote, not the canonical kind it parsed to", () => {
+      // A flowchart spells the apply-directive `class` where a class diagram
+      // spells it `cssClass`. Both parse to one kind, so the kind cannot be
+      // what a diagnostic quotes: an author who wrote `class` and is told
+      // about `cssClass` is being pointed at a line they did not write.
+      const diagnostics: Diagnostic[] = [];
+
+      resolveStyles(
+        [
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "class",
+            classIds: ["Shape"],
+            name: "nope",
+            line: 3,
+            column: 1,
+          }),
+          styleDecl({
+            styleKind: "classDef",
+            name: "emphasis",
+            properties: [{ property: "fill", value: "#fdd" }],
+          }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "class",
+            classIds: ["Ghost"],
+            name: "emphasis",
+            line: 5,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        'class applies "nope", which no classDef defines; dropping the declaration.',
+        'class "Ghost" references a class that does not exist; dropping the declaration.',
       ]);
     });
 
@@ -122,7 +183,7 @@ describe("resolveStyles", () => {
 
       expect(styles).toEqual([
         {
-          classId: "Shape",
+          targetId: "Shape",
           properties: [
             { property: "fill", value: "#00f" },
             { property: "stroke", value: "#c00" },
@@ -156,7 +217,7 @@ describe("resolveStyles", () => {
       ]);
 
       expect(styles).toEqual([
-        { classId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
       ]);
       expect(diagnostics).toEqual([
         {
@@ -175,7 +236,7 @@ describe("resolveStyles", () => {
       ]);
 
       expect(styles).toEqual([
-        { classId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
       ]);
       expect(diagnostics).toEqual([
         {
@@ -258,15 +319,20 @@ describe("resolveStyles", () => {
             line: 2,
             column: 1,
           }),
-          styleDecl({ styleKind: "cssClass", classIds: ["Shape", "Duck"], name: "emphasis" }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            classIds: ["Shape", "Duck"],
+            name: "emphasis",
+          }),
         ],
         new Set(["Shape", "Duck"]),
         diagnostics,
       );
 
       expect(styles).toEqual([
-        { classId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
-        { classId: "Duck", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Duck", properties: [{ property: "stroke", value: "#c00" }] },
       ]);
       expect(diagnostics).toEqual([
         {

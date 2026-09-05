@@ -594,7 +594,7 @@ export function layoutClassDiagram(
    * renderer must give no `style` attribute at all.
    */
   const styleByClassId = new Map(
-    model.styles.map((style) => [style.classId, style.properties]),
+    model.styles.map((style) => [style.targetId, style.properties]),
   );
 
   /**

@@ -1246,7 +1246,7 @@ describe("layoutClassDiagram", () => {
           classes: [cls("Duck"), cls("Animal")],
           styles: [
             {
-              classId: "Duck",
+              targetId: "Duck",
               properties: [
                 { property: "fill", value: "#fdd" },
                 { property: "stroke", value: "#c00" },

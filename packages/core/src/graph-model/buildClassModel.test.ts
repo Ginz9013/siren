@@ -885,6 +885,7 @@ describe("buildClassModel", () => {
         styles: [
           {
             styleKind: "style",
+            authoredAs: "style",
             classIds: ["Shape"],
             name: null,
             properties: [
@@ -902,7 +903,7 @@ describe("buildClassModel", () => {
     expect(model).not.toBeNull();
     expect(model!.styles).toEqual([
       {
-        classId: "Shape",
+        targetId: "Shape",
         properties: [
           { property: "fill", value: "#fdd" },
           { property: "stroke", value: "#c00" },
@@ -923,9 +924,16 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Shape" }), classDecl({ id: "Duck" })],
         styles: [
-          { styleKind: "cssClass", classIds: ["Shape", "Duck"], name: "emphasis", properties: [] },
+          {
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            classIds: ["Shape", "Duck"],
+            name: "emphasis",
+            properties: [],
+          },
           {
             styleKind: "classDef",
+            authoredAs: "classDef",
             classIds: [],
             name: "emphasis",
             properties: [
@@ -935,6 +943,7 @@ describe("buildClassModel", () => {
           },
           {
             styleKind: "style",
+            authoredAs: "style",
             classIds: ["Shape"],
             name: null,
             properties: [{ property: "fill", value: "#00f" }],
@@ -947,14 +956,14 @@ describe("buildClassModel", () => {
     expect(model).not.toBeNull();
     expect(model!.styles).toEqual([
       {
-        classId: "Shape",
+        targetId: "Shape",
         properties: [
           { property: "fill", value: "#00f" },
           { property: "stroke", value: "#c00" },
         ],
       },
       {
-        classId: "Duck",
+        targetId: "Duck",
         properties: [
           { property: "fill", value: "#fdd" },
           { property: "stroke", value: "#c00" },
@@ -970,12 +979,14 @@ describe("buildClassModel", () => {
         styles: [
           {
             styleKind: "classDef",
+            authoredAs: "classDef",
             classIds: [],
             name: "warm",
             properties: [{ property: "fill", value: "#fdd" }],
           },
           {
             styleKind: "classDef",
+            authoredAs: "classDef",
             classIds: [],
             name: "cool",
             properties: [
@@ -983,8 +994,20 @@ describe("buildClassModel", () => {
               { property: "stroke", value: "#00c" },
             ],
           },
-          { styleKind: "cssClass", classIds: ["Shape"], name: "warm", properties: [] },
-          { styleKind: "cssClass", classIds: ["Shape"], name: "cool", properties: [] },
+          {
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            classIds: ["Shape"],
+            name: "warm",
+            properties: [],
+          },
+          {
+            styleKind: "apply",
+            authoredAs: "cssClass",
+            classIds: ["Shape"],
+            name: "cool",
+            properties: [],
+          },
         ],
       }),
     );
@@ -992,7 +1015,7 @@ describe("buildClassModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model!.styles).toEqual([
       {
-        classId: "Shape",
+        targetId: "Shape",
         properties: [
           { property: "fill", value: "#ddf" },
           { property: "stroke", value: "#00c" },
@@ -1008,6 +1031,7 @@ describe("buildClassModel", () => {
         styles: [
           {
             styleKind: "style",
+            authoredAs: "style",
             classIds: ["Ghost"],
             name: null,
             properties: [{ property: "fill", value: "#fdd" }],
@@ -1016,6 +1040,7 @@ describe("buildClassModel", () => {
           },
           {
             styleKind: "style",
+            authoredAs: "style",
             classIds: ["Shape"],
             name: null,
             properties: [{ property: "fill", value: "#00f" }],
@@ -1034,7 +1059,7 @@ describe("buildClassModel", () => {
     ]);
     expect(model).not.toBeNull();
     expect(model!.styles).toEqual([
-      { classId: "Shape", properties: [{ property: "fill", value: "#00f" }] },
+      { targetId: "Shape", properties: [{ property: "fill", value: "#00f" }] },
     ]);
     expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
   });
@@ -1046,12 +1071,14 @@ describe("buildClassModel", () => {
         styles: [
           {
             styleKind: "classDef",
+            authoredAs: "classDef",
             classIds: [],
             name: "emphasis",
             properties: [{ property: "fill", value: "#fdd" }],
           },
           {
-            styleKind: "cssClass",
+            styleKind: "apply",
+            authoredAs: "cssClass",
             classIds: ["Shape", "Ghost"],
             name: "emphasis",
             properties: [],
@@ -1072,7 +1099,7 @@ describe("buildClassModel", () => {
       },
     ]);
     expect(model!.styles).toEqual([
-      { classId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+      { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
     ]);
   });
 
@@ -1083,12 +1110,14 @@ describe("buildClassModel", () => {
         styles: [
           {
             styleKind: "classDef",
+            authoredAs: "classDef",
             classIds: [],
             name: "emphasis",
             properties: [{ property: "fill", value: "#fdd" }],
           },
           {
-            styleKind: "cssClass",
+            styleKind: "apply",
+            authoredAs: "cssClass",
             classIds: ["Shape"],
             name: "emphsis",
             properties: [],
@@ -1125,7 +1154,15 @@ describe("buildClassModel", () => {
       return classDocument({
         classes: [classDecl({ id: "Shape" })],
         styles: [
-          { styleKind: "style", classIds: ["Shape"], name: null, properties, line: 4, column: 1 },
+          {
+            styleKind: "style",
+            authoredAs: "style",
+            classIds: ["Shape"],
+            name: null,
+            properties,
+            line: 4,
+            column: 1,
+          },
         ],
       });
     }
@@ -1151,7 +1188,7 @@ describe("buildClassModel", () => {
       ]);
       expect(model!.styles).toEqual([
         {
-          classId: "Shape",
+          targetId: "Shape",
           properties: [
             { property: "stroke", value: "#c00" },
             { property: "stroke-width", value: "2px" },
@@ -1205,7 +1242,7 @@ describe("buildClassModel", () => {
         `Style property "${property}" is not a plain CSS identifier; dropping the declaration.`,
       ]);
       expect(model!.styles).toEqual([
-        { classId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+        { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
       ]);
     });
 
@@ -1253,7 +1290,7 @@ describe("buildClassModel", () => {
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
       // The declaration beside it is untouched, as for any other rejection.
       expect(model!.styles).toEqual([
-        { classId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
+        { targetId: "Shape", properties: [{ property: "fill", value: "#fdd" }] },
       ]);
     });
 
@@ -1265,7 +1302,7 @@ describe("buildClassModel", () => {
       const { model, diagnostics } = buildClassModel(styleDocument([{ property, value }]));
 
       expect(diagnostics).toEqual([]);
-      expect(model!.styles).toEqual([{ classId: "Shape", properties: [{ property, value }] }]);
+      expect(model!.styles).toEqual([{ targetId: "Shape", properties: [{ property, value }] }]);
     });
 
     it("reports a rejected classDef declaration once, at the classDef, however many classes apply it", () => {
@@ -1276,6 +1313,7 @@ describe("buildClassModel", () => {
           styles: [
             {
               styleKind: "classDef",
+              authoredAs: "classDef",
               classIds: [],
               name: "emphasis",
               properties: [
@@ -1285,8 +1323,20 @@ describe("buildClassModel", () => {
               line: 4,
               column: 1,
             },
-            { styleKind: "cssClass", classIds: ["Shape"], name: "emphasis", properties: [] },
-            { styleKind: "cssClass", classIds: ["Duck"], name: "emphasis", properties: [] },
+            {
+              styleKind: "apply",
+              authoredAs: "cssClass",
+              classIds: ["Shape"],
+              name: "emphasis",
+              properties: [],
+            },
+            {
+              styleKind: "apply",
+              authoredAs: "cssClass",
+              classIds: ["Duck"],
+              name: "emphasis",
+              properties: [],
+            },
           ],
         }),
       );
@@ -1299,8 +1349,8 @@ describe("buildClassModel", () => {
         ],
       ]);
       expect(model!.styles).toEqual([
-        { classId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
-        { classId: "Duck", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Shape", properties: [{ property: "stroke", value: "#c00" }] },
+        { targetId: "Duck", properties: [{ property: "stroke", value: "#c00" }] },
       ]);
     });
   });

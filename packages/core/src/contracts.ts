@@ -810,27 +810,48 @@ export interface ClassInteraction {
 }
 
 /** One `property:value` pair of an author style declaration. */
-export interface ClassStyleProperty {
+export interface StyleProperty {
   property: string;
   value: string;
 }
 
-/** Which author-styling statement a `ClassStyleDecl` came from. */
-export type ClassStyleDeclKind = "style" | "classDef" | "cssClass";
+/**
+ * What an author-styling statement *does*, with each diagram kind's spelling
+ * already normalized away.
+ *
+ * `apply` is the apply-directive — Mermaid's `cssClass` in a class diagram
+ * and its `class` in a flowchart. It is named for the role rather than for
+ * either spelling: `class` would read inside this package as "a class
+ * diagram's class", the sense `ClassDecl`, `classIds` and `ResolvedClass`
+ * already own, and `cssClass` is one kind's word for a statement both kinds
+ * write. The spelling an author used survives in `StyleDecl.authoredAs`.
+ */
+export type StyleDeclKind = "style" | "classDef" | "apply";
 
 /**
- * A `style X fill:#fdd`, `classDef name fill:#fdd`, or `cssClass "A,B"
- * name` statement, as written. Values are not validated here — rejecting
- * `url(`/`expression(` is `buildClassModel`'s job.
+ * A `style X fill:#fdd`, `classDef name fill:#fdd`, or apply-directive
+ * (`cssClass "A,B" name`) statement, as written. Values are not validated
+ * here — rejecting `url(`/`expression(` is `resolveStyles`' job.
  */
-export interface ClassStyleDecl {
-  styleKind: ClassStyleDeclKind;
-  /** The classes targeted by `style`/`cssClass`; empty for `classDef`. */
+export interface StyleDecl {
+  styleKind: StyleDeclKind;
+  /**
+   * The keyword the author actually typed, which is the only thing a
+   * diagnostic about this statement may quote.
+   *
+   * `styleKind` is what the statement *means* and is normalized at the
+   * parser, so it cannot answer this: a flowchart spells the
+   * apply-directive `class` and a class diagram spells it `cssClass`, and
+   * both arrive here as one kind. Telling an author who wrote `class` that
+   * their `cssClass` is wrong points at a line they never wrote.
+   */
+  authoredAs: string;
+  /** The classes targeted by `style`/`apply`; empty for `classDef`. */
   classIds: string[];
-  /** The definition name of `classDef`/`cssClass`; `null` for `style`. */
+  /** The definition name of `classDef`/`apply`; `null` for `style`. */
   name: string | null;
-  /** The declarations of `style`/`classDef`; empty for `cssClass`. */
-  properties: ClassStyleProperty[];
+  /** The declarations of `style`/`classDef`; empty for `apply`. */
+  properties: StyleProperty[];
   line?: number;
   column?: number;
 }
@@ -849,7 +870,7 @@ export interface ClassDocument {
   namespaces: ClassNamespace[];
   notes: ClassNote[];
   interactions: ClassInteraction[];
-  styles: ClassStyleDecl[];
+  styles: StyleDecl[];
   timeline: SirenTimeline | null;
 }
 
@@ -916,13 +937,17 @@ export interface ResolvedClassInteraction {
 }
 
 /**
- * Author styling after model resolution: `classDef`/`cssClass` flattened
- * onto each class it applies to, in declaration order, with rejected
- * values already dropped.
+ * Author styling after model resolution: an apply-directive's `classDef`
+ * flattened onto each target it applies to, in declaration order, with
+ * rejected values already dropped.
+ *
+ * `targetId` is a target's id in the sense the glossary gives that word —
+ * the authored thing a style is attached to — so it is a class in a class
+ * diagram and a node in a flowchart, and this type never has to know which.
  */
-export interface ResolvedClassStyle {
-  classId: string;
-  properties: ClassStyleProperty[];
+export interface ResolvedStyle {
+  targetId: string;
+  properties: StyleProperty[];
 }
 
 /**
@@ -937,7 +962,7 @@ export interface ClassModel {
   namespaces: ResolvedClassNamespace[];
   notes: ResolvedClassNote[];
   interactions: ResolvedClassInteraction[];
-  styles: ResolvedClassStyle[];
+  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
 }
 
@@ -990,7 +1015,7 @@ export interface PositionedClass {
   /** The method compartment, or `null` when the class declares none. */
   methods: PositionedClassCompartment | null;
   /** Author declarations to emit as this element's inline `style` attribute. */
-  style: ClassStyleProperty[];
+  style: StyleProperty[];
   /** The link or click hook to attach, or `null`. */
   interaction: ResolvedClassInteraction | null;
 }

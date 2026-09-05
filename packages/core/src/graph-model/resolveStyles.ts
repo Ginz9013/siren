@@ -1,9 +1,4 @@
-import type {
-  ClassStyleDecl,
-  ClassStyleProperty,
-  Diagnostic,
-  ResolvedClassStyle,
-} from "../contracts";
+import type { Diagnostic, ResolvedStyle, StyleDecl, StyleProperty } from "../contracts";
 
 /**
  * Resolves a document's `style`/`classDef`/apply-directive statements into
@@ -41,11 +36,11 @@ import type {
  * case, reached without it having to test for an empty list.
  */
 export function resolveStyles(
-  declarations: readonly ClassStyleDecl[],
+  declarations: readonly StyleDecl[],
   validTargetIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
-): ResolvedClassStyle[] {
-  const definitions = new Map<string, ClassStyleProperty[]>();
+): ResolvedStyle[] {
+  const definitions = new Map<string, StyleProperty[]>();
   for (const declaration of declarations) {
     if (declaration.styleKind !== "classDef" || declaration.name === null) continue;
     definitions.set(declaration.name, acceptedProperties(declaration, diagnostics));
@@ -57,8 +52,8 @@ export function resolveStyles(
   for (const declaration of declarations) {
     if (declaration.styleKind === "classDef") continue;
 
-    let applied: ClassStyleProperty[];
-    if (declaration.styleKind === "cssClass") {
+    let applied: StyleProperty[];
+    if (declaration.styleKind === "apply") {
       const defined = definitions.get(declaration.name ?? "");
       if (defined === undefined) {
         // Applying a name nothing defines is a typo, and a silent one:
@@ -66,7 +61,7 @@ export function resolveStyles(
         // left comparing two spellings by eye.
         diagnostics.push({
           severity: "error",
-          message: `cssClass applies "${declaration.name}", which no classDef defines; dropping the declaration.`,
+          message: `${declaration.authoredAs} applies "${declaration.name}", which no classDef defines; dropping the declaration.`,
           line: declaration.line,
           column: declaration.column,
         });
@@ -81,11 +76,11 @@ export function resolveStyles(
       // Naming a target in a styling statement does not declare it, exactly
       // as `note for` and `click` do not: styling is about something that
       // already exists. One unknown target drops itself, not the statement,
-      // so the other targets of a `cssClass "A,Ghost"` still get styled.
+      // so the other targets of an `apply` naming "A,Ghost" still get styled.
       if (!validTargetIds.has(targetId)) {
         diagnostics.push({
           severity: "error",
-          message: `${declaration.styleKind} "${targetId}" references a class that does not exist; dropping the declaration.`,
+          message: `${declaration.authoredAs} "${targetId}" references a class that does not exist; dropping the declaration.`,
           line: declaration.line,
           column: declaration.column,
         });
@@ -105,8 +100,8 @@ export function resolveStyles(
 
   return [...byTargetId]
     .filter(([, properties]) => properties.size > 0)
-    .map(([classId, properties]) => ({
-      classId,
+    .map(([targetId, properties]) => ({
+      targetId,
       properties: [...properties].map(([property, value]) => ({ property, value })),
     }));
 }
@@ -160,10 +155,10 @@ const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[]
  * that applies it, because that is the line the author has to edit.
  */
 function acceptedProperties(
-  declaration: ClassStyleDecl,
+  declaration: StyleDecl,
   diagnostics: Diagnostic[],
-): ClassStyleProperty[] {
-  const accepted: ClassStyleProperty[] = [];
+): StyleProperty[] {
+  const accepted: StyleProperty[] = [];
 
   for (const property of declaration.properties) {
     const problem = rejectStyleProperty(property);
@@ -185,7 +180,7 @@ function acceptedProperties(
 /**
  * The reason one declaration may not be emitted, or `null` when it may.
  */
-function rejectStyleProperty({ property, value }: ClassStyleProperty): string | null {
+function rejectStyleProperty({ property, value }: StyleProperty): string | null {
   if (!CSS_PROPERTY_RE.test(property)) {
     return `Style property "${property}" is not a plain CSS identifier; dropping the declaration.`;
   }
