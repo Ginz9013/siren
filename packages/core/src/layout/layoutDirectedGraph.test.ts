@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { Direction } from "../contracts";
 import {
   layoutDirectedGraph,
   type DirectedGraphLayoutInput,
-  type RankDirection,
 } from "./layoutDirectedGraph";
 
 /** The same three-node chain, laid out in whichever rank direction is asked for. */
-function chain(rankdir: RankDirection): DirectedGraphLayoutInput {
+function chain(rankdir: Direction): DirectedGraphLayoutInput {
   return {
     rankdir,
     nodes: [

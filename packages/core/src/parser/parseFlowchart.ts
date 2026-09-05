@@ -7,16 +7,16 @@ import type {
   SirenNode,
   SirenTimeline,
 } from "../contracts";
+import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
-const FLOWCHART_HEADER_RE = /^flowchart\s+(TD|LR)\s*$/;
 const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*$/;
 const EDGE_RE =
   /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
 const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
 
 /**
- * Parses Siren flowchart source text (a `flowchart TD|LR` header, node/edge
+ * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header, node/edge
  * declarations, and an optional `timeline:` block) into a
  * `FlowchartDocument`. Never throws on malformed input — syntax problems
  * are reported as diagnostics instead.
@@ -69,18 +69,18 @@ export function parseFlowchart(source: string): ParseResult {
     }
 
     if (mode === "before-header") {
-      const headerMatch = FLOWCHART_HEADER_RE.exec(line);
-      if (headerMatch === null) {
+      const headerDirection = matchFlowchartHeader(line);
+      if (headerDirection === null) {
         diagnostics.push({
           severity: "error",
-          message: `Expected "flowchart TD" or "flowchart LR", found "${line}"`,
+          message: `Expected ${listAcceptedHeaders()}, found "${line}"`,
           line: lineNumber,
           column,
         });
         sawError = true;
         break;
       }
-      direction = headerMatch[1] as Direction;
+      direction = headerDirection;
       mode = "flowchart";
       continue;
     }

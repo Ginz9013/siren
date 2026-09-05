@@ -92,14 +92,22 @@ function computeClassStateAtStep(
  */
 function applyClassState(svg: SVGSVGElement, state: Map<string, Set<string>>): void {
   for (const [targetId, targetClasses] of state) {
-    const el = svg.querySelector(`[data-siren-id="${targetId}"]`);
-    if (!el) continue;
+    // Every element carrying the id, not the first one: a timeline target is
+    // the authored thing, and how many elements draw it is a layout detail.
+    // A sequence participant is drawn twice (top row and bottom) alongside
+    // its lifeline, all three under one id -- see ADR-0009.
+    const elements = svg.querySelectorAll(`[data-siren-id="${targetId}"]`);
 
-    for (const c of Array.from(el.classList)) {
-      if (isEffectClass(c) && !targetClasses.has(c)) el.classList.remove(c);
-    }
-    for (const c of targetClasses) {
-      if (!el.classList.contains(c)) el.classList.add(c);
+    // `Array.from` rather than iterating the NodeList: this package's `lib` is
+    // ["ES2022", "DOM"] without "DOM.Iterable", so a NodeList is not iterable
+    // here.
+    for (const el of Array.from(elements)) {
+      for (const c of Array.from(el.classList)) {
+        if (isEffectClass(c) && !targetClasses.has(c)) el.classList.remove(c);
+      }
+      for (const c of targetClasses) {
+        if (!el.classList.contains(c)) el.classList.add(c);
+      }
     }
   }
 }

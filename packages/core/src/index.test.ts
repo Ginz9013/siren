@@ -384,6 +384,62 @@ step 5: unhighlight B
 `;
 
 describe("render", () => {
+  it("renders a flowchart declared with any of the four directions, and with the TD alias", () => {
+    for (const header of ["TB", "BT", "LR", "RL", "TD"]) {
+      const container = document.createElement("div");
+
+      const result = render(`flowchart ${header}\nA[Start] --> B[End]\n`, container);
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.svg).not.toBeNull();
+      expect(result.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
+    }
+  });
+
+  it("carries the header's direction all the way through to node coordinates", () => {
+    const boxesFor = (header: string) => {
+      const result = render(`flowchart ${header}\nA[Start] --> B[End]\n`, document.createElement("div"));
+      const entries = Array.from(result.svg!.querySelectorAll("g.siren-node")).map((group) => {
+        const rect = group.querySelector("rect")!;
+        return [
+          group.getAttribute("data-siren-id")!,
+          { x: Number(rect.getAttribute("x")), y: Number(rect.getAttribute("y")) },
+        ] as const;
+      });
+      return Object.fromEntries(entries);
+    };
+
+    const tb = boxesFor("TB");
+    expect(tb.B.y).toBeGreaterThan(tb.A.y);
+
+    const bt = boxesFor("BT");
+    expect(bt.B.y).toBeLessThan(bt.A.y);
+
+    const lr = boxesFor("LR");
+    expect(lr.B.x).toBeGreaterThan(lr.A.x);
+
+    const rl = boxesFor("RL");
+    expect(rl.B.x).toBeLessThan(rl.A.x);
+  });
+
+  it("lays out flowchart TD identically to flowchart TB, because TD is an alias and not a direction of its own", () => {
+    const geometryFor = (header: string) => {
+      const result = render(`flowchart ${header}\nA[Start] --> B[End]\n`, document.createElement("div"));
+      return Array.from(result.svg!.querySelectorAll("g.siren-node")).map((group) => {
+        const rect = group.querySelector("rect")!;
+        return {
+          id: group.getAttribute("data-siren-id"),
+          x: rect.getAttribute("x"),
+          y: rect.getAttribute("y"),
+          width: rect.getAttribute("width"),
+          height: rect.getAttribute("height"),
+        };
+      });
+    };
+
+    expect(geometryFor("TD")).toEqual(geometryFor("TB"));
+  });
+
   it("mounts an SVG into the container with one siren-node group per node and one siren-edge path per edge, each carrying data-siren-id", () => {
     const container = document.createElement("div");
 

@@ -1,22 +1,5 @@
-import type {
-  Direction,
-  GraphModel,
-  LayoutOptions,
-  PositionedGraph,
-} from "../contracts";
-import {
-  layoutDirectedGraph,
-  type RankDirection,
-} from "./layoutDirectedGraph";
-
-/**
- * Maps the flowchart header's direction vocabulary onto the shared layout
- * core's rank directions. Mermaid writes top-down as `TD`; the graph
- * literature — and `layoutDirectedGraph` — calls it `TB`.
- */
-function rankDirectionFor(direction: Direction): RankDirection {
-  return direction === "LR" ? "LR" : "TB";
-}
+import type { GraphModel, LayoutOptions, PositionedGraph } from "../contracts";
+import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
 /**
  * Computes node positions and edge paths for a resolved `GraphModel`.
@@ -35,7 +18,7 @@ export function layoutGraph(
   options: LayoutOptions,
 ): PositionedGraph {
   const laidOut = layoutDirectedGraph({
-    rankdir: rankDirectionFor(graph.direction),
+    rankdir: graph.direction,
     nodes: graph.nodes.map((node) => ({
       id: node.id,
       ...options.measureText.measure(node.label),

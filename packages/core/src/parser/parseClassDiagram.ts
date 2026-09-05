@@ -1,6 +1,6 @@
 import type {
   ClassDecl,
-  ClassDirection,
+  Direction,
   ClassDocument,
   ClassInteraction,
   ClassMember,
@@ -16,6 +16,7 @@ import type {
   ParseResult,
   SirenTimeline,
 } from "../contracts";
+import { matchClassDirection } from "./parseDirection";
 import { isTimelineHeader, parseTimelineLine } from "./parseTimelineBlock";
 
 const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
@@ -72,7 +73,6 @@ const NOTE_RE = /^note\s+"([^"]*)"$/;
 const NOTE_FOR_RE = /^note\s+for\s+(\w+)\s+"([^"]*)"$/;
 
 /** A `direction TB|BT|LR|RL` statement. */
-const DIRECTION_RE = /^direction\s+(TB|BT|LR|RL)$/;
 
 /**
  * `click Shape href "https://example.com"`, with Mermaid's optional
@@ -421,7 +421,7 @@ export function parseClassDiagram(source: string): ParseResult {
    * says otherwise; a second one wins over the first, the way a later
    * assignment wins in every other statement-ordered format.
    */
-  let direction: ClassDirection = "TB";
+  let direction: Direction = "TB";
   /**
    * The `timeline:` block, once one has been opened. `null` until then, which
    * is what tells `buildClassModel` the document declares no animation at all
@@ -506,9 +506,9 @@ export function parseClassDiagram(source: string): ParseResult {
     const lineNumber = startIndex + 1;
     const column = rawLine.length - rawLine.trimStart().length + 1;
 
-    const directionMatch = DIRECTION_RE.exec(line);
-    if (directionMatch !== null) {
-      direction = directionMatch[1] as ClassDirection;
+    const directionStatement = matchClassDirection(line);
+    if (directionStatement !== null) {
+      direction = directionStatement;
       return startIndex;
     }
 

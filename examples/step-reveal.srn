@@ -1,4 +1,4 @@
-flowchart TD
+flowchart TB
   A[Start]
   A --> B[Fetch data]
   B --> C[Transform]

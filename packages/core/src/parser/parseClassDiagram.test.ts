@@ -507,6 +507,16 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(withoutDirection.document.direction).toBe("TB");
   });
 
+  it("accepts the TD alias for TB, exactly as the flowchart header does", () => {
+    const parsed = parseOk(`classDiagram
+  direction TD
+  Animal <|-- Duck
+`);
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.document.direction).toBe("TB");
+  });
+
   it("parses a click href interaction, with and without the trailing tooltip", () => {
     const source = `classDiagram
   class Shape

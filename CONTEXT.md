@@ -35,24 +35,37 @@ _Avoid_: viewport, camera, zoom level (say "view" for the combined pan+zoom stat
 
 **Timeline block**:
 The `timeline:` section of a Siren document. Lists step entries that assign animation actions to
-nodes/edges by id. Deliberately separate from the diagram's structural definition — see
+timeline targets by id. Deliberately separate from the diagram's structural definition — see
 [ADR-0002](docs/adr/0002-animation-timeline-is-a-separate-block.md).
 _Avoid_: animation block, timeline section
 
 **Step**:
 A positive integer named in a timeline block. Steps reveal in ascending order via
-`controller.next()`. A node or edge never mentioned in the timeline block is visible from the
+`controller.next()`. Anything the timeline block never mentions is visible from the
 start (implicit "step 0").
 _Avoid_: frame, stage
 
 **Timeline action**:
 One `step N: <verb> <id> [<effect>]` entry in a timeline block. Four verbs: `enter`/`exit`
 (effect: `fade` or a directional `slide-{left,right,top,bottom}`), `highlight` (effect: `outline`
-or `glow` — cumulative, multiple elements can be highlighted at once, a second `highlight` on the
+or `glow` — cumulative, multiple targets can be highlighted at once, a second `highlight` on the
 same target replaces its effect rather than requiring `unhighlight` first), `unhighlight` (no
 effect).
 _Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highlight effect" when
 the verb matters)
+
+**Timeline target**:
+Anything a timeline action can name by id: a flowchart node or edge, or a class, relationship,
+namespace or note in a class diagram. Every one of them carries `data-siren-id` in the rendered
+SVG, which is how the animation controller finds it — so a diagram kind gains animation by tagging
+its drawn elements with the ids the timeline uses, not by teaching the controller anything new.
+A target is the *authored thing*, not one drawn element: an id may be worn by several elements
+(a sequence participant is drawn in both participant rows, alongside its lifeline) and they all
+animate together — see
+[ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md).
+_Avoid_: animated element, "nodes and edges" as a collective name for what a timeline can name
+(that is flowchart-only vocabulary, and this term is what replaced it — **node** and **edge**
+remain the right words for those two things themselves), timeline reference, animation target
 
 **Design token**:
 A `--siren-*` CSS custom property in `packages/core/src/theme/default.css` — the single source of
@@ -69,11 +82,21 @@ _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "err
 diagnostic" for the level)
 
 **Diagram kind**:
-Which diagram a Siren document declares in its header — `flowchart TD|LR`, `sequenceDiagram`, or
-`classDiagram`. Carried as `SirenDocument.kind` and dispatched on by `parseSiren`,
-`buildGraphModel`, and `render()`, each of which routes to that kind's own
+Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
+`sequenceDiagram`, or `classDiagram`. Carried as `SirenDocument.kind` and dispatched on by
+`parseSiren`, `buildGraphModel`, and `render()`, each of which routes to that kind's own
 parser/model/layout/renderer.
 _Avoid_: diagram type, mode
+
+**Direction**:
+Which way a diagram's layout runs — `TB` top-to-bottom, `BT` bottom-to-top, `LR` left-to-right,
+`RL` right-to-left — written in a flowchart's header (`flowchart TB`) or a class diagram's
+`direction` statement. `TD` is Mermaid's alias for `TB`, not a fifth direction: both parsers
+normalize it away through the same rule, so nothing downstream ever sees two spellings of one
+direction — including `layoutDirectedGraph`, which takes these four values as dagre's `rankdir`
+with nothing left to map.
+_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — it survives as
+`layoutDirectedGraph`'s input field name, and nowhere else), TD (say `TB`)
 
 **Graph-shaped diagram**:
 A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class
@@ -83,6 +106,20 @@ imports dagre (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead
 and its amendment). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
 and has its own `layoutSequence`.
 _Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre diagram
+
+**Node**:
+One box in a flowchart, declared `A[label]` or created implicitly by being named in an edge — the
+flowchart counterpart of a class diagram's **class** and a sequence diagram's **participant**. A
+node has exactly one shape today; Mermaid's other shapes are unimplemented rather than
+deliberately excluded.
+_Avoid_: box, vertex, block, state
+
+**Edge**:
+A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
+then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
+`-->` is the only form today, and an edge carries no label.
+_Avoid_: link, arrow, connector, relationship (class-diagram vocabulary), message (sequence
+vocabulary)
 
 **Participant**:
 One vertical lane in a sequence diagram, declared explicitly as `participant X` (drawn as a box)

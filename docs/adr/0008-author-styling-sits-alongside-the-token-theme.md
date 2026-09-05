@@ -81,3 +81,50 @@ There is no specificity model between author directives, consistent with the boa
 `style`, `classDef` and `cssClass` all flatten into one ordered property list per class, last
 declaration of the same property winning by ordinary CSS rules within the attribute. Nothing
 cascades between classes, so there is no inheritance behavior to specify or to surprise anyone.
+
+## Amendment (recording the label-text gap)
+
+The Consequences above note that a document hardcoding `fill:#fdd` keeps its pink box in a dark
+theme. In practice the sharper consequence is not the box — it is the text on it, and it is worth
+writing down explicitly because it is what an author actually hits.
+
+Every piece of text a class draws takes its color from the token theme and only from it:
+`.siren-class-name`, `.siren-member` and `.siren-class-annotation` all resolve to
+`var(--siren-node-text)`. There is no `--siren-class-*` token family at all — the class diagram
+reuses the node tokens wholesale. `applyAuthorStyle` writes to the frame rect and nothing else, by
+the placement argument above. So an author directive can change what is *behind* the text but can
+never change the text, and the two halves of one box end up governed by different systems. Set an
+opaque light `fill` and a dark theme still paints light label text on it; set an opaque dark `fill`
+and a light theme does the mirror image. Either way the box is unreadable, and the author has no
+directive available to fix it — the failure is not that their style was ignored, it is that it was
+applied *halfway*.
+
+The repo's current answer is avoidance: `examples/class-full.srn` styles every class with an
+alpha-carrying fill (`fill:#f59e0b33`) so the themed background shows through and the token text
+color stays legible against it, with a `%%` comment saying why. That works, and it is the right
+guidance for today, but it lives in one example's comment rather than anywhere an author would
+look — and it is a workaround for a gap, not a design.
+
+This amendment does not change the decision: styling the drawn shape remains correct, for the
+precedence reason given above, and the frame stays the target for box properties. What it records
+is the shape of the fix when this is taken up.
+
+The leading option is to **route declarations by property** rather than to widen what one element
+receives: box properties (`fill`, `stroke`, `stroke-width`, ...) keep going to
+`.siren-class-frame`, and `color` — spelled exactly as Mermaid's `classDef` already spells it —
+is emitted onto the class's `<text>` elements instead. That keeps every argument in this ADR
+intact. It is still an inline `style` attribute, so it still outranks the theme's class rules
+without `!important`; it still lands directly on the element the theme styles, so nothing is
+resolved by inheritance; and the one validation gate in `buildClassModel` still sees every
+declaration before it is emitted. It is also a compatibility gain rather than an invention:
+`color:` is what a Mermaid author already writes to recolor a label, and today Siren accepts that
+declaration and silently paints it onto a rect that has no text in it.
+
+The alternative of translating an author's `fill` into a scoped `--siren-node-text` override is
+the "map author declarations onto the tokens" option this ADR already rejected, and rejects again
+for the same reason: it only works for the properties that happen to have a token, and it makes
+the author's declaration mean something they did not write.
+
+Until that lands, author styling stays documented as local emphasis with a known limit — a style
+reaches a class's frame, never its label text — and translucent fills remain the recommended way
+to stay theme-safe.

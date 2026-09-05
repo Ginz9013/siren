@@ -26,8 +26,8 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
 }
 
 describe("layoutGraph", () => {
-  it("stacks ranks downward for a TD chain graph", () => {
-    const graph = chainGraph("TD");
+  it("stacks ranks downward for a TB chain graph", () => {
+    const graph = chainGraph("TB");
 
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
@@ -46,8 +46,23 @@ describe("layoutGraph", () => {
     expect(byId.C.x).toBeGreaterThan(byId.B.x);
   });
 
+  it("honors all four rank directions, not just the two the header used to accept", () => {
+    const byIdFor = (direction: GraphModel["direction"]) => {
+      const positioned = layoutGraph(chainGraph(direction), { measureText: fakeMeasurer });
+      return Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+    };
+
+    const bt = byIdFor("BT");
+    expect(bt.B.y).toBeLessThan(bt.A.y);
+    expect(bt.C.y).toBeLessThan(bt.B.y);
+
+    const rl = byIdFor("RL");
+    expect(rl.B.x).toBeLessThan(rl.A.x);
+    expect(rl.C.x).toBeLessThan(rl.B.x);
+  });
+
   it("produces non-overlapping bounding boxes for all nodes", () => {
-    const graph = chainGraph("TD");
+    const graph = chainGraph("TB");
 
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
@@ -73,7 +88,7 @@ describe("layoutGraph", () => {
   });
 
   it("routes each edge's path from the source node's boundary to the target node's boundary, not their centers", () => {
-    const graph = chainGraph("TD");
+    const graph = chainGraph("TB");
 
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
@@ -95,7 +110,7 @@ describe("layoutGraph", () => {
   });
 
   it("produces identical output for two calls with the same graph and measurer (deterministic)", () => {
-    const graph = chainGraph("TD");
+    const graph = chainGraph("TB");
 
     const first = layoutGraph(graph, { measureText: fakeMeasurer });
     const second = layoutGraph(graph, { measureText: fakeMeasurer });
@@ -105,7 +120,7 @@ describe("layoutGraph", () => {
 
   it("passes the resolved timeline through unchanged onto PositionedGraph.timeline", () => {
     const graph: GraphModel = {
-      ...chainGraph("TD"),
+      ...chainGraph("TB"),
       timeline: {
         totalSteps: 2,
         entries: [

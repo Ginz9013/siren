@@ -42,6 +42,32 @@ function buildTimeline(): ResolvedTimeline {
   };
 }
 
+/** The three elements `buildSharedIdSvg` draws, in document order. */
+const SHARED_ID_CLASSES = ["siren-participant", "siren-lifeline", "siren-participant"] as const;
+
+/**
+ * A fixture in the shape a sequence diagram produces: one participant id worn
+ * by three drawn elements — the top row's box, its lifeline, and the bottom
+ * row's box. A flowchart node or a class box is one element per id; this is
+ * the case that is not.
+ */
+function buildSharedIdSvg(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
+
+  for (const className of SHARED_ID_CLASSES) {
+    const el = document.createElementNS(SVG_NS, "g");
+    el.setAttribute("class", className);
+    el.setAttribute("data-siren-id", "A");
+    svg.appendChild(el);
+  }
+
+  return svg;
+}
+
+function allWithId(svg: SVGSVGElement, id: string): Element[] {
+  return Array.from(svg.querySelectorAll(`[data-siren-id="${id}"]`));
+}
+
 function getNode(svg: SVGSVGElement, id: string): Element {
   const el = svg.querySelector(`[data-siren-id="${id}"]`);
   if (!el) throw new Error(`fixture missing node ${id}`);
@@ -91,6 +117,52 @@ function buildAllKindsFixture(): { svg: SVGSVGElement; timeline: ResolvedTimelin
 }
 
 describe("createAnimationController", () => {
+  it("clears and restores a shared id's classes on every element, through prev and reset", () => {
+    const svg = buildSharedIdSvg();
+    for (const el of allWithId(svg, "A")) el.classList.add("siren-pending");
+    const controller = createAnimationController(svg, {
+      totalSteps: 2,
+      entries: [
+        { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+        { kind: "highlight", step: 2, targetId: "A", effect: "glow" },
+      ],
+    });
+
+    controller.next();
+    controller.next();
+    controller.prev();
+
+    for (const el of allWithId(svg, "A")) {
+      expect(el.classList.contains("siren-enter-fade")).toBe(true);
+      expect(el.classList.contains("siren-highlight-glow")).toBe(false);
+    }
+
+    controller.reset();
+
+    allWithId(svg, "A").forEach((el, index) => {
+      expect(el.classList.contains("siren-pending")).toBe(true);
+      expect(el.classList.contains("siren-enter-fade")).toBe(false);
+      // The class that says what each element *is* is never touched.
+      expect(el.classList.contains(SHARED_ID_CLASSES[index])).toBe(true);
+    });
+  });
+
+  it("applies a target's effect classes to every element carrying its id, not just the first", () => {
+    const svg = buildSharedIdSvg();
+    const controller = createAnimationController(svg, {
+      totalSteps: 1,
+      entries: [{ kind: "highlight", step: 1, targetId: "A", effect: "outline" }],
+    });
+
+    controller.next();
+
+    const marked = allWithId(svg, "A");
+    expect(marked).toHaveLength(3);
+    for (const el of marked) {
+      expect(el.classList.contains("siren-highlight-outline")).toBe(true);
+    }
+  });
+
   it("reports totalSteps and starts at step 0", () => {
     const svg = buildFixtureSvg();
     const timeline = buildTimeline();

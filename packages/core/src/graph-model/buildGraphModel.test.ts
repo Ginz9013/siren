@@ -6,7 +6,7 @@ describe("buildGraphModel", () => {
   it("assigns edge ids of the form fromId-toId for distinct pairs", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -29,7 +29,7 @@ describe("buildGraphModel", () => {
   it("suffixes the id of a second edge between the same pair with #2", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -51,7 +51,7 @@ describe("buildGraphModel", () => {
   it("resolves timeline entries against node/edge ids, grouping by step, and leaves elements never mentioned immediately visible", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -95,7 +95,7 @@ describe("buildGraphModel", () => {
   it("drops a timeline entry referencing an unknown id, reports an error diagnostic, and still builds the graph", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -120,7 +120,7 @@ describe("buildGraphModel", () => {
   it("keeps the first-seen label and warns when a node id is declared twice with conflicting labels", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "Start" },
         { id: "A", label: "Begin" },
@@ -140,7 +140,7 @@ describe("buildGraphModel", () => {
   it("sets totalSteps to 0 and leaves every element immediately visible when there is no timeline block", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -160,7 +160,7 @@ describe("buildGraphModel", () => {
   it("keeps the first occurrence of a duplicate enter or exit action on the same target and warns", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -197,7 +197,7 @@ describe("buildGraphModel", () => {
     // effect actually applies.
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
       timeline: {
@@ -221,7 +221,7 @@ describe("buildGraphModel", () => {
   it("drops a highlight/exit/unhighlight action whose step precedes the target's visibility step, reporting an error, while the rest of the graph still builds", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -250,7 +250,7 @@ describe("buildGraphModel", () => {
   it("allows exit on an element that was never entered (visible from step 0) at any later step", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
       timeline: {
@@ -270,7 +270,7 @@ describe("buildGraphModel", () => {
   it("allows a highlight at the exact step its target enters (not just strictly after)", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [{ id: "B", label: "B" }],
       edges: [],
       timeline: {
@@ -294,7 +294,7 @@ describe("buildGraphModel", () => {
   it("drops exit/highlight/unhighlight actions referencing an unknown id, including edge ids, reporting an error each", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -323,7 +323,7 @@ describe("buildGraphModel", () => {
   it("resolves all four action kinds, grouped by step, with kind/targetId/effect intact per entry", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
       timeline: {
@@ -357,7 +357,7 @@ describe("buildGraphModel", () => {
   it("warns when a node exits while an edge connected to it never exits, since the edge would render with a missing endpoint", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -387,7 +387,7 @@ describe("buildGraphModel", () => {
   it("warns when a node exits before an edge connected to it (which does eventually exit, but too late)", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -411,7 +411,7 @@ describe("buildGraphModel", () => {
   it("does not warn when the connected edge exits at or before the node, or when neither endpoint ever exits", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [
         { id: "A", label: "A" },
         { id: "B", label: "B" },
@@ -468,7 +468,7 @@ describe("buildGraphModel", () => {
   it("dispatches a kind: \"flowchart\" document to buildFlowchartModel, leaving model null and populating graph", () => {
     const document: SirenDocument = {
       kind: "flowchart",
-      direction: "TD",
+      direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
       timeline: null,
