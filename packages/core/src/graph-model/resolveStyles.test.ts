@@ -48,7 +48,7 @@ describe("resolveStyles", () => {
       expect(diagnostics).toEqual([
         {
           severity: "error",
-          message: 'style "Ghost" references a class that does not exist; dropping the declaration.',
+          message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
           line: 4,
           column: 1,
         },
@@ -154,7 +154,7 @@ describe("resolveStyles", () => {
 
       expect(diagnostics.map((d) => d.message)).toEqual([
         'class applies "nope", which no classDef defines; dropping the declaration.',
-        'class "Ghost" references a class that does not exist; dropping the declaration.',
+        'class "Ghost" references an id that does not exist; dropping the declaration.',
       ]);
     });
 

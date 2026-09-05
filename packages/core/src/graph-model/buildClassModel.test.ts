@@ -1052,7 +1052,7 @@ describe("buildClassModel", () => {
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'style "Ghost" references a class that does not exist; dropping the declaration.',
+        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
         line: 4,
         column: 1,
       },
@@ -1093,7 +1093,7 @@ describe("buildClassModel", () => {
       {
         severity: "error",
         message:
-          'cssClass "Ghost" references a class that does not exist; dropping the declaration.',
+          'cssClass "Ghost" references an id that does not exist; dropping the declaration.',
         line: 6,
         column: 1,
       },

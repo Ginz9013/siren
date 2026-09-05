@@ -13,9 +13,9 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A" },
-      { id: "B", label: "B" },
-      { id: "C", label: "C" },
+      { id: "A", label: "A", style: [] },
+      { id: "B", label: "B", style: [] },
+      { id: "C", label: "C", style: [] },
     ],
     edges: [
       { id: "A-B", from: "A", to: "B" },
@@ -133,5 +133,35 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
     expect(positioned.timeline).toEqual(graph.timeline);
+  });
+
+  it("passes each node's resolved author styling through unchanged onto PositionedNode.style", () => {
+    // Layout has no opinion about styling: the declarations, their order and
+    // the empty list of an unstyled node all arrive at the renderer exactly
+    // as `buildFlowchartModel` resolved them. What they *mean* was settled at
+    // `resolveStyles`, and this stage may not re-decide any of it.
+    const base = chainGraph("TB");
+    const graph: GraphModel = {
+      ...base,
+      nodes: [
+        {
+          ...base.nodes[0],
+          style: [
+            { property: "fill", value: "#fdd" },
+            { property: "stroke", value: "#c00" },
+          ],
+        },
+        ...base.nodes.slice(1),
+      ],
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+    expect(byId.A.style).toEqual([
+      { property: "fill", value: "#fdd" },
+      { property: "stroke", value: "#c00" },
+    ]);
+    expect(byId.B.style).toEqual([]);
   });
 });

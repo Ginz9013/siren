@@ -10,9 +10,9 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40 },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40 },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40 },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, style: [] },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, style: [] },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, style: [] },
     ],
     edges: [
       {
@@ -55,9 +55,9 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40 },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40 },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40 },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, style: [] },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, style: [] },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, style: [] },
     ],
     edges: [],
     timeline: {
@@ -226,5 +226,34 @@ describe("renderToSVG", () => {
     const arrowPath = svg.querySelector("defs marker#siren-arrow path")!;
     expect(arrowPath.getAttribute("class")).toBe("siren-arrow-fill");
     expect(arrowPath.getAttribute("fill")).toBeNull();
+  });
+
+  it("emits the node's resolved author styling as an inline style attribute on its frame rect, in declaration order", () => {
+    // On the rect, not the enclosing <g>: the theme selects
+    // `.siren-node-frame` directly, so an inline declaration there outranks
+    // it without `!important`, while the same declaration on the group would
+    // only ever be inherited by the frame and lose to the theme's own rule
+    // (ADR-0008).
+    const graph = buildFixture();
+    graph.nodes[0].style = [
+      { property: "fill", value: "#fdd" },
+      { property: "stroke", value: "#c00" },
+    ];
+
+    const svg = renderToSVG(graph);
+
+    const frame = svg.querySelector('g.siren-node[data-siren-id="A"] rect.siren-node-frame')!;
+    expect(frame.getAttribute("style")).toBe("fill:#fdd;stroke:#c00");
+    expect(
+      svg.querySelector('g.siren-node[data-siren-id="A"]')!.getAttribute("style"),
+    ).toBeNull();
+  });
+
+  it("leaves an unstyled node's frame without a style attribute at all, rather than an empty one", () => {
+    const svg = renderToSVG(buildFixture());
+
+    for (const frame of Array.from(svg.querySelectorAll("rect.siren-node-frame"))) {
+      expect(frame.getAttribute("style")).toBeNull();
+    }
   });
 });

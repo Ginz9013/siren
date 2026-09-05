@@ -77,10 +77,16 @@ export function resolveStyles(
       // as `note for` and `click` do not: styling is about something that
       // already exists. One unknown target drops itself, not the statement,
       // so the other targets of an `apply` naming "A,Ghost" still get styled.
+      //
+      // "an id", not "a class": this module is shared, and a flowchart author
+      // told that their node is not a class is being taught a vocabulary
+      // their document does not use. `class` is still the right word in
+      // `buildClassModel`'s own `note for`/`click` diagnostics, which only a
+      // class diagram can ever produce.
       if (!validTargetIds.has(targetId)) {
         diagnostics.push({
           severity: "error",
-          message: `${declaration.authoredAs} "${targetId}" references a class that does not exist; dropping the declaration.`,
+          message: `${declaration.authoredAs} "${targetId}" references an id that does not exist; dropping the declaration.`,
           line: declaration.line,
           column: declaration.column,
         });

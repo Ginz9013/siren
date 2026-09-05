@@ -459,4 +459,74 @@ timeline:
       expect(diagnostics, kind).toEqual(expected);
     }
   });
+
+  it("records a flowchart `style` statement as a StyleDecl instead of calling the line unrecognized", () => {
+    const source = `flowchart TD
+  A[Start] --> B[End]
+  style A fill:#fdd,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // The same shape a class diagram's `style` parses to — one statement,
+    // one target, its declarations in author order — because the contract
+    // is the language's, not the class diagram's.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "style",
+        authoredAs: "style",
+        classIds: ["A"],
+        name: null,
+        properties: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("keeps a value's own commas and colons inside one flowchart declaration", () => {
+    const source = `flowchart TD
+  A[Start]
+  style A fill:rgb(255, 0, 0),stroke-width:2px
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles[0].properties).toEqual([
+      { property: "fill", value: "rgb(255, 0, 0)" },
+      { property: "stroke-width", value: "2px" },
+    ]);
+  });
+
+  it("diagnoses a flowchart style segment that is not a property:value pair, keeping the pairs around it", () => {
+    const source = `flowchart TD
+  A[Start]
+  style A fill:#fdd,oops,stroke:#c00
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized style declaration: "oops"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("leaves a flowchart document that declares no styling with an empty styles list", () => {
+    const { document } = parseFlowchartOk(`flowchart TD
+  A[Start] --> B[End]
+`);
+
+    expect(document.styles).toEqual([]);
+  });
 });

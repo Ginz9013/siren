@@ -85,14 +85,22 @@ export interface SirenTimeline {
 }
 
 /**
- * The parsed flowchart document: a flowchart header, its nodes/edges, and
- * an optional timeline block. One arm of the `SirenDocument` union.
+ * The parsed flowchart document: a flowchart header, its nodes/edges, its
+ * author-styling statements, and an optional timeline block. One arm of the
+ * `SirenDocument` union.
  */
 export interface FlowchartDocument {
   kind: "flowchart";
   direction: Direction;
   nodes: SirenNode[];
   edges: SirenEdge[];
+  /**
+   * Author-styling statements as written, in source order. The same
+   * `StyleDecl` a class diagram parses to — the contract is the language's,
+   * not one kind's — so `resolveStyles` reads both without knowing which
+   * kind it was handed.
+   */
+  styles: StyleDecl[];
   timeline: SirenTimeline | null;
 }
 
@@ -521,6 +529,15 @@ export interface PositionedSequenceDiagram {
 export interface GraphNode {
   id: string;
   label: string;
+  /**
+   * Author declarations to emit as this node's inline `style` attribute, in
+   * declaration order, with rejected values already dropped.
+   *
+   * Empty when the author styled nothing — never absent — so "no styling" is
+   * one state rather than two, and the renderer's "emit no attribute" case is
+   * a length check rather than a presence check.
+   */
+  style: StyleProperty[];
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */

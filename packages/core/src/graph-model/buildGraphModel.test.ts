@@ -16,6 +16,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" },
         { from: "B", to: "C" },
       ],
+      styles: [],
       timeline: null,
     };
 
@@ -38,6 +39,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" },
         { from: "A", to: "B" },
       ],
+      styles: [],
       timeline: null,
     };
 
@@ -61,6 +63,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" },
         { from: "B", to: "C" },
       ],
+      styles: [],
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "B", effect: "fade" },
@@ -101,6 +104,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      styles: [],
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "B", effect: "fade" },
@@ -126,13 +130,14 @@ describe("buildGraphModel", () => {
         { id: "A", label: "Begin" },
       ],
       edges: [],
+      styles: [],
       timeline: null,
     };
 
     const { graph, diagnostics } = buildGraphModel(document);
 
     expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([{ id: "A", label: "Start" }]);
+    expect(graph!.nodes).toEqual([{ id: "A", label: "Start", style: [] }]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
   });
@@ -146,6 +151,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      styles: [],
       timeline: null,
     };
 
@@ -166,6 +172,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [],
+      styles: [],
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "A", effect: "fade" },
@@ -200,6 +207,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      styles: [],
       timeline: {
         entries: [
           { kind: "enter", step: 3, targetId: "A", effect: "slide-left" },
@@ -227,6 +235,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [],
+      styles: [],
       timeline: {
         entries: [
           // B's actual enter step is 2, but this highlight is (mis)placed at step 1,
@@ -253,6 +262,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      styles: [],
       timeline: {
         entries: [{ kind: "exit", step: 3, targetId: "A", effect: "fade" }],
       },
@@ -273,6 +283,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "B", label: "B" }],
       edges: [],
+      styles: [],
       timeline: {
         entries: [
           { kind: "enter", step: 2, targetId: "B", effect: "fade" },
@@ -300,6 +311,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      styles: [],
       timeline: {
         entries: [
           { kind: "exit", step: 1, targetId: "does-not-exist", effect: "fade" },
@@ -326,6 +338,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      styles: [],
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "A", effect: "slide-top" },
@@ -363,6 +376,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      styles: [],
       timeline: {
         entries: [{ kind: "exit", step: 5, targetId: "A", effect: "fade" }],
       },
@@ -393,6 +407,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B" },
       ],
       edges: [{ from: "A", to: "B" }],
+      styles: [],
       timeline: {
         entries: [
           { kind: "exit", step: 5, targetId: "A", effect: "fade" },
@@ -421,6 +436,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B" }, // A-B: edge exits at the same step as A
         { from: "B", to: "C" }, // B-C: neither B nor C ever exits
       ],
+      styles: [],
       timeline: {
         entries: [
           { kind: "exit", step: 5, targetId: "A", effect: "fade" },
@@ -472,6 +488,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A" }],
       edges: [],
+      styles: [],
       timeline: null,
     };
 
@@ -480,7 +497,7 @@ describe("buildGraphModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model).toBeNull();
     expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([{ id: "A", label: "A" }]);
+    expect(graph!.nodes).toEqual([{ id: "A", label: "A", style: [] }]);
   });
 
   it("dispatches a kind: \"class\" document to buildClassModel, leaving graph and model null and populating classModel", () => {
@@ -518,5 +535,114 @@ describe("buildGraphModel", () => {
     expect(classModel).not.toBeNull();
     expect(classModel!.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
     expect(classModel!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+  });
+
+  it("resolves a flowchart's `style` statements onto the nodes they name, leaving an unstyled node with no declarations", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "A" },
+        { id: "B", label: "B" },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          classIds: ["A"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#fdd" },
+            { property: "stroke", value: "#c00" },
+          ],
+          line: 3,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    const byId = Object.fromEntries(graph!.nodes.map((n) => [n.id, n]));
+    expect(byId.A.style).toEqual([
+      { property: "fill", value: "#fdd" },
+      { property: "stroke", value: "#c00" },
+    ]);
+    // No declarations rather than an absent field: the renderer's "emit no
+    // attribute" case is an empty list, not a missing one.
+    expect(byId.B.style).toEqual([]);
+  });
+
+  it("reports a flowchart `style` on an id no node declares, in the shared resolver's own words", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [{ id: "A", label: "A" }],
+      edges: [],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          classIds: ["Ghost"],
+          name: null,
+          properties: [{ property: "fill", value: "#fdd" }],
+          line: 3,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(graph!.nodes[0].style).toEqual([]);
+  });
+
+  it("puts a flowchart's style values through the one shared gate: a refused value is dropped and diagnosed, its sibling survives", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [{ id: "A", label: "A" }],
+      edges: [],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          classIds: ["A"],
+          name: null,
+          properties: [
+            { property: "fill", value: "url(#evil)" },
+            { property: "stroke", value: "#c00" },
+          ],
+          line: 3,
+          column: 1,
+        },
+      ],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Style value for "fill" uses "url(", which can fetch a remote resource; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(graph!.nodes[0].style).toEqual([{ property: "stroke", value: "#c00" }]);
   });
 });

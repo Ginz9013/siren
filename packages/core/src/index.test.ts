@@ -2574,4 +2574,140 @@ timeline:
     expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
     expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);
   });
+
+  it("carries a flowchart author's `style` all the way to the DOM: inline style on the node's frame rect, and no attribute at all on a node nothing styled", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+style A fill:#fdd,stroke:#c00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frame = (id: string) =>
+      result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!;
+
+    expect(frame("A").getAttribute("style")).toBe("fill:#fdd;stroke:#c00");
+    expect(frame("B").getAttribute("style")).toBeNull();
+  });
+
+  it("reports the identical diagnostic for a `style` on an id that does not exist, whichever diagram kind wrote it", () => {
+    // One resolver, one gate, one wording. The two kinds put the statement on
+    // the same line and column so the diagnostics must be equal objects — a
+    // future divergence fails here rather than being found by an author.
+    const flowchart = render(
+      `flowchart TD
+A[Start]
+style Ghost fill:#fdd
+`,
+      document.createElement("div"),
+    );
+    const classDiagram = render(
+      `classDiagram
+class Shape
+style Ghost fill:#fdd
+`,
+      document.createElement("div"),
+    );
+
+    expect(flowchart.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(flowchart.diagnostics).toEqual(classDiagram.diagnostics);
+  });
+
+  it("holds the style-value gate identically for a flowchart: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the class diagram's", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+Fetches[Fetches] --> Executes[Executes]
+Smuggles[Smuggles] --> Escapes[Escapes]
+style Fetches fill:url(#evil),stroke:#c00
+style Executes fill:expression(alert(1)),stroke:#c00
+style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Escapes fill:u\\72 l(#evil),stroke:#c00
+`;
+
+    const result = render(source, container);
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(4);
+    expect(errors.map((d) => d.message)).toEqual([
+      'Style value for "fill" uses "url(", which can fetch a remote resource; dropping the declaration.',
+      'Style value for "fill" uses "expression(", which can execute script; dropping the declaration.',
+      'Style value for "fill" contains ";", which would smuggle in a second declaration; dropping the declaration.',
+      'Style value for "fill" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.',
+    ]);
+
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    // Only the sibling survives, in each case.
+    for (const id of ["Fetches", "Executes", "Smuggles", "Escapes"]) {
+      expect([id, frameStyle(id)]).toEqual([id, "stroke:#c00"]);
+    }
+
+    // And nothing refused is anywhere in the serialized document, in any
+    // attribute — the gate is about what the browser is handed, not about
+    // which element it was handed on.
+    const markup = container.innerHTML;
+    for (const forbidden of ["url(#evil", "expression(", "position:fixed", "\\"]) {
+      expect([forbidden, markup.includes(forbidden)]).toEqual([forbidden, false]);
+    }
+  });
+
+  it("lets a styled flowchart node animate: the inline style rides on the frame while the group takes siren-pending and siren-enter-fade", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[End]
+style B fill:#fdd
+timeline:
+step 1: enter B fade
+`;
+
+    const result = render(source, container);
+    const group = () => result.svg!.querySelector('g.siren-node[data-siren-id="B"]')!;
+    const frame = () => group().querySelector("rect.siren-node-frame")!;
+
+    expect(result.diagnostics).toEqual([]);
+    // The two live on different elements on purpose (ADR-0008): the frame
+    // carries the author's declarations, the group carries the animation
+    // classes, so neither can overwrite the other.
+    expect(group().classList.contains("siren-pending")).toBe(true);
+    expect(frame().getAttribute("style")).toBe("fill:#fdd");
+
+    result.controller!.next();
+    expect(group().classList.contains("siren-pending")).toBe(false);
+    expect(group().classList.contains("siren-enter-fade")).toBe(true);
+    expect(frame().getAttribute("style")).toBe("fill:#fdd");
+
+    result.controller!.reset();
+    expect(group().classList.contains("siren-pending")).toBe(true);
+    expect(frame().getAttribute("style")).toBe("fill:#fdd");
+  });
+
+  it("still calls a flowchart `classDef`, `class` and `:::` line unrecognized — this slice added `style` and only `style`", () => {
+    for (const line of [
+      "classDef emphasis fill:#fdd",
+      "class A emphasis",
+      "linkStyle 0 stroke:#c00",
+    ]) {
+      const result = render(
+        `flowchart TD\nA[Start] --> B[End]\n${line}\n`,
+        document.createElement("div"),
+      );
+
+      expect([line, result.diagnostics.map((d) => d.message)]).toEqual([
+        line,
+        [`Unrecognized flowchart line: "${line}"`],
+      ]);
+    }
+  });
 });

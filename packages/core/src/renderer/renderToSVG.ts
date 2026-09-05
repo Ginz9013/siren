@@ -1,4 +1,4 @@
-import type { PositionedGraph } from "../contracts";
+import type { PositionedGraph, StyleProperty } from "../contracts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -42,6 +42,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     rect.setAttribute("y", String(node.y));
     rect.setAttribute("width", String(node.width));
     rect.setAttribute("height", String(node.height));
+    applyAuthorStyle(rect, node.style);
     g.appendChild(rect);
 
     const text = document.createElementNS(SVG_NS, "text");
@@ -65,6 +66,40 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   }
 
   return svg;
+}
+
+/**
+ * Writes the author's resolved `style` declarations onto `element` as an
+ * inline `style` attribute, in declaration order, or leaves the element
+ * without one when the author styled nothing.
+ *
+ * Inline rather than a generated class rule, and on the drawn shape rather
+ * than its enclosing `<g>` — both for the same cascade reason, recorded in
+ * ADR-0008. The theme styles `.siren-node-frame` directly, so an inline
+ * declaration on the frame outranks it without needing `!important`, while
+ * the same declaration on the `<g>` would only ever be *inherited* by the
+ * frame and so would lose to the theme's own rule — and would leak down onto
+ * the node's `<text>`, which the author did not ask to recolor.
+ *
+ * The `<g>` is left alone for a second reason too: it is where the animation
+ * controller stamps `siren-pending` and `siren-enter-*`, and an attribute
+ * this function wrote there would be one more thing those classes have to
+ * share a element with.
+ *
+ * The values are written verbatim. They are author input, but they arrive
+ * here having already passed `resolveStyles`' gate (no `url(`, no
+ * `expression(`, no `;`, no backslash), and re-checking here would fork that
+ * single source of truth. This attribute is a CSS sink, never an HTML one:
+ * nothing is parsed as markup.
+ */
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
+  if (style.length === 0) {
+    return;
+  }
+  element.setAttribute(
+    "style",
+    style.map(({ property, value }) => `${property}:${value}`).join(";"),
+  );
 }
 
 /** Builds the shared `<defs>` block, including the `siren-arrow` marker every edge references. */
