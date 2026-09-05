@@ -2838,6 +2838,81 @@ class Earlier emphasis
     expect(frameStyle("Earlier")).toBe("fill:#fdd;stroke:#c00");
   });
 
+  it("carries a `:::` written inside an edge line to the frame of whichever endpoint wore it", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+classDef emphasis fill:#fdd
+classDef cool stroke:#00f
+A[Start]:::emphasis --> B[End]:::cool
+B --> C[Plain]
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    expect(frameStyle("A")).toBe("fill:#fdd");
+    expect(frameStyle("B")).toBe("stroke:#00f");
+    expect(frameStyle("C")).toBeNull();
+    // Styling an endpoint does not disturb the graph it is written in.
+    const label = (id: string) =>
+      result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"] text`)!.textContent;
+    expect([label("A"), label("B"), label("C")]).toEqual(["Start", "End", "Plain"]);
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(2);
+  });
+
+  it("reports a `:::` inside an edge line that names no classDef once per occurrence, quoting `:::`", () => {
+    const result = render(
+      `flowchart TD
+A[Start]:::ghost --> B[End]:::ghost
+`,
+      document.createElement("div"),
+    );
+
+    // Two endpoints wore the typo, so the author is told twice — once per
+    // thing that will not be styled — under the keyword they typed.
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
+        line: 2,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
+        line: 2,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("still calls a chained `A --> B --> C` unrecognized, with or without a `:::` on it", () => {
+    // Widening an endpoint is not widening how many endpoints a line may
+    // have. Chaining is a separate compatibility gap, and a pattern that
+    // read the first two nodes of three and dropped the rest would draw a
+    // diagram the author did not write — worse than refusing the line.
+    for (const line of [
+      "A --> B --> C",
+      "A[Start] --> B[Mid] --> C[End]",
+      "A:::emphasis --> B --> C",
+    ]) {
+      const result = render(
+        `flowchart TD\nclassDef emphasis fill:#fdd\n${line}\n`,
+        document.createElement("div"),
+      );
+
+      expect([line, result.diagnostics.map((d) => d.message)]).toEqual([
+        line,
+        [`Unrecognized flowchart line: "${line}"`],
+      ]);
+    }
+  });
+
   it("still calls a flowchart `linkStyle` line unrecognized — this slice added `classDef`, `class` and `:::`, and only those", () => {
     for (const line of ["linkStyle 0 stroke:#c00", "linkStyle default stroke:#c00"]) {
       const result = render(

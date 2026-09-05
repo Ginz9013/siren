@@ -26,8 +26,20 @@ const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*(?::::(\w+))?\s*$/;
  * node: what makes this a declaration is the `:::`.
  */
 const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
+
+/**
+ * `A[Start] --> B[End]`, with each endpoint free to carry the same
+ * `[label]` and `:::name` an endpoint written on a line of its own may
+ * carry — the shorthand works wherever a node can be written, as it does in
+ * Mermaid, rather than only at a standalone declaration.
+ *
+ * Anchored at both ends, so a chained `A --> B --> C` stays an
+ * unrecognized line: chaining is a separate compatibility gap, and reading
+ * the first two nodes of three while dropping the rest would be a wrong
+ * answer where there is currently an honest refusal.
+ */
 const EDGE_RE =
-  /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?\s*$/;
+  /^(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?\s*-->\s*(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?\s*$/;
 const MALFORMED_EDGE_RE = /^(\w+)(?:\s*\[([^\]]*)\])?\s*-->\s*$/;
 
 /**
@@ -165,6 +177,39 @@ export function parseFlowchart(source: string): ParseResult {
     }
   };
 
+  /**
+   * Reads one place a node was written — a line of its own or either end of
+   * an edge — with whatever it was written with there.
+   *
+   * The three spellings differ only in what they hand this function, which
+   * is why they share it: the shorthand works wherever a node can be
+   * written, so where it was written must not be what decides what it does.
+   *
+   * The label and the definition are independent. A label declares, so a
+   * labelled mention goes through `addNode` and can raise the redeclaration
+   * warning; an unlabelled one only applies, so it declares the node just
+   * when nothing else has and leaves a label written elsewhere for that id
+   * alone. That second rule is ticket 04's, for the standalone `A:::name`,
+   * and an edge's bare endpoint has always followed it — they are one rule
+   * written once here rather than two copies free to drift.
+   */
+  const addNodeAsWritten = (
+    id: string,
+    label: string | undefined,
+    definitionName: string | undefined,
+    line: number,
+    column: number,
+  ) => {
+    if (label !== undefined) {
+      addNode(id, label, line, column);
+    } else if (!nodesById.has(id)) {
+      nodesById.set(id, { id, label: id, line, column });
+    }
+    if (definitionName !== undefined) {
+      applyAtDeclaration(id, definitionName, line, column);
+    }
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const lineNumber = i + 1;
@@ -216,17 +261,10 @@ export function parseFlowchart(source: string): ParseResult {
 
     const edgeMatch = EDGE_RE.exec(line);
     if (edgeMatch !== null) {
-      const [, fromId, fromLabel, toId, toLabel] = edgeMatch;
-      if (fromLabel !== undefined) {
-        addNode(fromId, fromLabel, lineNumber, column);
-      } else if (!nodesById.has(fromId)) {
-        nodesById.set(fromId, { id: fromId, label: fromId, line: lineNumber, column });
-      }
-      if (toLabel !== undefined) {
-        addNode(toId, toLabel, lineNumber, column);
-      } else if (!nodesById.has(toId)) {
-        nodesById.set(toId, { id: toId, label: toId, line: lineNumber, column });
-      }
+      const [, fromId, fromLabel, fromDefinition, toId, toLabel, toDefinition] =
+        edgeMatch;
+      addNodeAsWritten(fromId, fromLabel, fromDefinition, lineNumber, column);
+      addNodeAsWritten(toId, toLabel, toDefinition, lineNumber, column);
       edges.push({ from: fromId, to: toId, line: lineNumber, column });
       continue;
     }
@@ -298,24 +336,17 @@ export function parseFlowchart(source: string): ParseResult {
     const nodeMatch = NODE_RE.exec(line);
     if (nodeMatch !== null) {
       const [, id, label, definitionName] = nodeMatch;
-      addNode(id, label, lineNumber, column);
-      if (definitionName !== undefined) {
-        applyAtDeclaration(id, definitionName, lineNumber, column);
-      }
+      addNodeAsWritten(id, label, definitionName, lineNumber, column);
       continue;
     }
 
     const nodeClassMatch = NODE_CLASS_RE.exec(line);
     if (nodeClassMatch !== null) {
       const [, id, definitionName] = nodeClassMatch;
-      // The bare form applies a definition; it does not claim a label. So it
-      // declares the node only when nothing else has — the same rule an
-      // edge's bare endpoint follows — and leaves a label already written
-      // for that id alone rather than redeclaring it as the id.
-      if (!nodesById.has(id)) {
-        nodesById.set(id, { id, label: id, line: lineNumber, column });
-      }
-      applyAtDeclaration(id, definitionName, lineNumber, column);
+      // Written without a label, so it applies a definition and claims no
+      // label — `addNodeAsWritten` holds what that means, for this spelling
+      // and for an edge's bare endpoint alike.
+      addNodeAsWritten(id, undefined, definitionName, lineNumber, column);
       continue;
     }
 

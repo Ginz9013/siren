@@ -628,6 +628,116 @@ timeline:
     ]);
   });
 
+  it("applies a `:::` shorthand written on a labelled edge endpoint, declaring both endpoints as usual", () => {
+    const source = `flowchart TD
+  A[Start]:::emphasis --> B[End]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    // The shorthand rides along with the endpoint; it does not take the
+    // label away from it, and the far endpoint is untouched.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "End"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([["A", "B"]]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "emphasis",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("lets the bare `A:::name --> B` apply without claiming a label, keeping one an earlier edge wrote", () => {
+    const source = `flowchart TD
+  A --> B[End]
+  B:::emphasis --> C
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    // Ticket 04's rule for the standalone bare form, in the edge position:
+    // the shorthand applies, and declares only what nothing else has. So B
+    // keeps `End` rather than being redeclared as its own id, and no
+    // redeclaration warning fires.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "End"],
+      ["C", "C"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+    ]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["B"],
+        name: "emphasis",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads the `:::` shorthand on either edge endpoint and on both at once", () => {
+    const source = `flowchart TD
+  A --> B[End]:::emphasis
+  A:::warm --> C:::cold
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "End"],
+      ["C", "C"],
+    ]);
+    // Three positions, three apply-directives, in the order the author
+    // wrote them — and on one line, the source endpoint before the target.
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["B"],
+        name: "emphasis",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "warm",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["C"],
+        name: "cold",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
   it("leaves a flowchart document that declares no styling with an empty styles list", () => {
     const { document } = parseFlowchartOk(`flowchart TD
   A[Start] --> B[End]
