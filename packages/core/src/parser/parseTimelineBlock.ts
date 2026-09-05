@@ -81,7 +81,7 @@ export interface TimelineLineResult {
  * which is what lets `step 1: enter namespace:1 fade` address the ids
  * `buildClassModel` assigns namespaces and notes.
  */
-export function parseTimelineLine(
+function parseTimelineLine(
   line: string,
   lineNumber: number,
   column: number,

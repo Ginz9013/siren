@@ -647,6 +647,16 @@ export interface AnimationController {
 /** Result of the public `render()` entry point. */
 export interface SirenRenderResult {
   svg: SVGSVGElement | null;
+  /**
+   * The step-reveal controller, or `null` **only** when rendering failed and
+   * `svg` is `null` too -- the two are always null together.
+   *
+   * It used to also be null for a sequence diagram, which had no animation
+   * integration. That is gone: every diagram kind now returns a controller,
+   * and a document with no `timeline:` block returns one with
+   * `totalSteps: 0` rather than nothing. So a caller that has checked `svg`
+   * has already checked this.
+   */
   controller: AnimationController | null;
   diagnostics: Diagnostic[];
 }

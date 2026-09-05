@@ -406,63 +406,64 @@ function resolveBlock(
 }
 
 /**
- * Adds every message id and every block id in the resolved statement tree
- * rooted at `statements` to `into`.
+ * Walks the resolved statement tree rooted at `statements` in document order,
+ * calling `visit` for each message and each block.
  *
  * Recursive, and that is the whole point: blocks nest to any depth and a
- * message is most often written inside one, so the ids an author can see in
- * the rendered SVG are spread across the branch bodies rather than sitting
- * in one flat list. A walk of `statements` alone would make `loop:1`
- * addressable but the message inside it unknown — an arbitrary distinction
- * from the author's side, since the renderer tags both the same way.
+ * message is more often written inside one than at the top level, so anything
+ * derived from "every message" or "every block" is spread across branch bodies
+ * rather than sitting in a flat list. A walk of `statements` alone finds
+ * `loop:1` but not the message inside it.
  *
- * A branch of an `alt`/`par`/`critical` is walked like any other body: the
- * branches are alternatives at render time, but every one of them is drawn,
- * so every one of them holds addressable ids.
+ * Every branch of an `alt`/`par`/`critical` is walked. The branches are
+ * alternatives at read time, but all of them are drawn, so all of them hold
+ * ids an author can name and arrows that can be left pointing at a lane that
+ * has gone.
+ *
+ * One walk with a visitor rather than one walk per caller: the two callers
+ * below want different things out of the same traversal (a set of ids, a list
+ * of messages), and the traversal is the part that would drift.
  */
-function collectStatementIds(
+function walkStatements(
   statements: readonly ResolvedSequenceStatement[],
-  into: Set<string>,
+  visit: {
+    message?: (message: ResolvedSequenceMessage) => void;
+    block?: (block: ResolvedSequenceBlock) => void;
+  },
 ): void {
   for (const statement of statements) {
     if (statement.kind === "message") {
-      into.add(statement.message.id);
+      visit.message?.(statement.message);
       continue;
     }
     if (statement.kind === "block") {
-      into.add(statement.block.id);
+      visit.block?.(statement.block);
       for (const branch of statement.block.branches) {
-        collectStatementIds(branch.statements, into);
+        walkStatements(branch.statements, visit);
       }
     }
   }
 }
 
 /**
- * Every message in the resolved statement tree rooted at `statements`, in
- * document order.
- *
- * Recursive for the same reason `collectStatementIds` is: a message is more
- * often written inside a `loop` or an `alt` than at the top level, so a walk
- * of `statements` alone would miss the ordinary case. Every branch of an
- * `alt`/`par`/`critical` is walked — the branches are alternatives at read
- * time, but all of them are drawn, so all of them hold arrows that can be
- * left pointing at a participant that has gone.
+ * Every id a `timeline:` block may name from the statement tree: each
+ * message's, and each control-flow block's.
  */
+function collectStatementIds(
+  statements: readonly ResolvedSequenceStatement[],
+  into: Set<string>,
+): void {
+  walkStatements(statements, {
+    message: (message) => into.add(message.id),
+    block: (block) => into.add(block.id),
+  });
+}
+
+/** Every message in the statement tree, in document order. */
 function collectMessages(
   statements: readonly ResolvedSequenceStatement[],
-  into: ResolvedSequenceMessage[] = [],
 ): ResolvedSequenceMessage[] {
-  for (const statement of statements) {
-    if (statement.kind === "message") {
-      into.push(statement.message);
-      continue;
-    }
-    if (statement.kind === "block") {
-      for (const branch of statement.block.branches) {
-        collectMessages(branch.statements, into);
-      }
-    }
-  }
-  return into;
+  const messages: ResolvedSequenceMessage[] = [];
+  walkStatements(statements, { message: (message) => messages.push(message) });
+  return messages;
 }
