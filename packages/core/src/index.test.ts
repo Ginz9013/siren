@@ -2554,4 +2554,111 @@ timeline:
     ).toEqual([true, true, true]);
   });
 
+  it("fades a box grouping's background band from `enter box:1 fade`, without touching the participants it groups — they are siblings of the tagged group, not children", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+box Blue Storefront
+  participant A
+  participant B
+end
+A->>B: Hello
+timeline:
+  step 1: enter box:1 fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    const boxElements = Array.from(result.svg!.querySelectorAll('[data-siren-id="box:1"]'));
+    expect(boxElements).toHaveLength(1);
+    const boxGroup = boxElements[0]!;
+    expect(boxGroup.classList.contains("siren-box")).toBe(true);
+    expect(boxGroup.classList.contains("siren-pending")).toBe(true);
+
+    controller.next();
+
+    expect(boxGroup.classList.contains("siren-enter-fade")).toBe(true);
+    expect(boxGroup.classList.contains("siren-pending")).toBe(false);
+
+    // The band and the label are inside the tagged group and carry no id of
+    // their own, so they move with the box rather than being driven
+    // separately — asserted as the renderer actually builds it.
+    expect(boxGroup.querySelectorAll("rect.siren-box-background")).toHaveLength(1);
+    const label = boxGroup.querySelector("text.siren-box-label")!;
+    // `box Blue Storefront` splits into colour `Blue` and label
+    // `Storefront` — the parser's existing rule, untouched here.
+    expect(label.textContent).toBe("Storefront");
+    expect(label.getAttribute("data-siren-id")).toBeNull();
+
+    // The grouped participants are drawn beside the band, not within it, so
+    // `enter box:1` leaves them alone.
+    expect(boxGroup.querySelector('[data-siren-id="A"]')).toBeNull();
+    for (const el of Array.from(result.svg!.querySelectorAll('[data-siren-id="A"]'))) {
+      expect(el.classList.contains("siren-enter-fade")).toBe(false);
+      expect(el.classList.contains("siren-pending")).toBe(false);
+    }
+  });
+
+  it("outlines a control-flow block's frame from `highlight loop:1 outline`, carrying its label and dividers with it, while a nested block and message keep their own ids and their own classes", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+loop retry
+  alt ok
+    A->>B: yes
+  else no
+    B->>A: no
+  end
+end
+timeline:
+  step 1: highlight loop:1 outline
+  step 2: highlight alt:1 glow
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(2);
+
+    const loopElements = Array.from(result.svg!.querySelectorAll('[data-siren-id="loop:1"]'));
+    expect(loopElements).toHaveLength(1);
+    const loopGroup = loopElements[0]!;
+    const altGroup = result.svg!.querySelector('[data-siren-id="alt:1"]')!;
+    const messageGroup = result.svg!.querySelector('[data-siren-id="A-B"]')!;
+
+    // The renderer nests children inside their block's group, so the alt and
+    // the message live inside the loop's tagged group while still wearing
+    // ids of their own.
+    expect(loopGroup.contains(altGroup)).toBe(true);
+    expect(altGroup.contains(messageGroup)).toBe(true);
+
+    controller.next();
+
+    expect(loopGroup.classList.contains("siren-highlight-outline")).toBe(true);
+    // The loop's own frame and header label are inside the tagged group and
+    // hold no id, so they animate with it.
+    expect(loopGroup.querySelectorAll("rect.siren-block-frame").length).toBeGreaterThan(0);
+    expect(loopGroup.querySelector("text.siren-block-label")!.textContent).toBe("retry");
+    // Having an id of its own is what makes an element separately driven:
+    // the nested alt and message are inside the loop's group but do not take
+    // the loop's class.
+    expect(altGroup.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(messageGroup.classList.contains("siren-highlight-outline")).toBe(false);
+
+    controller.next();
+
+    expect(altGroup.classList.contains("siren-highlight-glow")).toBe(true);
+    // The `else` divider is the alt's own, inside the alt's tagged group and
+    // unlabelled by any id, so it rides along with `alt:1`.
+    const dividers = Array.from(altGroup.querySelectorAll("line.siren-block-divider"));
+    expect(dividers).toHaveLength(1);
+    expect(dividers[0]!.getAttribute("data-siren-id")).toBeNull();
+    expect(dividers[0]!.classList.contains("siren-highlight-glow")).toBe(false);
+  });
+
 });

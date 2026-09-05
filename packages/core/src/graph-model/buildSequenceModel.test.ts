@@ -862,7 +862,7 @@ describe("buildSequenceModel", () => {
     expect(model!.timeline).toEqual({ totalSteps: 0, entries: [] });
   });
 
-  it("still rejects a timeline entry naming a message, control-flow block or box grouping id — the valid-target set is participant ids only", () => {
+  it("resolves a timeline entry naming a message, a control-flow block or a box grouping — every id the renderer tags is addressable", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -875,14 +875,21 @@ describe("buildSequenceModel", () => {
         { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
         { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
         {
+          kind: "message",
+          from: "A",
+          to: "B",
+          text: "hi",
+          arrow: { line: "solid", head: "filled" },
+        },
+        {
           kind: "loop",
           label: "retry",
           body: [
             {
               kind: "message",
-              from: "A",
-              to: "B",
-              text: "hi",
+              from: "B",
+              to: "A",
+              text: "ack",
               arrow: { line: "solid", head: "filled" },
             },
           ],
@@ -891,20 +898,134 @@ describe("buildSequenceModel", () => {
       timeline: {
         entries: [
           { kind: "highlight", step: 1, targetId: "A-B", effect: "glow", line: 9, column: 3 },
-          { kind: "highlight", step: 2, targetId: "loop:1", effect: "glow", line: 10, column: 3 },
-          { kind: "highlight", step: 3, targetId: "box:1", effect: "glow", line: 11, column: 3 },
+          { kind: "highlight", step: 2, targetId: "loop:1", effect: "outline", line: 10, column: 3 },
+          { kind: "enter", step: 3, targetId: "box:1", effect: "fade", line: 11, column: 3 },
         ],
       },
     };
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'timeline: references unknown id "A-B"',
-      'timeline: references unknown id "loop:1"',
-      'timeline: references unknown id "box:1"',
+    expect(diagnostics).toEqual([]);
+    expect(model!.timeline).toEqual({
+      totalSteps: 3,
+      entries: [
+        { kind: "highlight", step: 1, targetId: "A-B", effect: "glow" },
+        { kind: "highlight", step: 2, targetId: "loop:1", effect: "outline" },
+        { kind: "enter", step: 3, targetId: "box:1", effect: "fade" },
+      ],
+    });
+  });
+
+  it("reaches a message and a block nested inside another block's branch — the id set comes from a recursive walk, not the top-level statement list", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        {
+          kind: "loop",
+          label: "retry",
+          body: [
+            {
+              kind: "alt",
+              branches: [
+                {
+                  label: "ok",
+                  body: [
+                    {
+                      kind: "message",
+                      from: "A",
+                      to: "B",
+                      text: "deep",
+                      arrow: { line: "solid", head: "filled" },
+                    },
+                  ],
+                },
+                {
+                  label: "not ok",
+                  body: [
+                    {
+                      kind: "message",
+                      from: "B",
+                      to: "A",
+                      text: "deeper still",
+                      arrow: { line: "solid", head: "filled" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      timeline: {
+        entries: [
+          { kind: "highlight", step: 1, targetId: "A-B", effect: "glow", line: 12, column: 3 },
+          { kind: "highlight", step: 2, targetId: "B-A", effect: "glow", line: 13, column: 3 },
+          { kind: "highlight", step: 3, targetId: "alt:1", effect: "outline", line: 14, column: 3 },
+        ],
+      },
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["A-B", "B-A", "alt:1"]);
+  });
+
+  it("addresses a repeat message pair by its #2 id, and still rejects an id no element holds", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", text: "first", arrow: { line: "solid", head: "filled" } },
+        { kind: "message", from: "A", to: "B", text: "second", arrow: { line: "solid", head: "filled" } },
+      ],
+      timeline: {
+        entries: [
+          { kind: "highlight", step: 1, targetId: "A-B#2", effect: "glow", line: 7, column: 3 },
+          { kind: "highlight", step: 2, targetId: "A-B#3", effect: "glow", line: 8, column: 3 },
+          { kind: "highlight", step: 3, targetId: "loop:1", effect: "glow", line: 9, column: 3 },
+        ],
+      },
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    // The second message between the same pair is addressable under the id
+    // it actually holds, not under the pair's base id.
+    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["A-B#2"]);
+    // Widening the set widened it to real ids only: a third A-B message and
+    // a loop block were never written, so naming them is the same
+    // unknown-id error it was before.
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'timeline: references unknown id "A-B#3"',
+        line: 8,
+        column: 3,
+      },
+      {
+        severity: "error",
+        message: 'timeline: references unknown id "loop:1"',
+        line: 9,
+        column: 3,
+      },
     ]);
-    expect(model!.timeline).toEqual({ totalSteps: 0, entries: [] });
   });
 
 });

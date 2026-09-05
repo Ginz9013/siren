@@ -130,22 +130,21 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
 
-  // A timeline target is a participant, and only a participant, for now:
-  // messages, control-flow blocks and box groupings carry `data-siren-id`
-  // too, and widening this set to them is a change of its own (ticket 04).
-  // Until then naming one of those ids is the resolver's ordinary
-  // unknown-id error, which is the honest answer — the timeline cannot
-  // reach them yet.
+  // A timeline target is a participant, a message, a control-flow block or
+  // a box grouping — exactly the four things `renderSequenceToSVG` stamps
+  // `data-siren-id` on, and so exactly the things an author can see and
+  // might want to animate. A destroy mark is not a fifth: it carries its
+  // participant's id, so it moves with the participant (ADR-0009).
   //
   // The rules themselves live in `resolveTimeline`, shared with the
   // flowchart and class models. Nothing about dropping an unknown id or
   // keeping the earliest `enter` is sequence-specific, so a third copy of
   // them here would only be a third place for them to drift.
-  const timeline = resolveTimeline(
-    document.timeline,
-    new Set(participants.map((p) => p.id)),
-    diagnostics,
-  );
+  const validTargetIds = new Set(participants.map((p) => p.id));
+  for (const box of boxes) validTargetIds.add(box.id);
+  collectStatementIds(statements, validTargetIds);
+
+  const timeline = resolveTimeline(document.timeline, validTargetIds, diagnostics);
 
   const model: SequenceModel = {
     title: document.title,
@@ -411,4 +410,37 @@ function resolveBlock(
     touchedParticipantIds: [...touched],
     branches,
   };
+}
+
+/**
+ * Adds every message id and every block id in the resolved statement tree
+ * rooted at `statements` to `into`.
+ *
+ * Recursive, and that is the whole point: blocks nest to any depth and a
+ * message is most often written inside one, so the ids an author can see in
+ * the rendered SVG are spread across the branch bodies rather than sitting
+ * in one flat list. A walk of `statements` alone would make `loop:1`
+ * addressable but the message inside it unknown — an arbitrary distinction
+ * from the author's side, since the renderer tags both the same way.
+ *
+ * A branch of an `alt`/`par`/`critical` is walked like any other body: the
+ * branches are alternatives at render time, but every one of them is drawn,
+ * so every one of them holds addressable ids.
+ */
+function collectStatementIds(
+  statements: readonly ResolvedSequenceStatement[],
+  into: Set<string>,
+): void {
+  for (const statement of statements) {
+    if (statement.kind === "message") {
+      into.add(statement.message.id);
+      continue;
+    }
+    if (statement.kind === "block") {
+      into.add(statement.block.id);
+      for (const branch of statement.block.branches) {
+        collectStatementIds(branch.statements, into);
+      }
+    }
+  }
 }
