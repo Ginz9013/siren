@@ -862,12 +862,19 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       loop every minute
         A->>B: poll
       end`,
-    status: "supported",
-    meaning: "`loop label ... end` frames the messages it wraps.",
+    status: "silently-wrong",
+    meaning:
+      "`loop label ... end` frames the messages it wraps, and Mermaid draws the " +
+      "keyword `loop` in a corner tag on that frame.",
     assert: (result) => {
+      // What is drawn: the frame, the label, the messages. What is NOT drawn:
+      // the keyword. `data-siren-block-kind` carries it, but an attribute is
+      // not the picture -- a reader of the SVG cannot tell this frame from an
+      // `opt`, a `par` or a `critical`, and those mean different things.
       expectSame("blocks", blocks(result), ["loop:loop:1"]);
       expectSame("block label", texts(result, "text.siren-block-label"), ["every minute"]);
       expectSame("messages", messages(result), ["A-B: poll"]);
+      expectSame("the keyword is nowhere in the drawing", drew(result, "text.siren-block-keyword"), false);
     },
   },
   {
@@ -881,12 +888,19 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       else is not
         A->>B: stop
       end`,
-    status: "supported",
-    meaning: "`alt`/`else` frames two branches, divided by a line.",
+    status: "silently-wrong",
+    meaning:
+      "`alt`/`else` frames two branches divided by a line, and Mermaid draws " +
+      "`alt` and `else` as corner tags beside each branch's label.",
     assert: (result) => {
+      // Both branch labels and the divider are drawn; only the two keywords are
+      // missing. The same one gap as `seq-loop`, and it is why these two are
+      // the cases the board carries forward: their exit is drawing the keyword,
+      // not rejecting the construct.
       expectSame("blocks", blocks(result), ["alt:alt:1"]);
       expectSame("messages", messages(result), ["A-B: proceed", "A-B#2: stop"]);
       expectSame("a divider was drawn between the branches", drew(result, "line.siren-block-divider"), true);
+      expectSame("neither keyword is in the drawing", drew(result, "text.siren-block-keyword"), false);
     },
   },
   {

@@ -237,8 +237,26 @@ describe("the corpus, case by case", () => {
  * The number of `silently-wrong` cases. A **policy**, not a backlog: a valid
  * Mermaid document that draws the wrong picture with no diagnostic is the
  * worst failure mode this repo has, and this number's destination is zero.
+ *
+ * Two of the eight cannot get there by being rejected, and are named so that
+ * nobody mistakes them for the board failing to finish: `seq-loop` and
+ * `seq-alt-else`. Siren never draws a control-flow block's **keyword** — the
+ * frame, the label and the divider are all there, but `loop`, `alt`, `else`,
+ * `opt`, `par` and `critical` all render identically, and those mean different
+ * things. `data-siren-block-kind` carries the kind, but an attribute is not the
+ * picture. The construct is supported, so refusing it would be absurd; the only
+ * exit is drawing the keyword, which is renderer work and a later board's.
+ *
+ * They were classified `supported` when this corpus was seeded, on the argument
+ * that the attribute preserved the meaning. That was the one boundary the
+ * seeding worker drew by judgement rather than by reading, it flagged it as
+ * such, and it was overturned on review — which is why this number went **up**
+ * by two after the corpus landed, the one time it legitimately may. A number
+ * that rises because a measurement was corrected is not a regression; a number
+ * that rises because code got worse is. Only a human can tell those apart, so
+ * say which in the commit.
  */
-const SILENTLY_WRONG = 6;
+const SILENTLY_WRONG = 8;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
