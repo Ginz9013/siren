@@ -59,6 +59,10 @@ Anything a timeline action can name by id: a flowchart node or edge, or a class,
 namespace or note in a class diagram. Every one of them carries `data-siren-id` in the rendered
 SVG, which is how the animation controller finds it — so a diagram kind gains animation by tagging
 its drawn elements with the ids the timeline uses, not by teaching the controller anything new.
+A target is the *authored thing*, not one drawn element: an id may be worn by several elements
+(a sequence participant is drawn in both participant rows, alongside its lifeline) and they all
+animate together — see
+[ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md).
 _Avoid_: animated element, node/edge (flowchart-only vocabulary — this term is what replaced it),
 timeline reference, animation target
 
