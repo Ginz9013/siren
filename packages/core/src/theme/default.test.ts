@@ -517,6 +517,44 @@ describe("default theme coverage of the flowchart renderer", () => {
     expect(getComputedStyle(frame).fill).toBe("rgb(255, 221, 221)");
     expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
   });
+
+  it("leaves an unstyled arrowhead resolving through `--siren-edge-stroke`, and lets an author-colored one win over that rule", () => {
+    // Per-edge arrowheads must not quietly take the arrow out of the theme's
+    // hands. An edge nobody styled keeps pointing at a marker whose fill is
+    // still the *token*, so a consumer redeclaring `--siren-edge-stroke`
+    // recolors it exactly as before; only the edge that named a color of its
+    // own stops following.
+    const svg = renderThemedSVG(`flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle 0 stroke:#f00
+`);
+
+    const headFor = (edgeId: string): SVGElement => {
+      const reference = svg
+        .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)
+        ?.getAttribute("marker-end");
+      const head =
+        reference == null
+          ? null
+          : svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`);
+      if (head === null) {
+        throw new Error(`no arrowhead for edge ${edgeId}`);
+      }
+      return head as SVGElement;
+    };
+
+    // jsdom does not resolve `var()`, which is what makes this readable: the
+    // unstyled head's fill *is* the token, so redeclaring the token is what
+    // paints it.
+    expect(getComputedStyle(headFor("B-C")).fill).toContain("--siren-edge-stroke");
+
+    // The author's color is an inline declaration on the drawn shape, so it
+    // outranks the theme's `.siren-arrow-fill` rule without `!important` —
+    // ADR-0008's cascade argument, one element further in.
+    expect(getComputedStyle(headFor("A-B")).fill).toBe("#f00");
+    expect(getComputedStyle(headFor("A-B")).fill).not.toContain("--siren-edge-stroke");
+  });
 });
 
 describe("default theme coverage of the class renderer", () => {
@@ -545,16 +583,28 @@ describe("default theme coverage of the class renderer", () => {
     // picture as the filled diamond — and if a theme were to say
     // `fill: none` instead, the relationship line would run visibly through
     // the middle of the head.
-    const shapeOf = (markerId: string): SVGElement => {
-      const shape = svg.querySelector(`#${markerId} path`);
+    //
+    // Found by following the relationship that uses each shape rather than by
+    // naming a marker id: ids are minted per render now (`mintIdScope`), so
+    // the durable handle on "the filled diamond" is "whatever a composition
+    // points at".
+    const shapeOf = (relationshipType: string): SVGElement => {
+      const line = svg.querySelector(
+        `g.siren-relationship[data-siren-relationship="${relationshipType}"] path`,
+      );
+      const reference = line?.getAttribute("marker-start") ?? line?.getAttribute("marker-end");
+      const shape =
+        reference == null
+          ? null
+          : svg.querySelector(`#${reference.slice("url(#".length, -1)} path`);
       if (shape === null) {
-        throw new Error(`no endpoint shape in <marker id="${markerId}">`);
+        throw new Error(`no endpoint shape for a ${relationshipType} relationship`);
       }
       return shape as SVGElement;
     };
-    const filledDiamond = shapeOf("siren-class-diamond-filled");
-    const hollowDiamond = shapeOf("siren-class-diamond-hollow");
-    const triangle = shapeOf("siren-class-triangle");
+    const filledDiamond = shapeOf("composition");
+    const hollowDiamond = shapeOf("aggregation");
+    const triangle = shapeOf("inheritance");
     expect(hollowDiamond.getAttribute("d")).toBe(filledDiamond.getAttribute("d"));
 
     for (const hollow of [hollowDiamond, triangle]) {

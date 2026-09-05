@@ -22,17 +22,23 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * because Mermaid decorates the from-end (`Animal <|-- Duck`) as often as
  * the to-end (`Duck ..|> Flyer`).
  */
-const TRIANGLE_MARKER_ID = "siren-class-triangle";
-const DIAMOND_FILLED_MARKER_ID = "siren-class-diamond-filled";
-const DIAMOND_HOLLOW_MARKER_ID = "siren-class-diamond-hollow";
-const ARROW_MARKER_ID = "siren-class-arrow";
+const TRIANGLE_MARKER_NAME = "siren-class-triangle";
+const DIAMOND_FILLED_MARKER_NAME = "siren-class-diamond-filled";
+const DIAMOND_HOLLOW_MARKER_NAME = "siren-class-diamond-hollow";
+const ARROW_MARKER_NAME = "siren-class-arrow";
 
-const END_MARKER_ID: Record<ClassRelationshipEnd, string | null> = {
+/**
+ * The *base* name of each endpoint's marker — never an id on its own. Every
+ * id this renderer mints is that base name plus the render's own scope
+ * (`mintIdScope`), because `url(#id)` resolves against the whole document
+ * rather than against the SVG it is written in.
+ */
+const END_MARKER_NAME: Record<ClassRelationshipEnd, string | null> = {
   none: null,
-  triangle: TRIANGLE_MARKER_ID,
-  diamondFilled: DIAMOND_FILLED_MARKER_ID,
-  diamondHollow: DIAMOND_HOLLOW_MARKER_ID,
-  arrow: ARROW_MARKER_ID,
+  triangle: TRIANGLE_MARKER_NAME,
+  diamondFilled: DIAMOND_FILLED_MARKER_NAME,
+  diamondHollow: DIAMOND_HOLLOW_MARKER_NAME,
+  arrow: ARROW_MARKER_NAME,
 };
 
 /**
@@ -93,7 +99,12 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   svg.setAttribute("height", String(diagram.height));
   svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
 
-  svg.appendChild(buildDefs());
+  // Every marker id below is namespaced by this one freshly drawn token —
+  // see `mintIdScope`. Four fixed ids here rather than the flowchart's one,
+  // so the exposure was four times the size and the fix is the same fix.
+  const scope = mintIdScope();
+
+  svg.appendChild(buildDefs(scope));
 
   // Namespaces first, and nothing else before them: SVG has no z-index, so a
   // frame is behind the boxes it encloses only by being drawn before them.
@@ -107,7 +118,7 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   }
 
   for (const relationship of diagram.relationships) {
-    svg.appendChild(buildRelationship(relationship));
+    svg.appendChild(buildRelationship(relationship, scope));
   }
 
   // Notes last: a note box is opaque, and it annotates the figure rather than
@@ -123,7 +134,10 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
  * Builds the `<g class="siren-relationship">` for one relationship: a
  * `<path class="siren-relationship-line">` following the layout's points.
  */
-function buildRelationship(relationship: PositionedClassRelationship): SVGGElement {
+function buildRelationship(
+  relationship: PositionedClassRelationship,
+  scope: string,
+): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-relationship");
   g.setAttribute("data-siren-id", relationship.id);
@@ -137,13 +151,13 @@ function buildRelationship(relationship: PositionedClassRelationship): SVGGEleme
   // over the classes it connects.
   line.setAttribute("fill", "none");
 
-  const startMarker = END_MARKER_ID[relationship.fromEnd];
+  const startMarker = END_MARKER_NAME[relationship.fromEnd];
   if (startMarker !== null) {
-    line.setAttribute("marker-start", `url(#${startMarker})`);
+    line.setAttribute("marker-start", `url(#${startMarker}${scope})`);
   }
-  const endMarker = END_MARKER_ID[relationship.toEnd];
+  const endMarker = END_MARKER_NAME[relationship.toEnd];
   if (endMarker !== null) {
-    line.setAttribute("marker-end", `url(#${endMarker})`);
+    line.setAttribute("marker-end", `url(#${endMarker}${scope})`);
   }
   if (relationship.line === "dashed") {
     line.setAttribute("stroke-dasharray", DASH_PATTERN);
@@ -219,27 +233,67 @@ function relationshipTypeName(relationship: PositionedClassRelationship): string
  * lands exactly on the path's endpoint — both for the reasons recorded in
  * `renderToSVG.ts`.
  */
-function buildDefs(): SVGDefsElement {
+function buildDefs(scope: string): SVGDefsElement {
   const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
   // A hollow shape has to be filled with the surface color rather than left
   // unfilled: an unfilled UML triangle/diamond lets the relationship line
   // show straight through the middle of the head.
   defs.appendChild(
-    buildMarker(TRIANGLE_MARKER_ID, 12, 10, "M0,0 L12,5 L0,10 Z", "siren-arrow-hollow"),
+    buildMarker(
+      `${TRIANGLE_MARKER_NAME}${scope}`,
+      12,
+      10,
+      "M0,0 L12,5 L0,10 Z",
+      "siren-arrow-hollow",
+    ),
   );
   defs.appendChild(
-    buildMarker(DIAMOND_FILLED_MARKER_ID, 14, 10, "M0,5 L7,0 L14,5 L7,10 Z", "siren-arrow-fill"),
+    buildMarker(
+      `${DIAMOND_FILLED_MARKER_NAME}${scope}`,
+      14,
+      10,
+      "M0,5 L7,0 L14,5 L7,10 Z",
+      "siren-arrow-fill",
+    ),
   );
   defs.appendChild(
-    buildMarker(DIAMOND_HOLLOW_MARKER_ID, 14, 10, "M0,5 L7,0 L14,5 L7,10 Z", "siren-arrow-hollow"),
+    buildMarker(
+      `${DIAMOND_HOLLOW_MARKER_NAME}${scope}`,
+      14,
+      10,
+      "M0,5 L7,0 L14,5 L7,10 Z",
+      "siren-arrow-hollow",
+    ),
   );
   // The association/dependency head is an open V — two strokes, never
   // closed, so it must not be filled (the `siren-arrow-stroke` precedent
   // from the sequence renderer's open marker).
   defs.appendChild(
-    buildMarker(ARROW_MARKER_ID, 8, 8, "M0,0 L8,4 L0,8", "siren-arrow-stroke", true),
+    buildMarker(
+      `${ARROW_MARKER_NAME}${scope}`,
+      8,
+      8,
+      "M0,0 L8,4 L0,8",
+      "siren-arrow-stroke",
+      true,
+    ),
   );
   return defs;
+}
+
+/**
+ * Mints the token every marker id in one rendered SVG is namespaced by.
+ *
+ * The reasoning — why a document-wide id namespace is the hazard, why a
+ * random token rather than a counter, and what non-reproducible markup costs
+ * — is written once, in `renderToSVG.ts`. This is a deliberate second copy
+ * rather than an import: a class diagram does not depend on a flowchart, and
+ * the two renderers are peers. The third caller should lift it into a module
+ * of its own; the sequence renderer's `siren-arrow-filled`/`-cross`/`-open`
+ * are still fixed ids and are that third caller waiting to happen.
+ */
+function mintIdScope(): string {
+  return `__${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
 }
 
 /**

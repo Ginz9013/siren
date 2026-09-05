@@ -30,6 +30,21 @@ const EXAMPLES_DIR = new URL("../../../examples/", TEST_FILE_URL);
 const readExample = (name: string): string =>
   readFileSync(new URL(`${name}.srn`, EXAMPLES_DIR), "utf8");
 
+/**
+ * `markup` with every minted id scope collapsed to a fixed token.
+ *
+ * Marker ids are namespaced per render (`mintIdScope` in renderToSVG.ts and
+ * renderClassDiagramToSVG.ts), because `url(#id)` resolves against the whole
+ * document rather than against the SVG it is written in. The direct cost is
+ * that markup is no longer byte-reproducible across renders — so a comparison
+ * asking "are these two the same *drawing*?" has to collapse exactly those
+ * tokens, and nothing else: every other byte is still compared verbatim, and
+ * the `__` prefix no `siren-*` class name contains is what makes the
+ * substitution unambiguous.
+ */
+const sameDrawing = (markup: string): string =>
+  markup.replace(/__[0-9a-z]{8}(?![0-9a-z])/g, "__SCOPE");
+
 /** A minimal valid document: a two-node, one-edge flowchart with a 2-step timeline. */
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
@@ -1484,7 +1499,7 @@ click Duck call showDetails("mallard")
 
     // The hook is markup either way: `render()` attaches a listener to it or
     // does not, and nothing about the document a consumer gets back changes.
-    expect(withoutHandler.innerHTML).toBe(withHandler.innerHTML);
+    expect(sameDrawing(withoutHandler.innerHTML)).toBe(sameDrawing(withHandler.innerHTML));
     expect(
       result.svg!.querySelector('g.siren-class[data-siren-id="Duck"]')!
         .getAttribute("data-siren-click"),
@@ -1572,7 +1587,10 @@ classDiagram
       // The strongest statement available at this seam: a commented document
       // and its comment-free twin are the *same drawing*, so no comment text
       // survived into a label and no comment shifted the layout.
-      expect([kind, withComments.innerHTML]).toEqual([kind, withoutComments.innerHTML]);
+      expect([kind, sameDrawing(withComments.innerHTML)]).toEqual([
+        kind,
+        sameDrawing(withoutComments.innerHTML),
+      ]);
       expect([kind, withComments.innerHTML.includes("counts")]).toEqual([kind, false]);
     }
   });
@@ -1880,7 +1898,7 @@ class Duck {
 
     expect(v1Result.diagnostics).toEqual([]);
     expect(v2Result.diagnostics).toEqual([]);
-    expect(v2.innerHTML).toBe(v1.innerHTML);
+    expect(sameDrawing(v2.innerHTML)).toBe(sameDrawing(v1.innerHTML));
   });
 
   it("renders markup-looking member, annotation, note, relationship-label, multiplicity and tooltip text as literal visible text, never as parsed markup", () => {
@@ -3084,5 +3102,222 @@ step 1: enter A-B fade
     result.controller!.reset();
     expect(path().classList.contains("siren-pending")).toBe(true);
     expect(path().getAttribute("style")).toBe("stroke:#f00");
+  });
+  it("scopes a flowchart's marker ids to the SVG that defines them, so two diagrams on one page share no id and each edge points at its own diagram's arrowhead", () => {
+    // `url(#siren-arrow)` resolves against the whole *document*, not against
+    // the SVG it is written in, so a fixed marker id means the browser hands
+    // every diagram on the page the *first* diagram's marker. Measured before
+    // this was fixed: two flowcharts rendered onto one page produced
+    // ids = ["siren-arrow", "siren-arrow"]. Harmless only for as long as
+    // every marker is identical — the moment one carries an author's color it
+    // is a cross-diagram miscolor.
+    const source = `flowchart TD
+A[Start] --> B[End]
+`;
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+
+    try {
+      const one = render(source, first);
+      const two = render(source, second);
+      expect([one.diagnostics, two.diagnostics]).toEqual([[], []]);
+
+      // The probe that found this, asserted: every id in the page, checked
+      // for duplicates.
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      // And the consequence that matters: the second diagram's edges point at
+      // the second diagram's marker, not at the first's.
+      for (const svg of [one.svg!, two.svg!]) {
+        const edges = Array.from(svg.querySelectorAll("path.siren-edge"));
+        expect(edges.length).toBeGreaterThan(0);
+        for (const edge of edges) {
+          const reference = edge.getAttribute("marker-end");
+          expect(reference).toMatch(/^url\(#.+\)$/);
+          const id = reference!.slice("url(#".length, -1);
+          expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+          expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+        }
+      }
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+  it("scopes a class diagram's marker ids the same way, so two class diagrams on one page share no id and each relationship's endpoints resolve inside its own SVG", () => {
+    // The class diagram has the identical exposure — `siren-class-triangle`,
+    // `siren-class-diamond-filled`, `siren-class-diamond-hollow` and
+    // `siren-class-arrow` were all fixed ids — and four markers rather than
+    // one, so fixing only the flowchart would be half a fix.
+    const source = `classDiagram
+Animal <|-- Duck
+Habitat *-- Animal
+Duck o-- Feather
+Keeper --> Animal
+`;
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+
+    try {
+      const one = render(source, first);
+      const two = render(source, second);
+      expect([one.diagnostics, two.diagnostics]).toEqual([[], []]);
+
+      const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+
+      for (const svg of [one.svg!, two.svg!]) {
+        const lines = Array.from(svg.querySelectorAll("path.siren-relationship-line"));
+        expect(lines.length).toBe(4);
+        const referenced = lines.flatMap((line) => [
+          line.getAttribute("marker-start"),
+          line.getAttribute("marker-end"),
+        ]);
+        expect(referenced.filter((reference) => reference !== null).length).toBeGreaterThan(0);
+        for (const reference of referenced) {
+          if (reference === null) continue;
+          expect(reference).toMatch(/^url\(#.+\)$/);
+          const id = reference.slice("url(#".length, -1);
+          expect(svg.querySelector(`defs > marker#${id}`)).not.toBeNull();
+          expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+        }
+      }
+    } finally {
+      first.remove();
+      second.remove();
+    }
+  });
+  it("colors a styled edge's arrowhead with the edge's own `stroke`, while an edge nothing styled keeps the theme's shared marker", () => {
+    // Mermaid colors the whole arrow, line and head. Siren coloured only the
+    // line, because one shared `<marker>` in `<defs>` cannot inherit from the
+    // path that references it — so the head has to be a marker of its own,
+    // carrying the author's color as an inline `fill` that outranks the
+    // theme's `.siren-arrow-fill` rule without `!important` (ADR-0008's
+    // cascade argument, applied to the one element the theme paints).
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle 0 stroke:#f00
+`;
+
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const markerFor = (edgeId: string): SVGElement => {
+      const reference = svg
+        .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!
+        .getAttribute("marker-end")!;
+      expect(reference).toMatch(/^url\(#.+\)$/);
+      const marker = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)}`);
+      expect(marker).not.toBeNull();
+      return marker as SVGElement;
+    };
+
+    // The styled edge's head is red — asserted as the marker's own fill, not
+    // merely as "a second marker exists".
+    const styledHead = markerFor("A-B").querySelector("path")!;
+    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+
+    // The unstyled edge still takes its head from the theme: no fill of its
+    // own, just the class `--siren-edge-stroke` reaches it through.
+    const themeHead = markerFor("B-C").querySelector("path")!;
+    expect(themeHead.getAttribute("class")).toBe("siren-arrow-fill");
+    expect(themeHead.getAttribute("style")).toBeNull();
+    expect(themeHead.getAttribute("fill")).toBeNull();
+
+    expect(markerFor("A-B")).not.toBe(markerFor("B-C"));
+    // The line is still painted too: this replaces neither half of the arrow.
+    expect(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+    ).toBe("stroke:#f00");
+  });
+  it("mints one arrowhead per distinct color rather than per styled edge, so twelve edges sharing one `linkStyle default` share one marker", () => {
+    // The decision this pins: a marker is a pure function of its color, so
+    // fifty edges sharing a color want one def and not fifty identical ones.
+    // Nothing observable is lost — two edges of the same color have the same
+    // arrowhead by definition — and the DOM stops growing with the edge count.
+    const container = document.createElement("div");
+    const chain = Array.from({ length: 12 }, (_, index) => `N${index} --> N${index + 1}`);
+    const source = `flowchart TD
+${chain.join("\n")}
+linkStyle default stroke:#0f0
+linkStyle 3 stroke:#00f
+`;
+
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const markerIdOf = (edgeId: string): string =>
+      svg
+        .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!
+        .getAttribute("marker-end")!;
+
+    // Eleven green edges, all pointing at one marker; the twelfth is blue and
+    // has its own. Plus the theme's own marker, which is always defined.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(3);
+
+    const green = new Set(
+      chain
+        .map((_, index) => `N${index}-N${index + 1}`)
+        .filter((edgeId) => edgeId !== "N3-N4")
+        .map(markerIdOf),
+    );
+    expect(green.size).toBe(1);
+    expect(markerIdOf("N3-N4")).not.toBe([...green][0]);
+
+    const fillOf = (reference: string): string | null =>
+      svg
+        .querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
+        .getAttribute("style");
+    expect(fillOf([...green][0]!)).toBe("fill:#0f0");
+    expect(fillOf(markerIdOf("N3-N4"))).toBe("fill:#00f");
+  });
+  it("mints no arrowhead for a `linkStyle` that names no `stroke`, and leaves a document with no `linkStyle` emitting exactly the one marker it always did", () => {
+    // There is no color to carry, so there is nothing a marker of this edge's
+    // own could say that the theme's does not — and minting one anyway would
+    // freeze the arrowhead at the token's value at render time, quietly
+    // taking it out of the theme's hands.
+    const widthOnly = document.createElement("div");
+    const widthOnlyResult = render(
+      `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+linkStyle 0 stroke-width:4px
+`,
+      widthOnly,
+    );
+    expect(widthOnlyResult.diagnostics).toEqual([]);
+    expect(widthOnlyResult.svg!.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(
+      widthOnlyResult.svg!
+        .querySelector('path.siren-edge[data-siren-id="A-B"]')!
+        .getAttribute("marker-end"),
+    ).toBe(
+      widthOnlyResult.svg!
+        .querySelector('path.siren-edge[data-siren-id="B-C"]')!
+        .getAttribute("marker-end"),
+    );
+
+    const unstyled = document.createElement("div");
+    const unstyledResult = render(
+      `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+`,
+      unstyled,
+    );
+    expect(unstyledResult.diagnostics).toEqual([]);
+    expect(unstyledResult.svg!.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(
+      unstyledResult.svg!.querySelector("defs > marker path")!.getAttribute("style"),
+    ).toBeNull();
   });
 });
