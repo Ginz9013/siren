@@ -330,8 +330,21 @@ const SILENTLY_WRONG = 3;
  * documents that used to be refused now render. Whoever moves this number next
  * should expect the same: it is a backlog, and a backlog's size is a poor
  * summary of a day's work.
+ *
+ * It fell by one, to **32**, when a node stopped being only ever a
+ * rectangle. `fc-shape-rhombus` is `supported`: `A{text}` parses as the
+ * decision diamond Mermaid means by it, is given enough bounding box that
+ * its label fits *inside* the diamond rather than inside the box the
+ * diamond is inscribed in, and is drawn as a `<path>` still named
+ * `siren-node-frame` — so an author's `style A fill:#f00` and the timeline
+ * both reach it exactly as they reach a rectangle. `silently-wrong` is
+ * untouched at 3: this construct was refused before and renders correctly
+ * now, so nothing became honest and nothing became wrong. Ten shape rows
+ * remain, and each of them exits the same way — parser, layout and renderer
+ * together, because a shape that parsed and drew a rectangle would be a
+ * silent mis-render by this instrument's own definition.
  */
-const REJECTED = 33;
+const REJECTED = 32;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

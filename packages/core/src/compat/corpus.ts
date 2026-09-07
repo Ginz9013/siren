@@ -125,6 +125,48 @@ function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: numb
   };
 }
 
+/**
+ * The outline one flowchart node actually draws, named from its **geometry**
+ * — `"rect"`, `"diamond"` — or from what is there instead when the geometry
+ * names nothing.
+ *
+ * Deliberately not read off `data-siren-shape`. That attribute is the node
+ * saying what shape it is, and this corpus exists to check what was drawn:
+ * board 4 reclassified `seq-loop` and `seq-alt-else` on exactly that point,
+ * where `data-siren-block-kind` carried the kind and the keyword was still
+ * absent from the picture. An assert that read the attribute would pass for
+ * a rectangle labelled `Rhombus` with a note attached.
+ *
+ * A `<path>` is called a diamond only when its four points are the midpoints
+ * of the four sides of their own bounding box, which is what "a rhombus
+ * inscribed in the node's box" means and what no other shape on this board
+ * will satisfy.
+ */
+function nodeOutline(result: SirenRenderResult, id: string): string {
+  const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no node "${id}" was drawn`);
+  const frame = group.querySelector(".siren-node-frame");
+  if (frame === null) throw new Error(`node "${id}" drew nothing named siren-node-frame`);
+  if (frame.tagName !== "path") return frame.tagName;
+
+  const points = (frame.getAttribute("d") ?? "")
+    .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)
+    ?.map((pair) => pair.split(",").map(Number)) ?? [];
+  if (points.length !== 4) return `path of ${points.length} points`;
+
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+  // Top, right, bottom, left: each point sits on the middle of one side.
+  const isDiamond =
+    points.filter(([x, y]) => x === midX && y === Math.min(...ys)).length === 1 &&
+    points.filter(([x, y]) => x === Math.max(...xs) && y === midY).length === 1 &&
+    points.filter(([x, y]) => x === midX && y === Math.max(...ys)).length === 1 &&
+    points.filter(([x, y]) => x === Math.min(...xs) && y === midY).length === 1;
+  return isDiamond ? "diamond" : `path of 4 points that is not a diamond`;
+}
+
 /** The inline author style on one node's frame, or `""` when it carries none. */
 function nodeStyle(result: SirenRenderResult, id: string): string {
   const frame = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] rect`);
@@ -339,8 +381,16 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A{Rhombus}`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A{text}` is a decision rhombus labelled `text`.",
+    assert: (result) => {
+      // The braces are syntax, so they are no more part of the label than
+      // the brackets of `A[text]` are.
+      expectSame("nodes", nodes(result), ["A[Rhombus]"]);
+      // And the picture, not the claim: a diamond is drawn, rather than a
+      // rectangle with the shape written on it in an attribute.
+      expectSame("outline", nodeOutline(result, "A"), "diamond");
+    },
   },
   {
     id: "fc-shape-hexagon",

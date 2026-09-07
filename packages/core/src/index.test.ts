@@ -2675,6 +2675,67 @@ timeline:
     expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);
   });
 
+  it("draws `A{Is it ready?}` end to end as a styleable, animatable diamond", () => {
+    // The whole vertical slice through one public call: the brace spelling
+    // parses, the box is sized so the label fits inside the diamond, the
+    // diamond is drawn, and the two things a rectangle already had — an
+    // author's `style` and a place on the timeline — reach it unchanged.
+    //
+    // Together they are what makes this a shape rather than an attribute.
+    // Any one of them alone would leave a document Mermaid draws correctly
+    // being drawn wrongly here.
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A{Is it ready?} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frame = group.querySelector(".siren-node-frame")!;
+
+    // Drawn as a diamond, and said to be one.
+    expect(frame.tagName).toBe("path");
+    expect(group.getAttribute("data-siren-shape")).toBe("rhombus");
+    // The braces were syntax, so the label is the text between them.
+    expect(group.querySelector("text")!.textContent).toBe("Is it ready?");
+
+    // The label fits *inside* the diamond, which is only true because
+    // layout asked the shape how much box it needed. Read off the drawn
+    // path so the claim is about the picture: the four vertices are the
+    // midpoints of the node's box, and the default measurer's label box
+    // (8px per character plus 16px padding, 24px plus 8px tall) sits inside
+    // the diamond they describe.
+    const vertices = frame
+      .getAttribute("d")!
+      .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+      .map((pair) => pair.split(",").map(Number));
+    const xs = vertices.map(([x]) => x);
+    const ys = vertices.map(([, y]) => y);
+    const boxWidth = Math.max(...xs) - Math.min(...xs);
+    const boxHeight = Math.max(...ys) - Math.min(...ys);
+    const label = { width: "Is it ready?".length * 8 + 16, height: 24 + 8 };
+    expect(label.width / boxWidth + label.height / boxHeight).toBeLessThanOrEqual(1);
+
+    // ADR-0008's placement, unchanged by the element under it.
+    expect(frame.getAttribute("style")).toBe("fill:#f00");
+
+    // And it animates: the id and the animation classes are on the `<g>`,
+    // so the controller drives a diamond without knowing shapes exist — and
+    // the author's declaration is on a different element, so neither
+    // overwrites the other.
+    expect(group.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(group.classList.contains("siren-pending")).toBe(false);
+    expect(group.classList.contains("siren-enter-fade")).toBe(true);
+    expect(frame.getAttribute("style")).toBe("fill:#f00");
+  });
+
   it("carries a flowchart author's `style` all the way to the DOM: inline style on the node's frame rect, and no attribute at all on a node nothing styled", () => {
     const container = document.createElement("div");
     const source = `flowchart TD

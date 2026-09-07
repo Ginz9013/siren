@@ -371,6 +371,29 @@ timeline:
     expect(document.nodes.map((n) => n.label)).toEqual(['"hi" and "bye"']);
   });
 
+  it("reads `A{text}` as a rhombus, and every other node spelling as a rect", () => {
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A{Is it ready?}` is `type="diamond" text="Is it ready?"`, `B[Done]`
+    // is `type="square"`, and a bare `C` names no type at all — the default
+    // rectangle. The braces are syntax, so they are no more part of the
+    // label than the brackets are.
+    const source = `flowchart TB
+  A{Is it ready?} --> B[Done]
+  B --> C
+  D:::hot
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Is it ready?", "rhombus"],
+      ["B", "Done", "rect"],
+      ["C", "C", "rect"],
+      ["D", "D", "rect"],
+    ]);
+  });
+
   it("leaves a quote in the middle of a label alone — only a fenced label is a quoted one", () => {
     const source = `flowchart TB
   A[say "hi" now]

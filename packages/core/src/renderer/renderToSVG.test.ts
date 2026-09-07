@@ -10,9 +10,9 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, style: { frame: [], text: [] } },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, style: { frame: [], text: [] } },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
     ],
     edges: [
       {
@@ -57,9 +57,9 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, style: { frame: [], text: [] } },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, style: { frame: [], text: [] } },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, style: { frame: [], text: [] } },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
     ],
     edges: [],
     timeline: {
@@ -160,6 +160,144 @@ describe("renderToSVG", () => {
     for (const frame of frames) {
       expect(frame.getAttribute("data-siren-id")).toBeNull();
     }
+  });
+
+  it("draws a rhombus node as a diamond path inscribed in its box, still named siren-node-frame and still carrying the author's style", () => {
+    // Board 4's policy leaves no third option: a shape that parsed but drew
+    // a rectangle would be a valid Mermaid document rendered into the wrong
+    // picture with no diagnostic, which is the one failure mode the corpus
+    // exists to keep at zero. So the diamond is drawn here, in the same
+    // commit that reads it.
+    //
+    // A `<path>` rather than a `<rect>`, and the class stays: ADR-0008 puts
+    // an author's inline declarations on the element the theme paints
+    // directly, and board 3 named that element `siren-node-frame`. A frame
+    // wearing a different class would silently stop taking `style A
+    // fill:#f00` — the author's declaration would land nowhere and say so
+    // nowhere.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Is it ready?",
+          shape: "rhombus",
+          x: 10,
+          y: 20,
+          width: 200,
+          height: 60,
+          style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        },
+        {
+          id: "B",
+          label: "Done",
+          shape: "rect",
+          x: 10,
+          y: 200,
+          width: 80,
+          height: 40,
+          style: { frame: [], text: [] },
+        },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 260,
+    };
+
+    const svg = renderToSVG(graph);
+
+    const groupA = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frameA = groupA.querySelector(".siren-node-frame")!;
+
+    expect(frameA.tagName).toBe("path");
+    // The four vertices of the diamond inscribed in `10,20 200x60`: top,
+    // right, bottom, left, closed. Inscribed rather than approximated, so
+    // that the box layout reserved and the outline drawn are the same
+    // figure — which is what makes the fit `layoutGraph` computed true of
+    // the picture rather than only of the numbers.
+    expect(frameA.getAttribute("d")).toBe("M110,20 L210,50 L110,80 L10,50 Z");
+    // No `x`/`y`/`width`/`height`: a `<path>` reads none of them, and
+    // leaving them behind would suggest a rect is still in play.
+    expect(frameA.getAttribute("x")).toBeNull();
+    expect(frameA.getAttribute("width")).toBeNull();
+
+    // The author's declaration still lands, on the element the theme paints.
+    expect(frameA.getAttribute("style")).toBe("fill:#f00");
+
+    // `data-siren-id` and the animation classes stay on the `<g>`, exactly
+    // where a rect node has them, so the timeline reaches a diamond without
+    // learning that shapes exist.
+    expect(frameA.getAttribute("data-siren-id")).toBeNull();
+    expect(groupA.getAttribute("data-siren-id")).toBe("A");
+
+    // The label is drawn at the centre of the box, which is the centre of
+    // the diamond inscribed in it.
+    const textA = groupA.querySelector("text")!;
+    expect(textA.textContent).toBe("Is it ready?");
+    expect([textA.getAttribute("x"), textA.getAttribute("y")]).toEqual(["110", "50"]);
+
+    // A rect node is untouched: still a `<rect>`, still sized to its box.
+    const frameB = svg.querySelector('g.siren-node[data-siren-id="B"] .siren-node-frame')!;
+    expect(frameB.tagName).toBe("rect");
+    expect([frameB.getAttribute("width"), frameB.getAttribute("height")]).toEqual(["80", "40"]);
+  });
+
+  it("names each node's shape on its group as data, in addition to drawing it — never instead of it", () => {
+    // On the `<g>`, which is the element that already *is* the node: it
+    // carries `data-siren-id` and the animation classes, while the frame is
+    // one of the things the node draws. A later shape draws more than one
+    // frame element (a double circle draws two), and the node would then
+    // have two places claiming to say what shape it is.
+    //
+    // The attribute is written for every node, rect included, because
+    // `GraphNode.shape` is required: a reader must never have to read a
+    // missing attribute as "rect".
+    //
+    // And it is written *as well as* drawing the diamond, never instead of
+    // it. Board 4 reclassified two corpus rows on exactly that point —
+    // `data-siren-block-kind` carries a sequence block's kind and the
+    // keyword is still not drawn, so the picture is still wrong. An
+    // attribute is not the picture.
+    const graph: PositionedGraph = {
+      ...buildFixture(),
+      nodes: [
+        {
+          id: "A",
+          label: "Is it ready?",
+          shape: "rhombus",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 60,
+          style: { frame: [], text: [] },
+        },
+        {
+          id: "B",
+          label: "Done",
+          shape: "rect",
+          x: 0,
+          y: 100,
+          width: 80,
+          height: 40,
+          style: { frame: [], text: [] },
+        },
+      ],
+      edges: [],
+    };
+
+    const svg = renderToSVG(graph);
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-node")).map((g) => [
+        g.getAttribute("data-siren-id"),
+        g.getAttribute("data-siren-shape"),
+        g.querySelector(".siren-node-frame")!.tagName,
+      ]),
+    ).toEqual([
+      ["A", "rhombus", "path"],
+      ["B", "rect", "rect"],
+    ]);
   });
 
   it("sizes the root svg to the graph's full width/height via width/height and viewBox", () => {

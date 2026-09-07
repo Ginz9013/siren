@@ -3,6 +3,7 @@ import type {
   Direction,
   FlowchartDocument,
   LinkStyleDecl,
+  NodeShape,
   ParseResult,
   SirenEdge,
   SirenNode,
@@ -38,17 +39,60 @@ import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
 
 /**
- * A node declaration, with the optional `:::name` shorthand that applies a
- * `classDef` at the declaration itself. `A[Start]:::emphasis`.
+ * What may lie between the `{` and the `}` of a diamond: the same two
+ * alternatives `LABEL_CONTENT` offers, with the brace pair standing in for
+ * the bracket pair.
  *
- * `LABEL_CONTENT` still reads the label loosely, but it no longer gets first
- * refusal on the line: `UNIMPLEMENTED_BRACKET_FORMS` is asked first, and
- * everything it names never reaches here. Widening this pattern without
- * reading that one re-opens the bug that comment exists to close.
+ * `{` is excluded as well as `}`, which is what keeps `A{{Hexagon}}` out.
+ * A hexagon is a shape of its own and Siren does not draw one yet, so this
+ * pattern must not match it — a greedy read would take its inner braces as
+ * a label and draw a diamond reading `{Hexagon}`, which is the swallow
+ * `UNIMPLEMENTED_BRACKET_FORMS` exists to refuse, one spelling over. It
+ * falls through to "unrecognized line" instead, which is honest, and the
+ * hexagon's own ticket is what makes it draw.
+ *
+ * A *fenced* brace is still a label character, exactly as a fenced `]` is:
+ * mermaid 11.17.2 reads `A{"a}b"}` as the label `a}b` and `A{"x{y"}` as
+ * `x{y`, measured with `scripts/mermaid-probe.mjs`.
  */
-const NODE_RE = new RegExp(
-  String.raw`^(\w+)\s*\[(${LABEL_CONTENT})\]\s*(?::::(\w+))?\s*$`,
-);
+const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
+
+/**
+ * Every bracket spelling of a node, paired with the shape it names — the
+ * one place a spelling and a shape are associated, read by the standalone
+ * declaration and by an edge endpoint alike.
+ *
+ * `bracket` is the bracketed part of the spelling as a pattern, with the
+ * label as its single capture group, so the two patterns below can be built
+ * from it without either of them learning what punctuation any shape uses.
+ * A later ticket adds a row; nothing else here moves.
+ *
+ * Ordered, and read in order: a spelling that is a prefix of another must
+ * come after it. Nothing in this table overlaps yet.
+ */
+const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
+  { shape: "rect", bracket: String.raw`\[(${LABEL_CONTENT})\]` },
+  { shape: "rhombus", bracket: String.raw`\{(${BRACE_LABEL_CONTENT})\}` },
+];
+
+/**
+ * A node declaration in each spelling, with the optional `:::name`
+ * shorthand that applies a `classDef` at the declaration itself.
+ * `A[Start]:::emphasis`, `A{Is it ready?}:::emphasis`.
+ *
+ * Groups are `id`, `label`, `definitionName` in every one of them, which is
+ * what lets `readNodeDeclaration` read them all with one body.
+ *
+ * `LABEL_CONTENT` still reads a bracket's label loosely, but it no longer
+ * gets first refusal on the line: `UNIMPLEMENTED_BRACKET_FORMS` is asked
+ * first, and everything it names never reaches here. Widening these
+ * patterns without reading that one re-opens the bug that comment exists to
+ * close.
+ */
+const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
+  shape,
+  re: new RegExp(String.raw`^(\w+)\s*${bracket}\s*(?::::(\w+))?\s*$`),
+}));
 
 /**
  * Everything Mermaid writes *inside* `[...]` that is not a plain label — six
@@ -179,10 +223,15 @@ const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
 const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
 
 /**
- * **One** endpoint of an edge line: an id, free to carry the same `[label]`
- * and `:::name` an endpoint written on a line of its own may carry — the
- * shorthand works wherever a node can be written, as it does in Mermaid,
- * rather than only at a standalone declaration.
+ * **One** endpoint of an edge line, in each bracket spelling: an id, free to
+ * carry the same label and `:::name` an endpoint written on a line of its
+ * own may carry — the shorthand works wherever a node can be written, as it
+ * does in Mermaid, rather than only at a standalone declaration.
+ *
+ * Built from `NODE_SPELLINGS`, the same table the standalone declaration is
+ * built from, which is what keeps `A{X}` from meaning one thing on a line
+ * of its own and another at the end of an arrow. A shape is a property of
+ * the node, not of where it was mentioned.
  *
  * One endpoint rather than a whole line, because a line may name any number
  * of them: `A --> B --> C` is a chain of three. The line is cut into
@@ -196,13 +245,25 @@ const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
  * nodes on a line and dropping the rest would draw a diagram nobody wrote,
  * which is worse than an honest refusal.
  *
- * Its label is `LABEL_CONTENT`, the same one a standalone declaration
- * reads, because quoting works wherever a label can be written — Mermaid
- * takes `A["a]b-->c"] --> B["x, y"]:::hot`, and so does this.
+ * Each label pattern is the one its standalone declaration reads, because
+ * quoting works wherever a label can be written — Mermaid takes
+ * `A["a]b-->c"] --> B["x, y"]:::hot`, and so does this.
  */
-const ENDPOINT_RE = new RegExp(
-  String.raw`^(\w+)(?:\s*\[(${LABEL_CONTENT})\])?(?:\s*:::(\w+))?$`,
-);
+const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
+  shape,
+  re: new RegExp(String.raw`^(\w+)\s*${bracket}(?:\s*:::(\w+))?$`),
+}));
+
+/**
+ * An endpoint written with no bracket at all: `A`, or `A:::hot`.
+ *
+ * Its own pattern rather than an optional group inside each spelling's,
+ * because with several spellings that group would be written once per row
+ * and they would be free to disagree about what a bare mention is. What it
+ * means — declaring the node only when nothing else has — is
+ * `addNodeAsWritten`'s, as it has always been.
+ */
+const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
 
 /** The one arrow form Siren draws. Every other Mermaid arrow is a later board's. */
 const ARROW = "-->";
@@ -250,18 +311,51 @@ interface EdgeEndpoint {
   id: string;
   label: string | undefined;
   definitionName: string | undefined;
+  /**
+   * The shape its spelling named. `"rect"` for a bare mention, which is
+   * what a bare mention has always meant — it is now said rather than
+   * assumed.
+   */
+  shape: NodeShape;
 }
 
 /**
  * One endpoint, or `null` when the text is not one — which refuses the
  * statement it came from rather than half of it.
+ *
+ * The bracket spellings are tried before the bare form, since only they can
+ * carry a label; the bare form is what is left.
  */
 function readEndpoint(text: string): EdgeEndpoint | null {
-  const match = ENDPOINT_RE.exec(text.trim());
-  if (match === null) {
+  const trimmed = text.trim();
+  for (const { shape, re } of ENDPOINT_PATTERNS) {
+    const match = re.exec(trimmed);
+    if (match !== null) {
+      return { id: match[1], label: match[2], definitionName: match[3], shape };
+    }
+  }
+  const bare = BARE_ENDPOINT_RE.exec(trimmed);
+  if (bare === null) {
     return null;
   }
-  return { id: match[1], label: match[2], definitionName: match[3] };
+  return { id: bare[1], label: undefined, definitionName: bare[2], shape: "rect" };
+}
+
+/**
+ * One node declaration written on a line of its own, in whichever spelling
+ * the author used — or `null` when the line is not one.
+ *
+ * The bracket spelling is what makes it a declaration: a bare `A` on a line
+ * by itself stays an unrecognized line, and `A:::name` is `NODE_CLASS_RE`'s.
+ */
+function readNodeDeclaration(line: string): EdgeEndpoint | null {
+  for (const { shape, re } of NODE_PATTERNS) {
+    const match = re.exec(line);
+    if (match !== null) {
+      return { id: match[1], label: match[2], definitionName: match[3], shape };
+    }
+  }
+  return null;
 }
 
 /**
@@ -524,10 +618,16 @@ export function parseFlowchart(source: string): ParseResult {
     return true;
   };
 
-  const addNode = (id: string, label: string, line: number, column: number) => {
+  const addNode = (
+    id: string,
+    label: string,
+    shape: NodeShape,
+    line: number,
+    column: number,
+  ) => {
     const existing = nodesById.get(id);
     if (existing === undefined) {
-      nodesById.set(id, { id, label, line, column });
+      nodesById.set(id, { id, label, shape, line, column });
       return;
     }
     if (existing.label !== label) {
@@ -562,16 +662,14 @@ export function parseFlowchart(source: string): ParseResult {
    * the author wrote.
    */
   const addNodeAsWritten = (
-    id: string,
-    label: string | undefined,
-    definitionName: string | undefined,
+    { id, label, definitionName, shape }: EdgeEndpoint,
     line: number,
     column: number,
   ) => {
     if (label !== undefined) {
-      addNode(id, labelIn(label), line, column);
+      addNode(id, labelIn(label), shape, line, column);
     } else if (!nodesById.has(id)) {
-      nodesById.set(id, { id, label: id, line, column });
+      nodesById.set(id, { id, label: id, shape, line, column });
     }
     if (definitionName !== undefined) {
       applyAtDeclaration(id, definitionName, line, column);
@@ -678,7 +776,17 @@ export function parseFlowchart(source: string): ParseResult {
         // one diagnostic per statement.
         if (
           written.some((endpoint) =>
-            refuseUnimplementedForm(endpoint.label, line, lineNumber, column),
+            refuseUnimplementedForm(
+              // Only a `[...]` label can carry one of those forms. The
+              // punctuation another spelling fences is that spelling's own
+              // content: mermaid 11.17.2 reads `A{"(DB)"}` as a diamond
+              // labelled `(DB)`, not as a cylinder, so asking this of a
+              // brace's label would refuse a document Mermaid draws.
+              endpoint.shape === "rect" ? endpoint.label : undefined,
+              line,
+              lineNumber,
+              column,
+            ),
           )
         ) {
           continue;
@@ -688,13 +796,7 @@ export function parseFlowchart(source: string): ParseResult {
         // a `:::` on an endpoint two arrows along applies exactly once rather
         // than once per link it takes part in.
         for (const endpoint of written) {
-          addNodeAsWritten(
-            endpoint.id,
-            endpoint.label,
-            endpoint.definitionName,
-            lineNumber,
-            column,
-          );
+          addNodeAsWritten(endpoint, lineNumber, column);
         }
         // Sources outermost, which is Mermaid's order: `FlowDB.addLink` is
         // `for (const start of _start) for (const end of _end)`, so
@@ -792,20 +894,24 @@ export function parseFlowchart(source: string): ParseResult {
         }
       }
 
-      const nodeMatch = NODE_RE.exec(line);
-      if (nodeMatch !== null) {
-        const [, id, label, definitionName] = nodeMatch;
-        addNodeAsWritten(id, label, definitionName, lineNumber, column);
+      const declared = readNodeDeclaration(line);
+      if (declared !== null) {
+        addNodeAsWritten(declared, lineNumber, column);
         continue;
       }
 
       const nodeClassMatch = NODE_CLASS_RE.exec(line);
       if (nodeClassMatch !== null) {
         const [, id, definitionName] = nodeClassMatch;
-        // Written without a label, so it applies a definition and claims no
-        // label — `addNodeAsWritten` holds what that means, for this spelling
-        // and for an edge's bare endpoint alike.
-        addNodeAsWritten(id, undefined, definitionName, lineNumber, column);
+        // Written without a label and without a bracket, so it applies a
+        // definition, claims no label and names no shape — `addNodeAsWritten`
+        // holds what that means, for this spelling and for an edge's bare
+        // endpoint alike.
+        addNodeAsWritten(
+          { id, label: undefined, definitionName, shape: "rect" },
+          lineNumber,
+          column,
+        );
         continue;
       }
 

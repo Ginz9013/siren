@@ -13,9 +13,9 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A", style: { frame: [], text: [] } },
-      { id: "B", label: "B", style: { frame: [], text: [] } },
-      { id: "C", label: "C", style: { frame: [], text: [] } },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] } },
+      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] } },
     ],
     edges: [
       { id: "A-B", from: "A", to: "B", style: { frame: [], text: [] } },
@@ -116,6 +116,58 @@ describe("layoutGraph", () => {
     const second = layoutGraph(graph, { measureText: fakeMeasurer });
 
     expect(second).toEqual(first);
+  });
+
+  it("gives a rhombus enough box that its label fits inside the diamond, not merely inside its bounding box", () => {
+    // The rule this ticket settles, and the one the other twelve shapes
+    // inherit: a shape is drawn *inscribed* in the node's bounding box, so
+    // layout asks the shape how much box its label needs rather than
+    // handing every shape the label's own box the way a rectangle can take
+    // it. A diamond circumscribing the text box the way a rectangle does
+    // would cross its own label on all four diagonals.
+    //
+    // For a rhombus that box is exactly twice the label on each axis. A
+    // diamond inscribed in `W x H` contains the centred `w x h` label
+    // exactly when `w/W + h/H <= 1`, so `W = 2w, H = 2h` is the smallest
+    // diamond of the label's own proportions that holds it — which is why
+    // the numbers scale with the label instead of a constant pad being
+    // added to it. The measured box is the glyphs *plus* the theme's
+    // padding, so corners lying on the outline still leave the text inside
+    // it.
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] } },
+        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] } },
+        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] } },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // `fakeMeasurer`: 8px per character wide, 24px tall.
+    expect([byId.A.width, byId.A.height]).toEqual([12 * 8 * 2, 24 * 2]);
+    // A one-character label gets a small diamond rather than the same one:
+    // the box is proportional to the label, not the label plus a constant.
+    expect([byId.B.width, byId.B.height]).toEqual([1 * 8 * 2, 24 * 2]);
+    // A rect still takes the measured box exactly — the shape it is
+    // inscribed in is the box, so it needs nothing extra, and no existing
+    // flowchart changes size because shapes arrived.
+    expect([byId.C.width, byId.C.height]).toEqual([12 * 8, 24]);
+
+    // The rule itself, stated as geometry rather than as the two numbers
+    // above, because it is what a hexagon and a circle will be measured
+    // against too.
+    const fitsInsideDiamond = (node: (typeof positioned.nodes)[number]) => {
+      const label = fakeMeasurer.measure(node.label);
+      return label.width / node.width + label.height / node.height <= 1;
+    };
+    expect(fitsInsideDiamond(byId.A)).toBe(true);
+    expect(fitsInsideDiamond(byId.B)).toBe(true);
   });
 
   it("passes the resolved timeline through unchanged onto PositionedGraph.timeline", () => {

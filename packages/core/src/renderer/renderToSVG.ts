@@ -1,4 +1,4 @@
-import type { PositionedGraph, StyleProperty } from "../contracts";
+import type { PositionedGraph, PositionedNode, StyleProperty } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -6,8 +6,9 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 /**
  * Builds a real `SVGSVGElement` from a `PositionedGraph`, per the frozen
  * SVG conventions in spec.md ("SVG conventions" bullet list): one
- * `<g class="siren-node">` per node, wrapping a
- * `<rect class="siren-node-frame">` and its label, one
+ * `<g class="siren-node">` per node, wrapping its frame — a
+ * `<rect class="siren-node-frame">`, or the `<path>` carrying that same
+ * class that draws any other shape — and its label, one
  * `<path class="siren-edge">` per edge, and `data-siren-id` on the group and
  * the path.
  *
@@ -37,21 +38,35 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     const g = document.createElementNS(SVG_NS, "g");
     g.setAttribute("class", "siren-node");
     g.setAttribute("data-siren-id", node.id);
+    // The shape as data, on the element that already *is* the node — the one
+    // carrying `data-siren-id` and the animation classes — rather than on
+    // one of the things the node draws, since a later shape draws more than
+    // one frame element and they would then disagree.
+    //
+    // Written for every node, rect included, because `GraphNode.shape` is
+    // required: nothing downstream should have to read a missing attribute
+    // as "rect".
+    //
+    // In addition to drawing the shape, never instead of it. Board 4
+    // reclassified two corpus rows on exactly that point: an attribute is
+    // not the picture.
+    g.setAttribute("data-siren-shape", node.shape);
 
-    const rect = document.createElementNS(SVG_NS, "rect");
+    const frame = buildNodeFrame(node);
     // The drawn shape carries a class of its own, mirroring the class
     // diagram's `<rect class="siren-class-frame">`. The theme selects it
     // directly, so an author's inline `style` lands on exactly the element the
     // theme paints rather than on an anonymous descendant of the group — the
     // placement ADR-0008 argues for. `data-siren-id` and the animation classes
     // stay on the enclosing `<g>`.
-    rect.setAttribute("class", "siren-node-frame");
-    rect.setAttribute("x", String(node.x));
-    rect.setAttribute("y", String(node.y));
-    rect.setAttribute("width", String(node.width));
-    rect.setAttribute("height", String(node.height));
-    applyAuthorStyle(rect, node.style.frame);
-    g.appendChild(rect);
+    //
+    // The class is on the frame whatever element draws it — a `<rect>` for a
+    // rectangle, a `<path>` for a diamond. Board 3 named this element and
+    // ADR-0008 puts the author's declarations here, so a frame that changed
+    // class with its shape would silently stop taking `style A fill:#f00`.
+    frame.setAttribute("class", "siren-node-frame");
+    applyAuthorStyle(frame, node.style.frame);
+    g.appendChild(frame);
 
     const text = document.createElementNS(SVG_NS, "text");
     text.setAttribute("x", String(node.x + node.width / 2));
@@ -122,6 +137,52 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   }
 
   return svg;
+}
+
+/**
+ * The one element that draws a node's outline, in whichever shape the node
+ * has — positioned and sized, but not yet classed or styled: those are the
+ * same two lines for every shape, so the caller writes them once.
+ *
+ * Every shape is drawn **inscribed in the node's bounding box**, which is
+ * the contract that pairs with `layoutGraph`'s `boxForLabel`: layout
+ * enlarges the box so the label fits inside the inscribed outline, and this
+ * draws the outline that box was sized for. Split the two and the label
+ * fits a figure nobody drew.
+ */
+function buildNodeFrame(node: PositionedNode): SVGElement {
+  if (node.shape === "rhombus") {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", diamondPathData(node));
+    return path;
+  }
+
+  // A rectangle, and every shape whose ticket has not landed — which the
+  // parser still refuses, so none of them can reach here.
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", String(node.x));
+  rect.setAttribute("y", String(node.y));
+  rect.setAttribute("width", String(node.width));
+  rect.setAttribute("height", String(node.height));
+  return rect;
+}
+
+/**
+ * The diamond inscribed in a node's bounding box: the midpoint of each of
+ * its four sides, closed.
+ *
+ * `rx` no longer reaches this frame, and that is correct rather than
+ * unfortunate — the theme sets `rx: var(--siren-node-border-radius)` on
+ * `.siren-node-frame` and a `<path>` reads no such attribute. A diamond has
+ * no rounded corners to give it, so a documented token quietly ceasing to
+ * apply is the right behavior (the board's decision 4).
+ */
+function diamondPathData(node: PositionedNode): string {
+  const centerX = node.x + node.width / 2;
+  const centerY = node.y + node.height / 2;
+  const right = node.x + node.width;
+  const bottom = node.y + node.height;
+  return `M${centerX},${node.y} L${right},${centerY} L${centerX},${bottom} L${node.x},${centerY} Z`;
 }
 
 /**
