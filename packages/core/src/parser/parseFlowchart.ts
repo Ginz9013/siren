@@ -63,6 +63,29 @@ const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
 const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
 
 /**
+ * What may lie between the `(` and the `)` of a round node: the same two
+ * alternatives again, with **every** bracket character excluded from the
+ * unfenced alternative.
+ *
+ * The exclusion is what keeps `A(text)` from swallowing the three shapes
+ * spelled with an inner bracket. `A((Circle))` differs from `A(Round)` by
+ * one pair of parentheses and `A([Stadium])` by one pair of square
+ * brackets, so a pattern that let either character into the label would
+ * read a circle as a round node labelled `(Circle)` — a valid Mermaid
+ * document drawn as the wrong picture with no diagnostic, which is the one
+ * failure `UNIMPLEMENTED_BRACKET_FORMS` exists to keep at zero. The
+ * cylinder is refused before any of this is asked, but the same reasoning
+ * puts `[` and `]` on the list.
+ *
+ * Refusing them is compatibility rather than strictness: mermaid 11.17.2
+ * rejects `A(a]b)`, `A(a[b)`, `A(a{b)`, `A(a}b)` and `A(a"b)` outright,
+ * measured with `scripts/mermaid-probe.mjs`. What it *does* take is the
+ * fenced form — `A("a)b")` is a round node labelled `a)b` — which is the
+ * first alternative here, exactly as it is inside `[...]` and `{...}`.
+ */
+const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
+
+/**
  * Every bracket spelling of a node, paired with the shape it names — the
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
@@ -78,7 +101,14 @@ const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
  * come after it. That is why the four slanted forms precede `rect` — their
  * slashes are ordinary label characters to `LABEL_CONTENT`, so `A[/Para/]`
  * would otherwise read as a rectangle labelled `/Para/`, which is exactly
- * the swallow `UNIMPLEMENTED_BRACKET_FORMS` refused it to prevent.
+ * the swallow `UNIMPLEMENTED_BRACKET_FORMS` refused it to prevent. The
+ * subroutine precedes `rect` and the stadium precedes `round` for the same
+ * reason, and their label patterns close the same door a second time:
+ * `LABEL_CONTENT` cannot cross a `]` and `PAREN_LABEL_CONTENT` cannot cross
+ * a bracket of any kind, so neither of those two pairs could swallow the
+ * other whichever way round they were listed. Both belts are worn because
+ * the order is a rule a reader has to keep, while the exclusions hold on
+ * their own.
  *
  * The four slanted forms do not overlap each other: which shape a spelling
  * names is decided by *both* leaning characters, and a label is free to
@@ -96,7 +126,10 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
   { shape: "parallelogram-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})\\\]` },
   { shape: "trapezoid", bracket: String.raw`\[/(${LABEL_CONTENT})\\\]` },
   { shape: "trapezoid-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})/\]` },
+  { shape: "subroutine", bracket: String.raw`\[\[(${LABEL_CONTENT})\]\]` },
   { shape: "rect", bracket: String.raw`\[(${LABEL_CONTENT})\]` },
+  { shape: "stadium", bracket: String.raw`\(\[(${LABEL_CONTENT})\]\)` },
+  { shape: "round", bracket: String.raw`\((${PAREN_LABEL_CONTENT})\)` },
   { shape: "hexagon", bracket: String.raw`\{\{(${BRACE_LABEL_CONTENT})\}\}` },
   // No opening bracket: `A>Flag]`. Its `>` is also the last character of
   // `-->`, and the two never collide because a line is cut into endpoints
@@ -130,8 +163,9 @@ const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
 /**
  * Everything Mermaid writes *inside* `[...]` that is **still** not a plain
  * label and not yet a shape Siren draws, paired with the name Mermaid gives
- * it. Two node shapes and one label form remain; the four slanted forms
- * left when `NODE_SPELLINGS` learned to read them.
+ * it. One node shape and one label form remain; the four slanted forms left
+ * when `NODE_SPELLINGS` learned to read them, and the subroutine box left
+ * when it did.
  *
  * **This list is refused, not swallowed.** That is the policy, and it is the
  * whole reason this constant exists: while a construct is unimplemented,
@@ -162,7 +196,6 @@ const UNIMPLEMENTED_BRACKET_FORMS: ReadonlyArray<{
   described: string;
 }> = [
   { open: "(", close: ")", described: "a cylinder (`A[(text)]`)" },
-  { open: "[", close: "]", described: "a subroutine box (`A[[text]]`)" },
   // A Markdown string, which is the label fence with backticks inside it.
   // Read before `labelIn` strips that fence, so an author who wrote
   // Markdown is told about Markdown rather than handed a label with
@@ -236,12 +269,12 @@ function labelIn(content: string): string {
  * A node written with brackets, read **greedily**: the content is whatever
  * lies between the first `[` and the last `]`.
  *
- * It accepts nothing — `NODE_RE` still decides what a node declaration is.
- * This pattern exists only to ask what the author meant, which needs the
- * greedy read `NODE_RE` deliberately does not have: `A[[Subroutine]]` is
- * invisible to `[^\]]*`, so without this it would fall all the way through
- * to "unrecognized line", and an author who wrote a subroutine box deserves
- * to be told Siren does not draw one yet.
+ * It accepts nothing — the patterns above still decide what a node
+ * declaration is. This pattern exists only to ask what the author meant,
+ * which needs the greedy read those deliberately do not have: a form whose
+ * content carries a `]` of its own is invisible to `LABEL_CONTENT`, so
+ * without this it would fall all the way through to "unrecognized line"
+ * rather than to a diagnostic naming the shape Mermaid means.
  */
 const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
 
@@ -398,12 +431,14 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
  * that did not know where a label starts would cut them into nonsense —
  * the same class of bug `UNIMPLEMENTED_BRACKET_FORMS` exists to keep out.
  *
- * **A brace opens a label as surely as a bracket does.** Counting only
- * `[`/`]` made two spellings of one idea disagree: `A["a-->b"]` worked
- * while `A{a-->b}` — a diamond labelled `a-->b` in mermaid 11.17.2,
- * measured with `scripts/mermaid-probe.mjs` — was cut at the arrow and
- * refused. One depth over both pairs is what makes them agree, and it has
- * to be a depth rather than a flag because `A{{a-->b}}` opens two.
+ * **A brace opens a label as surely as a bracket does, and so does a
+ * parenthesis.** Counting only `[`/`]` made three spellings of one idea
+ * disagree: `A["a-->b"]` worked while `A{a-->b}` and `A(a-->b)` — a diamond
+ * and a round node, both labelled `a-->b` in mermaid 11.17.2, measured with
+ * `scripts/mermaid-probe.mjs` — were cut at the arrow and refused. One
+ * depth over all three pairs is what makes them agree, and it has to be a
+ * depth rather than a flag because `A{{a-->b}}` opens two and `A([a-->b])`
+ * opens one of each.
  *
  * Depth alone is not enough once a label may be fenced, which is why the
  * fence is tracked here too: the `]` inside `A["a]b-->c"]` is a character
@@ -431,11 +466,11 @@ function splitOutsideLabel(text: string, separator: string): string[] {
     if (fenced) {
       continue;
     }
-    if (text[i] === "[" || text[i] === "{") {
+    if (text[i] === "[" || text[i] === "{" || text[i] === "(") {
       depth++;
       continue;
     }
-    if (text[i] === "]" || text[i] === "}") {
+    if (text[i] === "]" || text[i] === "}" || text[i] === ")") {
       if (depth > 0) {
         depth--;
       }

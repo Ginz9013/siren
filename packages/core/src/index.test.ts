@@ -2915,6 +2915,156 @@ step 1: enter A fade
     },
   );
 
+  /**
+   * The three spellings drawn with a `<rect>` rather than a `<path>`, each
+   * with what makes it that shape *in the picture* — a corner radius the
+   * renderer computed, or a pair of inner bars — and the fit its label is
+   * owed inside it.
+   *
+   * Which spelling names which shape is measured, not remembered: mermaid
+   * 11.17.2 reads `A(Round)` as `type="round"`, `A([Stadium])` as
+   * `type="stadium"` and `A[[Subroutine]]` as `type="subroutine"`
+   * (`pnpm --filter @siren/core probe`).
+   *
+   * `drawn` is handed the frame elements and the label's own measured box,
+   * and asserts both halves at once: the shape is there, and the label is
+   * inside it. Splitting those would let a shape that draws its corners and
+   * then clips its own text pass.
+   */
+  const RECT_SHAPES = [
+    {
+      shape: "round",
+      spelling: "A(Round)",
+      label: "Round",
+      drawn: (frames: Element[], label: { width: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["rect"]);
+        const height = Number(frames[0].getAttribute("height"));
+        const radius = inlineRadius(frames[0]);
+        // Rounder than a square corner and less round than a semicircular
+        // end — the two neighbours it would otherwise collapse into.
+        expect(radius).toBeGreaterThan(0);
+        expect(radius).toBeLessThan(height / 2);
+        // And the label clears both corners.
+        expect(Number(frames[0].getAttribute("width")) - 2 * radius).toBeGreaterThanOrEqual(
+          label.width,
+        );
+      },
+    },
+    {
+      shape: "stadium",
+      spelling: "A([Stadium])",
+      label: "Stadium",
+      drawn: (frames: Element[], label: { width: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["rect"]);
+        const height = Number(frames[0].getAttribute("height"));
+        // Half the height exactly, or the ends are not semicircles and it
+        // is not a stadium.
+        expect(inlineRadius(frames[0])).toBe(height / 2);
+        expect(Number(frames[0].getAttribute("width")) - height).toBeGreaterThanOrEqual(
+          label.width,
+        );
+      },
+    },
+    {
+      shape: "subroutine",
+      spelling: "A[[Subroutine]]",
+      label: "Subroutine",
+      drawn: (frames: Element[], label: { width: number }) => {
+        // A box and an inner bar down each end — the first node on this
+        // board to draw more than one element.
+        expect(frames.map((f) => f.tagName)).toEqual(["rect", "line", "line"]);
+        const box = frames[0];
+        const left = Number(box.getAttribute("x"));
+        const right = left + Number(box.getAttribute("width"));
+        const top = Number(box.getAttribute("y"));
+        const bottom = top + Number(box.getAttribute("height"));
+        const bars = frames.slice(1).map((line) => Number(line.getAttribute("x1")));
+        // Each bar runs the full height of the box, strictly inside it, and
+        // one sits near each end rather than both near one.
+        for (const line of frames.slice(1)) {
+          expect([line.getAttribute("x1"), line.getAttribute("x2")]).toEqual([
+            line.getAttribute("x1"),
+            line.getAttribute("x1"),
+          ]);
+          expect([Number(line.getAttribute("y1")), Number(line.getAttribute("y2"))]).toEqual([
+            top,
+            bottom,
+          ]);
+        }
+        expect(bars[0]).toBeGreaterThan(left);
+        expect(bars[1]).toBeLessThan(right);
+        expect(bars[0] - left).toBe(right - bars[1]);
+        // The label goes *between* the bars, not across one.
+        expect(bars[1] - bars[0]).toBeGreaterThanOrEqual(label.width);
+      },
+    },
+  ] as const;
+
+  /**
+   * The corner radius a frame declares for itself, in user units — `0` when
+   * it declares none and leaves its corners to the theme.
+   *
+   * Read out of the inline `style` attribute because that is where the
+   * renderer writes it, and it writes it there rather than as an `rx`
+   * attribute for a cascade reason: a presentation attribute loses to the
+   * theme's own `.siren-node-frame { rx: var(--siren-node-border-radius) }`,
+   * so a stadium written that way would come back a 6px-cornered box.
+   */
+  const inlineRadius = (frame: Element): number =>
+    Number.parseFloat((frame.getAttribute("style") ?? "").match(/rx:\s*([\d.]+)px/)?.[1] ?? "0");
+
+  it.each(RECT_SHAPES.map((spec) => [spec.spelling, spec.shape, spec] as const))(
+    "draws `%s` end to end as a styleable, animatable %s",
+    (_spelling, _shape, { shape, spelling, label, drawn }) => {
+      // The whole vertical slice through one public call, for the three
+      // shapes that stay a `<rect>`: the spelling parses, the thing that
+      // makes it that shape is drawn, the label fits inside it, and the two
+      // things a rectangle already had — an author's `style` and a place on
+      // the timeline — reach it unchanged.
+      const container = document.createElement("div");
+      const result = render(
+        `flowchart TD
+${spelling} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`,
+        container,
+      );
+
+      expect([shape, result.diagnostics]).toEqual([shape, []]);
+
+      const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+      const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+      // The picture first. `data-siren-shape` is checked after and never
+      // instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      drawn(frames, { width: label.length * 8 + 16 });
+      expect([shape, group.getAttribute("data-siren-shape")]).toEqual([shape, shape]);
+
+      // The punctuation was syntax, so the label is the text inside it.
+      expect([shape, group.querySelector("text")!.textContent]).toEqual([shape, label]);
+
+      // ADR-0008's placement, unchanged by the shape over it — and on every
+      // element the frame is drawn with, so a subroutine's bars cannot look
+      // detached from the box they mark. A shape that names its own corners
+      // writes them ahead of the author's declarations, so `fill:#f00` is
+      // still there and still last.
+      for (const frame of frames) {
+        expect([shape, frame.getAttribute("style")!.endsWith("fill:#f00")]).toEqual([shape, true]);
+      }
+
+      // And it animates: the id and the animation classes are on the `<g>`,
+      // so the controller drives these three without knowing shapes exist.
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, true]);
+      result.controller!.next();
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, false]);
+      expect([shape, group.classList.contains("siren-enter-fade")]).toEqual([shape, true]);
+      expect([shape, frames[0].getAttribute("style")!.endsWith("fill:#f00")]).toEqual([shape, true]);
+    },
+  );
+
   it("gives the six path shapes no `siren-*` class of their own — what a rectangle emits is exactly what they emit", () => {
     // Asked because nothing else in the suite would notice the answer
     // changing. `theme/default.test.ts` checks that every class the
@@ -2965,6 +3115,59 @@ F[Asymmetric]
     // about the renderer rather than about these six, and it is on both
     // sides of the comparison above.
     expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+  });
+
+  it("gives the three rect shapes no `siren-*` class of their own either — including a subroutine's two extra elements", () => {
+    // The question ticket 02 was asked about its six, asked again where it
+    // is most likely to have a different answer: a subroutine draws three
+    // elements, and a second element is where a second class gets invented.
+    // A `siren-node-bar` would ship unthemed without failing anything —
+    // `theme/default.test.ts`'s coverage net can only see classes something
+    // in its fixture renders — so this is the check that says whether the
+    // net has to widen. (It also widened, for the same reason: a claim and
+    // a fixture that could confirm it are not the same thing.)
+    //
+    // The two documents differ in their node spellings and in nothing else.
+    const sirenClasses = (source: string): string[] => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics).toEqual([]);
+      const found = new Set<string>();
+      for (const element of Array.from(result.svg!.querySelectorAll("*"))) {
+        for (const name of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (name.startsWith("siren-")) found.add(name);
+        }
+      }
+      return [...found].sort();
+    };
+
+    const shaped = sirenClasses(`flowchart TD
+A(Round)
+B([Stadium])
+C[[Subroutine]]
+`);
+    const rectangles = sirenClasses(`flowchart TD
+A[Round]
+B[Stadium]
+C[Subroutine]
+`);
+
+    expect(shaped).toEqual(rectangles);
+    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+
+    // And the subroutine's bars wear the frame's own name rather than none
+    // at all, which is what puts them in the same styling story as the box
+    // — the theme strokes them because it strokes a frame.
+    const container = document.createElement("div");
+    const result = render(`flowchart TD\nC[[Subroutine]]\n`, container);
+    const parts = Array.from(
+      result.svg!.querySelectorAll('g.siren-node[data-siren-id="C"] > *'),
+    ).filter((element) => element.tagName !== "text");
+    expect(parts.map((element) => [element.tagName, element.getAttribute("class")])).toEqual([
+      ["rect", "siren-node-frame"],
+      ["line", "siren-node-frame"],
+      ["line", "siren-node-frame"],
+    ]);
   });
 
   it("carries a flowchart author's `style` all the way to the DOM: inline style on the node's frame rect, and no attribute at all on a node nothing styled", () => {

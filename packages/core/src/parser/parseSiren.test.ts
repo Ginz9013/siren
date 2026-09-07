@@ -233,23 +233,6 @@ timeline:
     ]);
   });
 
-  it("names the subroutine box in `A[[Subroutine]]` instead of calling the line unrecognized", () => {
-    // Already an error today, but the wrong one: an author who wrote valid
-    // Mermaid is told their line makes no sense rather than that this one
-    // shape is not drawn yet, which is the difference between "wait" and
-    // "rewrite it".
-    const source = `flowchart TB
-  A[[Subroutine]]
-`;
-
-    const { document, diagnostics } = parseSiren(source);
-
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw a subroutine box (`A[[text]]`) yet: "A[[Subroutine]]"',
-    ]);
-  });
-
   it("strips the quotes fencing a label, and keeps the punctuation they fenced", () => {
     const source = `flowchart TB
   A["Quoted, with comma"]
@@ -504,6 +487,127 @@ timeline:
     expect(refused.document).toBeNull();
     expect(refused.diagnostics.map((d) => d.message)).toEqual([
       'Unrecognized flowchart line: "A{{a}b}}"',
+    ]);
+  });
+
+  it("reads `A(text)`, `A([text])` and `A[[text]]` as the round, stadium and subroutine spellings", () => {
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A(Round)` is `type="round"`, `B([Stadium])` is `type="stadium"` and
+    // `C[[Subroutine]]` is `type="subroutine"`, each labelled with the text
+    // inside its punctuation. The same probe reads `A(Round) --> B([Stadium])
+    // --> C[[Sub]]` as those three shapes joined by two edges, and
+    // `A(Round):::hot` as a round node carrying the class — so the spelling
+    // means the same thing wherever it is written.
+    //
+    // The fenced forms come from the probe too: `A(["a]b"])` is a stadium
+    // labelled `a]b` and `A[["a]b"]]` a subroutine labelled `a]b`, while the
+    // unfenced `A([a]b])` and `A[[a]b]]` are parse errors — the quote is how
+    // a Mermaid author writes a closing bracket into one of these labels,
+    // exactly as it is inside `A[...]`.
+    const source = `flowchart TB
+  A(Round)
+  B([Stadium])
+  C[[Subroutine]]
+  D(Round) --> E([Stadium]) --> F[[Sub]]
+  G(Round):::hot
+  H(["a]b"])
+  I[["a]b"]]
+classDef hot fill:#fdd
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Round", "round"],
+      ["B", "Stadium", "stadium"],
+      ["C", "Subroutine", "subroutine"],
+      ["D", "Round", "round"],
+      ["E", "Stadium", "stadium"],
+      ["F", "Sub", "subroutine"],
+      ["G", "Round", "round"],
+      ["H", "a]b", "stadium"],
+      ["I", "a]b", "subroutine"],
+    ]);
+    expect(document.edges.map((e) => [e.from, e.to])).toEqual([
+      ["D", "E"],
+      ["E", "F"],
+    ]);
+  });
+
+  it("keeps the three parenthesised spellings this ticket does not draw refused, rather than swallowing them as a round node", () => {
+    // The swallow this whole list of spellings exists to prevent, one
+    // bracket family over. `A((Circle))` differs from `A(Round)` only by an
+    // inner pair of parentheses, so a round pattern that let a parenthesis
+    // into its label would read a circle as a round node labelled
+    // `(Circle)` — a valid Mermaid document drawn as the wrong picture with
+    // no diagnostic, which is the one failure the compatibility corpus
+    // exists to keep at zero.
+    //
+    // Measured (`pnpm --filter @siren/core probe`): `A((Circle))` is
+    // `type="circle"`, `A(((Double)))` is `type="doublecircle"` and
+    // `A[(DB)]` is `type="cylinder"` — three shapes of later tickets, and
+    // all three still refused here.
+    const circle = parseSiren(`flowchart TB\n  A((Circle))\n`);
+    expect(circle.document).toBeNull();
+    expect(circle.diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized flowchart line: "A((Circle))"',
+    ]);
+
+    const double = parseSiren(`flowchart TB\n  A(((Double)))\n`);
+    expect(double.document).toBeNull();
+    expect(double.diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized flowchart line: "A(((Double)))"',
+    ]);
+
+    // The cylinder keeps its *named* refusal, which the subroutine has just
+    // stopped needing: it is still the one row of
+    // `UNIMPLEMENTED_BRACKET_FORMS` that names a shape.
+    const cylinder = parseSiren(`flowchart TB\n  A[(DB)]\n`);
+    expect(cylinder.document).toBeNull();
+    expect(cylinder.diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)]"',
+    ]);
+  });
+
+  it("keeps `-->`, `;` and `&` inside a parenthesised label too, not only inside a bracketed or braced one", () => {
+    // The same gap ticket 01 carried for `{`/`}` and ticket 02b closed,
+    // arriving one bracket family later: `splitOutsideLabel` counted `[`,
+    // `]`, `{`, `}` and the quote fence, so a round node's own parentheses
+    // did not open a label and `A(a-->b)` was cut at the arrow and refused
+    // while `A[a-->b]` and `A{a-->b}` worked. Three spellings of one idea
+    // disagreeing about what a label is.
+    //
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A(a-->b)` is a round node labelled `a-->b`, and `A([a-->b])` and
+    // `A[[a-->b]]` are the stadium and the subroutine labelled the same
+    // way — the last two already worked, since their square brackets were
+    // counted, and they are here so the three stay agreed.
+    const source = `flowchart TB
+  A(a-->b) --> C
+  D(a;b)
+  E(a&b)
+  F([a-->b]) --> G
+  H[[a-->b]] --> I
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "a-->b", "round"],
+      ["C", "C", "rect"],
+      ["D", "a;b", "round"],
+      ["E", "a&b", "round"],
+      ["F", "a-->b", "stadium"],
+      ["G", "G", "rect"],
+      ["H", "a-->b", "subroutine"],
+      ["I", "I", "rect"],
+    ]);
+    expect(document.edges.map((e) => [e.from, e.to])).toEqual([
+      ["A", "C"],
+      ["F", "G"],
+      ["H", "I"],
     ]);
   });
 

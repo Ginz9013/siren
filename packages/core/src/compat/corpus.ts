@@ -113,6 +113,12 @@ function edges(result: SirenRenderResult): string[] {
  * The centre rather than the corner, because the two nodes of a chain rarely
  * have the same width: `A[Start]` and `B[End]` sit in one column under `TB`,
  * and only their centres say so.
+ *
+ * `rect.siren-node-frame` reads a rectangle, a round node, a stadium and a
+ * subroutine — all four draw their box with a `<rect>`, and a subroutine's
+ * two extra `<line>`s are not one. It reads **nothing** for a shape drawn
+ * with a `<path>`, and throws rather than returning a wrong centre, so a
+ * row that needs a diamond's position has to widen this first.
  */
 function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
   const frame = svgOf(result).querySelector(
@@ -232,8 +238,9 @@ const OUTLINE_NAMES = new Map<string, string>(
 
 /**
  * The outline one flowchart node actually draws, named from its **geometry**
- * — `"rect"`, `"diamond"`, `"parallelogram leaning right"` — or spelled out
- * vertex by vertex when the geometry names nothing this corpus knows.
+ * — `"rectangle"`, `"diamond"`, `"parallelogram leaning right"` — or
+ * spelled out vertex by vertex when the geometry names nothing this corpus
+ * knows.
  *
  * Deliberately not read off `data-siren-shape`. That attribute is the node
  * saying what shape it is, and this corpus exists to check what was drawn:
@@ -249,13 +256,75 @@ function nodeOutline(result: SirenRenderResult, id: string): string {
   if (group === null) throw new Error(`no node "${id}" was drawn`);
   const frame = group.querySelector(".siren-node-frame");
   if (frame === null) throw new Error(`node "${id}" drew nothing named siren-node-frame`);
+  if (frame.tagName === "rect") return rectOutline(group, frame);
   if (frame.tagName !== "path") return frame.tagName;
 
   const cycle = outlineCycle(frame);
   return OUTLINE_NAMES.get(cycle.join(" ")) ?? `an unnamed path through ${cycle.join(" ")}`;
 }
 
-/** The inline author style on one node's frame, or `""` when it carries none. */
+/**
+ * The figure a `<rect>` frame draws, named by the two things that can make
+ * one something other than a plain box: the corner radius the **renderer**
+ * gave it, and any inner bars drawn alongside it.
+ *
+ * Three of Mermaid's node shapes are a rectangle — a round node, a stadium
+ * and a subroutine box — so `"rect"`, the tag name, names none of them and
+ * a row asserting it would pass for all four at once. That is precisely the
+ * confusion board 4 reclassified two rows over, arriving among elements
+ * rather than among attributes.
+ *
+ * The radius is read out of the frame's inline `style` because that is
+ * where a shape that owns its corners writes it, and a shape whose corners
+ * belong to `--siren-node-border-radius` writes nothing there at all — so
+ * "no radius of its own" and "a radius of its own" are exactly the two
+ * cases this has to tell apart. Half the height is a stadium's definition
+ * and is named as such; anything between is a rounded corner and anything
+ * else is reported verbatim rather than silently rounded to a name.
+ *
+ * Proportions are not asserted, only the kind: how round `A(Round)` is
+ * belongs to the theme (the board's decision 1), while *that* it is rounder
+ * than a box and less round than a pill is the shape.
+ */
+function rectOutline(group: Element, frame: Element): string {
+  const height = Number(frame.getAttribute("height"));
+  const declared = (frame.getAttribute("style") ?? "").match(/rx:\s*([\d.]+)px/);
+  const radius = declared === null ? null : Number(declared[1]);
+  const base =
+    radius === null
+      ? "rectangle"
+      : radius === height / 2
+        ? "rectangle with semicircular ends"
+        : radius > 0 && radius < height / 2
+          ? "rectangle with rounded corners"
+          : `rectangle with a corner radius of ${radius} on a height of ${height}`;
+
+  const bars = group.querySelectorAll("line.siren-node-frame").length;
+  if (bars === 0) return base;
+  if (bars === 2) return `${base} with an inner bar down each end`;
+  return `${base} with ${bars} inner bars`;
+}
+
+/**
+ * The inline `style` attribute on one node's frame, or `""` when it carries
+ * none.
+ *
+ * **Not only the author's declarations, for two of the node shapes.** A
+ * round node and a stadium own their corner radius rather than taking the
+ * theme's, and the renderer writes it into this same attribute, ahead of
+ * whatever the author declared — so an unstyled stadium reads back
+ * `"rx:16px"` here, not `""`, and a styled one reads `"rx:16px;fill:#fdd"`.
+ * There is nothing wrong with either picture; it is this reader whose name
+ * is narrower than what it returns.
+ *
+ * Every row using it today asserts a plain `A[text]` rectangle, where the
+ * renderer writes nothing and `""` still means "the author styled nothing".
+ * A row that wants to assert styling on a *shaped* node should assert that
+ * this string ends with the author's declarations rather than equals them:
+ * the radius in front of them is a proportion the theme owns (the node
+ * shapes board, decision 1), and pinning it here would fail the day a theme
+ * changed a number nobody promised.
+ */
 function nodeStyle(result: SirenRenderResult, id: string): string {
   const frame = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] rect`);
   return frame?.getAttribute("style") ?? "";
@@ -429,24 +498,50 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A(Round)`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A(text)` is a rounded rectangle labelled `text`.",
+    assert: (result) => {
+      // The parentheses are syntax, so they are no more part of the label
+      // than the brackets of `A[text]` are.
+      expectSame("nodes", nodes(result), ["A[Round]"]);
+      // The picture, not the claim. A rectangle is still a rectangle here,
+      // so what separates the two is the corner the *renderer* gave it —
+      // read off the frame rather than off `data-siren-shape`, which would
+      // pass for a plain box with the word "round" attached.
+      expectSame("outline", nodeOutline(result, "A"), "rectangle with rounded corners");
+    },
   },
   {
     id: "fc-shape-stadium",
     kind: "flowchart",
     source: `flowchart TB
       A([Stadium])`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A([text])` is a stadium — a pill — labelled `text`.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Stadium]"]);
+      // Semicircular, not merely rounded: the radius is exactly half the
+      // height, which is the whole difference between this row and the one
+      // above and the one thing a stadium cannot be without.
+      expectSame("outline", nodeOutline(result, "A"), "rectangle with semicircular ends");
+    },
   },
   {
     id: "fc-shape-subroutine",
     kind: "flowchart",
     source: `flowchart TB
       A[[Subroutine]]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A[[text]]` is a subroutine box labelled `text`.",
+    assert: (result) => {
+      // Both brackets are syntax. A reader that took only the outer pair
+      // would draw a rectangle labelled `[Subroutine]`, which is the
+      // swallow this row spent four boards being refused to prevent.
+      expectSame("nodes", nodes(result), ["A[Subroutine]"]);
+      // The bars are the shape. Without them it is a rectangle, whatever
+      // the attribute says.
+      expectSame("outline", nodeOutline(result, "A"), "rectangle with an inner bar down each end");
+    },
   },
   {
     id: "fc-shape-circle",

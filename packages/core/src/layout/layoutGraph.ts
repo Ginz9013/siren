@@ -18,9 +18,23 @@ import { layoutDirectedGraph } from "./layoutDirectedGraph";
  *
  * `lean` means a different thing to each outline and the same number does
  * for all of them: a hexagon's end inset, a parallelogram's slant, a
- * trapezoid's inset per side, the asymmetric flag's notch depth. What they
+ * trapezoid's inset per side, the asymmetric flag's notch depth, a round
+ * node's and a stadium's corner radius, a subroutine's bar inset. What they
  * share is that each displaces exactly `lean x height` horizontally at the
  * height where a centred label meets it.
+ *
+ * The last three are drawn with a `<rect>` rather than a `<path>`, and
+ * belong here for exactly the same reason the others do: the renderer reads
+ * these numbers as the radius it writes and the inset it places the bars
+ * at, so the box layout reserves and the figure drawn stay one decision.
+ *
+ * **A stadium's `1/2` is not a proportion anyone chose.** Its ends are
+ * semicircles or it is not a stadium, so its radius is half the height by
+ * definition; the other two are Siren's own (the board's decision 1), and
+ * the pair of them is what keeps three rectangles telling apart: a round
+ * node's corner is half a stadium's, and a subroutine's bars are a slim
+ * eighth so that they read as a marking on a box rather than as a third
+ * shape.
  */
 export const SHAPE_LEAN = {
   hexagon: 1 / 4,
@@ -29,6 +43,9 @@ export const SHAPE_LEAN = {
   trapezoid: 1 / 2,
   "trapezoid-alt": 1 / 2,
   asymmetric: 1 / 4,
+  round: 1 / 4,
+  stadium: 1 / 2,
+  subroutine: 1 / 8,
 } as const satisfies Partial<Record<NodeShape, number>>;
 
 /** A measured label, and the bounding box a shape needs to hold one. */
@@ -83,6 +100,18 @@ interface Box {
  * So all six read `W = w + 2 x lean x h, H = h`, and none of them needs a
  * per-shape formula in the switch below.
  *
+ * The three shapes drawn with a `<rect>` join them, which is worth stating
+ * because nothing about them is slanted:
+ *
+ * - A stadium's end is a semicircle of radius `H/2`, and at `H = h` the
+ *   label's top corners lie on the box's top edge — the one height at which
+ *   a semicircle has bulged out no distance at all. So the whole of each
+ *   end lies outside the label: `lean = 1/2`.
+ * - A round node is the same figure with a smaller radius `r`: the corner
+ *   starts `r` in from each end, so `lean = r/H = 1/4`.
+ * - A subroutine's label goes *between* its two inner bars, each inset
+ *   `lean x H` from its own end, so `lean = 1/8` is that inset.
+ *
  * The proportions are Siren's, not Mermaid's: the board's decision 1 says a
  * shape's *kind* is the compatibility contract and its geometry belongs to
  * the theme, exactly as ADR-0004 already says for colour and spacing. These
@@ -100,6 +129,9 @@ function boxForLabel(shape: NodeShape, label: Box): Box {
     case "trapezoid":
     case "trapezoid-alt":
     case "asymmetric":
+    case "round":
+    case "stadium":
+    case "subroutine":
       return {
         width: label.width + 2 * SHAPE_LEAN[shape] * label.height,
         height: label.height,

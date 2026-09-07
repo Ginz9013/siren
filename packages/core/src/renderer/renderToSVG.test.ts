@@ -359,6 +359,192 @@ describe("renderToSVG", () => {
     expect(widths("parallelogram-alt")[0]).toBe(widths("parallelogram-alt")[1]);
   });
 
+  it("gives a round node and a stadium a corner radius of their own, written inline so no theme token can flatten them, and leaves a rect's corners to the theme", () => {
+    // **The decision this ticket exists to make.** The theme sets `rx:
+    // var(--siren-node-border-radius)` on `.siren-node-frame`, so for these
+    // two a shape and a documented token both want to set one property.
+    //
+    // The rule: *a shape named for its corners owns them; the token rounds
+    // the shapes whose corners are only decoration.* A stadium's ends are
+    // semicircles or it is not a stadium, and a round node that a retuned
+    // token could flatten into a rectangle would have lost the one thing
+    // that makes it a distinct shape — which the board's decision 1 makes
+    // the compatibility contract. So the renderer writes the radius out of
+    // the node's own height, and writes it as an **inline declaration**:
+    // that is the level of the cascade no author stylesheet outranks
+    // without `!important`, where a presentation attribute would lose to
+    // the theme's own class rule (ADR-0008's argument, one property over).
+    //
+    // A plain rectangle gets none, which is what leaves the token reaching
+    // it: nothing here overrides the theme, so `--siren-node-border-radius`
+    // is still the whole story for `A[text]`.
+    //
+    // The numbers are `SHAPE_LEAN`'s, and deliberately the same ones layout
+    // sized the box with — a stadium `60/2 = 30`, a round node `60/4 = 15`.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: (["round", "stadium", "subroutine", "rect"] as const).map((shape) => ({
+        id: shape,
+        label: shape,
+        shape,
+        x: 10,
+        y: 20,
+        width: 200,
+        height: 60,
+        style: { frame: [], text: [] },
+      })),
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 100,
+    };
+
+    const svg = renderToSVG(graph);
+    const frameOf = (shape: string) =>
+      svg.querySelector(`g.siren-node[data-siren-id="${shape}"] .siren-node-frame`)!;
+
+    // All four are still a `<rect>` sized to the box: these shapes differ
+    // from a rectangle in their corners and their markings, not in the
+    // element that draws them.
+    for (const shape of ["round", "stadium", "subroutine", "rect"]) {
+      expect([shape, frameOf(shape).tagName]).toEqual([shape, "rect"]);
+      expect([
+        shape,
+        frameOf(shape).getAttribute("x"),
+        frameOf(shape).getAttribute("y"),
+        frameOf(shape).getAttribute("width"),
+        frameOf(shape).getAttribute("height"),
+      ]).toEqual([shape, "10", "20", "200", "60"]);
+    }
+
+    expect(frameOf("stadium").getAttribute("style")).toBe("rx:30px");
+    expect(frameOf("round").getAttribute("style")).toBe("rx:15px");
+    // Half the height exactly, or the ends are not semicircles.
+    expect(Number(frameOf("stadium").getAttribute("style")!.match(/rx:(\d+)px/)![1])).toBe(60 / 2);
+    // And the two are told apart: a round corner is strictly rounder than a
+    // square one and strictly less round than a semicircular end, so the
+    // three rect shapes are three pictures.
+    const radius = (shape: string) =>
+      Number((frameOf(shape).getAttribute("style") ?? "").match(/rx:(\d+(?:\.\d+)?)px/)?.[1] ?? 0);
+    expect(radius("round")).toBeGreaterThan(0);
+    expect(radius("round")).toBeLessThan(radius("stadium"));
+
+    // A rectangle and a subroutine write no radius at all, so the theme's
+    // token is what rounds them — the same corner a flowchart node has had
+    // since before shapes existed.
+    expect(frameOf("rect").getAttribute("style")).toBeNull();
+    expect(frameOf("subroutine").getAttribute("style")).toBeNull();
+
+    // Inline, not a presentation attribute. A `rx="30"` attribute loses to
+    // *any* stylesheet rule, so the theme's `.siren-node-frame { rx:
+    // var(--siren-node-border-radius) }` would silently flatten the stadium
+    // back to 6px and nothing in the picture would say why.
+    expect(frameOf("stadium").getAttribute("rx")).toBeNull();
+    expect(frameOf("round").getAttribute("rx")).toBeNull();
+  });
+
+  it("writes a shaped frame's own geometry ahead of the author's declarations, so `style A` still lands and still wins", () => {
+    // Two writers, one `style` attribute. The shape's radius goes first and
+    // the author's declarations after, so an author who explicitly names
+    // `rx` overrides the shape — the same order of authority ADR-0008 gives
+    // an author over the theme — while an author who names anything else
+    // gets it *in addition to* a stadium that is still a stadium.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Stadium",
+          shape: "stadium",
+          x: 10,
+          y: 20,
+          width: 200,
+          height: 60,
+          style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 100,
+    };
+
+    const frame = renderToSVG(graph).querySelector('g.siren-node[data-siren-id="A"] .siren-node-frame')!;
+
+    expect(frame.getAttribute("style")).toBe("rx:30px;fill:#f00");
+  });
+
+  it("draws a subroutine as its box plus an inner bar down each end, every one of them named siren-node-frame", () => {
+    // The one shape here that draws more than one element, and the place a
+    // second class would get invented. It is not: both bars carry
+    // `siren-node-frame`, which is what makes them part of the same
+    // styling story as the box — the theme strokes them with everything
+    // else, and an author's `style A stroke:#00f` recolors the bars along
+    // with the outline instead of leaving them behind in the old color.
+    //
+    // The inset is `SHAPE_LEAN.subroutine x height = 60/8 = 7.5` from each
+    // end, which is the same number layout used to widen the box, so the
+    // label sits between the bars rather than across one.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Subroutine",
+          shape: "subroutine",
+          x: 10,
+          y: 20,
+          width: 200,
+          height: 60,
+          style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
+        },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 100,
+    };
+
+    const group = renderToSVG(graph).querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+    expect(frames.map((f) => f.tagName)).toEqual(["rect", "line", "line"]);
+    // The box first, so the bars are drawn over its fill rather than under
+    // it.
+    expect([
+      frames[0].getAttribute("x"),
+      frames[0].getAttribute("width"),
+      frames[0].getAttribute("height"),
+    ]).toEqual(["10", "200", "60"]);
+    // Full height, one inset in from each end.
+    expect(frames.slice(1).map((f) => [
+      f.getAttribute("x1"),
+      f.getAttribute("y1"),
+      f.getAttribute("x2"),
+      f.getAttribute("y2"),
+    ])).toEqual([
+      ["17.5", "20", "17.5", "80"],
+      ["202.5", "20", "202.5", "80"],
+    ]);
+
+    // The author's declaration lands on all three, so the bars cannot look
+    // detached from the box they mark.
+    expect(frames.map((f) => f.getAttribute("style"))).toEqual([
+      "stroke:#00f",
+      "stroke:#00f",
+      "stroke:#00f",
+    ]);
+
+    // And no class of their own: a bar the theme would have to learn about
+    // separately is exactly what `theme/default.test.ts`'s coverage net
+    // cannot see.
+    expect(frames.map((f) => f.getAttribute("class"))).toEqual([
+      "siren-node-frame",
+      "siren-node-frame",
+      "siren-node-frame",
+    ]);
+  });
+
   it("names each node's shape on its group as data, in addition to drawing it — never instead of it", () => {
     // On the `<g>`, which is the element that already *is* the node: it
     // carries `data-siren-id` and the animation classes, while the frame is

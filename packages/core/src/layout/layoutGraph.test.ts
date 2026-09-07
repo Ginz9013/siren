@@ -257,6 +257,77 @@ describe("layoutGraph", () => {
     }
   });
 
+  it("gives the three rect-drawn shapes the box their label needs to clear a corner radius or an inner bar", () => {
+    // Ticket 01's rule again, and it lands in the same family as ticket
+    // 02's six even though nothing here is drawn with a `<path>`: **the
+    // smallest bounding box in which this shape, inscribed, still contains
+    // the centred measured label**, which for all three is `H = h, W = w +
+    // 2 x lean x h`.
+    //
+    // What `lean` is here is the corner radius, or the bar inset, as a
+    // fraction of the box height — the same number the renderer draws
+    // with, which is why it stays in `SHAPE_LEAN` rather than being
+    // restated:
+    //
+    // - stadium (`lean = 1/2`): the ends are semicircles of radius `H/2`.
+    //   At `H = h` the label's top corners sit *on* the box's top edge,
+    //   where a semicircular end has bulged no distance at all, so the
+    //   whole of each end has to lie outside the label: `W >= w + H`.
+    // - round (`lean = 1/4`): the same argument with a smaller radius. The
+    //   rounded corner starts `r` in from each end, and at `H = h` the
+    //   label's corner is on the top edge, so `W >= w + 2r`.
+    // - subroutine (`lean = 1/8`): the label goes *between* the two inner
+    //   bars, each inset `lean x H` from its own end, so `W >= w + 2 x
+    //   inset` — the shape's whole content is those bars, and a label
+    //   crossing one is the picture broken.
+    //
+    // A rectangle still takes the measured label unchanged, which is the
+    // control: these three are not "a rect plus a pad", they are three
+    // outlines each reserving exactly what it draws.
+    const shapes = ["round", "stadium", "subroutine"] as const;
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        ...shapes.flatMap((shape) => [
+          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] } },
+          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] } },
+        ]),
+        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] } },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // `fakeMeasurer`: 8px per character wide, 24px tall. "A rather long
+    // label" is 19 characters, so `w = 152, h = 24`.
+    const lean: Record<(typeof shapes)[number], number> = {
+      round: 1 / 4,
+      stadium: 1 / 2,
+      subroutine: 1 / 8,
+    };
+    for (const shape of shapes) {
+      const long = byId[`${shape}-long`];
+      const short = byId[`${shape}-short`];
+      expect([shape, long.width, long.height]).toEqual([shape, 152 + 2 * lean[shape] * 24, 24]);
+      // Proportional to the label rather than the label plus a constant, so
+      // a one-character node stays small.
+      expect([shape, short.width, short.height]).toEqual([shape, 8 + 2 * lean[shape] * 24, 24]);
+      // And the *smallest* such box: one pixel narrower and the label would
+      // cross the corner, or the bar.
+      expect(long.width - 2 * lean[shape] * long.height).toBe(152);
+    }
+
+    // The three are three different boxes, not one shared pad: a stadium
+    // reserves the most room, a subroutine the least, and a rectangle none.
+    expect(byId["stadium-long"].width).toBeGreaterThan(byId["round-long"].width);
+    expect(byId["round-long"].width).toBeGreaterThan(byId["subroutine-long"].width);
+    expect(byId["subroutine-long"].width).toBeGreaterThan(byId["rect-long"].width);
+    expect([byId["rect-long"].width, byId["rect-long"].height]).toEqual([152, 24]);
+  });
+
   it("passes the resolved timeline through unchanged onto PositionedGraph.timeline", () => {
     const graph: GraphModel = {
       ...chainGraph("TB"),

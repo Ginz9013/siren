@@ -368,8 +368,27 @@ const SILENTLY_WRONG = 3;
  * Six shape rows remain — round, stadium, subroutine, circle, double circle
  * and cylinder — and each exits the same way: parser, layout and renderer
  * together.
+ *
+ * It fell by three more, to **25**, when the three shapes drawn with a
+ * `<rect>` landed: `fc-shape-round`, `fc-shape-stadium` and
+ * `fc-shape-subroutine` are `supported`. Three, exactly as their ticket
+ * expected, because all three already had rows here to leave — no
+ * construct had to be added to the backlog to measure one.
+ *
+ * Each asserts what the *renderer* drew and not what the node claims to
+ * be, which for these three is a subtler question than it was for the six
+ * before them: all three are still a `<rect>`, so `frame.tagName` names
+ * none of them and `nodeOutline` had to learn to read a corner radius and
+ * a pair of inner bars (see `rectOutline`). Reverting either drawing while
+ * leaving `data-siren-shape` in place fails all three rows, which is how
+ * they were checked. `silently-wrong` is untouched at 3: all three were
+ * refused before and render correctly now, so nothing became honest and
+ * nothing became wrong.
+ *
+ * Three shape rows remain — circle, double circle and cylinder — plus the
+ * Markdown string label, which is a label form rather than a shape.
  */
-const REJECTED = 28;
+const REJECTED = 25;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

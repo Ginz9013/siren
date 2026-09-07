@@ -376,11 +376,25 @@ describe("default theme coverage of the sequence renderer", () => {
  * is the controller's business rather than the renderer's; they are here so
  * that a renderer which one day *did* stamp highlight state would be caught by
  * the coverage check below rather than shipping unthemed.
+ *
+ * **Shapes belong in here, not only rectangles.** This fixture drew nothing
+ * but `A[text]` while ten bracket spellings had landed, so a `siren-*` class
+ * that only a shape emitted would have shipped unthemed without failing
+ * anything — the checks below cannot see a class nothing renders. A
+ * subroutine matters most of the three: it is the first node to draw more
+ * than one element, and a second element is where a second class gets
+ * invented. It emits none (its bars wear `siren-node-frame` like everything
+ * else), and this fixture is what keeps that true rather than merely
+ * claimed. Whoever lands the cylinder, the circles and the Markdown label
+ * adds them here for the same reason.
  */
 const EVERY_FLOWCHART_FEATURE = `flowchart TB
 A[Start]
 A --> B[Fetch data]
 B --> C[Publish]
+C --> D(Round)
+D --> E([Stadium])
+E --> F[[Subroutine]]
 
 timeline:
 step 1: enter B fade, enter A-B fade
@@ -516,6 +530,88 @@ describe("default theme coverage of the flowchart renderer", () => {
     frame.setAttribute("style", "fill: rgb(255, 221, 221); stroke: rgb(204, 0, 0)");
     expect(getComputedStyle(frame).fill).toBe("rgb(255, 221, 221)");
     expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
+  });
+
+  it("lets `--siren-node-border-radius` round a rectangle and a subroutine, and leaves a round node and a stadium out of its reach", () => {
+    // **The decision this board's rect-drawn shapes forced, asserted.** The
+    // theme rounds `.siren-node-frame` with a documented token, and two of
+    // those shapes are named for the very corners it sets. The rule chosen:
+    // *a shape named for its corners owns them; the token rounds the shapes
+    // whose corners are only decoration.*
+    //
+    // So what a consumer redeclaring `--siren-node-border-radius` gets,
+    // shape by shape:
+    //
+    // - `A[text]` and `A[[text]]` — the new radius, on every corner. The
+    //   renderer writes them no radius at all, so the theme's rule is the
+    //   only writer and the token is the whole story, exactly as it was
+    //   before shapes existed.
+    // - `A(text)` and `A([text])` — nothing. Their radius is the renderer's,
+    //   computed from the node's own height and written as an inline
+    //   declaration, which is the level of the cascade an author stylesheet
+    //   cannot reach without `!important`.
+    //
+    // The asymmetry is deliberate and is the point. A stadium whose ends
+    // stopped being semicircles because someone retuned a token would not be
+    // a stadium, and a round node flattened to `0` alongside every rectangle
+    // would have lost the one thing that distinguishes it — while the board's
+    // decision 1 makes a shape's *kind* the compatibility contract and only
+    // its proportions the theme's. The price is that the token has no say in
+    // *how* round `A(Round)` is; that is a shape's proportion, and it is
+    // `SHAPE_LEAN`'s to name.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+    const frameOf = (id: string) =>
+      svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!;
+    const inlineRx = (id: string) =>
+      (frameOf(id).getAttribute("style") ?? "").match(/rx:\s*([^;]+)/)?.[1] ?? null;
+
+    // The theme's half of the rule, read off the stylesheet: the token is
+    // what rounds a frame, and it is declared once for all of them.
+    expect(themeRules).toMatch(/\.siren-node-frame(?![\w-])[^{]*\{[^}]*rx:\s*var\(--siren-node-border-radius\)/);
+
+    // A rectangle and a subroutine declare no radius of their own, so
+    // nothing outranks that rule for them.
+    expect(inlineRx("A")).toBeNull();
+    expect(inlineRx("F")).toBeNull();
+
+    // A round node and a stadium do, and a stadium's is exactly half its
+    // drawn height — the semicircular ends, in the picture rather than in a
+    // `data-siren-shape` attribute.
+    expect(inlineRx("D")).not.toBeNull();
+    expect(inlineRx("E")).toBe(`${Number(frameOf("E").getAttribute("height")) / 2}px`);
+    expect(Number.parseFloat(inlineRx("D")!)).toBeGreaterThan(0);
+    expect(Number.parseFloat(inlineRx("D")!)).toBeLessThan(Number.parseFloat(inlineRx("E")!));
+
+    // And a consumer actually redeclaring the token, run rather than argued.
+    // jsdom implements no `rx` property at all (`getComputedStyle(rect).rx`
+    // is `""` whatever any rule says — verified), so the cascade cannot be
+    // read out of it here the way `fill` is elsewhere in this file. What can
+    // be read is the mechanism, and the mechanism is not specificity but the
+    // cascade *origin*: an inline declaration beats every rule in every
+    // author stylesheet, so a consumer cannot flatten these two however
+    // hard they select. The rect and the subroutine, carrying no inline
+    // declaration, have nothing standing between them and the new value.
+    const consumer = document.createElement("style");
+    consumer.textContent =
+      ":root { --siren-node-border-radius: 0px; } .siren-node-frame { rx: 0px; }";
+    document.head.appendChild(consumer);
+    try {
+      expect(inlineRx("E")).toBe(`${Number(frameOf("E").getAttribute("height")) / 2}px`);
+      expect(inlineRx("D")).not.toBeNull();
+      expect(inlineRx("A")).toBeNull();
+      expect(inlineRx("F")).toBeNull();
+    } finally {
+      consumer.remove();
+    }
+
+    // The negative control on the reading above: `rx` is an inline
+    // *declaration*, not a presentation attribute. As an attribute it would
+    // sit below every stylesheet in the cascade, so the theme's own rule
+    // would silently flatten the stadium back to 6px — the failure this
+    // whole arrangement exists to prevent, and one that would leave nothing
+    // in the picture to say why.
+    expect(frameOf("E").getAttribute("rx")).toBeNull();
+    expect(frameOf("D").getAttribute("rx")).toBeNull();
   });
 
   it("leaves an unstyled arrowhead resolving through `--siren-edge-stroke`, and lets an author-colored one win over that rule", () => {
