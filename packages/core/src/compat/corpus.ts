@@ -126,21 +126,123 @@ function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: numb
 }
 
 /**
+ * One closed outline's vertices as a cycle with a canonical starting point
+ * and direction, so that two paths drawing the same figure compare equal
+ * however each was written. A polygon has no first vertex and no preferred
+ * winding: both are the path builder's private choice, and a corpus row
+ * that pinned them would fail on a rewrite that drew exactly the same
+ * picture.
+ */
+function canonicalCycle(names: readonly string[]): string[] {
+  const rotations = (list: readonly string[]): string[][] =>
+    list.map((_, i) => [...list.slice(i), ...list.slice(0, i)]);
+  return [...rotations(names), ...rotations([...names].reverse())].sort((a, b) =>
+    a.join("|") < b.join("|") ? -1 : 1,
+  )[0];
+}
+
+/**
+ * Where each vertex of a `<path>` sits **inside its own bounding box**, as a
+ * canonical cycle of positions: `left,top`, `right,mid`, `in-left,bottom`.
+ * `in-left` is strictly between the left edge and the middle, `in-right`
+ * strictly between the middle and the right edge.
+ *
+ * Positions rather than coordinates, because the board's decision 1 makes a
+ * shape's *kind* the compatibility contract and its proportions Siren's own:
+ * how far a parallelogram leans belongs to the theme, and which way it leans
+ * is the shape. Coordinates would fail the day a theme changed a number
+ * nobody promised, and would still pass a parallelogram leaning the wrong
+ * way by the promised amount.
+ */
+function outlineCycle(frame: Element): string[] {
+  const points = (frame.getAttribute("d") ?? "")
+    .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)
+    ?.map((pair) => pair.split(",").map(Number)) ?? [];
+  const position = (value: number, all: number[], low: string, high: string): string => {
+    const min = Math.min(...all);
+    const max = Math.max(...all);
+    const middle = (min + max) / 2;
+    if (value === min) return low;
+    if (value === max) return high;
+    if (value === middle) return "mid";
+    return value < middle ? `in-${low}` : `in-${high}`;
+  };
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  return canonicalCycle(
+    points.map(
+      ([x, y]) => `${position(x, xs, "left", "right")},${position(y, ys, "top", "bottom")}`,
+    ),
+  );
+}
+
+/**
+ * Every outline this corpus can name, keyed by the cycle of positions its
+ * vertices occupy — and the vertices are **Mermaid's**, read off mermaid
+ * 11.17.2's own polygons (`hexagon`, `lean_right`, `lean_left`,
+ * `trapezoid`, `inv_trapezoid`, `rect_left_inv_arrow`), with
+ * `scripts/mermaid-probe.mjs` saying which of them each spelling names.
+ * Measured, not remembered — the rule every compatibility board here runs
+ * on.
+ *
+ * The names say which way each shape faces, because that is the half of a
+ * shape a wrong answer gets wrong: two parallelograms and two trapezoids
+ * differ from their partners in nothing else, and a reader of a failure
+ * message needs to be told which one was drawn rather than that "the path
+ * had four points".
+ */
+const OUTLINE_NAMES = new Map<string, string>(
+  (
+    [
+      ["diamond", ["mid,top", "right,mid", "mid,bottom", "left,mid"]],
+      [
+        "hexagon",
+        [
+          "in-left,bottom",
+          "in-right,bottom",
+          "right,mid",
+          "in-right,top",
+          "in-left,top",
+          "left,mid",
+        ],
+      ],
+      [
+        "parallelogram leaning right",
+        ["left,bottom", "in-right,bottom", "right,top", "in-left,top"],
+      ],
+      [
+        "parallelogram leaning left",
+        ["in-left,bottom", "right,bottom", "in-right,top", "left,top"],
+      ],
+      [
+        "trapezoid narrowing to the top",
+        ["left,bottom", "right,bottom", "in-right,top", "in-left,top"],
+      ],
+      [
+        "trapezoid narrowing to the bottom",
+        ["in-left,bottom", "in-right,bottom", "right,top", "left,top"],
+      ],
+      [
+        "rectangle notched into its left edge",
+        ["left,top", "in-left,mid", "left,bottom", "right,bottom", "right,top"],
+      ],
+    ] as ReadonlyArray<readonly [string, readonly string[]]>
+  ).map(([name, cycle]) => [canonicalCycle(cycle).join(" "), name]),
+);
+
+/**
  * The outline one flowchart node actually draws, named from its **geometry**
- * — `"rect"`, `"diamond"` — or from what is there instead when the geometry
- * names nothing.
+ * — `"rect"`, `"diamond"`, `"parallelogram leaning right"` — or spelled out
+ * vertex by vertex when the geometry names nothing this corpus knows.
  *
  * Deliberately not read off `data-siren-shape`. That attribute is the node
  * saying what shape it is, and this corpus exists to check what was drawn:
  * board 4 reclassified `seq-loop` and `seq-alt-else` on exactly that point,
  * where `data-siren-block-kind` carried the kind and the keyword was still
  * absent from the picture. An assert that read the attribute would pass for
- * a rectangle labelled `Rhombus` with a note attached.
- *
- * A `<path>` is called a diamond only when its four points are the midpoints
- * of the four sides of their own bounding box, which is what "a rhombus
- * inscribed in the node's box" means and what no other shape on this board
- * will satisfy.
+ * a rectangle labelled `Rhombus` with a note attached — which is not a
+ * hypothetical: reverting one shape's drawing while leaving its attribute
+ * in place is how each row using this reader was checked to bite.
  */
 function nodeOutline(result: SirenRenderResult, id: string): string {
   const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
@@ -149,22 +251,8 @@ function nodeOutline(result: SirenRenderResult, id: string): string {
   if (frame === null) throw new Error(`node "${id}" drew nothing named siren-node-frame`);
   if (frame.tagName !== "path") return frame.tagName;
 
-  const points = (frame.getAttribute("d") ?? "")
-    .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)
-    ?.map((pair) => pair.split(",").map(Number)) ?? [];
-  if (points.length !== 4) return `path of ${points.length} points`;
-
-  const xs = points.map(([x]) => x);
-  const ys = points.map(([, y]) => y);
-  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
-  // Top, right, bottom, left: each point sits on the middle of one side.
-  const isDiamond =
-    points.filter(([x, y]) => x === midX && y === Math.min(...ys)).length === 1 &&
-    points.filter(([x, y]) => x === Math.max(...xs) && y === midY).length === 1 &&
-    points.filter(([x, y]) => x === midX && y === Math.max(...ys)).length === 1 &&
-    points.filter(([x, y]) => x === Math.min(...xs) && y === midY).length === 1;
-  return isDiamond ? "diamond" : `path of 4 points that is not a diamond`;
+  const cycle = outlineCycle(frame);
+  return OUTLINE_NAMES.get(cycle.join(" ")) ?? `an unnamed path through ${cycle.join(" ")}`;
 }
 
 /** The inline author style on one node's frame, or `""` when it carries none. */
@@ -373,8 +461,21 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A>Asymmetric]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A>text]` is an asymmetric flag shape labelled `text`.",
+    assert: (result) => {
+      // The `>` is syntax, so it is no more part of the label than the
+      // brackets of `A[text]` are — and it is the one spelling here with no
+      // opening bracket at all.
+      expectSame("nodes", nodes(result), ["A[Asymmetric]"]);
+      // Which way the flag faces is the whole of this shape, and it is
+      // measured rather than recalled: mermaid 11.17.2 reads this as
+      // `type="odd"` and draws it with `rect_left_inv_arrow`, whose two
+      // left corners sit further left than the mid-height vertex between
+      // them — a notch cut into the left edge, pointing right, which is the
+      // `>` of the spelling drawn.
+      expectSame("outline", nodeOutline(result, "A"), "rectangle notched into its left edge");
+    },
   },
   {
     id: "fc-shape-rhombus",
@@ -397,8 +498,15 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A{{Hexagon}}`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A{{text}}` is a hexagon labelled `text`.",
+    assert: (result) => {
+      // Both braces are syntax. A reader that took only the outer pair
+      // would draw a diamond labelled `{Hexagon}`, which is the swallow
+      // this row spent four boards being refused to prevent.
+      expectSame("nodes", nodes(result), ["A[Hexagon]"]);
+      expectSame("outline", nodeOutline(result, "A"), "hexagon");
+    },
   },
   {
     id: "fc-shape-double-circle",
@@ -421,16 +529,58 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A[/Process/]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A[/text/]` is a parallelogram labelled `text`.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Process]"]);
+      // Mermaid calls this one `lean_right` and draws its top edge to the
+      // right of its bottom edge. Leaning is the only thing that separates
+      // it from the row below, so a row that asserted "a path of four
+      // points" would pass for its own mirror image.
+      expectSame("outline", nodeOutline(result, "A"), "parallelogram leaning right");
+    },
+  },
+  {
+    id: "fc-shape-parallelogram-alt",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[\\Process\\]`,
+    status: "supported",
+    meaning: "`A[\\text\\]` is a parallelogram leaning the other way, labelled `text`.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Process]"]);
+      // `lean_left`: the mirror of the row above, and the reason Mermaid
+      // has two spellings at all.
+      expectSame("outline", nodeOutline(result, "A"), "parallelogram leaning left");
+    },
   },
   {
     id: "fc-shape-trapezoid",
     kind: "flowchart",
     source: `flowchart TB
       A[/Trapezoid\\]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A[/text\\]` is a trapezoid labelled `text`.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Trapezoid]"]);
+      // The two leaning characters lean the way the two sloping sides do:
+      // narrow top, wide bottom.
+      expectSame("outline", nodeOutline(result, "A"), "trapezoid narrowing to the top");
+    },
+  },
+  {
+    id: "fc-shape-trapezoid-alt",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[\\Trapezoid/]`,
+    status: "supported",
+    meaning: "`A[\\text/]` is an inverted trapezoid labelled `text`.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Trapezoid]"]);
+      // Mermaid's `inv_trapezoid`: wide top, narrow bottom — the row above
+      // turned over.
+      expectSame("outline", nodeOutline(result, "A"), "trapezoid narrowing to the bottom");
+    },
   },
 
   // -------------------------------------------------------------------------
@@ -590,6 +740,30 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       // silent mis-render this row was seeded for: an author reaching for
       // the escape hatch got it printed back at them.
       expectSame("nodes", nodes(result), ["A[Quoted, with comma]"]);
+    },
+  },
+  {
+    id: "fc-text-brace-arrow",
+    kind: "flowchart",
+    source: `flowchart TB
+      A{a-->b}`,
+    status: "supported",
+    meaning:
+      "A brace opens a label as surely as a bracket does, so an arrow " +
+      "written inside one is label text: mermaid 11.17.2 reads this as a " +
+      "single `diamond` vertex with `text=\"a-->b\"` and no edge at all " +
+      "(`node scripts/mermaid-probe.mjs`).",
+    assert: (result) => {
+      // One node, labelled with the arrow. A statement splitter that knew
+      // about `[` and not about `{` cut this line at the arrow and refused
+      // the halves -- an author was told a document Mermaid draws is
+      // unrecognizable, which is the condition this corpus exists to hold.
+      expectSame("nodes", nodes(result), ["A[a-->b]"]);
+      // And nothing was drawn between the halves it used to be cut into.
+      expectSame("edges", edges(result), []);
+      // Still the shape its braces name, so the fix to the splitter did not
+      // cost the spelling its meaning.
+      expectSame("outline", nodeOutline(result, "A"), "diamond");
     },
   },
   {

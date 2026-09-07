@@ -343,8 +343,33 @@ const SILENTLY_WRONG = 3;
  * remain, and each of them exits the same way — parser, layout and renderer
  * together, because a shape that parsed and drew a rectangle would be a
  * silent mis-render by this instrument's own definition.
+ *
+ * It fell by four more, to **28**, as four spellings stopped being only a
+ * rectangle's punctuation: `fc-shape-hexagon`, `fc-shape-parallelogram`,
+ * `fc-shape-trapezoid` and `fc-shape-asymmetric` are `supported`, each
+ * asserting the outline it draws rather than the shape it claims.
+ *
+ * **Four, where the ticket that moved them expected seven**, and the
+ * arithmetic is worth writing down because the number alone reads like an
+ * unfinished job. Six shapes landed — the four above plus both of their
+ * mirror images — and three rows were added `supported` that were never in
+ * this backlog to leave it: `fc-shape-parallelogram-alt` and
+ * `fc-shape-trapezoid-alt` had no row at all (the corpus has always carried
+ * eleven rows for Mermaid's thirteen bracket spellings, and those were the
+ * two it was missing), and `fc-text-brace-arrow` is a construct nothing had
+ * ever measured — `A{a-->b}`, a diamond labelled with an arrow, refused
+ * because the statement splitter counted brackets and not braces. A
+ * construct that was never counted as backlog cannot make the backlog fall
+ * by starting to work, and giving it a row is still what turns it from a
+ * memory into a measurement. `silently-wrong` is untouched at 3: all seven
+ * were refused before and render correctly now, so nothing became honest
+ * and nothing became wrong.
+ *
+ * Six shape rows remain — round, stadium, subroutine, circle, double circle
+ * and cylinder — and each exits the same way: parser, layout and renderer
+ * together.
  */
-const REJECTED = 32;
+const REJECTED = 28;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

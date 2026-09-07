@@ -243,6 +243,122 @@ describe("renderToSVG", () => {
     expect([frameB.getAttribute("width"), frameB.getAttribute("height")]).toEqual(["80", "40"]);
   });
 
+  it("draws each path-outlined shape inscribed in its box, and makes the two parallelograms lean opposite ways and the two trapezoids too", () => {
+    // The criterion this ticket exists to keep: a test that only checked
+    // "a `<path>` was drawn" would pass with all four of these identical,
+    // which is exactly the class of bug board 4's corpus exists to catch.
+    // So the geometry is asserted, and then asserted again as a
+    // *relationship* — each pair is a mirror of the other — so that a
+    // future change cannot satisfy the numbers by accident.
+    //
+    // One box for all six, `10,20 200x60`, so the six `d` strings are
+    // directly comparable by eye. `SHAPE_LEAN` puts the hexagon's end inset
+    // and the flag's notch at `60/4 = 15`, and the parallelograms' slant
+    // and the trapezoids' inset at `60/2 = 30`.
+    const shapes = [
+      "hexagon",
+      "parallelogram",
+      "parallelogram-alt",
+      "trapezoid",
+      "trapezoid-alt",
+      "asymmetric",
+    ] as const;
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: shapes.map((shape) => ({
+        id: shape,
+        label: shape,
+        shape,
+        x: 10,
+        y: 20,
+        width: 200,
+        height: 60,
+        style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+      })),
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 100,
+    };
+
+    const svg = renderToSVG(graph);
+
+    const frameOf = (shape: string) =>
+      svg.querySelector(`g.siren-node[data-siren-id="${shape}"] .siren-node-frame`)!;
+    const dOf = (shape: string) => frameOf(shape).getAttribute("d");
+
+    for (const shape of shapes) {
+      // A `<path>`, still named `siren-node-frame`, still taking the
+      // author's declaration — ADR-0008's placement is a property of the
+      // frame, not of the element that happens to draw it.
+      expect([shape, frameOf(shape).tagName]).toEqual([shape, "path"]);
+      expect([shape, frameOf(shape).getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+      // No leftover rect geometry: a `<path>` reads none of it, and leaving
+      // it behind would suggest a rect is still in play.
+      expect([shape, frameOf(shape).getAttribute("width")]).toEqual([shape, null]);
+    }
+
+    // Inscribed in the box, corner by corner.
+    expect(dOf("hexagon")).toBe("M25,20 L195,20 L210,50 L195,80 L25,80 L10,50 Z");
+    expect(dOf("parallelogram")).toBe("M40,20 L210,20 L180,80 L10,80 Z");
+    expect(dOf("parallelogram-alt")).toBe("M10,20 L180,20 L210,80 L40,80 Z");
+    expect(dOf("trapezoid")).toBe("M40,20 L180,20 L210,80 L10,80 Z");
+    expect(dOf("trapezoid-alt")).toBe("M10,20 L210,20 L180,80 L40,80 Z");
+    // A rectangle with a chevron cut into its **left** edge whose apex
+    // points right, at mid-height; the right edge stays flat. Measured
+    // from mermaid 11.17.2 rather than recalled: `A>Flag]` is `type="odd"`,
+    // drawn by `rect_left_inv_arrow`, and a real render of it produces
+    // `M-31.75 -16.5 ... -23.5 0 ... -31.75 16.5 ... 23.5 16.5 ... 23.5
+    // -16.5` — left corners at -31.75, the mid-left vertex indented right
+    // to -23.5, the right edge flat at 23.5.
+    expect(dOf("asymmetric")).toBe("M10,20 L210,20 L210,80 L10,80 L25,50 Z");
+
+    // And now the relationships, which is what makes the four distinct
+    // rather than merely four strings. Each `d` is read back into points.
+    const pointsOf = (shape: string) =>
+      dOf(shape)!
+        .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+        .map((pair) => pair.split(",").map(Number) as [number, number]);
+    /** The x-range of an outline's edge at one height. */
+    const edgeAt = (shape: string, y: number) => {
+      const xs = pointsOf(shape)
+        .filter(([, py]) => py === y)
+        .map(([px]) => px)
+        .sort((a, b) => a - b);
+      return [xs[0], xs[xs.length - 1]] as [number, number];
+    };
+
+    // The parallelograms: one puts its top edge to the right of its bottom
+    // edge, the other to the left. Stated as a shift so that "opposite" is
+    // the assertion rather than two unrelated numbers.
+    const shift = (shape: string) => {
+      const [topLeft] = edgeAt(shape, 20);
+      const [bottomLeft] = edgeAt(shape, 80);
+      return topLeft - bottomLeft;
+    };
+    expect(shift("parallelogram")).toBeGreaterThan(0);
+    expect(shift("parallelogram-alt")).toBe(-shift("parallelogram"));
+
+    // The trapezoids: one is narrow at the top and wide at the bottom, the
+    // other the reverse — and each is the other flipped, not merely
+    // different from it.
+    const widths = (shape: string) => {
+      const [tl, tr] = edgeAt(shape, 20);
+      const [bl, br] = edgeAt(shape, 80);
+      return [tr - tl, br - bl] as [number, number];
+    };
+    const [trapTop, trapBottom] = widths("trapezoid");
+    const [altTop, altBottom] = widths("trapezoid-alt");
+    expect(trapTop).toBeLessThan(trapBottom);
+    expect(altTop).toBeGreaterThan(altBottom);
+    expect([altTop, altBottom]).toEqual([trapBottom, trapTop]);
+
+    // The two pairs are not each other either: a parallelogram's top and
+    // bottom edges are the same length, a trapezoid's are not.
+    expect(widths("parallelogram")[0]).toBe(widths("parallelogram")[1]);
+    expect(widths("parallelogram-alt")[0]).toBe(widths("parallelogram-alt")[1]);
+  });
+
   it("names each node's shape on its group as data, in addition to drawing it — never instead of it", () => {
     // On the `<g>`, which is the element that already *is* the node: it
     // carries `data-siren-id` and the animation classes, while the frame is

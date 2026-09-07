@@ -1,4 +1,5 @@
 import type { PositionedGraph, PositionedNode, StyleProperty } from "../contracts";
+import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -151,9 +152,10 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  * fits a figure nobody drew.
  */
 function buildNodeFrame(node: PositionedNode): SVGElement {
-  if (node.shape === "rhombus") {
+  const outline = outlineFor(node);
+  if (outline !== null) {
     const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", diamondPathData(node));
+    path.setAttribute("d", outline);
     return path;
   }
 
@@ -168,21 +170,119 @@ function buildNodeFrame(node: PositionedNode): SVGElement {
 }
 
 /**
- * The diamond inscribed in a node's bounding box: the midpoint of each of
- * its four sides, closed.
+ * The outline one node draws as a `<path>`, inscribed in its bounding box —
+ * or `null` for a shape drawn by some other element, which today is the
+ * rectangle.
  *
- * `rx` no longer reaches this frame, and that is correct rather than
- * unfortunate — the theme sets `rx: var(--siren-node-border-radius)` on
- * `.siren-node-frame` and a `<path>` reads no such attribute. A diamond has
- * no rounded corners to give it, so a documented token quietly ceasing to
- * apply is the right behavior (the board's decision 4).
+ * Every outline here is straight segments between corners of, or points on,
+ * the node's own box, so each is expressible as the box's four edges plus
+ * `SHAPE_LEAN` — the same number `layoutGraph` used to decide how big that
+ * box had to be. Importing it rather than restating it is deliberate: two
+ * copies that agreed today could drift, and the symptom would be a label
+ * crossing its own frame in the picture with every number in every unit
+ * test still correct.
+ *
+ * `rx` no longer reaches any of these frames, and that is correct rather
+ * than unfortunate — the theme sets `rx: var(--siren-node-border-radius)`
+ * on `.siren-node-frame` and a `<path>` reads no such attribute. None of
+ * these shapes has rounded corners to give it, so a documented token
+ * quietly ceasing to apply is the right behavior (the board's decision 4).
  */
-function diamondPathData(node: PositionedNode): string {
-  const centerX = node.x + node.width / 2;
-  const centerY = node.y + node.height / 2;
+function outlineFor(node: PositionedNode): string | null {
+  const left = node.x;
   const right = node.x + node.width;
+  const top = node.y;
   const bottom = node.y + node.height;
-  return `M${centerX},${node.y} L${right},${centerY} L${centerX},${bottom} L${node.x},${centerY} Z`;
+  const midX = node.x + node.width / 2;
+  const midY = node.y + node.height / 2;
+  const closed = (points: ReadonlyArray<readonly [number, number]>) =>
+    `${points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ")} Z`;
+
+  switch (node.shape) {
+    case "rhombus":
+      // The midpoint of each of the four sides.
+      return closed([
+        [midX, top],
+        [right, midY],
+        [midX, bottom],
+        [left, midY],
+      ]);
+    case "hexagon": {
+      // Flat top and bottom inset by `m` at each end, with a point at
+      // mid-height on each side.
+      const m = SHAPE_LEAN.hexagon * node.height;
+      return closed([
+        [left + m, top],
+        [right - m, top],
+        [right, midY],
+        [right - m, bottom],
+        [left + m, bottom],
+        [left, midY],
+      ]);
+    }
+    case "parallelogram": {
+      // Leaning right: the top edge sits `s` to the right of the bottom
+      // one. Mermaid 11.17.2 calls this `lean_right` and draws it the same
+      // way round, measured off its rendered polygon.
+      const s = SHAPE_LEAN.parallelogram * node.height;
+      return closed([
+        [left + s, top],
+        [right, top],
+        [right - s, bottom],
+        [left, bottom],
+      ]);
+    }
+    case "parallelogram-alt": {
+      // Leaning left — the mirror of `parallelogram`, which is the whole
+      // point of there being two spellings.
+      const s = SHAPE_LEAN["parallelogram-alt"] * node.height;
+      return closed([
+        [left, top],
+        [right - s, top],
+        [right, bottom],
+        [left + s, bottom],
+      ]);
+    }
+    case "trapezoid": {
+      // Narrow top, wide bottom: `A[/Trap\]`, whose two leaning characters
+      // lean the way its two sloping sides do.
+      const s = SHAPE_LEAN.trapezoid * node.height;
+      return closed([
+        [left + s, top],
+        [right - s, top],
+        [right, bottom],
+        [left, bottom],
+      ]);
+    }
+    case "trapezoid-alt": {
+      // Wide top, narrow bottom — `trapezoid` flipped, for `A[\Trap/]`.
+      const s = SHAPE_LEAN["trapezoid-alt"] * node.height;
+      return closed([
+        [left, top],
+        [right, top],
+        [right - s, bottom],
+        [left + s, bottom],
+      ]);
+    }
+    case "asymmetric": {
+      // A rectangle with a chevron cut into its **left** edge, apex
+      // pointing right at mid-height; the right edge stays flat. Which way
+      // that points was measured, not recalled: mermaid 11.17.2 reads
+      // `A>Flag]` as `type="odd"` and draws it with `rect_left_inv_arrow`,
+      // whose vertices put both left corners further left than the
+      // mid-height vertex between them — the `>` of the spelling, drawn.
+      const d = SHAPE_LEAN.asymmetric * node.height;
+      return closed([
+        [left, top],
+        [right, top],
+        [right, bottom],
+        [left, bottom],
+        [left + d, midY],
+      ]);
+    }
+    default:
+      return null;
+  }
 }
 
 /**

@@ -43,17 +43,22 @@ const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
  * alternatives `LABEL_CONTENT` offers, with the brace pair standing in for
  * the bracket pair.
  *
- * `{` is excluded as well as `}`, which is what keeps `A{{Hexagon}}` out.
- * A hexagon is a shape of its own and Siren does not draw one yet, so this
- * pattern must not match it — a greedy read would take its inner braces as
- * a label and draw a diamond reading `{Hexagon}`, which is the swallow
- * `UNIMPLEMENTED_BRACKET_FORMS` exists to refuse, one spelling over. It
- * falls through to "unrecognized line" instead, which is honest, and the
- * hexagon's own ticket is what makes it draw.
+ * `{` is excluded as well as `}`, and that exclusion is what lets the two
+ * brace spellings be told apart at all. Ticket 01 wrote it so a hexagon
+ * could not be swallowed as a diamond labelled `{Hexagon}` while a hexagon
+ * was undrawn; now that both are drawn it does the same work from the other
+ * side — `\{…\}` can never reach across an inner brace, so `A{{Hexagon}}`
+ * is only ever read by the hexagon's own pattern and the two can be listed
+ * in either order without one eating the other.
+ *
+ * An **unfenced** brace inside the label is not Mermaid: it reads `A{{a}b}}`
+ * as a parse error, so refusing it here is compatibility rather than
+ * strictness.
  *
  * A *fenced* brace is still a label character, exactly as a fenced `]` is:
- * mermaid 11.17.2 reads `A{"a}b"}` as the label `a}b` and `A{"x{y"}` as
- * `x{y`, measured with `scripts/mermaid-probe.mjs`.
+ * mermaid 11.17.2 reads `A{"a}b"}` as the label `a}b`, `A{"x{y"}` as `x{y`
+ * and `A{{"a}}b"}}` as the hexagon `a}}b`, measured with
+ * `scripts/mermaid-probe.mjs`.
  */
 const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
 
@@ -62,16 +67,44 @@ const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
  *
- * `bracket` is the bracketed part of the spelling as a pattern, with the
- * label as its single capture group, so the two patterns below can be built
- * from it without either of them learning what punctuation any shape uses.
- * A later ticket adds a row; nothing else here moves.
+ * `bracket` is everything after the id as a pattern, with the label as its
+ * single capture group, so the two patterns below can be built from it
+ * without either of them learning what punctuation any shape uses. Not
+ * every spelling is bracketed on both sides — the asymmetric flag opens
+ * with a bare `>` — which is the reason this is a pattern rather than an
+ * open/close pair. A later ticket adds a row; nothing else here moves.
  *
  * Ordered, and read in order: a spelling that is a prefix of another must
- * come after it. Nothing in this table overlaps yet.
+ * come after it. That is why the four slanted forms precede `rect` — their
+ * slashes are ordinary label characters to `LABEL_CONTENT`, so `A[/Para/]`
+ * would otherwise read as a rectangle labelled `/Para/`, which is exactly
+ * the swallow `UNIMPLEMENTED_BRACKET_FORMS` refused it to prevent.
+ *
+ * The four slanted forms do not overlap each other: which shape a spelling
+ * names is decided by *both* leaning characters, and a label is free to
+ * contain either of them. Mermaid 11.17.2 reads `A[/a\b/]` as a
+ * `lean_right` labelled `a\b` and `A[\a/\]` as a `lean_left` labelled `a/`
+ * (`pnpm --filter @siren/core probe`), so it is the closing pair that ends
+ * the label, which is what `LABEL_CONTENT`'s backtracking gives here.
+ *
+ * A one-character label keeps board 4's length rule for free: `A[/]` cannot
+ * match `\[/…/\]`, which needs a `/` at each end, so it stays a rectangle
+ * labelled `/` — as it is in Mermaid.
  */
 const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
+  { shape: "parallelogram", bracket: String.raw`\[/(${LABEL_CONTENT})/\]` },
+  { shape: "parallelogram-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})\\\]` },
+  { shape: "trapezoid", bracket: String.raw`\[/(${LABEL_CONTENT})\\\]` },
+  { shape: "trapezoid-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})/\]` },
   { shape: "rect", bracket: String.raw`\[(${LABEL_CONTENT})\]` },
+  { shape: "hexagon", bracket: String.raw`\{\{(${BRACE_LABEL_CONTENT})\}\}` },
+  // No opening bracket: `A>Flag]`. Its `>` is also the last character of
+  // `-->`, and the two never collide because a line is cut into endpoints
+  // at its arrows before any of these patterns is asked anything — each
+  // sees one endpoint, anchored at both ends. Mermaid 11.17.2 reads
+  // `A>a>b]` as the label `a>b`, so a `>` inside the label is ordinary
+  // text, which is exactly what `LABEL_CONTENT` already says.
+  { shape: "asymmetric", bracket: String.raw`>(${LABEL_CONTENT})\]` },
   { shape: "rhombus", bracket: String.raw`\{(${BRACE_LABEL_CONTENT})\}` },
 ];
 
@@ -95,8 +128,10 @@ const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
 }));
 
 /**
- * Everything Mermaid writes *inside* `[...]` that is not a plain label — six
- * node shapes and two label forms — paired with the name Mermaid gives it.
+ * Everything Mermaid writes *inside* `[...]` that is **still** not a plain
+ * label and not yet a shape Siren draws, paired with the name Mermaid gives
+ * it. Two node shapes and one label form remain; the four slanted forms
+ * left when `NODE_SPELLINGS` learned to read them.
  *
  * **This list is refused, not swallowed.** That is the policy, and it is the
  * whole reason this constant exists: while a construct is unimplemented,
@@ -128,10 +163,6 @@ const UNIMPLEMENTED_BRACKET_FORMS: ReadonlyArray<{
 }> = [
   { open: "(", close: ")", described: "a cylinder (`A[(text)]`)" },
   { open: "[", close: "]", described: "a subroutine box (`A[[text]]`)" },
-  { open: "/", close: "/", described: "a parallelogram (`A[/text/]`)" },
-  { open: "\\", close: "\\", described: "a parallelogram alt (`A[\\text\\]`)" },
-  { open: "/", close: "\\", described: "a trapezoid (`A[/text\\]`)" },
-  { open: "\\", close: "/", described: "a trapezoid alt (`A[\\text/]`)" },
   // A Markdown string, which is the label fence with backticks inside it.
   // Read before `labelIn` strips that fence, so an author who wrote
   // Markdown is told about Markdown rather than handed a label with
@@ -361,11 +392,18 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
 /**
  * Cuts `text` at every `separator` that lies **outside** a `[...]` label.
  *
- * The bracket depth is the whole point. `;`, `&` and `-->` all mean
+ * The label depth is the whole point. `;`, `&` and `-->` all mean
  * something between statements and nothing inside a label: `A[a;b]`,
  * `A[a&b]` and `A[a-->b]` are ordinary labels in Mermaid, and a splitter
  * that did not know where a label starts would cut them into nonsense —
  * the same class of bug `UNIMPLEMENTED_BRACKET_FORMS` exists to keep out.
+ *
+ * **A brace opens a label as surely as a bracket does.** Counting only
+ * `[`/`]` made two spellings of one idea disagree: `A["a-->b"]` worked
+ * while `A{a-->b}` — a diamond labelled `a-->b` in mermaid 11.17.2,
+ * measured with `scripts/mermaid-probe.mjs` — was cut at the arrow and
+ * refused. One depth over both pairs is what makes them agree, and it has
+ * to be a depth rather than a flag because `A{{a-->b}}` opens two.
  *
  * Depth alone is not enough once a label may be fenced, which is why the
  * fence is tracked here too: the `]` inside `A["a]b-->c"]` is a character
@@ -393,11 +431,11 @@ function splitOutsideLabel(text: string, separator: string): string[] {
     if (fenced) {
       continue;
     }
-    if (text[i] === "[") {
+    if (text[i] === "[" || text[i] === "{") {
       depth++;
       continue;
     }
-    if (text[i] === "]") {
+    if (text[i] === "]" || text[i] === "}") {
       if (depth > 0) {
         depth--;
       }

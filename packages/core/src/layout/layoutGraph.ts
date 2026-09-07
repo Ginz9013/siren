@@ -1,6 +1,36 @@
 import type { GraphModel, LayoutOptions, NodeShape, PositionedGraph } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
+/**
+ * How far a shape's outline leans in from the bounding box it is inscribed
+ * in, **per side, as a fraction of the box's height** — the one number that
+ * decides both how much box a label needs (`boxForLabel`, here) and where
+ * the outline's corners go (`renderToSVG`'s path builders).
+ *
+ * Exported, and imported by the renderer, because those two are one
+ * contract and not two: layout enlarges the box so the label fits inside
+ * the inscribed outline, and the renderer draws the outline that box was
+ * sized for. Two constants that agreed today would be free to drift, and
+ * the symptom would be a label crossing its own frame — silently, in the
+ * picture only. `index.test.ts` checks the contract end to end by testing
+ * the label's corners against the drawn path, so a drift fails a test
+ * rather than a diagram.
+ *
+ * `lean` means a different thing to each outline and the same number does
+ * for all of them: a hexagon's end inset, a parallelogram's slant, a
+ * trapezoid's inset per side, the asymmetric flag's notch depth. What they
+ * share is that each displaces exactly `lean x height` horizontally at the
+ * height where a centred label meets it.
+ */
+export const SHAPE_LEAN = {
+  hexagon: 1 / 4,
+  parallelogram: 1 / 2,
+  "parallelogram-alt": 1 / 2,
+  trapezoid: 1 / 2,
+  "trapezoid-alt": 1 / 2,
+  asymmetric: 1 / 4,
+} as const satisfies Partial<Record<NodeShape, number>>;
+
 /** A measured label, and the bounding box a shape needs to hold one. */
 interface Box {
   width: number;
@@ -34,14 +64,46 @@ interface Box {
  * theme's padding — the corners that touch belong to the padding, not to the
  * text.
  *
+ * Every shape whose outline is straight lines leaning in from the box —
+ * the hexagon, both parallelograms, both trapezoids and the asymmetric
+ * flag — has the same answer with a different constant, and `SHAPE_LEAN`
+ * is that constant. In each of them the box need be no taller than the
+ * label, and the outline has displaced `lean x H` horizontally by the time
+ * it reaches the label's own edge:
+ *
+ * - A hexagon at `H = h` meets the label along its own flat top, which is
+ *   the box inset by `m = lean x H` at each end.
+ * - A parallelogram's leaning side displaces `s = lean x H` over the full
+ *   height, so at the label's top edge it has displaced `s(1 + h/H)/2` —
+ *   which is `s` exactly when `H = h`. A trapezoid is that on both sides at
+ *   once, at its narrow edge.
+ * - The asymmetric flag's notch is deepest, `d = lean x H`, at mid-height,
+ *   which is where a centred label is widest.
+ *
+ * So all six read `W = w + 2 x lean x h, H = h`, and none of them needs a
+ * per-shape formula in the switch below.
+ *
  * The proportions are Siren's, not Mermaid's: the board's decision 1 says a
  * shape's *kind* is the compatibility contract and its geometry belongs to
- * the theme, exactly as ADR-0004 already says for colour and spacing.
+ * the theme, exactly as ADR-0004 already says for colour and spacing. These
+ * happen to agree with Mermaid 11.17.2's, measured off its rendered
+ * polygons with `scripts/mermaid-probe.mjs` and the shape sources beside
+ * it.
  */
 function boxForLabel(shape: NodeShape, label: Box): Box {
   switch (shape) {
     case "rhombus":
       return { width: label.width * 2, height: label.height * 2 };
+    case "hexagon":
+    case "parallelogram":
+    case "parallelogram-alt":
+    case "trapezoid":
+    case "trapezoid-alt":
+    case "asymmetric":
+      return {
+        width: label.width + 2 * SHAPE_LEAN[shape] * label.height,
+        height: label.height,
+      };
     default:
       // A rectangle is its own bounding box. Every other member of
       // `NodeShape` is a spelling the parser still refuses, so none of them

@@ -233,28 +233,6 @@ timeline:
     ]);
   });
 
-  it("names each slash-and-backslash bracket shape rather than reading its punctuation as a label", () => {
-    // Mermaid's own four names for the four pairings, so the diagnostic
-    // tells an author which shape it thinks they wrote.
-    const forms: ReadonlyArray<[string, string]> = [
-      ["A[/Process/]", "a parallelogram (`A[/text/]`)"],
-      ["A[\\Process\\]", "a parallelogram alt (`A[\\text\\]`)"],
-      ["A[/Trapezoid\\]", "a trapezoid (`A[/text\\]`)"],
-      ["A[\\Trapezoid/]", "a trapezoid alt (`A[\\text/]`)"],
-    ];
-
-    for (const [declaration, described] of forms) {
-      const { document, diagnostics } = parseSiren(
-        `flowchart TB\n  ${declaration}\n`,
-      );
-
-      expect(document).toBeNull();
-      expect(diagnostics.map((d) => d.message)).toEqual([
-        `Siren does not draw ${described} yet: "${declaration}"`,
-      ]);
-    }
-  });
-
   it("names the subroutine box in `A[[Subroutine]]` instead of calling the line unrecognized", () => {
     // Already an error today, but the wrong one: an author who wrote valid
     // Mermaid is told their line makes no sense rather than that this one
@@ -394,6 +372,217 @@ timeline:
     ]);
   });
 
+  it("keeps `-->`, `;` and `&` inside a braced label, exactly as it keeps them inside a bracketed one", () => {
+    // Carried from ticket 01, which found this and could not fix it inside
+    // its own ratchet. `splitOutsideLabel` tracked `[`/`]` and the quote
+    // fence but not `{`/`}`, so `A{a-->b}` was cut at the arrow and refused
+    // while `A["a-->b"]` worked — two spellings of one idea disagreeing
+    // about what a label is.
+    //
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A{a-->b} --> C` is a diamond labelled `a-->b` with one edge to `C`,
+    // `A{a;b}` and `A{a&b}` are diamonds labelled `a;b` and `a&b`, and
+    // `A{{a-->b}} --> C` is the same for the hexagon — which is why the
+    // counter has to be a depth rather than a flag.
+    const source = `flowchart TB
+  A{a-->b} --> C
+  D{a;b}
+  E{a&b}
+  F{{a-->b}} --> G
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "a-->b", "rhombus"],
+      ["C", "C", "rect"],
+      ["D", "a;b", "rhombus"],
+      ["E", "a&b", "rhombus"],
+      ["F", "a-->b", "hexagon"],
+      ["G", "G", "rect"],
+    ]);
+    expect(document.edges.map((e) => [e.from, e.to])).toEqual([
+      ["A", "C"],
+      ["F", "G"],
+    ]);
+  });
+
+  it("reads `A>text]` as the asymmetric flag, a spelling with no opening bracket at all", () => {
+    // Board 4's named-shape table never covered this one: it only reads
+    // what lies inside `[...]`, and this spelling opens with `>`. So
+    // `A>Flag]` reached a plain "Unrecognized flowchart line" rather than a
+    // named refusal, and now it draws instead.
+    //
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A>Flag]` is `type="odd" text="Flag"`, `A>a>b]` is `odd` labelled
+    // `a>b` — so a `>` inside the label is ordinary text — and `A>]` is a
+    // parse error.
+    const source = `flowchart TB
+  A>Flag]
+  B>a>b]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Flag", "asymmetric"],
+      ["B", "a>b", "asymmetric"],
+    ]);
+  });
+
+  it("reads `A>text]` at an edge endpoint, where the arrow's own `>` must not be mistaken for the spelling's", () => {
+    // The one spelling whose opening character also appears in `-->`. The
+    // line is cut into endpoints at the arrow first, so what each pattern
+    // ever sees is one endpoint — but a chain is the case that would show a
+    // reader getting that wrong, so it is the case asserted.
+    const source = `flowchart TB
+  A>Flag] --> B>Other]:::hot
+  B --> C
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Flag", "asymmetric"],
+      ["B", "Other", "asymmetric"],
+      ["C", "C", "rect"],
+    ]);
+    expect(document.edges.map((e) => [e.from, e.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+    ]);
+  });
+
+  it("reads `A{{text}}` as a hexagon, not as a diamond labelled `{text}`", () => {
+    // Ticket 01 excluded `{` from `BRACE_LABEL_CONTENT` precisely so this
+    // spelling could not be swallowed as a rhombus labelled `{Hexagon}`.
+    // Now that a hexagon is drawn, the exclusion earns its keep the other
+    // way round: it is what lets the two brace spellings be told apart at
+    // all, since `\{…\}` can never reach across an inner brace.
+    //
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A{{Hexagon}}` is `type="hexagon" text="Hexagon"`, `B{"a}}b"}}`
+    // written as `{{"a}}b"}}` is a hexagon labelled `a}}b` — a fenced brace
+    // is a label character here exactly as a fenced `]` is — and `A{{a}b}}`
+    // is a **parse error**, so an unfenced brace inside the label is not
+    // Mermaid and is not read here either.
+    const source = `flowchart TB
+  A{{Hexagon}}
+  B{{"a}}b"}}
+  C{Rhombus}
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Hexagon", "hexagon"],
+      ["B", "a}}b", "hexagon"],
+      ["C", "Rhombus", "rhombus"],
+    ]);
+  });
+
+  it("reads `A{{text}}` the same way at an edge endpoint, and still refuses an unfenced brace inside the label", () => {
+    const source = `flowchart TB
+  A{{Hexagon}} --> B{Ready?}
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Hexagon", "hexagon"],
+      ["B", "Ready?", "rhombus"],
+    ]);
+
+    // Mermaid rejects `A{{a}b}}`, so Siren refuses it too rather than
+    // inventing a reading for it.
+    const refused = parseSiren(`flowchart TB\n  A{{a}b}}\n`);
+    expect(refused.document).toBeNull();
+    expect(refused.diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized flowchart line: "A{{a}b}}"',
+    ]);
+  });
+
+  it("reads the four slanted `A[<open>text<close>]` spellings as the two parallelograms and the two trapezoids", () => {
+    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // `A[/Para/]` is `type="lean_right"`, `B[\Alt\]` is `type="lean_left"`,
+    // `C[/Trap\]` is `type="trapezoid"` and `D[\TrapAlt/]` is
+    // `type="inv_trapezoid"`. Four spellings that differ only in which way
+    // each of two characters leans, so reading them by anything less than
+    // both characters would collapse two pairs into one shape each.
+    //
+    // Their labels carry the slashes back: the probe reads `E[/a\b/]` as
+    // `lean_right` labelled `a\b` and `F[\a/\]` as `lean_left` labelled
+    // `a/`, so it is the *closing* pair that decides the shape and the
+    // label may contain either character.
+    const source = `flowchart TB
+  A[/Para/]
+  B[\\Alt\\]
+  C[/Trap\\]
+  D[\\TrapAlt/]
+  E[/a\\b/]
+  F[\\a/\\]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Para", "parallelogram"],
+      ["B", "Alt", "parallelogram-alt"],
+      ["C", "Trap", "trapezoid"],
+      ["D", "TrapAlt", "trapezoid-alt"],
+      ["E", "a\\b", "parallelogram"],
+      ["F", "a/", "parallelogram-alt"],
+    ]);
+  });
+
+  it("reads a slanted spelling the same way at an edge endpoint as on a line of its own", () => {
+    // The shape is a property of the node, not of where it was mentioned —
+    // the reason `NODE_SPELLINGS` builds both readers. `A[/Para/] --> B` is
+    // the same parallelogram `A[/Para/]` on a line by itself is, and
+    // mermaid agrees: the probe reads that line as `lean_right` too.
+    const source = `flowchart TB
+  A[/Para/] --> B[\\Alt\\] --> C[/Trap\\]
+  C --> D[\\TrapAlt/]:::hot
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Para", "parallelogram"],
+      ["B", "Alt", "parallelogram-alt"],
+      ["C", "Trap", "trapezoid"],
+      ["D", "TrapAlt", "trapezoid-alt"],
+    ]);
+  });
+
+  it("still reads a lone slash or backslash inside `[...]` as an ordinary label, not as an empty slanted shape", () => {
+    // The length rule board 4 wrote for `unimplementedFormIn`, kept now
+    // that these forms are read rather than refused: `A[/]` is one
+    // character of label, so the `/` cannot be both the opening and the
+    // closing half of a parallelogram. Mermaid draws a rectangle here too.
+    const source = `flowchart TB
+  A[/]
+  B[\\]
+  C[a/b]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "/", "rect"],
+      ["B", "\\", "rect"],
+      ["C", "a/b", "rect"],
+    ]);
+  });
+
   it("leaves a quote in the middle of a label alone — only a fenced label is a quoted one", () => {
     const source = `flowchart TB
   A[say "hi" now]
@@ -422,10 +611,14 @@ timeline:
     ]);
   });
 
-  it("refuses a shape written at an edge endpoint too — where it is written must not decide what it means", () => {
+  it("refuses a form written at an edge endpoint too — where it is written must not decide what it means", () => {
+    // Two different rows of the table, so the rule is visibly about the
+    // *place* rather than about one form. The slanted shapes used to be the
+    // second example here and are drawn now; the Markdown label took their
+    // place because it is still refused.
     const source = `flowchart TB
   A[(DB)] --> B[Read]
-  C[Write] --> D[/Report/]
+  C[Write] --> D["` + "`" + `**bold**` + "`" + `"]
 `;
 
     const { document, diagnostics } = parseSiren(source);
@@ -433,7 +626,8 @@ timeline:
     expect(document).toBeNull();
     expect(diagnostics.map((d) => d.message)).toEqual([
       'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)] --> B[Read]"',
-      'Siren does not draw a parallelogram (`A[/text/]`) yet: "C[Write] --> D[/Report/]"',
+      "Siren does not draw a Markdown string label (a quoted label fenced " +
+        'in backticks) yet: "C[Write] --> D["`**bold**`"]"',
     ]);
   });
 

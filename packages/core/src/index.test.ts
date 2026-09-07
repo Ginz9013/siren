@@ -2736,6 +2736,237 @@ step 1: enter A fade
     expect(frame.getAttribute("style")).toBe("fill:#f00");
   });
 
+  /**
+   * One closed outline's vertices as a cycle with a canonical starting point
+   * and direction, so two paths drawing the same figure compare equal
+   * however each was written. A polygon has no first vertex and no preferred
+   * winding — both are the path builder's private choice — so a test that
+   * pinned them would fail on a rewrite that drew exactly the same picture.
+   */
+  const canonicalCycle = (names: readonly string[]): string[] => {
+    const rotations = (list: readonly string[]): string[][] =>
+      list.map((_, i) => [...list.slice(i), ...list.slice(0, i)]);
+    return [...rotations(names), ...rotations([...names].reverse())].sort((a, b) =>
+      a.join("|") < b.join("|") ? -1 : 1,
+    )[0];
+  };
+
+  /**
+   * The outline a node's frame draws, as the cycle of positions its vertices
+   * occupy **inside the node's own bounding box** — `left,top`,
+   * `right,mid`, `in-left,bottom`. `in-left` is strictly between the left
+   * edge and the middle; `in-right` strictly between the middle and the
+   * right edge.
+   *
+   * Positions rather than numbers, because the board's decision 1 makes a
+   * shape's *kind* the compatibility contract and its proportions Siren's
+   * own: how far a parallelogram leans belongs to the theme, and which way
+   * it leans is the shape. A test written in coordinates would fail the day
+   * the theme changed a number nobody ever promised, and would still pass a
+   * parallelogram that leaned the wrong way by the promised amount.
+   */
+  const outlineCycle = (frame: Element): string[] => {
+    const points = (frame.getAttribute("d") ?? "")
+      .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+      .map((pair) => pair.split(",").map(Number));
+    const position = (value: number, all: number[], low: string, high: string): string => {
+      const min = Math.min(...all);
+      const max = Math.max(...all);
+      const middle = (min + max) / 2;
+      if (value === min) return low;
+      if (value === max) return high;
+      if (value === middle) return "mid";
+      return value < middle ? `in-${low}` : `in-${high}`;
+    };
+    const xs = points.map(([x]) => x);
+    const ys = points.map(([, y]) => y);
+    return canonicalCycle(
+      points.map(
+        ([x, y]) => `${position(x, xs, "left", "right")},${position(y, ys, "top", "bottom")}`,
+      ),
+    );
+  };
+
+  /**
+   * The six spellings drawn as a `<path>` of straight segments, each with
+   * the outline **Mermaid** draws for it — read off mermaid 11.17.2's own
+   * polygon vertices (`hexagon`, `lean_right`, `lean_left`, `trapezoid`,
+   * `inv_trapezoid`, `rect_left_inv_arrow` in its shape sources) and
+   * translated into positions, with `pnpm --filter @siren/core probe`
+   * confirming which of those shapes each spelling names. Measured, not
+   * remembered — the rule this repo's compatibility work runs on, and the
+   * one thing ticket 02 was required to do and left no record of.
+   *
+   * The rhombus is not here: it is ticket 01's, and it already has a test of
+   * its own above.
+   */
+  const PATH_SHAPES = [
+    {
+      shape: "hexagon",
+      spelling: "A{{Hexagon}}",
+      label: "Hexagon",
+      // Flat top and bottom, inset equally at both ends, with a point at
+      // mid-height on each side.
+      outline: [
+        "in-left,bottom",
+        "in-right,bottom",
+        "right,mid",
+        "in-right,top",
+        "in-left,top",
+        "left,mid",
+      ],
+    },
+    {
+      shape: "parallelogram",
+      spelling: "A[/Parallelogram/]",
+      label: "Parallelogram",
+      // Mermaid's `lean_right`: the top edge sits to the right of the
+      // bottom one.
+      outline: ["left,bottom", "in-right,bottom", "right,top", "in-left,top"],
+    },
+    {
+      shape: "parallelogram-alt",
+      spelling: "A[\\Parallelogram alt\\]",
+      label: "Parallelogram alt",
+      // `lean_left`, the mirror image — which is the whole reason there are
+      // two spellings, and the one thing a test of these two must not let
+      // through.
+      outline: ["in-left,bottom", "right,bottom", "in-right,top", "left,top"],
+    },
+    {
+      shape: "trapezoid",
+      spelling: "A[/Trapezoid\\]",
+      label: "Trapezoid",
+      // Narrow top, wide bottom.
+      outline: ["left,bottom", "right,bottom", "in-right,top", "in-left,top"],
+    },
+    {
+      shape: "trapezoid-alt",
+      spelling: "A[\\Trapezoid alt/]",
+      label: "Trapezoid alt",
+      // Mermaid's `inv_trapezoid`: wide top, narrow bottom.
+      outline: ["in-left,bottom", "in-right,bottom", "right,top", "left,top"],
+    },
+    {
+      shape: "asymmetric",
+      spelling: "A>Asymmetric]",
+      label: "Asymmetric",
+      // A rectangle with a notch cut into its **left** edge, apex pointing
+      // right at mid-height — the `>` of the spelling, drawn. Mermaid's
+      // `rect_left_inv_arrow` puts its two left corners further left than
+      // the mid-height vertex between them, so the notch eats into the
+      // shape rather than sticking out of it; a flag pointing the other way
+      // would put the corners at `in-left` and the apex at `left,mid`.
+      outline: ["left,top", "in-left,mid", "left,bottom", "right,bottom", "right,top"],
+    },
+  ] as const;
+
+  it.each(PATH_SHAPES.map((spec) => [spec.spelling, spec.shape, spec] as const))(
+    "draws `%s` end to end as a styleable, animatable %s",
+    (_spelling, _shape, { shape, spelling, label, outline }) => {
+      // The whole vertical slice through one public call, for each of the
+      // six shapes ticket 02 landed without one: the spelling parses, the
+      // outline Mermaid names is drawn, and the two things a rectangle
+      // already had — an author's `style` and a place on the timeline —
+      // reach it unchanged.
+      //
+      // Any one of them alone would leave a document Mermaid draws
+      // correctly being drawn wrongly here: an outline nobody styles is not
+      // a node, and a node nothing animates is not a Siren one.
+      const container = document.createElement("div");
+      const result = render(
+        `flowchart TD
+${spelling} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`,
+        container,
+      );
+
+      expect([shape, result.diagnostics]).toEqual([shape, []]);
+
+      const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+      const frame = group.querySelector(".siren-node-frame")!;
+
+      // Drawn — the picture, first. `data-siren-shape` is checked after and
+      // never instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      expect([shape, frame.tagName]).toEqual([shape, "path"]);
+      expect([shape, outlineCycle(frame)]).toEqual([shape, canonicalCycle(outline)]);
+      expect([shape, group.getAttribute("data-siren-shape")]).toEqual([shape, shape]);
+
+      // The punctuation was syntax, so the label is the text inside it.
+      expect([shape, group.querySelector("text")!.textContent]).toEqual([shape, label]);
+
+      // ADR-0008's placement, unchanged by the element under it: the
+      // author's declaration lands on the `<path>` the theme paints.
+      expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+
+      // And it animates: the id and the animation classes are on the `<g>`,
+      // so the controller drives these six without knowing shapes exist —
+      // and the author's declaration is on a different element, so neither
+      // overwrites the other.
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, true]);
+      result.controller!.next();
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, false]);
+      expect([shape, group.classList.contains("siren-enter-fade")]).toEqual([shape, true]);
+      expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+    },
+  );
+
+  it("gives the six path shapes no `siren-*` class of their own — what a rectangle emits is exactly what they emit", () => {
+    // Asked because nothing else in the suite would notice the answer
+    // changing. `theme/default.test.ts` checks that every class the
+    // flowchart renderer emits has a rule in the default stylesheet, and
+    // its coverage fixture draws rectangles only; a class emitted by a
+    // hexagon and by nothing else would therefore ship unthemed — invisible
+    // to the suite, plain in the picture — and the fixture would have to
+    // widen to catch it.
+    //
+    // The two documents differ in their node spellings and in nothing else,
+    // so the comparison is about the shapes rather than about the number of
+    // nodes or the presence of an edge.
+    const sirenClasses = (source: string): string[] => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics).toEqual([]);
+      const found = new Set<string>();
+      for (const element of Array.from(result.svg!.querySelectorAll("*"))) {
+        for (const name of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (name.startsWith("siren-")) found.add(name);
+        }
+      }
+      return [...found].sort();
+    };
+
+    const shaped = sirenClasses(`flowchart TD
+A{{Hexagon}}
+B[/Parallelogram/]
+C[\\Parallelogram alt\\]
+D[/Trapezoid\\]
+E[\\Trapezoid alt/]
+F>Asymmetric]
+`);
+    const rectangles = sirenClasses(`flowchart TD
+A[Hexagon]
+B[Parallelogram]
+C[Parallelogram alt]
+D[Trapezoid]
+E[Trapezoid alt]
+F[Asymmetric]
+`);
+
+    expect(shaped).toEqual(rectangles);
+    // Named as well as compared, so the failure of a future shape that
+    // *adds* a class says what the theme now has to paint. The arrowhead's
+    // fill class is in the list because the theme's one `<marker>` is
+    // minted into `<defs>` whether or not anything references it — a fact
+    // about the renderer rather than about these six, and it is on both
+    // sides of the comparison above.
+    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+  });
+
   it("carries a flowchart author's `style` all the way to the DOM: inline style on the node's frame rect, and no attribute at all on a node nothing styled", () => {
     const container = document.createElement("div");
     const source = `flowchart TD

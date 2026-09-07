@@ -170,6 +170,93 @@ describe("layoutGraph", () => {
     expect(fitsInsideDiamond(byId.B)).toBe(true);
   });
 
+  it("gives each shape drawn with a slanted or notched outline exactly the box its label needs, and no more", () => {
+    // The same rule ticket 01 settled for the rhombus, applied rather than
+    // reinvented: **the smallest bounding box in which this shape,
+    // inscribed, still contains the centred measured label.**
+    //
+    // For all six of this ticket's shapes that box works out to one
+    // formula, because in every one of them the outline's horizontal
+    // displacement at the *label's own edge* is `lean x H` per side, and
+    // nothing forces the box taller than the label:
+    //
+    //   H = h,  W = w + 2 x lean x h
+    //
+    // Worked, per shape, with `lean` the outline's run per side as a
+    // fraction of the box height:
+    //
+    // - hexagon (`lean = 1/4`): at `H = h` the label's top edge *is* the
+    //   hexagon's top edge, which spans the box inset by `m = lean x H` at
+    //   each end, so `w <= W - 2m`.
+    // - parallelogram / -alt (`lean = 1/2`): the leaning side displaces
+    //   `s = lean x H` across the full height, so at the label's top edge
+    //   it has displaced `s(1 + h/H)/2`, which is `s` when `H = h`.
+    // - trapezoid / -alt (`lean = 1/2`): the same arithmetic on both sides
+    //   at once, at the narrow edge.
+    // - asymmetric (`lean = 1/4`): the notch reaches its deepest, `d = lean
+    //   x H`, exactly at mid-height, which is where the label is centred —
+    //   so the box must grow by `d` on the notched side, and the label
+    //   being centred makes that `2d` overall.
+    //
+    // Proportions are Siren's own (the board's decision 1), and these
+    // happen to be Mermaid's: measured from mermaid 11.17.2's rendered
+    // polygons, a `lean_right` displaces `h/2`, a `trapezoid` insets `h/2`
+    // per side, a `hexagon` insets `h/4` per end and an `odd`'s notch is
+    // `h/4` deep.
+    const shapes = [
+      "hexagon",
+      "parallelogram",
+      "parallelogram-alt",
+      "trapezoid",
+      "trapezoid-alt",
+      "asymmetric",
+    ] as const;
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: shapes.flatMap((shape) => [
+        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] } },
+        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] } },
+      ]),
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // `fakeMeasurer`: 8px per character wide, 24px tall. "A rather long
+    // label" is 19 characters, so `w = 152, h = 24`.
+    const lean: Record<(typeof shapes)[number], number> = {
+      hexagon: 1 / 4,
+      parallelogram: 1 / 2,
+      "parallelogram-alt": 1 / 2,
+      trapezoid: 1 / 2,
+      "trapezoid-alt": 1 / 2,
+      asymmetric: 1 / 4,
+    };
+    for (const shape of shapes) {
+      const long = byId[`${shape}-long`];
+      const short = byId[`${shape}-short`];
+      expect([shape, long.width, long.height]).toEqual([
+        shape,
+        152 + 2 * lean[shape] * 24,
+        24,
+      ]);
+      // Proportional to the label rather than the label plus a constant, so
+      // a one-character node stays small — the property ticket 01 asserted
+      // for the rhombus, which is what makes these formulas rather than
+      // fudge factors.
+      expect([shape, short.width, short.height]).toEqual([
+        shape,
+        8 + 2 * lean[shape] * 24,
+        24,
+      ]);
+      // And the box is the *smallest* one: one pixel narrower and the label
+      // would cross the outline.
+      expect(long.width - 2 * lean[shape] * long.height).toBe(152);
+    }
+  });
+
   it("passes the resolved timeline through unchanged onto PositionedGraph.timeline", () => {
     const graph: GraphModel = {
       ...chainGraph("TB"),
