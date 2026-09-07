@@ -3050,11 +3050,13 @@ A[Start]:::ghost --> B[End]:::ghost
     ]);
   });
 
-  it("still calls a chained `A --> B --> C` unrecognized, with or without a `:::` on it", () => {
-    // Widening an endpoint is not widening how many endpoints a line may
-    // have. Chaining is a separate compatibility gap, and a pattern that
-    // read the first two nodes of three and dropped the rest would draw a
-    // diagram the author did not write — worse than refusing the line.
+  it("draws a chained `A --> B --> C` as the two edges it declares, with or without a `:::` on it", () => {
+    // The deliberate reversal of board 3's pin, which refused these three
+    // lines so that whoever widened them had to do it on purpose. Its
+    // argument survives the reversal and is why this asserts ids rather
+    // than a count: reading the first two nodes of three and dropping the
+    // rest would draw a diagram the author never wrote, which is worse than
+    // the refusal it replaced. A chain is read whole or refused whole.
     for (const line of [
       "A --> B --> C",
       "A[Start] --> B[Mid] --> C[End]",
@@ -3065,11 +3067,45 @@ A[Start]:::ghost --> B[End]:::ghost
         document.createElement("div"),
       );
 
-      expect([line, result.diagnostics.map((d) => d.message)]).toEqual([
-        line,
-        [`Unrecognized flowchart line: "${line}"`],
-      ]);
+      expect([line, result.diagnostics]).toEqual([line, []]);
+      const edgeIds = Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) =>
+        path.getAttribute("data-siren-id"),
+      );
+      expect([line, edgeIds]).toEqual([line, ["A-B", "B-C"]]);
+      const nodeIds = Array.from(result.svg!.querySelectorAll("g.siren-node")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      );
+      expect([line, nodeIds]).toEqual([line, ["A", "B", "C"]]);
     }
+  });
+
+  it("lands a `:::` on both ends of a chain, and on every member of an `&` group, all the way in the DOM", () => {
+    const result = render(
+      `flowchart TD
+classDef hot fill:#fdd
+classDef cold fill:#ddf
+A:::hot --> B --> C:::cold
+D:::hot & E:::cold --> F
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const frameStyle = (id: string) =>
+      result
+        .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
+        .getAttribute("style");
+
+    // A line that names more endpoints applies at more of them; the one
+    // that wore nothing still wears nothing.
+    expect(["A", "B", "C", "D", "E", "F"].map(frameStyle)).toEqual([
+      "fill:#fdd",
+      null,
+      "fill:#ddf",
+      "fill:#fdd",
+      "fill:#ddf",
+      null,
+    ]);
   });
 
   it("carries a flowchart author's `linkStyle` all the way to the DOM: the inline style lands on the path of the edge the index addresses, and on no other", () => {
@@ -3752,5 +3788,101 @@ Alice-)Bob: open
     expect(markerRefOf("Parse-Resolve")).toBe(markerRefOf("Resolve-Layout"));
     expect(markerRefOf("Layout-Render")).toBe(markerRefOf("Render-Output"));
     expect(markerRefOf("Source-Parse")).not.toBe(markerRefOf("Parse-Resolve"));
+  });
+  it("renders examples/flowchart-syntax.srn end to end with zero diagnostics — the `graph` header, a chained edge, `&` on either end of an arrow, `;` between two statements on one line, and a quoted label", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-syntax"), container);
+
+    // Zero diagnostics of *any* severity, as the two closing examples before
+    // this one assert: the `examples/` enumeration test above filters to
+    // error severity, so a warning would slip through it.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- the four spellings, in the document itself ---
+    //
+    // The picture assertions below are deliberately the picture the *longhand*
+    // spelling would draw too — that is what "a way of writing the same eight
+    // edges" means, and it is why they cannot pin what this file exists for.
+    // Rewriting it as eight ordinary `A --> B` lines would leave every one of
+    // them green and quietly cost the repository its only example of the
+    // syntax this board taught. So the file's job is asserted here, once,
+    // against its own text.
+    const declarations = readExample("flowchart-syntax")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (what: string, pattern: RegExp): void => {
+      const written = declarations.filter((line) => pattern.test(line));
+      expect(written, `examples/flowchart-syntax.srn no longer declares ${what}`).not.toEqual([]);
+    };
+    // `graph`, not `flowchart` — Mermaid's original spelling of the keyword.
+    expect(declarations[0]).toBe("graph LR");
+    declares("a chained edge", /-->[^>]*-->/);
+    declares("`&` on the target end of an arrow", /-->[^&]*&/);
+    declares("`&` on the source end of an arrow", /&[^&]*-->/);
+    declares("two statements on one line, separated by `;`", /-->.*;.*-->/);
+    declares("a quoted label", /\["/);
+
+    // Every expectation below is what **mermaid 11.17.2 itself** records for
+    // this document, read out with `packages/core/scripts/mermaid-probe.mjs`
+    // — eight vertices and eight edges, in this order. The example exists to
+    // show the spellings this board taught the parser, so the thing worth
+    // asserting is that Mermaid's reading of it and Siren's are the same
+    // picture, not that some picture appeared.
+    const nodeIds = Array.from(svg.querySelectorAll("g.siren-node")).map((g) =>
+      g.getAttribute("data-siren-id"),
+    );
+    expect(nodeIds).toEqual([
+      "Ingest",
+      "Parse",
+      "Check",
+      "Model",
+      "Style",
+      "Layout",
+      "Render",
+      "Output",
+    ]);
+
+    const labelOf = (id: string): string | null =>
+      svg.querySelector(`g.siren-node[data-siren-id="${id}"] text`)!.textContent;
+    // The quoted labels: Mermaid says `text="Ingest, raw"` and
+    // `text="Done, at last"`. The quotes are syntax and are not drawn; the
+    // comma they were fencing survives.
+    expect(labelOf("Ingest")).toBe("Ingest, raw");
+    expect(labelOf("Output")).toBe("Done, at last");
+    // An implicitly created node is labelled with its own id, quoted or not.
+    expect(labelOf("Parse")).toBe("Parse");
+
+    const edgeIds = Array.from(svg.querySelectorAll("path.siren-edge")).map((p) =>
+      p.getAttribute("data-siren-id"),
+    );
+    expect(edgeIds).toEqual([
+      // A chain: `Ingest --> Parse --> Check` is two edges, not one.
+      "Ingest-Parse",
+      "Parse-Check",
+      // `&` on the target end: one arrow, two edges out of `Check`.
+      "Check-Model",
+      "Check-Style",
+      // `&` on the source end: two edges into `Layout`.
+      "Model-Layout",
+      "Style-Layout",
+      // `;` ends a statement, so this one line declares both of these.
+      "Layout-Render",
+      "Render-Output",
+    ]);
+
+    // An edge that no line declared on its own is still addressable by the
+    // `${from}-${to}` id `timeline:` uses — which is the consequence of this
+    // board that an author actually feels: the shorthand spellings are a way
+    // of writing edges, not a different kind of edge.
+    expect(result.controller!.totalSteps).toBe(6);
+    const animatable = (id: string) =>
+      svg.querySelectorAll(`[data-siren-id="${id}"]`).length;
+    expect(animatable("Ingest-Parse")).toBe(1);
+    expect(animatable("Check-Style")).toBe(1);
+    expect(animatable("Render-Output")).toBe(1);
   });
 });

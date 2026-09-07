@@ -13,7 +13,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "vite build"
+    "build": "vite build",
+    "probe": "node scripts/mermaid-probe.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1"
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^26.4.1",
     "jsdom": "^25.0.1",
+    "mermaid": "11.17.2",
     "typescript": "^5.6.3",
     "vite": "^8.2.2",
     "vitest": "^2.1.4"

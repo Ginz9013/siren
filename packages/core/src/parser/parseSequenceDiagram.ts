@@ -102,14 +102,38 @@ function escapeRegExp(token: string): string {
 
 const ARROW_ALTERNATION = ARROW_TOKENS.map((a) => escapeRegExp(a.token)).join("|");
 
-// Activation-shorthand `+`/`-` (e.g. `A->>+B: ...`) is out of scope per the
-// spec's non-goals (activation bars are deferred). Rather than reject any
-// message using it, this parser treats an optional `+`/`-` immediately
-// after the arrow as literal syntax noise and ignores it — the target id
-// is still captured correctly and no activation state is recorded
-// anywhere. This choice is documented here since the spec does not pin it
-// down (see ticket 01).
-const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})[+-]?(\\w+)\\s*:\\s*(.*)$`);
+/**
+ * A message: sender, arrow, target, `: text`. Nothing may sit between the
+ * arrow and the target — in particular not the activation shorthand's
+ * `+`/`-`, which `ACTIVATION_MESSAGE_RE` below claims instead.
+ */
+const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$`);
+
+/**
+ * The same message shape, but with the activation shorthand's `+`/`-`
+ * between the arrow and the target (`A->>+B: x`, `B-->>-A: y`).
+ *
+ * Siren does not draw activation bars, and this pattern exists to *refuse*
+ * such a line rather than to read it. That is a reversal: this regex's
+ * `[+-]` used to live inside `MESSAGE_RE`, where the marker was matched
+ * and thrown away so that one unimplemented feature would not cost the
+ * author their whole document. Under the condition this codebase now holds
+ * itself to — a document that renders in Mermaid renders here — swallowing
+ * is the worse trade: Mermaid draws a bar and a visibly thickened
+ * lifeline, Siren drew neither and said nothing, so the author was handed
+ * a wrong picture with no signal in it. An honest rejection at least names
+ * what is missing.
+ *
+ * It is matched *after* `MESSAGE_RE`, though the two are disjoint: a
+ * target is `\w+` and can never begin with `+` or `-`, so no arrow token
+ * ending in `-x`, `--x`, `-)` or `--)` can be reread as a marker.
+ *
+ * `activate X` / `deactivate X`, the long form, is a separate gap: it
+ * stays an unrecognized line, as it is today.
+ */
+const ACTIVATION_MESSAGE_RE = new RegExp(
+  `^(?:\\w+)(?:${ARROW_ALTERNATION})([+-])(?:\\w+)\\s*:\\s*(?:.*)$`,
+);
 
 /** Mutable cursor + accumulators threaded through the recursive-descent body parser. */
 interface ParserState {
@@ -365,6 +389,21 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         line: lineNumber,
         column,
       });
+      state.index++;
+      continue;
+    }
+
+    const activationMatch = ACTIVATION_MESSAGE_RE.exec(line);
+    if (activationMatch !== null) {
+      state.diagnostics.push({
+        severity: "error",
+        message:
+          `Siren does not draw an activation bar (the \`${activationMatch[1]}\` ` +
+          `after the arrow) yet: "${line}"`,
+        line: lineNumber,
+        column,
+      });
+      state.sawError = true;
       state.index++;
       continue;
     }

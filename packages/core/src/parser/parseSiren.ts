@@ -41,7 +41,8 @@ function stripComments(lines: readonly string[]): string[] {
 
 /**
  * Sniffs the first non-blank line of Siren source text and dispatches to
- * `parseFlowchart` (`flowchart TB|BT|LR|RL` header) or `parseSequenceDiagram`
+ * `parseFlowchart` (a `flowchart TB|BT|LR|RL` header, or the same header
+ * written with Mermaid's original `graph` keyword) or `parseSequenceDiagram`
  * (`sequenceDiagram` header), after stripping `%%` comments from the whole
  * document. Never throws on malformed input — an unrecognized header is
  * reported as a diagnostic instead.

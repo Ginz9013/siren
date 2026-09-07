@@ -85,6 +85,34 @@ describe("parseSequenceDiagram", () => {
     );
   });
 
+  it("refuses activation shorthand, naming activation rather than calling the line unrecognized", () => {
+    // Mermaid draws an activation bar and a visibly thickened lifeline for
+    // these. Siren draws neither, so the honest answer names the gap; the
+    // author wrote valid Mermaid and must not be told their input was wrong.
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  A->>+B: request
+  A->>-B: cancel
+  B-->>-A: response
+`;
+
+    const { document, diagnostics } = parseSequenceDiagram(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw an activation bar (the `+` after the arrow) yet: "A->>+B: request"',
+      'Siren does not draw an activation bar (the `-` after the arrow) yet: "A->>-B: cancel"',
+      'Siren does not draw an activation bar (the `-` after the arrow) yet: "B-->>-A: response"',
+    ]);
+    expect(diagnostics.every((d) => d.severity === "error")).toBe(true);
+    expect(diagnostics.map((d) => [d.line, d.column])).toEqual([
+      [4, 3],
+      [5, 3],
+      [6, 3],
+    ]);
+  });
+
   it("parses a self-message (undeclared-but-self target) as a message between the same participant id", () => {
     const source = `sequenceDiagram
   participant A

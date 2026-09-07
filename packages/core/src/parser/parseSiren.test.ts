@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
 import type {
   ClassDocument,
@@ -105,6 +106,24 @@ timeline:
     expect(document.direction).toBe("TB");
   });
 
+  it("reads a `graph` header as the `flowchart` header it is a spelling of, direction for direction", () => {
+    // Mermaid's original keyword, and still the one most documents in the
+    // wild open with. Compared against the `flowchart` document rather than
+    // against a hand-written expectation on purpose: the claim is not "graph
+    // parses", it is that nothing downstream can tell which word was
+    // written, `TD` alias included.
+    for (const spelling of ["TB", "TD", "BT", "LR", "RL"]) {
+      const body = `
+  A[Start]
+  A --> B[End]
+`;
+
+      expect(parseSiren(`graph ${spelling}${body}`)).toEqual(
+        parseSiren(`flowchart ${spelling}${body}`),
+      );
+    }
+  });
+
   it("names every accepted flowchart direction when it rejects a header", () => {
     const source = `flowchart SIDEWAYS
   A[Start]
@@ -116,6 +135,26 @@ timeline:
     const message = diagnostics[0].message;
     for (const spelling of ["TB", "BT", "LR", "RL"]) {
       expect(message).toContain(`flowchart ${spelling}`);
+    }
+  });
+
+  it("names `graph` as well as `flowchart` when either the dispatcher or the flowchart parser rejects a header", () => {
+    // An author who wrote `graph SIDEWAYS` got their keyword right and their
+    // direction wrong. A list naming only the `flowchart` spellings would
+    // send them off to rewrite the half of the line that was fine, so the
+    // accepted set is stated in full — from both places that state it, which
+    // is what `listAcceptedHeaders` exists to keep identical.
+    const messages = [
+      parseSiren("graph SIDEWAYS\n  A[Start]\n").diagnostics[0].message,
+      parseFlowchart("graph SIDEWAYS\n  A[Start]\n").diagnostics[0].message,
+    ];
+
+    for (const message of messages) {
+      for (const keyword of ["flowchart", "graph"]) {
+        for (const direction of ["TB", "BT", "LR", "RL"]) {
+          expect(message).toContain(`${keyword} ${direction}`);
+        }
+      }
     }
   });
 
@@ -148,6 +187,231 @@ timeline:
     expect(nodeA?.label).toBe("Start");
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
+  });
+
+  /**
+   * The guard on the narrowing below. A label is allowed to *contain* a
+   * character that also opens a shape — `a/b`, `x (y)` and `100%` are
+   * ordinary labels, and an over-tight pattern that refused them would be
+   * its own compatibility bug, traded for the one it fixed.
+   */
+  it("keeps drawing a label that merely contains a character a shape opener also uses", () => {
+    const source = `flowchart TB
+  A[a/b]
+  B[x (y)]
+  C[100%]
+  D[Plain label]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual([
+      "a/b",
+      "x (y)",
+      "100%",
+      "Plain label",
+    ]);
+  });
+
+  it("rejects `A[(DB)]` as a cylinder instead of drawing a rectangle labelled `(DB)`", () => {
+    const source = `flowchart TB
+  A[(DB)]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)]"',
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("names each slash-and-backslash bracket shape rather than reading its punctuation as a label", () => {
+    // Mermaid's own four names for the four pairings, so the diagnostic
+    // tells an author which shape it thinks they wrote.
+    const forms: ReadonlyArray<[string, string]> = [
+      ["A[/Process/]", "a parallelogram (`A[/text/]`)"],
+      ["A[\\Process\\]", "a parallelogram alt (`A[\\text\\]`)"],
+      ["A[/Trapezoid\\]", "a trapezoid (`A[/text\\]`)"],
+      ["A[\\Trapezoid/]", "a trapezoid alt (`A[\\text/]`)"],
+    ];
+
+    for (const [declaration, described] of forms) {
+      const { document, diagnostics } = parseSiren(
+        `flowchart TB\n  ${declaration}\n`,
+      );
+
+      expect(document).toBeNull();
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        `Siren does not draw ${described} yet: "${declaration}"`,
+      ]);
+    }
+  });
+
+  it("names the subroutine box in `A[[Subroutine]]` instead of calling the line unrecognized", () => {
+    // Already an error today, but the wrong one: an author who wrote valid
+    // Mermaid is told their line makes no sense rather than that this one
+    // shape is not drawn yet, which is the difference between "wait" and
+    // "rewrite it".
+    const source = `flowchart TB
+  A[[Subroutine]]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw a subroutine box (`A[[text]]`) yet: "A[[Subroutine]]"',
+    ]);
+  });
+
+  it("strips the quotes fencing a label, and keeps the punctuation they fenced", () => {
+    const source = `flowchart TB
+  A["Quoted, with comma"]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(["Quoted, with comma"]);
+  });
+
+  it("lets a fenced label hold the `]` that would otherwise end it, which is what quoting is for", () => {
+    // The point of the feature, not merely that two characters were
+    // stripped: `]` ends the bracket, so an unquoted label cannot contain
+    // one. Mermaid 11.17.2 agrees on both halves — it reads `A["a]b"]` as
+    // the label `a]b` and raises a parse error on `A[a]b]`.
+    const quoted = `flowchart TB
+  A["a]b"]
+`;
+    const unquoted = `flowchart TB
+  A[a]b]
+`;
+
+    const fenced = parseFlowchartOk(quoted);
+    expect(fenced.diagnostics).toEqual([]);
+    expect(fenced.document.nodes.map((n) => n.label)).toEqual(["a]b"]);
+
+    const bare = parseSiren(unquoted);
+    expect(bare.document).toBeNull();
+    expect(bare.diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized flowchart line: "A[a]b]"',
+    ]);
+  });
+
+  it("fences a label wherever one may be written — an edge endpoint and a `:::` declaration alike", () => {
+    // Checked against Mermaid 11.17.2 rather than assumed: it reads
+    // `A["a]b-->c"] --> B["x, y"]` as two nodes and one edge, and takes a
+    // `:::` on a fenced endpoint. The label here carries both `]` and
+    // `-->`, so the cut into statements has to know where a fence starts —
+    // bracket depth alone loses the line at the `]` inside the quotes.
+    const source = `flowchart TB
+  A["a]b-->c"] --> B["x, y"]:::hot
+  classDef hot fill:#fdd
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => `${n.id}=${n.label}`)).toEqual([
+      "A=a]b-->c",
+      "B=x, y",
+    ]);
+    expect(document.edges.map((e) => `${e.from}-${e.to}`)).toEqual(["A-B"]);
+    expect(
+      document.styles
+        .filter((style) => style.styleKind === "apply")
+        .map((style) => `${style.targetIds.join(",")}:${style.name}`),
+    ).toEqual(["B:hot"]);
+  });
+
+  it("takes an empty fenced label as empty, and refuses a fence that never closes", () => {
+    // Mermaid 11.17.2 raises a parse error on all three, so none of them is
+    // a document Siren is obliged to draw — but each has to be answered
+    // deliberately rather than by whatever the pattern happens to do.
+    //
+    // `A[""]` is the fence with nothing inside it, so it is the empty label
+    // `A[]` already draws here. `A["]` and `A["""]` have a quote that never
+    // closes: there is no fenced label and no ordinary one either, so the
+    // line is refused rather than drawn with a stray quote in it.
+    const empty = parseFlowchartOk('flowchart TB\n  A[""]\n');
+    expect(empty.diagnostics).toEqual([]);
+    expect(empty.document.nodes.map((n) => n.label)).toEqual([""]);
+
+    for (const line of ['A["]', 'A["""]']) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${line}\n`);
+
+      expect(document).toBeNull();
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        `Unrecognized flowchart line: "${line}"`,
+      ]);
+    }
+  });
+
+  it("does not read two quoted runs as one fence — `A[\"hi\" and \"bye\"]` keeps every quote", () => {
+    // The mangling this ticket has to avoid. The content begins and ends
+    // with a quote, so a fence rule that only looked at the two ends would
+    // strip them and hand back `hi" and "bye` — a label nobody wrote, with
+    // the quotes that were the author's text now half gone. A fence is a
+    // quoted run spanning the whole content, and this is two of them.
+    const source = `flowchart TB
+  A["hi" and "bye"]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(['"hi" and "bye"']);
+  });
+
+  it("leaves a quote in the middle of a label alone — only a fenced label is a quoted one", () => {
+    const source = `flowchart TB
+  A[say "hi" now]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(['say "hi" now']);
+  });
+
+  it("names a Markdown string label as Markdown, not merely as a quoted label", () => {
+    // Mermaid draws **bold** as bold text here. Siren drew the backticks
+    // and the asterisks; naming the construct is what tells an author the
+    // feature is missing rather than that their quoting was wrong.
+    const source = `flowchart TB
+  A["\`**bold**\`"]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      "Siren does not draw a Markdown string label (a quoted label fenced " +
+        'in backticks) yet: "A["`**bold**`"]"',
+    ]);
+  });
+
+  it("refuses a shape written at an edge endpoint too — where it is written must not decide what it means", () => {
+    const source = `flowchart TB
+  A[(DB)] --> B[Read]
+  C[Write] --> D[/Report/]
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)] --> B[Read]"',
+      'Siren does not draw a parallelogram (`A[/text/]`) yet: "C[Write] --> D[/Report/]"',
+    ]);
   });
 
   it("parses all four timeline verbs with the correct kind/targetId/step, and effect only where expected", () => {
@@ -285,7 +549,6 @@ timeline:
   actor B as Bob
   A->>B: Sync call
   A-->>B: Dotted no arrow
-  A->>+B: (activation shorthand is NOT parsed specially — treat literally, see note below)
 `;
 
     const { document, diagnostics } = parseSiren(source);
@@ -300,15 +563,33 @@ timeline:
       { id: "B", label: "Bob", participantKind: "actor", line: 4, column: 3 },
     ]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
-    expect(messages).toHaveLength(3);
+    expect(messages).toHaveLength(2);
     expect(messages.map((m) => (m.kind === "message" ? m.arrow : null))).toEqual([
       { line: "solid", head: "filled" },
       { line: "dotted", head: "filled" },
-      { line: "solid", head: "filled" },
     ]);
-    // Activation shorthand `+` is ignored as literal syntax noise (see
-    // parseSequenceDiagram.ts) — the target id is still "B", not "+B".
-    expect(messages[2].kind === "message" && messages[2].to).toBe("B");
+  });
+
+  it("refuses activation shorthand through the dispatching seam too, naming activation", () => {
+    // This test used to assert the reverse: it fed `A->>+B` and expected zero
+    // diagnostics, because `MESSAGE_RE` matched the `+` and threw it away.
+    // Mermaid draws an activation bar and a thickened lifeline for it and
+    // Siren draws neither, so the swallow handed the author a wrong picture
+    // with nothing in it to say so. Being told what is missing is the point.
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  A->>+B: request
+  B-->>-A: response
+`;
+
+    const { document, diagnostics } = parseSiren(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw an activation bar (the `+` after the arrow) yet: "A->>+B: request"',
+      'Siren does not draw an activation bar (the `-` after the arrow) yet: "B-->>-A: response"',
+    ]);
   });
 
   it("dispatches a classDiagram document to parseClassDiagram, tagged kind: \"class\"", () => {
@@ -732,6 +1013,294 @@ timeline:
         targetIds: ["C"],
         name: "cold",
         properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads a chained `A --> B --> C` as one edge per arrow, declaring every node on the line", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A --> B --> C
+`);
+
+    // The edge ids `timeline:` and `linkStyle` end up addressing are
+    // `${from}-${to}`, so the pairs are what a chain has to get right — a
+    // count alone would pass for `A-B` twice.
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+    ]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("keeps one edge per arrow at length: a four-node chain is three edges, not two", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A[Start] --> B --> C --> D[End]
+`);
+
+    // Three links rather than two. A two-node chain cannot tell a loop that
+    // stops one short from a correct one, and stopping short is the likely
+    // bug here — it would silently drop the tail of every longer chain.
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["B", "C"],
+      ["C", "D"],
+    ]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "B"],
+      ["C", "C"],
+      ["D", "End"],
+    ]);
+  });
+
+  it("expands an `&` group on either side of the arrow into one edge per member", () => {
+    const fromGroup = parseFlowchartOk(`flowchart TD
+  A & B --> C
+`);
+    const toGroup = parseFlowchartOk(`flowchart TD
+  A --> B & C
+`);
+
+    expect(fromGroup.diagnostics).toEqual([]);
+    expect(fromGroup.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "B-C",
+    ]);
+    expect(fromGroup.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+
+    expect(toGroup.diagnostics).toEqual([]);
+    expect(toGroup.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-B",
+      "A-C",
+    ]);
+    expect(toGroup.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("pairs an `&` group on both sides source-outermost, the order Mermaid produces", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A & B --> C & D
+`);
+
+    // The order is Mermaid's own, not a preference. `FlowDB.addLink` in
+    // mermaid 11.17.2 is `for (const start of _start) { for (const end of
+    // _end) { ... } }` — sources outermost — and running that parser on
+    // this exact source produces A-C, A-D, B-C, B-D in that order.
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "A-D",
+      "B-C",
+      "B-D",
+    ]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("continues a chain from the whole group the last arrow named, so `&` and chaining compose", () => {
+    const oneThenChain = parseFlowchartOk(`flowchart TD
+  A & B --> C --> D
+`);
+    const groupThenChain = parseFlowchartOk(`flowchart TD
+  A & B --> C & D --> E
+`);
+
+    // What composition means: each arrow pairs the group before it with the
+    // group after it, and the next arrow starts from that same second
+    // group — not from the line's first group. So `A & B --> C --> D` is
+    // three edges, and D is reached only from C. Read off mermaid 11.17.2
+    // by running its flowchart parser on both sources.
+    expect(oneThenChain.diagnostics).toEqual([]);
+    expect(oneThenChain.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "B-C",
+      "C-D",
+    ]);
+
+    // And when that second group has several members, every one of them
+    // continues the chain: C-E and D-E, and still nothing from A or B to E.
+    expect(groupThenChain.diagnostics).toEqual([]);
+    expect(groupThenChain.document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-C",
+      "A-D",
+      "B-C",
+      "B-D",
+      "C-E",
+      "D-E",
+    ]);
+    expect(groupThenChain.document.nodes.map((node) => node.id)).toEqual([
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+    ]);
+  });
+
+  it("ends a statement at `;`, so one line may carry several and a trailing one is spare", () => {
+    // In Mermaid `;` is a separator that is also allowed to trail, because
+    // an empty statement is legal: running mermaid 11.17.2's own flowchart
+    // parser accepts `A --> B;`, `A --> B; B --> C`, `A --> B; B --> C;`,
+    // `A --> B ; ; B --> C` and a line that is nothing but `;`, and gives
+    // the same two edges for every spelling that names them. So the rule is
+    // "`;` ends a statement", and what lies between two of them may be
+    // nothing at all.
+    for (const line of [
+      "A --> B; B --> C;",
+      "A --> B; B --> C",
+      "A-->B;B-->C;",
+      "A --> B ; ; B --> C",
+    ]) {
+      const { document, diagnostics } = parseFlowchartOk(`flowchart TD\n${line}\n`);
+
+      expect([line, diagnostics]).toEqual([line, []]);
+      expect([line, document.edges.map((edge) => `${edge.from}-${edge.to}`)]).toEqual([
+        line,
+        ["A-B", "B-C"],
+      ]);
+      expect([line, document.nodes.map((node) => node.id)]).toEqual([line, ["A", "B", "C"]]);
+    }
+  });
+
+  it("lets a `;` trail any statement kind, and reads a lone `;` as no statement at all", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  ;
+  classDef hot fill:#fdd;
+  A[Start]:::hot;
+  A --> B[End];
+  style B stroke:#00f;
+  linkStyle 0 stroke:#f00;
+  class B hot;
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "Start"],
+      ["B", "End"],
+    ]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
+    expect(document.styles.map((style) => [style.styleKind, style.authoredAs, style.name])).toEqual(
+      [
+        ["classDef", "classDef", "hot"],
+        ["apply", ":::", "hot"],
+        ["style", "style", null],
+        ["apply", "class", "hot"],
+      ],
+    );
+    expect(document.linkStyles.map((linkStyle) => linkStyle.targets)).toEqual([["0"]]);
+  });
+
+  it("keeps a `;` and an `&` that are inside a label out of the split", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A[one; two] --> B[three & four]
+`);
+
+    // `A[a;b]` and `A[a&b]` are ordinary labels in Mermaid — checked
+    // against its own parser — so a splitter that did not know where a
+    // label starts would cut them into nonsense.
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "one; two"],
+      ["B", "three & four"],
+    ]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
+  });
+
+  it("diagnoses only the statement that is wrong when a line carries several, at that statement's own column", () => {
+    const { document, diagnostics } = parseSiren(`flowchart TD
+  A --> B; nonsense here
+`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized flowchart line: "nonsense here"',
+        line: 2,
+        column: 12,
+      },
+    ]);
+  });
+
+  it("applies a `:::` at every endpoint a chained or `&` line multiplies, and once per endpoint", () => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TD
+  A:::hot --> B --> C:::cold
+  D --> E:::warm --> F
+  G:::hot & H:::cold --> I:::warm
+`);
+
+    expect(diagnostics).toEqual([]);
+    // Once per endpoint that wore one — not once per link the endpoint
+    // takes part in. E sits in the middle of a chain and so belongs to two
+    // edges; it still applies `warm` a single time.
+    expect(document.styles.map((style) => [style.targetIds, style.name])).toEqual([
+      [["A"], "hot"],
+      [["C"], "cold"],
+      [["E"], "warm"],
+      [["G"], "hot"],
+      [["H"], "cold"],
+      [["I"], "warm"],
+    ]);
+    expect(document.styles.every((style) => style.authoredAs === ":::")).toBe(true);
+    // And the shorthand still claims no label, so every node keeps its id.
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "B"],
+      ["C", "C"],
+      ["D", "D"],
+      ["E", "E"],
+      ["F", "F"],
+      ["G", "G"],
+      ["H", "H"],
+      ["I", "I"],
+    ]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual([
+      "A-B",
+      "B-C",
+      "D-E",
+      "E-F",
+      "G-I",
+      "H-I",
+    ]);
+  });
+
+  it("refuses a chain whole, declaring nothing from the endpoints it could read", () => {
+    // The property board 3's pin was protecting, kept now that the line is
+    // accepted: reading some of a line's nodes and dropping the rest would
+    // draw a diagram nobody wrote. The redeclaration warning is what makes
+    // "nothing was taken" observable — `A` already has a label, so if the
+    // first endpoint had been declared before the refusal there would be a
+    // warning sitting next to the error.
+    const shape = parseSiren(`flowchart TD
+  A[Start]
+  A[Other] --> B[(DB)] --> C
+`);
+
+    expect(shape.document).toBeNull();
+    expect(shape.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Siren does not draw a cylinder (`A[(text)]`) yet: "A[Other] --> B[(DB)] --> C"',
+        line: 3,
+        column: 3,
+      },
+    ]);
+
+    // Same rule for an endpoint that is not readable at all — here a thick
+    // arrow, which is a later board's, in the middle of the line.
+    const unreadable = parseSiren(`flowchart TD
+  A[Start]
+  A[Other] --> B ==> C
+`);
+
+    expect(unreadable.document).toBeNull();
+    expect(unreadable.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized flowchart line: "A[Other] --> B ==> C"',
         line: 3,
         column: 3,
       },
