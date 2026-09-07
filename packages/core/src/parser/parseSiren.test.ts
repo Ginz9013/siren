@@ -272,18 +272,103 @@ timeline:
     ]);
   });
 
-  it("rejects a quoted label instead of drawing the quotation marks as part of it", () => {
+  it("strips the quotes fencing a label, and keeps the punctuation they fenced", () => {
     const source = `flowchart TB
   A["Quoted, with comma"]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw a quoted label (`A["text"]`) yet: ' +
-        '"A["Quoted, with comma"]"',
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(["Quoted, with comma"]);
+  });
+
+  it("lets a fenced label hold the `]` that would otherwise end it, which is what quoting is for", () => {
+    // The point of the feature, not merely that two characters were
+    // stripped: `]` ends the bracket, so an unquoted label cannot contain
+    // one. Mermaid 11.17.2 agrees on both halves — it reads `A["a]b"]` as
+    // the label `a]b` and raises a parse error on `A[a]b]`.
+    const quoted = `flowchart TB
+  A["a]b"]
+`;
+    const unquoted = `flowchart TB
+  A[a]b]
+`;
+
+    const fenced = parseFlowchartOk(quoted);
+    expect(fenced.diagnostics).toEqual([]);
+    expect(fenced.document.nodes.map((n) => n.label)).toEqual(["a]b"]);
+
+    const bare = parseSiren(unquoted);
+    expect(bare.document).toBeNull();
+    expect(bare.diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized flowchart line: "A[a]b]"',
     ]);
+  });
+
+  it("fences a label wherever one may be written — an edge endpoint and a `:::` declaration alike", () => {
+    // Checked against Mermaid 11.17.2 rather than assumed: it reads
+    // `A["a]b-->c"] --> B["x, y"]` as two nodes and one edge, and takes a
+    // `:::` on a fenced endpoint. The label here carries both `]` and
+    // `-->`, so the cut into statements has to know where a fence starts —
+    // bracket depth alone loses the line at the `]` inside the quotes.
+    const source = `flowchart TB
+  A["a]b-->c"] --> B["x, y"]:::hot
+  classDef hot fill:#fdd
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => `${n.id}=${n.label}`)).toEqual([
+      "A=a]b-->c",
+      "B=x, y",
+    ]);
+    expect(document.edges.map((e) => `${e.from}-${e.to}`)).toEqual(["A-B"]);
+    expect(
+      document.styles
+        .filter((style) => style.styleKind === "apply")
+        .map((style) => `${style.targetIds.join(",")}:${style.name}`),
+    ).toEqual(["B:hot"]);
+  });
+
+  it("takes an empty fenced label as empty, and refuses a fence that never closes", () => {
+    // Mermaid 11.17.2 raises a parse error on all three, so none of them is
+    // a document Siren is obliged to draw — but each has to be answered
+    // deliberately rather than by whatever the pattern happens to do.
+    //
+    // `A[""]` is the fence with nothing inside it, so it is the empty label
+    // `A[]` already draws here. `A["]` and `A["""]` have a quote that never
+    // closes: there is no fenced label and no ordinary one either, so the
+    // line is refused rather than drawn with a stray quote in it.
+    const empty = parseFlowchartOk('flowchart TB\n  A[""]\n');
+    expect(empty.diagnostics).toEqual([]);
+    expect(empty.document.nodes.map((n) => n.label)).toEqual([""]);
+
+    for (const line of ['A["]', 'A["""]']) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${line}\n`);
+
+      expect(document).toBeNull();
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        `Unrecognized flowchart line: "${line}"`,
+      ]);
+    }
+  });
+
+  it("does not read two quoted runs as one fence — `A[\"hi\" and \"bye\"]` keeps every quote", () => {
+    // The mangling this ticket has to avoid. The content begins and ends
+    // with a quote, so a fence rule that only looked at the two ends would
+    // strip them and hand back `hi" and "bye` — a label nobody wrote, with
+    // the quotes that were the author's text now half gone. A fence is a
+    // quoted run spanning the whole content, and this is two of them.
+    const source = `flowchart TB
+  A["hi" and "bye"]
+`;
+
+    const { document, diagnostics } = parseFlowchartOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(['"hi" and "bye"']);
   });
 
   it("leaves a quote in the middle of a label alone — only a fenced label is a quoted one", () => {

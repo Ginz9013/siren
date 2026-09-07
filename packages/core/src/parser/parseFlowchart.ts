@@ -15,15 +15,40 @@ import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 /**
+ * What may lie between the `[` and the `]` of a node: either a fenced run,
+ * or a character that is not the `]` ending the bracket.
+ *
+ * The fenced alternative is the whole point of quoting. `]` ends the
+ * bracket, so an unquoted label cannot contain one — `A[a]b]` is a parse
+ * error in Mermaid 11.17.2, measured against its own parser — while
+ * `A["a]b"]` is the label `a]b`. A pattern that only knew about `[^\]]`
+ * could strip the quotes but could never read the label they were written
+ * to make possible.
+ *
+ * The second alternative excludes `"` as well as `]`, so a quote can only
+ * be read as part of a fence that closes. That is what refuses `A["]` and
+ * `A["""]` — Mermaid raises a parse error on both — instead of drawing a
+ * node with a stray quote in its label, and it is also what keeps the two
+ * alternatives from overlapping, so this pattern cannot backtrack
+ * exponentially over a line full of quotes.
+ *
+ * Written once and shared by both readers below, so that a label means the
+ * same thing on a line of its own as it does at an edge endpoint.
+ */
+const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
+
+/**
  * A node declaration, with the optional `:::name` shorthand that applies a
  * `classDef` at the declaration itself. `A[Start]:::emphasis`.
  *
- * `[^\]]*` still reads the label loosely, but it no longer gets first
+ * `LABEL_CONTENT` still reads the label loosely, but it no longer gets first
  * refusal on the line: `UNIMPLEMENTED_BRACKET_FORMS` is asked first, and
  * everything it names never reaches here. Widening this pattern without
  * reading that one re-opens the bug that comment exists to close.
  */
-const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*(?::::(\w+))?\s*$/;
+const NODE_RE = new RegExp(
+  String.raw`^(\w+)\s*\[(${LABEL_CONTENT})\]\s*(?::::(\w+))?\s*$`,
+);
 
 /**
  * Everything Mermaid writes *inside* `[...]` that is not a plain label — six
@@ -40,10 +65,11 @@ const NODE_RE = /^(\w+)\s*\[([^\]]*)\]\s*(?::::(\w+))?\s*$/;
  * never learns anything is missing.
  *
  * None of these is a permanent refusal. The shapes arrive on their own
- * board and quoting on this one, and each `described` is written for the
- * author who will read it: it names the shape Mermaid means, so the answer
- * is "wait" rather than "rewrite your line". Whoever implements one deletes
- * its row here.
+ * board, and each `described` is written for the author who will read it:
+ * it names the shape Mermaid means, so the answer is "wait" rather than
+ * "rewrite your line". Whoever implements one deletes its row here — the
+ * plain quoted label was a row here until quoting arrived, and `labelIn`
+ * is what replaced it.
  *
  * Every form is anchored at **both ends** of the bracket content on purpose.
  * An over-tight pattern would be its own compatibility bug, traded for the
@@ -62,15 +88,17 @@ const UNIMPLEMENTED_BRACKET_FORMS: ReadonlyArray<{
   { open: "\\", close: "\\", described: "a parallelogram alt (`A[\\text\\]`)" },
   { open: "/", close: "\\", described: "a trapezoid (`A[/text\\]`)" },
   { open: "\\", close: "/", described: "a trapezoid alt (`A[\\text/]`)" },
-  // Before the plain quoted label, because it is the same fence with
-  // backticks inside it: the list is read most specific first, so an
-  // author who wrote Markdown is told about Markdown.
+  // A Markdown string, which is the label fence with backticks inside it.
+  // Read before `labelIn` strips that fence, so an author who wrote
+  // Markdown is told about Markdown rather than handed a label with
+  // backticks and asterisks in it — half-implementing the feature would
+  // draw `**bold**` where Mermaid draws bold text, which is the swallow
+  // this whole list exists to refuse.
   {
     open: '"`',
     close: '`"',
     described: "a Markdown string label (a quoted label fenced in backticks)",
   },
-  { open: '"', close: '"', described: 'a quoted label (`A["text"]`)' },
 ];
 
 /**
@@ -92,6 +120,41 @@ function unimplementedFormIn(content: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * The quotation mark that fences a label: `A["Quoted, with comma"]`.
+ *
+ * Quoting is how a Mermaid author escapes a label containing the characters
+ * the grammar would otherwise eat, so the fence is **syntax** and never part
+ * of the picture. Drawing it — which is what Siren used to do before the
+ * construct was refused outright — punishes exactly the author who needed
+ * the escape hatch.
+ */
+const LABEL_FENCE = '"';
+
+/**
+ * A **fenced** label: one quoted run spanning the whole of the bracket
+ * content, capturing what it fences.
+ *
+ * One run spanning everything, rather than a quote at each end, and the
+ * difference is a mangled label. `A["hi" and "bye"]` begins and ends with a
+ * quote but is two runs with the author's own text between them; stripping
+ * the outer pair would draw `hi" and "bye`, which nobody wrote. So this
+ * pattern forbids a fence inside the fence, and content that is not one run
+ * is an ordinary label with quote characters in it — the rule
+ * `A[say "hi" now]` has always followed.
+ */
+const FENCED_LABEL_RE = /^"([^"]*)"$/;
+
+/**
+ * The label an author wrote inside `[...]`, with the fence removed when
+ * there is one. Ordinary content is returned untouched, which is the common
+ * case.
+ */
+function labelIn(content: string): string {
+  const fenced = FENCED_LABEL_RE.exec(content);
+  return fenced === null ? content : fenced[1];
 }
 
 /**
@@ -132,8 +195,14 @@ const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
  * chains as rejected, kept rather than discarded — reading some of the
  * nodes on a line and dropping the rest would draw a diagram nobody wrote,
  * which is worse than an honest refusal.
+ *
+ * Its label is `LABEL_CONTENT`, the same one a standalone declaration
+ * reads, because quoting works wherever a label can be written — Mermaid
+ * takes `A["a]b-->c"] --> B["x, y"]:::hot`, and so does this.
  */
-const ENDPOINT_RE = /^(\w+)(?:\s*\[([^\]]*)\])?(?:\s*:::(\w+))?$/;
+const ENDPOINT_RE = new RegExp(
+  String.raw`^(\w+)(?:\s*\[(${LABEL_CONTENT})\])?(?:\s*:::(\w+))?$`,
+);
 
 /** The one arrow form Siren draws. Every other Mermaid arrow is a later board's. */
 const ARROW = "-->";
@@ -204,14 +273,32 @@ function readEndpoint(text: string): EdgeEndpoint | null {
  * that did not know where a label starts would cut them into nonsense —
  * the same class of bug `UNIMPLEMENTED_BRACKET_FORMS` exists to keep out.
  *
+ * Depth alone is not enough once a label may be fenced, which is why the
+ * fence is tracked here too: the `]` inside `A["a]b-->c"]` is a character
+ * of the label, and a splitter that counted it would come back out to
+ * depth 0 and then cut the line at the `-->` that is also part of it.
+ *
+ * The fence only fences **inside** a bracket, which is where Mermaid's
+ * grammar has a string at all. That is what leaves `DECLARATION_LIST_RE`'s
+ * divergence untouched: a `"` in `style A fill:"#fdd;x"` is not a fence,
+ * so the `;` there still reaches the security gate that refuses it.
+ *
  * Always returns at least one piece, and never trims: a caller that needs
  * a column needs the offsets left alone.
  */
 function splitOutsideLabel(text: string, separator: string): string[] {
   const parts: string[] = [];
   let depth = 0;
+  let fenced = false;
   let start = 0;
   for (let i = 0; i < text.length; i++) {
+    if (depth > 0 && text[i] === LABEL_FENCE) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) {
+      continue;
+    }
     if (text[i] === "[") {
       depth++;
       continue;
@@ -468,6 +555,11 @@ export function parseFlowchart(source: string): ParseResult {
    * alone. That second rule is ticket 04's, for the standalone `A:::name`,
    * and an edge's bare endpoint has always followed it — they are one rule
    * written once here rather than two copies free to drift.
+   *
+   * `label` is bracket content as written, so the fence comes off here —
+   * once, for every place a label can appear, which is why `A["x, y"]` on
+   * a line of its own and at an edge endpoint cannot disagree about what
+   * the author wrote.
    */
   const addNodeAsWritten = (
     id: string,
@@ -477,7 +569,7 @@ export function parseFlowchart(source: string): ParseResult {
     column: number,
   ) => {
     if (label !== undefined) {
-      addNode(id, label, line, column);
+      addNode(id, labelIn(label), line, column);
     } else if (!nodesById.has(id)) {
       nodesById.set(id, { id, label: id, line, column });
     }

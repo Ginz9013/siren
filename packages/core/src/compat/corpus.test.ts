@@ -296,8 +296,15 @@ const SILENTLY_WRONG = 2;
  * rather than as exactly two, either end of an arrow may name several nodes
  * with `&`, and `;` ends a statement so a line may carry more than one.
  * Three rows, one change — how an edge line is read.
+ *
+ * It fell by one more, to 33. `fc-text-quoted` is `supported`: the quotes
+ * that fence a label are syntax, so they are stripped rather than drawn, and
+ * the punctuation they were fencing survives. `silently-wrong` is untouched
+ * at 2 — this row had already been made honest by the refusal it is now
+ * replacing, so the fall is a construct starting to work, not a measurement
+ * being corrected.
  */
-const REJECTED = 34;
+const REJECTED = 33;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

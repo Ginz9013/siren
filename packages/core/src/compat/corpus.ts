@@ -533,8 +533,14 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A["Quoted, with comma"]`,
-    status: "rejected",
+    status: "supported",
     meaning: "Quotes fence a label containing punctuation; the quotes are not part of it.",
+    assert: (result) => {
+      // The comma survives and the quotes do not. Drawing them was the
+      // silent mis-render this row was seeded for: an author reaching for
+      // the escape hatch got it printed back at them.
+      expectSame("nodes", nodes(result), ["A[Quoted, with comma]"]);
+    },
   },
   {
     id: "fc-text-markdown",
