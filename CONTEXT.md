@@ -4,6 +4,17 @@ Siren is a Mermaid-syntax-aligned diagram format and renderer that adds declarat
 step reveal, highlighting, enter/exit transitions — authored inside the same plain-text document
 as the diagram. See `docs/adr/` for the architectural decisions behind it.
 
+Compatibility with Mermaid is an absolute condition, not an aspiration: **a document that renders
+in Mermaid must render here.** The rule that keeps it honest while the gap is still being closed,
+and the one an author or a maintainer can act on today:
+
+> **While a construct is unimplemented, Siren rejects it rather than rendering it wrongly.**
+
+An author gets an error-severity diagnostic naming what is missing, and knows to route around it.
+The alternative — reading as much of the line as we understand and drawing the rest away — hands
+them a wrong picture with nothing in it to notice, and disguises *not implemented* as *supported*.
+What Siren stands on, construct by construct, is measured by the **compatibility corpus** below.
+
 ## Language
 
 **Siren document**:
@@ -103,6 +114,39 @@ document — an unresolved timeline reference, a duplicate node id, etc. Returne
 never thrown.
 _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "error-severity
 diagnostic" for the level)
+
+**Compatibility corpus**:
+`packages/core/src/compat/corpus.ts` — one row per Mermaid construct, stating what Siren does with
+that construct today, plus the runner and the two ratchets in `corpus.test.ts` that make the
+statement fail when it stops being true. It is the instrument behind the absolute condition above:
+nothing in this repo failed when a valid Mermaid document stopped rendering, which is how the
+flowchart gap reached 34/39 unnoticed. A row is valid Mermaid, its meaning in prose, and one of
+three states:
+- **`supported`** — and it must carry an `assert` that reads the rendered SVG for *meaning*. "It
+  parsed with no diagnostics" is exactly what a silent mis-render looks like, so a row claiming
+  support without an assert is a defect **in the corpus**, and the runner fails it as one. This
+  rule is the difference between measuring 10/39 and measuring the true 5/39.
+- **`rejected`** — the author is honestly told the construct is not implemented. This is the
+  **backlog**, and its count may only ever **shrink**.
+- **`silently-wrong`** — no diagnostic, and the wrong picture. This is a **policy**, not a backlog:
+  its count's destination is **zero**. A case may only remain here when its exit is *implementing*
+  the construct rather than refusing it (refusing something Mermaid draws correctly would break the
+  condition rather than serve it), and every such case is named in the ratchet's own comment. A
+  board that leaves one unnamed has failed the policy; one that names it has not.
+Both counts are asserted against a literal, so moving a case forces someone to look at the number
+and say, in the commit, whether it moved because code changed or because a measurement was
+corrected — no mechanical check can tell those apart.
+The condition has exactly one exception: **Mermaid's own silent mis-renders.** "Renders in Mermaid"
+means what Mermaid renders *correctly*; where Mermaid itself draws a wrong picture with no
+diagnostic, Siren refuses and says why rather than reproducing the bug (the precedent is `;` inside
+a style declaration list, which Mermaid ends the statement at, inventing a phantom node out of the
+tail — see `DECLARATION_LIST_RE`). Two obligations keep that an exception rather than a licence:
+the divergence is recorded **beside the code** that diverges, and **Mermaid's behavior is measured,
+not remembered** — `packages/core/scripts/mermaid-probe.mjs` runs a document through real Mermaid
+and prints what its parser recorded, and a divergence claimed from recollection is a guess.
+_Avoid_: test corpus, fixtures, compatibility matrix, "supported" as loose praise (it is one of
+three states with a rule attached), "silently wrong" as a description of any old bug (it names the
+state a corpus row declares)
 
 **Diagram kind**:
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,

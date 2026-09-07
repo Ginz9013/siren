@@ -3789,4 +3789,100 @@ Alice-)Bob: open
     expect(markerRefOf("Layout-Render")).toBe(markerRefOf("Render-Output"));
     expect(markerRefOf("Source-Parse")).not.toBe(markerRefOf("Parse-Resolve"));
   });
+  it("renders examples/flowchart-syntax.srn end to end with zero diagnostics — the `graph` header, a chained edge, `&` on either end of an arrow, `;` between two statements on one line, and a quoted label", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-syntax"), container);
+
+    // Zero diagnostics of *any* severity, as the two closing examples before
+    // this one assert: the `examples/` enumeration test above filters to
+    // error severity, so a warning would slip through it.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- the four spellings, in the document itself ---
+    //
+    // The picture assertions below are deliberately the picture the *longhand*
+    // spelling would draw too — that is what "a way of writing the same eight
+    // edges" means, and it is why they cannot pin what this file exists for.
+    // Rewriting it as eight ordinary `A --> B` lines would leave every one of
+    // them green and quietly cost the repository its only example of the
+    // syntax this board taught. So the file's job is asserted here, once,
+    // against its own text.
+    const declarations = readExample("flowchart-syntax")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (what: string, pattern: RegExp): void => {
+      const written = declarations.filter((line) => pattern.test(line));
+      expect(written, `examples/flowchart-syntax.srn no longer declares ${what}`).not.toEqual([]);
+    };
+    // `graph`, not `flowchart` — Mermaid's original spelling of the keyword.
+    expect(declarations[0]).toBe("graph LR");
+    declares("a chained edge", /-->[^>]*-->/);
+    declares("`&` on the target end of an arrow", /-->[^&]*&/);
+    declares("`&` on the source end of an arrow", /&[^&]*-->/);
+    declares("two statements on one line, separated by `;`", /-->.*;.*-->/);
+    declares("a quoted label", /\["/);
+
+    // Every expectation below is what **mermaid 11.17.2 itself** records for
+    // this document, read out with `packages/core/scripts/mermaid-probe.mjs`
+    // — eight vertices and eight edges, in this order. The example exists to
+    // show the spellings this board taught the parser, so the thing worth
+    // asserting is that Mermaid's reading of it and Siren's are the same
+    // picture, not that some picture appeared.
+    const nodeIds = Array.from(svg.querySelectorAll("g.siren-node")).map((g) =>
+      g.getAttribute("data-siren-id"),
+    );
+    expect(nodeIds).toEqual([
+      "Ingest",
+      "Parse",
+      "Check",
+      "Model",
+      "Style",
+      "Layout",
+      "Render",
+      "Output",
+    ]);
+
+    const labelOf = (id: string): string | null =>
+      svg.querySelector(`g.siren-node[data-siren-id="${id}"] text`)!.textContent;
+    // The quoted labels: Mermaid says `text="Ingest, raw"` and
+    // `text="Done, at last"`. The quotes are syntax and are not drawn; the
+    // comma they were fencing survives.
+    expect(labelOf("Ingest")).toBe("Ingest, raw");
+    expect(labelOf("Output")).toBe("Done, at last");
+    // An implicitly created node is labelled with its own id, quoted or not.
+    expect(labelOf("Parse")).toBe("Parse");
+
+    const edgeIds = Array.from(svg.querySelectorAll("path.siren-edge")).map((p) =>
+      p.getAttribute("data-siren-id"),
+    );
+    expect(edgeIds).toEqual([
+      // A chain: `Ingest --> Parse --> Check` is two edges, not one.
+      "Ingest-Parse",
+      "Parse-Check",
+      // `&` on the target end: one arrow, two edges out of `Check`.
+      "Check-Model",
+      "Check-Style",
+      // `&` on the source end: two edges into `Layout`.
+      "Model-Layout",
+      "Style-Layout",
+      // `;` ends a statement, so this one line declares both of these.
+      "Layout-Render",
+      "Render-Output",
+    ]);
+
+    // An edge that no line declared on its own is still addressable by the
+    // `${from}-${to}` id `timeline:` uses — which is the consequence of this
+    // board that an author actually feels: the shorthand spellings are a way
+    // of writing edges, not a different kind of edge.
+    expect(result.controller!.totalSteps).toBe(6);
+    const animatable = (id: string) =>
+      svg.querySelectorAll(`[data-siren-id="${id}"]`).length;
+    expect(animatable("Ingest-Parse")).toBe(1);
+    expect(animatable("Check-Style")).toBe(1);
+    expect(animatable("Render-Output")).toBe(1);
+  });
 });

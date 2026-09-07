@@ -1,0 +1,55 @@
+%% examples/flowchart-syntax.srn — the flowchart statement spellings Siren
+%% reads exactly as Mermaid does: the `graph` keyword, a chained edge, `&` on
+%% either end of an arrow, `;` between two statements on one line, and a
+%% quoted label. The same eight edges, spelled four different ways.
+
+%% A file of its own rather than more lines in examples/complex-showcase.srn
+%% or examples/flowchart-styling.srn: those two are about what a document can
+%% *do* — 22 animation steps, and every author-styling directive — and this
+%% one is about how a document may be *written*. Folding these lines into the
+%% styling example would also have moved the edge indices its `linkStyle`
+%% statements address, which is a trap rather than a demonstration.
+
+%% Measured, not remembered. Everything above the `timeline:` block is valid
+%% Mermaid — the block itself is Siren's own syntax, so it is not part of the
+%% comparison — and this prints what mermaid 11.17.2 reads out of it:
+%%     sed '/^timeline:/,$d' examples/flowchart-syntax.srn \
+%%       | node packages/core/scripts/mermaid-probe.mjs -
+%% Eight vertices, eight edges. `index.test.ts` asserts Siren draws that same
+%% picture, with zero diagnostics.
+
+%% `graph` is Mermaid's original spelling of `flowchart` and opens the same
+%% diagram, in the direction its header names. Nothing downstream — model,
+%% layout, renderer or timeline — can tell which of the two words was written.
+graph LR
+
+%% A chain is two edges, not one: `Ingest-Parse` and `Parse-Check`, each
+%% addressable below by the `${from}-${to}` id `timeline:` and `linkStyle`
+%% already use.
+%% The quotes around the label are syntax: they fence a comma that would
+%% otherwise end the label, and they are not drawn.
+Ingest["Ingest, raw"] --> Parse --> Check
+
+%% `&` on the target end of an arrow: one line, one arrow, two edges out of
+%% `Check`. There is no `Model-Style` edge — `&` lists endpoints, it does not
+%% connect them to each other.
+Check --> Model & Style
+
+%% ...and on the source end, which is the same rule read from the other side:
+%% two edges into `Layout`.
+Model & Style --> Layout
+
+%% `;` ends a statement, so a line may carry more than one. A trailing `;`
+%% ends the last one and adds nothing.
+Layout --> Render; Render --> Output["Done, at last"];
+
+%% An edge declared inside a chain, or fanned out by `&`, is an ordinary edge:
+%% it wears the id an author would have given it by writing the line out
+%% longhand, so the timeline can name it.
+timeline:
+  step 1: enter Parse fade, enter Ingest-Parse fade
+  step 2: enter Check fade, enter Parse-Check fade
+  step 3: enter Model slide-top, enter Style slide-bottom, enter Check-Model fade, enter Check-Style fade
+  step 4: enter Layout fade, enter Model-Layout fade, enter Style-Layout fade
+  step 5: enter Render fade, enter Layout-Render fade
+  step 6: enter Output fade, enter Render-Output fade

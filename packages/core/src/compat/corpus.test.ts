@@ -263,8 +263,26 @@ describe("the corpus, case by case", () => {
  * their exit is drawing a keyword, not refusing a construct. A board that
  * lowers this number further has either implemented one of them or
  * miscounted.
+ *
+ * It rose to **3** as the board closed, for the one reason a rise is
+ * legitimate: a measurement was corrected, not code made worse.
+ * `fc-text-label-whitespace` has always drawn this way — Mermaid trims the
+ * whitespace around a label, quoted or unquoted (measured in mermaid 11.17.2
+ * with `scripts/mermaid-probe.mjs`), and Siren keeps it, so `A[  x  ]` is a
+ * wider box with its text off-centre and no diagnostic. Nothing said so until
+ * the quoted-label work went looking. A gap this board found and could not
+ * close belongs in the instrument rather than in a note, which is the whole
+ * argument the corpus was built on.
+ *
+ * So the board closes at three, all three named, and none of them exits by
+ * being rejected. `A["  x  "]` is valid Mermaid that Mermaid draws correctly,
+ * so refusing it would break the absolute condition rather than serve it; its
+ * exit is a trim in the flowchart parser, which is implementation, and the
+ * closing ticket's write ownership deliberately stops short of the parser.
+ * That is the same shape as `seq-loop` and `seq-alt-else`, one board earlier
+ * in its life: named, measured, and waiting on code rather than on a policy.
  */
-const SILENTLY_WRONG = 2;
+const SILENTLY_WRONG = 3;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -303,6 +321,15 @@ const SILENTLY_WRONG = 2;
  * at 2 — this row had already been made honest by the refusal it is now
  * replacing, so the fall is a construct starting to work, not a measurement
  * being corrected.
+ *
+ * The board closes where it opened, at **33**, having travelled 33 → 39 → 33:
+ * six constructs stopped lying and six started working, and the two happen to
+ * cancel. That is not a board that achieved nothing, and reading this one
+ * number alone would say it was. The 33 it started with counted six documents
+ * that Siren drew wrongly and silently; the 33 it ends with does not, and six
+ * documents that used to be refused now render. Whoever moves this number next
+ * should expect the same: it is a backlog, and a backlog's size is a poor
+ * summary of a day's work.
  */
 const REJECTED = 33;
 

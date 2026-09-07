@@ -543,6 +543,26 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-text-label-whitespace",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[  padded  ] --> B["  padded  "]`,
+    status: "silently-wrong",
+    meaning:
+      "Mermaid trims the whitespace around a label, quoted or not: mermaid " +
+      "11.17.2 records `text=\"padded\"` for both of these vertices " +
+      "(`node scripts/mermaid-probe.mjs`). Padding a label is how an author " +
+      "lays a document out; it is not part of what the box says.",
+    assert: (result) => {
+      // Both boxes keep the spaces they were padded with, and neither says
+      // anything about it -- a wider box with the label off its own centre,
+      // and no diagnostic. Uniform across the quoted and the unquoted
+      // spelling, which is why this is one row: it is one missing trim in
+      // the parser, not a quoting bug.
+      expectSame("nodes", nodes(result), ["A[  padded  ]", "B[  padded  ]"]);
+    },
+  },
+  {
     id: "fc-text-markdown",
     kind: "flowchart",
     source: `flowchart TB
@@ -987,7 +1007,18 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       A->>+B: request
       B-->>-A: response`,
     status: "rejected",
-    meaning: "`+` activates the target's lifeline and `-` deactivates it, drawn as a bar on the lane.",
+    meaning:
+      "The shorthand for `activate`/`deactivate`, drawn as a bar on a lane — " +
+      "and the two markers name *different* lanes. `+` activates the lifeline " +
+      "the arrow points at (the message's target); `-` deactivates the " +
+      "lifeline the arrow starts from (the message's sender). In the " +
+      "canonical request/response pair above both land on B, which is why the " +
+      "pair reads as one bar and why the rule is easy to mis-state. " +
+      "Measured in mermaid 11.17.2 with `scripts/mermaid-probe.mjs`, not " +
+      "remembered: it records an activation start on B for `A->>+B` and an " +
+      "activation end on **B** for `B-->>-A`, and writing `A->>-B` instead " +
+      "fails with `Trying to inactivate an inactive participant (A)` — the " +
+      "sender.",
   },
   {
     id: "seq-activate",
