@@ -214,25 +214,6 @@ timeline:
     ]);
   });
 
-  it("rejects `A[(DB)]` as a cylinder instead of drawing a rectangle labelled `(DB)`", () => {
-    const source = `flowchart TB
-  A[(DB)]
-`;
-
-    const { document, diagnostics } = parseSiren(source);
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message:
-          'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)]"',
-        line: 2,
-        column: 3,
-      },
-    ]);
-  });
-
   it("strips the quotes fencing a label, and keeps the punctuation they fenced", () => {
     const source = `flowchart TB
   A["Quoted, with comma"]
@@ -535,38 +516,55 @@ classDef hot fill:#fdd
     ]);
   });
 
-  it("keeps the three parenthesised spellings this ticket does not draw refused, rather than swallowing them as a round node", () => {
-    // The swallow this whole list of spellings exists to prevent, one
-    // bracket family over. `A((Circle))` differs from `A(Round)` only by an
-    // inner pair of parentheses, so a round pattern that let a parenthesis
-    // into its label would read a circle as a round node labelled
-    // `(Circle)` — a valid Mermaid document drawn as the wrong picture with
-    // no diagnostic, which is the one failure the compatibility corpus
-    // exists to keep at zero.
+  it("reads the three curved spellings as the shapes Mermaid names them, wherever they are written", () => {
+    // The last three bracket spellings, and the two of them that a round
+    // node's own pattern is one pair of parentheses away from: `A((Circle))`
+    // differs from `A(Round)` by an inner pair and `A(((Double)))` by two,
+    // so the label pattern that excludes a parenthesis is what keeps a
+    // circle from being read as a round node labelled `(Circle)`. The
+    // cylinder is the same question one bracket family over — `A[(DB)]`
+    // against `A[DB]`.
     //
-    // Measured (`pnpm --filter @siren/core probe`): `A((Circle))` is
-    // `type="circle"`, `A(((Double)))` is `type="doublecircle"` and
-    // `A[(DB)]` is `type="cylinder"` — three shapes of later tickets, and
-    // all three still refused here.
-    const circle = parseSiren(`flowchart TB\n  A((Circle))\n`);
-    expect(circle.document).toBeNull();
-    expect(circle.diagnostics.map((d) => d.message)).toEqual([
-      'Unrecognized flowchart line: "A((Circle))"',
-    ]);
+    // Measured, not remembered (`pnpm --filter @siren/core probe`, mermaid
+    // 11.17.2): `A((Circle))` is `type="circle"`, `A(((Double)))` is
+    // `type="doublecircle"` and `A[(DB)]` is `type="cylinder"`, each
+    // labelled with the text inside its punctuation and none of the
+    // punctuation kept. The fenced forms come from the same probe:
+    // `A(("a)b"))` is a circle labelled `a)b`, `A((("x)y")))` a double
+    // circle labelled `x)y` and `A[("a)b")]` a cylinder labelled `a)b`,
+    // while the unfenced `A((a)b))`, `A[(a)b)]` and `A[(a[b)]` are all
+    // parse errors — the quote is how a Mermaid author writes a bracket
+    // into one of these labels, exactly as it is inside `A[...]`.
+    const source = `flowchart TB
+  A((Circle))
+  B(((Double)))
+  C[(DB)]
+  D((Circle)) --> E(((Double))) --> F[(DB)]
+  G((Circle)):::hot
+  H(("a)b"))
+  I((("x)y")))
+  J[("a)b")]
+classDef hot fill:#fdd
+`;
 
-    const double = parseSiren(`flowchart TB\n  A(((Double)))\n`);
-    expect(double.document).toBeNull();
-    expect(double.diagnostics.map((d) => d.message)).toEqual([
-      'Unrecognized flowchart line: "A(((Double)))"',
-    ]);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
-    // The cylinder keeps its *named* refusal, which the subroutine has just
-    // stopped needing: it is still the one row of
-    // `UNIMPLEMENTED_BRACKET_FORMS` that names a shape.
-    const cylinder = parseSiren(`flowchart TB\n  A[(DB)]\n`);
-    expect(cylinder.document).toBeNull();
-    expect(cylinder.diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)]"',
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+      ["A", "Circle", "circle"],
+      ["B", "Double", "double-circle"],
+      ["C", "DB", "cylinder"],
+      ["D", "Circle", "circle"],
+      ["E", "Double", "double-circle"],
+      ["F", "DB", "cylinder"],
+      ["G", "Circle", "circle"],
+      ["H", "a)b", "circle"],
+      ["I", "x)y", "double-circle"],
+      ["J", "a)b", "cylinder"],
+    ]);
+    expect(document.edges.map((e) => [e.from, e.to])).toEqual([
+      ["D", "E"],
+      ["E", "F"],
     ]);
   });
 
@@ -716,12 +714,14 @@ classDef hot fill:#fdd
   });
 
   it("refuses a form written at an edge endpoint too — where it is written must not decide what it means", () => {
-    // Two different rows of the table, so the rule is visibly about the
-    // *place* rather than about one form. The slanted shapes used to be the
-    // second example here and are drawn now; the Markdown label took their
-    // place because it is still refused.
+    // Two endpoints on two different lines and at both ends of an arrow, so
+    // the rule is visibly about the *place* rather than about one line's
+    // shape. It used to read two different rows of the table; the slanted
+    // shapes left it when they were drawn and the cylinder when it was, so
+    // the Markdown label is the whole of what is left to refuse — and the
+    // rule it stands for is the reason the mechanism outlives the shapes.
     const source = `flowchart TB
-  A[(DB)] --> B[Read]
+  A["` + "`" + `**bold**` + "`" + `"] --> B[Read]
   C[Write] --> D["` + "`" + `**bold**` + "`" + `"]
 `;
 
@@ -729,7 +729,8 @@ classDef hot fill:#fdd
 
     expect(document).toBeNull();
     expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw a cylinder (`A[(text)]`) yet: "A[(DB)] --> B[Read]"',
+      "Siren does not draw a Markdown string label (a quoted label fenced " +
+        'in backticks) yet: "A["`**bold**`"] --> B[Read]"',
       "Siren does not draw a Markdown string label (a quoted label fenced " +
         'in backticks) yet: "C[Write] --> D["`**bold**`"]"',
     ]);
@@ -1594,17 +1595,18 @@ timeline:
     // "nothing was taken" observable — `A` already has a label, so if the
     // first endpoint had been declared before the refusal there would be a
     // warning sitting next to the error.
-    const shape = parseSiren(`flowchart TD
+    const refused = parseSiren(`flowchart TD
   A[Start]
-  A[Other] --> B[(DB)] --> C
+  A[Other] --> B["` + "`" + `**bold**` + "`" + `"] --> C
 `);
 
-    expect(shape.document).toBeNull();
-    expect(shape.diagnostics).toEqual([
+    expect(refused.document).toBeNull();
+    expect(refused.diagnostics).toEqual([
       {
         severity: "error",
         message:
-          'Siren does not draw a cylinder (`A[(text)]`) yet: "A[Other] --> B[(DB)] --> C"',
+          "Siren does not draw a Markdown string label (a quoted label fenced " +
+          'in backticks) yet: "A[Other] --> B["`**bold**`"] --> C"',
         line: 3,
         column: 3,
       },

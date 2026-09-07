@@ -545,6 +545,185 @@ describe("renderToSVG", () => {
     ]);
   });
 
+  it("draws a circle as a `<circle>` inscribed in its box, with no rect geometry left behind", () => {
+    // A `<circle>` rather than a `<path>` of arcs, because the element says
+    // what the figure is and its `r` is the whole geometry — and rather
+    // than an `<ellipse>`, because an ellipse reads `rx` and `ry` as CSS
+    // geometry properties and the theme sets `rx` on `.siren-node-frame`.
+    // A circle reads neither, so the token cannot deform it: ticket 03's
+    // question about who owns a radius has no purchase here, which is the
+    // answer rather than an omission.
+    //
+    // The box is square because `layoutGraph` makes it square; taking the
+    // smaller of the two axes is what keeps the figure a circle rather than
+    // an ellipse if one ever arrives that is not.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Circle",
+          shape: "circle",
+          x: 10,
+          y: 20,
+          width: 200,
+          height: 200,
+          style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 240,
+    };
+
+    const group = renderToSVG(graph).querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+    expect(frames.map((f) => f.tagName)).toEqual(["circle"]);
+    // Centred in the box, and touching all four of its edges.
+    expect([
+      frames[0].getAttribute("cx"),
+      frames[0].getAttribute("cy"),
+      frames[0].getAttribute("r"),
+    ]).toEqual(["110", "120", "100"]);
+    // No leftover rect geometry: a `<circle>` reads none of it, and leaving
+    // it behind would suggest a rect is still in play.
+    expect(frames[0].getAttribute("width")).toBeNull();
+    // ADR-0008's placement, unchanged by the element under it.
+    expect(frames[0].getAttribute("style")).toBe("fill:#f00");
+  });
+
+  it("draws a double circle as two concentric rings, both named siren-node-frame so an author's fill paints the whole shape", () => {
+    // The same question a subroutine's inner bars asked, and the same
+    // answer: a shape drawn in more than one element wears one name across
+    // all of them. An author's `style A fill:#fdd` that reached the outer
+    // ring and not the inner one would leave a white disc floating inside a
+    // coloured circle, which is not the picture anyone asked for — and a
+    // `siren-node-ring` class of its own would be a class the default theme
+    // has to learn about separately, invisible to its coverage net.
+    //
+    // The rings differ by `SHAPE_LEAN["double-circle"] x height = 160/16 =
+    // 10`, the same gap layout enlarged the box by, so the label sits
+    // inside the inner ring rather than across it.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Double",
+          shape: "double-circle",
+          x: 10,
+          y: 20,
+          width: 160,
+          height: 160,
+          style: { frame: [{ property: "fill", value: "#fdd" }], text: [] },
+        },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 180,
+      height: 200,
+    };
+
+    const group = renderToSVG(graph).querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+    expect(frames.map((f) => f.tagName)).toEqual(["circle", "circle"]);
+    // Concentric, and two different radii — one ring drawn twice would be
+    // a plain circle with the word "double" attached to it.
+    expect(frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])).toEqual([
+      ["90", "100"],
+      ["90", "100"],
+    ]);
+    // The outer touches the box; the inner is inset by the gap.
+    expect(frames.map((f) => f.getAttribute("r"))).toEqual(["80", "70"]);
+
+    // Both take the author's declaration, so the fill is one shape's fill
+    // rather than the outer ring's.
+    expect(frames.map((f) => f.getAttribute("style"))).toEqual(["fill:#fdd", "fill:#fdd"]);
+    expect(frames.map((f) => f.getAttribute("class"))).toEqual([
+      "siren-node-frame",
+      "siren-node-frame",
+    ]);
+  });
+
+  it("draws a cylinder as one path: a tube closed by arcs, with the lid drawn across its top as a second closed subpath", () => {
+    // The shape board 4 measured as producing "a rectangle labelled `(DB)`
+    // with no diagnostic" — the swallow the whole compatibility policy was
+    // written around. What makes it a cylinder rather than that rectangle
+    // is the **lid**: a full ellipse across the top, whose lower half is
+    // the line an author reads as the top of a drum. A tube without it is a
+    // rounded rectangle.
+    //
+    // One `<path>` with two closed subpaths, rather than a path and an
+    // `<ellipse>`. An ellipse reads `rx`/`ry` as CSS geometry properties
+    // and the theme sets `rx` on `.siren-node-frame`, so the lid would be
+    // flattened to the token's 6px by a rule written about a rectangle's
+    // corners — ticket 03's cascade argument, arriving at a shape whose
+    // radius is not decoration but the figure itself. A `<path>` reads
+    // neither property, so nothing can deform it. Both subpaths wind the
+    // same way, so the default nonzero fill paints one solid drum rather
+    // than cutting the lid out as a hole.
+    //
+    // `SHAPE_LEAN.cylinder x height = 160/8 = 20` is the lid's vertical
+    // semi-axis, the same number layout made room for.
+    const graph: PositionedGraph = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "DB",
+          shape: "cylinder",
+          x: 10,
+          y: 20,
+          width: 200,
+          height: 160,
+          style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 200,
+    };
+
+    const group = renderToSVG(graph).querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+    expect(frames.map((f) => f.tagName)).toEqual(["path"]);
+    const d = frames[0].getAttribute("d")!;
+
+    // The tube: across the top on an arc, down the right side, back across
+    // the bottom on an arc, and closed up the left side. Then the lid: the
+    // same ellipse drawn whole, between the same two points.
+    expect(d).toBe(
+      "M10,40 A100,20 0 0 1 210,40 L210,160 A100,20 0 0 1 10,160 Z " +
+        "M10,40 A100,20 0 0 1 210,40 A100,20 0 0 1 10,40 Z",
+    );
+
+    // What that string means, stated as geometry so the intent survives a
+    // rewrite: two closed subpaths, the top and bottom curved, and the lid
+    // an ellipse as wide as the tube sitting at its top. One explicit `L`
+    // and not two — the right side is drawn, and the left is the straight
+    // line `Z` closes with.
+    expect(d.match(/Z/g)).toHaveLength(2);
+    expect(d.match(/A/g)).toHaveLength(4);
+    expect(d.match(/L/g)).toHaveLength(1);
+    // Every arc has the box's half-width and the lid's semi-axis as radii,
+    // so the top, the bottom and the lid are one ellipse drawn three times.
+    expect([...d.matchAll(/A([\d.]+),([\d.]+)/g)].map((m) => [m[1], m[2]])).toEqual([
+      ["100", "20"],
+      ["100", "20"],
+      ["100", "20"],
+      ["100", "20"],
+    ]);
+
+    // No leftover rect geometry, and ADR-0008's placement unchanged.
+    expect(frames[0].getAttribute("width")).toBeNull();
+    expect(frames[0].getAttribute("style")).toBe("fill:#f00");
+  });
+
   it("names each node's shape on its group as data, in addition to drawing it — never instead of it", () => {
     // On the `<g>`, which is the element that already *is* the node: it
     // carries `data-siren-id` and the animation classes, while the frame is

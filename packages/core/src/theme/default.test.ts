@@ -380,13 +380,24 @@ describe("default theme coverage of the sequence renderer", () => {
  * **Shapes belong in here, not only rectangles.** This fixture drew nothing
  * but `A[text]` while ten bracket spellings had landed, so a `siren-*` class
  * that only a shape emitted would have shipped unthemed without failing
- * anything — the checks below cannot see a class nothing renders. A
- * subroutine matters most of the three: it is the first node to draw more
- * than one element, and a second element is where a second class gets
- * invented. It emits none (its bars wear `siren-node-frame` like everything
- * else), and this fixture is what keeps that true rather than merely
- * claimed. Whoever lands the cylinder, the circles and the Markdown label
- * adds them here for the same reason.
+ * anything — the checks below cannot see a class nothing renders. The
+ * multi-element shapes matter most: a subroutine is the first node to draw
+ * more than one element and a double circle is the second, and a second
+ * element is where a second class gets invented. Neither emits one (a
+ * subroutine's bars and a double circle's inner ring both wear
+ * `siren-node-frame` like everything else), and this fixture is what keeps
+ * that true rather than merely claimed — it was measured: inventing a
+ * `siren-node-ring` on the inner ring left every check here green while the
+ * fixture drew no double circle, and fails them now.
+ *
+ * All thirteen bracket spellings are drawn now, and the fixture carries one
+ * of each family rather than all thirteen: a rectangle, the three drawn
+ * with a `<rect>`, and the three drawn with a curve — the `<circle>` and
+ * the arc-bearing `<path>` are elements nothing else here renders. The six
+ * straight-sided `<path>` shapes are the same element and the same class as
+ * the diamond, so adding them would widen the fixture without widening what
+ * it can see. Whoever lands the Markdown label adds it for the original
+ * reason.
  */
 const EVERY_FLOWCHART_FEATURE = `flowchart TB
 A[Start]
@@ -395,6 +406,9 @@ B --> C[Publish]
 C --> D(Round)
 D --> E([Stadium])
 E --> F[[Subroutine]]
+F --> G((Circle))
+G --> H(((Double)))
+H --> I[(DB)]
 
 timeline:
 step 1: enter B fade, enter A-B fade

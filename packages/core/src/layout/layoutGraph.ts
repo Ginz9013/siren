@@ -23,10 +23,18 @@ import { layoutDirectedGraph } from "./layoutDirectedGraph";
  * share is that each displaces exactly `lean x height` horizontally at the
  * height where a centred label meets it.
  *
- * The last three are drawn with a `<rect>` rather than a `<path>`, and
+ * Three of those are drawn with a `<rect>` rather than a `<path>`, and
  * belong here for exactly the same reason the others do: the renderer reads
  * these numbers as the radius it writes and the inset it places the bars
  * at, so the box layout reserves and the figure drawn stay one decision.
+ *
+ * **The last two displace vertically instead, and are the same contract.**
+ * A double circle's `lean` is the gap between its two rings, and a
+ * cylinder's is the vertical semi-axis of the ellipse its lid and its
+ * bottom bulge are halves of — in both, a fraction of the box's height that
+ * layout makes room for and the renderer draws with. `circle` is absent
+ * because it leans nowhere: its outline touches all four edges of its box,
+ * and the whole of its sizing is the label's diagonal (`boxForLabel`).
  *
  * **A stadium's `1/2` is not a proportion anyone chose.** Its ends are
  * semicircles or it is not a stadium, so its radius is half the height by
@@ -46,6 +54,8 @@ export const SHAPE_LEAN = {
   round: 1 / 4,
   stadium: 1 / 2,
   subroutine: 1 / 8,
+  "double-circle": 1 / 16,
+  cylinder: 1 / 8,
 } as const satisfies Partial<Record<NodeShape, number>>;
 
 /** A measured label, and the bounding box a shape needs to hold one. */
@@ -123,6 +133,54 @@ function boxForLabel(shape: NodeShape, label: Box): Box {
   switch (shape) {
     case "rhombus":
       return { width: label.width * 2, height: label.height * 2 };
+    case "cylinder":
+      // The only shape here that grows in **height**. Its sides are
+      // straight, so the label needs no extra width; its top and bottom are
+      // ellipses of vertical semi-axis `r = lean x H`, and the lid — a
+      // whole ellipse drawn inside the top edge — reaches `2r` down.
+      //
+      // `4r`, not `3r`, because the label is **centred**: the room a
+      // cylinder leaves runs from `2r` to `H - r`, which is not centred on
+      // the box, while the renderer puts every node's text on `H/2`. So the
+      // lid's `2r` is what the box has to clear on both sides of centre,
+      // and the bulge is then clear by a margin rather than tight. Sizing
+      // to the uncentred band would put the label's top edge through the
+      // lid — the exact failure this function exists to prevent.
+      return {
+        width: label.width,
+        height: label.height / (1 - 4 * SHAPE_LEAN.cylinder),
+      };
+    case "double-circle": {
+      // Two rings, and the label belongs inside the **inner** one: a box
+      // sized for the outer circle would draw the inner ring through the
+      // text. So the inner circle takes the diameter a plain circle would
+      // have, and the box is that plus the ring gap on each side.
+      //
+      // The gap is a fraction of the box rather than a constant, for the
+      // same reason every other number here is: a one-character double
+      // circle stays small and still reads as two rings.
+      const gap = SHAPE_LEAN["double-circle"];
+      const diameter = Math.hypot(label.width, label.height) / (1 - 2 * gap);
+      return { width: diameter, height: diameter };
+    }
+    case "circle": {
+      // A circle is only a circle in a square box, so both axes take the
+      // same number, and the smallest circle containing the centred label
+      // is the one whose diameter is the label's **diagonal** — every
+      // corner of the label then lies on the outline, exactly as a
+      // rhombus's corners do.
+      //
+      // This is the shape where fitting inside costs the most, and the
+      // cost is not hidden: a wide label makes a very large node, because
+      // the diameter is driven by a width the height never needed. It is
+      // not capped. A cap is a circle that clips its own label, which is
+      // the one failure this whole function exists to prevent, and the
+      // board's decision 1 makes a shape's kind the contract — an author
+      // who wants the box a rectangle would have gets it by writing
+      // `A(text)`.
+      const diameter = Math.hypot(label.width, label.height);
+      return { width: diameter, height: diameter };
+    }
     case "hexagon":
     case "parallelogram":
     case "parallelogram-alt":
@@ -137,10 +195,12 @@ function boxForLabel(shape: NodeShape, label: Box): Box {
         height: label.height,
       };
     default:
-      // A rectangle is its own bounding box. Every other member of
-      // `NodeShape` is a spelling the parser still refuses, so none of them
-      // can reach here — each arrives with the ticket that draws it, and
-      // adds the case that sizes it.
+      // A rectangle is its own bounding box, and with the three curved
+      // shapes it is the only member of `NodeShape` left here: every one of
+      // Mermaid's fourteen bracket spellings now has a case above. The
+      // default stays a default rather than an exhaustive `rect` case
+      // because a rectangle taking its label unchanged is the base the
+      // whole rule is stated against, not a shape's own arithmetic.
       return label;
   }
 }

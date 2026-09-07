@@ -328,6 +328,188 @@ describe("layoutGraph", () => {
     expect([byId["rect-long"].width, byId["rect-long"].height]).toEqual([152, 24]);
   });
 
+  it("gives a circle a diameter spanning its label's diagonal, so a wide label makes a large node on both axes", () => {
+    // Ticket 01's rule, applied to the outline it costs the most: **the
+    // smallest bounding box in which this shape, inscribed, still contains
+    // the centred measured label.** A circle inscribed in `W x H` is only a
+    // circle when `W = H`, and the smallest circle containing a centred
+    // `w x h` rectangle is the one whose diameter is that rectangle's
+    // *diagonal* — every corner of the label lies on it. So
+    //
+    //   W = H = hypot(w, h)
+    //
+    // and ticket 01 named this answer in advance. It is honest rather than
+    // convenient, and the consequence is stated here rather than
+    // discovered in a diagram: a wide label makes a **very large** node,
+    // because the circle has to grow in height to accommodate width it
+    // never needed. Nothing caps it. A cap would be a circle that clips its
+    // own label, which is the one thing the rule exists to prevent, and a
+    // shape's kind is the compatibility contract (the board's decision 1) —
+    // so `A((A rather long label))` is a 154-unit-tall node, and an author
+    // who does not want one writes `A(A rather long label)`.
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] } },
+        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] } },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] } },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // `fakeMeasurer`: 8px per character wide, 24px tall. "A rather long
+    // label" is 19 characters, so `w = 152, h = 24` and the diagonal is
+    // `hypot(152, 24)`.
+    const diagonal = Math.hypot(152, 24);
+    expect([byId.long.width, byId.long.height]).toEqual([diagonal, diagonal]);
+    // Square, because an inscribed figure in a non-square box is an
+    // ellipse and `A((x))` has to be a circle.
+    expect(byId.long.width).toBe(byId.long.height);
+    // Proportional to the label rather than the label plus a constant.
+    expect([byId.short.width, byId.short.height]).toEqual([
+      Math.hypot(8, 24),
+      Math.hypot(8, 24),
+    ]);
+
+    // The diagonal, not the width: a box merely as wide as the label would
+    // clip all four of its corners. The difference is unmistakable on the
+    // vertical axis — the same label in a rectangle is 24 tall and here it
+    // is more than six times that.
+    expect(byId.long.height).toBeGreaterThan(6 * byId["rect-long"].height);
+    // And the rule itself, stated as geometry: every corner of the centred
+    // label is within the circle's radius of its centre.
+    for (const id of ["long", "short"]) {
+      const node = byId[id];
+      const label = fakeMeasurer.measure(node.label);
+      expect([id, Math.hypot(label.width / 2, label.height / 2) <= node.width / 2]).toEqual([
+        id,
+        true,
+      ]);
+    }
+  });
+
+  it("gives a double circle enough box that its label fits inside the *inner* ring, not merely inside the outer one", () => {
+    // A double circle is two rings, and the label belongs inside the inner
+    // one — a box sized for the outer circle would draw the inner ring
+    // straight through the text. So the rule reads off the inner circle:
+    // its diameter is the label's diagonal, and the box is that plus the
+    // gap between the rings on each side.
+    //
+    // The gap is `SHAPE_LEAN["double-circle"] x H` per side, the same
+    // number the renderer insets the inner ring by, so
+    //
+    //   W = H = hypot(w, h) / (1 - 2 x lean)
+    //
+    // which is the smallest such box: at one unit narrower the inner ring
+    // crosses the label's corners.
+    const lean = 1 / 16;
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] } },
+        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] } },
+        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] } },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // `fakeMeasurer`: 8px per character wide, 24px tall.
+    expect([byId.long.width, byId.long.height]).toEqual([
+      Math.hypot(152, 24) / (1 - 2 * lean),
+      Math.hypot(152, 24) / (1 - 2 * lean),
+    ]);
+    expect([byId.short.width, byId.short.height]).toEqual([
+      Math.hypot(8, 24) / (1 - 2 * lean),
+      Math.hypot(8, 24) / (1 - 2 * lean),
+    ]);
+
+    // Wider than the single circle holding the same label, and by exactly
+    // the two gaps — a double circle is a circle plus a ring, and this is
+    // the room that ring is drawn in.
+    expect(byId.long.width).toBeGreaterThan(byId["circle-long"].width);
+
+    // The rule itself, as geometry: every corner of the centred label is
+    // within the *inner* radius of the centre.
+    for (const id of ["long", "short"]) {
+      const node = byId[id];
+      const label = fakeMeasurer.measure(node.label);
+      const inner = node.width / 2 - lean * node.height;
+      expect([id, Math.hypot(label.width / 2, label.height / 2) <= inner]).toEqual([id, true]);
+    }
+  });
+
+  it("gives a cylinder the height its label needs to clear the lid drawn across its top and the bulge under its bottom", () => {
+    // The one shape on this board whose box grows in **height** rather than
+    // in width, and the reason the rule is stated as a box rather than as a
+    // pad: a cylinder's sides are straight, so it needs no extra width at
+    // all, while its top and bottom are ellipses of vertical semi-axis
+    // `r = lean x H` and both eat into the room a label has.
+    //
+    // Worked from the outline the renderer draws:
+    //
+    // - The lid is a full ellipse centred `r` below the top edge, so its
+    //   lowest point is `2r` down and no label may start above that.
+    // - The bottom bulges from `H - r` down to `H`, and at the label's own
+    //   corners — which are at the full width, where the bulge has not yet
+    //   dropped at all — the outline is exactly at `H - r`.
+    //
+    // So the label may occupy `2r` to `H - r`. That band is **not centred**
+    // on the box, and the renderer centres every node's text on `H/2`
+    // (`.siren-node text` is placed at the box's middle for all fourteen
+    // shapes), so the binding constraint is the lid, mirrored: the label's
+    // top edge at `H/2 - h/2` must clear `2r`, which gives `H - h = 4r` and
+    //
+    //   W = w,  H = h / (1 - 4 x lean)
+    //
+    // and it is the smallest such box: one unit shorter and the centred
+    // label's top edge crosses the lid. The bulge is then clear by `r`,
+    // which is the room the label does not use because it sits above
+    // centre in the shape's own terms.
+    const lean = 1 / 8;
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] } },
+        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] } },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] } },
+      ],
+      edges: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // `fakeMeasurer`: 8px per character wide, 24px tall.
+    expect([byId.long.width, byId.long.height]).toEqual([152, 24 / (1 - 4 * lean)]);
+    expect([byId.short.width, byId.short.height]).toEqual([8, 24 / (1 - 4 * lean)]);
+
+    // No wider than the rectangle holding the same label — the sides are
+    // straight, so nothing is reserved on an axis the outline does not
+    // lean on — and taller than it, which nothing else on this board is.
+    expect(byId.long.width).toBe(byId["rect-long"].width);
+    expect(byId.long.height).toBeGreaterThan(byId["rect-long"].height);
+
+    // The rule itself, as geometry: the centred label's band lies between
+    // the bottom of the lid and the top of the bulge.
+    for (const id of ["long", "short"]) {
+      const node = byId[id];
+      const label = fakeMeasurer.measure(node.label);
+      const r = lean * node.height;
+      const top = node.height / 2 - label.height / 2;
+      const bottom = node.height / 2 + label.height / 2;
+      expect([id, top >= 2 * r, bottom <= node.height - r]).toEqual([id, true, true]);
+    }
+  });
+
   it("passes the resolved timeline through unchanged onto PositionedGraph.timeline", () => {
     const graph: GraphModel = {
       ...chainGraph("TB"),

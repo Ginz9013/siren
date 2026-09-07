@@ -3065,6 +3065,146 @@ step 1: enter A fade
     },
   );
 
+  /**
+   * The three spellings drawn with a curve, each with the thing that makes
+   * it that shape *in the picture* and the fit its label is owed inside it.
+   *
+   * Which spelling names which shape is measured, not remembered: mermaid
+   * 11.17.2 reads `A((Circle))` as `type="circle"`, `A(((Double)))` as
+   * `type="doublecircle"` and `A[(DB)]` as `type="cylinder"`
+   * (`pnpm --filter @siren/core probe`).
+   *
+   * `drawn` is handed the frame elements and the label's own measured box
+   * and asserts both halves at once: the shape is there, and the label is
+   * inside it. Splitting those would let a circle that draws itself and
+   * then clips its own text pass.
+   */
+  const CURVED_SHAPES = [
+    {
+      shape: "circle",
+      spelling: "A((Circle))",
+      label: "Circle",
+      drawn: (frames: Element[], label: { width: number; height: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["circle"]);
+        const r = Number(frames[0].getAttribute("r"));
+        // The label's **corner** is inside the circle, not merely its
+        // width: a circle sized to the width would clip all four corners,
+        // and that is the whole difference this shape makes to layout.
+        expect(Math.hypot(label.width / 2, label.height / 2)).toBeLessThanOrEqual(r);
+        // And the cost of that, stated rather than hidden: the node is as
+        // tall as it is wide, which for a label wider than it is tall means
+        // a very large node. `Circle` is 6 characters — 64 wide, 32 tall
+        // measured — so the circle is over twice as tall as the rectangle
+        // holding the same text.
+        expect(2 * r).toBeGreaterThan(2 * label.height);
+      },
+    },
+    {
+      shape: "double-circle",
+      spelling: "A(((Double)))",
+      label: "Double",
+      drawn: (frames: Element[], label: { width: number; height: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["circle", "circle"]);
+        // Two rings and not one drawn twice: same centre, different radii.
+        expect(frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])).toEqual([
+          frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])[0],
+          frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])[0],
+        ]);
+        const [outer, inner] = frames.map((f) => Number(f.getAttribute("r")));
+        expect(inner).toBeLessThan(outer);
+        // The label clears the **inner** ring, which is the only reason the
+        // outer one is bigger than a plain circle's would be.
+        expect(Math.hypot(label.width / 2, label.height / 2)).toBeLessThanOrEqual(inner);
+      },
+    },
+    {
+      shape: "cylinder",
+      spelling: "A[(DB)]",
+      label: "DB",
+      drawn: (frames: Element[], label: { width: number; height: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["path"]);
+        const d = frames[0].getAttribute("d")!;
+        // The lid is what makes this a cylinder rather than the rounded
+        // rectangle a tube alone would be: two closed subpaths, four arcs.
+        expect(d.match(/Z/g)).toHaveLength(2);
+        expect(d.match(/A/g)).toHaveLength(4);
+
+        // Read the figure back off the path: the arcs' radii, and the four
+        // corner points where the straight sides meet the curves.
+        const [rx, ry] = [...d.matchAll(/A([\d.]+),([\d.]+)/g)][0].slice(1).map(Number);
+        const points = [...d.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map((m) => [
+          Number(m[1]),
+          Number(m[2]),
+        ]);
+        const ys = points.map(([, y]) => y);
+        const lid = Math.min(...ys);
+        const base = Math.max(...ys);
+        // The lid spans the tube, so it is the top of the shape rather than
+        // an ellipse floating inside it.
+        const xs = points.map(([x]) => x);
+        expect(Math.max(...xs) - Math.min(...xs)).toBe(2 * rx);
+
+        // The label is centred on the box — `lid - ry` to `base + ry` — and
+        // clears the lowest point of the lid and the top of the bulge.
+        const middle = (lid - ry + base + ry) / 2;
+        expect(middle - label.height / 2).toBeGreaterThanOrEqual(lid + ry);
+        expect(middle + label.height / 2).toBeLessThanOrEqual(base);
+      },
+    },
+  ] as const;
+
+  it.each(CURVED_SHAPES.map((spec) => [spec.spelling, spec.shape, spec] as const))(
+    "draws `%s` end to end as a styleable, animatable %s",
+    (_spelling, _shape, { shape, spelling, label, drawn }) => {
+      // The whole vertical slice through one public call, for the last
+      // three spellings Mermaid has: it parses, the thing that makes it
+      // that shape is drawn, the label fits inside it, and the two things a
+      // rectangle already had — an author's `style` and a place on the
+      // timeline — reach it unchanged.
+      const container = document.createElement("div");
+      const result = render(
+        `flowchart TD
+${spelling} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`,
+        container,
+      );
+
+      expect([shape, result.diagnostics]).toEqual([shape, []]);
+
+      const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+      const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+      // The picture first. `data-siren-shape` is checked after and never
+      // instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      drawn(frames, { width: label.length * 8 + 16, height: 24 + 8 });
+      expect([shape, group.getAttribute("data-siren-shape")]).toEqual([shape, shape]);
+
+      // The punctuation was syntax, so the label is the text inside it.
+      expect([shape, group.querySelector("text")!.textContent]).toEqual([shape, label]);
+
+      // ADR-0008's placement, on every element the frame is drawn with — so
+      // a double circle's author `fill` paints both rings rather than
+      // leaving a white disc inside a coloured one.
+      for (const frame of frames) {
+        expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+      }
+
+      // And it animates: the id and the animation classes are on the `<g>`,
+      // so the controller drives these three without knowing shapes exist.
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, true]);
+      result.controller!.next();
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, false]);
+      expect([shape, group.classList.contains("siren-enter-fade")]).toEqual([shape, true]);
+      for (const frame of frames) {
+        expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+      }
+    },
+  );
+
   it("gives the six path shapes no `siren-*` class of their own — what a rectangle emits is exactly what they emit", () => {
     // Asked because nothing else in the suite would notice the answer
     // changing. `theme/default.test.ts` checks that every class the
@@ -3167,6 +3307,60 @@ C[Subroutine]
       ["rect", "siren-node-frame"],
       ["line", "siren-node-frame"],
       ["line", "siren-node-frame"],
+    ]);
+  });
+
+  it("gives the three curved shapes no `siren-*` class of their own either — including a double circle's second ring", () => {
+    // The question asked of ticket 02's six and ticket 03's three, asked a
+    // last time where a new class was most likely: a double circle draws
+    // two elements, and a second element is where a `siren-node-ring` gets
+    // invented. It is not one — both rings wear `siren-node-frame` — so the
+    // answer to "do these shapes emit a class a rectangle does not" is no,
+    // and `theme/default.test.ts`'s coverage net needs no new rule. It does
+    // still need these shapes *in its fixture*: a net can only see classes
+    // something it renders emits, and a claim and a fixture that could
+    // disprove it are not the same thing.
+    //
+    // The two documents differ in their node spellings and in nothing else.
+    const sirenClasses = (source: string): string[] => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics).toEqual([]);
+      const found = new Set<string>();
+      for (const element of Array.from(result.svg!.querySelectorAll("*"))) {
+        for (const name of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (name.startsWith("siren-")) found.add(name);
+        }
+      }
+      return [...found].sort();
+    };
+
+    const shaped = sirenClasses(`flowchart TD
+A((Circle))
+B(((Double)))
+C[(DB)]
+`);
+    const rectangles = sirenClasses(`flowchart TD
+A[Circle]
+B[Double]
+C[DB]
+`);
+
+    expect(shaped).toEqual(rectangles);
+    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+
+    // And a double circle's rings both wear the frame's own name rather
+    // than one of them going unnamed, which is what puts them in one
+    // styling story — the theme fills the inner ring because it fills a
+    // frame, and so does an author's `style B fill:#fdd`.
+    const container = document.createElement("div");
+    const result = render(`flowchart TD\nB(((Double)))\n`, container);
+    const parts = Array.from(
+      result.svg!.querySelectorAll('g.siren-node[data-siren-id="B"] > *'),
+    ).filter((element) => element.tagName !== "text");
+    expect(parts.map((element) => [element.tagName, element.getAttribute("class")])).toEqual([
+      ["circle", "siren-node-frame"],
+      ["circle", "siren-node-frame"],
     ]);
   });
 

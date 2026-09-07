@@ -73,9 +73,9 @@ const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
  * brackets, so a pattern that let either character into the label would
  * read a circle as a round node labelled `(Circle)` — a valid Mermaid
  * document drawn as the wrong picture with no diagnostic, which is the one
- * failure `UNIMPLEMENTED_BRACKET_FORMS` exists to keep at zero. The
- * cylinder is refused before any of this is asked, but the same reasoning
- * puts `[` and `]` on the list.
+ * failure the compatibility corpus exists to keep at zero. `[` and `]` are
+ * on the list for the same reason and for the cylinder's sake: `A[(DB)]`
+ * is that shape's own punctuation, not a round node's label.
  *
  * Refusing them is compatibility rather than strictness: mermaid 11.17.2
  * rejects `A(a]b)`, `A(a[b)`, `A(a{b)`, `A(a}b)` and `A(a"b)` outright,
@@ -101,8 +101,9 @@ const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
  * come after it. That is why the four slanted forms precede `rect` — their
  * slashes are ordinary label characters to `LABEL_CONTENT`, so `A[/Para/]`
  * would otherwise read as a rectangle labelled `/Para/`, which is exactly
- * the swallow `UNIMPLEMENTED_BRACKET_FORMS` refused it to prevent. The
- * subroutine precedes `rect` and the stadium precedes `round` for the same
+ * the swallow those forms were refused outright to prevent. The cylinder
+ * precedes `rect`, and the subroutine and the stadium precede `rect` and
+ * `round` respectively, for the same
  * reason, and their label patterns close the same door a second time:
  * `LABEL_CONTENT` cannot cross a `]` and `PAREN_LABEL_CONTENT` cannot cross
  * a bracket of any kind, so neither of those two pairs could swallow the
@@ -127,8 +128,22 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
   { shape: "trapezoid", bracket: String.raw`\[/(${LABEL_CONTENT})\\\]` },
   { shape: "trapezoid-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})/\]` },
   { shape: "subroutine", bracket: String.raw`\[\[(${LABEL_CONTENT})\]\]` },
+  // The cylinder before `rect`, for the reason the four slanted forms come
+  // before it: `LABEL_CONTENT` would read `A[(DB)]` as a rectangle labelled
+  // `(DB)`, which is the picture board 4 refused this spelling to stop
+  // Siren drawing. Its label pattern closes the same door a second time —
+  // `PAREN_LABEL_CONTENT` cannot cross a bracket of any kind, so a
+  // rectangle's label can never be mistaken for a cylinder's either.
+  { shape: "cylinder", bracket: String.raw`\[\((${PAREN_LABEL_CONTENT})\)\]` },
   { shape: "rect", bracket: String.raw`\[(${LABEL_CONTENT})\]` },
   { shape: "stadium", bracket: String.raw`\(\[(${LABEL_CONTENT})\]\)` },
+  // Three parenthesised spellings, deepest nesting first, and the label
+  // pattern is what makes the order a courtesy rather than a load-bearing
+  // rule: `PAREN_LABEL_CONTENT` admits no parenthesis, so a double circle
+  // can never be read as a circle labelled `(Double)` nor as a round node
+  // labelled `((Double))` whichever way round the three are listed.
+  { shape: "double-circle", bracket: String.raw`\(\(\((${PAREN_LABEL_CONTENT})\)\)\)` },
+  { shape: "circle", bracket: String.raw`\(\((${PAREN_LABEL_CONTENT})\)\)` },
   { shape: "round", bracket: String.raw`\((${PAREN_LABEL_CONTENT})\)` },
   { shape: "hexagon", bracket: String.raw`\{\{(${BRACE_LABEL_CONTENT})\}\}` },
   // No opening bracket: `A>Flag]`. Its `>` is also the last character of
@@ -150,8 +165,8 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  * what lets `readNodeDeclaration` read them all with one body.
  *
  * `LABEL_CONTENT` still reads a bracket's label loosely, but it no longer
- * gets first refusal on the line: `UNIMPLEMENTED_BRACKET_FORMS` is asked
- * first, and everything it names never reaches here. Widening these
+ * gets first refusal on the line: `UNIMPLEMENTED_LABEL_FORMS` is asked
+ * first, and the one form it names never reaches here. Widening these
  * patterns without reading that one re-opens the bug that comment exists to
  * close.
  */
@@ -162,40 +177,42 @@ const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
 
 /**
  * Everything Mermaid writes *inside* `[...]` that is **still** not a plain
- * label and not yet a shape Siren draws, paired with the name Mermaid gives
- * it. One node shape and one label form remain; the four slanted forms left
- * when `NODE_SPELLINGS` learned to read them, and the subroutine box left
- * when it did.
+ * label, paired with the name Mermaid gives it. **No node shape is left
+ * here.** The four slanted forms left when `NODE_SPELLINGS` learned to read
+ * them, the subroutine box left when it did, and the cylinder — the last of
+ * them, and the row this list was first written for — left with the three
+ * shapes drawn with a curve. What remains is one *label* form, which is why
+ * this no longer says "bracket forms": the shapes it was named for are all
+ * drawn.
  *
  * **This list is refused, not swallowed.** That is the policy, and it is the
- * whole reason this constant exists: while a construct is unimplemented,
- * reject it — never render something else in its place. `NODE_RE`'s
- * `[^\]]*` used to take any bracket content as a label, so `A[(DB)]` drew a
- * rectangle labelled `(DB)` and said nothing. That disguised *not
- * implemented* as *supported*, and it hid the gap from
+ * whole reason this constant survives its last shape: while a construct is
+ * unimplemented, reject it — never render something else in its place.
+ * `NODE_RE`'s `[^\]]*` used to take any bracket content as a label, so
+ * `A[(DB)]` drew a rectangle labelled `(DB)` and said nothing. That
+ * disguised *not implemented* as *supported*, and it hid the gap from
  * `src/compat/corpus.ts` — the instrument built to measure exactly this. A
  * mislabelled rectangle is a worse answer than a refusal, because the author
  * never learns anything is missing.
  *
- * None of these is a permanent refusal. The shapes arrive on their own
- * board, and each `described` is written for the author who will read it:
- * it names the shape Mermaid means, so the answer is "wait" rather than
- * "rewrite your line". Whoever implements one deletes its row here — the
- * plain quoted label was a row here until quoting arrived, and `labelIn`
- * is what replaced it.
+ * The one row left is not a permanent refusal either. Its `described` is
+ * written for the author who will read it: it names what Mermaid means, so
+ * the answer is "wait" rather than "rewrite your line". Whoever implements
+ * it deletes the row, and with it this constant, `unimplementedFormIn`,
+ * `BRACKET_FORM_RE` and `refuseUnimplementedForm` — the plain quoted label
+ * was a row here until quoting arrived, and `labelIn` is what replaced it.
  *
- * Every form is anchored at **both ends** of the bracket content on purpose.
+ * The form is anchored at **both ends** of the bracket content on purpose.
  * An over-tight pattern would be its own compatibility bug, traded for the
  * one it fixed: `A[a/b]`, `A[x (y)]`, `A[100%]` and `A[say "hi" now]` are
  * ordinary labels that merely *contain* a character a form also opens with,
  * and they still draw as rectangles.
  */
-const UNIMPLEMENTED_BRACKET_FORMS: ReadonlyArray<{
+const UNIMPLEMENTED_LABEL_FORMS: ReadonlyArray<{
   open: string;
   close: string;
   described: string;
 }> = [
-  { open: "(", close: ")", described: "a cylinder (`A[(text)]`)" },
   // A Markdown string, which is the label fence with backticks inside it.
   // Read before `labelIn` strips that fence, so an author who wrote
   // Markdown is told about Markdown rather than handed a label with
@@ -218,7 +235,7 @@ const UNIMPLEMENTED_BRACKET_FORMS: ReadonlyArray<{
  * `A[/]` is a label reading `/`, not an empty parallelogram.
  */
 function unimplementedFormIn(content: string): string | null {
-  for (const form of UNIMPLEMENTED_BRACKET_FORMS) {
+  for (const form of UNIMPLEMENTED_LABEL_FORMS) {
     if (
       content.length >= form.open.length + form.close.length &&
       content.startsWith(form.open) &&
@@ -429,7 +446,7 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
  * something between statements and nothing inside a label: `A[a;b]`,
  * `A[a&b]` and `A[a-->b]` are ordinary labels in Mermaid, and a splitter
  * that did not know where a label starts would cut them into nonsense —
- * the same class of bug `UNIMPLEMENTED_BRACKET_FORMS` exists to keep out.
+ * the same class of bug `UNIMPLEMENTED_LABEL_FORMS` exists to keep out.
  *
  * **A brace opens a label as surely as a bracket does, and so does a
  * parenthesis.** Counting only `[`/`]` made three spellings of one idea

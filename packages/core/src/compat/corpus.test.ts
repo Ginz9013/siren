@@ -385,10 +385,35 @@ const SILENTLY_WRONG = 3;
  * refused before and render correctly now, so nothing became honest and
  * nothing became wrong.
  *
- * Three shape rows remain — circle, double circle and cylinder — plus the
- * Markdown string label, which is a label form rather than a shape.
+ * It fell by three more, to **22**, when the three shapes drawn with a
+ * curve landed: `fc-shape-circle`, `fc-shape-double-circle` and
+ * `fc-shape-cylinder` are `supported`. Three, exactly as their ticket
+ * expected, and for the same reason the last three were: all three already
+ * had rows here to leave, so no construct had to be added to the backlog to
+ * measure one. `silently-wrong` is untouched at 3 — all three were refused
+ * before and render correctly now, so nothing became honest and nothing
+ * became wrong.
+ *
+ * **No `fc-shape-*` row is rejected any more.** All thirteen of Mermaid's
+ * bracket spellings for a node are `supported`, which is what closes the
+ * board rather than the number 22 doing it: the backlog that is left is
+ * edges, subgraphs, clicks, accessibility titles, the class lollipop, three
+ * sequence constructs — and `fc-text-markdown`, which sits among the
+ * flowchart text rows because it is a *label* form and not a shape. That
+ * one row is why the parser's refusal mechanism outlives every shape it was
+ * written for; it belongs to a later board.
+ *
+ * Each of the three asserts what the renderer drew. Two of them needed the
+ * reader to grow to say it: `nodeOutline` named any non-`<rect>`,
+ * non-`<path>` frame by its tag, so it called a double circle "circle" —
+ * the same collapse `rectOutline` was written to stop, one element over —
+ * and `outlineCycle` reads coordinate pairs, so it read a cylinder's arc
+ * radii as vertices and produced nonsense. Rings are now counted and a
+ * curved path is read as segments (`ringOutline`, `curvedOutline`).
+ * Reverting the drawing while leaving `data-siren-shape` in place fails all
+ * three rows, which is how they were checked.
  */
-const REJECTED = 25;
+const REJECTED = 22;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

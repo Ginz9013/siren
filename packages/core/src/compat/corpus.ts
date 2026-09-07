@@ -163,7 +163,20 @@ function canonicalCycle(names: readonly string[]): string[] {
 function outlineCycle(frame: Element): string[] {
   const points = (frame.getAttribute("d") ?? "")
     .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)
-    ?.map((pair) => pair.split(",").map(Number)) ?? [];
+    ?.map((pair) => pair.split(",").map(Number) as [number, number]) ?? [];
+  const named = positionNamer(points);
+  return canonicalCycle(points.map(named));
+}
+
+/**
+ * A function naming where a point sits inside the extent of `points` —
+ * `left,top`, `right,mid`, `in-left,bottom` — shared by the polygon reader
+ * above and the curved one below so that both say "in-left" about the same
+ * place.
+ */
+function positionNamer(
+  points: ReadonlyArray<readonly [number, number]>,
+): (point: readonly [number, number]) => string {
   const position = (value: number, all: number[], low: string, high: string): string => {
     const min = Math.min(...all);
     const max = Math.max(...all);
@@ -175,11 +188,8 @@ function outlineCycle(frame: Element): string[] {
   };
   const xs = points.map(([x]) => x);
   const ys = points.map(([, y]) => y);
-  return canonicalCycle(
-    points.map(
-      ([x, y]) => `${position(x, xs, "left", "right")},${position(y, ys, "top", "bottom")}`,
-    ),
-  );
+  return ([x, y]) =>
+    `${position(x, xs, "left", "right")},${position(y, ys, "top", "bottom")}`;
 }
 
 /**
@@ -254,13 +264,145 @@ const OUTLINE_NAMES = new Map<string, string>(
 function nodeOutline(result: SirenRenderResult, id: string): string {
   const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
   if (group === null) throw new Error(`no node "${id}" was drawn`);
-  const frame = group.querySelector(".siren-node-frame");
-  if (frame === null) throw new Error(`node "${id}" drew nothing named siren-node-frame`);
+  const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+  if (frames.length === 0) {
+    throw new Error(`node "${id}" drew nothing named siren-node-frame`);
+  }
+  const frame = frames[0];
   if (frame.tagName === "rect") return rectOutline(group, frame);
-  if (frame.tagName !== "path") return frame.tagName;
+  if (frame.tagName === "circle") return ringOutline(frames);
+  // Named rather than returned bare, because a tag name is a claim about
+  // the *element* and this function's whole job is to say what was drawn.
+  // `frame.tagName` used to be the answer here, which would have let a row
+  // asserting "ellipse" pass without anyone deciding what an ellipse means.
+  if (frame.tagName !== "path") return `an unnamed <${frame.tagName}> frame`;
+
+  const d = frame.getAttribute("d") ?? "";
+  // An arc is not a vertex, and `outlineCycle` reads coordinate pairs: an
+  // arc command carries its radii before its endpoint, so a curved path
+  // read as a polygon comes back as nonsense. The two readers are told
+  // apart by the path data rather than by the shape's name, which is the
+  // rule this whole file runs on.
+  if (d.includes("A")) return curvedOutline(d);
 
   const cycle = outlineCycle(frame);
   return OUTLINE_NAMES.get(cycle.join(" ")) ?? `an unnamed path through ${cycle.join(" ")}`;
+}
+
+/**
+ * The figure a set of `<circle>` frames draws, named by how many rings it
+ * is and whether they are concentric.
+ *
+ * The count is the whole point. A double circle's *first* frame is a
+ * `<circle>` exactly as a plain circle's is, so a reader that stopped at
+ * the first element would name both "circle" — and a row asserting that
+ * would pass for `A((Double))` where the author wrote `A(((Double)))`. The
+ * second ring is the shape, in the same way a subroutine's bars are.
+ *
+ * Radii are compared only for being different, never for their sizes: how
+ * far apart two rings sit belongs to the theme (the board's decision 1),
+ * while *that* there are two of them is the shape.
+ */
+function ringOutline(frames: Element[]): string {
+  const at = (frame: Element, name: string) => Number(frame.getAttribute(name));
+  const centres = new Set(frames.map((f) => `${at(f, "cx")},${at(f, "cy")}`));
+  const radii = frames.map((f) => at(f, "r"));
+  if (frames.some((f) => f.tagName !== "circle")) {
+    return `a mix of ${frames.map((f) => `<${f.tagName}>`).join(" and ")} frames`;
+  }
+  if (frames.length === 1) return "circle";
+  if (frames.length === 2 && centres.size === 1 && new Set(radii).size === 2) {
+    return "two concentric circles";
+  }
+  return `${frames.length} circles about ${centres.size} centres`;
+}
+
+/**
+ * The figure a `<path>` containing elliptical arcs draws.
+ *
+ * Read as segments rather than as vertices, because for a curved outline
+ * *which* edges are curved is the shape: a tube whose top and bottom were
+ * straight lines is a rectangle, and its four corner points are identical
+ * either way. `outlineCycle`'s position cycle cannot see that difference,
+ * which is exactly why it is not asked.
+ */
+function curvedOutline(d: string): string {
+  const subpaths = subpathsOf(d);
+  const segments = subpaths.flat();
+  const named = positionNamer(segments.flatMap((s) => [s.from, s.to]));
+  const horizontal = (s: Segment) => s.from[1] === s.to[1] && s.from[0] !== s.to[0];
+  const vertical = (s: Segment) => s.from[0] === s.to[0] && s.from[1] !== s.to[1];
+
+  if (subpaths.length === 2) {
+    const [tube, lid] = subpaths;
+    const curves = tube.filter((s) => s.curved);
+    const straights = tube.filter((s) => !s.curved);
+    const top = [...curves].sort((a, b) => a.from[1] - b.from[1])[0];
+    const lidEnds = new Set(lid.flatMap((s) => [named(s.from), named(s.to)]));
+    const topEnds = new Set([named(top.from), named(top.to)]);
+    if (
+      tube.length === 4 &&
+      curves.length === 2 &&
+      curves.every(horizontal) &&
+      straights.every(vertical) &&
+      lid.length === 2 &&
+      lid.every((s) => s.curved) &&
+      lidEnds.size === topEnds.size &&
+      [...lidEnds].every((end) => topEnds.has(end))
+    ) {
+      // Straight sides, curved top and bottom, and a second closed curve
+      // drawn between the two ends of the top: the lid of a drum.
+      return "tube with an elliptical top";
+    }
+  }
+
+  return `an unnamed curved path: ${subpaths
+    .map((subpath) =>
+      subpath.map((s) => `${s.curved ? "curve" : "line"} ${named(s.from)}-${named(s.to)}`).join(", "),
+    )
+    .join(" / ")}`;
+}
+
+/** One drawn segment of a path: where it runs, and whether it bends. */
+interface Segment {
+  curved: boolean;
+  from: [number, number];
+  to: [number, number];
+}
+
+/**
+ * A path's `d` as its closed subpaths, each a list of segments.
+ *
+ * Only the commands the flowchart renderer writes are read — `M`, `L`, `A`
+ * and `Z`, all absolute — and an arc contributes its **endpoint**, which is
+ * the last coordinate pair of its parameters rather than the first: an
+ * arc's leading numbers are its radii, and reading them as a vertex is the
+ * mistake that makes a curved outline unreadable.
+ */
+function subpathsOf(d: string): Segment[][] {
+  const subpaths: Segment[][] = [];
+  let current: [number, number] = [0, 0];
+  let start: [number, number] = [0, 0];
+  for (const [, command, parameters] of d.matchAll(/([MLAZ])([^MLAZ]*)/g)) {
+    const numbers = parameters.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+    const end: [number, number] = [numbers[numbers.length - 2], numbers[numbers.length - 1]];
+    if (command === "M") {
+      subpaths.push([]);
+      current = end;
+      start = end;
+      continue;
+    }
+    if (command === "Z") {
+      if (current[0] !== start[0] || current[1] !== start[1]) {
+        subpaths[subpaths.length - 1].push({ curved: false, from: current, to: start });
+      }
+      current = start;
+      continue;
+    }
+    subpaths[subpaths.length - 1].push({ curved: command === "A", from: current, to: end });
+    current = end;
+  }
+  return subpaths;
 }
 
 /**
@@ -548,8 +690,17 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A((Circle))`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A((text))` is a circle labelled `text`.",
+    assert: (result) => {
+      // Both pairs of parentheses are syntax. A reader that took only the
+      // outer pair would draw a round node labelled `(Circle)`, which is
+      // the swallow this row spent four boards being refused to prevent.
+      expectSame("nodes", nodes(result), ["A[Circle]"]);
+      // The picture, not the claim: a figure with no corners at all,
+      // rather than a box with the word "circle" in an attribute.
+      expectSame("outline", nodeOutline(result, "A"), "circle");
+    },
   },
   {
     id: "fc-shape-asymmetric",
@@ -608,16 +759,35 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A(((Double)))`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A(((text)))` is a double circle labelled `text`.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Double]"]);
+      // Two rings, and the second one is the whole shape: a row asserting
+      // "circle" would pass for `A((Double))`, which is a different
+      // spelling of a different figure.
+      expectSame("outline", nodeOutline(result, "A"), "two concentric circles");
+    },
   },
   {
     id: "fc-shape-cylinder",
     kind: "flowchart",
     source: `flowchart TB
       A[(DB)]`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A[(text)]` is a cylinder labelled `text` — the label carries no parentheses.",
+    assert: (result) => {
+      // **The row this whole instrument was built around.** Board 4
+      // measured this document as drawing a rectangle labelled `(DB)` with
+      // no diagnostic — a valid Mermaid document rendered as a different
+      // picture, silently — and refused the spelling to make the gap
+      // honest. The parentheses are syntax, so the label is `DB`.
+      expectSame("nodes", nodes(result), ["A[DB]"]);
+      // And the lid is what a rectangle cannot fake: an ellipse drawn
+      // across the top of the tube, which is the line an author reads as a
+      // drum. Without it this is a rounded rectangle again.
+      expectSame("outline", nodeOutline(result, "A"), "tube with an elliptical top");
+    },
   },
   {
     id: "fc-shape-parallelogram",
