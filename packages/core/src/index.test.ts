@@ -4924,3 +4924,192 @@ step 1: enter A-B fade
     expect(drawn().some((el) => el.classList.contains("siren-pending"))).toBe(false);
   });
 });
+
+/**
+ * A subgraph, from the source string to the picture — the one place the
+ * parser's block, the model's generated id, the layout's cluster and the
+ * renderer's frame are all seen at once.
+ */
+describe("render() — a subgraph groups the nodes inside it", () => {
+  /** One drawn subgraph frame's box, read off the rendered SVG. */
+  const frameBox = (svg: SVGSVGElement, id: string) => {
+    const rect = svg.querySelector(
+      `g.siren-subgraph[data-siren-id="${id}"] rect.siren-subgraph-frame`,
+    );
+    if (rect === null) throw new Error(`no subgraph "${id}" was drawn`);
+    const x = Number(rect.getAttribute("x"));
+    const y = Number(rect.getAttribute("y"));
+    return {
+      left: x,
+      top: y,
+      right: x + Number(rect.getAttribute("width")),
+      bottom: y + Number(rect.getAttribute("height")),
+    };
+  };
+
+  /** One drawn node's box. */
+  const nodeBox = (svg: SVGSVGElement, id: string) => {
+    const rect = svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`);
+    if (rect === null) throw new Error(`no node "${id}" was drawn`);
+    const x = Number(rect.getAttribute("x"));
+    const y = Number(rect.getAttribute("y"));
+    return {
+      left: x,
+      top: y,
+      right: x + Number(rect.getAttribute("width")),
+      bottom: y + Number(rect.getAttribute("height")),
+    };
+  };
+
+  const holds = (
+    outer: { left: number; top: number; right: number; bottom: number },
+    inner: { left: number; top: number; right: number; bottom: number },
+  ) =>
+    outer.left <= inner.left &&
+    outer.top <= inner.top &&
+    outer.right >= inner.right &&
+    outer.bottom >= inner.bottom;
+
+  it("draws a titled frame around the nodes declared inside it", () => {
+    const svg = renderThemed(`flowchart TB
+subgraph Ingest
+  A[Fetch] --> B[Parse]
+end
+B --> C[Publish]
+`);
+
+    expect(
+      svg.querySelector('g.siren-subgraph[data-siren-id="subgraph:1"] text.siren-subgraph-label')!
+        .textContent,
+    ).toBe("Ingest");
+
+    const frame = frameBox(svg, "subgraph:1");
+    expect(holds(frame, nodeBox(svg, "A"))).toBe(true);
+    expect(holds(frame, nodeBox(svg, "B"))).toBe(true);
+    expect(holds(frame, nodeBox(svg, "C"))).toBe(false);
+
+    // The edge leaving the group is still drawn, and still named the way
+    // every other edge is: grouping changes where a node goes, not what an
+    // edge is called.
+    expect(
+      Array.from(svg.querySelectorAll("path.siren-edge")).map((p) =>
+        p.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["A-B", "B-C"]);
+  });
+
+  it("nests two levels, with the outer frame holding the inner one whole", () => {
+    const svg = renderThemed(`flowchart TB
+subgraph Outer
+  subgraph Inner
+    A --> B
+  end
+  C --> A
+end
+B --> D
+`);
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-subgraph")).map((g) => [
+        g.getAttribute("data-siren-id"),
+        g.querySelector("text")!.textContent,
+      ]),
+    ).toEqual([
+      ["subgraph:1", "Outer"],
+      ["subgraph:2", "Inner"],
+    ]);
+
+    expect(holds(frameBox(svg, "subgraph:1"), frameBox(svg, "subgraph:2"))).toBe(true);
+    expect(holds(frameBox(svg, "subgraph:2"), nodeBox(svg, "A"))).toBe(true);
+    expect(holds(frameBox(svg, "subgraph:1"), nodeBox(svg, "C"))).toBe(true);
+    expect(holds(frameBox(svg, "subgraph:2"), nodeBox(svg, "C"))).toBe(false);
+    expect(holds(frameBox(svg, "subgraph:1"), nodeBox(svg, "D"))).toBe(false);
+  });
+
+  it("does not collide with a node the author gave the same name", () => {
+    // mermaid 11.17.2 accepts this and records both a vertex `A` and a
+    // subgraph `A` (measured). Here the frame's id is generated, so the two
+    // are different names and a lookup for `A` finds exactly one element —
+    // the node — which is the whole of ADR-0010's argument, applied.
+    const svg = renderThemed(`flowchart TB
+A[Alpha]
+subgraph A
+  B --> C
+end
+`);
+
+    expect(
+      Array.from(svg.querySelectorAll('[data-siren-id="A"]')).map((el) => el.getAttribute("class")),
+    ).toEqual(["siren-node"]);
+    expect(svg.querySelector('g.siren-subgraph[data-siren-id="subgraph:1"] text')!.textContent).toBe(
+      "A",
+    );
+  });
+
+  it("routes an edge between two groups without either frame swallowing the other", () => {
+    const svg = renderThemed(`flowchart TB
+subgraph One
+  A --> B
+end
+subgraph Two
+  C --> D
+end
+B --> C
+`);
+
+    const one = frameBox(svg, "subgraph:1");
+    const two = frameBox(svg, "subgraph:2");
+
+    const overlapping =
+      one.left < two.right && one.right > two.left && one.top < two.bottom && one.bottom > two.top;
+    expect(overlapping).toBe(false);
+    expect(holds(one, nodeBox(svg, "C"))).toBe(false);
+    expect(holds(two, nodeBox(svg, "B"))).toBe(false);
+
+    const crossing = svg.querySelector('path.siren-edge[data-siren-id="B-C"]');
+    expect(crossing).not.toBeNull();
+    expect(crossing!.getAttribute("d")).toMatch(/^M/);
+  });
+
+  it("animates a subgraph named in a timeline block, frame and title together", () => {
+    // A frame nobody can name would be a decision by omission. This is
+    // board 2's rule for the flowchart's grouping construct, and ADR-0009's
+    // "a target is an id" is what takes the title with the frame.
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TB
+subgraph Ingest
+  A --> B
+end
+
+timeline:
+step 1: enter subgraph:1 fade
+step 2: highlight subgraph:1 outline
+`,
+      container,
+    );
+    expect(result.diagnostics).toEqual([]);
+
+    const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="subgraph:1"]'));
+    expect(drawn().map((el) => el.tagName)).toEqual(["g"]);
+    expect(drawn()[0].classList.contains("siren-pending")).toBe(true);
+
+    result.controller!.next();
+    expect(drawn()[0].classList.contains("siren-pending")).toBe(false);
+
+    result.controller!.next();
+    expect(drawn()[0].classList.contains("siren-highlight-outline")).toBe(true);
+  });
+
+  it("leaves the id space unchanged for a document that groups nothing", () => {
+    // The grouping construct adds an id space to the document; a document
+    // that uses none must not gain one. Nothing here draws a frame, and
+    // `subgraph:1` names nothing an author could reach.
+    const svg = renderThemed(`flowchart TB
+A --> B
+`);
+
+    expect(svg.querySelectorAll("g.siren-subgraph")).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-siren-id="subgraph:1"]')).toHaveLength(0);
+  });
+});

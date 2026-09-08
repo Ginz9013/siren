@@ -228,6 +228,49 @@ export interface LinkStyleDecl {
 }
 
 /**
+ * A `subgraph title ... end` block as written — the flowchart's grouping
+ * construct, and the counterpart of a class diagram's `ClassNamespace`.
+ *
+ * A **tree**, rather than a flat list with parent pointers, because that is
+ * the shape a block already has: the parser opens one on the keyword and
+ * closes it on `end`, and nesting is what happens in between. It also means
+ * a subgraph needs no id at this stage, which matters because the id it ends
+ * up with is not the author's — see `ResolvedSubgraph`.
+ */
+export interface SirenSubgraph {
+  /**
+   * The handle the author wrote before the title, or `null` when they wrote
+   * none — `subgraph Ingest` and `subgraph one[Title]` name one, and
+   * `subgraph "Two Words"` does not (mermaid 11.17.2 mints `subGraph0` for
+   * that case, measured).
+   *
+   * Kept apart from `label` because it is the name an *edge* could try to
+   * use: Mermaid lets `One --> Two` join two subgraph frames, which Siren
+   * does not draw, and refusing that honestly needs to know which names are
+   * a subgraph's. Nothing else reads it — it is deliberately not an id, and
+   * it never becomes one.
+   */
+  name: string | null;
+  /** The text drawn on the frame. `subgraph Ingest` labels itself. */
+  label: string;
+  /**
+   * The ids of the nodes named directly inside this block, in source order,
+   * excluding any a subgraph already claimed.
+   *
+   * "Named", not "declared": mermaid 11.17.2 takes a node mentioned inside
+   * the block as the block's own even when it was first written outside it
+   * (measured), and the **first** subgraph to name a node keeps it, which is
+   * what makes `subgraph T / B --> C / end` after `subgraph S / A --> B /
+   * end` leave `B` in `S`.
+   */
+  nodeIds: string[];
+  /** Subgraphs opened inside this one, in source order. */
+  subgraphs: SirenSubgraph[];
+  line?: number;
+  column?: number;
+}
+
+/**
  * The parsed flowchart document: a flowchart header, its nodes/edges, its
  * author-styling statements, and an optional timeline block. One arm of the
  * `SirenDocument` union.
@@ -237,6 +280,14 @@ export interface FlowchartDocument {
   direction: Direction;
   nodes: SirenNode[];
   edges: SirenEdge[];
+  /**
+   * The `subgraph` blocks written at the top level of the document, in
+   * source order, each carrying whatever was nested inside it.
+   *
+   * Empty when the author grouped nothing, never absent — the
+   * empty-not-absent rule `linkStyles` already follows.
+   */
+  subgraphs: SirenSubgraph[];
   /**
    * Author-styling statements as written, in source order. The same
    * `StyleDecl` a class diagram parses to — the contract is the language's,
@@ -703,6 +754,53 @@ export interface GraphNode {
    * attribute" case is a length check rather than a presence check.
    */
   style: AuthorStyle;
+  /**
+   * The id of the `subgraph` this node was declared inside, or `null` when
+   * it was declared inside none.
+   *
+   * A `ResolvedSubgraph.id`, which is generated (`subgraph:1`) and never the
+   * word the author titled the block with — see that type for why.
+   *
+   * `null` rather than absent, the empty-not-absent rule `style` and `shape`
+   * already follow. It matters more here than usual: this field is what
+   * `layoutGraph` turns into dagre's cluster parentage, and dagre's compound
+   * mode is switched on by the *presence* of parentage. A field that could
+   * be `undefined`-but-set would be an easy way to switch compound mode on
+   * for a document with no subgraph at all, which moves every diagram that
+   * has none.
+   */
+  parentId: string | null;
+}
+
+/**
+ * A subgraph after model resolution: assigned the id the timeline and the
+ * renderer address it by, and pointed at the subgraph enclosing it.
+ *
+ * **The id is generated, not authored.** A subgraph may legitimately be
+ * named after a node — mermaid 11.17.2 accepts `A[Alpha]` beside
+ * `subgraph A` and records both, measured — so carrying the author's own
+ * word here would hand two unrelated drawn elements one `data-siren-id`, and
+ * a `timeline:` entry naming it would address both with nothing to say so.
+ * ADR-0010 settles the spelling: `${kind}:${n}`, minted by `generatedId`,
+ * and no authored id or `${from}-${to}` connector id can contain a colon.
+ * The class diagram's namespace is the same decision one kind over.
+ *
+ * Flat, in the order the author wrote the `subgraph` keywords (pre-order),
+ * rather than the tree `SirenSubgraph` is: what reads this is layout, which
+ * wants one cluster per entry and a parent to point each at, and what
+ * numbers it is an author counting keywords down the page.
+ *
+ * Membership is *not* here. It is on `GraphNode.parentId`, in one place, so
+ * that a node and the frame around it cannot disagree about which contains
+ * it — unlike `ResolvedClassNamespace`, which keeps both and has to promise
+ * they agree.
+ */
+export interface ResolvedSubgraph {
+  id: string;
+  /** The text drawn on the frame — the author's title, carried through. */
+  label: string;
+  /** The subgraph this one is nested in, or `null` at the top level. */
+  parentId: string | null;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
@@ -779,6 +877,12 @@ export interface GraphModel {
   direction: Direction;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /**
+   * Every `subgraph` the document declared, flattened into source order.
+   * Empty when it declared none — and *only* then, which is what keeps a
+   * diagram with no grouping out of dagre's compound mode.
+   */
+  subgraphs: ResolvedSubgraph[];
   timeline: ResolvedTimeline;
 }
 
@@ -852,6 +956,28 @@ export interface PositionedEdge extends GraphEdge {
 }
 
 /**
+ * A subgraph with a layout-assigned frame enclosing everything inside it —
+ * its own nodes and, when it nests, the whole of each frame beneath it,
+ * title strip included.
+ *
+ * The shape `PositionedClassNamespace` already has, because it is the same
+ * figure: a labelled box drawn *behind* what it groups. It is a separate
+ * type rather than a shared one because the two diagram kinds do not share
+ * types across the boundary — a flowchart's layout output has never referred
+ * to a class diagram's — and collapsing them would be the first time.
+ */
+export interface PositionedSubgraph {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Where the frame's title text is drawn: centred in the strip above its contents. */
+  labelAnchor: Point;
+}
+
+/**
  * The graph after layout: positioned nodes/edges plus the resolved
  * timeline, ready for `renderToSVG`.
  */
@@ -859,6 +985,13 @@ export interface PositionedGraph {
   direction: Direction;
   nodes: PositionedNode[];
   edges: PositionedEdge[];
+  /**
+   * Subgraph frames, in the model's order — outermost before the frames
+   * nested inside them, which is also the order they must be drawn in: a
+   * frame is painted behind what it groups, so an inner frame drawn first
+   * would be hidden by the outer one.
+   */
+  subgraphs: PositionedSubgraph[];
   timeline: ResolvedTimeline;
   width: number;
   height: number;

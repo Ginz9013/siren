@@ -9,6 +9,7 @@ import type {
   ParseResult,
   SirenEdge,
   SirenNode,
+  SirenSubgraph,
   SirenTimeline,
   StyleDecl,
   StyleProperty,
@@ -923,6 +924,98 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
 }
 
 /**
+ * The opening statement of a `subgraph` block, and everything the author
+ * wrote after the keyword. What that tail *means* is `readSubgraphTitle`'s;
+ * this pattern only says a block opens here.
+ *
+ * Split in two because the tail has three spellings and only one of them is
+ * a bare word — a single pattern would either have to alternate three ways
+ * inline or, worse, accept a tail it cannot read and lose the diagnostic.
+ */
+const SUBGRAPH_OPEN_RE = /^subgraph\s+(\S.*)$/;
+
+/** The statement that closes a `subgraph` block. Mermaid's own keyword, lowercase. */
+const SUBGRAPH_END = "end";
+
+/**
+ * `one[Two Words]` — the spelling that gives a subgraph a handle *and* a
+ * title, and the only one where the two differ. Its content is read by the
+ * same `LABEL_CONTENT` every node label goes through, so `subgraph
+ * one["a, b"]` fences exactly as `A["a, b"]` does.
+ */
+const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(\w+)\s*\[(${LABEL_CONTENT})\]$`);
+
+/**
+ * A bare authored id and nothing else — `Ingest`, `A`.
+ *
+ * `\w+` is the shape every parser in this repo gives an id, and ADR-0010
+ * leans on it: a `\w` cannot be a colon, which is what makes a generated id
+ * unspellable by an authored one. Read in two places here, for two different
+ * things that are both that shape — a subgraph written with a bare title
+ * (mermaid 11.17.2 records it as both id and title) and a node written as
+ * nothing but its id inside a block.
+ */
+const AUTHORED_ID_RE = /^\w+$/;
+
+/**
+ * What the tail of a `subgraph` statement names — the author's handle and
+ * the title drawn on the frame — or `null` when it is a spelling Siren does
+ * not read.
+ *
+ * The three spellings and what mermaid 11.17.2 makes of each were measured
+ * with `scripts/mermaid-probe.mjs`, not recalled:
+ *
+ *     subgraph Ingest            id="Ingest"    title="Ingest"
+ *     subgraph "Two Words"       id="subGraph0" title="Two Words"
+ *     subgraph one[Two Words]    id="one"       title="Two Words"
+ *
+ * The middle one is why `name` is nullable rather than defaulted to the
+ * title: Mermaid mints a handle the author never wrote and could not have
+ * predicted, so there is no name here for anything to be addressed by.
+ */
+function readSubgraphTitle(
+  tail: string,
+): { name: string | null; label: string } | null {
+  const titled = SUBGRAPH_TITLED_RE.exec(tail);
+  if (titled !== null) {
+    return { name: titled[1], label: labelIn(titled[2]) };
+  }
+  const fenced = FENCED_LABEL_RE.exec(tail);
+  if (fenced !== null) {
+    return { name: null, label: fenced[1] };
+  }
+  if (AUTHORED_ID_RE.test(tail)) {
+    return { name: tail, label: tail };
+  }
+  return null;
+}
+
+/**
+ * `direction LR` written inside a `subgraph` block — a per-cluster rank
+ * direction, which Siren refuses by name rather than reading and dropping.
+ *
+ * Measured, not recalled: mermaid 11.17.2 records it as `dir="LR"` on that
+ * subgraph and leaves the document's own direction where the header put it
+ * (`scripts/mermaid-probe.mjs`). Honoring it means laying each subgraph out
+ * as a diagram of its own and composing the results, because dagre carries
+ * exactly one `rankdir` per graph and `layoutDirectedGraph` takes it as a
+ * graph-level field. That is a layout feature of its own size.
+ *
+ * The alternative is not "ignore it". A group drawn top-to-bottom where the
+ * author wrote left-to-right is the wrong picture with nothing in it to
+ * notice — a silent mis-render by the compatibility corpus's own definition,
+ * and the state this project's absolute condition exists to keep out. So the
+ * line is named in a diagnostic and the document is refused, exactly as an
+ * undrawn arrow spelling and an undrawn bracket form already are.
+ *
+ * Scoped to *inside* a block on purpose. At the top level of a flowchart
+ * mermaid 11.17.2 accepts `direction LR` and ignores it — the recorded
+ * direction stays `TB`, measured — so there is nothing there for Siren to be
+ * behind on, and it stays an unrecognized line.
+ */
+const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
+
+/**
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
  * node, spelled exactly as a class diagram spells it.
  */
@@ -1003,8 +1096,28 @@ export function parseFlowchart(source: string): ParseResult {
   const edges: SirenEdge[] = [];
   const styles: StyleDecl[] = [];
   const linkStyles: LinkStyleDecl[] = [];
+  const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
+
+  /**
+   * The `subgraph` blocks currently open, innermost last, each remembered
+   * alongside the statement that opened it so an unterminated one can be
+   * quoted back at the author in their own words.
+   */
+  const openBlocks: { subgraph: SirenSubgraph; statement: string; line: number; column: number }[] =
+    [];
+
+  /** Every node id some subgraph has already claimed — the first claim wins. */
+  const claimedNodeIds = new Set<string>();
+
+  /**
+   * Every edge statement, with the endpoint ids it named — kept so that an
+   * edge addressing a subgraph can be refused after the whole document has
+   * been read. It cannot be refused while the line is read: a subgraph may
+   * legitimately be declared *below* the edge that names it.
+   */
+  const edgeStatements: { ids: string[]; text: string; line: number; column: number }[] = [];
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -1140,6 +1253,22 @@ export function parseFlowchart(source: string): ParseResult {
     line: number,
     column: number,
   ) => {
+    // Membership is claimed here, at the one place a node is *written*, for
+    // the same reason the label rules live here: where it was written must
+    // not decide what it means. An edge endpoint, a declaration on a line of
+    // its own and the `:::` shorthand all reach this function, and all three
+    // put a node inside the block they were written in — which is what
+    // mermaid 11.17.2 does, measured.
+    //
+    // The innermost open block claims it, and only if nothing has: a node
+    // already inside a subgraph stays there however many later blocks name
+    // it, which is how an edge drawn *out* of a group does not move its
+    // source into the group at the other end.
+    const innermost = openBlocks[openBlocks.length - 1];
+    if (innermost !== undefined && !claimedNodeIds.has(id)) {
+      claimedNodeIds.add(id);
+      innermost.subgraph.nodeIds.push(id);
+    }
     if (label !== undefined) {
       addNode(id, labelIn(label), shape, line, column);
     } else if (!nodesById.has(id)) {
@@ -1198,6 +1327,54 @@ export function parseFlowchart(source: string): ParseResult {
         }
         timeline = { entries };
         break readLines;
+      }
+
+      // Asked before the line is cut at its arrows, because a title is a
+      // place where an arrow means nothing: `subgraph "A --> B"` is one
+      // block with a punctuated name, not a malformed edge.
+      const subgraphOpenMatch = SUBGRAPH_OPEN_RE.exec(line);
+      if (subgraphOpenMatch !== null) {
+        const title = readSubgraphTitle(subgraphOpenMatch[1]);
+        if (title === null) {
+          diagnostics.push({
+            severity: "error",
+            message: `Unrecognized flowchart line: "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+        const subgraph: SirenSubgraph = {
+          name: title.name,
+          label: title.label,
+          nodeIds: [],
+          subgraphs: [],
+          line: lineNumber,
+          column,
+        };
+        // Into the block that encloses it, or into the document when there
+        // is none — the tree `FlowchartDocument.subgraphs` is the root of.
+        const enclosing = openBlocks[openBlocks.length - 1];
+        (enclosing === undefined ? subgraphs : enclosing.subgraph.subgraphs).push(subgraph);
+        openBlocks.push({ subgraph, statement: line, line: lineNumber, column });
+        continue;
+      }
+
+      if (line === SUBGRAPH_END && openBlocks.length > 0) {
+        openBlocks.pop();
+        continue;
+      }
+
+      if (openBlocks.length > 0 && SUBGRAPH_DIRECTION_RE.test(line)) {
+        diagnostics.push({
+          severity: "error",
+          message: `Siren does not lay a subgraph out in its own direction yet: "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
       }
 
       // A declaration list is not a place where an arrow means anything —
@@ -1296,6 +1473,13 @@ export function parseFlowchart(source: string): ParseResult {
         ) {
           continue;
         }
+
+        edgeStatements.push({
+          ids: written.map((endpoint) => endpoint.id),
+          text: line,
+          line: lineNumber,
+          column,
+        });
 
         // Declared once each, left to right as written — before any edge, so
         // a `:::` on an endpoint two arrows along applies exactly once rather
@@ -1430,6 +1614,31 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
+      // A bare id inside a block, which is how a node with no edges joins a
+      // group. Scoped to inside a block because that is where the two
+      // measurements differ: mermaid 11.17.2 records `A` on a line of its own
+      // as a vertex *and* a member of the block when it sits inside a
+      // `subgraph`, and records nothing at all for it at the top level —
+      // measured both ways with `scripts/mermaid-probe.mjs`. Generalizing
+      // from either half would be wrong in the other, so the scope is the
+      // measurement's.
+      //
+      // It claims no label and names no shape, exactly as an edge's bare
+      // endpoint does; `addNodeAsWritten` holds what that means for both.
+      //
+      // Asked last, after every keyword and every other spelling, so nothing
+      // that means something else can be swallowed as a node — `end` and
+      // `A:::name` are both `\w`-only lines and both have already been read
+      // by the branches above.
+      if (openBlocks.length > 0 && AUTHORED_ID_RE.test(line)) {
+        addNodeAsWritten(
+          { id: line, label: undefined, definitionName: undefined, shape: "rect" },
+          lineNumber,
+          column,
+        );
+        continue;
+      }
+
       diagnostics.push({
         severity: "error",
         message: `Unrecognized flowchart line: "${line}"`,
@@ -1439,6 +1648,60 @@ export function parseFlowchart(source: string): ParseResult {
       sawError = true;
       continue;
     }
+  }
+
+  // An edge whose endpoint names a subgraph, refused rather than drawn.
+  //
+  // Mermaid draws this: `One --> Two`, where both are subgraphs, is an edge
+  // between the two *frames* — mermaid 11.17.2 records vertices for both
+  // names alongside the subgraphs and its renderer joins the clusters
+  // (measured). Siren has no such routing, and left alone it would declare
+  // two ordinary nodes and draw a box labelled `One` beside the frame of the
+  // same name, with no diagnostic at all. That is a `silently-wrong` case
+  // this ticket would have *created*, and the corpus's policy on those says
+  // their destination is zero — so it is refused by name and recorded as
+  // backlog instead.
+  //
+  // Asked after the whole document has been read, because a subgraph may be
+  // declared below the edge that names it, and one diagnostic per statement
+  // rather than per endpoint.
+  const subgraphNames = new Set<string>();
+  const collectNames = (blocks: readonly SirenSubgraph[]): void => {
+    for (const block of blocks) {
+      if (block.name !== null) {
+        subgraphNames.add(block.name);
+      }
+      collectNames(block.subgraphs);
+    }
+  };
+  collectNames(subgraphs);
+
+  for (const statement of edgeStatements) {
+    const named = statement.ids.find((id) => subgraphNames.has(id));
+    if (named === undefined) {
+      continue;
+    }
+    diagnostics.push({
+      severity: "error",
+      message: `Siren does not draw an edge to the subgraph "${named}" yet: "${statement.text}"`,
+      line: statement.line,
+      column: statement.column,
+    });
+    sawError = true;
+  }
+
+  // A block the author never closed, reported in the words they opened it
+  // with. One diagnostic per unclosed block, innermost first, so nesting is
+  // described rather than summarized — the same answer `parseClassDiagram`
+  // gives an unterminated `namespace`.
+  for (const block of [...openBlocks].reverse()) {
+    diagnostics.push({
+      severity: "error",
+      message: `Unterminated "${block.statement}" block: missing matching "${SUBGRAPH_END}"`,
+      line: block.line,
+      column: block.column,
+    });
+    sawError = true;
   }
 
   if (mode === "before-header" || direction === null) {
@@ -1454,6 +1717,7 @@ export function parseFlowchart(source: string): ParseResult {
     direction,
     nodes: Array.from(nodesById.values()),
     edges,
+    subgraphs,
     styles,
     linkStyles,
     timeline,

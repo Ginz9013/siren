@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GraphModel, TextMeasurer } from "../contracts";
+import { layoutDirectedGraph } from "./layoutDirectedGraph";
 import { layoutGraph } from "./layoutGraph";
 
 /** Deterministic fake measurer per the ticket: width = text.length * 8, height = 24. */
@@ -27,14 +28,15 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] } },
-      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [
       { id: "A-B", from: "A", to: "B", ...PLAIN_ARROW, style: { frame: [], text: [] } },
       { id: "B-C", from: "B", to: "C", ...PLAIN_ARROW, style: { frame: [], text: [] } },
     ],
+    subgraphs: [],
     timeline: { totalSteps: 0, entries: [] },
   };
 }
@@ -151,11 +153,12 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] } },
-        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] } },
-        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] } },
+        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null },
+        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null },
+        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] }, parentId: null },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -228,10 +231,11 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: shapes.flatMap((shape) => [
-        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] } },
-        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] } },
+        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null },
+        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null },
       ]),
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -303,12 +307,13 @@ describe("layoutGraph", () => {
       direction: "TB",
       nodes: [
         ...shapes.flatMap((shape) => [
-          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] } },
-          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] } },
+          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null },
+          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null },
         ]),
-        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] } },
+        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] }, parentId: null },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -364,11 +369,12 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] } },
-        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] } },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] } },
+        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null },
+        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] }, parentId: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -424,11 +430,12 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] } },
-        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] } },
-        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] } },
+        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] }, parentId: null },
+        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] }, parentId: null },
+        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -491,11 +498,12 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] } },
-        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] } },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] } },
+        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] }, parentId: null },
+        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] }, parentId: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -617,8 +625,8 @@ describe("how long an edge holds its endpoints apart", () => {
   const twoNodes = (minLength: number): GraphModel => ({
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [
       {
@@ -633,6 +641,7 @@ describe("how long an edge holds its endpoints apart", () => {
         style: { frame: [], text: [] },
       },
     ],
+    subgraphs: [],
     timeline: { totalSteps: 0, entries: [] },
   });
 
@@ -686,8 +695,8 @@ describe("the room an edge label is given", () => {
   ): GraphModel => ({
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [
       {
@@ -699,6 +708,7 @@ describe("the room an edge label is given", () => {
         style: { frame: [], text: [] },
       },
     ],
+    subgraphs: [],
     timeline: { totalSteps: 0, entries: [] },
   });
 
@@ -762,5 +772,244 @@ describe("the room an edge label is given", () => {
     const byId = Object.fromEntries(laidOut("yes").nodes.map((node) => [node.id, node]));
     expect(labelled.labelAnchor!.y).toBeGreaterThan(byId.A.y + byId.A.height);
     expect(labelled.labelAnchor!.y).toBeLessThan(byId.B.y);
+  });
+});
+
+/**
+ * The regression that would otherwise be invisible.
+ *
+ * `layoutDirectedGraph` switches dagre's compound mode on **only when a
+ * cluster is declared**, and its own comment says why: with compound mode on
+ * dagre reserves extra horizontal room for self-edges, which shifts the
+ * routing and the graph width of graphs that have no clusters at all. So a
+ * flowchart adapter that declared a cluster unconditionally — one empty
+ * cluster, or a `parentId` written as `undefined` in a way the `some` check
+ * still counts — would move every diagram in the world by a few pixels with
+ * every test in this repo still green and every picture subtly different.
+ *
+ * Asserted as an *equivalence* rather than against coordinates copied out of
+ * a run: a graph whose model declares no subgraph must lay out exactly as the
+ * shared core lays out the same boxes and edges with no clustering mentioned
+ * at all. That says the thing that must stay true, and keeps saying it when
+ * the theme retunes a number nobody promised.
+ */
+describe("a graph with no subgraph", () => {
+  it("lays out exactly as the shared core does with no clustering mentioned at all", () => {
+    const graph = chainGraph("TB");
+
+    const throughAdapter = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    // The same three boxes and two edges, handed to the shared core with no
+    // `parentId` and no `isCluster` anywhere — which is the input that keeps
+    // compound mode off.
+    const throughCore = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: graph.nodes.map((node) => ({
+        id: node.id,
+        ...fakeMeasurer.measure(node.label),
+      })),
+      edges: graph.edges.map((edge) => ({
+        id: edge.id,
+        from: edge.from,
+        to: edge.to,
+        minlen: edge.minLength,
+      })),
+    });
+
+    expect(
+      throughAdapter.nodes.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
+    ).toEqual(throughCore.nodes);
+    expect(throughAdapter.edges.map(({ id, points }) => ({ id, points }))).toEqual(
+      throughCore.edges,
+    );
+    expect(throughAdapter.width).toBe(throughCore.width);
+    expect(throughAdapter.height).toBe(throughCore.height);
+  });
+});
+
+/**
+ * A subgraph is a **cluster**, and the whole point of that word is that the
+ * layout engine places the group rather than a frame being drawn around
+ * whatever a flat layout happened to produce. The difference is invisible in
+ * a one-group diagram and obvious in a two-group one: a flat layout is free
+ * to put a node of `T` between two nodes of `S`, and a frame drawn around
+ * `S` afterwards would then enclose it.
+ *
+ * So these tests are about *separation* as much as about enclosure — a frame
+ * holds its own members and no one else's — and about the edges that make
+ * grouping worth having: one that leaves a group, and one that joins two.
+ *
+ * `layoutDirectedGraph` already does all of it: `parentId`, `isCluster`, and
+ * nested clusters (verified against `@dagrejs/dagre` directly before any of
+ * this was written). Nothing about the shared core changed for this.
+ */
+describe("a subgraph's frame", () => {
+  /** A node, with everything a layout does not care about spelled once. */
+  const node = (id: string, parentId: string | null = null) => ({
+    id,
+    label: id,
+    shape: "rect" as const,
+    style: { frame: [], text: [] },
+    parentId,
+  });
+
+  const edge = (from: string, to: string) => ({
+    id: `${from}-${to}`,
+    from,
+    to,
+    ...PLAIN_ARROW,
+    style: { frame: [], text: [] },
+  });
+
+  const model = (
+    nodes: GraphModel["nodes"],
+    edges: GraphModel["edges"],
+    subgraphs: GraphModel["subgraphs"],
+  ): GraphModel => ({
+    direction: "TB",
+    nodes,
+    edges,
+    subgraphs,
+    timeline: { totalSteps: 0, entries: [] },
+  });
+
+  const laidOut = (graph: GraphModel) => layoutGraph(graph, { measureText: fakeMeasurer });
+
+  /** Whether `outer` wholly contains `inner`. */
+  const contains = (
+    outer: { x: number; y: number; width: number; height: number },
+    inner: { x: number; y: number; width: number; height: number },
+  ) =>
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    outer.x + outer.width >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height;
+
+  const overlaps = (
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ) =>
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y;
+
+  it("encloses the nodes inside it, with room above them for its own title", () => {
+    const positioned = laidOut(
+      model(
+        [node("A", "subgraph:1"), node("B", "subgraph:1"), node("C")],
+        [edge("A", "B"), edge("B", "C")],
+        [{ id: "subgraph:1", label: "Ingest", parentId: null }],
+      ),
+    );
+
+    expect(positioned.subgraphs).toHaveLength(1);
+    const [frame] = positioned.subgraphs;
+    expect(frame.id).toBe("subgraph:1");
+    expect(frame.label).toBe("Ingest");
+
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+    expect(contains(frame, byId.A)).toBe(true);
+    expect(contains(frame, byId.B)).toBe(true);
+    // `C` belongs to nothing, so the frame must not have swallowed it.
+    expect(contains(frame, byId.C)).toBe(false);
+
+    // The title is drawn on the frame, above everything the frame holds —
+    // not through the first member box. Same strip `layoutClassDiagram`
+    // reserves for a namespace's label.
+    expect(frame.labelAnchor.y).toBeGreaterThan(frame.y);
+    expect(frame.labelAnchor.y).toBeLessThan(Math.min(byId.A.y, byId.B.y));
+    expect(frame.labelAnchor.x).toBeGreaterThan(frame.x);
+    expect(frame.labelAnchor.x).toBeLessThan(frame.x + frame.width);
+  });
+
+  it("nests, and the outer frame contains the inner one whole", () => {
+    const positioned = laidOut(
+      model(
+        [node("A", "subgraph:2"), node("B", "subgraph:2"), node("C", "subgraph:1"), node("D")],
+        [edge("A", "B"), edge("C", "A"), edge("B", "D")],
+        [
+          { id: "subgraph:1", label: "Outer", parentId: null },
+          { id: "subgraph:2", label: "Inner", parentId: "subgraph:1" },
+        ],
+      ),
+    );
+
+    const frames = Object.fromEntries(positioned.subgraphs.map((s) => [s.id, s]));
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // Two levels, because one level can be made to work by an
+    // implementation that cannot nest: `Outer` must hold the whole of
+    // `Inner`'s frame — its title strip included — and not merely the boxes
+    // inside it.
+    expect(contains(frames["subgraph:1"], frames["subgraph:2"])).toBe(true);
+    expect(contains(frames["subgraph:2"], byId.A)).toBe(true);
+    expect(contains(frames["subgraph:2"], byId.B)).toBe(true);
+    expect(contains(frames["subgraph:1"], byId.C)).toBe(true);
+    // `C` is `Outer`'s own, not `Inner`'s.
+    expect(contains(frames["subgraph:2"], byId.C)).toBe(false);
+    // `D` is nobody's.
+    expect(contains(frames["subgraph:1"], byId.D)).toBe(false);
+  });
+
+  it("keeps two groups apart, and routes the edge that joins them between them", () => {
+    const positioned = laidOut(
+      model(
+        [node("A", "subgraph:1"), node("B", "subgraph:1"), node("C", "subgraph:2"), node("D", "subgraph:2")],
+        [edge("A", "B"), edge("B", "C"), edge("C", "D")],
+        [
+          { id: "subgraph:1", label: "One", parentId: null },
+          { id: "subgraph:2", label: "Two", parentId: null },
+        ],
+      ),
+    );
+
+    const frames = Object.fromEntries(positioned.subgraphs.map((s) => [s.id, s]));
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+
+    // What compound layout is *for*. Without it a flat layout is free to
+    // interleave the two groups' nodes, and two frames drawn afterwards
+    // would overlap — each enclosing a node that is not its own.
+    expect(overlaps(frames["subgraph:1"], frames["subgraph:2"])).toBe(false);
+    expect(contains(frames["subgraph:1"], byId.C)).toBe(false);
+    expect(contains(frames["subgraph:2"], byId.A)).toBe(false);
+
+    // The edge crossing the boundary is routed between the two boxes it
+    // joins rather than left at the origin: it starts at `B`, inside the
+    // first frame, and ends at `C`, inside the second.
+    const crossing = positioned.edges.find((e) => e.id === "B-C")!;
+    const first = crossing.points[0];
+    const last = crossing.points[crossing.points.length - 1];
+    expect(crossing.points.length).toBeGreaterThan(1);
+    expect(first.y).toBeGreaterThanOrEqual(byId.B.y);
+    expect(last.y).toBeLessThanOrEqual(byId.C.y + byId.C.height);
+    expect(last.y).toBeGreaterThan(first.y);
+  });
+
+  it("keeps every frame on the canvas and inside the reported bounds", () => {
+    // A frame is grown *outward* from the boxes it holds — up for its title
+    // strip, out for its padding — so it can reach above and left of the
+    // corner the shared core laid the graph out from. Left alone that draws
+    // at a negative coordinate, which is off the canvas: the class diagram
+    // translates for the same reason, and the bounds have to grow with it or
+    // the `<svg>` clips its own frame.
+    const positioned = laidOut(
+      model(
+        [node("A", "subgraph:1"), node("B", "subgraph:1")],
+        [edge("A", "B")],
+        [{ id: "subgraph:1", label: "A very long group title indeed", parentId: null }],
+      ),
+    );
+
+    for (const frame of positioned.subgraphs) {
+      expect(frame.x).toBeGreaterThanOrEqual(0);
+      expect(frame.y).toBeGreaterThanOrEqual(0);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(positioned.width);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(positioned.height);
+    }
+    for (const box of positioned.nodes) {
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+    }
   });
 });

@@ -2017,3 +2017,285 @@ describe("the label an edge carries", () => {
     expect(labelsOf("A --> B")).toEqual([["A-B", null]]);
   });
 });
+
+/**
+ * `subgraph title ... end` is a block, which is a shape this parser did not
+ * have: every other flowchart statement is one line about one thing. What a
+ * block adds is *scope* — the nodes named between the keyword and its `end`
+ * belong to it — so the tests below are about membership as much as about
+ * the keyword parsing.
+ *
+ * Membership is Mermaid's, measured with `scripts/mermaid-probe.mjs` against
+ * mermaid 11.17.2 rather than reasoned about:
+ *
+ *     subgraph Ingest / A --> B / end        -> subgraph id="Ingest" nodes=["B","A"]
+ *     subgraph Outer / subgraph Inner ...    -> Inner nodes=["B","A"], Outer nodes=["Inner","C"]
+ *     subgraph "Two Words"                   -> id="subGraph0" title="Two Words"
+ *     subgraph one[Two Words]                -> id="one" title="Two Words"
+ *     A --> B / subgraph S / B --> C / end   -> S nodes=["C","B"]  (a node named
+ *                                               outside and again inside is the
+ *                                               subgraph's)
+ *     subgraph S / A --> B / end / subgraph T / B --> C / end
+ *                                            -> S=["B","A"], T=["C"]  (the first
+ *                                               subgraph to name a node keeps it)
+ */
+describe("a subgraph", () => {
+  it("groups the nodes named between its keyword and its end", () => {
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph Ingest\n    A --> B\n  end\n  B --> C\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      {
+        name: "Ingest",
+        label: "Ingest",
+        nodeIds: ["A", "B"],
+        subgraphs: [],
+        line: 2,
+        column: 3,
+      },
+    ]);
+    // The nodes and the edges themselves are untouched by the grouping: `C`
+    // is declared exactly as it would have been without the block, and both
+    // edges exist.
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B", "B-C"]);
+  });
+
+  it("nests, and a nested subgraph is a member of the one that encloses it", () => {
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n" +
+        "  subgraph Outer\n" +
+        "    subgraph Inner\n" +
+        "      A --> B\n" +
+        "    end\n" +
+        "    C --> A\n" +
+        "  end\n" +
+        "  B --> D\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toHaveLength(1);
+    const [outer] = document.subgraphs;
+    expect(outer.label).toBe("Outer");
+    // `A` was named inside `Inner` first, so it is `Inner`'s and not
+    // `Outer`'s — the first-claim rule mermaid 11.17.2 applies, measured.
+    expect(outer.nodeIds).toEqual(["C"]);
+    expect(outer.subgraphs.map((sub) => sub.label)).toEqual(["Inner"]);
+    expect(outer.subgraphs[0].nodeIds).toEqual(["A", "B"]);
+  });
+
+  it("keeps a node for the first subgraph that names it", () => {
+    const { document } = parseFlowchartOk(
+      "flowchart TB\n" +
+        "  subgraph S\n    A --> B\n  end\n" +
+        "  subgraph T\n    B --> C\n  end\n",
+    );
+
+    expect(document.subgraphs.map((sub) => [sub.label, sub.nodeIds])).toEqual([
+      ["S", ["A", "B"]],
+      ["T", ["C"]],
+    ]);
+  });
+
+  it("takes a node named before the block as the block's own when it is named again inside", () => {
+    const { document } = parseFlowchartOk(
+      "flowchart TB\n  A --> B\n  subgraph S\n    B --> C\n  end\n",
+    );
+
+    expect(document.subgraphs.map((sub) => sub.nodeIds)).toEqual([["B", "C"]]);
+  });
+
+  it("reads a quoted or bracketed title, and keeps the author's own handle apart from it", () => {
+    const titles = (source: string) =>
+      parseFlowchartOk(`flowchart TB\n  ${source}\n    A --> B\n  end\n`).document.subgraphs.map(
+        (sub) => [sub.name, sub.label],
+      );
+
+    // A bare word is both: mermaid 11.17.2 records `id="Ingest"
+    // title="Ingest"`.
+    expect(titles("subgraph Ingest")).toEqual([["Ingest", "Ingest"]]);
+    // A quoted title names nothing — mermaid mints `subGraph0` for it — so
+    // the author's handle is `null` and only the title survives.
+    expect(titles('subgraph "Two Words"')).toEqual([[null, "Two Words"]]);
+    // The bracket spelling is the one that separates them: `id="one"
+    // title="Two Words"`.
+    expect(titles("subgraph one[Two Words]")).toEqual([["one", "Two Words"]]);
+    expect(titles('subgraph one["Two Words"]')).toEqual([["one", "Two Words"]]);
+  });
+
+  it("closes on an `end` written as a statement on the same line", () => {
+    // `subgraph S A --> B end` is a *parse error* in mermaid 11.17.2
+    // (measured: "Expecting ... got 'LINK'"), and `subgraph S; A --> B; end`
+    // is not — the block boundary is a statement boundary, which is exactly
+    // what `;` already makes.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph S; A --> B; end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((sub) => [sub.label, sub.nodeIds])).toEqual([["S", ["A", "B"]]]);
+  });
+
+  it("refuses an `end` with no subgraph open, and a subgraph never closed", () => {
+    const stray = parseSiren("flowchart TB\n  A --> B\n  end\n");
+    expect(stray.document).toBeNull();
+    expect(stray.diagnostics.map((d) => [d.severity, d.message])).toEqual([
+      ["error", 'Unrecognized flowchart line: "end"'],
+    ]);
+
+    const unterminated = parseSiren("flowchart TB\n  subgraph S\n    A --> B\n");
+    expect(unterminated.document).toBeNull();
+    expect(unterminated.diagnostics.map((d) => [d.severity, d.message])).toEqual([
+      ["error", 'Unterminated "subgraph S" block: missing matching "end"'],
+    ]);
+  });
+});
+
+/**
+ * `direction LR` inside a subgraph, and the decision to refuse it.
+ *
+ * **Measured first.** mermaid 11.17.2 records it as `dir="LR"` on that
+ * subgraph alone and leaves the document's own direction where the header put
+ * it (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
+ * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`). So it is a
+ * *per-cluster* rank direction, and Mermaid honors it by laying each subgraph
+ * out as a diagram of its own and composing the results.
+ *
+ * **Out, and out loudly.** dagre has exactly one `rankdir` per graph —
+ * `layoutDirectedGraph` takes it as a graph-level field, which is the whole of
+ * that seam — so honoring this means recursive sub-layouts and a composition
+ * step, which is a layout feature of its own size rather than the port this
+ * ticket is. What is *not* an option is accepting the line and ignoring it: a
+ * group laid out top-to-bottom where the author wrote left-to-right is a
+ * picture with nothing in it to notice, which is the exact failure mode the
+ * project's absolute condition exists to remove. So it is refused by name,
+ * and recorded in the compatibility corpus as the backlog item it is.
+ */
+describe("a direction written inside a subgraph", () => {
+  it("is refused by name rather than ignored", () => {
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  subgraph Ingest\n    direction LR\n    A --> B\n  end\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
+      [
+        "error",
+        'Siren does not lay a subgraph out in its own direction yet: "direction LR"',
+        3,
+      ],
+    ]);
+  });
+
+  it("costs the author nothing when they never wrote one", () => {
+    const { diagnostics } = parseSiren(
+      "flowchart TB\n  subgraph Ingest\n    A --> B\n  end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+  });
+});
+
+/**
+ * An edge whose endpoint names a subgraph — the gap this ticket *creates*
+ * unless it is closed, and the reason it is closed here rather than recorded
+ * and left.
+ *
+ * **Measured.** mermaid 11.17.2 reads `One --> Two`, where `One` and `Two`
+ * are subgraphs, as an edge between the two frames — it records vertices for
+ * both names *and* the subgraphs, and its renderer joins the clusters
+ * (`scripts/mermaid-probe.mjs`). Siren has no such routing: it would declare
+ * two ordinary nodes and draw two boxes labelled `One` and `Two` *beside* the
+ * frames of the same name, with no diagnostic. That is a `silently-wrong`
+ * case, and the policy on those says their count's destination is zero — so
+ * a board must not create one.
+ *
+ * Refused by name instead, which is the honest state, and recorded in the
+ * corpus as backlog.
+ */
+describe("an edge that addresses a subgraph", () => {
+  it("is refused by name rather than drawn as a stray node beside the frame", () => {
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n" +
+        "  subgraph One\n    A\n  end\n" +
+        "  subgraph Two\n    B\n  end\n" +
+        "  One --> Two\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
+      ["error", 'Siren does not draw an edge to the subgraph "One" yet: "One --> Two"', 8],
+    ]);
+  });
+
+  it("catches it whichever order the two were written in", () => {
+    // A subgraph may be declared after the edge that names it, so this
+    // cannot be a check made while the line is read.
+    const { diagnostics } = parseSiren(
+      "flowchart TB\n  A --> Ingest\n  subgraph Ingest\n    B --> C\n  end\n",
+    );
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw an edge to the subgraph "Ingest" yet: "A --> Ingest"',
+    ]);
+  });
+
+  it("says nothing about a node that merely shares a subgraph's name", () => {
+    // `A[Alpha]` beside `subgraph A` is valid Mermaid that draws a box and a
+    // frame, and Siren draws both — so it is not this diagnostic's business.
+    // Only an *edge* endpoint is ambiguous, because only there does Mermaid
+    // mean the frame.
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  A[Alpha]\n  subgraph A\n    B --> C\n  end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+  });
+});
+
+/**
+ * A node written as a bare id on a line of its own **inside** a subgraph.
+ *
+ * This is how an author puts a node with no edges into a group, and it is the
+ * second most common line in a grouped document after `A --> B`. Siren
+ * refused it — a bare word has never been a node declaration here, only a
+ * bracket form has — which would have left `subgraph One / A / end` rejected
+ * while the corpus claimed `subgraph` was supported.
+ *
+ * **Measured both ways, and the two differ**, which is why the rule is scoped
+ * rather than general (`scripts/mermaid-probe.mjs`, mermaid 11.17.2):
+ *
+ *     flowchart TB / A / B[Box]        -> vertices: B only. A is not recorded.
+ *     subgraph One / A / end           -> vertices: A. subgraph One nodes=["A"].
+ *
+ * So a bare id declares a node inside a block and declares nothing outside
+ * one, and Siren follows the measurement on both sides rather than
+ * generalizing from one of them.
+ */
+describe("a bare node id inside a subgraph", () => {
+  it("declares the node and puts it in the block", () => {
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph One\n    A\n    B[Box]\n  end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "Box"],
+    ]);
+    expect(document.subgraphs.map((sub) => sub.nodeIds)).toEqual([["A", "B"]]);
+  });
+
+  it("is still an unrecognized line outside every block", () => {
+    // Mermaid records nothing for it there, so there is no document being
+    // refused — and a bare word accepted at the top level would swallow
+    // every mistyped keyword as a node.
+    const { document, diagnostics } = parseSiren("flowchart TB\n  A\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized flowchart line: "A"']);
+  });
+});

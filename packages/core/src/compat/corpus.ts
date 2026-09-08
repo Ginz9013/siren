@@ -234,6 +234,53 @@ function nodeBox(
 }
 
 /**
+ * One subgraph frame's four sides, keyed by the **title** drawn on it.
+ *
+ * By the title rather than by `data-siren-id`, and that is the point of the
+ * reader. A subgraph's id is generated (`subgraph:1`) precisely so that it
+ * cannot be spelled by anything the author wrote; the title is what the
+ * author *did* write, so it is what a row can ask about without encoding a
+ * numbering rule the corpus has no business pinning.
+ *
+ * The frame is a `<rect>`, so this reads the same four attributes `nodeBox`
+ * does — worth stating, because a shape drawn with a `<path>` reads nothing
+ * there and the two readers would otherwise look interchangeable.
+ */
+function subgraphBox(
+  result: SirenRenderResult,
+  title: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const group = elements(result, "g.siren-subgraph").find(
+    (g) => g.querySelector("text.siren-subgraph-label")?.textContent === title,
+  );
+  const frame = group?.querySelector("rect.siren-subgraph-frame");
+  if (frame === undefined || frame === null) {
+    throw new Error(`no subgraph titled "${title}" was drawn`);
+  }
+  const x = Number(frame.getAttribute("x"));
+  const y = Number(frame.getAttribute("y"));
+  return {
+    top: y,
+    bottom: y + Number(frame.getAttribute("height")),
+    left: x,
+    right: x + Number(frame.getAttribute("width")),
+  };
+}
+
+/** Whether `outer` wholly contains `inner` — how "it groups them" is read off a picture. */
+function encloses(
+  outer: { top: number; bottom: number; left: number; right: number },
+  inner: { top: number; bottom: number; left: number; right: number },
+): boolean {
+  return (
+    outer.left <= inner.left &&
+    outer.top <= inner.top &&
+    outer.right >= inner.right &&
+    outer.bottom >= inner.bottom
+  );
+}
+
+/**
  * One closed outline's vertices as a cycle with a canonical starting point
  * and direction, so that two paths drawing the same figure compare equal
  * however each was written. A polygon has no first vertex and no preferred
@@ -1202,8 +1249,47 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       subgraph one
         A --> B
       end`,
-    status: "rejected",
+    status: "supported",
     meaning: "`subgraph ... end` groups nodes inside a labelled frame.",
+    assert: (result) => {
+      // The nodes are still ordinary nodes and the edge is still `A-B`:
+      // grouping changes where a box goes, not what it is called.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+
+      // "Groups" read off the picture rather than off a parse tree: the
+      // frame is drawn, it carries the author's title, and it encloses both
+      // boxes. A frame drawn somewhere else would satisfy "it parsed".
+      const frame = subgraphBox(result, "one");
+      expectSame("frame encloses A", encloses(frame, nodeBox(result, "A")), true);
+      expectSame("frame encloses B", encloses(frame, nodeBox(result, "B")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-direction",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        direction LR
+        A --> B
+      end`,
+    status: "rejected",
+    meaning:
+      "`direction LR` inside a subgraph lays that group out left-to-right while the rest of the diagram keeps the header's direction.",
+  },
+  {
+    id: "fc-subgraph-edge",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        A
+      end
+      subgraph two
+        B
+      end
+      one --> two`,
+    status: "rejected",
+    meaning: "An edge may name a subgraph at either end, joining the two frames rather than two boxes.",
   },
 
   // -------------------------------------------------------------------------

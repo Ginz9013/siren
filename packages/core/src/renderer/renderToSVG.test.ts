@@ -28,9 +28,9 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [
       {
@@ -56,6 +56,7 @@ function buildFixture(): PositionedGraph {
         ],
       },
     ],
+    subgraphs: [],
     timeline: {
       totalSteps: 2,
       entries: [
@@ -77,11 +78,12 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [],
+    subgraphs: [],
     timeline: {
       totalSteps: 2,
       entries: [
@@ -207,6 +209,7 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
         {
           id: "B",
@@ -217,9 +220,11 @@ describe("renderToSVG", () => {
           width: 80,
           height: 40,
           style: { frame: [], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 260,
@@ -294,8 +299,10 @@ describe("renderToSVG", () => {
         width: 200,
         height: 60,
         style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        parentId: null,
       })),
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -412,8 +419,10 @@ describe("renderToSVG", () => {
         width: 200,
         height: 60,
         style: { frame: [], text: [] },
+        parentId: null,
       })),
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -481,9 +490,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -517,9 +528,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -589,9 +602,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 200,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 240,
@@ -638,9 +653,11 @@ describe("renderToSVG", () => {
           width: 160,
           height: 160,
           style: { frame: [{ property: "fill", value: "#fdd" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 180,
       height: 200,
@@ -700,9 +717,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 160,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 200,
@@ -772,6 +791,7 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [], text: [] },
+          parentId: null,
         },
         {
           id: "B",
@@ -782,6 +802,7 @@ describe("renderToSVG", () => {
           width: 80,
           height: 40,
           style: { frame: [], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
@@ -1263,5 +1284,97 @@ describe("the label drawn on an edge", () => {
     expect(
       Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
     ).toEqual(["path", "text"]);
+  });
+});
+
+/**
+ * A subgraph is drawn as a labelled frame *behind* what it groups — one
+ * `<g class="siren-subgraph">` holding a `<rect class="siren-subgraph-frame">`
+ * and a `<text class="siren-subgraph-label">`, the shape
+ * `renderClassDiagramToSVG` already gives a namespace.
+ *
+ * Two things about it are load-bearing rather than incidental, and both are
+ * asserted here. Paint order: the frames come first in document order, so the
+ * boxes they enclose are drawn *over* them rather than hidden behind them.
+ * And `data-siren-id`: a subgraph is a timeline target under its generated
+ * id (ADR-0010), so the frame has to carry that id or `enter subgraph:1 fade`
+ * resolves in the model and moves nothing in the picture.
+ */
+describe("renderToSVG — a subgraph", () => {
+  const framed = (subgraphs: PositionedGraph["subgraphs"]): SVGSVGElement =>
+    renderToSVG({
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Start",
+          shape: "rect",
+          x: 40,
+          y: 60,
+          width: 80,
+          height: 40,
+          style: { frame: [], text: [] },
+          parentId: "subgraph:1",
+        },
+      ],
+      edges: [],
+      subgraphs,
+      timeline: { totalSteps: 0, entries: [] },
+      width: 300,
+      height: 300,
+    });
+
+  const oneFrame = [
+    {
+      id: "subgraph:1",
+      label: "Ingest",
+      x: 20,
+      y: 20,
+      width: 140,
+      height: 100,
+      labelAnchor: { x: 90, y: 38 },
+    },
+  ];
+
+  it("draws a titled frame at the box the layout grew", () => {
+    const svg = framed(oneFrame);
+
+    const frame = svg.querySelector("g.siren-subgraph rect.siren-subgraph-frame")!;
+    expect(frame).not.toBeNull();
+    expect([
+      frame.getAttribute("x"),
+      frame.getAttribute("y"),
+      frame.getAttribute("width"),
+      frame.getAttribute("height"),
+    ]).toEqual(["20", "20", "140", "100"]);
+
+    const title = svg.querySelector("g.siren-subgraph text.siren-subgraph-label")!;
+    expect(title.textContent).toBe("Ingest");
+    // At the anchor layout reserved a strip for, not computed here from the
+    // frame: the strip is what the frame was grown to hold, and a renderer
+    // recomputing it would be a second opinion free to disagree.
+    expect([title.getAttribute("x"), title.getAttribute("y")]).toEqual(["90", "38"]);
+  });
+
+  it("carries the id a timeline names it by", () => {
+    const svg = framed(oneFrame);
+
+    const group = svg.querySelector("g.siren-subgraph")!;
+    expect(group.getAttribute("data-siren-id")).toBe("subgraph:1");
+  });
+
+  it("draws every frame before any node, so a frame never hides what it groups", () => {
+    const svg = framed(oneFrame);
+
+    const drawn = Array.from(svg.children)
+      .filter((child) => child.tagName === "g")
+      .map((child) => child.getAttribute("class"));
+    expect(drawn).toEqual(["siren-subgraph", "siren-node"]);
+  });
+
+  it("draws nothing at all when the document declares no subgraph", () => {
+    const svg = framed([]);
+
+    expect(svg.querySelectorAll(".siren-subgraph")).toHaveLength(0);
   });
 });

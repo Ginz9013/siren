@@ -416,6 +416,16 @@ describe("default theme coverage of the sequence renderer", () => {
  * `fill: black` is invisible on a dark theme — without failing anything.
  * Both spellings are written, though they draw the same element, because
  * this fixture is also the one place the two are seen end to end.
+ *
+ * **And a subgraph belongs in here for the fourth time, for the same reason
+ * a fourth time.** It drew no frame, so `.siren-subgraph-frame` and
+ * `.siren-subgraph-label` would have shipped unthemed without failing
+ * anything — an unstroked frame is not there at all (SVG's initial
+ * `stroke: none`) and a title left to the initial `fill: black` is invisible
+ * on a dark theme. Nested, because the outer frame and the inner one are the
+ * same two classes and one drawn example would not have caught a rule that
+ * only reached the top level. It is drawn last so that the arrow chain above
+ * it is left exactly as it was.
  */
 const EVERY_FLOWCHART_FEATURE = `flowchart TB
 A[Start]
@@ -435,6 +445,12 @@ M --x N[Cross end]
 N <--> O[Both ends]
 O -->|pipe label| P[Labelled]
 P -- inline label --> Q[Labelled too]
+subgraph Outer
+  subgraph Inner
+    R[Grouped] --> S[Grouped too]
+  end
+  S --> T[Beside the group]
+end
 
 timeline:
 step 1: enter B fade, enter A-B fade

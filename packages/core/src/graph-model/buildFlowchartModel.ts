@@ -6,9 +6,12 @@ import type {
   GraphModel,
   GraphNode,
   LinkStyleDecl,
+  ResolvedSubgraph,
+  SirenSubgraph,
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { generatedId } from "./generatedId";
 import { resolveStyles } from "./resolveStyles";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
@@ -36,6 +39,7 @@ export function buildFlowchartModel(
 
   const nodes = resolveNodes(document, diagnostics);
   const edges = assignEdgeIds(document);
+  const subgraphs = resolveSubgraphs(document, nodes);
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
@@ -85,9 +89,16 @@ export function buildFlowchartModel(
     edge.style = overriding(edge.style, style);
   }
 
+  // A subgraph is a timeline target on the same terms as a node and an edge:
+  // it is a drawn thing with an id, and board 2's rule is that a diagram kind
+  // gains animation by tagging what it draws with the ids the timeline uses.
+  // A class diagram's namespace has been addressable this way since the class
+  // board, and a frame nobody could name would be a decision by omission
+  // rather than a feature that was not reached.
   const validTargetIds = new Set<string>([
     ...nodes.map((n) => n.id),
     ...edges.map((e) => e.id),
+    ...subgraphs.map((s) => s.id),
   ]);
 
   const { entries, totalSteps } = resolveTimeline(document.timeline, validTargetIds, diagnostics);
@@ -98,6 +109,7 @@ export function buildFlowchartModel(
     direction: document.direction,
     nodes,
     edges,
+    subgraphs,
     timeline: { totalSteps, entries },
   };
 
@@ -168,6 +180,11 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
         label: node.label,
         shape: node.shape,
         style: unstyled(),
+        // Filled in by `resolveSubgraphs`, once the blocks have ids to point
+        // at. `null` here rather than left out, so a node nobody grouped is
+        // in the state every reader downstream expects rather than in a
+        // second one.
+        parentId: null,
       });
       continue;
     }
@@ -182,6 +199,61 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
   }
 
   return [...nodesById.values()];
+}
+
+/**
+ * Flattens the document's `subgraph` tree into the list layout reads, minting
+ * each block the generated id it is addressed by and writing every member's
+ * parentage onto the node itself.
+ *
+ * **The id is generated rather than authored**, exactly as a namespace's is,
+ * and the argument is ADR-0010's: a subgraph may legitimately be titled after
+ * a node (mermaid 11.17.2 accepts `A[Alpha]` beside `subgraph A`, measured),
+ * so the author's own word would put two unrelated drawn elements in one
+ * `data-siren-id`. A colon cannot appear in a node id or in a `${from}-${to}`
+ * edge id, so `subgraph:1` cannot be spelled by either.
+ *
+ * Pre-order, so the numbering is the order the `subgraph` keywords were
+ * written — what an author counts down the page — rather than the order the
+ * blocks happened to close in.
+ *
+ * Membership lands on `GraphNode.parentId` and nowhere else. Keeping a member
+ * list here as well would be a second statement of the same fact, free to
+ * disagree with the first; the frame is grown from the boxes that name it, so
+ * the boxes are where the naming belongs.
+ */
+function resolveSubgraphs(
+  document: FlowchartDocument,
+  nodes: readonly GraphNode[],
+): ResolvedSubgraph[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const resolved: ResolvedSubgraph[] = [];
+
+  const visit = (subgraph: SirenSubgraph, parentId: string | null): void => {
+    const id = generatedId("subgraph", resolved.length + 1);
+    resolved.push({ id, label: subgraph.label, parentId });
+
+    for (const nodeId of subgraph.nodeIds) {
+      // A member the document has no node for cannot arise from this
+      // parser — a block only claims ids at the moment they are written, and
+      // writing one declares it — so this is the layout declining to invent
+      // parentage rather than a case with a diagnostic of its own.
+      const node = nodeById.get(nodeId);
+      if (node !== undefined) {
+        node.parentId = id;
+      }
+    }
+
+    for (const child of subgraph.subgraphs) {
+      visit(child, id);
+    }
+  };
+
+  for (const subgraph of document.subgraphs) {
+    visit(subgraph, null);
+  }
+
+  return resolved;
 }
 
 function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {

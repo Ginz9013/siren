@@ -128,6 +128,36 @@
   fill: var(--siren-node-text);
 }
 
+/*
+ * A subgraph's frame and its title — the flowchart's grouping construct, and
+ * the same figure a class diagram's namespace already draws, so it takes the
+ * same paint for the same reasons.
+ *
+ * Outlined and not filled: the frame encloses node boxes that are drawn
+ * *over* it, so a fill here would sit behind the whole group and tint nothing
+ * usefully while still hiding whatever the frame overlaps — and a nested
+ * frame would tint its parent's fill a second time. It tracks the node stroke
+ * because it is a container of boxes, not a connector.
+ *
+ * No `font-size` on the title: `layoutGraph` measures it in
+ * `--siren-font-size` and grows the frame's top strip from what it measured,
+ * so shrinking or growing it here would leave the drawn text disagreeing with
+ * the strip built to hold it.
+ */
+.siren-subgraph-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+.siren-subgraph-label {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-font-size);
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
 .siren-edge {
   fill: none;
   stroke: var(--siren-edge-stroke);
@@ -771,6 +801,21 @@
 }
 
 .siren-edge.siren-highlight-outline {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * A subgraph is addressable from a `timeline:` block under its generated id
+ * (`highlight subgraph:1 outline`), exactly as a class diagram's namespace
+ * is, so the verb has to do something. Without this rule it resolved to
+ * nothing at all — the verb parses, the model accepts it, the controller sets
+ * the class, and the picture does not change.
+ */
+.siren-subgraph.siren-highlight-outline .siren-subgraph-frame {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);
   transition:

@@ -496,8 +496,45 @@ const SILENTLY_WRONG = 3;
  * The construct is an *arrow spelling*, which belongs to the ticket that
  * decomposed the arrow token rather than to the one that added labels, so
  * it was recorded rather than fixed in passing.
+ *
+ * **Then `subgraph` landed, and the number moved three ways at once — one
+ * down and two up — so all three are written out rather than netted.**
+ *
+ * Down by one: `fc-stmt-subgraph` (`subgraph one / A --> B / end`) is
+ * `supported`. The block parses, the nodes inside it belong to it, dagre
+ * places the group as a cluster, and the frame is drawn with its title
+ * around the boxes it holds — asserted as enclosure off the rendered SVG,
+ * not as "it parsed". That fall is code changing: the construct was honestly
+ * refused before and renders correctly now.
+ *
+ * Up by two, and **neither rise is a regression** — nothing that used to
+ * render stopped, and both are constructs that were *already* refused with
+ * no row of their own, because until now the whole `subgraph` block was
+ * refused and took them down with it. This is the instrument catching up,
+ * the same movement `fc-edge-dotted-short` was one ticket earlier:
+ *
+ * - `fc-subgraph-direction` (`direction LR` inside a subgraph). Measured:
+ *   mermaid 11.17.2 records it as `dir="LR"` on that subgraph alone and
+ *   leaves the document's own direction alone, so it is a *per-cluster* rank
+ *   direction, honored by laying each group out as its own diagram. dagre
+ *   carries one `rankdir` per graph, so that is recursive sub-layout and a
+ *   layout feature of its own size. Refused **by name** rather than read and
+ *   dropped: a group drawn top-to-bottom where the author wrote
+ *   left-to-right would be a `silently-wrong` row, and this file's other
+ *   ratchet says where those are going.
+ * - `fc-subgraph-edge` (`one --> two`, both subgraphs). Measured: Mermaid
+ *   joins the two frames. Siren would have declared two ordinary nodes and
+ *   drawn a box labelled `one` beside the frame of the same name, with no
+ *   diagnostic — a `silently-wrong` case this ticket would have *created*.
+ *   Refused by name, so it is backlog rather than a wrong picture.
+ *
+ * So `rejected + silently-wrong` grew by one, which the failure message
+ * below reads as a regression and which this is not. The message is right to
+ * make someone say why, and the why is that two valid Mermaid documents Siren
+ * refuses had never been written down. Knowing that and not recording it is
+ * the exact blindness this corpus exists to remove.
  */
-const REJECTED = 14;
+const REJECTED = 15;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

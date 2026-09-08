@@ -30,6 +30,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B", ...PLAIN_ARROW },
         { from: "B", to: "C", ...PLAIN_ARROW },
       ],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -54,6 +55,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B", ...PLAIN_ARROW },
         { from: "A", to: "B", ...PLAIN_ARROW },
       ],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -79,6 +81,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B", ...PLAIN_ARROW },
         { from: "B", to: "C", ...PLAIN_ARROW },
       ],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -121,6 +124,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -153,6 +157,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "Is it ready?", shape: "rect" },
       ],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -162,8 +167,8 @@ describe("buildGraphModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] } },
-      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null },
+      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ]);
   });
 
@@ -176,6 +181,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "Begin", shape: "rect" },
       ],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -185,7 +191,7 @@ describe("buildGraphModel", () => {
 
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
@@ -200,6 +206,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -222,6 +229,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -258,6 +266,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -287,6 +296,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -315,6 +325,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -337,6 +348,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "B", label: "B", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -366,6 +378,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -394,6 +407,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -433,6 +447,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -465,6 +480,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -495,6 +511,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B", ...PLAIN_ARROW }, // A-B: edge exits at the same step as A
         { from: "B", to: "C", ...PLAIN_ARROW }, // B-C: neither B nor C ever exits
       ],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -548,6 +565,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -559,7 +577,7 @@ describe("buildGraphModel", () => {
     expect(model).toBeNull();
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ]);
   });
 
@@ -609,6 +627,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+      subgraphs: [],
       linkStyles: [],
       styles: [
         {
@@ -649,6 +668,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [
         {
@@ -683,6 +703,7 @@ describe("buildGraphModel", () => {
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
+      subgraphs: [],
       linkStyles: [],
       styles: [
         {
@@ -731,6 +752,7 @@ describe("buildGraphModel", () => {
         { from: "C", to: "D", ...PLAIN_ARROW },
       ],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["1"],
@@ -770,6 +792,7 @@ describe("buildGraphModel", () => {
         { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["0", "x"],
@@ -814,6 +837,7 @@ describe("buildGraphModel", () => {
         { from: "B", to: "C", ...PLAIN_ARROW },
       ].slice(0, edgeCount),
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["9"],
@@ -858,6 +882,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B", ...PLAIN_ARROW },
       ],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["default"],
@@ -901,6 +926,7 @@ describe("buildGraphModel", () => {
       nodes: [],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW, sourceLine: 2, sourceColumn: 3 }],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["default"],
@@ -946,6 +972,7 @@ describe("buildGraphModel", () => {
         { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       styles: [],
+      subgraphs: [],
       linkStyles,
       timeline: null,
     });
@@ -997,6 +1024,7 @@ describe("buildGraphModel", () => {
         { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["default"],
@@ -1053,6 +1081,7 @@ describe("buildGraphModel", () => {
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["default"],
@@ -1101,6 +1130,7 @@ describe("buildGraphModel", () => {
         { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
       ],
       styles: [],
+      subgraphs: [],
       linkStyles: [
         {
           targets: ["0", "default"],
@@ -1130,7 +1160,18 @@ describe("buildGraphModel", () => {
       "toEnd",
       "to",
     ].sort());
-    expect(Object.keys(graph!).sort()).toEqual(["direction", "edges", "nodes", "timeline"]);
+    expect(Object.keys(graph!).sort()).toEqual([
+      "direction",
+      "edges",
+      "nodes",
+      // The grouping a `subgraph` block declares, resolved. It joins the
+      // model's field set for the same reason the fields above are pinned
+      // here at all: what leaves this stage is the whole of what layout and
+      // the renderer may read, and an addition should have to be written
+      // down rather than merely appear.
+      "subgraphs",
+      "timeline",
+    ]);
   });
 });
 
@@ -1149,6 +1190,7 @@ describe("an edge's arrow through the model", () => {
       { id: "B", label: "B", shape: "rect" },
     ],
     edges,
+    subgraphs: [],
     linkStyles: [],
     styles: [],
     timeline: null,
@@ -1209,6 +1251,116 @@ describe("an edge's arrow through the model", () => {
     expect(graph!.edges.map((edge) => [edge.id, edge.line, edge.toEnd, edge.minLength])).toEqual([
       ["A-B", "solid", "arrow", 1],
       ["A-B#2", "thick", "cross", 2],
+    ]);
+  });
+});
+
+/**
+ * A subgraph after resolution: what it is called downstream, and which nodes
+ * belong to it.
+ *
+ * **Its id is generated, not the author's own word for it.** That is the
+ * class diagram's answer for a namespace (`namespace:1`), and it is here for
+ * exactly the reason ADR-0010 gives: every element a diagram can animate
+ * shares one id space, and a subgraph may legitimately be named after a node
+ * — mermaid 11.17.2 accepts `A[Alpha]` beside `subgraph A`, measured — so a
+ * subgraph carrying its author-written name would give two unrelated
+ * elements the same `data-siren-id`. `\w` does not match a colon, so a
+ * generated id cannot be spelled by any node id or any `${from}-${to}` edge
+ * id: the collision is unconstructible rather than merely unlikely.
+ */
+describe("a subgraph in the graph model", () => {
+  const grouped = (subgraphs: FlowchartDocument["subgraphs"]): SirenDocument => ({
+    kind: "flowchart",
+    direction: "TB",
+    nodes: [
+      { id: "A", label: "A", shape: "rect" },
+      { id: "B", label: "B", shape: "rect" },
+      { id: "C", label: "C", shape: "rect" },
+    ],
+    edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
+    subgraphs,
+    linkStyles: [],
+    styles: [],
+    timeline: null,
+  });
+
+  it("gives each one a generated id and puts its members' parentage on the nodes", () => {
+    const { graph, diagnostics } = buildGraphModel(
+      grouped([{ name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [] }]),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.subgraphs).toEqual([
+      { id: "subgraph:1", label: "Ingest", parentId: null },
+    ]);
+    expect(graph!.nodes.map((node) => [node.id, node.parentId])).toEqual([
+      ["A", "subgraph:1"],
+      ["B", "subgraph:1"],
+      // Outside every block, and `null` rather than absent — the
+      // empty-not-absent rule `style` and `shape` already follow.
+      ["C", null],
+    ]);
+  });
+
+  it("numbers a nested subgraph in source order and points it at the one enclosing it", () => {
+    const { graph } = buildGraphModel(
+      grouped([
+        {
+          name: "Outer",
+          label: "Outer",
+          nodeIds: ["C"],
+          subgraphs: [{ name: "Inner", label: "Inner", nodeIds: ["A", "B"], subgraphs: [] }],
+        },
+      ]),
+    );
+
+    // Pre-order, which is the order the author wrote the `subgraph` keywords
+    // in and therefore the order they would count them in.
+    expect(graph!.subgraphs).toEqual([
+      { id: "subgraph:1", label: "Outer", parentId: null },
+      { id: "subgraph:2", label: "Inner", parentId: "subgraph:1" },
+    ]);
+    expect(graph!.nodes.map((node) => [node.id, node.parentId])).toEqual([
+      ["A", "subgraph:2"],
+      ["B", "subgraph:2"],
+      ["C", "subgraph:1"],
+    ]);
+  });
+
+  it("does not collide with a node that has the author's own name for it", () => {
+    // The trap the class diagram already paid for, one kind over: `A` is a
+    // node *and* the word the author titled the block with. Two elements,
+    // two ids, and the frame's cannot be spelled by any node.
+    const { graph, diagnostics } = buildGraphModel(
+      grouped([{ name: "A", label: "A", nodeIds: ["B"], subgraphs: [] }]),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.subgraphs.map((sub) => sub.id)).toEqual(["subgraph:1"]);
+    expect(graph!.nodes.map((node) => node.id)).toContain("A");
+    expect(graph!.nodes.find((node) => node.id === "A")!.parentId).toBeNull();
+  });
+
+  it("makes a subgraph a timeline target under its generated id", () => {
+    // A frame nobody can name would be a decision by omission. Board 2's
+    // rule is that a diagram kind gains animation by tagging drawn elements
+    // with the ids the timeline uses, and a namespace already resolves this
+    // way — so `step 1: enter subgraph:1 fade` has to resolve rather than be
+    // dropped as an unknown target.
+    const document = grouped([
+      { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [] },
+    ]) as FlowchartDocument;
+    const { graph, diagnostics } = buildGraphModel({
+      ...document,
+      timeline: {
+        entries: [{ kind: "enter", step: 1, targetId: "subgraph:1", effect: "fade" }],
+      },
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.timeline.entries).toEqual([
+      { kind: "enter", step: 1, targetId: "subgraph:1", effect: "fade" },
     ]);
   });
 });

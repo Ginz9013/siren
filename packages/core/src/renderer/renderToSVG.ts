@@ -4,6 +4,7 @@ import type {
   PositionedEdge,
   PositionedGraph,
   PositionedNode,
+  PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
@@ -132,6 +133,14 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   // reference nobody makes.
   const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
   svg.appendChild(defs);
+
+  // Frames first, because document order is paint order and a frame is drawn
+  // *behind* what it groups. The class renderer puts namespaces here for the
+  // same reason, and the model's own order — outermost before nested — is
+  // what keeps an inner frame painted over its parent rather than under it.
+  for (const subgraph of graph.subgraphs) {
+    svg.appendChild(buildSubgraph(subgraph));
+  }
 
   for (const node of graph.nodes) {
     const g = document.createElementNS(SVG_NS, "g");
@@ -341,6 +350,51 @@ function buildEdgeLabel(edge: PositionedEdge): SVGTextElement | null {
 function edgeClasses(edge: PositionedEdge): string {
   const lineClass = EDGE_LINE_CLASS[edge.line];
   return lineClass === null ? "siren-edge" : `siren-edge ${lineClass}`;
+}
+
+/**
+ * Builds the `<g class="siren-subgraph">` for one subgraph: a
+ * `<rect class="siren-subgraph-frame">` at the frame layout grew around
+ * everything the block holds, and a `<text class="siren-subgraph-label">` at
+ * the anchor in the strip along its top edge.
+ *
+ * `renderClassDiagramToSVG`'s `buildNamespace`, one diagram kind over, and
+ * deliberately the same figure: both are a labelled box drawn behind what it
+ * groups, and a theme or an author who has learned to read one should not
+ * have to learn a second vocabulary for the other.
+ *
+ * The anchor is layout's rather than computed here from the frame. That strip
+ * is the reason the frame is as tall as it is — `subgraphFrames` grew it to
+ * hold the title — so recomputing the position here would be a second opinion
+ * on one number, free to drift from the space reserved for it.
+ *
+ * `data-siren-id` goes on the group, which is what makes a subgraph a
+ * timeline target: ADR-0009 resolves a target to *every* element carrying its
+ * id, and the frame and its title are two elements of one thing.
+ */
+function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-subgraph");
+  g.setAttribute("data-siren-id", subgraph.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-subgraph-frame");
+  frame.setAttribute("x", String(subgraph.x));
+  frame.setAttribute("y", String(subgraph.y));
+  frame.setAttribute("width", String(subgraph.width));
+  frame.setAttribute("height", String(subgraph.height));
+  g.appendChild(frame);
+
+  const title = document.createElementNS(SVG_NS, "text");
+  title.setAttribute("class", "siren-subgraph-label");
+  title.setAttribute("x", String(subgraph.labelAnchor.x));
+  title.setAttribute("y", String(subgraph.labelAnchor.y));
+  title.setAttribute("text-anchor", "middle");
+  title.setAttribute("dominant-baseline", "middle");
+  title.textContent = subgraph.label;
+  g.appendChild(title);
+
+  return g;
 }
 
 /**
