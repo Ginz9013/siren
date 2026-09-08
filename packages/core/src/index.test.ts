@@ -3663,16 +3663,19 @@ class A highlight
   });
 
   it("keeps a `linkStyle`'s `color` off the edge path, where it would be the same bug one element over", () => {
-    // An edge is one `<path class="siren-edge">` and draws no text at all, so
-    // the author's `color` has nowhere to land. `resolveStyles` routes it
-    // into the text half anyway — the rule is about what a declaration
-    // *means*, and a resolver that asked "is this an edge?" would be the
-    // per-kind opinion the split exists to prevent — and this renderer
-    // simply has no element to apply it to.
+    // An **unlabelled** edge is one `<path class="siren-edge">` and draws no
+    // text at all, so the author's `color` has nowhere to land here.
+    // `resolveStyles` routes it into the text half anyway — the rule is
+    // about what a declaration *means*, and a resolver that asked "is this
+    // an edge?" would be the per-kind opinion the split exists to prevent —
+    // and this document simply has no element to apply it to. An edge that
+    // carries a label does, and takes it; that is the test further down
+    // ("paints an edge's label with `linkStyle`'s `color`"), and the two
+    // together are the whole of where the text half goes.
     //
-    // What must not happen is the thing this whole ticket is about: the
-    // declaration landing on the drawn shape instead, where `color` paints
-    // nothing and the author is told nothing.
+    // What must not happen either way is the declaration landing on the
+    // drawn shape instead, where `color` paints nothing and the author is
+    // told nothing.
     const svg = renderThemed(`flowchart TD
 A[Start] --> B[End]
 linkStyle 0 stroke:#f00,color:#0f0
@@ -4864,40 +4867,56 @@ A[Start] -->|yes| B[End]
     expect(labelY).toBeLessThan(boxOf("B").top);
   });
 
-  it("leaves `linkStyle`'s `color` off the label, which is the one element it could now reach", () => {
-    // **A deliberate non-action, recorded rather than implemented.** Board 3
-    // routes an author's `color` into the text half of a style, and until
-    // this ticket an edge had no text element to put it on — the test above
-    // ("keeps a `linkStyle`'s `color` off the edge path") pins that. It has
-    // one now, so `linkStyle 0 color:#0f0` could paint it; wiring that up
-    // changes what an existing directive does and is this board's stated
-    // non-goal, left for its own decision rather than arriving as a side
-    // effect.
+  it("paints an edge's label with `linkStyle`'s `color`, as the `fill` an SVG text takes", () => {
+    // **This replaces a test that pinned the opposite**, and it is the
+    // measurement that turned it over rather than a change of taste. The
+    // pin said what happened while an edge label was new: the `color` was
+    // resolved, reached this renderer in `style.text`, and was dropped —
+    // recorded so that whoever took the decision would meet a fact rather
+    // than a surprise.
     //
-    // So this test says what happens **today**, so that whoever takes that
-    // decision meets a measured fact instead of a surprise: the `color` is
-    // resolved, reaches the renderer in `style.text`, and is dropped. The
-    // label takes the theme's colour and carries no inline `style` at all,
-    // while the `stroke` beside it lands on the path as it always did.
+    // The fact, measured with `pnpm --filter @siren/core probe --paint`
+    // against mermaid 11.17.2: Mermaid paints the label. It emits
+    // `<text style="fill:#ff0000 !important">` on the label of the edge
+    // `linkStyle 0 color:#ff0000` names when it draws labels as SVG text,
+    // and `style="color:#ff0000 !important"` on the `<span>` when it draws
+    // them as HTML. So dropping it was a *silent* mis-render — a directive
+    // an author wrote, accepted without complaint, and then not drawn —
+    // which is the one thing this project's absolute condition does not
+    // allow.
+    //
+    // Nothing new is minted to fix it. ADR-0008 settled that the author
+    // writes `color` and an SVG label carries `fill`, and `resolveStyles`
+    // has performed that translation since board 3; the edge's label is
+    // simply given the text half a node's label has taken all along.
     const svg = renderThemed(`flowchart TB
-A --> B
-linkStyle 0 stroke:#f00,color:#0f0
-`);
-
-    const label = svg.querySelector("text.siren-edge-label");
-    expect(label).toBeNull();
-
-    const labelled = renderThemed(`flowchart TB
 A -->|yes| B
 linkStyle 0 stroke:#f00,color:#0f0
 `);
-    const drawn = labelled.querySelector("text.siren-edge-label")!;
 
-    expect(drawn.getAttribute("style")).toBeNull();
-    expect(getComputedStyle(drawn).fill).toBe("var(--siren-node-text)");
+    const label = svg.querySelector("text.siren-edge-label")!;
+    // `fill`, not `color`: an inline `color` on a `<text>` sits in a
+    // property nothing in an SVG document reads, which is the bug this
+    // would otherwise have shipped one element over.
+    expect(label.getAttribute("style")).toBe("fill:#0f0");
+    expect(getComputedStyle(label).fill).toBe("#0f0");
+
+    // The halves still go to different elements: the line takes everything
+    // that is not `color`, and takes no `color`.
     expect(
-      labelled.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
     ).toBe("stroke:#f00");
+
+    // And an edge the directive did not name keeps the theme's colour, so
+    // this is a local override and not a new default.
+    const plain = renderThemed(`flowchart TB
+A -->|yes| B
+B -->|no| C
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+    expect(
+      plain.querySelector('text.siren-edge-label[data-siren-id="B-C"]')!.getAttribute("style"),
+    ).toBeNull();
   });
 
   it("animates the label with the line it is written on", () => {

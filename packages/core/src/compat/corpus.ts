@@ -175,6 +175,21 @@ function edgeLabel(result: SirenRenderResult, id: string): string {
   return text?.textContent ?? "";
 }
 
+/**
+ * The inline declarations on one flowchart edge's **label**, as opposed to
+ * on its line.
+ *
+ * Its own reader beside `edgeStyle` because the two halves of one author
+ * style land on two elements, and a row that read only the line could not
+ * tell "the author's `color` painted the label" from "the author's `color`
+ * was dropped".
+ */
+function edgeLabelStyle(result: SirenRenderResult, id: string): string {
+  const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
+  if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
+  return text.getAttribute("style") ?? "";
+}
+
 /** Where one edge's label was drawn — the anchor layout reserved space at. */
 function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
   const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
@@ -998,6 +1013,33 @@ export const COMPAT_CASES: readonly CompatCase[] = [
   },
 
   // -------------------------------------------------------------------------
+  // flowchart — node ids
+  // -------------------------------------------------------------------------
+  {
+    id: "fc-node-id-dot",
+    kind: "flowchart",
+    source: `flowchart TB
+      a.b --> c`,
+    status: "rejected",
+    meaning:
+      "A node id may contain a `.`. mermaid 11.17.2 records `a.b --> c` as " +
+      "the vertices `a.b` and `c` joined by `L_a.b_c_0`, and `a.-b --> c` " +
+      "as the vertices `a.-b` and `c` joined by `L_a.-b_c_0` — one node " +
+      "either way, with the dot inside its name " +
+      "(`node scripts/mermaid-probe.mjs`). Siren's ids are `\\w+`, so it " +
+      "refuses the statement. **A node-id gap, not an arrow one**: the " +
+      "dotted arrow spellings beside it are supported, and the guard that " +
+      "keeps `a.-b` from being cut at its `.-` is what makes this an honest " +
+      "refusal rather than a chain of three nodes Mermaid never drew. The " +
+      "sharper case is a line that declares nothing: in `flowchart TB / " +
+      "A --> B / C.-D` Mermaid draws A, B and a third node `C.-D`, while " +
+      "Siren refuses the *whole document* over the third line — a picture " +
+      "Mermaid renders becomes no picture at all. Widening the id alphabet " +
+      "reaches every endpoint reader, the `:::` shorthand and the styling " +
+      "directives' target lists, which is its own ticket.",
+  },
+
+  // -------------------------------------------------------------------------
   // flowchart — edges
   // -------------------------------------------------------------------------
   {
@@ -1044,17 +1086,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     id: "fc-edge-dotted-short",
     kind: "flowchart",
     source: `flowchart TB
-      A .-> B`,
-    status: "rejected",
+      A .-> B
+      B .- C
+      C -. yes .-> D`,
+    status: "supported",
     meaning:
-      "A dotted arrow may be written without its leading dash: mermaid " +
+      "A dotted arrow may be written without its leading dash, and its " +
+      "short body closes an inline label as the long one does: mermaid " +
       "11.17.2 reads `A .-> B` as `type=\"arrow_point\" stroke=\"dotted\" " +
-      "length=1` and `A .- B` as the `arrow_open` of the same, both drawn " +
-      "(`node scripts/mermaid-probe.mjs`). Siren's dotted body requires the " +
-      "dash on both sides of the dots, so it reads neither, and it also " +
-      "cannot close an inline label written `A -. yes .-> B`. Found while " +
-      "landing edge labels; the construct is an arrow spelling rather than " +
-      "a label, so it is recorded here rather than fixed in passing.",
+      "length=1`, `A .- B` as the `arrow_open` of the same, and " +
+      "`A -. yes .-> B` as that arrow labelled `yes` " +
+      "(`node scripts/mermaid-probe.mjs`).",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D"]);
+      // The **drawn** line and ends, not "it parsed". The short spelling
+      // has to arrive at the very picture the long one does — the two rows
+      // above — or it is a spelling this parser accepts and then draws as
+      // something else, which is worse than the rejection it replaced.
+      expectSame("edge", edgeDrawing(result, "A-B"), "dotted none arrow");
+      expectSame("edge", edgeDrawing(result, "B-C"), "dotted none none");
+      expectSame("edge", edgeDrawing(result, "C-D"), "dotted none arrow");
+      expectSame("label", edgeLabel(result, "C-D"), "yes");
+    },
   },
   {
     id: "fc-edge-thick",
@@ -1413,6 +1466,29 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     meaning: "`linkStyle 0` styles the first declared edge — the only directive that reaches one.",
     assert: (result) => {
       expectSame("edge A-B's inline style", edgeStyle(result, "A-B"), "stroke:#f00");
+    },
+  },
+
+  {
+    id: "fc-style-linkstyle-color",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start] -->|yes| B[End]
+      linkStyle 0 stroke:#f00,color:#0f0`,
+    status: "supported",
+    meaning:
+      "`linkStyle`'s `color` paints the edge's *label*, and its other " +
+      "declarations paint the line. Measured with " +
+      "`node scripts/mermaid-probe.mjs --paint`: mermaid 11.17.2 renders " +
+      "`linkStyle 0 color:#ff0000` as `fill:#ff0000 !important` on the " +
+      "label's `<text>` (and as `color:#ff0000 !important` on its `<span>` " +
+      "when it draws labels as HTML), while `stroke` lands on the path.",
+    assert: (result) => {
+      // The two halves, on the two elements. `fill` on the label rather
+      // than `color`, because `color` names no paint in an SVG document —
+      // the translation is ADR-0008's and is made once, in the model.
+      expectSame("edge A-B's label style", edgeLabelStyle(result, "A-B"), "fill:#0f0");
+      expectSame("edge A-B's line style", edgeStyle(result, "A-B"), "stroke:#f00");
     },
   },
 

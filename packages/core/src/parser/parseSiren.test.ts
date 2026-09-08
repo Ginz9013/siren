@@ -1799,6 +1799,19 @@ describe("the arrow token an edge is written with", () => {
     ]);
   });
 
+  it("reads a dotted arrow written without its leading dash, on either end", () => {
+    // The short dotted spellings, measured with `pnpm --filter @siren/core
+    // probe` against mermaid 11.17.2: `A .-> B` is `type="arrow_point"
+    // stroke="dotted" length=1` and `A .- B` is the `arrow_open` of the
+    // same. Both are documents Mermaid draws, so the absolute condition
+    // says Siren draws them — the dash on the left of the dots is
+    // decoration, not grammar.
+    expect([formsOf("A .-> B")[0], formsOf("A .- B")[0]]).toEqual([
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "none", minLength: 1 },
+    ]);
+  });
+
   it("counts a longer token as more ranks — dashes for a solid line, dots for a dotted one", () => {
     // `length` in mermaid 11.17.2, measured for each: an extra dash is an
     // extra rank, and a dotted token counts its *dots* instead, which is
@@ -1833,6 +1846,77 @@ describe("the arrow token an edge is written with", () => {
       { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
       { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
     ]);
+  });
+
+  it("composes the short dotted body with every end and every length, and refuses the two spellings Mermaid will not draw", () => {
+    // The whole family, measured with `pnpm --filter @siren/core probe`
+    // against mermaid 11.17.2 before a character of the pattern moved.
+    // Written as one table because the point is that dropping the leading
+    // dash is a property of the *body* and composes with everything else:
+    // not one of these rows is a special case in the parser.
+    //
+    //   A .-> B     arrow_point         dotted length=1
+    //   A .- B      arrow_open          dotted length=1
+    //   A ..-> B    arrow_point         dotted length=2
+    //   A ...-> B   arrow_point         dotted length=3
+    //   A ..- B     arrow_open          dotted length=2
+    //   A .-o B     arrow_circle        dotted length=1
+    //   A .-x B     arrow_cross         dotted length=1
+    //   A <.-> B    double_arrow_point  dotted length=1
+    //   A o.-o B    double_arrow_circle dotted length=1
+    //   A x.-x B    double_arrow_cross  dotted length=1
+    expect([
+      formsOf("A ..-> B")[0],
+      formsOf("A ...-> B")[0],
+      formsOf("A ..- B")[0],
+      formsOf("A .-o B")[0],
+      formsOf("A .-x B")[0],
+      formsOf("A <.-> B")[0],
+      formsOf("A o.-o B")[0],
+      formsOf("A x.-x B")[0],
+    ]).toEqual([
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 2 },
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 3 },
+      { line: "dotted", fromEnd: "none", toEnd: "none", minLength: 2 },
+      { line: "dotted", fromEnd: "none", toEnd: "circle", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "cross", minLength: 1 },
+      { line: "dotted", fromEnd: "arrow", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "circle", toEnd: "circle", minLength: 1 },
+      { line: "dotted", fromEnd: "cross", toEnd: "cross", minLength: 1 },
+    ]);
+
+    // The two the table above does not contain, and a spelling Mermaid
+    // refuses is one Siren must refuse too. `A .--> B` is a parse error
+    // there ("Expecting 'SQE', ... got '1'"), and `A <.- B` is the silent
+    // reading `A <-.- B` already stands for: an `arrow_open` whose `<`
+    // vanishes, a picture the author did not write with no diagnostic.
+    for (const source of ["A .--> B", "A <.- B"]) {
+      const { document } = parseSiren(`flowchart TB\n  ${source}\n`);
+      expect([source, document]).toEqual([source, null]);
+    }
+  });
+
+  it("does not read the `.` inside an id as the start of a dotted arrow", () => {
+    // The collateral question every widening of this pattern has to answer:
+    // **what else in this grammar can contain the character it now reads?**
+    // A node id can. `a.-b --> c` is *one* node called `a.-b` with one edge
+    // to `c` in mermaid 11.17.2, measured with the probe, and the boundary
+    // is whitespace: `A .->B` is a dotted edge there while `A.->B` is a
+    // parse error, both measured.
+    //
+    // So a leading `.` opens an arrow only where an id cannot be — exactly
+    // the rule the `o` and `x` markers already follow, for exactly the same
+    // reason. Siren's own ids are `\w+`, so it cannot draw `a.-b` under
+    // either reading; but the two wrong answers are not equally wrong. A
+    // diagnostic says the document was not understood. Cutting at the `.-`
+    // draws three nodes and two edges where Mermaid draws two nodes and
+    // one, and says nothing at all — the silent mis-render this corpus
+    // exists to remove.
+    for (const source of ["a.-b --> c", "A --> B; C.-D"]) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
+      expect([source, document]).toEqual([source, null]);
+      expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+    }
   });
 
   it("refuses a token whose two ends disagree, rather than drawing Mermaid's silent reading of it", () => {
@@ -1968,6 +2052,66 @@ describe("the label an edge carries", () => {
       ["no", "thick", "none", "arrow", 1],
       ["maybe", "dotted", "none", "arrow", 1],
       ["both", "solid", "arrow", "arrow", 1],
+    ]);
+  });
+
+  it("lets an inline label close with the short dotted body, and does not let one open with it", () => {
+    // Both halves measured with `pnpm --filter @siren/core probe` against
+    // mermaid 11.17.2, and they do not answer alike — which is the reason
+    // to measure rather than to reason from symmetry.
+    //
+    // The **closer** may drop its leading dash: `A -. yes .-> B` is one
+    // `arrow_point` labelled "yes", dotted, length=1, and `A -. yes .- B`
+    // is the `arrow_open` of the same.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  A -. yes .-> B\n  B -. no .- C\n",
+    );
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.label, edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
+    ).toEqual([
+      ["yes", "dotted", "none", "arrow", 1],
+      ["no", "dotted", "none", "none", 1],
+    ]);
+
+    // The **opener** may not. `.-` is a whole arrow, so `A .- yes .-> B` is
+    // not a labelled edge at all in Mermaid: it is a chain of three nodes,
+    // `L_A_yes_0` then `L_yes_B_0`, both dotted, measured. An opener is
+    // `-.` and only `-.`, and the word "yes" is a node.
+    const chain = parseFlowchartOk("flowchart TB\n  A .- yes .-> B\n");
+    expect(chain.diagnostics).toEqual([]);
+    expect(chain.document.nodes.map((node) => node.id)).toEqual(["A", "yes", "B"]);
+    expect(
+      chain.document.edges.map((edge) => [edge.from, edge.to, edge.label, edge.line, edge.toEnd]),
+    ).toEqual([
+      ["A", "yes", null, "dotted", "none"],
+      ["yes", "B", null, "dotted", "arrow"],
+    ]);
+  });
+
+  it("closes an inline label that runs straight into its closing arrow, dotted as well as solid", () => {
+    // The space around an inline label is the author's, not the grammar's:
+    // `A -- yes--> B` is one solid edge labelled "yes" in mermaid 11.17.2,
+    // and `A -. yes.-> B` and `A -.yes.-> B` are the dotted spellings of
+    // the same thing, all three measured.
+    //
+    // Worth its own test because the short dotted body is the one body a
+    // *plain* arrow may not begin with after a word character — a `.` is a
+    // node-id character there, so `a.-b` is one id. That guard has no job
+    // once an opener has already said an arrow is being written: an id
+    // ended at the `-.`, so the dots that close the run cannot be inside
+    // one. Applying it here anyway refuses a document Mermaid draws, and
+    // refuses it for the dotted stroke only, which no author could predict.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  A -. yes.-> B\n  B -.no.-> C\n  C -- sure--> D\n",
+    );
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.label, edge.line, edge.toEnd, edge.minLength]),
+    ).toEqual([
+      ["yes", "dotted", "arrow", 1],
+      ["no", "dotted", "arrow", 1],
+      ["sure", "solid", "arrow", 1],
     ]);
   });
 

@@ -390,6 +390,57 @@ const FROM_MARKER = String.raw`<|(?<!\w)[ox]`;
 const TO_MARKER = String.raw`[>ox]`;
 
 /**
+ * The body of a dotted line: a run of dots, closed by a dash, and opened by
+ * a dash the author may leave out.
+ *
+ * `A -.-> B` and `A .-> B` are one arrow written two ways in mermaid
+ * 11.17.2 — both `type="arrow_point" stroke="dotted" length=1`, measured
+ * with `scripts/mermaid-probe.mjs` — and so are `A -.- B` and `A .- B`.
+ * The **closing** dash is grammar and the opening one is decoration.
+ */
+const DOTTED_BODY = String.raw`-?\.+-`;
+
+/**
+ * The same body, for the one place it may **begin a run**: where a `.`
+ * following a word character would be a character of an id rather than the
+ * start of an arrow.
+ *
+ * **A dot is in Mermaid's node-id alphabet, so a leading one only opens a
+ * body where an id cannot be.** This is `ARROW_TOKEN`'s `(?<!\w)[ox]` rule
+ * a second time and it is here for the same reason: `a.-b --> c` is *one*
+ * node called `a.-b` with one edge to `c`, and the boundary is whitespace —
+ * `A .->B` is a dotted edge and `A.->B` is a parse error, all three
+ * measured. Unguarded, this pattern cuts that line at the `.-` and draws
+ * three nodes and two edges where Mermaid draws two and one, silently.
+ * Siren's ids are `\w+` and cannot spell `a.-b` under either reading, so
+ * what the guard buys is not that document but the *diagnostic*: it is
+ * refused rather than quietly redrawn.
+ *
+ * The guard is on the dash-less spelling alone. A body that opens with a
+ * dash is already unreachable from inside an id, since Mermaid ends an id
+ * at a `-` followed by a `.` — `A-.->B` is an edge there, measured — so
+ * guarding it as well would refuse a document Mermaid draws.
+ *
+ * And an `o` or an `x` that `FROM_MARKER` already took is not an id either,
+ * so the dots may follow one: `A o.-o B` is a `double_arrow_circle` and
+ * `A x.-x B` a `double_arrow_cross`, both dotted, both measured. A
+ * lookbehind cannot see that the character was consumed as a marker, so the
+ * exception restates `FROM_MARKER`'s own condition — a marker, itself not
+ * inside an id — rather than simply allowing any `o` or `x`. That is what
+ * keeps `Ax.-xB` refused, which is one node id in Mermaid and no edge at
+ * all, measured, exactly as `Ax--xB` already was.
+ *
+ * **Only a run's start needs it**, which is why there are two constants
+ * rather than one guarded body everywhere. An inline label's closer cannot
+ * begin inside an id, because the id ended at the opener that started the
+ * run — so `A -. yes.-> B` and `A -.yes.-> B` are edges labelled "yes" in
+ * Mermaid, measured, exactly as the solid `A -- yes--> B` is. Guarding the
+ * closer too refused both, and refused them for the dotted stroke alone,
+ * which is a rule no author could predict.
+ */
+const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<!\w)[ox])|(?<!\w))\.+-`;
+
+/**
  * An arrow written as one run: a marker, a body, a marker.
  *
  * The lookahead is what stops this from swallowing the **opener** of an
@@ -402,10 +453,29 @@ const TO_MARKER = String.raw`[>ox]`;
  * does not match there and the labelled branch below does.
  *
  * A pre-filter, not the grammar: three characters of the right kind are
- * necessary, and the body patterns below still decide what is sufficient.
+ * necessary, and the body patterns still decide what is sufficient. It
+ * guards the dashed and thick bodies **only**, because the shortest dotted
+ * arrow is two characters rather than three — `A .- B` is an `arrow_open`
+ * Mermaid draws, measured — and a three-character pre-filter would refuse
+ * it. A dotted body needs no such guard: it ends in a dash of its own, so
+ * it cannot match `-.`, the one dotted opener there is.
+ *
+ * Taken as a function of its dotted body because there are two contexts and
+ * they differ in exactly that one part — see `RUN_OPENING_DOTTED_BODY`. The
+ * rest is written once, so a change to how an end is marked cannot land in
+ * one context and not the other.
  */
-const PLAIN_ARROW =
-  String.raw`(${FROM_MARKER})?(?=[-=.]{2}[-=.>ox])(-{2,}|={2,}|-\.+-)(${TO_MARKER})?`;
+const plainArrow = (dottedBody: string) =>
+  String.raw`(${FROM_MARKER})?((?=[-=.]{2}[-=.>ox])(?:-{2,}|={2,})|${dottedBody})(${TO_MARKER})?`;
+
+/** The plain arrow as it appears in a line, where it may not begin inside an id. */
+const PLAIN_ARROW = plainArrow(RUN_OPENING_DOTTED_BODY);
+
+/**
+ * The plain arrow as it appears **closing an inline label**, where the run
+ * it belongs to has already been opened and an id cannot be in progress.
+ */
+const INLINE_CLOSING_ARROW = plainArrow(DOTTED_BODY);
 
 /**
  * The three strokes an inline-labelled arrow can be written in, each as the
@@ -421,12 +491,22 @@ const PLAIN_ARROW =
  *
  * The closing bodies are the same three this file already uses for a plain
  * arrow — the stroke an opener starts is the stroke that must close it,
- * and `A -- yes ==> B` is a parse error in Mermaid, measured.
+ * and `A -- yes ==> B` is a parse error in Mermaid, measured. `DOTTED_BODY`
+ * shared literally rather than restated, so that the closer of a labelled
+ * dotted arrow and a plain one are one spelling: `A -. yes .-> B` is one
+ * `arrow_point` labelled "yes", dotted, length=1, measured.
+ *
+ * **An opener is not a body, and the dotted pair are the reason to say so.**
+ * The closer may drop its leading dash and the opener may not: `A .- yes
+ * .-> B` is not a labelled edge in Mermaid at all but a chain of three
+ * nodes, `A .- yes` then `yes .-> B`, measured — because `.-` is a whole
+ * arrow and `-.` is the only thing that opens a dotted label. So the
+ * openers stay literal while the bodies are shared.
  */
 const INLINE_LABEL_STROKES = [
   { opener: String.raw`--`, alphabet: String.raw`[^-]|-(?!-)`, body: String.raw`-{2,}` },
   { opener: String.raw`==`, alphabet: String.raw`[^=]`, body: String.raw`={2,}` },
-  { opener: String.raw`-\.`, alphabet: String.raw`[^.]`, body: String.raw`-\.+-` },
+  { opener: String.raw`-\.`, alphabet: String.raw`[^.]`, body: DOTTED_BODY },
 ];
 
 /**
@@ -514,12 +594,18 @@ const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`);
  * are `INLINE_LABELLED_ARROW`'s and are not repeated here: by the time this
  * pattern is handed a token, the run has already been delimited.
  *
- * A plain arrow cannot match it. Both a non-empty label and a whole
- * trailing arrow are required, and `---->` has no way to be both: whatever
- * is taken for the label leaves a tail that is not an arrow.
+ * **A plain arrow can match it, and that is why `readArrow` does not ask it
+ * first.** This comment used to claim the opposite — that a non-empty label
+ * plus a whole trailing arrow left `---->` no way to be both — and the
+ * claim held only while every dotted body opened with a dash. It does not
+ * now: `-...->` splits as the opener `-.`, the label `.` and the closer
+ * `.->`, which reads as a one-rank dotted arrow labelled "." where Mermaid
+ * records `length=3` and no label. So this pattern is no longer a test of
+ * *whether* a token is labelled; it is only the split, applied to a token
+ * `ARROW_PARTS_RE` has already found no plain reading for.
  */
 const INLINE_LABELLED_PARTS_RE = new RegExp(
-  String.raw`^(${FROM_MARKER})?(--|==|-\.)\s*(.+?)\s*(${PLAIN_ARROW})$`,
+  String.raw`^(${FROM_MARKER})?(--|==|-\.)\s*(.+?)\s*(${INLINE_CLOSING_ARROW})$`,
 );
 
 /** The stroke each inline-label opener starts, which its closer must agree with. */
@@ -627,46 +713,27 @@ interface ArrowForm {
  * pattern, so that the grammar stays one expression.
  */
 function readArrow(token: string): ArrowForm | null {
-  const inline = INLINE_LABELLED_PARTS_RE.exec(token);
-  if (inline !== null) {
-    const [, openMarker, opener, text, closer] = inline;
-    // **The opener contributes exactly one thing: a from-end marker.**
-    // Everything else — the line, the to-end, the length — comes from the
-    // half that closes, which is `destructLink`'s own rule in mermaid
-    // 11.17.2 and was measured through it: `A -- yes ---> B` is `length=2`
-    // though its opener is the two characters a one-rank arrow opens with.
-    //
-    // So the run is spliced back into the plain token it decorates and read
-    // by the decomposition that already exists. `<-- yes -->` becomes
-    // `<-->`, which means the agreement rule between the two markers is not
-    // restated here: `<-- yes --x` splices to `<--x` and is refused by
-    // `OPENING_MARKER` exactly as the unlabelled spelling is.
-    const form = readArrow((openMarker ?? "") + closer);
-    // The stroke an opener starts is the stroke that must close it —
-    // `A -- yes ==> B` and `A == yes --> B` are both parse errors in
-    // Mermaid (`destructLink` returns `INVALID` when the two disagree),
-    // measured. Asked of the decomposed line rather than of the closer's
-    // characters, so there is one place that decides what `-.` draws.
-    if (form === null || form.line !== OPENER_LINE[opener]) {
-      return null;
-    }
-    const label = edgeLabelIn(text);
-    return label === "" ? null : { ...form, label };
-  }
-
   const match = ARROW_PARTS_RE.exec(token);
   if (match === null) {
     return null;
   }
   const [, start, body, end, pipeLabel] = match;
   // `ARROW_TOKEN` has two branches and only the plain one captures, so a
-  // token that reached here through the labelled branch has no body to
-  // read. That happens for exactly one spelling — an inline label *and* a
-  // pipe label on one arrow, `A -- x -->|y| B` — which mermaid 11.17.2
-  // rejects too, measured. Refusing it here is what keeps that a
-  // diagnostic rather than a crash.
+  // token with no body reached here through the **labelled** branch and is
+  // read by the split below instead.
+  //
+  // **Which branch is asked first is load-bearing, and it is asked in the
+  // order `ARROW_TOKEN` itself asks.** That pattern prefers its plain
+  // branch, so a token the cutter produced from the plain branch is a plain
+  // token — and a reader that tried the labelled split first would be free
+  // to disagree with the cut that made the token. It did: once a dotted
+  // body may open without its dash, `-...->` can be split as the opener
+  // `-.`, the label `.` and the closer `.->`, which is a one-rank dotted
+  // arrow labelled "." where Mermaid records `length=3` and no label at
+  // all. Asking in `ARROW_TOKEN`'s own order makes the two agree by
+  // construction rather than by a rule stated twice.
   if (body === undefined) {
-    return null;
+    return readInlineLabelledArrow(token);
   }
   const label = pipeLabel === undefined ? null : edgeLabelIn(pipeLabel);
   if (label === "") {
@@ -694,6 +761,48 @@ function readArrow(token: string): ArrowForm | null {
     return null;
   }
   return { line, fromEnd: toEnd, toEnd, minLength, label };
+}
+
+/**
+ * What one **inline-labelled** run means — `-- yes -->` and its two
+ * siblings — or `null` when it is not a form Siren draws.
+ *
+ * Reached only from `readArrow`, and only for a token the plain reading
+ * could not account for, which is what keeps one decomposition rather than
+ * two.
+ */
+function readInlineLabelledArrow(token: string): ArrowForm | null {
+  const inline = INLINE_LABELLED_PARTS_RE.exec(token);
+  if (inline === null) {
+    // The one spelling that reaches `ARROW_TOKEN`'s labelled branch and
+    // still has no split: an inline label *and* a pipe label on one arrow,
+    // `A -- x -->|y| B`, which mermaid 11.17.2 rejects too, measured.
+    // Refusing it here is what keeps that a diagnostic rather than a crash.
+    return null;
+  }
+  const [, openMarker, opener, text, closer] = inline;
+  // **The opener contributes exactly one thing: a from-end marker.**
+  // Everything else — the line, the to-end, the length — comes from the
+  // half that closes, which is `destructLink`'s own rule in mermaid
+  // 11.17.2 and was measured through it: `A -- yes ---> B` is `length=2`
+  // though its opener is the two characters a one-rank arrow opens with.
+  //
+  // So the run is spliced back into the plain token it decorates and read
+  // by the decomposition that already exists. `<-- yes -->` becomes
+  // `<-->`, which means the agreement rule between the two markers is not
+  // restated here: `<-- yes --x` splices to `<--x` and is refused by
+  // `OPENING_MARKER` exactly as the unlabelled spelling is.
+  const form = readArrow((openMarker ?? "") + closer);
+  // The stroke an opener starts is the stroke that must close it —
+  // `A -- yes ==> B` and `A == yes --> B` are both parse errors in
+  // Mermaid (`destructLink` returns `INVALID` when the two disagree),
+  // measured. Asked of the decomposed line rather than of the closer's
+  // characters, so there is one place that decides what `-.` draws.
+  if (form === null || form.line !== OPENER_LINE[opener]) {
+    return null;
+  }
+  const label = edgeLabelIn(text);
+  return label === "" ? null : { ...form, label };
 }
 
 /**

@@ -533,6 +533,32 @@ const SILENTLY_WRONG = 3;
  * make someone say why, and the why is that two valid Mermaid documents Siren
  * refuses had never been written down. Knowing that and not recording it is
  * the exact blindness this corpus exists to remove.
+ *
+ * **And now down to 14, paying the row this board itself wrote.**
+ * `fc-edge-dotted-short` is `supported`: the leading dash of a dotted body
+ * is decoration, so `A .-> B`, `A .- B` and the inline `A -. yes .-> B` all
+ * draw the picture their long spellings draw, asserted as the drawn line
+ * and ends rather than as "it parsed". That is code changing — the ordinary
+ * fall, and the one the board predicted when it recorded the row two
+ * tickets ago rather than fixing it in passing.
+ *
+ * **And back to 15 in the same ticket, for the fourth instrument-catching-up
+ * rise this file records.** `fc-node-id-dot` (`a.b --> c`) is a construct
+ * Mermaid draws and Siren refuses, and it had no row: a `.` is in Mermaid's
+ * node-id alphabet, so `a.b` and `a.-b` are each *one* node with the dot
+ * inside the name, while Siren's ids are `\w+`. **Nothing regressed** — no
+ * construct that used to render stopped, and this one never rendered. It
+ * was *found* by widening the dotted arrow body, because "what else in this
+ * grammar can contain a `.`?" is the question that widening had to answer,
+ * and the answer turned out to name a document nobody had written down.
+ *
+ * It is deliberately not fixed here, for the reason `fc-edge-dotted-short`
+ * was not fixed by the ticket that found it: an id alphabet is not an arrow
+ * spelling. Widening `BARE_ENDPOINT_RE` reaches every endpoint reader, the
+ * `:::` shorthand and the styling directives' target lists, which is a
+ * ticket rather than a passing edit. The guard that keeps `a.-b --> c`
+ * *refused* rather than cut at its `.-` is what makes this row honest
+ * backlog instead of a `silently-wrong` chain of three nodes.
  */
 const REJECTED = 15;
 

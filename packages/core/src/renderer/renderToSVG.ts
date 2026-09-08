@@ -281,15 +281,11 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // colour — which is why `stroke` colours the whole arrow here as it does
     // in Mermaid, rather than the line alone.
     //
-    // Only the frame half — and that is now a **decision** rather than a
-    // consequence. An edge used to draw no text at all, so a
-    // `linkStyle 0 color:#f00` had nowhere to land; it has somewhere now,
-    // and wiring it there would change what an existing directive does.
-    // That is this board's stated non-goal, deliberately left for its own
-    // decision rather than arriving as a side effect of edges gaining a
-    // label. What happens today: `color` is resolved into `style.text`,
-    // reaches this renderer, and is dropped here — silently, which is the
-    // part worth deciding about.
+    // Only the frame half. The text half goes to the label below, which is
+    // the element it means: measured with the probe's `--paint` mode,
+    // mermaid 11.17.2 paints an edge's label with the author's `color` and
+    // paints the line with everything else, so the split a node already
+    // makes is the split an edge makes too.
     applyInlineStyle(path, edge.style.frame);
     svg.appendChild(path);
 
@@ -343,6 +339,22 @@ function buildEdgeLabel(edge: PositionedEdge): SVGTextElement | null {
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("dominant-baseline", "middle");
   text.textContent = edge.label;
+  // The author's text half, on the one element an edge has to put it on.
+  //
+  // **Measured, not chosen.** `linkStyle 0 color:#f00` used to be resolved,
+  // reach this renderer and be dropped, because an edge had no text; the
+  // question of whether it should paint the label an edge now has was left
+  // for its own decision, and the decision was settled by rendering the
+  // document in Mermaid (`pnpm --filter @siren/core probe --paint`).
+  // Mermaid paints it — `<text style="fill:#f00 !important">` on the very
+  // label this element is — so dropping it was a silent mis-render.
+  //
+  // Nothing here knows the word `color`: ADR-0008 puts that translation in
+  // `resolveStyles`, once, so the author's spelling is normalized in the
+  // model and every renderer only ever sees the `fill` a `<text>` is
+  // painted with. This is the same call `renderToSVG` already makes for a
+  // node's label, on the same half of the same resolved style.
+  applyInlineStyle(text, edge.style.text);
   return text;
 }
 
