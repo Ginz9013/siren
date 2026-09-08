@@ -1724,13 +1724,30 @@ export function parseFlowchart(source: string): ParseResult {
       }
 
       // A bare id inside a block, which is how a node with no edges joins a
-      // group. Scoped to inside a block because that is where the two
-      // measurements differ: mermaid 11.17.2 records `A` on a line of its own
-      // as a vertex *and* a member of the block when it sits inside a
-      // `subgraph`, and records nothing at all for it at the top level —
-      // measured both ways with `scripts/mermaid-probe.mjs`. Generalizing
-      // from either half would be wrong in the other, so the scope is the
-      // measurement's.
+      // group. mermaid 11.17.2 records it as a vertex *and* a member of that
+      // block, measured with `scripts/mermaid-probe.mjs`.
+      //
+      // **The block scope is Siren's own, not Mermaid's — and this comment
+      // used to claim the opposite, citing the probe while it did.** It said
+      // Mermaid "records nothing at all" for a bare id at the top level.
+      // That is false, re-measured three ways: `flowchart TB / Orphan /
+      // A --> B` records the vertices `Orphan`, `A` and `B`, and
+      // `flowchart TB / Orphan` on its own records `Orphan`. A bare id is a
+      // vertex declaration there exactly as it is in here.
+      //
+      // So the top-level form is a construct Mermaid draws and Siren refuses,
+      // falling through to the `Unrecognized flowchart line` below and taking
+      // the whole document down with it. That gap is honest backlog and it
+      // has a row — **`fc-stmt-bare-node` in `src/compat/corpus.ts`**, which
+      // carries the measurement so the next reader finds it rather than
+      // re-deriving it. Its exit is widening this condition; it is not
+      // another measurement, and nothing here is already correct.
+      //
+      // Left as backlog rather than widened in passing, because dropping the
+      // `openBlocks` guard changes which lines a whole document may contain,
+      // and this branch is asked last precisely so that nothing meaning
+      // something else is swallowed as a node. Whoever widens it owns
+      // re-checking that, which is a ticket rather than an edit.
       //
       // It claims no label and names no shape, exactly as an edge's bare
       // endpoint does; `addNodeAsWritten` holds what that means for both.

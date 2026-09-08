@@ -837,11 +837,22 @@ export interface GraphEdge {
    * declaration order, with rejected values already dropped — the same
    * shape, and the same empty-not-absent rule, as `GraphNode.style`.
    *
-   * An edge is drawn as one `<path>` and nothing else, so only `frame` has
-   * anywhere to land: a `linkStyle 0 color:#f00` fills `text` with a
-   * declaration the renderer has no element for. The routing rule stays
-   * kind-neutral on purpose — `resolveStyles` is read by three diagram
-   * kinds and knows what a declaration *means*, not what each kind draws.
+   * **Both halves land, and this comment used to say neither could.** While
+   * an edge was drawn as one `<path>` and nothing else, only `frame` had
+   * anywhere to go and a `linkStyle 0 color:#f00` filled `text` with a
+   * declaration the renderer dropped. An edge now carries a `label`, drawn
+   * as a `<text>` beside that path, so `frame` paints the line and the
+   * arrowhead minted for its colour and `text` paints the label — the same
+   * split a node's frame and label already make, reached through the same
+   * `applyInlineStyle`. Measured before it was wired: mermaid 11.17.2 writes
+   * `fill` onto the label's own `<text>` (`scripts/mermaid-probe.mjs
+   * --paint`), so dropping it had been a silent mis-render.
+   *
+   * One case is left where a half has nowhere to land — `text` on an edge
+   * with no label — and it is dropped in the renderer rather than guarded
+   * here, because the routing rule stays kind-neutral on purpose:
+   * `resolveStyles` is read by three diagram kinds and knows what a
+   * declaration *means*, not what each kind draws.
    *
    * The author wrote them as `linkStyle 0`, addressing this edge by its
    * declaration index. That index is gone by the time it reaches this

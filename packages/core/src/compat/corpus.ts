@@ -1296,6 +1296,30 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-stmt-bare-node",
+    kind: "flowchart",
+    source: `flowchart TB
+      Orphan
+      A --> B`,
+    status: "rejected",
+    meaning:
+      "A node id on a line of its own declares that node. mermaid 11.17.2 " +
+      "records three vertices for this document — `Orphan`, `A` and `B` — " +
+      "and one edge, so the standalone node is drawn with nothing joined " +
+      "to it (`node scripts/mermaid-probe.mjs`). Siren refuses the line as " +
+      "`Unrecognized flowchart line: \"Orphan\"`, and refuses the whole " +
+      "document with it, so a picture Mermaid draws becomes no picture at " +
+      "all. **The bracketed spelling is supported**: `Orphan[Orphan]` on a " +
+      "line of its own parses here, and so does a bare id written *inside* " +
+      "a `subgraph` block — `AUTHORED_ID_RE` reads one there, which is how " +
+      "the nodes of a group are declared. So this is one missing statement " +
+      "form rather than a missing concept, and its exit is one more line " +
+      "in `parseFlowchart`'s statement dispatch. Found while mutating " +
+      "`examples/flowchart-edges.srn` to prove its assertions bite: moving " +
+      "a bare node out of the frame that held it stopped the whole example " +
+      "rendering, which is not what moving a node should do.",
+  },
+  {
     id: "fc-stmt-subgraph",
     kind: "flowchart",
     source: `flowchart TB

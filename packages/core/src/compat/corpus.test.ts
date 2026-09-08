@@ -559,8 +559,31 @@ const SILENTLY_WRONG = 3;
  * ticket rather than a passing edit. The guard that keeps `a.-b --> c`
  * *refused* rather than cut at its `.-` is what makes this row honest
  * backlog instead of a `silently-wrong` chain of three nodes.
+ *
+ * **And to 16 at the board's close, for the fifth instrument-catching-up
+ * rise.** `fc-stmt-bare-node` (`Orphan` on a line of its own) is a statement
+ * form Mermaid reads as a vertex declaration and Siren answers with
+ * `Unrecognized flowchart line`, throwing away the whole document over a
+ * line that declares one node. **Nothing regressed** — the bracketed
+ * `Orphan[Orphan]` has always parsed, a bare id inside a `subgraph` block
+ * has parsed since the block did, and this spelling has never rendered.
+ *
+ * It was found by *mutating* `examples/flowchart-edges.srn`: moving a bare
+ * node out of the frame that held it, to prove the frame-membership
+ * assertion bites, stopped the example rendering at all. Which is the same
+ * shape as the four rises above — a question nobody had asked, answered by
+ * measuring rather than by a construct getting worse.
+ *
+ * **So this board's `rejected` reads 22 → 15 → 14 → 15 → 16, and the number
+ * that describes it is `supported` 46 → 60.** Four of this board's five
+ * tickets wrote a `rejected` row for a valid Mermaid document they had
+ * measured and chosen not to implement — `fc-edge-dotted-short`,
+ * `fc-subgraph-direction`, `fc-subgraph-edge`, `fc-node-id-dot`,
+ * `fc-stmt-bare-node` — and one of those was paid off inside the same
+ * board. A backlog that grows because someone looked is the instrument
+ * working.
  */
-const REJECTED = 15;
+const REJECTED = 16;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

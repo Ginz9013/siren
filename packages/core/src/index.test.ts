@@ -4765,6 +4765,360 @@ Alice-)Bob: open
     }
     expect(pending()).toEqual([]);
   });
+  it("renders examples/flowchart-edges.srn end to end with zero diagnostics — every arrow form, both label spellings, a long arrow, a nested subgraph, and `linkStyle` reaching a label", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-edges"), container);
+
+    // Zero diagnostics of *any* severity, as every closing example before
+    // this one asserts: the `examples/` enumeration test above filters to
+    // error severity, so a warning would slip through it. That the
+    // enumeration test picks this file up at all with no wiring was checked
+    // rather than assumed — a `direction LR` planted inside its nested
+    // subgraph made it fail, by name.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- the seventeen spellings, in the document's own text ---
+    //
+    // **Asserted against the file's text, and not only against its
+    // picture.** The picture below cannot see the difference between two
+    // spellings of one drawing, and this file carries three such pairs by
+    // construction: `A -.-> B` and `A .-> B` are one dotted arrow,
+    // `A -->|x| B` and `A -- x --> B` are one labelled edge, and
+    // `A -. x .-> B` and `A -.->|x| B` are one labelled dotted edge.
+    // Rewriting either half of any pair into the other leaves every picture
+    // assertion below green — checked, by doing it — and quietly costs the
+    // repository its only example of the spelling that went. Board 4's
+    // closing ticket found this hole and board 5's found it again, both
+    // against a *hypothetical* second spelling; here the second spelling
+    // already exists.
+    //
+    // Each arrow is anchored as the **whole separator** between two
+    // endpoints rather than matched loosely, which is what makes a single
+    // deletion bite: ` --> ` occurs inside `Unit -- pass --> Integration`
+    // too, so an unanchored pattern for the plain arrow would still pass
+    // after the plain arrow itself was deleted. Every one of these was
+    // checked by mutating this file one spelling at a time.
+    const declarations = readExample("flowchart-edges")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (what: string, pattern: RegExp): void => {
+      const written = declarations.filter((line) => pattern.test(line));
+      expect(written, `examples/flowchart-edges.srn no longer declares ${what}`).not.toEqual([]);
+    };
+    /** One arrow token, written as the entire run between two endpoints. */
+    const declaresArrow = (what: string, token: string): void =>
+      declares(
+        `${what}, \`${token}\``,
+        new RegExp(`^\\S+\\s${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s\\S+$`),
+      );
+    expect(declarations[0]).toBe("flowchart TB");
+
+    // The three lines, each with an arrowhead and each without one — six
+    // spellings that are two axes rather than six names.
+    declaresArrow("the plain arrow", "-->");
+    declaresArrow("the open link", "---");
+    declaresArrow("the thick arrow", "==>");
+    declaresArrow("the thick open link", "===");
+    declaresArrow("the dotted arrow", "-.->");
+    declaresArrow("the dotted open link", "-.-");
+    // The four end shapes, on the target end and then on both ends. `<-->`
+    // is the only doubled spelling that is not its marker written twice.
+    declaresArrow("a circle on the target end", "--o");
+    declaresArrow("a cross on the target end", "--x");
+    declaresArrow("an arrow on both ends", "<-->");
+    declaresArrow("a circle on both ends", "o--o");
+    declaresArrow("a cross on both ends", "x--x");
+    // Line and ends compose freely, which is the decomposition's whole
+    // claim: a dotted line with an arrow on each end is not an eighteenth
+    // arrow name.
+    declaresArrow("a dotted line with an arrow on both ends", "<-.->");
+    // The dotted arrow's short spelling, which draws exactly what `-.->`
+    // draws and so is invisible to every picture assertion below.
+    declaresArrow("the dotted arrow without its leading dash", ".->");
+    // The length, which is the one part of an arrow token that is not
+    // about drawing. Its effect is asserted against coordinates further
+    // down; that it is still *written* is asserted here.
+    declaresArrow("the long arrow", "---->");
+    // The two label spellings, plus the dotted stroke's, whose closer may
+    // drop the dash its opener may not.
+    declares("a pipe-spelled edge label, `A -->|text| B`", /^\S+\s-->\|[^|]+\|\s\S+$/);
+    declares("an inline-spelled edge label, `A -- text --> B`", /^\S+\s--\s[^-]+\s-->\s\S+$/);
+    declares("a dotted inline-spelled edge label, `A -. text .-> B`", /^\S+\s-\.\s[^.]+\s\.->\s\S+$/);
+    // `linkStyle` with a `color` beside a `stroke` — the declaration this
+    // board left open and ticket 04 settled by measurement. Without the
+    // `color` the label paint below has nothing to prove.
+    declares("`linkStyle` carrying a `color`", /^linkStyle\s+\d+\s+.*\bcolor:/);
+
+    // A subgraph opened **inside** another, read off the text rather than
+    // off the frames: one level of grouping can be made to work by an
+    // implementation that cannot nest, so a file that stopped nesting would
+    // still draw two frames and satisfy the enclosure check below.
+    let depth = 0;
+    let deepest = 0;
+    for (const line of declarations) {
+      if (/^subgraph\s/.test(line)) {
+        depth += 1;
+        deepest = Math.max(deepest, depth);
+      } else if (line === "end") {
+        depth -= 1;
+      }
+    }
+    expect(deepest, "examples/flowchart-edges.srn no longer nests a subgraph").toBe(2);
+
+    /**
+     * What one edge was **drawn** as: its line, then the figure at its
+     * source end and the figure at its target end.
+     *
+     * The ends are read as geometry rather than off the marker's name —
+     * a closed outline is the arrowhead, a `<circle>` is the circle, and
+     * two subpaths crossing are the cross — so reverting a drawing while
+     * leaving its name in place fails here. `src/compat/corpus.ts` reads
+     * an edge exactly this way, and for the same reason.
+     */
+    const drawnAs = (id: string): string => {
+      const path = svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+      if (path === null) throw new Error(`no edge "${id}" was drawn`);
+      const classes = (path.getAttribute("class") ?? "").split(/\s+/);
+      const line = classes.includes("siren-edge-dotted")
+        ? "dotted"
+        : classes.includes("siren-edge-thick")
+          ? "thick"
+          : "solid";
+      const endAt = (side: "start" | "end"): string => {
+        const reference = path.getAttribute(`marker-${side}`);
+        if (reference === null) return "none";
+        const marker = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)}`);
+        const drawn = marker?.firstElementChild;
+        if (drawn == null) throw new Error(`edge "${id}"'s ${side} marker draws nothing`);
+        if (drawn.tagName === "circle") return "circle";
+        const d = drawn.getAttribute("d") ?? "";
+        if (d.includes("Z")) return "arrow";
+        if ((d.match(/M/g) ?? []).length === 2) return "cross";
+        throw new Error(`edge "${id}" ends in an unrecognized figure: "${d}"`);
+      };
+      return `${line} ${endAt("start")} ${endAt("end")}`;
+    };
+    const labelOfEdge = (id: string): string | null =>
+      svg.querySelector(`text.siren-edge-label[data-siren-id="${id}"]`)?.textContent ?? null;
+
+    // The seventeen vertices mermaid 11.17.2 records for this document, in
+    // its own order. Their shapes are examples/flowchart-shapes.srn's story
+    // and not this one's, so only the roll-call is pinned here — but it is
+    // pinned, because every edge assertion below names two of these and a
+    // renamed endpoint would otherwise only show up as a missing edge.
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-node")).map((g) => g.getAttribute("data-siren-id")),
+    ).toEqual([
+      "Commit",
+      "Compile",
+      "Artifact",
+      "Unit",
+      "Lint",
+      "Integration",
+      "Gate",
+      "Halt",
+      "Deploy",
+      "Notify",
+      "Audit",
+      "Monitor",
+      "Archive",
+      "Cleanup",
+      "Digest",
+      "Dashboard",
+      "Rollback",
+    ]);
+
+    // Every expectation below is what **mermaid 11.17.2 itself** records for
+    // this document, read out with `packages/core/scripts/mermaid-probe.mjs`
+    // — nineteen edges, in this order, with these types. Mermaid's names are
+    // its own (`arrow_point`, `arrow_open`, `arrow_circle`, `arrow_cross`,
+    // and a `double_` prefix for the doubled spellings, beside a `stroke` of
+    // `normal`/`thick`/`dotted`); the middle column is Siren's
+    // line/from-end/to-end spelling of the same arrow, and the mapping is
+    // the whole of what "the same diagram" means here.
+    const edges = Array.from(svg.querySelectorAll("path.siren-edge")).map((path) => {
+      const id = path.getAttribute("data-siren-id")!;
+      return [id, drawnAs(id), labelOfEdge(id)];
+    });
+    expect(edges).toEqual([
+      // Mermaid: arrow_point / normal / length=1
+      ["Commit-Compile", "solid none arrow", null],
+      // Mermaid: arrow_point / thick / length=1
+      ["Compile-Artifact", "thick none arrow", null],
+      ["Artifact-Unit", "thick none arrow", null],
+      // Mermaid: arrow_open / normal
+      ["Unit-Lint", "solid none none", null],
+      // Mermaid: arrow_point / normal, text="pass" — the inline spelling
+      ["Unit-Integration", "solid none arrow", "pass"],
+      // Mermaid: arrow_open / dotted
+      ["Lint-Integration", "dotted none none", null],
+      // Mermaid: arrow_point / normal, text="green" — the pipe spelling,
+      // and the same drawing as the inline one two rows up.
+      ["Integration-Gate", "solid none arrow", "green"],
+      // Mermaid: arrow_cross / normal
+      ["Integration-Halt", "solid none cross", null],
+      ["Gate-Deploy", "thick none arrow", null],
+      // Mermaid: arrow_point / dotted
+      ["Gate-Notify", "dotted none arrow", null],
+      // Mermaid: arrow_circle / normal
+      ["Gate-Audit", "solid none circle", null],
+      // Mermaid: double_arrow_point / normal — the from-end axis
+      ["Deploy-Monitor", "solid arrow arrow", null],
+      // Mermaid: arrow_point / normal / **length=3**
+      ["Deploy-Archive", "solid none arrow", null],
+      // Mermaid: arrow_point / dotted, text="nightly"
+      ["Deploy-Cleanup", "dotted none arrow", "nightly"],
+      // Mermaid: arrow_point / dotted — written `.->`, and drawn as the
+      // `-.->` six rows up draws. Only the text assertion above can tell
+      // these two apart, which is why it exists.
+      ["Notify-Digest", "dotted none arrow", null],
+      // Mermaid: double_arrow_circle / normal
+      ["Monitor-Dashboard", "solid circle circle", null],
+      // Mermaid: double_arrow_cross / normal
+      ["Halt-Rollback", "solid cross cross", null],
+      // Mermaid: arrow_open / thick
+      ["Halt-Audit", "thick none none", null],
+      // Mermaid: double_arrow_point / dotted — three axes, freely combined
+      ["Digest-Dashboard", "dotted arrow arrow", null],
+    ]);
+
+    // Twelve distinct decompositions out of nineteen edges, and all three
+    // lines and all four end figures among them. The table above would
+    // still pass with one form drawn twice and another missing if someone
+    // edited both columns to agree; this is what says the file covers the
+    // axes rather than merely listing nineteen rows.
+    const drawings = edges.map(([, drawing]) => drawing!);
+    expect(new Set(drawings).size).toBe(12);
+    expect(new Set(drawings.map((d) => d.split(" ")[0]))).toEqual(
+      new Set(["solid", "thick", "dotted"]),
+    );
+    expect(new Set(drawings.flatMap((d) => d.split(" ").slice(1)))).toEqual(
+      new Set(["none", "arrow", "circle", "cross"]),
+    );
+
+    // --- the length, which no drawing of one edge can show ---
+    //
+    // `Deploy ----> Archive` is `length=3` to Mermaid and reaches dagre as
+    // `minlen`, so the archive sits further down the rank order than the
+    // monitor a plain `<-->` put one rank below the same node. A comparison
+    // inside one picture, between two edges leaving one node, so no number
+    // from outside it is involved.
+    const nodeBox = (
+      id: string,
+    ): { left: number; top: number; right: number; bottom: number } => {
+      const frame = svg.querySelector(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)!;
+      const x = Number(frame.getAttribute("x"));
+      const y = Number(frame.getAttribute("y"));
+      return {
+        left: x,
+        top: y,
+        right: x + Number(frame.getAttribute("width")),
+        bottom: y + Number(frame.getAttribute("height")),
+      };
+    };
+    const long = nodeBox("Archive").top - nodeBox("Deploy").bottom;
+    const plain = nodeBox("Monitor").top - nodeBox("Deploy").bottom;
+    expect(long).toBeGreaterThan(plain);
+
+    // --- the group the endpoints live in ---
+    //
+    // Three frames, drawn in the order the `subgraph` keywords open, each
+    // under a **generated** id. `subgraph:2`'s frame holds `subgraph:3`'s
+    // whole frame, which is the nesting claim read off the picture; the
+    // text assertion above is what says the file still writes it.
+    const frames = Array.from(svg.querySelectorAll("g.siren-subgraph")).map((g) => {
+      const rect = g.querySelector("rect.siren-subgraph-frame")!;
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      return {
+        id: g.getAttribute("data-siren-id"),
+        title: g.querySelector("text.siren-subgraph-label")!.textContent,
+        left: x,
+        top: y,
+        right: x + Number(rect.getAttribute("width")),
+        bottom: y + Number(rect.getAttribute("height")),
+      };
+    });
+    expect(frames.map((f) => [f.id, f.title])).toEqual([
+      ["subgraph:1", "Build"],
+      ["subgraph:2", "Checks"],
+      ["subgraph:3", "Fast"],
+    ]);
+    const encloses = (
+      outer: { left: number; top: number; right: number; bottom: number },
+      inner: { left: number; top: number; right: number; bottom: number },
+    ): boolean =>
+      outer.left <= inner.left &&
+      outer.top <= inner.top &&
+      outer.right >= inner.right &&
+      outer.bottom >= inner.bottom;
+    const [build, checks, fast] = frames;
+    expect(encloses(checks, fast)).toBe(true);
+    expect(encloses(fast, nodeBox("Unit"))).toBe(true);
+    expect(encloses(fast, nodeBox("Lint"))).toBe(true);
+    expect(encloses(build, nodeBox("Compile"))).toBe(true);
+    // ...and the nodes an edge reached *into* a frame from outside it stay
+    // where the frame that named them first put them: `Artifact ==> Unit`
+    // crosses two boundaries and moves nothing.
+    expect(encloses(checks, nodeBox("Integration"))).toBe(true);
+    expect(encloses(build, nodeBox("Unit"))).toBe(false);
+
+    // **The author's title is not an id.** A subgraph may legitimately be
+    // named after a node, so the frame is addressed by the generated
+    // `subgraph:N` (ADR-0010) and by nothing else — which is also why a
+    // `style` directive cannot reach one: there is no authored name to
+    // write in it.
+    expect(svg.querySelectorAll('[data-siren-id="Build"]')).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-siren-id="Checks"]')).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-siren-id="Fast"]')).toHaveLength(0);
+
+    // --- `linkStyle`'s two halves land on two elements ---
+    //
+    // `linkStyle 6 stroke:#15803d,color:#15803d` names the seventh edge
+    // declared, `Integration -->|green| Gate`. The `stroke` paints the line
+    // *and* the arrowhead — a marker is minted per (shape, colour) pair, so
+    // this edge points at a different `<marker>` from the plain ones — and
+    // the `color` paints the label, translated once in the model to the
+    // `fill` that actually paints SVG text (ADR-0008). Measured with the
+    // probe's `--paint` mode: mermaid 11.17.2 writes `fill` onto the very
+    // same `<text>`, so dropping it would have been a silent mis-render.
+    const styled = svg.querySelector('path.siren-edge[data-siren-id="Integration-Gate"]')!;
+    expect(styled.getAttribute("style")).toContain("stroke:#15803d");
+    const styledLabel = svg.querySelector('text.siren-edge-label[data-siren-id="Integration-Gate"]')!;
+    expect(styledLabel.getAttribute("style")).toContain("fill:#15803d");
+    const plainArrowhead = svg
+      .querySelector('path.siren-edge[data-siren-id="Commit-Compile"]')!
+      .getAttribute("marker-end");
+    expect(styled.getAttribute("marker-end")).not.toBe(plainArrowhead);
+
+    // --- and every one of them animates, frames included ---
+    //
+    // Seventeen nodes, nineteen edges and three frames, all named by the
+    // `timeline:` block, so at step 0 the whole diagram is waiting. A
+    // subgraph is a timeline target under its generated id, and an edge's
+    // label moves with its line without the controller knowing there are
+    // two elements (ADR-0009).
+    expect(result.controller!.totalSteps).toBe(15);
+    const pending = () =>
+      [
+        ...new Set(
+          Array.from(svg.querySelectorAll(".siren-pending")).map((el) =>
+            el.getAttribute("data-siren-id"),
+          ),
+        ),
+      ].sort();
+    expect(pending()).toHaveLength(17 + 19 + 3);
+    expect(pending()).toContain("subgraph:3");
+    for (let step = 0; step < result.controller!.totalSteps; step += 1) {
+      result.controller!.next();
+    }
+    expect(pending()).toEqual([]);
+  });
+
   it("carries an author's style, its arrowheads' colour and a timeline step onto an edge that is not a plain arrow", () => {
     // **The composition check.** Every one of these worked for `A --> B`
     // before this ticket, and each of them lands somewhere the arrow's
