@@ -281,6 +281,13 @@ describe("the corpus, case by case", () => {
  * closing ticket's write ownership deliberately stops short of the parser.
  * That is the same shape as `seq-loop` and `seq-alt-else`, one board earlier
  * in its life: named, measured, and waiting on code rather than on a policy.
+ *
+ * The node shapes board left it at three, and left the same three: every
+ * shape it landed was **refused** before and renders correctly now, so
+ * nothing became honest and nothing became wrong. A board that moves eleven
+ * constructs and does not touch this number is the ordinary case, not a
+ * suspicious one — and none of these three is a flowchart node shape, so a
+ * board about node shapes was never going to be the one that closes them.
  */
 const SILENTLY_WRONG = 3;
 
@@ -412,6 +419,25 @@ const SILENTLY_WRONG = 3;
  * curved path is read as segments (`ringOutline`, `curvedOutline`).
  * Reverting the drawing while leaving `data-siren-shape` in place fails all
  * three rows, which is how they were checked.
+ *
+ * **The node shapes board closes here, at 22.** It opened at 33, and the
+ * three counts moved 32/33/3 supported/rejected/silently-wrong to
+ * 46/22/3 — measured at `f0b2296` and at this commit, not transcribed.
+ * The two numbers do not balance against each other and are not meant to:
+ * eleven shape rows left this backlog, while `supported` rose by fourteen
+ * because three rows were *added* already working (both `-alt`
+ * parallelogram/trapezoid spellings, which this corpus had never carried,
+ * and `fc-text-brace-arrow`, which nothing had ever measured). Fourteen
+ * shapes behind eleven rows behind fourteen `supported`, and none of the
+ * three totals is a summary of the others. What closes the board is the
+ * sentence above rather than any of them: no `fc-shape-*` row is rejected.
+ *
+ * The backlog that is left is edges (nine rows), `subgraph`, `click`,
+ * `accTitle`, the class lollipop, three sequence constructs, and
+ * `fc-text-markdown` — which is now the *only* row keeping the flowchart
+ * parser's refusal machinery alive (`UNIMPLEMENTED_LABEL_FORMS`,
+ * `unimplementedFormIn`, `BRACKET_FORM_RE`, `refuseUnimplementedForm`).
+ * Whoever lands it deletes all four together.
  */
 const REJECTED = 22;
 

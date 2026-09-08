@@ -46,8 +46,8 @@ export type Direction = "TB" | "BT" | "LR" | "RL";
  * The full set is named here rather than grown one member at a time, so
  * that every stage downstream is written against the finished vocabulary
  * and a shape arriving later is an implementation, not a contract change.
- * A spelling whose ticket has not landed is still refused by the parser, so
- * only the implemented members can actually reach layout or the renderer.
+ * All fourteen have since landed, so this type and what the parser accepts
+ * are now the same set: no member of this union is refused anywhere.
  */
 export type NodeShape =
   | "rect"

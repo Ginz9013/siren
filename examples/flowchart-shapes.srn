@@ -1,0 +1,115 @@
+%% examples/flowchart-shapes.srn — all fourteen bracket spellings Mermaid has
+%% for a flowchart node, each drawn as the figure it names. Thirteen of them
+%% were refused until this board; the fourteenth, `A[label]`, is the one Siren
+%% has always drawn.
+
+%% A file of its own rather than more lines in examples/flowchart-styling.srn
+%% or examples/flowchart-syntax.srn, on the precedent those two set: each
+%% example keeps one story. Those are about what a document can *do* (every
+%% author-styling directive) and how it may be *written* (the statement
+%% spellings); this one is about what a node *is*. Folding it into the styling
+%% example would also have moved the edge indices its `linkStyle` statements
+%% address, which is a trap rather than a demonstration.
+
+%% The shapes are not a gallery: each one is used for what a flowchart has
+%% always used it for, which is the only way to see why a diagram wants
+%% fourteen of them. Terminal and terminator, input and output, preparation,
+%% decision, process, database, predefined process, manual operation and
+%% manual input, the on-page connector, a round node on the retry path, and
+%% the annotation flag.
+
+%% Measured, not remembered. Everything above the `timeline:` block is valid
+%% Mermaid — the block itself is Siren's own syntax, so it is not part of the
+%% comparison — and this prints what mermaid 11.17.2 reads out of it:
+%%     sed '/^timeline:/,$d' examples/flowchart-shapes.srn \
+%%       | node packages/core/scripts/mermaid-probe.mjs -
+%% Fourteen vertices, fourteen types, no two the same. `index.test.ts` asserts
+%% Siren draws that same set of figures, with zero diagnostics.
+
+%% A shape's *kind* is the contract; its proportions are the theme's. Mermaid
+%% draws a wider diamond and a taller cylinder than these; that is not a
+%% compatibility gap, it is ADR-0004's line applied to geometry.
+flowchart LR
+
+%% `A([text])` — a stadium, the terminal a flowchart starts and ends at. Its
+%% ends are semicircles or it is not a stadium, so its corner radius is the
+%% renderer's rather than `--siren-node-border-radius`'s: a theme that could
+%% flatten it could flatten it out of existence.
+Start([Start]) --> Intake[/Read request/]
+
+%% `A[/text/]` — a parallelogram leaning right, which is input, and it pairs
+%% with `A[\text\]` further down, which is output. Two spellings that are
+%% mirror images, and mixing them up is the commonest way to draw this wrong.
+Intake --> Prep{{Prepare}}
+
+%% `A{{text}}` — a hexagon, the preparation step. Both braces are syntax; a
+%% reader that took only the outer pair would draw a diamond labelled
+%% `{Prepare}`.
+Prep --> Check{Valid?}
+
+%% `A{text}` — the decision diamond, and the shape most of what people mean by
+%% "a flowchart" is made of. Its label sits *inside* the diamond rather than
+%% inside the box the diamond is inscribed in, which is why a shape is not a
+%% renderer-only change.
+Check --> Parse[Parse]
+
+%% `A[text]` — the plain rectangle, a process. One of only two shapes whose
+%% corners are still `--siren-node-border-radius`'s to set; the subroutine
+%% below is the other, and the remaining twelve are out of that token's reach.
+Parse --> Store[(Store)]
+
+%% `A[(text)]` — a cylinder, the database. Drawn as a `<path>` and not as an
+%% `<ellipse>`, deliberately: `rx` is a CSS geometry property on an ellipse,
+%% so the theme's `rx: var(--siren-node-border-radius)` would have flattened
+%% the lid — and the lid is the figure, not a decoration of it.
+Store --> Render[[Render]]
+
+%% `A[[text]]` — a subroutine box, a predefined process called elsewhere. Its
+%% two inner bars are the shape; without them it is a rectangle, whatever
+%% `data-siren-shape` says.
+Render --> Log[\Write log\]
+
+%% `A[\text\]` — a parallelogram leaning the other way: output, the mirror of
+%% `Intake` above.
+Log --> Done(((End)))
+
+%% `A(((text)))` — a double circle, the terminator. Three pairs of parentheses,
+%% and the second ring is the whole difference between this and `A((text))`.
+
+%% The branch a decision earns. `A[/text\]` is a trapezoid — a manual
+%% operation — and `A[\text/]` is its inversion, manual input, so the two
+%% leaning characters lean the way the shape's own sides do.
+Check --> Review[/Approve\]
+Review --> Entry[\Operator/]
+
+%% `A((text))` — a circle, the on-page connector: the thing a flowchart uses
+%% to rejoin a branch without drawing an edge across the page.
+Entry --> Hop((1))
+Hop --> Parse
+
+%% `A(text)` — a round node. Rounder than a rectangle and less round than a
+%% stadium, and like a stadium it owns its corners rather than borrowing the
+%% theme's, so that no token can collapse the four rect-drawn shapes into one.
+Check --> Retry(Retry)
+
+%% `A>text]` — the asymmetric flag: the one spelling with no opening bracket
+%% at all, and the notch it draws into its left edge is the `>` of the
+%% spelling drawn.
+Retry --> Flag>legacy path]
+Flag --> Prep
+
+%% Every one of the fourteen is named here, so the whole diagram is waiting at
+%% step 0 and each shape arrives with the edge that reaches it. A `<path>`, a
+%% `<circle>` and a `<rect>` frame all animate the same way: the id and the
+%% animation classes sit on the enclosing `<g>`, so the controller drives
+%% fourteen shapes without knowing that shapes exist.
+timeline:
+  step 1: enter Start fade, enter Intake fade, enter Start-Intake fade
+  step 2: enter Prep fade, enter Intake-Prep fade
+  step 3: enter Check fade, enter Prep-Check fade
+  step 4: enter Parse fade, enter Check-Parse fade
+  step 5: enter Review slide-bottom, enter Check-Review fade, enter Entry slide-bottom, enter Review-Entry fade
+  step 6: enter Hop fade, enter Entry-Hop fade, enter Hop-Parse fade
+  step 7: enter Retry slide-top, enter Check-Retry fade, enter Flag slide-top, enter Retry-Flag fade, enter Flag-Prep fade
+  step 8: enter Store fade, enter Parse-Store fade, enter Render fade, enter Store-Render fade
+  step 9: enter Log fade, enter Render-Log fade, enter Done fade, enter Log-Done fade

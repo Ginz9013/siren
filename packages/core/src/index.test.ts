@@ -4574,4 +4574,187 @@ Alice-)Bob: open
     expect(animatable("Check-Style")).toBe(1);
     expect(animatable("Render-Output")).toBe(1);
   });
+
+  it("renders examples/flowchart-shapes.srn end to end with zero diagnostics — all fourteen of Mermaid's bracket spellings for a node, each drawing the figure it names", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-shapes"), container);
+
+    // Zero diagnostics of *any* severity, as every closing example before
+    // this one asserts: the `examples/` enumeration test above filters to
+    // error severity, so a warning would slip through it.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- the fourteen spellings, in the document itself ---
+    //
+    // **Asserted against the file's own text, and not only against its
+    // picture.** The picture below catches a rewrite into fourteen
+    // rectangles — that much was checked by doing it — but it cannot catch
+    // a rewrite into a *different spelling of the same figures*, and there
+    // is a known one coming: Mermaid v11's `A@{ shape: cyl }` is this
+    // board's named non-goal and its own board later. A document rewritten
+    // that way would draw an identical picture and quietly cost the
+    // repository its only example of the bracket layer, with every
+    // assertion below still green. Board 4's closing ticket found the same
+    // hole in the same place, one board earlier.
+    //
+    // The patterns match punctuation only. Renaming a node or retitling a
+    // label is an edit to this example nobody should have to defend to a
+    // test; deleting the `[[…]]` that makes one a subroutine is not.
+    const declarations = readExample("flowchart-shapes")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (shape: string, spelling: string, pattern: RegExp): void => {
+      const written = declarations.filter((line) => pattern.test(line));
+      expect(
+        written,
+        `examples/flowchart-shapes.srn no longer declares the ${shape}, \`${spelling}\``,
+      ).not.toEqual([]);
+    };
+    expect(declarations[0]).toBe("flowchart LR");
+    declares("rectangle", "A[text]", /\w\[[^[(/\\][^\]]*\]/);
+    declares("round node", "A(text)", /\w\([^([][^)]*\)/);
+    declares("stadium", "A([text])", /\(\[[^\]]*\]\)/);
+    declares("subroutine", "A[[text]]", /\[\[[^\]]*\]\]/);
+    declares("cylinder", "A[(text)]", /\[\([^)]*\)\]/);
+    declares("circle", "A((text))", /\w\(\([^(][^)]*\)\)/);
+    declares("double circle", "A(((text)))", /\(\(\([^)]*\)\)\)/);
+    declares("asymmetric flag", "A>text]", /\w>[^\]]*\]/);
+    declares("rhombus", "A{text}", /\w\{[^{][^}]*\}/);
+    declares("hexagon", "A{{text}}", /\{\{[^}]*\}\}/);
+    declares("parallelogram", "A[/text/]", /\[\/[^\\]*\/\]/);
+    declares("parallelogram-alt", "A[\\text\\]", /\[\\[^/]*\\\]/);
+    declares("trapezoid", "A[/text\\]", /\[\/[^\\]*\\\]/);
+    declares("trapezoid-alt", "A[\\text/]", /\[\\[^/]*\/\]/);
+
+    /**
+     * What the renderer *drew* for one node, named by the technique it was
+     * drawn with rather than by what the node claims to be.
+     *
+     * Six answers across fourteen shapes, which is the honest reach of this
+     * reader and is deliberately not more: `src/compat/corpus.ts` already
+     * names each of the fourteen outlines exactly (`nodeOutline`), and the
+     * three `it.each` blocks above already walk every spelling's vertices.
+     * A third copy of that reading here would pin the example against the
+     * renderer twice over and tell nobody anything new. What this one is
+     * for is the failure a *document* can have: losing the shapes it exists
+     * to demonstrate. Rewriting all fourteen nodes as `X[label]` collapses
+     * every entry below onto one answer, which is what it has to catch.
+     */
+    const drawnAs = (group: Element): string => {
+      const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+      if (frames.length === 0) return "nothing named siren-node-frame";
+      if (frames.every((f) => f.tagName === "circle")) {
+        const centres = new Set(
+          frames.map((f) => `${f.getAttribute("cx")},${f.getAttribute("cy")}`),
+        );
+        // Concentric, and counted. A double circle's first frame is a
+        // `<circle>` exactly as a plain circle's is, so stopping at the
+        // first element would name both of them the same thing.
+        return frames.length === 1
+          ? "one <circle>"
+          : `${frames.length} <circle>s about ${centres.size} centre`;
+      }
+      if (frames[0].tagName === "path") return "a <path>";
+      if (frames[0].tagName !== "rect") return `an unnamed <${frames[0].tagName}> frame`;
+
+      // Four of the fourteen are a `<rect>`, so the tag name names none of
+      // them. What separates them is the corner radius the *renderer* gave
+      // the box — written inline, or not written at all when the corners
+      // are `--siren-node-border-radius`'s business — and the inner bars a
+      // subroutine draws beside it.
+      const height = Number(frames[0].getAttribute("height"));
+      const declared = (frames[0].getAttribute("style") ?? "").match(/rx:\s*([\d.]+)px/);
+      const corners =
+        declared === null
+          ? "the theme's corners"
+          : Number(declared[1]) === height / 2
+            ? "semicircular ends"
+            : "a corner radius of its own";
+      const bars = group.querySelectorAll("line.siren-node-frame").length;
+      return bars === 0
+        ? `a <rect> with ${corners}`
+        : `a <rect> with ${corners} and ${bars} inner bars`;
+    };
+
+    // Every expectation below is what **mermaid 11.17.2 itself** records for
+    // this document, read out with `packages/core/scripts/mermaid-probe.mjs`
+    // — fourteen vertices, in this order, with these types. Mermaid's names
+    // for them are its own (`square`, `lean_right`, `lean_left`, `odd`,
+    // `doublecircle`, `inv_trapezoid`); the middle column is Siren's
+    // `NodeShape` spelling of the same figure, and the mapping is the whole
+    // of what "the same diagram" means here — the board's decision 1 leaves
+    // the proportions to the theme and holds only the kind.
+    const nodes = Array.from(svg.querySelectorAll("g.siren-node")).map((g) => [
+      g.getAttribute("data-siren-id"),
+      // The picture first, and `data-siren-shape` after it and never
+      // instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      drawnAs(g),
+      g.getAttribute("data-siren-shape"),
+    ]);
+    expect(nodes).toEqual([
+      // Mermaid: type="stadium"
+      ["Start", "a <rect> with semicircular ends", "stadium"],
+      // Mermaid: type="lean_right"
+      ["Intake", "a <path>", "parallelogram"],
+      // Mermaid: type="hexagon"
+      ["Prep", "a <path>", "hexagon"],
+      // Mermaid: type="diamond"
+      ["Check", "a <path>", "rhombus"],
+      // Mermaid: type="square" — the one shape Siren has always drawn.
+      ["Parse", "a <rect> with the theme's corners", "rect"],
+      // Mermaid: type="cylinder"
+      ["Store", "a <path>", "cylinder"],
+      // Mermaid: type="subroutine"
+      ["Render", "a <rect> with the theme's corners and 2 inner bars", "subroutine"],
+      // Mermaid: type="lean_left"
+      ["Log", "a <path>", "parallelogram-alt"],
+      // Mermaid: type="doublecircle"
+      ["Done", "2 <circle>s about 1 centre", "double-circle"],
+      // Mermaid: type="trapezoid"
+      ["Review", "a <path>", "trapezoid"],
+      // Mermaid: type="inv_trapezoid"
+      ["Entry", "a <path>", "trapezoid-alt"],
+      // Mermaid: type="circle"
+      ["Hop", "one <circle>", "circle"],
+      // Mermaid: type="round"
+      ["Retry", "a <rect> with a corner radius of its own", "round"],
+      // Mermaid: type="odd"
+      ["Flag", "a <path>", "asymmetric"],
+    ]);
+
+    // Fourteen distinct shapes, not fourteen nodes that happen to include a
+    // few: this is the file's whole reason to exist, and the assertion above
+    // would still pass with a shape drawn twice and another one missing if
+    // someone edited both columns to agree.
+    const shapes = nodes.map(([, , shape]) => shape);
+    expect(new Set(shapes).size).toBe(14);
+
+    // --- and every one of them animates, whatever element draws it ---
+    //
+    // The board's outcome claim, made by a document rather than by a unit
+    // test: a `<path>` frame, a `<circle>` frame and a `<rect>` frame all
+    // animate exactly as a rectangle already did, because the id and the
+    // animation classes are on the enclosing `<g>` and the controller has
+    // never known that shapes exist (the board's decision 3). A shape that
+    // could be drawn but not revealed would be half a feature, and nothing
+    // in the picture above would say so.
+    expect(result.controller!.totalSteps).toBe(9);
+    const pending = () =>
+      Array.from(svg.querySelectorAll("g.siren-node.siren-pending"))
+        .map((g) => g.getAttribute("data-siren-id"))
+        .sort();
+    // Every one of the fourteen is a timeline target, so at step 0 the
+    // whole diagram is waiting — including the four the timeline would
+    // reach by accident if it named only the `<path>`-drawn ones.
+    expect(pending()).toEqual(nodes.map(([id]) => id).sort());
+    for (let step = 0; step < result.controller!.totalSteps; step += 1) {
+      result.controller!.next();
+    }
+    expect(pending()).toEqual([]);
+  });
 });
