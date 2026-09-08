@@ -470,8 +470,34 @@ const SILENTLY_WRONG = 3;
  *
  * Two edge rows remain, both labels (`fc-edge-pipe-label`,
  * `fc-edge-inline-label`), and they are the next ticket's.
+ *
+ * It then fell by **two, to 13**, when an edge started carrying a label.
+ * `fc-edge-pipe-label` (`A -->|yes| B`) and `fc-edge-inline-label`
+ * (`A -- yes --> B`) are `supported`: both spellings parse to the same
+ * label on the same edge, dagre keeps space for it, and the text is drawn
+ * in that space. Two, exactly as the ticket expected, and **both fell
+ * because code changed** — each already had a row here to leave, each was
+ * honestly refused before and renders correctly now. `silently-wrong` is
+ * untouched at 3.
+ *
+ * **And then it rose by one, to 14, which is a third kind of movement and
+ * needs saying plainly.** `fc-edge-dotted-short` (`A .-> B`) is a
+ * construct Mermaid draws and Siren refuses, and it had no row at all —
+ * measured while landing the labels, because the same missing spelling is
+ * what stops `A -. yes .-> B` closing an inline label. **Nothing
+ * regressed**: no construct that used to render stopped, and the sum of
+ * `rejected` and `silently-wrong` grew only because the backlog was
+ * *undercounted* before, not because the code got worse. That is the
+ * reading the message below would otherwise send someone chasing, so it is
+ * written here instead: this rise is the instrument catching up, and the
+ * alternative — knowing a valid Mermaid document fails and not writing it
+ * down — is the exact blindness this corpus exists to remove.
+ *
+ * The construct is an *arrow spelling*, which belongs to the ticket that
+ * decomposed the arrow token rather than to the one that added labels, so
+ * it was recorded rather than fixed in passing.
  */
-const REJECTED = 15;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

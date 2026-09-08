@@ -4810,3 +4810,117 @@ step 1: enter A-B fade
     expect(path.classList.contains("siren-edge-dotted")).toBe(true);
   });
 });
+
+/**
+ * The two edge-label spellings end to end: source in, drawn label out.
+ *
+ * Everything below was measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`, which prints the `text` its own flowchart
+ * database recorded for each edge.
+ */
+describe("an edge's label, from source to picture", () => {
+  /** Each drawn edge label in `svg`, as the edge id it belongs to and its text. */
+  const drawnLabels = (svg: SVGSVGElement) =>
+    Array.from(svg.querySelectorAll("text.siren-edge-label")).map((text) => [
+      text.getAttribute("data-siren-id"),
+      text.textContent,
+    ]);
+
+  it("draws the label both spellings write, on the edge both spellings mean", () => {
+    // Measured: both record `text="yes"` on an otherwise identical
+    // `arrow_point`/`normal`/`length=1` edge. Two rows drawn from one
+    // document, so the comparison is between two edges of one picture.
+    const svg = renderThemed(`flowchart TB
+A --> B
+B -->|yes| C
+C -- no --> D
+`);
+
+    expect(drawnLabels(svg)).toEqual([
+      ["B-C", "yes"],
+      ["C-D", "no"],
+    ]);
+  });
+
+  it("puts the label between the boxes it belongs to, not on top of one", () => {
+    // The end-to-end half of the layout claim: the reserved space is real
+    // in the finished picture, so the drawn text sits in the gap rather
+    // than over either endpoint. Read off the rendered SVG rather than
+    // from layout, because this is the one assertion that spans both.
+    const svg = renderThemed(`flowchart TB
+A[Start] -->|yes| B[End]
+`);
+
+    const boxOf = (id: string) => {
+      const rect = svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect`)!;
+      const y = Number(rect.getAttribute("y"));
+      return { top: y, bottom: y + Number(rect.getAttribute("height")) };
+    };
+    const labelY = Number(
+      svg.querySelector("text.siren-edge-label")!.getAttribute("y"),
+    );
+
+    expect(labelY).toBeGreaterThan(boxOf("A").bottom);
+    expect(labelY).toBeLessThan(boxOf("B").top);
+  });
+
+  it("leaves `linkStyle`'s `color` off the label, which is the one element it could now reach", () => {
+    // **A deliberate non-action, recorded rather than implemented.** Board 3
+    // routes an author's `color` into the text half of a style, and until
+    // this ticket an edge had no text element to put it on — the test above
+    // ("keeps a `linkStyle`'s `color` off the edge path") pins that. It has
+    // one now, so `linkStyle 0 color:#0f0` could paint it; wiring that up
+    // changes what an existing directive does and is this board's stated
+    // non-goal, left for its own decision rather than arriving as a side
+    // effect.
+    //
+    // So this test says what happens **today**, so that whoever takes that
+    // decision meets a measured fact instead of a surprise: the `color` is
+    // resolved, reaches the renderer in `style.text`, and is dropped. The
+    // label takes the theme's colour and carries no inline `style` at all,
+    // while the `stroke` beside it lands on the path as it always did.
+    const svg = renderThemed(`flowchart TB
+A --> B
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+
+    const label = svg.querySelector("text.siren-edge-label");
+    expect(label).toBeNull();
+
+    const labelled = renderThemed(`flowchart TB
+A -->|yes| B
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+    const drawn = labelled.querySelector("text.siren-edge-label")!;
+
+    expect(drawn.getAttribute("style")).toBeNull();
+    expect(getComputedStyle(drawn).fill).toBe("var(--siren-node-text)");
+    expect(
+      labelled.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+    ).toBe("stroke:#f00");
+  });
+
+  it("animates the label with the line it is written on", () => {
+    // ADR-0009: a timeline target is an id, not an element. `enter A-B` has
+    // to take both, or a step reveals a line with its label already
+    // floating beside it.
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TB
+A -->|yes| B
+
+timeline:
+step 1: enter A-B fade
+`,
+      container,
+    );
+    expect(result.diagnostics).toEqual([]);
+
+    const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="A-B"]'));
+    expect(drawn().map((el) => el.tagName)).toEqual(["path", "text"]);
+    expect(drawn().every((el) => el.classList.contains("siren-pending"))).toBe(true);
+
+    result.controller!.next();
+    expect(drawn().some((el) => el.classList.contains("siren-pending"))).toBe(false);
+  });
+});

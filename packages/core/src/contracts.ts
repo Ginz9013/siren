@@ -155,6 +155,22 @@ export interface SirenEdge {
    * rather than for the characters it was counted from.
    */
   minLength: number;
+  /**
+   * The text written on the edge itself, in whichever of the two spellings
+   * the author used — `A -->|yes| B` and `A -- yes --> B` are the same
+   * label on the same edge, and nothing downstream records which one was
+   * written.
+   *
+   * `null` rather than `""` when there is none, because an author cannot
+   * write an empty one: mermaid 11.17.2 rejects `A -->|| B` and
+   * `A -- --> B` outright (measured), so "unlabelled" and "labelled with
+   * nothing" are not two states anyone can author, and only one exists
+   * here. That is the same empty-not-absent rule the three axes above
+   * follow, arriving at `null` instead of a default because a label has no
+   * neutral value to default to — the shape `ClassRelationship.label`
+   * already has, for the same reason.
+   */
+  label: string | null;
   sourceLine?: number;
   sourceColumn?: number;
 }
@@ -709,6 +725,16 @@ export interface GraphEdge {
   toEnd: EdgeEnd;
   minLength: number;
   /**
+   * The text drawn on the edge, carried unchanged from whichever spelling
+   * wrote it — see `SirenEdge.label`, where the two spellings and the
+   * `null`-not-empty rule are described in full.
+   *
+   * Read by layout as well as by the renderer, which is what makes it
+   * unlike the three axes above: a label is a box dagre has to keep clear,
+   * so it changes where the edge goes and not only what is drawn on it.
+   */
+  label: string | null;
+  /**
    * Author declarations to emit as this edge's inline `style` attribute, in
    * declaration order, with rejected values already dropped — the same
    * shape, and the same empty-not-absent rule, as `GraphNode.style`.
@@ -811,6 +837,18 @@ export interface PositionedNode extends GraphNode {
 /** An edge with a layout-assigned point path. */
 export interface PositionedEdge extends GraphEdge {
   points: Point[];
+  /**
+   * Where to draw `label`: the centre of the space layout kept clear for
+   * it, or `null` when the edge carries no label and asked for none.
+   *
+   * Reported by the layout rather than computed by the renderer from
+   * `points`, because it is where the *reserved box* ended up — the mid-point
+   * of a route is not the same place, and drawing there would put the text
+   * across the line the space was made beside. The shape a class
+   * diagram's `PositionedClassRelationship.labelAnchor` already has, for
+   * the same reason.
+   */
+  labelAnchor: Point | null;
 }
 
 /**

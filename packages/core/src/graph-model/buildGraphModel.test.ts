@@ -4,15 +4,16 @@ import { buildGraphModel } from "./buildGraphModel";
 
 /**
  * `A --> B`'s decomposition, spread into every fixture below that is about
- * something else — an id, a label, a `linkStyle`, a timeline reference — so
- * that the arrow those are not testing is written once. A fixture that *is*
- * about the arrow spells its own out in full.
+ * something else — an id, a node's label, a `linkStyle`, a timeline
+ * reference — so that the arrow those are not testing is written once. A
+ * fixture that *is* about the arrow spells its own out in full.
  */
 const PLAIN_ARROW = {
   line: "solid",
   fromEnd: "none",
   toEnd: "arrow",
   minLength: 1,
+  label: null,
 } as const;
 
 describe("buildGraphModel", () => {
@@ -1097,7 +1098,7 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
       ],
       styles: [],
       linkStyles: [
@@ -1122,6 +1123,7 @@ describe("buildGraphModel", () => {
       "fromEnd",
       "from",
       "id",
+      "label",
       "line",
       "minLength",
       "style",
@@ -1155,7 +1157,7 @@ describe("an edge's arrow through the model", () => {
   it("carries the line, both ends and the length onto the edge it gives an id", () => {
     const { graph, diagnostics } = buildGraphModel(
       documentWith([
-        { from: "A", to: "B", line: "dotted", fromEnd: "arrow", toEnd: "circle", minLength: 3 },
+        { from: "A", to: "B", line: "dotted", fromEnd: "arrow", toEnd: "circle", minLength: 3, label: null },
       ]),
     );
 
@@ -1169,8 +1171,27 @@ describe("an edge's arrow through the model", () => {
         fromEnd: "arrow",
         toEnd: "circle",
         minLength: 3,
+        label: null,
         style: { frame: [], text: [] },
       },
+    ]);
+  });
+
+  it("carries the label the author wrote onto the edge, and null when they wrote none", () => {
+    // The label travels with the arrow, from the same read: it is the
+    // parser that decided `A -->|yes| B` and `A -- yes --> B` say the same
+    // thing, and this stage re-deciding it would be the second opinion the
+    // rule above exists to prevent.
+    const { graph } = buildGraphModel(
+      documentWith([
+        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: "yes" },
+        { from: "B", to: "A", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
+      ]),
+    );
+
+    expect(graph!.edges.map((edge) => [edge.id, edge.label])).toEqual([
+      ["A-B", "yes"],
+      ["B-A", null],
     ]);
   });
 
@@ -1180,8 +1201,8 @@ describe("an edge's arrow through the model", () => {
     // pair. They are not the same edge.
     const { graph } = buildGraphModel(
       documentWith([
-        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1 },
-        { from: "A", to: "B", line: "thick", fromEnd: "none", toEnd: "cross", minLength: 2 },
+        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
+        { from: "A", to: "B", line: "thick", fromEnd: "none", toEnd: "cross", minLength: 2, label: null },
       ]),
     );
 

@@ -241,6 +241,20 @@ export function layoutGraph(
       // drawing every length alike would be a silent mis-render by the
       // compatibility corpus's own definition.
       minlen: edge.minLength,
+      // The other part that reaches layout rather than the renderer, and a
+      // port rather than new machinery: the shared core has taken an edge
+      // label's size and returned where it put it since the class board,
+      // and `layoutClassDiagram` passes a relationship's label through this
+      // very field. What was missing was only that a flowchart edge had no
+      // label to pass.
+      //
+      // Measured with `options.measureText`, the one measurer every other
+      // piece of text in this pipeline goes through, so a long label
+      // reserves more room than a short one for the same reason a long node
+      // label makes a wider box.
+      ...(edge.label === null
+        ? {}
+        : { label: options.measureText.measure(edge.label) }),
     })),
   });
 
@@ -258,10 +272,17 @@ export function layoutGraph(
     };
   });
 
-  const edges = graph.edges.map((edge) => ({
-    ...edge,
-    points: routeById.get(edge.id)!.points,
-  }));
+  const edges = graph.edges.map((edge) => {
+    const route = routeById.get(edge.id)!;
+    return {
+      ...edge,
+      points: route.points,
+      // `null` rather than absent, matching the label it belongs to: an
+      // edge that asked for no space has nowhere to draw text, and one
+      // state is easier to read than a missing field.
+      labelAnchor: route.labelAnchor ?? null,
+    };
+  });
 
   return {
     direction: graph.direction,

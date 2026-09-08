@@ -349,6 +349,108 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
 const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
 
 /**
+ * What may lie between the two `|` of an edge label: the same two
+ * alternatives a node's label has, one `|` over.
+ *
+ * A fenced run, or a character that is neither the `|` ending the label nor
+ * a quote — so a `|` reaches a label only through the fence that was
+ * written to carry it. That is measured, not assumed: mermaid 11.17.2
+ * rejects `A -->|a|b| B` with a parse error and reads `A -->|"a|b"| B` as
+ * the label `a|b`. Excluding the quote from the second alternative is what
+ * makes the two disjoint, so this cannot backtrack exponentially over a
+ * line full of quotes — `LABEL_CONTENT`'s rule, and the same reasoning.
+ *
+ * `+` rather than `*`: an empty label is not a thing an author can write.
+ * Mermaid rejects `A -->|| B` outright, so a bare `-->||` is left to fall
+ * through as an unreadable line rather than quietly becoming an unlabelled
+ * edge.
+ */
+const EDGE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^|"])+`;
+
+/**
+ * The `|text|` half of `A -->|yes| B`, optional and trailing the arrow it
+ * labels.
+ *
+ * Part of the arrow token rather than a pattern of its own, because it is
+ * part of the *run* that separates two endpoints: `A` and `B` are what lie
+ * on either side of `-->|yes|`, and a cutter that stopped at the `-->`
+ * would hand `|yes| B` to the endpoint reader as if the author had written
+ * it. It is also what keeps a `;` or an `&` inside a label from being read
+ * as a separator, since `cutOutsideLabel` skips a whole arrow token.
+ *
+ * The `\s*` is Mermaid's: `A --> |yes| B` is a document it draws
+ * (measured), so the space between the arrow and its label is not a place
+ * an endpoint could be.
+ */
+const PIPE_LABEL = String.raw`(?:\s*\|(${EDGE_LABEL_CONTENT})\|)?`;
+
+/** What may decorate an arrow's from-end, and what may decorate its to-end. */
+const FROM_MARKER = String.raw`<|(?<!\w)[ox]`;
+const TO_MARKER = String.raw`[>ox]`;
+
+/**
+ * An arrow written as one run: a marker, a body, a marker.
+ *
+ * The lookahead is what stops this from swallowing the **opener** of an
+ * inline-labelled arrow. `--`, `==` and `-.` are not arrows — each would
+ * decompose to zero ranks, which is exactly the `minLength < 1` case
+ * `readArrow` already refuses, and Mermaid says the same thing in its own
+ * lexer by requiring a `[-xo>]` after the dashes before a run counts as a
+ * `LINK`. Without the guard, `A -- yes --> B` would be cut at its opening
+ * `--` and the label read as an endpoint; with it, the plain branch simply
+ * does not match there and the labelled branch below does.
+ *
+ * A pre-filter, not the grammar: three characters of the right kind are
+ * necessary, and the body patterns below still decide what is sufficient.
+ */
+const PLAIN_ARROW =
+  String.raw`(${FROM_MARKER})?(?=[-=.]{2}[-=.>ox])(-{2,}|={2,}|-\.+-)(${TO_MARKER})?`;
+
+/**
+ * The three strokes an inline-labelled arrow can be written in, each as the
+ * opener that starts it, the characters its label may be made of, and the
+ * body that closes it.
+ *
+ * **The label's alphabet is scoped to the stroke, and that is measured.**
+ * `A == x --> y ==> B` is one thick edge labelled `x --> y` in mermaid
+ * 11.17.2, because its lexer reads a thick label with a rule that only
+ * stops at `=`. A single stroke-agnostic alphabet would cut that line at
+ * the `-->` and draw three nodes. The three rows are Mermaid's own
+ * `edgeText`/`thickEdgeText`/`dottedEdgeText` lexer states, one for one.
+ *
+ * The closing bodies are the same three this file already uses for a plain
+ * arrow — the stroke an opener starts is the stroke that must close it,
+ * and `A -- yes ==> B` is a parse error in Mermaid, measured.
+ */
+const INLINE_LABEL_STROKES = [
+  { opener: String.raw`--`, alphabet: String.raw`[^-]|-(?!-)`, body: String.raw`-{2,}` },
+  { opener: String.raw`==`, alphabet: String.raw`[^=]`, body: String.raw`={2,}` },
+  { opener: String.raw`-\.`, alphabet: String.raw`[^.]`, body: String.raw`-\.+-` },
+];
+
+/**
+ * `-- yes -->` — the other spelling of an edge label, written between the
+ * two halves of the arrow rather than after it.
+ *
+ * Part of the arrow token for the same reason `PIPE_LABEL` is: it is the
+ * *run* that separates `A` from `B`, so a cutter that stopped at the
+ * opening `--` would hand ` yes ` to the endpoint reader as a node called
+ * `yes` — which is precisely what mermaid 11.17.2 does with
+ * `A ---- yes --> B`, whose four-dash opener is a whole arrow rather than
+ * an opener, measured.
+ *
+ * Nothing here captures. What the run *means* is read back by
+ * `readArrow`, which splits it with an anchored pattern of its own; this
+ * one only has to end the run in the same place Mermaid's lexer does, and
+ * leaving the group numbers to the plain branch is what keeps that split
+ * readable.
+ */
+const INLINE_LABELLED_ARROW = INLINE_LABEL_STROKES.map(
+  ({ opener, alphabet, body }) =>
+    String.raw`(?:${FROM_MARKER})?${opener}\s*(?:${alphabet})+?\s*(?:${FROM_MARKER})?${body}(?:${TO_MARKER})?`,
+).join("|");
+
+/**
  * The run of characters that joins two endpoints — **one pattern for every
  * arrow spelling**, read as three parts rather than matched against a list
  * of thirteen names.
@@ -364,6 +466,20 @@ const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
  * statements of one grammar are two things free to disagree about what
  * `-..->` is.
  *
+ * **The run includes the edge's label, in either spelling.** `-->|yes|` and
+ * `-- yes -->` are what lies between `A` and `B` just as `-->` is, so both
+ * belong to the thing that separates the endpoints rather than to the
+ * endpoints themselves. The consequence worth naming: everything the label
+ * contains — a `;`, an `&`, another arrow — is inside a token here, so
+ * `cutOutsideLabel` steps over it and the surrounding grammar never sees
+ * it, which is the same protection a node's `[...]` already has.
+ *
+ * The labelled branch captures nothing, so the group numbers stay the plain
+ * branch's and `readArrow` reads a plain token exactly as it did. A
+ * labelled run is split by `INLINE_LABELLED_PARTS_RE` first and then
+ * spliced back into the plain token it decorates, so there is still one
+ * decomposition and not two.
+ *
  * **`o` and `x` are word characters, so the leading one is only a marker
  * where an id cannot be.** Without the lookbehind, `Ax--xB` would be cut at
  * `x--x` and drawn as `A` to `B`; mermaid 11.17.2 reads it as the node `Ax`
@@ -371,7 +487,7 @@ const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
  * needs no guard: no id can end in one, and `A<-->B` is a document Mermaid
  * draws.
  */
-const ARROW_TOKEN = String.raw`(<|(?<!\w)[ox])?(-{2,}|={2,}|-\.+-)([>ox])?`;
+const ARROW_TOKEN = `(?:${PLAIN_ARROW}|${INLINE_LABELLED_ARROW})${PIPE_LABEL}`;
 
 /** The sticky form, for cutting a line into endpoints at every arrow outside a label. */
 const ARROW_RE = new RegExp(ARROW_TOKEN, "y");
@@ -385,6 +501,32 @@ const ARROW_RE = new RegExp(ARROW_TOKEN, "y");
  * pattern serve both readings.
  */
 const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`);
+
+/**
+ * The anchored form that splits an **inline-labelled** run back into the
+ * three things it says: the marker its opener carried, the label, and the
+ * arrow that closed it.
+ *
+ * Lazy text with the closer anchored to the end, so the split is the one
+ * whose tail is a whole arrow — and there is only one, because an arrow
+ * carries no spaces. The stroke alphabets that decided where the run *ends*
+ * are `INLINE_LABELLED_ARROW`'s and are not repeated here: by the time this
+ * pattern is handed a token, the run has already been delimited.
+ *
+ * A plain arrow cannot match it. Both a non-empty label and a whole
+ * trailing arrow are required, and `---->` has no way to be both: whatever
+ * is taken for the label leaves a tail that is not an arrow.
+ */
+const INLINE_LABELLED_PARTS_RE = new RegExp(
+  String.raw`^(${FROM_MARKER})?(--|==|-\.)\s*(.+?)\s*(${PLAIN_ARROW})$`,
+);
+
+/** The stroke each inline-label opener starts, which its closer must agree with. */
+const OPENER_LINE: Record<string, EdgeLine> = {
+  "--": "solid",
+  "==": "thick",
+  "-.": "dotted",
+};
 
 /**
  * What joins the endpoints of one **group** — the several nodes an edge
@@ -446,12 +588,14 @@ const END_FOR_MARKER: Record<string, EdgeEnd> = {
  */
 const OPENING_MARKER: Record<string, string> = { ">": "<", o: "o", x: "x" };
 
-/** The three axes and the distance one arrow token decomposes into. */
+/** The three axes, the distance and the label one arrow token decomposes into. */
 interface ArrowForm {
   line: EdgeLine;
   fromEnd: EdgeEnd;
   toEnd: EdgeEnd;
   minLength: number;
+  /** What the author wrote on the edge, or `null` when they wrote nothing. */
+  label: string | null;
 }
 
 /**
@@ -482,11 +626,54 @@ interface ArrowForm {
  * pattern, so that the grammar stays one expression.
  */
 function readArrow(token: string): ArrowForm | null {
+  const inline = INLINE_LABELLED_PARTS_RE.exec(token);
+  if (inline !== null) {
+    const [, openMarker, opener, text, closer] = inline;
+    // **The opener contributes exactly one thing: a from-end marker.**
+    // Everything else — the line, the to-end, the length — comes from the
+    // half that closes, which is `destructLink`'s own rule in mermaid
+    // 11.17.2 and was measured through it: `A -- yes ---> B` is `length=2`
+    // though its opener is the two characters a one-rank arrow opens with.
+    //
+    // So the run is spliced back into the plain token it decorates and read
+    // by the decomposition that already exists. `<-- yes -->` becomes
+    // `<-->`, which means the agreement rule between the two markers is not
+    // restated here: `<-- yes --x` splices to `<--x` and is refused by
+    // `OPENING_MARKER` exactly as the unlabelled spelling is.
+    const form = readArrow((openMarker ?? "") + closer);
+    // The stroke an opener starts is the stroke that must close it —
+    // `A -- yes ==> B` and `A == yes --> B` are both parse errors in
+    // Mermaid (`destructLink` returns `INVALID` when the two disagree),
+    // measured. Asked of the decomposed line rather than of the closer's
+    // characters, so there is one place that decides what `-.` draws.
+    if (form === null || form.line !== OPENER_LINE[opener]) {
+      return null;
+    }
+    const label = edgeLabelIn(text);
+    return label === "" ? null : { ...form, label };
+  }
+
   const match = ARROW_PARTS_RE.exec(token);
   if (match === null) {
     return null;
   }
-  const [, start, body, end] = match;
+  const [, start, body, end, pipeLabel] = match;
+  // `ARROW_TOKEN` has two branches and only the plain one captures, so a
+  // token that reached here through the labelled branch has no body to
+  // read. That happens for exactly one spelling — an inline label *and* a
+  // pipe label on one arrow, `A -- x -->|y| B` — which mermaid 11.17.2
+  // rejects too, measured. Refusing it here is what keeps that a
+  // diagnostic rather than a crash.
+  if (body === undefined) {
+    return null;
+  }
+  const label = pipeLabel === undefined ? null : edgeLabelIn(pipeLabel);
+  if (label === "") {
+    // `A -->|""| B`: a fence with nothing in it is not a label an author
+    // can write, and reading it as an unlabelled edge would be the silent
+    // mis-render this parser refuses everywhere else.
+    return null;
+  }
 
   const dots = body.length - body.replace(/\./g, "").length;
   const line: EdgeLine = dots > 0 ? "dotted" : body.startsWith("=") ? "thick" : "solid";
@@ -500,12 +687,30 @@ function readArrow(token: string): ArrowForm | null {
 
   const toEnd = end === undefined ? "none" : END_FOR_MARKER[end];
   if (start === undefined) {
-    return { line, fromEnd: "none", toEnd, minLength };
+    return { line, fromEnd: "none", toEnd, minLength, label };
   }
   if (end === undefined || start !== OPENING_MARKER[end]) {
     return null;
   }
-  return { line, fromEnd: toEnd, toEnd, minLength };
+  return { line, fromEnd: toEnd, toEnd, minLength, label };
+}
+
+/**
+ * The label an author wrote on an edge, with the fence removed and the
+ * padding dropped.
+ *
+ * Trimmed, unlike a node's label, and the difference is Mermaid's rather
+ * than a choice made here: an edge label reaches Mermaid's own database
+ * already trimmed in every spelling — `A -->|  yes  | B`,
+ * `A --   yes   --> B` and `A -->|"  yes  "| B` all record `text="yes"`,
+ * measured. A node's label does not (`fc-text-label-whitespace`), and that
+ * divergence is a corpus row rather than a precedent to spread.
+ *
+ * Trimmed on both sides of the fence, so the padding an author put inside
+ * the quotes and the padding they put outside them are dropped alike.
+ */
+function edgeLabelIn(content: string): string {
+  return labelIn(content.trim()).trim();
 }
 
 /** One place a node was written on an edge line, as written there. */
@@ -651,6 +856,25 @@ function cutOutsideLabel(
         separators.push(cut);
         i += cut.length - 1;
         start = i + 1;
+        continue;
+      }
+      if (separator !== ARROW_RE) {
+        // **An arrow's own label is a label.** The two edge-label spellings
+        // put the author's text where the grammar reads its punctuation,
+        // and a `;` there is a character rather than the end of a
+        // statement: mermaid 11.17.2 reads `A -- a;b --> B` as one edge
+        // labelled `a;b`, measured. Statements are split before arrows are
+        // found, so without this the label is two half-statements and two
+        // diagnostics.
+        //
+        // Stepping over the whole run rather than tracking a depth,
+        // because an edge label has no closing character of its own to
+        // count: `-->|a;b|` and `-- a;b -->` are each one token, and
+        // `ARROW_RE` is the one statement of where they end.
+        const arrow = separatorAt(text, i, ARROW_RE);
+        if (arrow !== null) {
+          i += arrow.length - 1;
+        }
       }
     }
   }

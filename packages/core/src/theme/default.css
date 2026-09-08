@@ -163,6 +163,29 @@
 }
 
 /*
+ * The text an edge carries, drawn as a sibling of the path rather than
+ * inside it, so none of the three rules above reaches it — and it must not
+ * inherit them if it did: `.siren-edge` declares `fill: none`, which on a
+ * <text> is a label that is simply not there.
+ *
+ * Painted with the node's text color rather than the edge's stroke, and the
+ * class diagram's `.siren-relationship-label` makes the same call: the
+ * label *says* something, so it reads as text on the diagram, while
+ * `.siren-multiplicity` — an annotation *of* the line — tracks the line's
+ * color instead. It takes `--siren-label-font-size` for the same reason
+ * every other secondary label does: an edge label sits between two boxes
+ * and would crowd them at the node's own size.
+ *
+ * text-anchor/dominant-baseline stay with the renderer, for the reason
+ * `.siren-node text` gives.
+ */
+.siren-edge-label {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
  * The arrowhead lives inside <defs><marker>, not on the <path class="siren-edge">
  * itself, so it doesn't inherit that path's stroke color — it needs its own
  * rule, or it falls back to SVG's initial fill (black), invisible against a

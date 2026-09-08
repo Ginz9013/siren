@@ -13,6 +13,11 @@ const PLAIN_ARROW = {
   fromEnd: "none",
   toEnd: "arrow",
   minLength: 1,
+  // An unlabelled edge, which is also what makes `labelAnchor` null: layout
+  // reports an anchor only for an edge that asked for space, and the two are
+  // absent together. A test that *is* about the label sets both.
+  label: null,
+  labelAnchor: null,
 } as const;
 
 /**
@@ -1196,5 +1201,67 @@ describe("the line and the two ends an edge is drawn with", () => {
 
     expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
     expect(path.getAttribute("marker-start")).toBe(path.getAttribute("marker-end"));
+  });
+});
+
+/**
+ * An edge's label is drawn where layout kept space for it, in an element the
+ * theme can name — the port of what `renderClassDiagramToSVG` has done with
+ * a relationship's label since the class board.
+ */
+describe("the label drawn on an edge", () => {
+  /** One edge carrying `label`, anchored where the fixture's route already runs. */
+  function drawLabelled(over: Partial<PositionedEdge>): SVGSVGElement {
+    const graph = buildFixture();
+    const [first] = graph.edges;
+    graph.edges = [{ ...first, ...over }];
+    return renderToSVG(graph);
+  }
+
+  it("draws the label at the anchor layout reserved for it", () => {
+    // The anchor comes from layout and is used as given — a renderer that
+    // recomputed a mid-point from `points` would put the text across the
+    // line rather than in the space made beside it.
+    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+    const text = svg.querySelector("text.siren-edge-label")!;
+
+    expect(text.textContent).toBe("yes");
+    expect(text.getAttribute("x")).toBe("55");
+    expect(text.getAttribute("y")).toBe("60");
+  });
+
+  it("mints its own class rather than borrowing the class diagram's", () => {
+    // A sibling of `.siren-relationship-label`, not the same name. Every
+    // `siren-*` class in this codebase is named for the construct it draws,
+    // and a *relationship* is the class diagram's construct while an *edge*
+    // is the flowchart's — `.siren-edge` and `.siren-relationship-line`
+    // already split that way for the connector itself. Sharing one name
+    // would mean a consumer restyling class-diagram relationship labels
+    // silently restyled every flowchart edge label too, which is the
+    // consequence a theming contract must not have (ADR-0004).
+    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+
+    expect(svg.querySelectorAll(".siren-relationship-label")).toHaveLength(0);
+    expect(svg.querySelectorAll(".siren-edge-label")).toHaveLength(1);
+  });
+
+  it("draws nothing at all for an edge that carries no label", () => {
+    // An empty `<text>` is a paintless element the theme has to reach and a
+    // node in every consumer's DOM for nothing. The class renderer already
+    // returns `null` here rather than an empty element; this is that rule.
+    const svg = drawLabelled({ label: null, labelAnchor: null });
+
+    expect(svg.querySelectorAll("text.siren-edge-label")).toHaveLength(0);
+  });
+
+  it("names the edge it belongs to, so the timeline moves the two together", () => {
+    // A timeline target is an id, not an element (ADR-0009): `exit A-B fade`
+    // has to take the label with the line it is written on, exactly as a
+    // sequence participant's several drawn elements move together.
+    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+
+    expect(
+      Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
+    ).toEqual(["path", "text"]);
   });
 });

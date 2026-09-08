@@ -409,6 +409,13 @@ describe("default theme coverage of the sequence renderer", () => {
  * had never emitted (`siren-arrow-hollow`, `siren-arrow-stroke`), so an
  * unfilled ring or an unstroked cross — a marker that is simply not there —
  * is caught here rather than in a picture.
+ *
+ * **And a labelled edge belongs in here for the third time, for the third
+ * time for the same reason.** It drew no edge label, so `.siren-edge-label`
+ * would have shipped unthemed — an edge label left to SVG's initial
+ * `fill: black` is invisible on a dark theme — without failing anything.
+ * Both spellings are written, though they draw the same element, because
+ * this fixture is also the one place the two are seen end to end.
  */
 const EVERY_FLOWCHART_FEATURE = `flowchart TB
 A[Start]
@@ -426,6 +433,8 @@ K --- L[Open]
 L --o M[Circle end]
 M --x N[Cross end]
 N <--> O[Both ends]
+O -->|pipe label| P[Labelled]
+P -- inline label --> Q[Labelled too]
 
 timeline:
 step 1: enter B fade, enter A-B fade

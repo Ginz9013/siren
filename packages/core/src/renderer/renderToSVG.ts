@@ -272,16 +272,69 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // colour — which is why `stroke` colours the whole arrow here as it does
     // in Mermaid, rather than the line alone.
     //
-    // Only the frame half: an edge draws no text, so `edge.style.text` — a
-    // `linkStyle 0 color:#f00` — has no element here to land on and is
-    // deliberately dropped rather than folded into this attribute, where
-    // `color` paints nothing and would tell the author their declaration
-    // worked.
+    // Only the frame half — and that is now a **decision** rather than a
+    // consequence. An edge used to draw no text at all, so a
+    // `linkStyle 0 color:#f00` had nowhere to land; it has somewhere now,
+    // and wiring it there would change what an existing directive does.
+    // That is this board's stated non-goal, deliberately left for its own
+    // decision rather than arriving as a side effect of edges gaining a
+    // label. What happens today: `color` is resolved into `style.text`,
+    // reaches this renderer, and is dropped here — silently, which is the
+    // part worth deciding about.
     applyInlineStyle(path, edge.style.frame);
     svg.appendChild(path);
+
+    // A sibling of the path rather than a child of a wrapping `<g>`, which
+    // is what the class renderer uses. An edge *is* its path here — that
+    // element carries `data-siren-id` and the animation classes, and board
+    // 3 put the author's declarations on it — so introducing a group now
+    // would move the id off the element three other places already find it
+    // on. Two elements wearing one id is exactly what ADR-0009 settles: a
+    // timeline target is an id, not an element, so `exit A-B fade` takes
+    // the label with the line without the controller learning anything.
+    const labelText = buildEdgeLabel(edge);
+    if (labelText !== null) {
+      svg.appendChild(labelText);
+    }
   }
 
   return svg;
+}
+
+/**
+ * The `<text>` drawn on an edge, or `null` when the edge carries none.
+ *
+ * `null` rather than an empty element, the rule
+ * `renderClassDiagramToSVG.buildRelationshipText` already follows: an empty
+ * `<text>` is a node in every consumer's DOM for nothing, and a paintless
+ * element the theme's own coverage check then has to account for.
+ *
+ * The anchor is used exactly as layout reported it. It is the centre of the
+ * box dagre kept clear, which is *not* the middle of the route — a renderer
+ * that recomputed a mid-point from `points` would draw the text across the
+ * line the space was reserved beside.
+ */
+function buildEdgeLabel(edge: PositionedEdge): SVGTextElement | null {
+  if (edge.label === null || edge.labelAnchor === null) {
+    return null;
+  }
+
+  const text = document.createElementNS(SVG_NS, "text");
+  // A sibling of `.siren-relationship-label`, not that class reused. Every
+  // `siren-*` name here is the construct's own: a *relationship* belongs to
+  // the class diagram and an *edge* to the flowchart, which is why
+  // `.siren-edge` and `.siren-relationship-line` are already two names for
+  // two connectors. One shared name would mean a consumer restyling class
+  // labels silently restyled every flowchart edge label as well.
+  text.setAttribute("class", "siren-edge-label");
+  // The same id the path wears — see ADR-0009, and the call site above.
+  text.setAttribute("data-siren-id", edge.id);
+  text.setAttribute("x", String(edge.labelAnchor.x));
+  text.setAttribute("y", String(edge.labelAnchor.y));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "middle");
+  text.textContent = edge.label;
+  return text;
 }
 
 /** The classes one edge's path wears: the name every edge has, plus its line's own. */

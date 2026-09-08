@@ -1861,13 +1861,15 @@ describe("the arrow token an edge is written with", () => {
     }
   });
 
-  it("still refuses both edge-label spellings — an unlabelled arrow is all this reads", () => {
-    // Guarding the boundary with the next ticket. `A -- text --> B` opens
-    // with `--`, which is not an arrow on its own: Mermaid rejects `A -- B`
-    // outright, measured. Neither spelling may quietly become an unlabelled
-    // edge with the label dropped, which is exactly the silent mis-render
-    // the corpus exists to keep at zero.
-    for (const source of ["A -- yes --> B", "A -->|yes| B"]) {
+  it("refuses a bare opener, which is half an arrow and not a short one", () => {
+    // What is left of the boundary the previous ticket guarded here. Both
+    // edge-label spellings are read now (see "the label an edge carries"
+    // below), and this is the part that did not change: `--`, `==` and `-.`
+    // open a labelled arrow and are not arrows themselves. Mermaid rejects
+    // `A -- B` outright, measured — it would be zero ranks long — and
+    // reading one as a plain link would draw an edge the author did not
+    // write.
+    for (const source of ["A -- B", "A == B", "A -. B"]) {
       const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
       expect([source, document]).toEqual([source, null]);
       expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
@@ -1903,5 +1905,115 @@ describe("the arrow token an edge is written with", () => {
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.label)).toEqual(["a==>b", "B"]);
     expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
+  });
+});
+
+/**
+ * An edge's label — the text an author writes on the connector itself,
+ * `A -->|yes| B` or `A -- yes --> B`.
+ *
+ * Every expectation here was measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`, which prints the `text` its own flowchart
+ * database recorded for each edge alongside the three arrow axes. The
+ * measurement is quoted in the test that depends on it.
+ */
+describe("the label an edge carries", () => {
+  /** Each of a document's edges as `from-to` and the label it carries. */
+  const labelsOf = (source: string) => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB\n  ${source}\n`);
+    expect(diagnostics).toEqual([]);
+    return document.edges.map((edge) => [`${edge.from}-${edge.to}`, edge.label]);
+  };
+
+  it("reads `A -->|yes| B` as the edge A to B labelled `yes`", () => {
+    // Measured: `text="yes"` on `L_A_B_0`, whose arrow axes are unchanged
+    // (`type="arrow_point" stroke="normal" length=1`) — a label decorates
+    // an arrow rather than being one.
+    expect(labelsOf("A -->|yes| B")).toEqual([["A-B", "yes"]]);
+  });
+
+  it("reads `A -- yes --> B` as the very same document `A -->|yes| B` parses to", () => {
+    // The two spellings are one construct, and this is the assertion that
+    // says so: **identical documents**, not merely the same label. A field
+    // recording which spelling was written — or a `sourceColumn` measured
+    // from the wrong half of the token — fails here rather than passing
+    // unnoticed, which is the shape board 4 used to hold `graph` against
+    // `flowchart`.
+    //
+    // Measured: mermaid 11.17.2 records `text="yes"` with
+    // `type="arrow_point" stroke="normal" length=1` for both, and its
+    // database keeps no trace of which one it read.
+    const pipe = parseFlowchartOk("flowchart TB\n  A -->|yes| B\n");
+    const inline = parseFlowchartOk("flowchart TB\n  A -- yes --> B\n");
+
+    expect(inline.diagnostics).toEqual([]);
+    expect(inline.document).toEqual(pipe.document);
+  });
+
+  it("takes the arrow's line, ends and length from the half that closes an inline label", () => {
+    // `A -- yes ==> B` is not a thick edge and `A ---- yes --> B` is not a
+    // long one — both were measured. The opener says only *that* a label
+    // follows; every axis comes from the closing half, which is why
+    // `A -- yes ---> B` is `length=2` in mermaid 11.17.2 while its opener
+    // is the same two characters as a one-rank arrow's.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  A -- yes ---> B\n  B == no ==> C\n  C -. maybe -.-> D\n  D <-- both --> E\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.label, edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
+    ).toEqual([
+      ["yes", "solid", "none", "arrow", 2],
+      ["no", "thick", "none", "arrow", 1],
+      ["maybe", "dotted", "none", "arrow", 1],
+      ["both", "solid", "arrow", "arrow", 1],
+    ]);
+  });
+
+  it("keeps the characters the grammar would otherwise eat inside the label", () => {
+    // The three the ticket named, each measured against mermaid 11.17.2
+    // rather than decided here — an edge label is exactly where an author
+    // writes the punctuation the surrounding grammar means something by.
+    //
+    //   A -->|a-->b| B    text="a-->b"   an arrow inside a pipe label
+    //   A -- a;b --> B    text="a;b"     a statement end inside an inline one
+    //   A -- a|b --> B    text="a|b"     a pipe inside an inline one
+    //
+    // The `;` is the sharpest of the three: it is the statement separator,
+    // and the splitter that cuts a line into statements runs *before* the
+    // one that finds arrows. Without the arrow's own label being a place a
+    // `;` means nothing, `A -- a;b --> B` is two half-statements and two
+    // diagnostics.
+    const measured: [string, string][] = [
+      ["A -->|a-->b| B", "a-->b"],
+      ["A -- a;b --> B", "a;b"],
+      ["A -- a|b --> B", "a|b"],
+    ];
+
+    expect(measured.map(([source, text]) => [source, [["A-B", text]]])).toEqual(
+      measured.map(([source]) => [source, labelsOf(source)]),
+    );
+  });
+
+  it("takes a `|` into a pipe label only through the fence written to carry it", () => {
+    // Measured both ways: mermaid 11.17.2 rejects `A -->|a|b| B` with a
+    // parse error and reads `A -->|"a|b"| B` as the label `a|b`. So the
+    // fence is not decoration here, it is the only spelling that works —
+    // and the quotes are syntax, never part of the picture, exactly as
+    // they are in a node's label.
+    expect(labelsOf('A -->|"a|b"| B')).toEqual([["A-B", "a|b"]]);
+
+    const { document, diagnostics } = parseSiren("flowchart TB\n  A -->|a|b| B\n");
+    expect(document).toBeNull();
+    expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+  });
+
+  it("leaves an unlabelled edge's label null rather than empty", () => {
+    // `null`, not `""`: an author cannot write an empty label — mermaid
+    // 11.17.2 rejects `A -->|| B` outright, measured — so "no label" and
+    // "a label that says nothing" are not two states an author can tell
+    // apart, and only one of them exists.
+    expect(labelsOf("A --> B")).toEqual([["A-B", null]]);
   });
 });

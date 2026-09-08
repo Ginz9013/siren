@@ -20,6 +20,7 @@ const PLAIN_ARROW = {
   fromEnd: "none",
   toEnd: "arrow",
   minLength: 1,
+  label: null,
 } as const;
 
 function chainGraph(direction: GraphModel["direction"]): GraphModel {
@@ -628,6 +629,7 @@ describe("how long an edge holds its endpoints apart", () => {
         fromEnd: "none",
         toEnd: "arrow",
         minLength,
+        label: null,
         style: { frame: [], text: [] },
       },
     ],
@@ -662,5 +664,103 @@ describe("how long an edge holds its endpoints apart", () => {
     const byId = Object.fromEntries(chain.nodes.map((node) => [node.id, node]));
 
     expect(gap(1)).toBe(byId.B.y - byId.A.y);
+  });
+});
+
+/**
+ * An edge label is a box dagre has to keep clear, not decoration the
+ * renderer adds afterwards. That claim is about numbers — the ranks move
+ * apart and the route reports where the space ended up — and neither half
+ * of it is visible in the drawn path alone, which is why it is asserted
+ * here rather than against an SVG.
+ *
+ * The reserved space is `layoutDirectedGraph`'s, unchanged: it has taken an
+ * edge label's width and height and returned a `labelAnchor` since the
+ * class board, and what was missing was only that a flowchart edge had no
+ * label to pass.
+ */
+describe("the room an edge label is given", () => {
+  const twoNodes = (
+    label: string | null,
+    direction: GraphModel["direction"] = "TB",
+  ): GraphModel => ({
+    direction,
+    nodes: [
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] } },
+    ],
+    edges: [
+      {
+        id: "A-B",
+        from: "A",
+        to: "B",
+        ...PLAIN_ARROW,
+        label,
+        style: { frame: [], text: [] },
+      },
+    ],
+    timeline: { totalSteps: 0, entries: [] },
+  });
+
+  const laidOut = (label: string | null, direction: GraphModel["direction"] = "TB") =>
+    layoutGraph(twoNodes(label, direction), { measureText: fakeMeasurer });
+
+  /** How far apart the two boxes ended up — the room the label was given. */
+  const gap = (label: string | null) => {
+    const byId = Object.fromEntries(laidOut(label).nodes.map((node) => [node.id, node]));
+    return byId.B.y - byId.A.y;
+  };
+
+  it("routes a labelled edge differently from an unlabelled one", () => {
+    // The whole claim of this criterion: a label is not paint. A renderer
+    // test cannot see reserved space — it would draw the text at whatever
+    // anchor it was handed and pass either way — so the geometry is
+    // asserted at the seam that decides it.
+    expect(gap("yes")).toBeGreaterThan(gap(null));
+  });
+
+  it("gives a long label more room than a short one, measured with the same measurer", () => {
+    // The measurer is the one everything else uses, so a label's width is
+    // the glyphs it actually has — `fakeMeasurer` reports `text.length * 8`
+    // for the width and a constant 24 for the height, exactly as a real
+    // one-line measurement behaves.
+    //
+    // **Which way the extra room goes is the direction's, and both are
+    // asserted.** A reserved box lies between two ranks, so in `TB` a
+    // longer label is a *wider* one and widens the drawing, while in `LR`
+    // that same width is what separates the ranks and pushes the boxes
+    // apart. Asserting only the first would pass for a layout that measured
+    // the label and then ignored the measurement in half the directions.
+    //
+    // Strict inequalities rather than numbers: how many pixels a rank is
+    // worth belongs to the theme (ADR-0004); that a longer label costs more
+    // room is the contract.
+    const long = "a very long edge label indeed";
+
+    expect(laidOut(long).width).toBeGreaterThan(laidOut("no").width);
+
+    const spread = (label: string) => {
+      const byId = Object.fromEntries(laidOut(label, "LR").nodes.map((n) => [n.id, n]));
+      return byId.B.x - byId.A.x;
+    };
+    expect(spread(long)).toBeGreaterThan(spread("no"));
+  });
+
+  it("reports where the reserved space ended up, and nothing for an edge that asked for none", () => {
+    // The anchor is what the renderer draws the text at, so an edge with a
+    // label must have one and an edge without must not — `null` rather than
+    // a point nobody should use, which is the shape `layoutClassDiagram`
+    // already gives a relationship's label.
+    const [labelled] = laidOut("yes").edges;
+    const [plain] = laidOut(null).edges;
+
+    expect(plain.labelAnchor).toBeNull();
+    expect(labelled.labelAnchor).not.toBeNull();
+    // Somewhere on the way between the two boxes, rather than at the
+    // origin: an anchor that defaulted to `{ x: 0, y: 0 }` would draw every
+    // label in the corner and still be "not null".
+    const byId = Object.fromEntries(laidOut("yes").nodes.map((node) => [node.id, node]));
+    expect(labelled.labelAnchor!.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(labelled.labelAnchor!.y).toBeLessThan(byId.B.y);
   });
 });

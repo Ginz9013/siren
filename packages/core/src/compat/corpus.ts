@@ -162,6 +162,27 @@ function edgeDrawing(result: SirenRenderResult, id: string): string {
 }
 
 /**
+ * The text drawn on one flowchart edge, and where it was drawn.
+ *
+ * Read off the `<text>` in the finished SVG, not off the model: a row that
+ * asked the document what the label said would pass for a renderer that
+ * parsed the label and drew nothing, which is the silent mis-render this
+ * instrument exists to catch. `""` when the edge draws no label at all, so
+ * a swallowed label is a difference rather than a thrown error.
+ */
+function edgeLabel(result: SirenRenderResult, id: string): string {
+  const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
+  return text?.textContent ?? "";
+}
+
+/** Where one edge's label was drawn — the anchor layout reserved space at. */
+function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
+  if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
+  return { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
+}
+
+/**
  * How far apart, along the layout's own axis, the two ends of one edge are
  * drawn — the only thing a *rank* is visible as in a rendered SVG.
  *
@@ -189,13 +210,26 @@ function edgeSpan(result: SirenRenderResult, from: string, to: string): number {
  * row that needs a diamond's position has to widen this first.
  */
 function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const { top, bottom, left, right } = nodeBox(result, id);
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
+}
+
+/** One node's drawn frame as its four sides, which `nodeCenter` is the middle of. */
+function nodeBox(
+  result: SirenRenderResult,
+  id: string,
+): { top: number; bottom: number; left: number; right: number } {
   const frame = svgOf(result).querySelector(
     `g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`,
   );
   if (frame === null) throw new Error(`no node "${id}" was drawn`);
+  const x = Number(frame.getAttribute("x"));
+  const y = Number(frame.getAttribute("y"));
   return {
-    x: Number(frame.getAttribute("x")) + Number(frame.getAttribute("width")) / 2,
-    y: Number(frame.getAttribute("y")) + Number(frame.getAttribute("height")) / 2,
+    top: y,
+    bottom: y + Number(frame.getAttribute("height")),
+    left: x,
+    right: x + Number(frame.getAttribute("width")),
   };
 }
 
@@ -960,6 +994,22 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-edge-dotted-short",
+    kind: "flowchart",
+    source: `flowchart TB
+      A .-> B`,
+    status: "rejected",
+    meaning:
+      "A dotted arrow may be written without its leading dash: mermaid " +
+      "11.17.2 reads `A .-> B` as `type=\"arrow_point\" stroke=\"dotted\" " +
+      "length=1` and `A .- B` as the `arrow_open` of the same, both drawn " +
+      "(`node scripts/mermaid-probe.mjs`). Siren's dotted body requires the " +
+      "dash on both sides of the dots, so it reads neither, and it also " +
+      "cannot close an inline label written `A -. yes .-> B`. Found while " +
+      "landing edge labels; the construct is an arrow spelling rather than " +
+      "a label, so it is recorded here rather than fixed in passing.",
+  },
+  {
     id: "fc-edge-thick",
     kind: "flowchart",
     source: `flowchart TB
@@ -1053,17 +1103,52 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     id: "fc-edge-pipe-label",
     kind: "flowchart",
     source: `flowchart TB
-      A -->|yes| B`,
-    status: "rejected",
+      A[Start] -->|yes| B[End]`,
+    status: "supported",
     meaning: "`A -->|text| B` labels the edge `text`.",
+    assert: (result) => {
+      // Drawn, not merely parsed: the text is read off the SVG.
+      expectSame("label", edgeLabel(result, "A-B"), "yes");
+      // A label decorates an arrow rather than replacing one, so every axis
+      // of the token is untouched — measured, mermaid 11.17.2 records
+      // `type="arrow_point" stroke="normal" length=1` for this line.
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none arrow");
+      // And the space is real, asserted as the drawn text landing **clear
+      // of both boxes**. Not as a comparison against an unlabelled edge in
+      // the same document, which is the shape `fc-edge-long` uses and which
+      // does not work here: ranks belong to the whole graph, so a second
+      // unlabelled chain is pushed apart by this label too and the two
+      // spans come out equal. What is left, and what the reader of a
+      // picture would check, is that the label sits in a gap rather than
+      // over an endpoint — which it can only do if layout kept one.
+      const label = edgeLabelCenter(result, "A-B");
+      if (!(label.y > nodeBox(result, "A").bottom && label.y < nodeBox(result, "B").top)) {
+        throw new Error(
+          `the label is drawn at y=${label.y}, not between A (ends ${nodeBox(result, "A").bottom}) and B (starts ${nodeBox(result, "B").top})`,
+        );
+      }
+    },
   },
   {
     id: "fc-edge-inline-label",
     kind: "flowchart",
     source: `flowchart TB
       A -- yes --> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A -- text --> B` is the other spelling of an edge label.",
+    assert: (result) => {
+      // The same label on the same edge as the row above, drawn the same
+      // way — which is the whole content of "the other spelling". Measured:
+      // mermaid 11.17.2 records `text="yes"` on an `arrow_point`/`normal`/
+      // `length=1` edge for both, and its database keeps no trace of which
+      // one it read.
+      expectSame("label", edgeLabel(result, "A-B"), "yes");
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none arrow");
+      // Not a node called `yes`, which is what Mermaid itself does with
+      // `A ---- yes --> B` (measured) and what a splitter that took the
+      // opener for an arrow would do here.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+    },
   },
   {
     id: "fc-edge-chained",

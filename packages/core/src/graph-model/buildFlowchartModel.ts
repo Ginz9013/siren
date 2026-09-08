@@ -207,6 +207,7 @@ function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
       fromEnd: edge.fromEnd,
       toEnd: edge.toEnd,
       minLength: edge.minLength,
+      label: edge.label,
       style: unstyled(),
     };
   });
