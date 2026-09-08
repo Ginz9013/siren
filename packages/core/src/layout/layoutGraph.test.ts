@@ -9,6 +9,19 @@ const fakeMeasurer: TextMeasurer = {
   },
 };
 
+/**
+ * `A --> B`'s decomposition — a solid line, an arrow on the to-end only,
+ * one rank long — spread into the fixtures below, which are about
+ * positions and paint rather than about which arrow was written. A test
+ * that *is* about the arrow sets its own.
+ */
+const PLAIN_ARROW = {
+  line: "solid",
+  fromEnd: "none",
+  toEnd: "arrow",
+  minLength: 1,
+} as const;
+
 function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
@@ -18,8 +31,8 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
       { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] } },
     ],
     edges: [
-      { id: "A-B", from: "A", to: "B", style: { frame: [], text: [] } },
-      { id: "B-C", from: "B", to: "C", style: { frame: [], text: [] } },
+      { id: "A-B", from: "A", to: "B", ...PLAIN_ARROW, style: { frame: [], text: [] } },
+      { id: "B-C", from: "B", to: "C", ...PLAIN_ARROW, style: { frame: [], text: [] } },
     ],
     timeline: { totalSteps: 0, entries: [] },
   };
@@ -590,5 +603,64 @@ describe("layoutGraph", () => {
       text: [],
     });
     expect(byId["B-C"].style).toEqual({ frame: [], text: [] });
+  });
+});
+
+/**
+ * A long arrow is the one part of an arrow token that is not about drawing:
+ * `A ----> B` puts B further down the rank order, so the claim is about
+ * where the boxes end up and it is asserted here, against coordinates,
+ * rather than in the renderer against a path nobody can read a rank off.
+ */
+describe("how long an edge holds its endpoints apart", () => {
+  const twoNodes = (minLength: number): GraphModel => ({
+    direction: "TB",
+    nodes: [
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] } },
+    ],
+    edges: [
+      {
+        id: "A-B",
+        from: "A",
+        to: "B",
+        line: "solid",
+        fromEnd: "none",
+        toEnd: "arrow",
+        minLength,
+        style: { frame: [], text: [] },
+      },
+    ],
+    timeline: { totalSteps: 0, entries: [] },
+  });
+
+  const gap = (minLength: number) => {
+    const positioned = layoutGraph(twoNodes(minLength), { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.nodes.map((node) => [node.id, node]));
+    return byId.B.y - byId.A.y;
+  };
+
+  it("puts a longer arrow's target further down the rank order", () => {
+    // Three ranks apart rather than one, which is what mermaid 11.17.2 does
+    // with `A ----> B`: it reads `length=3` and hands it to dagre as
+    // `minlen`, measured. Asserted as a *strict* increase rather than
+    // against a number, because how tall a rank is belongs to the theme
+    // (ADR-0004) while how many ranks apart the two nodes are is the
+    // compatibility contract.
+    expect(gap(3)).toBeGreaterThan(gap(1));
+    expect(gap(2)).toBeGreaterThan(gap(1));
+    expect(gap(3)).toBeGreaterThan(gap(2));
+  });
+
+  it("leaves a plain arrow's graph exactly where it was", () => {
+    // The one thing a new layout input must not do: move a diagram nobody
+    // asked to change. Checked against the chain fixture every other test
+    // in this file lays out — the graph as it was before an edge had a
+    // length at all — rather than against a number copied out of a run,
+    // which would pass whatever this code did.
+    const chain = layoutGraph(chainGraph("TB"), { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(chain.nodes.map((node) => [node.id, node]));
+
+    expect(gap(1)).toBe(byId.B.y - byId.A.y);
   });
 });

@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { LinkStyleDecl, SirenDocument } from "../contracts";
+import type { FlowchartDocument, LinkStyleDecl, SirenDocument } from "../contracts";
 import { buildGraphModel } from "./buildGraphModel";
+
+/**
+ * `A --> B`'s decomposition, spread into every fixture below that is about
+ * something else — an id, a label, a `linkStyle`, a timeline reference — so
+ * that the arrow those are not testing is written once. A fixture that *is*
+ * about the arrow spells its own out in full.
+ */
+const PLAIN_ARROW = {
+  line: "solid",
+  fromEnd: "none",
+  toEnd: "arrow",
+  minLength: 1,
+} as const;
 
 describe("buildGraphModel", () => {
   it("assigns edge ids of the form fromId-toId for distinct pairs", () => {
@@ -13,8 +26,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       linkStyles: [],
       styles: [],
@@ -37,8 +50,8 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "A", to: "B" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "A", to: "B", ...PLAIN_ARROW },
       ],
       linkStyles: [],
       styles: [],
@@ -62,8 +75,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       linkStyles: [],
       styles: [],
@@ -106,7 +119,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -185,7 +198,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       linkStyles: [],
       styles: [],
       timeline: null,
@@ -351,7 +364,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -418,7 +431,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -450,7 +463,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       linkStyles: [],
       styles: [],
       timeline: {
@@ -478,8 +491,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" }, // A-B: edge exits at the same step as A
-        { from: "B", to: "C" }, // B-C: neither B nor C ever exits
+        { from: "A", to: "B", ...PLAIN_ARROW }, // A-B: edge exits at the same step as A
+        { from: "B", to: "C", ...PLAIN_ARROW }, // B-C: neither B nor C ever exits
       ],
       linkStyles: [],
       styles: [],
@@ -594,7 +607,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       linkStyles: [],
       styles: [
         {
@@ -712,9 +725,9 @@ describe("buildGraphModel", () => {
         { id: "D", label: "D", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
-        { from: "C", to: "D" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
+        { from: "C", to: "D", ...PLAIN_ARROW },
       ],
       styles: [],
       linkStyles: [
@@ -752,8 +765,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       styles: [],
       linkStyles: [
@@ -796,8 +809,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
       ].slice(0, edgeCount),
       styles: [],
       linkStyles: [
@@ -840,8 +853,8 @@ describe("buildGraphModel", () => {
         { id: "B", label: "B", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "A", to: "B" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "A", to: "B", ...PLAIN_ARROW },
       ],
       styles: [],
       linkStyles: [
@@ -885,7 +898,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [],
-      edges: [{ from: "A", to: "B", line: 2, column: 3 }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW, sourceLine: 2, sourceColumn: 3 }],
       styles: [],
       linkStyles: [
         {
@@ -928,8 +941,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       styles: [],
       linkStyles,
@@ -979,8 +992,8 @@ describe("buildGraphModel", () => {
         { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
-        { from: "A", to: "B" },
-        { from: "B", to: "C" },
+        { from: "A", to: "B", ...PLAIN_ARROW },
+        { from: "B", to: "C", ...PLAIN_ARROW },
       ],
       styles: [],
       linkStyles: [
@@ -1037,7 +1050,7 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       styles: [],
       linkStyles: [
         {
@@ -1083,7 +1096,9 @@ describe("buildGraphModel", () => {
         { id: "A", label: "A", shape: "rect" },
         { id: "B", label: "B", shape: "rect" },
       ],
-      edges: [{ from: "A", to: "B" }],
+      edges: [
+        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      ],
       styles: [],
       linkStyles: [
         {
@@ -1103,7 +1118,76 @@ describe("buildGraphModel", () => {
     // second way to name an edge and would be free to disagree with the
     // first — which is exactly what `timeline:` and `data-siren-id` already
     // rely on not happening.
-    expect(Object.keys(graph!.edges[0]).sort()).toEqual(["from", "id", "style", "to"]);
+    expect(Object.keys(graph!.edges[0]).sort()).toEqual([
+      "fromEnd",
+      "from",
+      "id",
+      "line",
+      "minLength",
+      "style",
+      "toEnd",
+      "to",
+    ].sort());
     expect(Object.keys(graph!).sort()).toEqual(["direction", "edges", "nodes", "timeline"]);
+  });
+});
+
+/**
+ * The model assigns an edge its id and its resolved styling, and it decides
+ * nothing about the arrow: the token was read once, in the parser, and this
+ * stage has no business re-deciding what `A -.-> B` meant — the same rule
+ * `shape` already follows for a node.
+ */
+describe("an edge's arrow through the model", () => {
+  const documentWith = (edges: FlowchartDocument["edges"]): SirenDocument => ({
+    kind: "flowchart",
+    direction: "TB",
+    nodes: [
+      { id: "A", label: "A", shape: "rect" },
+      { id: "B", label: "B", shape: "rect" },
+    ],
+    edges,
+    linkStyles: [],
+    styles: [],
+    timeline: null,
+  });
+
+  it("carries the line, both ends and the length onto the edge it gives an id", () => {
+    const { graph, diagnostics } = buildGraphModel(
+      documentWith([
+        { from: "A", to: "B", line: "dotted", fromEnd: "arrow", toEnd: "circle", minLength: 3 },
+      ]),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.edges).toEqual([
+      {
+        id: "A-B",
+        from: "A",
+        to: "B",
+        line: "dotted",
+        fromEnd: "arrow",
+        toEnd: "circle",
+        minLength: 3,
+        style: { frame: [], text: [] },
+      },
+    ]);
+  });
+
+  it("keeps each edge's own arrow when two edges share a pair", () => {
+    // The repeat-pair id (`A-B#2`) is assigned here, and it would be an easy
+    // place to hand both edges one arrow — they are, after all, the same
+    // pair. They are not the same edge.
+    const { graph } = buildGraphModel(
+      documentWith([
+        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+        { from: "A", to: "B", line: "thick", fromEnd: "none", toEnd: "cross", minLength: 2 },
+      ]),
+    );
+
+    expect(graph!.edges.map((edge) => [edge.id, edge.line, edge.toEnd, edge.minLength])).toEqual([
+      ["A-B", "solid", "arrow", 1],
+      ["A-B#2", "thick", "cross", 2],
+    ]);
   });
 });

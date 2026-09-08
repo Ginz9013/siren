@@ -195,7 +195,20 @@ function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
     const baseId = `${edge.from}-${edge.to}`;
     const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
 
-    return { id, from: edge.from, to: edge.to, style: unstyled() };
+    // The arrow travels with the edge, from the token the parser read: a
+    // spelling is decomposed once, and this stage has no business
+    // re-deciding what `A -.-> B` meant — the rule `shape` already follows
+    // one function up.
+    return {
+      id,
+      from: edge.from,
+      to: edge.to,
+      line: edge.line,
+      fromEnd: edge.fromEnd,
+      toEnd: edge.toEnd,
+      minLength: edge.minLength,
+      style: unstyled(),
+    };
   });
 }
 

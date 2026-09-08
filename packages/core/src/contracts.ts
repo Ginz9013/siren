@@ -96,12 +96,67 @@ export interface SirenNode {
   column?: number;
 }
 
-/** A directed edge as declared in source, before edge-id assignment. */
+/**
+ * The line an edge is drawn with — one of the three axes Mermaid's arrow
+ * tokens compose from, and the flowchart's counterpart of
+ * `SequenceArrowLine` and `ClassRelationshipLine`.
+ *
+ * `-.-` is `dotted` and `===` is `thick`; every other spelling is `solid`.
+ * Measured in mermaid 11.17.2, which records exactly this axis as an edge's
+ * `stroke`.
+ */
+export type EdgeLine = "solid" | "dotted" | "thick";
+
+/**
+ * What is drawn at one end of an edge — the other two axes, one per end,
+ * mirroring `ClassRelationshipEnd`.
+ *
+ * `>` is an `arrow`, `o` a `circle`, `x` a `cross`, and an end the token
+ * decorates with nothing is `none`. Which end a token decorates was
+ * measured rather than recalled: mermaid 11.17.2 reads `A --o B` as
+ * `arrow_circle` and turns that into `arrowTypeStart: "none",
+ * arrowTypeEnd: "arrow_circle"`, so a single marker always lands on the
+ * **to**-end, and only the doubled spellings (`<-->`, `o--o`, `x--x`)
+ * decorate the from-end.
+ */
+export type EdgeEnd = "none" | "arrow" | "circle" | "cross";
+
+/**
+ * A directed edge as declared in source, before edge-id assignment,
+ * carrying the decomposition of the arrow token that wrote it.
+ *
+ * Source position is `sourceLine`/`sourceColumn` here, not the
+ * `line`/`column` used for most of this file, because `line` already names
+ * the edge's line style — the same collision `ClassRelationship` resolved
+ * the same way, and for the same reason.
+ */
 export interface SirenEdge {
   from: string;
   to: string;
-  line?: number;
-  column?: number;
+  /**
+   * The three axes the arrow token decomposed into, all required for the
+   * reason `SirenNode.shape` is: `A --> B` is `solid`/`none`/`arrow`, so a
+   * plain arrow is one state of the decomposition rather than the absence
+   * of one, and no reader downstream has to fold a missing field into a
+   * default that one of them would eventually get wrong.
+   */
+  line: EdgeLine;
+  fromEnd: EdgeEnd;
+  toEnd: EdgeEnd;
+  /**
+   * How many ranks apart this edge holds its endpoints — 1 for `-->`, 3
+   * for `---->`.
+   *
+   * The one part of an arrow token that is not about drawing. Mermaid
+   * counts the dashes (or the dots) and hands the result to dagre as
+   * `minlen`; measured, `A --> B` is `length=1` and `A ----> B` is
+   * `length=3`, and the drawn diagram differs because the target sits
+   * further down the rank order. Named for what it means to the layout
+   * rather than for the characters it was counted from.
+   */
+  minLength: number;
+  sourceLine?: number;
+  sourceColumn?: number;
 }
 
 /**
@@ -639,6 +694,20 @@ export interface GraphEdge {
   id: string;
   from: string;
   to: string;
+  /**
+   * The arrow token's decomposition, carried unchanged from the spelling
+   * the author used — see `SirenEdge`, where the three axes and the length
+   * are described in full.
+   *
+   * Required rather than optional, like `GraphNode.shape`: `A --> B` is
+   * `solid` / `none` / `arrow` / 1, so a plain arrow is one state and not
+   * two. Layout reads `minLength`, the renderer reads the other three, and
+   * neither re-derives any of them from the source.
+   */
+  line: EdgeLine;
+  fromEnd: EdgeEnd;
+  toEnd: EdgeEnd;
+  minLength: number;
   /**
    * Author declarations to emit as this edge's inline `style` attribute, in
    * declaration order, with rejected values already dropped — the same

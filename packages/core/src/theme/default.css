@@ -54,7 +54,22 @@
   --siren-node-border-radius: 6px;
   --siren-stroke-width: 1.5;
   --siren-highlight-stroke-width: 3;
+  /* A thick edge (`A ==> B`) is *derived* from the base width rather than
+     frozen at a number of its own, and that is load-bearing rather than
+     tidy: what `==>` means is "thicker than a plain edge", so a consumer
+     who retuned --siren-stroke-width up to a flat 3 would otherwise erase
+     the distinction between the two arrows entirely — a compatibility
+     contract lost to a theme change, which is exactly what a shape's kind
+     surviving the theme is meant to prevent. Override this token directly
+     to change the ratio. */
+  --siren-edge-thick-stroke-width: calc(var(--siren-stroke-width) * 2);
   --siren-lifeline-dash: 4 4;
+  /* A dotted edge (`A -.-> B`). Its own token rather than the lifeline's or
+     the note connector's, which belong to other diagram kinds, and safe to
+     freeze at :root for the reason given below them: a dash pattern carries
+     no light/dark value. The pattern matches a dotted sequence message, the
+     nearest thing in the codebase to the same idea. */
+  --siren-edge-dash: 4 3;
   /* A note's connector is dashed, as UML draws one — its own token rather than
      the lifeline's, which belongs to a different diagram kind. Declaring it
      here is safe where a *color* token would not be: a dash pattern carries no
@@ -117,6 +132,34 @@
   fill: none;
   stroke: var(--siren-edge-stroke);
   stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * The two lines an edge can be drawn with that the base rule above is not.
+ * A solid edge has no class of its own: the rule above *is* the solid line,
+ * so `A --> B` and `.siren-edge` stay one thing.
+ *
+ * Their position in this file is the whole mechanism, and it is why the
+ * renderer emits a class here rather than an inline declaration (see
+ * `EDGE_LINE_CLASS` in renderToSVG.ts). Both carry one class, exactly as
+ * `.siren-edge` does, and both are written *after* it — so they win on
+ * source order, and lose to everything with more:
+ *
+ *   .siren-edge  <  .siren-edge-thick  <  .siren-edge.siren-highlight-outline  <  inline
+ *
+ * which is the order a reader of a diagram expects. A thick edge is thicker
+ * than a plain one; highlighting it still visibly thickens it (an edge is a
+ * timeline target, and an inline declaration here would have silently ended
+ * that); and an author's own `linkStyle 0 stroke-width:6px` beats all of
+ * them for the property it names, while leaving the ones it does not — a
+ * recoloured dotted edge stays dotted.
+ */
+.siren-edge-dotted {
+  stroke-dasharray: var(--siren-edge-dash);
+}
+
+.siren-edge-thick {
+  stroke-width: var(--siren-edge-thick-stroke-width);
 }
 
 /*

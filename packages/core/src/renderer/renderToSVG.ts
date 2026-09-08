@@ -1,8 +1,101 @@
-import type { PositionedGraph, PositionedNode, StyleProperty } from "../contracts";
+import type {
+  EdgeEnd,
+  EdgeLine,
+  PositionedEdge,
+  PositionedGraph,
+  PositionedNode,
+  StyleProperty,
+} from "../contracts";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * The extra class a non-solid line wears, or `null` for the solid one the
+ * base `.siren-edge` rule already draws.
+ *
+ * **A class rather than an inline declaration, and that is the one cascade
+ * decision this file's edges force.** A thick line is a `stroke-width`, and
+ * three other declarations want that same property: the theme's
+ * `.siren-edge` base, the theme's `.siren-edge.siren-highlight-outline`,
+ * and an author's `linkStyle 0 stroke-width:6px`. Written inline here, a
+ * thick line would outrank all three — including the highlight, so
+ * `highlight X outline` on a thick edge would stop thickening it, and an
+ * edge is a timeline target. Written as a class it lands *between* them,
+ * which is exactly the order that is wanted:
+ *
+ * - it beats `.siren-edge` (one class each, and this rule is written
+ *   after), so a thick edge is thicker than a plain one;
+ * - it loses to `.siren-edge.siren-highlight-outline` (two classes), so a
+ *   highlighted thick edge still visibly highlights;
+ * - it loses to the author's inline `style` attribute, whatever they set —
+ *   the same answer board 3 gave for the theme and board 5 for a stadium's
+ *   `rx`: **the author's declaration wins the property it names**, and a
+ *   `linkStyle 0 stroke-width:6px` on `A ==> B` draws a 6px line. What the
+ *   author does *not* override stays: the line keeps its dash, and
+ *   `linkStyle 0 stroke:#f00` recolours a thick line without thinning it.
+ *
+ * The theme then owns the two numbers, which is ADR-0004's line: the *kind*
+ * is the compatibility contract and the proportions are the theme's. It
+ * expresses the thick width in terms of `--siren-stroke-width` so that a
+ * consumer retuning that token cannot accidentally flatten the distinction
+ * between a thick edge and a plain one.
+ */
+const EDGE_LINE_CLASS: Record<EdgeLine, string | null> = {
+  solid: null,
+  dotted: "siren-edge-dotted",
+  thick: "siren-edge-thick",
+};
+
+/**
+ * How each end shape is drawn — the flowchart's `END_MARKER_NAME`, and the
+ * class renderer's is the template it was written from.
+ *
+ * `name` is the *base* name of the marker's id and never an id on its own:
+ * every id this renderer mints carries the render's own scope, because
+ * `url(#id)` resolves against the whole page.
+ *
+ * `colours` says which property an author's `stroke` paints on this shape,
+ * and it is not the same one for all three. A filled head takes the colour
+ * as its `fill`; a hollow ring and an open cross take it as their
+ * `stroke`, because a ring's `fill` is the *surface* it sits on (that is
+ * what makes it read as hollow rather than letting the line show through
+ * its middle) and an open cross has no interior at all. Painting a ring's
+ * fill would produce a filled dot in the author's colour — the wrong
+ * shape, in the right colour.
+ *
+ * The three CSS classes are the ones the sequence and class renderers
+ * already emit, so the theme paints every one of them without learning a
+ * name: a new `siren-*` class would ship unthemed unless someone widened
+ * `theme/default.test.ts`'s fixture, and none is needed here.
+ */
+const END_SHAPES = {
+  arrow: {
+    name: "siren-arrow",
+    width: 8,
+    height: 6,
+    shapeClass: "siren-arrow-fill",
+    colours: "fill",
+  },
+  circle: {
+    name: "siren-circle",
+    width: 8,
+    height: 8,
+    shapeClass: "siren-arrow-hollow",
+    colours: "stroke",
+  },
+  cross: {
+    name: "siren-cross",
+    width: 8,
+    height: 8,
+    shapeClass: "siren-arrow-stroke",
+    colours: "stroke",
+  },
+} as const satisfies Record<
+  Exclude<EdgeEnd, "none">,
+  { name: string; width: number; height: number; shapeClass: string; colours: "fill" | "stroke" }
+>;
 
 /**
  * Builds a real `SVGSVGElement` from a `PositionedGraph`, per the frozen
@@ -33,8 +126,11 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   // one, so without this the second diagram on a page silently borrows the
   // first's arrowheads.
   const scope = mintIdScope();
-  const themeArrowId = `siren-arrow${scope}`;
-  const defs = buildDefs(themeArrowId);
+  // Empty on arrival: every marker in it is minted below, by an edge that
+  // actually draws one. A document of nothing but `A --- B` needs no
+  // marker at all, and a `<defs>` block seeded with one would be a
+  // reference nobody makes.
+  const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
   svg.appendChild(defs);
 
   for (const node of graph.nodes) {
@@ -105,42 +201,75 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     svg.appendChild(g);
   }
 
-  // One arrowhead per distinct color, not per styled edge. A marker is a
-  // pure function of the color it carries, so two edges of one color have
-  // the same arrowhead by definition and a second def for it would be a
-  // second copy of the same picture — fifty edges under one `linkStyle
-  // default` would otherwise mint fifty. Distinctness is by the declaration's
-  // exact text, so `#f00` and `red` are two colors here: over-minting draws
-  // the right picture from an extra def, and under-minting would not.
-  const arrowMarkerIdByStroke = new Map<string, string>();
+  // One marker per (shape, colour) pair actually drawn, and not one per
+  // edge. A marker is a pure function of those two things, so two edges
+  // wanting the same pair want the same picture and a second def for it
+  // would be a second copy — fifty edges under one `linkStyle default`
+  // would otherwise mint fifty. Minted lazily, so a document with one
+  // colour and one head shape emits exactly one marker, and one whose
+  // edges are all `---` emits none at all.
+  //
+  // Board 3 keyed this by colour alone; an end has a shape now, so the key
+  // is the pair. Distinctness of a colour is by the declaration's exact
+  // text, so `#f00` and `red` are two: over-minting draws the right picture
+  // from a spare def, and under-minting would not.
+  const markerIdByPair = new Map<string, string>();
+  // The colour half of the id, shared across shapes, so one `linkStyle` that
+  // paints an arrow and a circle numbers them both `-1` rather than giving
+  // one colour two numbers.
+  const suffixByStroke = new Map<string, string>();
+
+  const markerReference = (end: EdgeEnd, stroke: string | null) => {
+    if (end === "none") {
+      return null;
+    }
+    const shape = END_SHAPES[end];
+    const key = `${end}|${stroke ?? ""}`;
+    let id = markerIdByPair.get(key);
+    if (id === undefined) {
+      let suffix = "";
+      if (stroke !== null) {
+        suffix = suffixByStroke.get(stroke) ?? `-${suffixByStroke.size + 1}`;
+        suffixByStroke.set(stroke, suffix);
+      }
+      id = `${shape.name}${suffix}${scope}`;
+      markerIdByPair.set(key, id);
+      defs.appendChild(buildEndMarker(id, end, stroke));
+    }
+    return `url(#${id})`;
+  };
+
   for (const edge of graph.edges) {
     const stroke = strokeOf(edge.style.frame);
-    let arrowMarkerId = themeArrowId;
-    if (stroke !== null) {
-      const minted = arrowMarkerIdByStroke.get(stroke);
-      if (minted === undefined) {
-        arrowMarkerId = `siren-arrow-${arrowMarkerIdByStroke.size + 1}${scope}`;
-        arrowMarkerIdByStroke.set(stroke, arrowMarkerId);
-        defs.appendChild(buildArrowMarker(arrowMarkerId, stroke));
-      } else {
-        arrowMarkerId = minted;
-      }
-    }
 
     const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("class", "siren-edge");
+    // The line style is a second class on the one element the theme paints,
+    // never a second element: `.siren-edge` still selects every edge, an
+    // author's `linkStyle` still lands here, and the animation controller
+    // still adds and removes its own classes alongside.
+    path.setAttribute("class", edgeClasses(edge));
     path.setAttribute("data-siren-id", edge.id);
     path.setAttribute("d", pointsToPathData(edge.points));
-    path.setAttribute("marker-end", `url(#${arrowMarkerId})`);
+    // One marker per end, each pointing outward at the end it is applied
+    // to — the class renderer's `auto-start-reverse` def, which is why
+    // `<-->` needs one def rather than a mirrored pair.
+    const startMarker = markerReference(edge.fromEnd, stroke);
+    if (startMarker !== null) {
+      path.setAttribute("marker-start", startMarker);
+    }
+    const endMarker = markerReference(edge.toEnd, stroke);
+    if (endMarker !== null) {
+      path.setAttribute("marker-end", endMarker);
+    }
     // The path is the whole drawn edge, so unlike a node there is no frame
     // to choose: this is the element the theme's `.siren-edge` paints and
     // the element the animation classes land on alike.
     //
-    // The arrowhead is the one part of the arrow these declarations cannot
+    // The markers are the one part of the arrow these declarations cannot
     // reach: a `<marker>` lives in `<defs>` and its content inherits from
     // its own ancestors, never from the path referencing it. So an edge that
-    // names a `stroke` is given a marker of its own above, carrying that
-    // color — which is why `stroke` colors the whole arrow here as it does
+    // names a `stroke` is given markers of its own above, carrying that
+    // colour — which is why `stroke` colours the whole arrow here as it does
     // in Mermaid, rather than the line alone.
     //
     // Only the frame half: an edge draws no text, so `edge.style.text` — a
@@ -153,6 +282,12 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   }
 
   return svg;
+}
+
+/** The classes one edge's path wears: the name every edge has, plus its line's own. */
+function edgeClasses(edge: PositionedEdge): string {
+  const lineClass = EDGE_LINE_CLASS[edge.line];
+  return lineClass === null ? "siren-edge" : `siren-edge ${lineClass}`;
 }
 
 /**
@@ -568,58 +703,90 @@ function strokeOf(style: StyleProperty[]): string | null {
   return stroke;
 }
 
-/** Builds the shared `<defs>` block, including the arrow marker an unstyled edge references. */
-function buildDefs(themeArrowId: string): SVGDefsElement {
-  const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
-  defs.appendChild(buildArrowMarker(themeArrowId, null));
-  return defs;
+/**
+ * Builds one end's `<marker>`: the theme's when `stroke` is `null`, and an
+ * edge's own when it is a colour.
+ *
+ * The colour is written as an inline `style` rather than as a presentation
+ * attribute, and the shape's class stays on either way. That is ADR-0008's
+ * cascade argument applied to a marker: a presentation attribute loses to
+ * *any* stylesheet rule, so `fill="#f00"` here would be silently overruled
+ * by the theme's own `.siren-arrow-fill` rule, while an inline declaration
+ * outranks it without needing `!important`. Keeping the class also keeps
+ * the theme in charge of every marker no author coloured — and, for the
+ * hollow ring, in charge of the surface colour filling it, which the
+ * author's `stroke` deliberately does not touch.
+ */
+function buildEndMarker(id: string, end: Exclude<EdgeEnd, "none">, stroke: string | null): SVGMarkerElement {
+  const shape = END_SHAPES[end];
+  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
+  marker.setAttribute("id", id);
+  // userSpaceOnUse (not the SVG default, strokeWidth) keeps the marker a
+  // fixed absolute size regardless of the edge's current stroke-width —
+  // otherwise it silently doubles when an edge is highlighted (stroke-width
+  // goes from 1.5 to 3), and again when the edge is a thick one.
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("markerWidth", String(shape.width));
+  marker.setAttribute("markerHeight", String(shape.height));
+  // refX equals markerWidth (the shape's leading edge) so that edge lands
+  // exactly on the path's endpoint — anything less overshoots past the
+  // boundary and visually pierces into the node the edge points at.
+  marker.setAttribute("refX", String(shape.width));
+  marker.setAttribute("refY", String(shape.height / 2));
+  // One def serves both ends: reversed at a `marker-start`, so the same
+  // picture points outward wherever it is applied. The class renderer's
+  // trick, and what makes `<-->` one def rather than a mirrored pair.
+  marker.setAttribute("orient", "auto-start-reverse");
+
+  const drawn = buildEndShape(end);
+  // No fill/stroke attribute here on purpose — an SVG shape with none set
+  // falls back to the initial value (black fill, no stroke), which reads
+  // fine against a light background and disappears against a dark one. The
+  // class lets the shipped theme colour it to match the edge's own stroke,
+  // the same way every other themeable part of the SVG is class-driven.
+  drawn.setAttribute("class", shape.shapeClass);
+  if (stroke !== null) {
+    drawn.setAttribute("style", `${shape.colours}:${stroke}`);
+  }
+  marker.appendChild(drawn);
+
+  return marker;
 }
 
 /**
- * Builds one arrowhead `<marker>`: the theme's when `fill` is `null`, and an
- * edge's own when it is a color.
+ * The element one end shape is drawn with, inside its marker's box.
  *
- * The color is written as an inline `style` rather than as a `fill`
- * attribute, and the `siren-arrow-fill` class stays on either way. That is
- * ADR-0008's cascade argument applied to the arrowhead: a presentation
- * attribute loses to *any* stylesheet rule, so `fill="#f00"` here would be
- * silently overruled by the theme's own `.siren-arrow-fill { fill:
- * var(--siren-edge-stroke) }`, while an inline declaration outranks it
- * without needing `!important`. Keeping the class also keeps the theme in
- * charge of every arrowhead no author colored.
+ * Each is drawn so that its **leading edge** sits at `x = width`, which is
+ * where `refX` puts the path's endpoint: the arrowhead's tip, and the ring's
+ * rightmost point, land exactly there, and the cross straddles the line just
+ * short of it, as Mermaid's own does.
+ *
+ * A `<circle>` rather than a path of two arcs, for the reason a circular
+ * node is one: the element names the figure and `r` is the whole of its
+ * geometry. The cross is two open subpaths, which is why it must not be
+ * filled — a filled open subpath is implicitly closed, turning a cross into
+ * a pair of solid triangles (the sequence renderer's `siren-arrow-stroke`
+ * precedent, arriving at the same shape).
  */
-function buildArrowMarker(id: string, fill: string | null): SVGMarkerElement {
-  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
-  marker.setAttribute("id", id);
-  // userSpaceOnUse (not the SVG default, strokeWidth) keeps the arrowhead a
-  // fixed absolute size regardless of the edge's current stroke-width —
-  // otherwise it silently doubles when an edge is highlighted (stroke-width
-  // goes from 1.5 to 3).
-  marker.setAttribute("markerUnits", "userSpaceOnUse");
-  marker.setAttribute("markerWidth", "8");
-  marker.setAttribute("markerHeight", "6");
-  // refX equals markerWidth (the tip's x) so the tip lands exactly on the
-  // path's endpoint — anything less overshoots past the boundary and
-  // visually pierces into the node the arrow points at.
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "3");
-  marker.setAttribute("orient", "auto-start-reverse");
-
-  const arrowPath = document.createElementNS(SVG_NS, "path");
-  arrowPath.setAttribute("d", "M0,0 L8,3 L0,6 Z");
-  // No fill attribute here on purpose — an SVG <path> with none set falls
-  // back to the initial value (black), which reads fine against a light
-  // background but disappears against a dark one. The class lets the
-  // shipped theme (packages/core/src/theme/default.css) color it to match
-  // the edge's own stroke, the same way every other themeable part of the
-  // SVG is class-driven rather than hardcoded here.
-  arrowPath.setAttribute("class", "siren-arrow-fill");
-  if (fill !== null) {
-    arrowPath.setAttribute("style", `fill:${fill}`);
+function buildEndShape(end: Exclude<EdgeEnd, "none">): SVGElement {
+  const { width, height } = END_SHAPES[end];
+  if (end === "circle") {
+    const radius = height / 2 - 1;
+    const circle = document.createElementNS(SVG_NS, "circle");
+    circle.setAttribute("cx", String(width - radius));
+    circle.setAttribute("cy", String(height / 2));
+    circle.setAttribute("r", String(radius));
+    return circle;
   }
-  marker.appendChild(arrowPath);
 
-  return marker;
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute(
+    "d",
+    end === "arrow"
+      ? `M0,0 L${width},${height / 2} L0,${height} Z`
+      : `M1,1 L${width - 1},${height - 1} M${width - 1},1 L1,${height - 1}`,
+  );
+  return path;
 }
 
 /** Converts a layout-assigned point path into an SVG `<path>` `d` attribute. */

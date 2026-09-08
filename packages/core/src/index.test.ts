@@ -3250,11 +3250,13 @@ F[Asymmetric]
     expect(shaped).toEqual(rectangles);
     // Named as well as compared, so the failure of a future shape that
     // *adds* a class says what the theme now has to paint. The arrowhead's
-    // fill class is in the list because the theme's one `<marker>` is
-    // minted into `<defs>` whether or not anything references it — a fact
-    // about the renderer rather than about these six, and it is on both
-    // sides of the comparison above.
-    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+    // fill class used to be in this list, because the theme's one
+    // `<marker>` was minted into `<defs>` whether or not anything referenced
+    // it. It no longer is: a marker is minted per (end shape, colour) pair
+    // an edge actually draws, and these documents draw no edge at all. A
+    // fact about the renderer rather than about these six, and it was on
+    // both sides of the comparison above either way.
+    expect(shaped).toEqual(["siren-node", "siren-node-frame"]);
   });
 
   it("gives the three rect shapes no `siren-*` class of their own either — including a subroutine's two extra elements", () => {
@@ -3293,7 +3295,7 @@ C[Subroutine]
 `);
 
     expect(shaped).toEqual(rectangles);
-    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+    expect(shaped).toEqual(["siren-node", "siren-node-frame"]);
 
     // And the subroutine's bars wear the frame's own name rather than none
     // at all, which is what puts them in the same styling story as the box
@@ -3347,7 +3349,7 @@ C[DB]
 `);
 
     expect(shaped).toEqual(rectangles);
-    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+    expect(shaped).toEqual(["siren-node", "siren-node-frame"]);
 
     // And a double circle's rings both wear the frame's own name rather
     // than one of them going unnamed, which is what puts them in one
@@ -4126,9 +4128,11 @@ linkStyle 3 stroke:#00f
         .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!
         .getAttribute("marker-end")!;
 
-    // Eleven green edges, all pointing at one marker; the twelfth is blue and
-    // has its own. Plus the theme's own marker, which is always defined.
-    expect(svg.querySelectorAll("defs > marker")).toHaveLength(3);
+    // Eleven green edges, all pointing at one marker; the twelfth is blue
+    // and has its own. Two, not three: the theme's own marker used to be
+    // defined unconditionally, and is now minted only when an edge actually
+    // draws it — every edge here is coloured, so nothing references it.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(2);
 
     const green = new Set(
       chain
@@ -4459,9 +4463,10 @@ Alice-)Bob: open
 
     // --- a styled edge's arrowhead takes its color ---
     //
-    // Three distinct strokes, so three minted markers, plus the theme's own
-    // — which stays defined whether or not any edge references it.
-    expect(svg.querySelectorAll("defs > marker")).toHaveLength(4);
+    // Three distinct strokes, so three minted markers — and no fourth: the
+    // theme's own is minted only when an edge draws it, and `linkStyle
+    // default` here colours every edge in the document.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(3);
     const markerRefOf = (edgeId: string): string =>
       svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!.getAttribute("marker-end")!;
     const headFillOf = (edgeId: string): string | null =>
@@ -4756,5 +4761,52 @@ Alice-)Bob: open
       result.controller!.next();
     }
     expect(pending()).toEqual([]);
+  });
+  it("carries an author's style, its arrowheads' colour and a timeline step onto an edge that is not a plain arrow", () => {
+    // **The composition check.** Every one of these worked for `A --> B`
+    // before this ticket, and each of them lands somewhere the arrow's
+    // decomposition also touches: `linkStyle` writes the one inline `style`
+    // the line style has to share the element with, the marker colour is
+    // now minted per (shape, colour) pair rather than per colour, and the
+    // animation classes go on the same `<path>` the line's own class does.
+    // A dotted two-headed edge is where all three meet.
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TD
+A[Start] <-.-> B[End]
+linkStyle 0 stroke:#f00
+timeline:
+step 1: enter A-B fade
+`,
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const path = svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    // The line style and the author's declaration on one element, neither
+    // displacing the other.
+    expect(path.getAttribute("class")).toContain("siren-edge-dotted");
+    expect(path.getAttribute("style")).toBe("stroke:#f00");
+
+    // One def, referenced from both ends, carrying the author's colour —
+    // the head at the *from*-end is as much the author's arrow as the one
+    // at the to-end, and a marker inherits nothing from the path that
+    // references it.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    const reference = path.getAttribute("marker-end")!;
+    expect(path.getAttribute("marker-start")).toBe(reference);
+    expect(
+      svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
+        .getAttribute("style"),
+    ).toBe("fill:#f00");
+
+    // And it still animates: the classes land on the same `<path>`, beside
+    // the line's own class rather than instead of it.
+    expect(path.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(path.classList.contains("siren-pending")).toBe(false);
+    expect(path.classList.contains("siren-edge-dotted")).toBe(true);
   });
 });

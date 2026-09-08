@@ -234,6 +234,13 @@ export function layoutGraph(
       id: edge.id,
       from: edge.from,
       to: edge.to,
+      // The one part of an arrow token that reaches layout rather than the
+      // renderer: `A ----> B` puts B further down the rank order, so it is
+      // a rank constraint and not a proportion. Mermaid does exactly this —
+      // it hands its parsed `length` to dagre as `minlen`, measured — and
+      // drawing every length alike would be a silent mis-render by the
+      // compatibility corpus's own definition.
+      minlen: edge.minLength,
     })),
   });
 

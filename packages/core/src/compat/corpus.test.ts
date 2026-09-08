@@ -438,8 +438,40 @@ const SILENTLY_WRONG = 3;
  * parser's refusal machinery alive (`UNIMPLEMENTED_LABEL_FORMS`,
  * `unimplementedFormIn`, `BRACKET_FORM_RE`, `refuseUnimplementedForm`).
  * Whoever lands it deletes all four together.
+ *
+ * It fell by **seven, to 15**, when an arrow token stopped being one
+ * spelling and became a decomposition. `fc-edge-open`, `fc-edge-dotted`,
+ * `fc-edge-thick`, `fc-edge-circle-end`, `fc-edge-cross-end`,
+ * `fc-edge-bidirectional` and `fc-edge-long` are all `supported`: an edge
+ * now says which of three lines it is drawn with, what sits on each of its
+ * two ends, and how many ranks apart it holds them.
+ *
+ * Seven, exactly as the ticket expected, and **all seven fell because code
+ * changed** — every one of them already had a row here to leave, and each
+ * was honestly refused before and renders correctly now, so nothing became
+ * honest and nothing became wrong. `silently-wrong` is untouched at 3.
+ *
+ * Two rows were **added** alongside them, and they are the other kind of
+ * movement: `fc-edge-dotted-open` (`A -.- B`) and `fc-edge-thick-open`
+ * (`A === B`) had no row at all, so neither can make this number fall by
+ * starting to work. They are here because they are what a decomposition
+ * predicts and an enumeration does not — Mermaid tells `-.-` from `-.->`
+ * (`arrow_open` versus `arrow_point`, measured), and a corpus that only
+ * carried the arrowheaded spelling could not tell whether Siren did too.
+ * A construct that was never counted as backlog cannot lower this number,
+ * and giving it a row is still what turns it from a memory into a
+ * measurement.
+ *
+ * `fc-edge-long`'s row also grew a second chain (`A --> B` beside
+ * `C ----> D`). A long arrow's meaning is comparative — *further apart* than
+ * a plain one — and an assert sees one render, so the only way to state it
+ * without smuggling in a number from outside the picture is to put both
+ * arrows in the picture.
+ *
+ * Two edge rows remain, both labels (`fc-edge-pipe-label`,
+ * `fc-edge-inline-label`), and they are the next ticket's.
  */
-const REJECTED = 22;
+const REJECTED = 15;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

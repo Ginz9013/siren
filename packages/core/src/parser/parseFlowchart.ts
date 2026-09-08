@@ -1,6 +1,8 @@
 import type {
   Diagnostic,
   Direction,
+  EdgeEnd,
+  EdgeLine,
   FlowchartDocument,
   LinkStyleDecl,
   NodeShape,
@@ -316,7 +318,7 @@ const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
  *
  * One endpoint rather than a whole line, because a line may name any number
  * of them: `A --> B --> C` is a chain of three. The line is cut into
- * endpoints first (`splitOutsideLabel`) and each piece read with this, so
+ * endpoints first (`cutOutsideLabel`) and each piece read with this, so
  * how many endpoints a line has is not something a pattern has to encode.
  *
  * Anchored at both ends, which is what keeps a partial read impossible: an
@@ -346,8 +348,43 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
  */
 const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
 
-/** The one arrow form Siren draws. Every other Mermaid arrow is a later board's. */
-const ARROW = "-->";
+/**
+ * The run of characters that joins two endpoints — **one pattern for every
+ * arrow spelling**, read as three parts rather than matched against a list
+ * of thirteen names.
+ *
+ * `A <-.-> B` is not a fourteenth arrow: it is a dotted line with an arrow
+ * at each end. The parts are exactly the axes `EdgeLine`/`EdgeEnd` name, so
+ * a spelling nobody thought of composes out of the same three answers, and
+ * the ones Mermaid has no name for are refused by `readArrow` rather than
+ * silently read as something else.
+ *
+ * One pattern, used twice — sticky, to cut a line at its arrows, and
+ * anchored, to read the token that cut it (`readArrow`) — because two
+ * statements of one grammar are two things free to disagree about what
+ * `-..->` is.
+ *
+ * **`o` and `x` are word characters, so the leading one is only a marker
+ * where an id cannot be.** Without the lookbehind, `Ax--xB` would be cut at
+ * `x--x` and drawn as `A` to `B`; mermaid 11.17.2 reads it as the node `Ax`
+ * and a plain `--x`, measured, and the guard is what makes this agree. `<`
+ * needs no guard: no id can end in one, and `A<-->B` is a document Mermaid
+ * draws.
+ */
+const ARROW_TOKEN = String.raw`(<|(?<!\w)[ox])?(-{2,}|={2,}|-\.+-)([>ox])?`;
+
+/** The sticky form, for cutting a line into endpoints at every arrow outside a label. */
+const ARROW_RE = new RegExp(ARROW_TOKEN, "y");
+
+/**
+ * The anchored form, for reading a token the cut produced back as its three
+ * parts: the from-end marker, the line, the to-end marker.
+ *
+ * The same source text, so the two cannot drift. The lookbehind costs
+ * nothing here — nothing precedes position 0 — which is what lets one
+ * pattern serve both readings.
+ */
+const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`);
 
 /**
  * What joins the endpoints of one **group** — the several nodes an edge
@@ -386,6 +423,90 @@ const STATEMENT_END = ";";
  * `classDef hot fill:#fdd;` reads as `classDef hot fill:#fdd` does.
  */
 const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
+
+/** What an end marker draws, by the character that wrote it. */
+const END_FOR_MARKER: Record<string, EdgeEnd> = {
+  ">": "arrow",
+  o: "circle",
+  x: "cross",
+};
+
+/**
+ * Which end marker may open a token that closes with a given one. A token
+ * decorates its from-end only by *repeating* its to-end marker, `<` being
+ * the opening spelling of `>`.
+ *
+ * Measured, not assumed. In mermaid 11.17.2 a leading marker is read as one
+ * only when it matches the trailing one: `o--o` is `double_arrow_circle`
+ * while `o--x` is a plain `arrow_cross` whose leading `o` silently becomes
+ * part of the *length* (`length=2`), and `<-.-` is a plain `arrow_open`
+ * whose `<` disappears entirely. Those two are Mermaid drawing a picture
+ * nobody asked for and saying nothing, so `readArrow` refuses them — the
+ * exception CONTEXT.md carves out, recorded beside the code that takes it.
+ */
+const OPENING_MARKER: Record<string, string> = { ">": "<", o: "o", x: "x" };
+
+/** The three axes and the distance one arrow token decomposes into. */
+interface ArrowForm {
+  line: EdgeLine;
+  fromEnd: EdgeEnd;
+  toEnd: EdgeEnd;
+  minLength: number;
+}
+
+/**
+ * What one arrow token means, or `null` when it is not a form Siren draws —
+ * which refuses the statement rather than half of it, exactly as an
+ * unreadable endpoint does.
+ *
+ * **The whole of the decomposition, in one place.** The line comes from the
+ * character the body is made of, each end from the marker on its own side,
+ * and the distance from how long the body is:
+ *
+ * - `-` is `solid`, `=` is `thick`, and a body carrying dots is `dotted` —
+ *   mermaid 11.17.2's `stroke`, which it reports as `normal`/`thick`/
+ *   `dotted` for exactly these three spellings.
+ * - The **to**-end is the trailing marker and the **from**-end is a leading
+ *   one that repeats it. Which end a lone marker lands on was measured:
+ *   `A --o B` is `arrow_circle`, which Mermaid turns into
+ *   `arrowTypeStart: "none"` and `arrowTypeEnd: "arrow_circle"`.
+ * - The distance is the token's length past the shortest spelling of it:
+ *   `-->` and `---` are both 1, and every further character is one more
+ *   rank (`---->` is 3, `-----` is 3). A dotted token counts its dots
+ *   instead (`-.->` is 1, `-..->` is 2) — Mermaid's own rule, and the
+ *   reason this is not simply "count the dashes".
+ *
+ * A body of `--` with no marker at all is the one token this can be handed
+ * that means nothing: it would be zero ranks long, and Mermaid rejects
+ * `A -- B` outright. It is refused here rather than excluded from the
+ * pattern, so that the grammar stays one expression.
+ */
+function readArrow(token: string): ArrowForm | null {
+  const match = ARROW_PARTS_RE.exec(token);
+  if (match === null) {
+    return null;
+  }
+  const [, start, body, end] = match;
+
+  const dots = body.length - body.replace(/\./g, "").length;
+  const line: EdgeLine = dots > 0 ? "dotted" : body.startsWith("=") ? "thick" : "solid";
+  // Past the shortest spelling: `-->` (three characters, one of them the
+  // marker) and `---` are both one rank, so an unmarked body is measured
+  // against three characters and a marked one against two plus its marker.
+  const minLength = dots > 0 ? dots : body.length - (end === undefined ? 2 : 1);
+  if (minLength < 1) {
+    return null;
+  }
+
+  const toEnd = end === undefined ? "none" : END_FOR_MARKER[end];
+  if (start === undefined) {
+    return { line, fromEnd: "none", toEnd, minLength };
+  }
+  if (end === undefined || start !== OPENING_MARKER[end]) {
+    return null;
+  }
+  return { line, fromEnd: toEnd, toEnd, minLength };
+}
 
 /** One place a node was written on an edge line, as written there. */
 interface EdgeEndpoint {
@@ -440,7 +561,32 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
 }
 
 /**
- * Cuts `text` at every `separator` that lies **outside** a `[...]` label.
+ * The separator that begins at `index`, or `null` when none does.
+ *
+ * Two kinds, because two of the three things that cut a flowchart line are
+ * fixed characters and the third is a grammar. A `RegExp` is matched
+ * **sticky**, so it can only match at exactly this index — a search would
+ * find the next arrow somewhere down the line and cut there, silently
+ * swallowing everything in between.
+ */
+function separatorAt(text: string, index: number, separator: string | RegExp): string | null {
+  if (typeof separator === "string") {
+    return text.startsWith(separator, index) ? separator : null;
+  }
+  separator.lastIndex = index;
+  return separator.exec(text)?.[0] ?? null;
+}
+
+/**
+ * Cuts `text` at every `separator` that lies **outside** a `[...]` label,
+ * returning both the pieces and the separators that cut them.
+ *
+ * The separators are returned because one of the three callers cares what
+ * cut its line: `;` and `&` are single characters that mean one thing, but
+ * an arrow is a **pattern**, and `A --> B -.-> C` is cut by two different
+ * tokens carrying two different pictures. A cutter that returned only the
+ * pieces would leave that caller re-finding the tokens it had already
+ * matched.
  *
  * The label depth is the whole point. `;`, `&` and `-->` all mean
  * something between statements and nothing inside a label: `A[a;b]`,
@@ -467,11 +613,16 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
  * divergence untouched: a `"` in `style A fill:"#fdd;x"` is not a fence,
  * so the `;` there still reaches the security gate that refuses it.
  *
- * Always returns at least one piece, and never trims: a caller that needs
- * a column needs the offsets left alone.
+ * Always returns at least one piece, and one fewer separator than pieces,
+ * and never trims: a caller that needs a column needs the offsets left
+ * alone.
  */
-function splitOutsideLabel(text: string, separator: string): string[] {
+function cutOutsideLabel(
+  text: string,
+  separator: string | RegExp,
+): { parts: string[]; separators: string[] } {
   const parts: string[] = [];
+  const separators: string[] = [];
   let depth = 0;
   let fenced = false;
   let start = 0;
@@ -493,14 +644,23 @@ function splitOutsideLabel(text: string, separator: string): string[] {
       }
       continue;
     }
-    if (depth === 0 && text.startsWith(separator, i)) {
-      parts.push(text.slice(start, i));
-      i += separator.length - 1;
-      start = i + 1;
+    if (depth === 0) {
+      const cut = separatorAt(text, i, separator);
+      if (cut !== null) {
+        parts.push(text.slice(start, i));
+        separators.push(cut);
+        i += cut.length - 1;
+        start = i + 1;
+      }
     }
   }
   parts.push(text.slice(start));
-  return parts;
+  return { parts, separators };
+}
+
+/** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
+function splitOutsideLabel(text: string, separator: string): string[] {
+  return cutOutsideLabel(text, separator).parts;
 }
 
 /**
@@ -816,7 +976,18 @@ export function parseFlowchart(source: string): ParseResult {
         break readLines;
       }
 
-      const arrowParts = splitOutsideLabel(line, ARROW);
+      // A declaration list is not a place where an arrow means anything —
+      // the same rule `splitStatements` already applies to `;` there, and
+      // the reason it has to be applied here too now that the separator is
+      // a pattern: `style A --my-token:4` carries a `--`, and cutting the
+      // statement at it would refuse a styling declaration as a malformed
+      // edge. Mermaid rejects that particular line as well, so nothing
+      // Mermaid draws turns on this; what turns on it is which diagnostic
+      // an author gets, and "not an arrow Siren draws" is the wrong one to
+      // hand someone who wrote a `style` statement.
+      const { parts: arrowParts, separators: arrowTokens } = DECLARATION_LIST_RE.test(line)
+        ? { parts: [line], separators: [] as string[] }
+        : cutOutsideLabel(line, ARROW_RE);
       if (arrowParts.length > 1) {
         // Every outcome below ends the statement. An arrow says the author
         // meant an edge, so a statement carrying one is never handed on to
@@ -828,7 +999,27 @@ export function parseFlowchart(source: string): ParseResult {
         ) {
           diagnostics.push({
             severity: "error",
-            message: `Malformed edge: missing target after "-->" in "${line}"`,
+            // The token the author actually wrote, not `-->`: with thirteen
+            // spellings, quoting one of them at an author who wrote another
+            // sends them looking for a typo they did not make.
+            message: `Malformed edge: missing target after "${arrowTokens[arrowTokens.length - 1]}" in "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+
+        // Read before any endpoint is, and before anything is declared: a
+        // token Siren does not draw refuses the whole statement, the same
+        // rule an unreadable endpoint follows, so no chain is ever
+        // half-consumed.
+        const arrows = arrowTokens.map(readArrow);
+        const unreadable = arrowTokens.find((_, index) => arrows[index] === null);
+        if (unreadable !== undefined) {
+          diagnostics.push({
+            severity: "error",
+            message: `Siren does not draw the arrow "${unreadable}" yet: "${line}"`,
             line: lineNumber,
             column,
           });
@@ -892,9 +1083,19 @@ export function parseFlowchart(source: string): ParseResult {
         // `for (const start of _start) for (const end of _end)`, so
         // `A & B --> C & D` is A-C, A-D, B-C, B-D.
         for (let link = 0; link + 1 < chain.length; link++) {
+          // Every edge of one link wears that link's own arrow: in
+          // `A & B -.-> C` both edges are dotted, and in `A --> B ==> C` the
+          // second is thick and the first is not.
+          const arrow = arrows[link]!;
           for (const from of chain[link]) {
             for (const to of chain[link + 1]) {
-              edges.push({ from: from.id, to: to.id, line: lineNumber, column });
+              edges.push({
+                from: from.id,
+                to: to.id,
+                ...arrow,
+                sourceLine: lineNumber,
+                sourceColumn: column,
+              });
             }
           }
         }

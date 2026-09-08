@@ -27,6 +27,17 @@ export interface DirectedGraphLayoutEdge {
    * the route's `labelAnchor`.
    */
   label?: { width: number; height: number };
+  /**
+   * How many ranks apart this edge must hold its endpoints. Absent means
+   * one — the engine's own default — so a caller with no notion of edge
+   * length passes nothing and gets the placement it always had.
+   *
+   * Spelled with dagre's own word, like `rankdir` above and for the same
+   * reason: this seam is where the engine's vocabulary is allowed, and
+   * nowhere else. A flowchart edge carries it as `minLength`, which is
+   * what it means rather than what dagre calls it.
+   */
+  minlen?: number;
 }
 
 /** Everything the shared layout core needs to place a directed graph. */
@@ -107,7 +118,10 @@ export function layoutDirectedGraph(
     g.setEdge(
       edge.from,
       edge.to,
-      edge.label ? { width: edge.label.width, height: edge.label.height } : {},
+      {
+        ...(edge.label ? { width: edge.label.width, height: edge.label.height } : {}),
+        ...(edge.minlen === undefined ? {} : { minlen: edge.minlen }),
+      },
       edge.id,
     );
   }

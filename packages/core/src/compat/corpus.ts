@@ -107,6 +107,74 @@ function edges(result: SirenRenderResult): string[] {
 }
 
 /**
+ * One flowchart edge, described as the picture it draws:
+ * `line from-end to-end`, e.g. `dotted none arrow` for `A -.-> B`.
+ *
+ * Every part is read off the drawn SVG rather than off a `data-` attribute,
+ * which is the rule board 4 set when it reclassified two rows: an attribute
+ * is not the picture.
+ *
+ * The two ends are read by **following the path's own marker reference into
+ * this SVG's `<defs>` and looking at the shape inside** — never by spelling
+ * a marker id, which is minted per render, and never by reading its class,
+ * which says who paints it rather than what is drawn. A closed triangle, a
+ * ring and two crossing strokes are three different figures, and that is
+ * what is asserted.
+ *
+ * The line is the one part read from a class, because for a line that *is*
+ * the mechanism: the renderer names `.siren-edge-dotted` / `.siren-edge-thick`
+ * and the theme dashes and thickens them, which `theme/default.test.ts`
+ * asserts against the resolved cascade. What this reader is for is that
+ * three line styles draw three visibly different edges and that a dotted
+ * edge is not quietly drawn as a solid one.
+ */
+function edgeDrawing(result: SirenRenderResult, id: string): string {
+  const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+  if (path === null) throw new Error(`no edge "${id}" was drawn`);
+
+  const classes = (path.getAttribute("class") ?? "").split(/\s+/);
+  const line = classes.includes("siren-edge-dotted")
+    ? "dotted"
+    : classes.includes("siren-edge-thick")
+      ? "thick"
+      : "solid";
+
+  const endAt = (side: "start" | "end"): string => {
+    const reference = path.getAttribute(`marker-${side}`);
+    if (reference === null) return "none";
+    const marker = svgOf(result).querySelector(
+      `defs > marker#${reference.slice("url(#".length, -1)}`,
+    );
+    if (marker === null) throw new Error(`edge "${id}" points at a marker this SVG has not got`);
+    const drawn = marker.firstElementChild;
+    if (drawn === null) throw new Error(`edge "${id}"'s marker draws nothing`);
+    if (drawn.tagName === "circle") return "circle";
+    const d = drawn.getAttribute("d") ?? "";
+    // A closed outline is the arrowhead; two subpaths crossing each other
+    // are the cross. Read as geometry so that reverting either drawing
+    // fails this row even with every class left in place.
+    if (d.includes("Z")) return "arrow";
+    if ((d.match(/M/g) ?? []).length === 2) return "cross";
+    throw new Error(`edge "${id}" ends in an unrecognized figure: "${d}"`);
+  };
+
+  return `${line} ${endAt("start")} ${endAt("end")}`;
+}
+
+/**
+ * How far apart, along the layout's own axis, the two ends of one edge are
+ * drawn — the only thing a *rank* is visible as in a rendered SVG.
+ *
+ * Compared between two edges of the **same document** wherever it is used,
+ * never against a number: how tall one rank is belongs to the theme
+ * (ADR-0004), while how many ranks apart two nodes are is the compatibility
+ * contract, and only the second of those is a fact about Mermaid.
+ */
+function edgeSpan(result: SirenRenderResult, from: string, to: string): number {
+  return Math.abs(nodeCenter(result, to).y - nodeCenter(result, from).y);
+}
+
+/**
  * The centre of one flowchart node's frame — how a direction is visible in
  * the result, the way `classBox` makes a class diagram's visible.
  *
@@ -856,56 +924,130 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A --- B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A --- B` is an open link: a line with no arrowhead.",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      // No marker at either end, which is the whole of what `---` says. An
+      // open link that kept the arrowhead would be the `-->` it is written
+      // to not be, and nothing but the ends tells them apart.
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none none");
+    },
   },
   {
     id: "fc-edge-dotted",
     kind: "flowchart",
     source: `flowchart TB
       A -.-> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A -.-> B` is a dotted arrow.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "dotted none arrow");
+    },
+  },
+  {
+    id: "fc-edge-dotted-open",
+    kind: "flowchart",
+    source: `flowchart TB
+      A -.- B`,
+    status: "supported",
+    meaning: "`A -.- B` is a dotted line with no arrowhead.",
+    assert: (result) => {
+      // The row that proves the two axes are independent rather than a list
+      // of names: Mermaid does tell `-.-` from `-.->` (`arrow_open` versus
+      // `arrow_point`, both `stroke="dotted"`, measured), and so must this.
+      expectSame("edge", edgeDrawing(result, "A-B"), "dotted none none");
+    },
   },
   {
     id: "fc-edge-thick",
     kind: "flowchart",
     source: `flowchart TB
       A ==> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A ==> B` is a thick arrow.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "thick none arrow");
+    },
+  },
+  {
+    id: "fc-edge-thick-open",
+    kind: "flowchart",
+    source: `flowchart TB
+      A === B`,
+    status: "supported",
+    meaning: "`A === B` is a thick line with no arrowhead.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "thick none none");
+    },
   },
   {
     id: "fc-edge-circle-end",
     kind: "flowchart",
     source: `flowchart TB
       A --o B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A --o B` ends in a circle rather than an arrowhead.",
+    assert: (result) => {
+      // At the **to**-end, measured rather than recalled: mermaid 11.17.2
+      // reads this as `arrow_circle` and turns it into
+      // `arrowTypeStart: "none", arrowTypeEnd: "arrow_circle"`. A row that
+      // only asserted "a circle somewhere" would pass for its mirror image.
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none circle");
+    },
   },
   {
     id: "fc-edge-cross-end",
     kind: "flowchart",
     source: `flowchart TB
       A --x B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A --x B` ends in a cross.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none cross");
+    },
   },
   {
     id: "fc-edge-bidirectional",
     kind: "flowchart",
     source: `flowchart TB
       A <--> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A <--> B` carries an arrowhead at both ends.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid arrow arrow");
+    },
   },
   {
     id: "fc-edge-long",
     kind: "flowchart",
+    // Two chains in one document, which is what makes the claim assertable
+    // at all: a long arrow's meaning is *comparative* — further apart than
+    // a plain one — and an assert sees one render. Both chains are here so
+    // the comparison is between two edges of one picture, with no number
+    // from outside it.
     source: `flowchart TB
-      A ----> B`,
-    status: "rejected",
+      A --> B
+      C ----> D`,
+    status: "supported",
     meaning: "A longer arrow spans more ranks; `A ----> B` still means A to B.",
+    assert: (result) => {
+      // Still one edge from A to B: a long arrow is not a chain through
+      // invisible nodes, and nothing new is declared by writing one.
+      expectSame("edges", edges(result), ["A-B", "C-D"]);
+      expectSame("edge", edgeDrawing(result, "C-D"), "solid none arrow");
+      // The rank distance, which is the only part of an arrow token that is
+      // not about drawing. Mermaid hands its parsed `length` to dagre as
+      // `minlen` (measured: `length=3` for `---->`, `length=1` for `-->`),
+      // so the target sits further down the rank order and the drawn
+      // diagram differs. Drawing both alike would be a silent mis-render by
+      // this instrument's own definition.
+      const plain = edgeSpan(result, "A", "B");
+      const long = edgeSpan(result, "C", "D");
+      if (!(long > plain)) {
+        throw new Error(`a long arrow spans ${long}, no more than a plain one's ${plain}`);
+      }
+    },
   },
   {
     id: "fc-edge-pipe-label",
