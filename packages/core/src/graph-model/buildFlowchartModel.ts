@@ -160,7 +160,15 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
   for (const node of document.nodes) {
     const existing = nodesById.get(node.id);
     if (existing === undefined) {
-      nodesById.set(node.id, { id: node.id, label: node.label, style: unstyled() });
+      // The shape travels with the label, from the same first-seen
+      // declaration: a spelling is read once, in the parser, and this stage
+      // has no business re-deciding what `A{X}` meant.
+      nodesById.set(node.id, {
+        id: node.id,
+        label: node.label,
+        shape: node.shape,
+        style: unstyled(),
+      });
       continue;
     }
     if (existing.label !== node.label) {

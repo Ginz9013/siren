@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — flowchart node shapes demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren flowchart node shapes</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+    <p class="intro">
+      <code>examples/flowchart-shapes.srn</code> — all fourteen bracket spellings Mermaid has for a
+      node, each drawn as the figure it names, in one request-handling flowchart that uses each
+      shape for what a flowchart has always used it for: <code>A([Start])</code> the terminal,
+      <code>A[/Read request/]</code> input and <code>A[\Write log\]</code> output,
+      <code>A{{Prepare}}</code> preparation, <code>A{Valid?}</code> the decision,
+      <code>A[Parse]</code> the process, <code>A[(Store)]</code> the database,
+      <code>A[[Render]]</code> a predefined process, <code>A[/Approve\]</code> a manual operation
+      and <code>A[\Operator/]</code> manual input, <code>A((1))</code> an on-page connector,
+      <code>A(Retry)</code> a round node, <code>A&gt;legacy path]</code> the asymmetric flag, and
+      <code>A(((End)))</code> the terminator. A shape's <em>kind</em> is what compatibility means
+      here; its proportions belong to the theme, so these are not Mermaid's diamonds and cylinders
+      pixel for pixel and were never meant to be. Step through it to watch each shape arrive: the
+      id and the animation classes sit on the node's <code>&lt;g&gt;</code>, so a
+      <code>&lt;path&gt;</code>, a <code>&lt;circle&gt;</code> and a <code>&lt;rect&gt;</code> frame
+      all animate the same way. Toggle the theme to see the same fourteen figures repainted by
+      tokens alone — with one exception worth knowing:
+      <code>--siren-node-border-radius</code> now reaches only the rectangle and the subroutine.
+      See <a href="./flowchart-styling.html">the author styling demo</a> for what
+      <code>style</code> and <code>classDef</code> paint on these same frames, and
+      <a href="./complex-showcase.html">the complex showcase</a> for every timeline verb and
+      effect.
+    </p>
+
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Same mechanism as demos/complex-showcase.html and
+      demos/flowchart-styling.html: imports the real Vite library build of
+      @siren/board, and loads its example document via fetch() from
+      examples/flowchart-shapes.srn (not inlined), so the page and
+      packages/core/src/index.test.ts read the same bytes. Run
+      `pnpm --filter @siren/core build && pnpm --filter @siren/board build`
+      first. Must be served over http(s) — file:// will fail fetch() due to
+      CORS.
+
+      controls default to on here, unlike demos/flowchart-styling.html: this
+      document declares a `timeline:` block of nine steps, and stepping is
+      how the page makes its second point — that a shape drawn with an
+      element the animation controller has never heard of animates exactly
+      as a rectangle does.
+
+      @siren/board owns rendering, the text measurer, the Prev/Next/Reset
+      control bar, full-bleed sizing and error display — see ADR-0005 and
+      ADR-0006. This page keeps only what board deliberately doesn't own:
+      fetching the source, the theme toggle, and the summary line below.
+    -->
+    <script type="module">
+      import { createBoard } from "../packages/board/dist/siren-board.js";
+
+      const source = await fetch("../examples/flowchart-shapes.srn").then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load examples/flowchart-shapes.srn: ${response.status}`);
+        }
+        return response.text();
+      });
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      // Unrelated to @siren/board, which never touches this attribute
+      // (ADR-0006) — theming stays this page's own concern.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
+
+      let failed = false;
+      const board = createBoard(container, {
+        source,
+        onStepChange: (current, total) => {
+          statusEl.textContent = `${shapesLine()} Step ${current} of ${total}.`;
+        },
+        onDiagnostics: (diagnostics) => {
+          for (const diagnostic of diagnostics) {
+            console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+          }
+          // The example is expected to render clean, so a diagnostic of any
+          // severity is worth saying out loud on the page rather than only
+          // in the console — this document is the one the test suite pins at
+          // zero diagnostics.
+          failed = diagnostics.length > 0;
+        },
+      });
+
+      // Counted off the mounted SVG rather than written down: the point of a
+      // demo page is that an author can see the fourteen shapes landed
+      // without reading a test, and a hardcoded "14" would keep saying so
+      // after one of them stopped being drawn. The element tallies are the
+      // interesting half — three drawing techniques, one class on every
+      // frame, which is why author styling and the timeline reach all
+      // fourteen alike.
+      function shapesLine() {
+        const svg = container.querySelector("svg");
+        if (svg === null) return "";
+        const count = (selector) => svg.querySelectorAll(selector).length;
+        const shapes = new Set(
+          [...svg.querySelectorAll("g.siren-node")].map((g) => g.getAttribute("data-siren-shape")),
+        );
+        return [
+          `${count("g.siren-node")} nodes in ${shapes.size} distinct shapes`,
+          `drawn with ${count("path.siren-node-frame")} <path>`,
+          `${count("circle.siren-node-frame")} <circle>`,
+          `${count("rect.siren-node-frame")} <rect>`,
+          `and ${count("line.siren-node-frame")} inner-bar frames.`,
+        ].join(", ");
+      }
+
+      if (container.querySelector("svg") === null || failed) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        statusEl.textContent =
+          `${shapesLine()} Step ${board.controller.currentStep} of ${board.controller.totalSteps}.`;
+      }
+    </script>
+  </body>
+</html>

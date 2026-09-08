@@ -281,6 +281,13 @@ describe("the corpus, case by case", () => {
  * closing ticket's write ownership deliberately stops short of the parser.
  * That is the same shape as `seq-loop` and `seq-alt-else`, one board earlier
  * in its life: named, measured, and waiting on code rather than on a policy.
+ *
+ * The node shapes board left it at three, and left the same three: every
+ * shape it landed was **refused** before and renders correctly now, so
+ * nothing became honest and nothing became wrong. A board that moves eleven
+ * constructs and does not touch this number is the ordinary case, not a
+ * suspicious one — and none of these three is a flowchart node shape, so a
+ * board about node shapes was never going to be the one that closes them.
  */
 const SILENTLY_WRONG = 3;
 
@@ -330,8 +337,109 @@ const SILENTLY_WRONG = 3;
  * documents that used to be refused now render. Whoever moves this number next
  * should expect the same: it is a backlog, and a backlog's size is a poor
  * summary of a day's work.
+ *
+ * It fell by one, to **32**, when a node stopped being only ever a
+ * rectangle. `fc-shape-rhombus` is `supported`: `A{text}` parses as the
+ * decision diamond Mermaid means by it, is given enough bounding box that
+ * its label fits *inside* the diamond rather than inside the box the
+ * diamond is inscribed in, and is drawn as a `<path>` still named
+ * `siren-node-frame` — so an author's `style A fill:#f00` and the timeline
+ * both reach it exactly as they reach a rectangle. `silently-wrong` is
+ * untouched at 3: this construct was refused before and renders correctly
+ * now, so nothing became honest and nothing became wrong. Ten shape rows
+ * remain, and each of them exits the same way — parser, layout and renderer
+ * together, because a shape that parsed and drew a rectangle would be a
+ * silent mis-render by this instrument's own definition.
+ *
+ * It fell by four more, to **28**, as four spellings stopped being only a
+ * rectangle's punctuation: `fc-shape-hexagon`, `fc-shape-parallelogram`,
+ * `fc-shape-trapezoid` and `fc-shape-asymmetric` are `supported`, each
+ * asserting the outline it draws rather than the shape it claims.
+ *
+ * **Four, where the ticket that moved them expected seven**, and the
+ * arithmetic is worth writing down because the number alone reads like an
+ * unfinished job. Six shapes landed — the four above plus both of their
+ * mirror images — and three rows were added `supported` that were never in
+ * this backlog to leave it: `fc-shape-parallelogram-alt` and
+ * `fc-shape-trapezoid-alt` had no row at all (the corpus has always carried
+ * eleven rows for Mermaid's thirteen bracket spellings, and those were the
+ * two it was missing), and `fc-text-brace-arrow` is a construct nothing had
+ * ever measured — `A{a-->b}`, a diamond labelled with an arrow, refused
+ * because the statement splitter counted brackets and not braces. A
+ * construct that was never counted as backlog cannot make the backlog fall
+ * by starting to work, and giving it a row is still what turns it from a
+ * memory into a measurement. `silently-wrong` is untouched at 3: all seven
+ * were refused before and render correctly now, so nothing became honest
+ * and nothing became wrong.
+ *
+ * Six shape rows remain — round, stadium, subroutine, circle, double circle
+ * and cylinder — and each exits the same way: parser, layout and renderer
+ * together.
+ *
+ * It fell by three more, to **25**, when the three shapes drawn with a
+ * `<rect>` landed: `fc-shape-round`, `fc-shape-stadium` and
+ * `fc-shape-subroutine` are `supported`. Three, exactly as their ticket
+ * expected, because all three already had rows here to leave — no
+ * construct had to be added to the backlog to measure one.
+ *
+ * Each asserts what the *renderer* drew and not what the node claims to
+ * be, which for these three is a subtler question than it was for the six
+ * before them: all three are still a `<rect>`, so `frame.tagName` names
+ * none of them and `nodeOutline` had to learn to read a corner radius and
+ * a pair of inner bars (see `rectOutline`). Reverting either drawing while
+ * leaving `data-siren-shape` in place fails all three rows, which is how
+ * they were checked. `silently-wrong` is untouched at 3: all three were
+ * refused before and render correctly now, so nothing became honest and
+ * nothing became wrong.
+ *
+ * It fell by three more, to **22**, when the three shapes drawn with a
+ * curve landed: `fc-shape-circle`, `fc-shape-double-circle` and
+ * `fc-shape-cylinder` are `supported`. Three, exactly as their ticket
+ * expected, and for the same reason the last three were: all three already
+ * had rows here to leave, so no construct had to be added to the backlog to
+ * measure one. `silently-wrong` is untouched at 3 — all three were refused
+ * before and render correctly now, so nothing became honest and nothing
+ * became wrong.
+ *
+ * **No `fc-shape-*` row is rejected any more.** All thirteen of Mermaid's
+ * bracket spellings for a node are `supported`, which is what closes the
+ * board rather than the number 22 doing it: the backlog that is left is
+ * edges, subgraphs, clicks, accessibility titles, the class lollipop, three
+ * sequence constructs — and `fc-text-markdown`, which sits among the
+ * flowchart text rows because it is a *label* form and not a shape. That
+ * one row is why the parser's refusal mechanism outlives every shape it was
+ * written for; it belongs to a later board.
+ *
+ * Each of the three asserts what the renderer drew. Two of them needed the
+ * reader to grow to say it: `nodeOutline` named any non-`<rect>`,
+ * non-`<path>` frame by its tag, so it called a double circle "circle" —
+ * the same collapse `rectOutline` was written to stop, one element over —
+ * and `outlineCycle` reads coordinate pairs, so it read a cylinder's arc
+ * radii as vertices and produced nonsense. Rings are now counted and a
+ * curved path is read as segments (`ringOutline`, `curvedOutline`).
+ * Reverting the drawing while leaving `data-siren-shape` in place fails all
+ * three rows, which is how they were checked.
+ *
+ * **The node shapes board closes here, at 22.** It opened at 33, and the
+ * three counts moved 32/33/3 supported/rejected/silently-wrong to
+ * 46/22/3 — measured at `f0b2296` and at this commit, not transcribed.
+ * The two numbers do not balance against each other and are not meant to:
+ * eleven shape rows left this backlog, while `supported` rose by fourteen
+ * because three rows were *added* already working (both `-alt`
+ * parallelogram/trapezoid spellings, which this corpus had never carried,
+ * and `fc-text-brace-arrow`, which nothing had ever measured). Fourteen
+ * shapes behind eleven rows behind fourteen `supported`, and none of the
+ * three totals is a summary of the others. What closes the board is the
+ * sentence above rather than any of them: no `fc-shape-*` row is rejected.
+ *
+ * The backlog that is left is edges (nine rows), `subgraph`, `click`,
+ * `accTitle`, the class lollipop, three sequence constructs, and
+ * `fc-text-markdown` — which is now the *only* row keeping the flowchart
+ * parser's refusal machinery alive (`UNIMPLEMENTED_LABEL_FORMS`,
+ * `unimplementedFormIn`, `BRACKET_FORM_RE`, `refuseUnimplementedForm`).
+ * Whoever lands it deletes all four together.
  */
-const REJECTED = 33;
+const REJECTED = 22;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -8,9 +8,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -33,8 +33,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -57,9 +57,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -103,8 +103,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       linkStyles: [],
@@ -125,13 +125,41 @@ describe("buildGraphModel", () => {
     expect(diagnostics[0].severity).toBe("error");
   });
 
+  it("carries each node's shape onto the GraphNode, keeping the first-seen one when an id is declared twice", () => {
+    // The shape is the parser's answer, not this stage's: nothing here
+    // re-reads a spelling, so a diamond stays a diamond and a node nobody
+    // gave a bracket is the rect it has always been. The redeclaration rule
+    // is the label's own, applied to the shape rather than invented for it.
+    const document: SirenDocument = {
+      kind: "flowchart",
+      direction: "TB",
+      nodes: [
+        { id: "A", label: "Is it ready?", shape: "rhombus" },
+        { id: "B", label: "Done", shape: "rect" },
+        { id: "A", label: "Is it ready?", shape: "rect" },
+      ],
+      edges: [],
+      linkStyles: [],
+      styles: [],
+      timeline: null,
+    };
+
+    const { graph, diagnostics } = buildGraphModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.nodes).toEqual([
+      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] } },
+      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] } },
+    ]);
+  });
+
   it("keeps the first-seen label and warns when a node id is declared twice with conflicting labels", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "Start" },
-        { id: "A", label: "Begin" },
+        { id: "A", label: "Start", shape: "rect" },
+        { id: "A", label: "Begin", shape: "rect" },
       ],
       edges: [],
       linkStyles: [],
@@ -142,7 +170,9 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildGraphModel(document);
 
     expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([{ id: "A", label: "Start", style: { frame: [], text: [] } }]);
+    expect(graph!.nodes).toEqual([
+      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] } },
+    ]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
   });
@@ -152,8 +182,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       linkStyles: [],
@@ -174,8 +204,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [],
       linkStyles: [],
@@ -212,7 +242,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "A", label: "A" }],
+      nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [],
@@ -239,8 +269,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [],
       linkStyles: [],
@@ -269,7 +299,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "A", label: "A" }],
+      nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [],
@@ -291,7 +321,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "B", label: "B" }],
+      nodes: [{ id: "B", label: "B", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [],
@@ -318,8 +348,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       linkStyles: [],
@@ -348,7 +378,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "A", label: "A" }],
+      nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [],
@@ -385,8 +415,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       linkStyles: [],
@@ -417,8 +447,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       linkStyles: [],
@@ -443,9 +473,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" }, // A-B: edge exits at the same step as A
@@ -502,7 +532,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "A", label: "A" }],
+      nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [],
@@ -514,7 +544,9 @@ describe("buildGraphModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model).toBeNull();
     expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([{ id: "A", label: "A", style: { frame: [], text: [] } }]);
+    expect(graph!.nodes).toEqual([
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] } },
+    ]);
   });
 
   it("dispatches a kind: \"class\" document to buildClassModel, leaving graph and model null and populating classModel", () => {
@@ -559,8 +591,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       linkStyles: [],
@@ -601,7 +633,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "A", label: "A" }],
+      nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [
@@ -635,7 +667,7 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       direction: "TB",
-      nodes: [{ id: "A", label: "A" }],
+      nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
       linkStyles: [],
       styles: [
@@ -674,10 +706,10 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
-        { id: "D", label: "D" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
+        { id: "D", label: "D", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -715,9 +747,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -759,9 +791,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -804,8 +836,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -891,9 +923,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -942,9 +974,9 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
-        { id: "C", label: "C" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
+        { id: "C", label: "C", shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B" },
@@ -1002,8 +1034,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       styles: [],
@@ -1048,8 +1080,8 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       direction: "TB",
       nodes: [
-        { id: "A", label: "A" },
-        { id: "B", label: "B" },
+        { id: "A", label: "A", shape: "rect" },
+        { id: "B", label: "B", shape: "rect" },
       ],
       edges: [{ from: "A", to: "B" }],
       styles: [],

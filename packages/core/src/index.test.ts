@@ -2675,6 +2675,695 @@ timeline:
     expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);
   });
 
+  it("draws `A{Is it ready?}` end to end as a styleable, animatable diamond", () => {
+    // The whole vertical slice through one public call: the brace spelling
+    // parses, the box is sized so the label fits inside the diamond, the
+    // diamond is drawn, and the two things a rectangle already had — an
+    // author's `style` and a place on the timeline — reach it unchanged.
+    //
+    // Together they are what makes this a shape rather than an attribute.
+    // Any one of them alone would leave a document Mermaid draws correctly
+    // being drawn wrongly here.
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A{Is it ready?} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frame = group.querySelector(".siren-node-frame")!;
+
+    // Drawn as a diamond, and said to be one.
+    expect(frame.tagName).toBe("path");
+    expect(group.getAttribute("data-siren-shape")).toBe("rhombus");
+    // The braces were syntax, so the label is the text between them.
+    expect(group.querySelector("text")!.textContent).toBe("Is it ready?");
+
+    // The label fits *inside* the diamond, which is only true because
+    // layout asked the shape how much box it needed. Read off the drawn
+    // path so the claim is about the picture: the four vertices are the
+    // midpoints of the node's box, and the default measurer's label box
+    // (8px per character plus 16px padding, 24px plus 8px tall) sits inside
+    // the diamond they describe.
+    const vertices = frame
+      .getAttribute("d")!
+      .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+      .map((pair) => pair.split(",").map(Number));
+    const xs = vertices.map(([x]) => x);
+    const ys = vertices.map(([, y]) => y);
+    const boxWidth = Math.max(...xs) - Math.min(...xs);
+    const boxHeight = Math.max(...ys) - Math.min(...ys);
+    const label = { width: "Is it ready?".length * 8 + 16, height: 24 + 8 };
+    expect(label.width / boxWidth + label.height / boxHeight).toBeLessThanOrEqual(1);
+
+    // ADR-0008's placement, unchanged by the element under it.
+    expect(frame.getAttribute("style")).toBe("fill:#f00");
+
+    // And it animates: the id and the animation classes are on the `<g>`,
+    // so the controller drives a diamond without knowing shapes exist — and
+    // the author's declaration is on a different element, so neither
+    // overwrites the other.
+    expect(group.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(group.classList.contains("siren-pending")).toBe(false);
+    expect(group.classList.contains("siren-enter-fade")).toBe(true);
+    expect(frame.getAttribute("style")).toBe("fill:#f00");
+  });
+
+  /**
+   * One closed outline's vertices as a cycle with a canonical starting point
+   * and direction, so two paths drawing the same figure compare equal
+   * however each was written. A polygon has no first vertex and no preferred
+   * winding — both are the path builder's private choice — so a test that
+   * pinned them would fail on a rewrite that drew exactly the same picture.
+   */
+  const canonicalCycle = (names: readonly string[]): string[] => {
+    const rotations = (list: readonly string[]): string[][] =>
+      list.map((_, i) => [...list.slice(i), ...list.slice(0, i)]);
+    return [...rotations(names), ...rotations([...names].reverse())].sort((a, b) =>
+      a.join("|") < b.join("|") ? -1 : 1,
+    )[0];
+  };
+
+  /**
+   * The outline a node's frame draws, as the cycle of positions its vertices
+   * occupy **inside the node's own bounding box** — `left,top`,
+   * `right,mid`, `in-left,bottom`. `in-left` is strictly between the left
+   * edge and the middle; `in-right` strictly between the middle and the
+   * right edge.
+   *
+   * Positions rather than numbers, because the board's decision 1 makes a
+   * shape's *kind* the compatibility contract and its proportions Siren's
+   * own: how far a parallelogram leans belongs to the theme, and which way
+   * it leans is the shape. A test written in coordinates would fail the day
+   * the theme changed a number nobody ever promised, and would still pass a
+   * parallelogram that leaned the wrong way by the promised amount.
+   */
+  const outlineCycle = (frame: Element): string[] => {
+    const points = (frame.getAttribute("d") ?? "")
+      .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+      .map((pair) => pair.split(",").map(Number));
+    const position = (value: number, all: number[], low: string, high: string): string => {
+      const min = Math.min(...all);
+      const max = Math.max(...all);
+      const middle = (min + max) / 2;
+      if (value === min) return low;
+      if (value === max) return high;
+      if (value === middle) return "mid";
+      return value < middle ? `in-${low}` : `in-${high}`;
+    };
+    const xs = points.map(([x]) => x);
+    const ys = points.map(([, y]) => y);
+    return canonicalCycle(
+      points.map(
+        ([x, y]) => `${position(x, xs, "left", "right")},${position(y, ys, "top", "bottom")}`,
+      ),
+    );
+  };
+
+  /**
+   * The six spellings drawn as a `<path>` of straight segments, each with
+   * the outline **Mermaid** draws for it — read off mermaid 11.17.2's own
+   * polygon vertices (`hexagon`, `lean_right`, `lean_left`, `trapezoid`,
+   * `inv_trapezoid`, `rect_left_inv_arrow` in its shape sources) and
+   * translated into positions, with `pnpm --filter @siren/core probe`
+   * confirming which of those shapes each spelling names. Measured, not
+   * remembered — the rule this repo's compatibility work runs on, and the
+   * one thing ticket 02 was required to do and left no record of.
+   *
+   * The rhombus is not here: it is ticket 01's, and it already has a test of
+   * its own above.
+   */
+  const PATH_SHAPES = [
+    {
+      shape: "hexagon",
+      spelling: "A{{Hexagon}}",
+      label: "Hexagon",
+      // Flat top and bottom, inset equally at both ends, with a point at
+      // mid-height on each side.
+      outline: [
+        "in-left,bottom",
+        "in-right,bottom",
+        "right,mid",
+        "in-right,top",
+        "in-left,top",
+        "left,mid",
+      ],
+    },
+    {
+      shape: "parallelogram",
+      spelling: "A[/Parallelogram/]",
+      label: "Parallelogram",
+      // Mermaid's `lean_right`: the top edge sits to the right of the
+      // bottom one.
+      outline: ["left,bottom", "in-right,bottom", "right,top", "in-left,top"],
+    },
+    {
+      shape: "parallelogram-alt",
+      spelling: "A[\\Parallelogram alt\\]",
+      label: "Parallelogram alt",
+      // `lean_left`, the mirror image — which is the whole reason there are
+      // two spellings, and the one thing a test of these two must not let
+      // through.
+      outline: ["in-left,bottom", "right,bottom", "in-right,top", "left,top"],
+    },
+    {
+      shape: "trapezoid",
+      spelling: "A[/Trapezoid\\]",
+      label: "Trapezoid",
+      // Narrow top, wide bottom.
+      outline: ["left,bottom", "right,bottom", "in-right,top", "in-left,top"],
+    },
+    {
+      shape: "trapezoid-alt",
+      spelling: "A[\\Trapezoid alt/]",
+      label: "Trapezoid alt",
+      // Mermaid's `inv_trapezoid`: wide top, narrow bottom.
+      outline: ["in-left,bottom", "in-right,bottom", "right,top", "left,top"],
+    },
+    {
+      shape: "asymmetric",
+      spelling: "A>Asymmetric]",
+      label: "Asymmetric",
+      // A rectangle with a notch cut into its **left** edge, apex pointing
+      // right at mid-height — the `>` of the spelling, drawn. Mermaid's
+      // `rect_left_inv_arrow` puts its two left corners further left than
+      // the mid-height vertex between them, so the notch eats into the
+      // shape rather than sticking out of it; a flag pointing the other way
+      // would put the corners at `in-left` and the apex at `left,mid`.
+      outline: ["left,top", "in-left,mid", "left,bottom", "right,bottom", "right,top"],
+    },
+  ] as const;
+
+  it.each(PATH_SHAPES.map((spec) => [spec.spelling, spec.shape, spec] as const))(
+    "draws `%s` end to end as a styleable, animatable %s",
+    (_spelling, _shape, { shape, spelling, label, outline }) => {
+      // The whole vertical slice through one public call, for each of the
+      // six shapes ticket 02 landed without one: the spelling parses, the
+      // outline Mermaid names is drawn, and the two things a rectangle
+      // already had — an author's `style` and a place on the timeline —
+      // reach it unchanged.
+      //
+      // Any one of them alone would leave a document Mermaid draws
+      // correctly being drawn wrongly here: an outline nobody styles is not
+      // a node, and a node nothing animates is not a Siren one.
+      const container = document.createElement("div");
+      const result = render(
+        `flowchart TD
+${spelling} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`,
+        container,
+      );
+
+      expect([shape, result.diagnostics]).toEqual([shape, []]);
+
+      const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+      const frame = group.querySelector(".siren-node-frame")!;
+
+      // Drawn — the picture, first. `data-siren-shape` is checked after and
+      // never instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      expect([shape, frame.tagName]).toEqual([shape, "path"]);
+      expect([shape, outlineCycle(frame)]).toEqual([shape, canonicalCycle(outline)]);
+      expect([shape, group.getAttribute("data-siren-shape")]).toEqual([shape, shape]);
+
+      // The punctuation was syntax, so the label is the text inside it.
+      expect([shape, group.querySelector("text")!.textContent]).toEqual([shape, label]);
+
+      // ADR-0008's placement, unchanged by the element under it: the
+      // author's declaration lands on the `<path>` the theme paints.
+      expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+
+      // And it animates: the id and the animation classes are on the `<g>`,
+      // so the controller drives these six without knowing shapes exist —
+      // and the author's declaration is on a different element, so neither
+      // overwrites the other.
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, true]);
+      result.controller!.next();
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, false]);
+      expect([shape, group.classList.contains("siren-enter-fade")]).toEqual([shape, true]);
+      expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+    },
+  );
+
+  /**
+   * The three spellings drawn with a `<rect>` rather than a `<path>`, each
+   * with what makes it that shape *in the picture* — a corner radius the
+   * renderer computed, or a pair of inner bars — and the fit its label is
+   * owed inside it.
+   *
+   * Which spelling names which shape is measured, not remembered: mermaid
+   * 11.17.2 reads `A(Round)` as `type="round"`, `A([Stadium])` as
+   * `type="stadium"` and `A[[Subroutine]]` as `type="subroutine"`
+   * (`pnpm --filter @siren/core probe`).
+   *
+   * `drawn` is handed the frame elements and the label's own measured box,
+   * and asserts both halves at once: the shape is there, and the label is
+   * inside it. Splitting those would let a shape that draws its corners and
+   * then clips its own text pass.
+   */
+  const RECT_SHAPES = [
+    {
+      shape: "round",
+      spelling: "A(Round)",
+      label: "Round",
+      drawn: (frames: Element[], label: { width: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["rect"]);
+        const height = Number(frames[0].getAttribute("height"));
+        const radius = inlineRadius(frames[0]);
+        // Rounder than a square corner and less round than a semicircular
+        // end — the two neighbours it would otherwise collapse into.
+        expect(radius).toBeGreaterThan(0);
+        expect(radius).toBeLessThan(height / 2);
+        // And the label clears both corners.
+        expect(Number(frames[0].getAttribute("width")) - 2 * radius).toBeGreaterThanOrEqual(
+          label.width,
+        );
+      },
+    },
+    {
+      shape: "stadium",
+      spelling: "A([Stadium])",
+      label: "Stadium",
+      drawn: (frames: Element[], label: { width: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["rect"]);
+        const height = Number(frames[0].getAttribute("height"));
+        // Half the height exactly, or the ends are not semicircles and it
+        // is not a stadium.
+        expect(inlineRadius(frames[0])).toBe(height / 2);
+        expect(Number(frames[0].getAttribute("width")) - height).toBeGreaterThanOrEqual(
+          label.width,
+        );
+      },
+    },
+    {
+      shape: "subroutine",
+      spelling: "A[[Subroutine]]",
+      label: "Subroutine",
+      drawn: (frames: Element[], label: { width: number }) => {
+        // A box and an inner bar down each end — the first node on this
+        // board to draw more than one element.
+        expect(frames.map((f) => f.tagName)).toEqual(["rect", "line", "line"]);
+        const box = frames[0];
+        const left = Number(box.getAttribute("x"));
+        const right = left + Number(box.getAttribute("width"));
+        const top = Number(box.getAttribute("y"));
+        const bottom = top + Number(box.getAttribute("height"));
+        const bars = frames.slice(1).map((line) => Number(line.getAttribute("x1")));
+        // Each bar runs the full height of the box, strictly inside it, and
+        // one sits near each end rather than both near one.
+        for (const line of frames.slice(1)) {
+          expect([line.getAttribute("x1"), line.getAttribute("x2")]).toEqual([
+            line.getAttribute("x1"),
+            line.getAttribute("x1"),
+          ]);
+          expect([Number(line.getAttribute("y1")), Number(line.getAttribute("y2"))]).toEqual([
+            top,
+            bottom,
+          ]);
+        }
+        expect(bars[0]).toBeGreaterThan(left);
+        expect(bars[1]).toBeLessThan(right);
+        expect(bars[0] - left).toBe(right - bars[1]);
+        // The label goes *between* the bars, not across one.
+        expect(bars[1] - bars[0]).toBeGreaterThanOrEqual(label.width);
+      },
+    },
+  ] as const;
+
+  /**
+   * The corner radius a frame declares for itself, in user units — `0` when
+   * it declares none and leaves its corners to the theme.
+   *
+   * Read out of the inline `style` attribute because that is where the
+   * renderer writes it, and it writes it there rather than as an `rx`
+   * attribute for a cascade reason: a presentation attribute loses to the
+   * theme's own `.siren-node-frame { rx: var(--siren-node-border-radius) }`,
+   * so a stadium written that way would come back a 6px-cornered box.
+   */
+  const inlineRadius = (frame: Element): number =>
+    Number.parseFloat((frame.getAttribute("style") ?? "").match(/rx:\s*([\d.]+)px/)?.[1] ?? "0");
+
+  it.each(RECT_SHAPES.map((spec) => [spec.spelling, spec.shape, spec] as const))(
+    "draws `%s` end to end as a styleable, animatable %s",
+    (_spelling, _shape, { shape, spelling, label, drawn }) => {
+      // The whole vertical slice through one public call, for the three
+      // shapes that stay a `<rect>`: the spelling parses, the thing that
+      // makes it that shape is drawn, the label fits inside it, and the two
+      // things a rectangle already had — an author's `style` and a place on
+      // the timeline — reach it unchanged.
+      const container = document.createElement("div");
+      const result = render(
+        `flowchart TD
+${spelling} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`,
+        container,
+      );
+
+      expect([shape, result.diagnostics]).toEqual([shape, []]);
+
+      const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+      const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+      // The picture first. `data-siren-shape` is checked after and never
+      // instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      drawn(frames, { width: label.length * 8 + 16 });
+      expect([shape, group.getAttribute("data-siren-shape")]).toEqual([shape, shape]);
+
+      // The punctuation was syntax, so the label is the text inside it.
+      expect([shape, group.querySelector("text")!.textContent]).toEqual([shape, label]);
+
+      // ADR-0008's placement, unchanged by the shape over it — and on every
+      // element the frame is drawn with, so a subroutine's bars cannot look
+      // detached from the box they mark. A shape that names its own corners
+      // writes them ahead of the author's declarations, so `fill:#f00` is
+      // still there and still last.
+      for (const frame of frames) {
+        expect([shape, frame.getAttribute("style")!.endsWith("fill:#f00")]).toEqual([shape, true]);
+      }
+
+      // And it animates: the id and the animation classes are on the `<g>`,
+      // so the controller drives these three without knowing shapes exist.
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, true]);
+      result.controller!.next();
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, false]);
+      expect([shape, group.classList.contains("siren-enter-fade")]).toEqual([shape, true]);
+      expect([shape, frames[0].getAttribute("style")!.endsWith("fill:#f00")]).toEqual([shape, true]);
+    },
+  );
+
+  /**
+   * The three spellings drawn with a curve, each with the thing that makes
+   * it that shape *in the picture* and the fit its label is owed inside it.
+   *
+   * Which spelling names which shape is measured, not remembered: mermaid
+   * 11.17.2 reads `A((Circle))` as `type="circle"`, `A(((Double)))` as
+   * `type="doublecircle"` and `A[(DB)]` as `type="cylinder"`
+   * (`pnpm --filter @siren/core probe`).
+   *
+   * `drawn` is handed the frame elements and the label's own measured box
+   * and asserts both halves at once: the shape is there, and the label is
+   * inside it. Splitting those would let a circle that draws itself and
+   * then clips its own text pass.
+   */
+  const CURVED_SHAPES = [
+    {
+      shape: "circle",
+      spelling: "A((Circle))",
+      label: "Circle",
+      drawn: (frames: Element[], label: { width: number; height: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["circle"]);
+        const r = Number(frames[0].getAttribute("r"));
+        // The label's **corner** is inside the circle, not merely its
+        // width: a circle sized to the width would clip all four corners,
+        // and that is the whole difference this shape makes to layout.
+        expect(Math.hypot(label.width / 2, label.height / 2)).toBeLessThanOrEqual(r);
+        // And the cost of that, stated rather than hidden: the node is as
+        // tall as it is wide, which for a label wider than it is tall means
+        // a very large node. `Circle` is 6 characters — 64 wide, 32 tall
+        // measured — so the circle is over twice as tall as the rectangle
+        // holding the same text.
+        expect(2 * r).toBeGreaterThan(2 * label.height);
+      },
+    },
+    {
+      shape: "double-circle",
+      spelling: "A(((Double)))",
+      label: "Double",
+      drawn: (frames: Element[], label: { width: number; height: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["circle", "circle"]);
+        // Two rings and not one drawn twice: same centre, different radii.
+        expect(frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])).toEqual([
+          frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])[0],
+          frames.map((f) => [f.getAttribute("cx"), f.getAttribute("cy")])[0],
+        ]);
+        const [outer, inner] = frames.map((f) => Number(f.getAttribute("r")));
+        expect(inner).toBeLessThan(outer);
+        // The label clears the **inner** ring, which is the only reason the
+        // outer one is bigger than a plain circle's would be.
+        expect(Math.hypot(label.width / 2, label.height / 2)).toBeLessThanOrEqual(inner);
+      },
+    },
+    {
+      shape: "cylinder",
+      spelling: "A[(DB)]",
+      label: "DB",
+      drawn: (frames: Element[], label: { width: number; height: number }) => {
+        expect(frames.map((f) => f.tagName)).toEqual(["path"]);
+        const d = frames[0].getAttribute("d")!;
+        // The lid is what makes this a cylinder rather than the rounded
+        // rectangle a tube alone would be: two closed subpaths, four arcs.
+        expect(d.match(/Z/g)).toHaveLength(2);
+        expect(d.match(/A/g)).toHaveLength(4);
+
+        // Read the figure back off the path: the arcs' radii, and the four
+        // corner points where the straight sides meet the curves.
+        const [rx, ry] = [...d.matchAll(/A([\d.]+),([\d.]+)/g)][0].slice(1).map(Number);
+        const points = [...d.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map((m) => [
+          Number(m[1]),
+          Number(m[2]),
+        ]);
+        const ys = points.map(([, y]) => y);
+        const lid = Math.min(...ys);
+        const base = Math.max(...ys);
+        // The lid spans the tube, so it is the top of the shape rather than
+        // an ellipse floating inside it.
+        const xs = points.map(([x]) => x);
+        expect(Math.max(...xs) - Math.min(...xs)).toBe(2 * rx);
+
+        // The label is centred on the box — `lid - ry` to `base + ry` — and
+        // clears the lowest point of the lid and the top of the bulge.
+        const middle = (lid - ry + base + ry) / 2;
+        expect(middle - label.height / 2).toBeGreaterThanOrEqual(lid + ry);
+        expect(middle + label.height / 2).toBeLessThanOrEqual(base);
+      },
+    },
+  ] as const;
+
+  it.each(CURVED_SHAPES.map((spec) => [spec.spelling, spec.shape, spec] as const))(
+    "draws `%s` end to end as a styleable, animatable %s",
+    (_spelling, _shape, { shape, spelling, label, drawn }) => {
+      // The whole vertical slice through one public call, for the last
+      // three spellings Mermaid has: it parses, the thing that makes it
+      // that shape is drawn, the label fits inside it, and the two things a
+      // rectangle already had — an author's `style` and a place on the
+      // timeline — reach it unchanged.
+      const container = document.createElement("div");
+      const result = render(
+        `flowchart TD
+${spelling} --> B[Ship it]
+style A fill:#f00
+timeline:
+step 1: enter A fade
+`,
+        container,
+      );
+
+      expect([shape, result.diagnostics]).toEqual([shape, []]);
+
+      const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+      const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+
+      // The picture first. `data-siren-shape` is checked after and never
+      // instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      drawn(frames, { width: label.length * 8 + 16, height: 24 + 8 });
+      expect([shape, group.getAttribute("data-siren-shape")]).toEqual([shape, shape]);
+
+      // The punctuation was syntax, so the label is the text inside it.
+      expect([shape, group.querySelector("text")!.textContent]).toEqual([shape, label]);
+
+      // ADR-0008's placement, on every element the frame is drawn with — so
+      // a double circle's author `fill` paints both rings rather than
+      // leaving a white disc inside a coloured one.
+      for (const frame of frames) {
+        expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+      }
+
+      // And it animates: the id and the animation classes are on the `<g>`,
+      // so the controller drives these three without knowing shapes exist.
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, true]);
+      result.controller!.next();
+      expect([shape, group.classList.contains("siren-pending")]).toEqual([shape, false]);
+      expect([shape, group.classList.contains("siren-enter-fade")]).toEqual([shape, true]);
+      for (const frame of frames) {
+        expect([shape, frame.getAttribute("style")]).toEqual([shape, "fill:#f00"]);
+      }
+    },
+  );
+
+  it("gives the six path shapes no `siren-*` class of their own — what a rectangle emits is exactly what they emit", () => {
+    // Asked because nothing else in the suite would notice the answer
+    // changing. `theme/default.test.ts` checks that every class the
+    // flowchart renderer emits has a rule in the default stylesheet, and
+    // its coverage fixture draws rectangles only; a class emitted by a
+    // hexagon and by nothing else would therefore ship unthemed — invisible
+    // to the suite, plain in the picture — and the fixture would have to
+    // widen to catch it.
+    //
+    // The two documents differ in their node spellings and in nothing else,
+    // so the comparison is about the shapes rather than about the number of
+    // nodes or the presence of an edge.
+    const sirenClasses = (source: string): string[] => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics).toEqual([]);
+      const found = new Set<string>();
+      for (const element of Array.from(result.svg!.querySelectorAll("*"))) {
+        for (const name of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (name.startsWith("siren-")) found.add(name);
+        }
+      }
+      return [...found].sort();
+    };
+
+    const shaped = sirenClasses(`flowchart TD
+A{{Hexagon}}
+B[/Parallelogram/]
+C[\\Parallelogram alt\\]
+D[/Trapezoid\\]
+E[\\Trapezoid alt/]
+F>Asymmetric]
+`);
+    const rectangles = sirenClasses(`flowchart TD
+A[Hexagon]
+B[Parallelogram]
+C[Parallelogram alt]
+D[Trapezoid]
+E[Trapezoid alt]
+F[Asymmetric]
+`);
+
+    expect(shaped).toEqual(rectangles);
+    // Named as well as compared, so the failure of a future shape that
+    // *adds* a class says what the theme now has to paint. The arrowhead's
+    // fill class is in the list because the theme's one `<marker>` is
+    // minted into `<defs>` whether or not anything references it — a fact
+    // about the renderer rather than about these six, and it is on both
+    // sides of the comparison above.
+    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+  });
+
+  it("gives the three rect shapes no `siren-*` class of their own either — including a subroutine's two extra elements", () => {
+    // The question ticket 02 was asked about its six, asked again where it
+    // is most likely to have a different answer: a subroutine draws three
+    // elements, and a second element is where a second class gets invented.
+    // A `siren-node-bar` would ship unthemed without failing anything —
+    // `theme/default.test.ts`'s coverage net can only see classes something
+    // in its fixture renders — so this is the check that says whether the
+    // net has to widen. (It also widened, for the same reason: a claim and
+    // a fixture that could confirm it are not the same thing.)
+    //
+    // The two documents differ in their node spellings and in nothing else.
+    const sirenClasses = (source: string): string[] => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics).toEqual([]);
+      const found = new Set<string>();
+      for (const element of Array.from(result.svg!.querySelectorAll("*"))) {
+        for (const name of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (name.startsWith("siren-")) found.add(name);
+        }
+      }
+      return [...found].sort();
+    };
+
+    const shaped = sirenClasses(`flowchart TD
+A(Round)
+B([Stadium])
+C[[Subroutine]]
+`);
+    const rectangles = sirenClasses(`flowchart TD
+A[Round]
+B[Stadium]
+C[Subroutine]
+`);
+
+    expect(shaped).toEqual(rectangles);
+    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+
+    // And the subroutine's bars wear the frame's own name rather than none
+    // at all, which is what puts them in the same styling story as the box
+    // — the theme strokes them because it strokes a frame.
+    const container = document.createElement("div");
+    const result = render(`flowchart TD\nC[[Subroutine]]\n`, container);
+    const parts = Array.from(
+      result.svg!.querySelectorAll('g.siren-node[data-siren-id="C"] > *'),
+    ).filter((element) => element.tagName !== "text");
+    expect(parts.map((element) => [element.tagName, element.getAttribute("class")])).toEqual([
+      ["rect", "siren-node-frame"],
+      ["line", "siren-node-frame"],
+      ["line", "siren-node-frame"],
+    ]);
+  });
+
+  it("gives the three curved shapes no `siren-*` class of their own either — including a double circle's second ring", () => {
+    // The question asked of ticket 02's six and ticket 03's three, asked a
+    // last time where a new class was most likely: a double circle draws
+    // two elements, and a second element is where a `siren-node-ring` gets
+    // invented. It is not one — both rings wear `siren-node-frame` — so the
+    // answer to "do these shapes emit a class a rectangle does not" is no,
+    // and `theme/default.test.ts`'s coverage net needs no new rule. It does
+    // still need these shapes *in its fixture*: a net can only see classes
+    // something it renders emits, and a claim and a fixture that could
+    // disprove it are not the same thing.
+    //
+    // The two documents differ in their node spellings and in nothing else.
+    const sirenClasses = (source: string): string[] => {
+      const container = document.createElement("div");
+      const result = render(source, container);
+      expect(result.diagnostics).toEqual([]);
+      const found = new Set<string>();
+      for (const element of Array.from(result.svg!.querySelectorAll("*"))) {
+        for (const name of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (name.startsWith("siren-")) found.add(name);
+        }
+      }
+      return [...found].sort();
+    };
+
+    const shaped = sirenClasses(`flowchart TD
+A((Circle))
+B(((Double)))
+C[(DB)]
+`);
+    const rectangles = sirenClasses(`flowchart TD
+A[Circle]
+B[Double]
+C[DB]
+`);
+
+    expect(shaped).toEqual(rectangles);
+    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+
+    // And a double circle's rings both wear the frame's own name rather
+    // than one of them going unnamed, which is what puts them in one
+    // styling story — the theme fills the inner ring because it fills a
+    // frame, and so does an author's `style B fill:#fdd`.
+    const container = document.createElement("div");
+    const result = render(`flowchart TD\nB(((Double)))\n`, container);
+    const parts = Array.from(
+      result.svg!.querySelectorAll('g.siren-node[data-siren-id="B"] > *'),
+    ).filter((element) => element.tagName !== "text");
+    expect(parts.map((element) => [element.tagName, element.getAttribute("class")])).toEqual([
+      ["circle", "siren-node-frame"],
+      ["circle", "siren-node-frame"],
+    ]);
+  });
+
   it("carries a flowchart author's `style` all the way to the DOM: inline style on the node's frame rect, and no attribute at all on a node nothing styled", () => {
     const container = document.createElement("div");
     const source = `flowchart TD
@@ -3884,5 +4573,188 @@ Alice-)Bob: open
     expect(animatable("Ingest-Parse")).toBe(1);
     expect(animatable("Check-Style")).toBe(1);
     expect(animatable("Render-Output")).toBe(1);
+  });
+
+  it("renders examples/flowchart-shapes.srn end to end with zero diagnostics — all fourteen of Mermaid's bracket spellings for a node, each drawing the figure it names", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-shapes"), container);
+
+    // Zero diagnostics of *any* severity, as every closing example before
+    // this one asserts: the `examples/` enumeration test above filters to
+    // error severity, so a warning would slip through it.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- the fourteen spellings, in the document itself ---
+    //
+    // **Asserted against the file's own text, and not only against its
+    // picture.** The picture below catches a rewrite into fourteen
+    // rectangles — that much was checked by doing it — but it cannot catch
+    // a rewrite into a *different spelling of the same figures*, and there
+    // is a known one coming: Mermaid v11's `A@{ shape: cyl }` is this
+    // board's named non-goal and its own board later. A document rewritten
+    // that way would draw an identical picture and quietly cost the
+    // repository its only example of the bracket layer, with every
+    // assertion below still green. Board 4's closing ticket found the same
+    // hole in the same place, one board earlier.
+    //
+    // The patterns match punctuation only. Renaming a node or retitling a
+    // label is an edit to this example nobody should have to defend to a
+    // test; deleting the `[[…]]` that makes one a subroutine is not.
+    const declarations = readExample("flowchart-shapes")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (shape: string, spelling: string, pattern: RegExp): void => {
+      const written = declarations.filter((line) => pattern.test(line));
+      expect(
+        written,
+        `examples/flowchart-shapes.srn no longer declares the ${shape}, \`${spelling}\``,
+      ).not.toEqual([]);
+    };
+    expect(declarations[0]).toBe("flowchart LR");
+    declares("rectangle", "A[text]", /\w\[[^[(/\\][^\]]*\]/);
+    declares("round node", "A(text)", /\w\([^([][^)]*\)/);
+    declares("stadium", "A([text])", /\(\[[^\]]*\]\)/);
+    declares("subroutine", "A[[text]]", /\[\[[^\]]*\]\]/);
+    declares("cylinder", "A[(text)]", /\[\([^)]*\)\]/);
+    declares("circle", "A((text))", /\w\(\([^(][^)]*\)\)/);
+    declares("double circle", "A(((text)))", /\(\(\([^)]*\)\)\)/);
+    declares("asymmetric flag", "A>text]", /\w>[^\]]*\]/);
+    declares("rhombus", "A{text}", /\w\{[^{][^}]*\}/);
+    declares("hexagon", "A{{text}}", /\{\{[^}]*\}\}/);
+    declares("parallelogram", "A[/text/]", /\[\/[^\\]*\/\]/);
+    declares("parallelogram-alt", "A[\\text\\]", /\[\\[^/]*\\\]/);
+    declares("trapezoid", "A[/text\\]", /\[\/[^\\]*\\\]/);
+    declares("trapezoid-alt", "A[\\text/]", /\[\\[^/]*\/\]/);
+
+    /**
+     * What the renderer *drew* for one node, named by the technique it was
+     * drawn with rather than by what the node claims to be.
+     *
+     * Six answers across fourteen shapes, which is the honest reach of this
+     * reader and is deliberately not more: `src/compat/corpus.ts` already
+     * names each of the fourteen outlines exactly (`nodeOutline`), and the
+     * three `it.each` blocks above already walk every spelling's vertices.
+     * A third copy of that reading here would pin the example against the
+     * renderer twice over and tell nobody anything new. What this one is
+     * for is the failure a *document* can have: losing the shapes it exists
+     * to demonstrate. Rewriting all fourteen nodes as `X[label]` collapses
+     * every entry below onto one answer, which is what it has to catch.
+     */
+    const drawnAs = (group: Element): string => {
+      const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+      if (frames.length === 0) return "nothing named siren-node-frame";
+      if (frames.every((f) => f.tagName === "circle")) {
+        const centres = new Set(
+          frames.map((f) => `${f.getAttribute("cx")},${f.getAttribute("cy")}`),
+        );
+        // Concentric, and counted. A double circle's first frame is a
+        // `<circle>` exactly as a plain circle's is, so stopping at the
+        // first element would name both of them the same thing.
+        return frames.length === 1
+          ? "one <circle>"
+          : `${frames.length} <circle>s about ${centres.size} centre`;
+      }
+      if (frames[0].tagName === "path") return "a <path>";
+      if (frames[0].tagName !== "rect") return `an unnamed <${frames[0].tagName}> frame`;
+
+      // Four of the fourteen are a `<rect>`, so the tag name names none of
+      // them. What separates them is the corner radius the *renderer* gave
+      // the box — written inline, or not written at all when the corners
+      // are `--siren-node-border-radius`'s business — and the inner bars a
+      // subroutine draws beside it.
+      const height = Number(frames[0].getAttribute("height"));
+      const declared = (frames[0].getAttribute("style") ?? "").match(/rx:\s*([\d.]+)px/);
+      const corners =
+        declared === null
+          ? "the theme's corners"
+          : Number(declared[1]) === height / 2
+            ? "semicircular ends"
+            : "a corner radius of its own";
+      const bars = group.querySelectorAll("line.siren-node-frame").length;
+      return bars === 0
+        ? `a <rect> with ${corners}`
+        : `a <rect> with ${corners} and ${bars} inner bars`;
+    };
+
+    // Every expectation below is what **mermaid 11.17.2 itself** records for
+    // this document, read out with `packages/core/scripts/mermaid-probe.mjs`
+    // — fourteen vertices, in this order, with these types. Mermaid's names
+    // for them are its own (`square`, `lean_right`, `lean_left`, `odd`,
+    // `doublecircle`, `inv_trapezoid`); the middle column is Siren's
+    // `NodeShape` spelling of the same figure, and the mapping is the whole
+    // of what "the same diagram" means here — the board's decision 1 leaves
+    // the proportions to the theme and holds only the kind.
+    const nodes = Array.from(svg.querySelectorAll("g.siren-node")).map((g) => [
+      g.getAttribute("data-siren-id"),
+      // The picture first, and `data-siren-shape` after it and never
+      // instead: board 4 reclassified two corpus rows on exactly that
+      // point, and an attribute is not the picture.
+      drawnAs(g),
+      g.getAttribute("data-siren-shape"),
+    ]);
+    expect(nodes).toEqual([
+      // Mermaid: type="stadium"
+      ["Start", "a <rect> with semicircular ends", "stadium"],
+      // Mermaid: type="lean_right"
+      ["Intake", "a <path>", "parallelogram"],
+      // Mermaid: type="hexagon"
+      ["Prep", "a <path>", "hexagon"],
+      // Mermaid: type="diamond"
+      ["Check", "a <path>", "rhombus"],
+      // Mermaid: type="square" — the one shape Siren has always drawn.
+      ["Parse", "a <rect> with the theme's corners", "rect"],
+      // Mermaid: type="cylinder"
+      ["Store", "a <path>", "cylinder"],
+      // Mermaid: type="subroutine"
+      ["Render", "a <rect> with the theme's corners and 2 inner bars", "subroutine"],
+      // Mermaid: type="lean_left"
+      ["Log", "a <path>", "parallelogram-alt"],
+      // Mermaid: type="doublecircle"
+      ["Done", "2 <circle>s about 1 centre", "double-circle"],
+      // Mermaid: type="trapezoid"
+      ["Review", "a <path>", "trapezoid"],
+      // Mermaid: type="inv_trapezoid"
+      ["Entry", "a <path>", "trapezoid-alt"],
+      // Mermaid: type="circle"
+      ["Hop", "one <circle>", "circle"],
+      // Mermaid: type="round"
+      ["Retry", "a <rect> with a corner radius of its own", "round"],
+      // Mermaid: type="odd"
+      ["Flag", "a <path>", "asymmetric"],
+    ]);
+
+    // Fourteen distinct shapes, not fourteen nodes that happen to include a
+    // few: this is the file's whole reason to exist, and the assertion above
+    // would still pass with a shape drawn twice and another one missing if
+    // someone edited both columns to agree.
+    const shapes = nodes.map(([, , shape]) => shape);
+    expect(new Set(shapes).size).toBe(14);
+
+    // --- and every one of them animates, whatever element draws it ---
+    //
+    // The board's outcome claim, made by a document rather than by a unit
+    // test: a `<path>` frame, a `<circle>` frame and a `<rect>` frame all
+    // animate exactly as a rectangle already did, because the id and the
+    // animation classes are on the enclosing `<g>` and the controller has
+    // never known that shapes exist (the board's decision 3). A shape that
+    // could be drawn but not revealed would be half a feature, and nothing
+    // in the picture above would say so.
+    expect(result.controller!.totalSteps).toBe(9);
+    const pending = () =>
+      Array.from(svg.querySelectorAll("g.siren-node.siren-pending"))
+        .map((g) => g.getAttribute("data-siren-id"))
+        .sort();
+    // Every one of the fourteen is a timeline target, so at step 0 the
+    // whole diagram is waiting — including the four the timeline would
+    // reach by accident if it named only the `<path>`-drawn ones.
+    expect(pending()).toEqual(nodes.map(([id]) => id).sort());
+    for (let step = 0; step < result.controller!.totalSteps; step += 1) {
+      result.controller!.next();
+    }
+    expect(pending()).toEqual([]);
   });
 });

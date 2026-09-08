@@ -91,6 +91,24 @@ A `--siren-*` CSS custom property in `packages/core/src/theme/default.css` — t
 truth for the diagram's default colors, sizing, and motion timing. Consumers theme by
 redeclaring these in their own CSS, not by passing a JS theme object — see
 [ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md).
+**One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
+for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
+`.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the
+**rectangle** and the **subroutine**. Ten of the remaining twelve are drawn with a `<path>` or a
+`<circle>`, neither of which has an `rx` property at all, so nothing the theme declares can land on
+them — a *consequence* of the element each shape is drawn with, and the right behavior, because a
+diamond has no corners to round. It is load-bearing rather than merely harmless for the cylinder,
+which is drawn with a `<path>` instead of the obvious `<ellipse>` precisely so that it holds: on an
+ellipse `rx` is a geometry property, and this token would have flattened the lid, which is the
+figure rather than a decoration of it. The other two, `round` and `stadium`, *are* `<rect>`s that
+the token could reach, and it is kept off them by *decision*: the renderer writes each one an
+inline `rx` computed from the node's own height, and an inline declaration outranks every author
+stylesheet by cascade origin. A stadium whose ends stopped being semicircles because someone
+retuned a token would not be a stadium, and a round node flattened to `0` alongside every rectangle
+would have lost the one thing that distinguishes it. The price is that the token has no say in
+*how* round `A(Round)` is; that is a proportion, and it is the renderer's. So a consumer
+redeclaring this token changes rectangles and subroutines and nothing else — which is a documented
+token silently narrowing its reach, and the reason it is written down here.
 _Avoid_: CSS variable, theme variable
 
 **Id scope**:
@@ -178,10 +196,33 @@ _Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre d
 
 **Node**:
 One box in a flowchart, declared `A[label]` or created implicitly by being named in an edge — the
-flowchart counterpart of a class diagram's **class** and a sequence diagram's **participant**. A
-node has exactly one shape today; Mermaid's other shapes are unimplemented rather than
-deliberately excluded.
-_Avoid_: box, vertex, block, state
+flowchart counterpart of a class diagram's **class** and a sequence diagram's **participant**.
+
+A node is drawn as one of **fourteen shapes**, named by the brackets it is declared with, which is
+the whole of Mermaid's bracket layer: `rect` (`A[x]`, and every node nobody spelled otherwise),
+`round` (`A(x)`), `stadium` (`A([x])`), `subroutine` (`A[[x]]`), `cylinder` (`A[(x)]`), `circle`
+(`A((x))`), `double-circle` (`A(((x)))`), `asymmetric` (`A>x]`), `rhombus` (`A{x}`), `hexagon`
+(`A{{x}}`), `parallelogram` (`A[/x/]`), `parallelogram-alt` (`A[\x\]`), `trapezoid` (`A[/x\]`),
+`trapezoid-alt` (`A[\x/]`). The brackets are syntax and are not drawn. `NodeShape` is a closed
+type and `GraphNode.shape` is required rather than optional, so "no shape" is not a second state
+for anything downstream to fold into `rect` for itself.
+
+Three things follow, and each is a decision rather than an accident. A shape's **kind** is the
+compatibility contract and its **proportions** are the theme's — `A{X}` must be a diamond, how wide
+that diamond is belongs here rather than to Mermaid, which is ADR-0004's line applied to geometry.
+A label fits **inside** the shape rather than inside the box the shape is inscribed in, so each
+shape tells `layoutGraph` how much bounding box its text needs; a diamond given a rectangle's box
+would clip its own label on every diagonal. And whatever element draws the frame — one `<rect>` or
+one `<path>`, two `<circle>`s for a double circle, a `<rect>` and two `<line>`s for a subroutine —
+every one of them carries the class `siren-node-frame`, so an author's `style`, the theme and a
+`timeline:` block reach all fourteen exactly as they reached a rectangle. One documented token is
+the exception, and it is stated under **Design token**.
+
+Mermaid's v11 `A@{ shape: cyl }` spelling is a second, larger vocabulary of about thirty names and
+is unimplemented: a line spelling one is refused as an unrecognized flowchart line rather than
+drawn as something else. Its own board, and it reuses all of this.
+_Avoid_: box, vertex, block, state, "the shape" for one drawn element (a node's frame may be
+several elements — say "frame" for what is drawn and "shape" for which of the fourteen it is)
 
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,

@@ -35,6 +35,36 @@ export interface Diagnostic {
  */
 export type Direction = "TB" | "BT" | "LR" | "RL";
 
+/**
+ * The shape a flowchart node is drawn as — the *kind* of outline, never its
+ * proportions. Mermaid spells fourteen of them with brackets, and the
+ * compatibility condition is that `A{X}` draws a diamond, not that the
+ * diamond is Mermaid's own diamond: Siren has had its own theme, font and
+ * spacing since ADR-0004, so it has never drawn a Mermaid-identical
+ * picture, and geometry is no different.
+ *
+ * The full set is named here rather than grown one member at a time, so
+ * that every stage downstream is written against the finished vocabulary
+ * and a shape arriving later is an implementation, not a contract change.
+ * All fourteen have since landed, so this type and what the parser accepts
+ * are now the same set: no member of this union is refused anywhere.
+ */
+export type NodeShape =
+  | "rect"
+  | "round"
+  | "stadium"
+  | "subroutine"
+  | "cylinder"
+  | "circle"
+  | "double-circle"
+  | "asymmetric"
+  | "rhombus"
+  | "hexagon"
+  | "parallelogram"
+  | "parallelogram-alt"
+  | "trapezoid"
+  | "trapezoid-alt";
+
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =
   | "fade"
@@ -53,6 +83,15 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
 export interface SirenNode {
   id: string;
   label: string;
+  /**
+   * The shape its bracket spelling named — `"rect"` for a bare `A`, for
+   * `A[label]`, and for `A:::name`.
+   *
+   * Required, not optional, for the reason `GraphNode.style` is: an absent
+   * field would make "no shape" a second state that every reader has to
+   * fold into `"rect"` for itself, and one of them eventually would not.
+   */
+  shape: NodeShape;
   line?: number;
   column?: number;
 }
@@ -571,6 +610,17 @@ export interface PositionedSequenceDiagram {
 export interface GraphNode {
   id: string;
   label: string;
+  /**
+   * The shape this node is drawn as, carried unchanged from the spelling
+   * the author used. Required for the same reason `style` is: "no shape"
+   * is not a second state, it is `"rect"`.
+   *
+   * Layout reads it to decide how much bounding box the label needs — a
+   * label fits inside the *shape*, not inside the box the shape is
+   * inscribed in — and the renderer reads it to decide what element to
+   * draw. Neither of them re-derives it from the source.
+   */
+  shape: NodeShape;
   /**
    * Author declarations to emit as this node's inline `style` attributes, in
    * declaration order, with rejected values already dropped and each half
