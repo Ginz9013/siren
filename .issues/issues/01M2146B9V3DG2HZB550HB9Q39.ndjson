@@ -1,0 +1,2 @@
+{"id":"01M2146B9VT1NKHQ4C1H47Z27B","t":1,"a":"83a1","op":"create","title":"確認 nook 在 Siren 的流程可用"}
+{"id":"01M2146BAJP9DGRDWWP5ZAM8YG","t":2,"a":"83a1","op":"set","k":"description","v":"第一張 issue，用來確認 board 從建立到關閉整條路徑都通：\n\n- `nook new` 建得起來\n- `nook list` 看得到\n- `nook comment` / `nook mv` 改得動\n- `.issues/` 與 `.gitattributes` 進得了版控\n\n確認完直接 cancel 或 done 掉即可。"}

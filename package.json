@@ -8,5 +8,8 @@
   "scripts": {
     "test": "pnpm -r test",
     "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "gitnook": "^0.1.0"
   }
 }

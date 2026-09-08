@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      gitnook:
+        specifier: ^0.1.0
+        version: 0.1.0
 
   packages/board:
     dependencies:
@@ -952,6 +956,11 @@ packages:
   get-proto@1.0.1:
     resolution: {integrity: sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g==}
     engines: {node: '>= 0.4'}
+
+  gitnook@0.1.0:
+    resolution: {integrity: sha512-tdrJAeGUU8WdAqwhR5pvXE9rZrvbGEimVEiPsVtrDYb2QUYi+KOo8NJR6Y89xaVhP9vqOGBW8HHWoxBfecisHQ==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
@@ -2217,6 +2226,8 @@ snapshots:
     dependencies:
       dunder-proto: 1.0.1
       es-object-atoms: 1.1.2
+
+  gitnook@0.1.0: {}
 
   gopd@1.2.0: {}
 
