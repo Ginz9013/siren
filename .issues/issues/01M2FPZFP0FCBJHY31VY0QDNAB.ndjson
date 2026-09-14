@@ -1,0 +1,4 @@
+{"id":"01M2FPZFP0V5D7YDJP2DT2NADE","t":1,"a":"83a1","op":"create","title":"board: 跨頁面重新整理保留 view/step 狀態"}
+{"id":"01M2FPZFPA7HAMRHMKJ9M3FNCH","t":2,"a":"83a1","op":"set","k":"description","v":"`.scratch/siren-board-slice/spec.md` v1 non-goals：「Cross-reload state persistence (step position, etc.).」之後沒有任何 board 再提過。\n\n目前重新整理頁面後，board 一律回到初始 step 0 與 fit-to-container 的 view，consumer 沒有任何方式讓使用者「回到上次看到的地方」。\n\n需要先決定的：存哪裡（`localStorage`/URL query string/consumer 自己接手）、存的 key 用什麼區分同頁多個 board instance、以及這是不是該由 board 自己做還是提供足夠的 hook（例如上一張票的 `onViewChange` + `onStepChange`）讓 consumer 自己存——後者可能更符合「board 是薄殼，不擁有跟 render 無關的狀態」這條既有邊界（ADR-0005）。這是設計決策，動工前建議先問。"}
+{"id":"01M2FPZFPAHX5SPTBNBBTMFK42","t":3,"a":"83a1","op":"label.add","v":"board"}
+{"id":"01M2FPZFPAWVKQSXPCX1V8Z8FX","t":4,"a":"83a1","op":"label.add","v":"feature"}

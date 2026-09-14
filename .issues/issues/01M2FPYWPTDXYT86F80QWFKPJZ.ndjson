@@ -1,0 +1,4 @@
+{"id":"01M2FPYWPTSEM0XB0FSPWJMNV1","t":1,"a":"83a1","op":"create","title":"board: 觸控/pinch + 鍵盤 pan/zoom"}
+{"id":"01M2FPYWQ4CAN7NY0H43SYMQ9A","t":2,"a":"83a1","op":"set","k":"description","v":"`.scratch/siren-board-viewport-slice/spec.md` non-goals 明寫：「Touch/pinch gestures, double-click-to-zoom, keyboard zoom/pan — desktop mouse only in this slice.」\n\n目前 `packages/board/src/viewport.ts` 只處理滑鼠 drag-to-pan 與 wheel-to-zoom（ADR-0007）。行動裝置與鍵盤操作使用者完全無法 pan/zoom 一張圖——沒有替代路徑。\n\n範圍：\n- 觸控單指拖曳 pan、雙指 pinch 縮放\n- 雙擊縮放（desktop 的常見手勢補完）\n- 鍵盤縮放/平移（無障礙需求，例如方向鍵 pan、+/- 或 Ctrl+滾輪等價鍵縮放）\n\n需要決定：鍵盤操作要不要先取得 focus（tabindex？）、觸控手勢會不會跟頁面滾動搶事件（`touch-action` CSS）。這兩個是設計決策，動工前建議先問。\n\n沒有排進任何 spec 的「下一步」順序，純粹是 non-goals 段落裡沒人排過優先度的一條。"}
+{"id":"01M2FPYWQ4MGPBRVEKXXNMDER6","t":3,"a":"83a1","op":"label.add","v":"board"}
+{"id":"01M2FPYWQ4F5GKAFP1H45XG8KZ","t":4,"a":"83a1","op":"label.add","v":"a11y"}

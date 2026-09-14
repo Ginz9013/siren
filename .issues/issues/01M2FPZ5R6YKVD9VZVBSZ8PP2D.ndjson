@@ -1,0 +1,4 @@
+{"id":"01M2FPZ5R641MT9R1ERD2FSXEX","t":1,"a":"83a1","op":"create","title":"board: pan/zoom 邊界回彈動畫(rubber-band/overshoot)"}
+{"id":"01M2FPZ5RG6WXCB6FRBVN2C0H1","t":2,"a":"83a1","op":"set","k":"description","v":"`.scratch/siren-board-viewport-slice/spec.md` non-goals：「Rubber-band/overshoot animation at pan/zoom bounds — deferred as a later polish pass.」\n\n目前拖到邊界是硬夾住（hard clamp），沒有回彈手感。純 UX 打磨，不影響功能正確性，優先度低於功能性缺口。"}
+{"id":"01M2FPZ5RGGZ4VYFS1W2NDJCXW","t":3,"a":"83a1","op":"label.add","v":"board"}
+{"id":"01M2FPZ5RGJAPDQ4KH8W7959RF","t":4,"a":"83a1","op":"label.add","v":"polish"}

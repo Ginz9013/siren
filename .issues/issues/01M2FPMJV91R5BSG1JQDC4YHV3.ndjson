@@ -1,0 +1,4 @@
+{"id":"01M2FPMJV9FB16TJFW1QEH41DX","t":1,"a":"83a1","op":"create","title":"classDiagram: lollipop (A ()-- B)"}
+{"id":"01M2FPMJVM17Q5FBZBHKEK9AFS","t":2,"a":"83a1","op":"set","k":"description","v":"roadmap 排定的順序第 3 項，這批裡最小的一張：`ClassRelationshipEnd` 多一個值，renderer 多畫一個圈。\n\n語料庫缺口：`cls-lollipop`。classDiagram 目前 12/13，只差這一個構造。單獨一張票就夠。\n\n詳見 `.dev/mermaid-diagram-roadmap.md`「相容性缺口剩下什麼」表格第 7 列。"}
+{"id":"01M2FPMJVMY0ZDRKJ6X2XZMPFX","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M2FPMJVM103ZGWRBF3FT9RKP","t":4,"a":"83a1","op":"label.add","v":"class"}
