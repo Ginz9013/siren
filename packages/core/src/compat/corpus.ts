@@ -1525,8 +1525,19 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A[Start]
       click A href "https://example.com"`,
-    status: "rejected",
+    status: "supported",
     meaning: "`click A href \"url\"` makes the node a link.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector(
+        'a.siren-link > g.siren-node[data-siren-id="A"]',
+      );
+      if (link === null) throw new Error('node "A" was not wrapped in an <a class="siren-link">');
+      expectSame(
+        "A's link href",
+        link.parentElement?.getAttribute("href"),
+        "https://example.com",
+      );
+    },
   },
   {
     id: "fc-click-call",
@@ -1534,8 +1545,54 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A[Start]
       click A call showDetails()`,
-    status: "rejected",
+    status: "supported",
     meaning: "`click A call fn()` makes the node call back into the host.",
+    assert: (result) => {
+      const node = svgOf(result).querySelector('g.siren-node[data-siren-id="A"]');
+      if (node === null) throw new Error('no node "A" was drawn');
+      expectSame("A's click callback", node.getAttribute("data-siren-click"), "showDetails");
+      expectSame("A's click argument", node.getAttribute("data-siren-click-arg"), null);
+    },
+  },
+  {
+    id: "fc-click-target",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start]
+      click A href "https://example.com" "tip" _blank`,
+    status: "rejected",
+    meaning:
+      "`click A href \"url\" \"tip\" _blank` opens the link in a new tab — the " +
+      "target attribute trailing the tooltip. Siren reads the 2- and 3-argument " +
+      "forms of `click ... href` and refuses this fourth argument by name " +
+      "(`CLICK_HREF_RE` is anchored with `$`), rather than truncating it to the " +
+      "form it does read.",
+  },
+  {
+    id: "fc-click-bare-callback",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start]
+      click A myFn`,
+    status: "rejected",
+    meaning:
+      "`click A myFn` is Mermaid's bare callback-name shorthand — a different " +
+      "semantic from `click A call fn()`, not merely a shorter spelling of it " +
+      "(Mermaid passes the clicked node's id to the named function rather than " +
+      "the literal argument an author wrote). Siren draws only the `call fn()` " +
+      "form.",
+  },
+  {
+    id: "fc-click-tooltip-only",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start]
+      click A "tip"`,
+    status: "rejected",
+    meaning:
+      "`click A \"tip\"` gives a node a tooltip with no href or call attached " +
+      "to it. Siren's tooltip is carried on an `href`/`call` interaction's own " +
+      "trailing string; there is no interaction-less spelling of it yet.",
   },
   {
     id: "fc-acc-title",

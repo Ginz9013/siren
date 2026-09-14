@@ -4,6 +4,7 @@ import type {
   EdgeEnd,
   EdgeLine,
   FlowchartDocument,
+  Interaction,
   LinkStyleDecl,
   NodeShape,
   ParseResult,
@@ -1125,6 +1126,55 @@ function readSubgraphTitle(
 const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
 
 /**
+ * `click A href "https://example.com"`, with Mermaid's optional trailing
+ * tooltip string — the 2- and 3-argument forms only.
+ *
+ * Anchored with `$`, exactly as the class diagram's own `CLICK_HREF_RE` is,
+ * so a form this does not read — the target attribute, `click A href "url"
+ * "tip" _blank` or `click A href "url" _blank` — falls all the way through
+ * to "Unrecognized flowchart line" rather than silently matching a truncated
+ * read of it. Measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`: both are valid Mermaid and neither is this
+ * board's to implement.
+ *
+ * The URL is captured as written, exactly as the class diagram's does — the
+ * `http`/`https`/`mailto` allowlist is `resolveInteractions`' job, not this
+ * parser's, and that resolver is shared rather than copied.
+ */
+const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+
+/**
+ * `click A call callbackFn()`, with an optional literal argument and
+ * Mermaid's optional trailing tooltip: `click A call fn("arg") "tip"`.
+ *
+ * Spelled exactly as the class diagram's `CLICK_CALL_RE` is, and for the
+ * same reason: `click A myFn` — the bare callback-name shorthand, a
+ * different Mermaid semantic from `call fn()` — has no parentheses to match
+ * this pattern's `\(([^)]*)\)`, so it falls through rather than being
+ * silently read as a call with no arguments.
+ */
+const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$/;
+
+/**
+ * Strips one layer of surrounding quotes from a `call fn("arg")` argument,
+ * and reads an empty argument list as no argument at all.
+ *
+ * Duplicated from `parseClassDiagram`'s function of the same name rather
+ * than imported — that one is private to its module, and pulling it out
+ * into a shared file for seven lines used by exactly two callers would be
+ * the kind of premature sharing `resolveInteractions` itself was not: this
+ * one is small enough that two copies cost less than a third module.
+ */
+function callArgument(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const quoted = /^"([^"]*)"$/.exec(trimmed);
+  return quoted === null ? trimmed : quoted[1];
+}
+
+/**
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
  * node, spelled exactly as a class diagram spells it.
  */
@@ -1205,6 +1255,7 @@ export function parseFlowchart(source: string): ParseResult {
   const edges: SirenEdge[] = [];
   const styles: StyleDecl[] = [];
   const linkStyles: LinkStyleDecl[] = [];
+  const interactions: Interaction[] = [];
   const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
@@ -1619,6 +1670,43 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
+      // Checked before `CLASS_DEF_RE` and before the node-declaration
+      // fallback, so `click A href "..."` is never misread as either — a
+      // click statement carries no arrow, so it never reached the block
+      // above, but it does reach every pattern below unless it is refused
+      // here first.
+      const clickHrefMatch = CLICK_HREF_RE.exec(line);
+      if (clickHrefMatch !== null) {
+        // Naming a node here does not declare it, exactly as naming one in a
+        // `linkStyle` address does not: only an edge or a declaration of its
+        // own does that. An interaction on a node that was never declared is
+        // `buildFlowchartModel`'s to resolve.
+        interactions.push({
+          interactionKind: "href",
+          targetId: clickHrefMatch[1],
+          action: clickHrefMatch[2],
+          argument: null,
+          tooltip: clickHrefMatch[3] ?? null,
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const clickCallMatch = CLICK_CALL_RE.exec(line);
+      if (clickCallMatch !== null) {
+        interactions.push({
+          interactionKind: "call",
+          targetId: clickCallMatch[1],
+          action: clickCallMatch[2],
+          argument: callArgument(clickCallMatch[3]),
+          tooltip: clickCallMatch[4] ?? null,
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
       const classDefMatch = CLASS_DEF_RE.exec(line);
       if (classDefMatch !== null) {
         // A definition targets nothing: which nodes end up with it is decided
@@ -1846,6 +1934,7 @@ export function parseFlowchart(source: string): ParseResult {
     subgraphs,
     styles,
     linkStyles,
+    interactions,
     timeline,
   };
 

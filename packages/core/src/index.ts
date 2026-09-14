@@ -137,8 +137,11 @@ function establishStepZero(controller: AnimationController): void {
  * All three return a working controller — one with `totalSteps: 0` when the
  * document declares no `timeline:` block. Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
- * from every stage. A class diagram also has `options.onClick`, if one was
- * given, attached to whichever of its classes the author made clickable.
+ * from every stage. A class diagram and a flowchart both have
+ * `options.onClick`, if one was given, attached to whichever of their
+ * classes or nodes the author made clickable with a `call` interaction; a
+ * sequence diagram accepts no interaction directives at all, so it wires
+ * nothing.
  */
 export function render(
   source: string,
@@ -168,8 +171,6 @@ export function render(
 
     container.replaceChildren(classSvg);
 
-    // The class diagram is the only kind that emits a click hook today, so
-    // this is the only branch that wires one up.
     if (options.onClick !== undefined) {
       attachClickHooks(classSvg, options.onClick);
     }
@@ -218,6 +219,15 @@ export function render(
   const svg = renderToSVG(positioned);
 
   container.replaceChildren(svg);
+
+  // A flowchart's `call` interactions are hooked on the same terms as a
+  // class diagram's: `wrapInteraction` stamped `data-siren-click` (and, when
+  // there is one, `data-siren-click-arg`) onto whichever nodes the author
+  // made callbacks, and this reads it back exactly as `attachClickHooks`
+  // already does for the other kind.
+  if (options.onClick !== undefined) {
+    attachClickHooks(svg, options.onClick);
+  }
 
   const controller = createAnimationController(svg, positioned.timeline);
   establishStepZero(controller);

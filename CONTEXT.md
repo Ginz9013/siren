@@ -455,11 +455,14 @@ classes — say "the apply-directive" for the statement, and see **Class**), lin
 `linkStyle` is a directive spelled one way)
 
 **Interaction target**:
-A class the author made clickable, with `click X href "url"` / `link X "url"` (rendered as an
-`<a class="siren-link">` wrapper) or `click X call fn()` / `callback X "fn"` (rendered as a
-`data-siren-click` hook that `render()` reports to `options.onClick`). Both forms are author input
-reaching a live sink, so the URL is checked against an `http`/`https`/`mailto` allowlist — a
-scheme-relative or otherwise disallowed URL is dropped with an error diagnostic — and a callback
-is only ever a *name* handed to the host, never a function this package looks up and invokes.
-_Avoid_: link (that is one of the two forms), handler, action (that is the callback-name field of
-one, not the whole thing), hotspot
+A class or a flowchart node the author made clickable, with `click X href "url"` (rendered as an
+`<a class="siren-link">` wrapper) or `click X call fn()` (rendered as a `data-siren-click` hook
+that `render()` reports to `options.onClick`). Both forms are author input reaching a live sink,
+so the URL is checked against an `http`/`https`/`mailto` allowlist — a scheme-relative or otherwise
+disallowed URL is dropped with an error diagnostic — and a callback is only ever a *name* handed to
+the host, never a function this package looks up and invokes. A class diagram additionally accepts
+`link X "url"` and `callback X "fn"` as older, standalone spellings of the same two directives; a
+flowchart does not — `link`/`callback` are not valid flowchart Mermaid syntax at all (measured
+against mermaid 11.17.2), so a flowchart only ever reaches this concept through `click`.
+_Avoid_: link (that is one of the two forms, and only for a class diagram at that), handler, action
+(that is the callback-name field of one, not the whole thing), hotspot

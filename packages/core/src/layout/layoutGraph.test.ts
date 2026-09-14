@@ -28,9 +28,9 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null },
-      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       { id: "A-B", from: "A", to: "B", ...PLAIN_ARROW, style: { frame: [], text: [] } },
@@ -153,9 +153,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null },
-        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null },
-        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -231,8 +231,8 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: shapes.flatMap((shape) => [
-        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null },
-        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null },
+        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
       ]),
       edges: [],
       subgraphs: [],
@@ -307,10 +307,10 @@ describe("layoutGraph", () => {
       direction: "TB",
       nodes: [
         ...shapes.flatMap((shape) => [
-          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null },
-          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null },
+          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
+          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
         ]),
-        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] }, parentId: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -369,9 +369,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null },
-        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] }, parentId: null },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -430,9 +430,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] }, parentId: null },
-        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] }, parentId: null },
-        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null },
+        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -498,9 +498,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] }, parentId: null },
-        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] }, parentId: null },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -625,8 +625,8 @@ describe("how long an edge holds its endpoints apart", () => {
   const twoNodes = (minLength: number): GraphModel => ({
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       {
@@ -695,8 +695,8 @@ describe("the room an edge label is given", () => {
   ): GraphModel => ({
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       {
@@ -851,6 +851,7 @@ describe("a subgraph's frame", () => {
     shape: "rect" as const,
     style: { frame: [], text: [] },
     parentId,
+    interaction: null,
   });
 
   const edge = (from: string, to: string) => ({

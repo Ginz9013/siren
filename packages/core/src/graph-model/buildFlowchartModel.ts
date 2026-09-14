@@ -12,6 +12,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { generatedId } from "./generatedId";
+import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
@@ -59,6 +60,19 @@ export function buildFlowchartModel(
     // re-deciding it here would be the second opinion that split is meant
     // to prevent.
     nodeById.get(targetId)!.style = style;
+  }
+
+  // The same resolver `resolveStyles` above already shares with the class
+  // diagram, one URL allowlist over: nothing here looks at a node, so
+  // `resolveInteractions` reads a flowchart's `click` statements without
+  // knowing the kind it was handed. A node with no interaction of its own
+  // keeps the `null` it was built with.
+  for (const interaction of resolveInteractions(
+    document.interactions,
+    new Set(nodeById.keys()),
+    diagnostics,
+  )) {
+    nodeById.get(interaction.targetId)!.interaction = interaction;
   }
 
   // The same resolver, the same gate, a different set of ids — reusing it
@@ -185,6 +199,10 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
         // in the state every reader downstream expects rather than in a
         // second one.
         parentId: null,
+        // Filled in by the `resolveInteractions` loop below, for the nodes
+        // an interaction actually targets. `null` here rather than left out,
+        // the same empty-not-absent rule `style` and `parentId` follow.
+        interaction: null,
       });
       continue;
     }

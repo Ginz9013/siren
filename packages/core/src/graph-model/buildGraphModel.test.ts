@@ -20,6 +20,7 @@ describe("buildGraphModel", () => {
   it("assigns edge ids of the form fromId-toId for distinct pairs", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -46,6 +47,7 @@ describe("buildGraphModel", () => {
   it("suffixes the id of a second edge between the same pair with #2", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -71,6 +73,7 @@ describe("buildGraphModel", () => {
   it("resolves timeline entries against node/edge ids, grouping by step, and leaves elements never mentioned immediately visible", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -118,6 +121,7 @@ describe("buildGraphModel", () => {
   it("drops a timeline entry referencing an unknown id, reports an error diagnostic, and still builds the graph", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -150,6 +154,7 @@ describe("buildGraphModel", () => {
     // is the label's own, applied to the shape rather than invented for it.
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "Is it ready?", shape: "rhombus" },
@@ -167,14 +172,15 @@ describe("buildGraphModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null },
-      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
   });
 
   it("keeps the first-seen label and warns when a node id is declared twice with conflicting labels", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "Start", shape: "rect" },
@@ -191,7 +197,7 @@ describe("buildGraphModel", () => {
 
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
@@ -200,6 +206,7 @@ describe("buildGraphModel", () => {
   it("sets totalSteps to 0 and leaves every element immediately visible when there is no timeline block", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -223,6 +230,7 @@ describe("buildGraphModel", () => {
   it("keeps the first occurrence of a duplicate enter or exit action on the same target and warns", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -263,6 +271,7 @@ describe("buildGraphModel", () => {
     // effect actually applies.
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
@@ -290,6 +299,7 @@ describe("buildGraphModel", () => {
   it("drops a highlight/exit/unhighlight action whose step precedes the target's visibility step, reporting an error, while the rest of the graph still builds", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -322,6 +332,7 @@ describe("buildGraphModel", () => {
   it("allows exit on an element that was never entered (visible from step 0) at any later step", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
@@ -345,6 +356,7 @@ describe("buildGraphModel", () => {
   it("allows a highlight at the exact step its target enters (not just strictly after)", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "B", label: "B", shape: "rect" }],
       edges: [],
@@ -372,6 +384,7 @@ describe("buildGraphModel", () => {
   it("drops exit/highlight/unhighlight actions referencing an unknown id, including edge ids, reporting an error each", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -404,6 +417,7 @@ describe("buildGraphModel", () => {
   it("resolves all four action kinds, grouped by step, with kind/targetId/effect intact per entry", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
@@ -441,6 +455,7 @@ describe("buildGraphModel", () => {
   it("warns when a node exits while an edge connected to it never exits, since the edge would render with a missing endpoint", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -474,6 +489,7 @@ describe("buildGraphModel", () => {
   it("warns when a node exits before an edge connected to it (which does eventually exit, but too late)", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -501,6 +517,7 @@ describe("buildGraphModel", () => {
   it("does not warn when the connected edge exits at or before the node, or when neither endpoint ever exits", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -562,6 +579,7 @@ describe("buildGraphModel", () => {
   it("dispatches a kind: \"flowchart\" document to buildFlowchartModel, leaving model null and populating graph", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
@@ -577,7 +595,7 @@ describe("buildGraphModel", () => {
     expect(model).toBeNull();
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
   });
 
@@ -621,6 +639,7 @@ describe("buildGraphModel", () => {
   it("resolves a flowchart's `style` statements onto the nodes they name, leaving an unstyled node with no declarations", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -665,6 +684,7 @@ describe("buildGraphModel", () => {
   it("reports a flowchart `style` on an id no node declares, in the shared resolver's own words", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
@@ -700,6 +720,7 @@ describe("buildGraphModel", () => {
   it("puts a flowchart's style values through the one shared gate: a refused value is dropped and diagnosed, its sibling survives", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [{ id: "A", label: "A", shape: "rect" }],
       edges: [],
@@ -739,6 +760,7 @@ describe("buildGraphModel", () => {
   it("resolves a flowchart `linkStyle` index to the edge declared at that position, and carries its declarations on that edge's own id", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -781,6 +803,7 @@ describe("buildGraphModel", () => {
   it("costs a malformed `linkStyle` address itself, leaving the addresses beside it in the same statement applied", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -826,6 +849,7 @@ describe("buildGraphModel", () => {
   it("names both the index and how many edges the document has when a `linkStyle` addresses an edge that is not there", () => {
     const documentWith = (edgeCount: number): SirenDocument => ({
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -872,6 +896,7 @@ describe("buildGraphModel", () => {
   it("spends a `linkStyle default` on every edge id in the document, so the renderer still sees only ids", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -922,6 +947,7 @@ describe("buildGraphModel", () => {
     // from the model seam.
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW, sourceLine: 2, sourceColumn: 3 }],
@@ -961,6 +987,7 @@ describe("buildGraphModel", () => {
     // it is a tier under all of them.
     const documentWith = (...linkStyles: LinkStyleDecl[]): SirenDocument => ({
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -1013,6 +1040,7 @@ describe("buildGraphModel", () => {
   it("merges a specific `linkStyle` into `linkStyle default` property by property, rather than replacing what the fallback declared", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -1074,6 +1102,7 @@ describe("buildGraphModel", () => {
   it("settles two `linkStyle default` statements between themselves by last-declaration-wins: the fallback is one tier, not one tier per statement", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -1121,6 +1150,7 @@ describe("buildGraphModel", () => {
   it("lets no `linkStyle` index out of the model: an edge leaves with an id, its endpoints and its declarations, and nothing else", () => {
     const document: SirenDocument = {
       kind: "flowchart",
+      interactions: [],
       direction: "TB",
       nodes: [
         { id: "A", label: "A", shape: "rect" },
@@ -1184,6 +1214,7 @@ describe("buildGraphModel", () => {
 describe("an edge's arrow through the model", () => {
   const documentWith = (edges: FlowchartDocument["edges"]): SirenDocument => ({
     kind: "flowchart",
+    interactions: [],
     direction: "TB",
     nodes: [
       { id: "A", label: "A", shape: "rect" },
@@ -1272,6 +1303,7 @@ describe("an edge's arrow through the model", () => {
 describe("a subgraph in the graph model", () => {
   const grouped = (subgraphs: FlowchartDocument["subgraphs"]): SirenDocument => ({
     kind: "flowchart",
+    interactions: [],
     direction: "TB",
     nodes: [
       { id: "A", label: "A", shape: "rect" },

@@ -1,0 +1,22 @@
+%% examples/flowchart-interaction.srn — a flowchart's `click` statements:
+%% `href` and `call`, each with and without the trailing tooltip string.
+%% Those are the only two forms Siren draws; `link`/`callback` are not valid
+%% flowchart Mermaid at all (measured), and the target attribute, the bare
+%% callback-name shorthand and a tooltip-only click are backlog — see the
+%% `fc-click-target`, `fc-click-bare-callback` and `fc-click-tooltip-only`
+%% rows in `packages/core/src/compat/corpus.ts`.
+
+flowchart TB
+  Docs[Read the docs]
+  Support[Contact support]
+  Details[View order details]
+  Confirm[Confirm the order]
+
+  Docs --> Support
+  Support --> Details
+  Details --> Confirm
+
+  click Docs href "https://example.com/docs"
+  click Support href "https://example.com/support" "Opens in a new tab"
+  click Details call showDetails()
+  click Confirm call confirmOrder("42") "Places the order"

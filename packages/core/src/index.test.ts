@@ -5486,3 +5486,128 @@ A --> B
     expect(svg.querySelectorAll('[data-siren-id="subgraph:1"]')).toHaveLength(0);
   });
 });
+
+/**
+ * A flowchart's `click` statements, from source to picture — mirroring the
+ * class diagram's own interaction tests above one diagram kind over: the
+ * seam (`render()`'s `options.onClick`) and the markup it reads
+ * (`data-siren-click`, `data-siren-link`) are shared, so what changes here
+ * is only which diagram kind is under test.
+ */
+describe("render() — a flowchart node's click interaction", () => {
+  it("wraps a node with an href interaction in an <a class=\"siren-link\">, carrying the URL verbatim", () => {
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TB
+A[Start]
+click A href "https://example.com/docs"
+`,
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const link = result.svg!.querySelector('a.siren-link > g.siren-node[data-siren-id="A"]');
+    expect(link).not.toBeNull();
+    expect(link!.parentElement!.getAttribute("href")).toBe("https://example.com/docs");
+  });
+
+  it("invokes options.onClick with the clicked node's id, callback name and literal argument when a real click lands inside a node the author gave a `call` interaction", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TB
+A[Start] --> B[Finish]
+click B call showDetails("finish line") "Finish details"
+`;
+
+    const clicks: InteractionTarget[] = [];
+    const result = render(source, container, {
+      onClick: (target) => clicks.push(target),
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    const finish = result.svg!.querySelector('g.siren-node[data-siren-id="B"]');
+    expect(finish).not.toBeNull();
+    finish!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(clicks).toEqual([{ id: "B", action: "showDetails", argument: "finish line" }]);
+  });
+
+  it("invokes onClick for no other click in the diagram — not on a node the author left alone, and not on one whose interaction is an href", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TB
+A[Start] --> B[Middle] --> C[Finish]
+click B call showDetails()
+click C href "https://example.com/finish"
+`;
+
+    const clicks: InteractionTarget[] = [];
+    const result = render(source, container, {
+      onClick: (target) => clicks.push(target),
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    const nodeGroup = (id: string): Element => {
+      const group = result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"]`);
+      if (group === null) throw new Error(`no rendered node ${id}`);
+      return group;
+    };
+
+    // A is hooked by nothing at all; C is a *link*, which the browser
+    // navigates — reporting it as a callback would invite a host to act on a
+    // click the reader already spent on going somewhere.
+    nodeGroup("A").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    nodeGroup("C").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toEqual([]);
+
+    // The same document does still deliver the node that has a callback, so
+    // this is a test about which clicks are reported, not a broken wiring.
+    nodeGroup("B").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toEqual([{ id: "B", action: "showDetails", argument: null }]);
+  });
+
+  it("renders examples/flowchart-interaction.srn end to end with zero diagnostics — click href and click call, each with and without a tooltip", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-interaction"), container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- asserted against the file's own text, not only against its
+    // picture — the same reason `flowchart-shapes.srn`'s test reads its
+    // source rather than only its render: a rewrite to a different valid
+    // spelling of the same four statements would leave every picture-level
+    // assertion below green while costing the repository its only example
+    // of this ticket's grammar.
+    const statements = readExample("flowchart-interaction")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (what: string, pattern: RegExp): void => {
+      expect(
+        statements.filter((line) => pattern.test(line)),
+        `examples/flowchart-interaction.srn no longer declares ${what}`,
+      ).not.toEqual([]);
+    };
+    declares("a click href with no tooltip", /^click \w+ href "[^"]*"$/);
+    declares("a click href with a tooltip", /^click \w+ href "[^"]*" "[^"]*"$/);
+    declares("a click call with no tooltip", /^click \w+ call \w+\([^)]*\)$/);
+    declares("a click call with a tooltip", /^click \w+ call \w+\([^)]*\) "[^"]*"$/);
+
+    // --- and against the picture itself ---
+    expect(
+      svg.querySelector('a.siren-link > g.siren-node[data-siren-id="Docs"]'),
+    ).not.toBeNull();
+    expect(
+      svg
+        .querySelector('a.siren-link > g.siren-node[data-siren-id="Support"]')!
+        .parentElement!.getAttribute("href"),
+    ).toBe("https://example.com/support");
+    expect(
+      svg.querySelector('g.siren-node[data-siren-id="Details"]')!.getAttribute("data-siren-click"),
+    ).toBe("showDetails");
+    const confirm = svg.querySelector('g.siren-node[data-siren-id="Confirm"]')!;
+    expect(confirm.getAttribute("data-siren-click")).toBe("confirmOrder");
+    expect(confirm.getAttribute("data-siren-click-arg")).toBe("42");
+  });
+});

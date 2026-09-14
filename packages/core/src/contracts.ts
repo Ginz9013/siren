@@ -304,6 +304,22 @@ export interface FlowchartDocument {
    * one state rather than two.
    */
   linkStyles: LinkStyleDecl[];
+  /**
+   * `click X href "..."` and `click X call fn()` statements as written, in
+   * source order. The same `Interaction` a class diagram parses to — the
+   * contract is kind-agnostic, exactly as `styles` is — so `resolveInteractions`
+   * reads both without knowing which kind it was handed.
+   *
+   * Required, not optional, for the reason `styles` and `linkStyles` are:
+   * empty when the author made nothing interactive, never absent, so "no
+   * interactions" is one state rather than two.
+   *
+   * A flowchart accepts only the `click ...` spellings: `link`/`callback`,
+   * the class diagram's older spellings of the same two directives, are not
+   * valid Mermaid flowchart syntax at all (measured), so there is no second
+   * pair of patterns here to produce this array from.
+   */
+  interactions: Interaction[];
   timeline: SirenTimeline | null;
 }
 
@@ -770,6 +786,15 @@ export interface GraphNode {
    * has none.
    */
   parentId: string | null;
+  /**
+   * The link or click hook this node's `click` statement resolved to, or
+   * `null` when the author made it none.
+   *
+   * `null` rather than absent, the empty-not-absent rule `style` and
+   * `parentId` already follow, and the same shape `PositionedClass.interaction`
+   * has.
+   */
+  interaction: ResolvedInteraction | null;
 }
 
 /**

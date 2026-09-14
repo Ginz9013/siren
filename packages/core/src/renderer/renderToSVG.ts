@@ -9,6 +9,7 @@ import type {
 } from "../contracts";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
+import { wrapInteraction } from "./wrapInteraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -207,7 +208,11 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     applyInlineStyle(text, node.style.text);
     g.appendChild(text);
 
-    svg.appendChild(g);
+    // The same wrapper the class diagram renderer calls, on the terms
+    // ADR-0008 already established for a node's frame: `null` draws nothing
+    // extra, an `href` interaction wraps the group in a link, a `call`
+    // interaction stamps the click hook `attachClickHooks` reads back.
+    svg.appendChild(wrapInteraction(g, node.interaction));
   }
 
   // One marker per (shape, colour) pair actually drawn, and not one per

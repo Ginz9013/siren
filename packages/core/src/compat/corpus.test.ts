@@ -582,8 +582,29 @@ const SILENTLY_WRONG = 3;
  * `fc-stmt-bare-node` — and one of those was paid off inside the same
  * board. A backlog that grows because someone looked is the instrument
  * working.
+ *
+ * **A later board moved it again, to 17, on the same shape of trade this
+ * one closed on: two rows left and three arrived.** `fc-click-href` and
+ * `fc-click-call` are `supported` — a flowchart's `click ... href`/`click
+ * ... call` now parse, resolve through the same shared `resolveInteractions`
+ * a class diagram already used, and render an `<a class="siren-link">` or a
+ * `data-siren-click` hook exactly as a class diagram's own click does. That
+ * fall is code changing: both were honestly refused before and render
+ * correctly now.
+ *
+ * Three rows arrived beside them, and **none of the three can make this
+ * number fall by starting to work** — they were never counted as backlog,
+ * so recording them is the instrument catching up rather than a construct
+ * getting worse: `fc-click-target` (the href target attribute, `_blank`),
+ * `fc-click-bare-callback` (`click A myFn`, a different semantic from `call
+ * fn()` and not merely a shorter spelling of it) and `fc-click-tooltip-only`
+ * (`click A "tip"` with no href or call). All three are valid flowchart
+ * Mermaid, measured with `scripts/mermaid-probe.mjs`, and all three are
+ * named rather than fixed in passing — the same board's own argument for
+ * why `fc-edge-dotted-short` was recorded rather than implemented on sight.
+ * Net: two rows left, three rows arrived, so 16 - 2 + 3 = 17.
  */
-const REJECTED = 16;
+const REJECTED = 17;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
