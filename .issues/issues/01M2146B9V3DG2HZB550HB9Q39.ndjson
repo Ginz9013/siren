@@ -3,3 +3,5 @@
 {"id":"01M214BDYDVM38422SJHBVX3MN","t":3,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M214DFBNWZ4TM81ZYMSS6V53","t":4,"a":"83a1","op":"label.add","v":"test"}
 {"id":"01M214DFCGCPNKTWDV1Q63F51N","t":5,"a":"83a1","op":"label.add","v":"p1"}
+{"id":"01M2G0QRX4M05ZSTE3QKT1PWPK","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2G0QZBYCKJ6AXHPFABJYSQC","t":7,"a":"83a1","op":"set","k":"archived","v":true}
