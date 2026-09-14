@@ -3250,11 +3250,13 @@ F[Asymmetric]
     expect(shaped).toEqual(rectangles);
     // Named as well as compared, so the failure of a future shape that
     // *adds* a class says what the theme now has to paint. The arrowhead's
-    // fill class is in the list because the theme's one `<marker>` is
-    // minted into `<defs>` whether or not anything references it — a fact
-    // about the renderer rather than about these six, and it is on both
-    // sides of the comparison above.
-    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+    // fill class used to be in this list, because the theme's one
+    // `<marker>` was minted into `<defs>` whether or not anything referenced
+    // it. It no longer is: a marker is minted per (end shape, colour) pair
+    // an edge actually draws, and these documents draw no edge at all. A
+    // fact about the renderer rather than about these six, and it was on
+    // both sides of the comparison above either way.
+    expect(shaped).toEqual(["siren-node", "siren-node-frame"]);
   });
 
   it("gives the three rect shapes no `siren-*` class of their own either — including a subroutine's two extra elements", () => {
@@ -3293,7 +3295,7 @@ C[Subroutine]
 `);
 
     expect(shaped).toEqual(rectangles);
-    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+    expect(shaped).toEqual(["siren-node", "siren-node-frame"]);
 
     // And the subroutine's bars wear the frame's own name rather than none
     // at all, which is what puts them in the same styling story as the box
@@ -3347,7 +3349,7 @@ C[DB]
 `);
 
     expect(shaped).toEqual(rectangles);
-    expect(shaped).toEqual(["siren-arrow-fill", "siren-node", "siren-node-frame"]);
+    expect(shaped).toEqual(["siren-node", "siren-node-frame"]);
 
     // And a double circle's rings both wear the frame's own name rather
     // than one of them going unnamed, which is what puts them in one
@@ -3661,16 +3663,19 @@ class A highlight
   });
 
   it("keeps a `linkStyle`'s `color` off the edge path, where it would be the same bug one element over", () => {
-    // An edge is one `<path class="siren-edge">` and draws no text at all, so
-    // the author's `color` has nowhere to land. `resolveStyles` routes it
-    // into the text half anyway — the rule is about what a declaration
-    // *means*, and a resolver that asked "is this an edge?" would be the
-    // per-kind opinion the split exists to prevent — and this renderer
-    // simply has no element to apply it to.
+    // An **unlabelled** edge is one `<path class="siren-edge">` and draws no
+    // text at all, so the author's `color` has nowhere to land here.
+    // `resolveStyles` routes it into the text half anyway — the rule is
+    // about what a declaration *means*, and a resolver that asked "is this
+    // an edge?" would be the per-kind opinion the split exists to prevent —
+    // and this document simply has no element to apply it to. An edge that
+    // carries a label does, and takes it; that is the test further down
+    // ("paints an edge's label with `linkStyle`'s `color`"), and the two
+    // together are the whole of where the text half goes.
     //
-    // What must not happen is the thing this whole ticket is about: the
-    // declaration landing on the drawn shape instead, where `color` paints
-    // nothing and the author is told nothing.
+    // What must not happen either way is the declaration landing on the
+    // drawn shape instead, where `color` paints nothing and the author is
+    // told nothing.
     const svg = renderThemed(`flowchart TD
 A[Start] --> B[End]
 linkStyle 0 stroke:#f00,color:#0f0
@@ -4126,9 +4131,11 @@ linkStyle 3 stroke:#00f
         .querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!
         .getAttribute("marker-end")!;
 
-    // Eleven green edges, all pointing at one marker; the twelfth is blue and
-    // has its own. Plus the theme's own marker, which is always defined.
-    expect(svg.querySelectorAll("defs > marker")).toHaveLength(3);
+    // Eleven green edges, all pointing at one marker; the twelfth is blue
+    // and has its own. Two, not three: the theme's own marker used to be
+    // defined unconditionally, and is now minted only when an edge actually
+    // draws it — every edge here is coloured, so nothing references it.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(2);
 
     const green = new Set(
       chain
@@ -4459,9 +4466,10 @@ Alice-)Bob: open
 
     // --- a styled edge's arrowhead takes its color ---
     //
-    // Three distinct strokes, so three minted markers, plus the theme's own
-    // — which stays defined whether or not any edge references it.
-    expect(svg.querySelectorAll("defs > marker")).toHaveLength(4);
+    // Three distinct strokes, so three minted markers — and no fourth: the
+    // theme's own is minted only when an edge draws it, and `linkStyle
+    // default` here colours every edge in the document.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(3);
     const markerRefOf = (edgeId: string): string =>
       svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)!.getAttribute("marker-end")!;
     const headFillOf = (edgeId: string): string | null =>
@@ -4756,5 +4764,725 @@ Alice-)Bob: open
       result.controller!.next();
     }
     expect(pending()).toEqual([]);
+  });
+  it("renders examples/flowchart-edges.srn end to end with zero diagnostics — every arrow form, both label spellings, a long arrow, a nested subgraph, and `linkStyle` reaching a label", () => {
+    const container = document.createElement("div");
+
+    const result = render(readExample("flowchart-edges"), container);
+
+    // Zero diagnostics of *any* severity, as every closing example before
+    // this one asserts: the `examples/` enumeration test above filters to
+    // error severity, so a warning would slip through it. That the
+    // enumeration test picks this file up at all with no wiring was checked
+    // rather than assumed — a `direction LR` planted inside its nested
+    // subgraph made it fail, by name.
+    expect(result.diagnostics).toEqual([]);
+    expect(container.contains(result.svg!)).toBe(true);
+    const svg = result.svg!;
+
+    // --- the seventeen spellings, in the document's own text ---
+    //
+    // **Asserted against the file's text, and not only against its
+    // picture.** The picture below cannot see the difference between two
+    // spellings of one drawing, and this file carries three such pairs by
+    // construction: `A -.-> B` and `A .-> B` are one dotted arrow,
+    // `A -->|x| B` and `A -- x --> B` are one labelled edge, and
+    // `A -. x .-> B` and `A -.->|x| B` are one labelled dotted edge.
+    // Rewriting either half of any pair into the other leaves every picture
+    // assertion below green — checked, by doing it — and quietly costs the
+    // repository its only example of the spelling that went. Board 4's
+    // closing ticket found this hole and board 5's found it again, both
+    // against a *hypothetical* second spelling; here the second spelling
+    // already exists.
+    //
+    // Each arrow is anchored as the **whole separator** between two
+    // endpoints rather than matched loosely, which is what makes a single
+    // deletion bite: ` --> ` occurs inside `Unit -- pass --> Integration`
+    // too, so an unanchored pattern for the plain arrow would still pass
+    // after the plain arrow itself was deleted. Every one of these was
+    // checked by mutating this file one spelling at a time.
+    const declarations = readExample("flowchart-edges")
+      .split("\n")
+      .map((line) => line.replace(/%%.*$/, "").trim())
+      .filter((line) => line.length > 0);
+    const declares = (what: string, pattern: RegExp): void => {
+      const written = declarations.filter((line) => pattern.test(line));
+      expect(written, `examples/flowchart-edges.srn no longer declares ${what}`).not.toEqual([]);
+    };
+    /** One arrow token, written as the entire run between two endpoints. */
+    const declaresArrow = (what: string, token: string): void =>
+      declares(
+        `${what}, \`${token}\``,
+        new RegExp(`^\\S+\\s${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s\\S+$`),
+      );
+    expect(declarations[0]).toBe("flowchart TB");
+
+    // The three lines, each with an arrowhead and each without one — six
+    // spellings that are two axes rather than six names.
+    declaresArrow("the plain arrow", "-->");
+    declaresArrow("the open link", "---");
+    declaresArrow("the thick arrow", "==>");
+    declaresArrow("the thick open link", "===");
+    declaresArrow("the dotted arrow", "-.->");
+    declaresArrow("the dotted open link", "-.-");
+    // The four end shapes, on the target end and then on both ends. `<-->`
+    // is the only doubled spelling that is not its marker written twice.
+    declaresArrow("a circle on the target end", "--o");
+    declaresArrow("a cross on the target end", "--x");
+    declaresArrow("an arrow on both ends", "<-->");
+    declaresArrow("a circle on both ends", "o--o");
+    declaresArrow("a cross on both ends", "x--x");
+    // Line and ends compose freely, which is the decomposition's whole
+    // claim: a dotted line with an arrow on each end is not an eighteenth
+    // arrow name.
+    declaresArrow("a dotted line with an arrow on both ends", "<-.->");
+    // The dotted arrow's short spelling, which draws exactly what `-.->`
+    // draws and so is invisible to every picture assertion below.
+    declaresArrow("the dotted arrow without its leading dash", ".->");
+    // The length, which is the one part of an arrow token that is not
+    // about drawing. Its effect is asserted against coordinates further
+    // down; that it is still *written* is asserted here.
+    declaresArrow("the long arrow", "---->");
+    // The two label spellings, plus the dotted stroke's, whose closer may
+    // drop the dash its opener may not.
+    declares("a pipe-spelled edge label, `A -->|text| B`", /^\S+\s-->\|[^|]+\|\s\S+$/);
+    declares("an inline-spelled edge label, `A -- text --> B`", /^\S+\s--\s[^-]+\s-->\s\S+$/);
+    declares("a dotted inline-spelled edge label, `A -. text .-> B`", /^\S+\s-\.\s[^.]+\s\.->\s\S+$/);
+    // `linkStyle` with a `color` beside a `stroke` — the declaration this
+    // board left open and ticket 04 settled by measurement. Without the
+    // `color` the label paint below has nothing to prove.
+    declares("`linkStyle` carrying a `color`", /^linkStyle\s+\d+\s+.*\bcolor:/);
+
+    // A subgraph opened **inside** another, read off the text rather than
+    // off the frames: one level of grouping can be made to work by an
+    // implementation that cannot nest, so a file that stopped nesting would
+    // still draw two frames and satisfy the enclosure check below.
+    let depth = 0;
+    let deepest = 0;
+    for (const line of declarations) {
+      if (/^subgraph\s/.test(line)) {
+        depth += 1;
+        deepest = Math.max(deepest, depth);
+      } else if (line === "end") {
+        depth -= 1;
+      }
+    }
+    expect(deepest, "examples/flowchart-edges.srn no longer nests a subgraph").toBe(2);
+
+    /**
+     * What one edge was **drawn** as: its line, then the figure at its
+     * source end and the figure at its target end.
+     *
+     * The ends are read as geometry rather than off the marker's name —
+     * a closed outline is the arrowhead, a `<circle>` is the circle, and
+     * two subpaths crossing are the cross — so reverting a drawing while
+     * leaving its name in place fails here. `src/compat/corpus.ts` reads
+     * an edge exactly this way, and for the same reason.
+     */
+    const drawnAs = (id: string): string => {
+      const path = svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+      if (path === null) throw new Error(`no edge "${id}" was drawn`);
+      const classes = (path.getAttribute("class") ?? "").split(/\s+/);
+      const line = classes.includes("siren-edge-dotted")
+        ? "dotted"
+        : classes.includes("siren-edge-thick")
+          ? "thick"
+          : "solid";
+      const endAt = (side: "start" | "end"): string => {
+        const reference = path.getAttribute(`marker-${side}`);
+        if (reference === null) return "none";
+        const marker = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)}`);
+        const drawn = marker?.firstElementChild;
+        if (drawn == null) throw new Error(`edge "${id}"'s ${side} marker draws nothing`);
+        if (drawn.tagName === "circle") return "circle";
+        const d = drawn.getAttribute("d") ?? "";
+        if (d.includes("Z")) return "arrow";
+        if ((d.match(/M/g) ?? []).length === 2) return "cross";
+        throw new Error(`edge "${id}" ends in an unrecognized figure: "${d}"`);
+      };
+      return `${line} ${endAt("start")} ${endAt("end")}`;
+    };
+    const labelOfEdge = (id: string): string | null =>
+      svg.querySelector(`text.siren-edge-label[data-siren-id="${id}"]`)?.textContent ?? null;
+
+    // The seventeen vertices mermaid 11.17.2 records for this document, in
+    // its own order. Their shapes are examples/flowchart-shapes.srn's story
+    // and not this one's, so only the roll-call is pinned here — but it is
+    // pinned, because every edge assertion below names two of these and a
+    // renamed endpoint would otherwise only show up as a missing edge.
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-node")).map((g) => g.getAttribute("data-siren-id")),
+    ).toEqual([
+      "Commit",
+      "Compile",
+      "Artifact",
+      "Unit",
+      "Lint",
+      "Integration",
+      "Gate",
+      "Halt",
+      "Deploy",
+      "Notify",
+      "Audit",
+      "Monitor",
+      "Archive",
+      "Cleanup",
+      "Digest",
+      "Dashboard",
+      "Rollback",
+    ]);
+
+    // Every expectation below is what **mermaid 11.17.2 itself** records for
+    // this document, read out with `packages/core/scripts/mermaid-probe.mjs`
+    // — nineteen edges, in this order, with these types. Mermaid's names are
+    // its own (`arrow_point`, `arrow_open`, `arrow_circle`, `arrow_cross`,
+    // and a `double_` prefix for the doubled spellings, beside a `stroke` of
+    // `normal`/`thick`/`dotted`); the middle column is Siren's
+    // line/from-end/to-end spelling of the same arrow, and the mapping is
+    // the whole of what "the same diagram" means here.
+    const edges = Array.from(svg.querySelectorAll("path.siren-edge")).map((path) => {
+      const id = path.getAttribute("data-siren-id")!;
+      return [id, drawnAs(id), labelOfEdge(id)];
+    });
+    expect(edges).toEqual([
+      // Mermaid: arrow_point / normal / length=1
+      ["Commit-Compile", "solid none arrow", null],
+      // Mermaid: arrow_point / thick / length=1
+      ["Compile-Artifact", "thick none arrow", null],
+      ["Artifact-Unit", "thick none arrow", null],
+      // Mermaid: arrow_open / normal
+      ["Unit-Lint", "solid none none", null],
+      // Mermaid: arrow_point / normal, text="pass" — the inline spelling
+      ["Unit-Integration", "solid none arrow", "pass"],
+      // Mermaid: arrow_open / dotted
+      ["Lint-Integration", "dotted none none", null],
+      // Mermaid: arrow_point / normal, text="green" — the pipe spelling,
+      // and the same drawing as the inline one two rows up.
+      ["Integration-Gate", "solid none arrow", "green"],
+      // Mermaid: arrow_cross / normal
+      ["Integration-Halt", "solid none cross", null],
+      ["Gate-Deploy", "thick none arrow", null],
+      // Mermaid: arrow_point / dotted
+      ["Gate-Notify", "dotted none arrow", null],
+      // Mermaid: arrow_circle / normal
+      ["Gate-Audit", "solid none circle", null],
+      // Mermaid: double_arrow_point / normal — the from-end axis
+      ["Deploy-Monitor", "solid arrow arrow", null],
+      // Mermaid: arrow_point / normal / **length=3**
+      ["Deploy-Archive", "solid none arrow", null],
+      // Mermaid: arrow_point / dotted, text="nightly"
+      ["Deploy-Cleanup", "dotted none arrow", "nightly"],
+      // Mermaid: arrow_point / dotted — written `.->`, and drawn as the
+      // `-.->` six rows up draws. Only the text assertion above can tell
+      // these two apart, which is why it exists.
+      ["Notify-Digest", "dotted none arrow", null],
+      // Mermaid: double_arrow_circle / normal
+      ["Monitor-Dashboard", "solid circle circle", null],
+      // Mermaid: double_arrow_cross / normal
+      ["Halt-Rollback", "solid cross cross", null],
+      // Mermaid: arrow_open / thick
+      ["Halt-Audit", "thick none none", null],
+      // Mermaid: double_arrow_point / dotted — three axes, freely combined
+      ["Digest-Dashboard", "dotted arrow arrow", null],
+    ]);
+
+    // Twelve distinct decompositions out of nineteen edges, and all three
+    // lines and all four end figures among them. The table above would
+    // still pass with one form drawn twice and another missing if someone
+    // edited both columns to agree; this is what says the file covers the
+    // axes rather than merely listing nineteen rows.
+    const drawings = edges.map(([, drawing]) => drawing!);
+    expect(new Set(drawings).size).toBe(12);
+    expect(new Set(drawings.map((d) => d.split(" ")[0]))).toEqual(
+      new Set(["solid", "thick", "dotted"]),
+    );
+    expect(new Set(drawings.flatMap((d) => d.split(" ").slice(1)))).toEqual(
+      new Set(["none", "arrow", "circle", "cross"]),
+    );
+
+    // --- the length, which no drawing of one edge can show ---
+    //
+    // `Deploy ----> Archive` is `length=3` to Mermaid and reaches dagre as
+    // `minlen`, so the archive sits further down the rank order than the
+    // monitor a plain `<-->` put one rank below the same node. A comparison
+    // inside one picture, between two edges leaving one node, so no number
+    // from outside it is involved.
+    const nodeBox = (
+      id: string,
+    ): { left: number; top: number; right: number; bottom: number } => {
+      const frame = svg.querySelector(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)!;
+      const x = Number(frame.getAttribute("x"));
+      const y = Number(frame.getAttribute("y"));
+      return {
+        left: x,
+        top: y,
+        right: x + Number(frame.getAttribute("width")),
+        bottom: y + Number(frame.getAttribute("height")),
+      };
+    };
+    const long = nodeBox("Archive").top - nodeBox("Deploy").bottom;
+    const plain = nodeBox("Monitor").top - nodeBox("Deploy").bottom;
+    expect(long).toBeGreaterThan(plain);
+
+    // --- the group the endpoints live in ---
+    //
+    // Three frames, drawn in the order the `subgraph` keywords open, each
+    // under a **generated** id. `subgraph:2`'s frame holds `subgraph:3`'s
+    // whole frame, which is the nesting claim read off the picture; the
+    // text assertion above is what says the file still writes it.
+    const frames = Array.from(svg.querySelectorAll("g.siren-subgraph")).map((g) => {
+      const rect = g.querySelector("rect.siren-subgraph-frame")!;
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      return {
+        id: g.getAttribute("data-siren-id"),
+        title: g.querySelector("text.siren-subgraph-label")!.textContent,
+        left: x,
+        top: y,
+        right: x + Number(rect.getAttribute("width")),
+        bottom: y + Number(rect.getAttribute("height")),
+      };
+    });
+    expect(frames.map((f) => [f.id, f.title])).toEqual([
+      ["subgraph:1", "Build"],
+      ["subgraph:2", "Checks"],
+      ["subgraph:3", "Fast"],
+    ]);
+    const encloses = (
+      outer: { left: number; top: number; right: number; bottom: number },
+      inner: { left: number; top: number; right: number; bottom: number },
+    ): boolean =>
+      outer.left <= inner.left &&
+      outer.top <= inner.top &&
+      outer.right >= inner.right &&
+      outer.bottom >= inner.bottom;
+    const [build, checks, fast] = frames;
+    expect(encloses(checks, fast)).toBe(true);
+    expect(encloses(fast, nodeBox("Unit"))).toBe(true);
+    expect(encloses(fast, nodeBox("Lint"))).toBe(true);
+    expect(encloses(build, nodeBox("Compile"))).toBe(true);
+    // ...and the nodes an edge reached *into* a frame from outside it stay
+    // where the frame that named them first put them: `Artifact ==> Unit`
+    // crosses two boundaries and moves nothing.
+    expect(encloses(checks, nodeBox("Integration"))).toBe(true);
+    expect(encloses(build, nodeBox("Unit"))).toBe(false);
+
+    // **The author's title is not an id.** A subgraph may legitimately be
+    // named after a node, so the frame is addressed by the generated
+    // `subgraph:N` (ADR-0010) and by nothing else — which is also why a
+    // `style` directive cannot reach one: there is no authored name to
+    // write in it.
+    expect(svg.querySelectorAll('[data-siren-id="Build"]')).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-siren-id="Checks"]')).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-siren-id="Fast"]')).toHaveLength(0);
+
+    // --- `linkStyle`'s two halves land on two elements ---
+    //
+    // `linkStyle 6 stroke:#15803d,color:#15803d` names the seventh edge
+    // declared, `Integration -->|green| Gate`. The `stroke` paints the line
+    // *and* the arrowhead — a marker is minted per (shape, colour) pair, so
+    // this edge points at a different `<marker>` from the plain ones — and
+    // the `color` paints the label, translated once in the model to the
+    // `fill` that actually paints SVG text (ADR-0008). Measured with the
+    // probe's `--paint` mode: mermaid 11.17.2 writes `fill` onto the very
+    // same `<text>`, so dropping it would have been a silent mis-render.
+    const styled = svg.querySelector('path.siren-edge[data-siren-id="Integration-Gate"]')!;
+    expect(styled.getAttribute("style")).toContain("stroke:#15803d");
+    const styledLabel = svg.querySelector('text.siren-edge-label[data-siren-id="Integration-Gate"]')!;
+    expect(styledLabel.getAttribute("style")).toContain("fill:#15803d");
+    const plainArrowhead = svg
+      .querySelector('path.siren-edge[data-siren-id="Commit-Compile"]')!
+      .getAttribute("marker-end");
+    expect(styled.getAttribute("marker-end")).not.toBe(plainArrowhead);
+
+    // --- and every one of them animates, frames included ---
+    //
+    // Seventeen nodes, nineteen edges and three frames, all named by the
+    // `timeline:` block, so at step 0 the whole diagram is waiting. A
+    // subgraph is a timeline target under its generated id, and an edge's
+    // label moves with its line without the controller knowing there are
+    // two elements (ADR-0009).
+    expect(result.controller!.totalSteps).toBe(15);
+    const pending = () =>
+      [
+        ...new Set(
+          Array.from(svg.querySelectorAll(".siren-pending")).map((el) =>
+            el.getAttribute("data-siren-id"),
+          ),
+        ),
+      ].sort();
+    expect(pending()).toHaveLength(17 + 19 + 3);
+    expect(pending()).toContain("subgraph:3");
+    for (let step = 0; step < result.controller!.totalSteps; step += 1) {
+      result.controller!.next();
+    }
+    expect(pending()).toEqual([]);
+  });
+
+  it("carries an author's style, its arrowheads' colour and a timeline step onto an edge that is not a plain arrow", () => {
+    // **The composition check.** Every one of these worked for `A --> B`
+    // before this ticket, and each of them lands somewhere the arrow's
+    // decomposition also touches: `linkStyle` writes the one inline `style`
+    // the line style has to share the element with, the marker colour is
+    // now minted per (shape, colour) pair rather than per colour, and the
+    // animation classes go on the same `<path>` the line's own class does.
+    // A dotted two-headed edge is where all three meet.
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TD
+A[Start] <-.-> B[End]
+linkStyle 0 stroke:#f00
+timeline:
+step 1: enter A-B fade
+`,
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const path = svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    // The line style and the author's declaration on one element, neither
+    // displacing the other.
+    expect(path.getAttribute("class")).toContain("siren-edge-dotted");
+    expect(path.getAttribute("style")).toBe("stroke:#f00");
+
+    // One def, referenced from both ends, carrying the author's colour —
+    // the head at the *from*-end is as much the author's arrow as the one
+    // at the to-end, and a marker inherits nothing from the path that
+    // references it.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    const reference = path.getAttribute("marker-end")!;
+    expect(path.getAttribute("marker-start")).toBe(reference);
+    expect(
+      svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
+        .getAttribute("style"),
+    ).toBe("fill:#f00");
+
+    // And it still animates: the classes land on the same `<path>`, beside
+    // the line's own class rather than instead of it.
+    expect(path.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(path.classList.contains("siren-pending")).toBe(false);
+    expect(path.classList.contains("siren-edge-dotted")).toBe(true);
+  });
+});
+
+/**
+ * The two edge-label spellings end to end: source in, drawn label out.
+ *
+ * Everything below was measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`, which prints the `text` its own flowchart
+ * database recorded for each edge.
+ */
+describe("an edge's label, from source to picture", () => {
+  /** Each drawn edge label in `svg`, as the edge id it belongs to and its text. */
+  const drawnLabels = (svg: SVGSVGElement) =>
+    Array.from(svg.querySelectorAll("text.siren-edge-label")).map((text) => [
+      text.getAttribute("data-siren-id"),
+      text.textContent,
+    ]);
+
+  it("draws the label both spellings write, on the edge both spellings mean", () => {
+    // Measured: both record `text="yes"` on an otherwise identical
+    // `arrow_point`/`normal`/`length=1` edge. Two rows drawn from one
+    // document, so the comparison is between two edges of one picture.
+    const svg = renderThemed(`flowchart TB
+A --> B
+B -->|yes| C
+C -- no --> D
+`);
+
+    expect(drawnLabels(svg)).toEqual([
+      ["B-C", "yes"],
+      ["C-D", "no"],
+    ]);
+  });
+
+  it("puts the label between the boxes it belongs to, not on top of one", () => {
+    // The end-to-end half of the layout claim: the reserved space is real
+    // in the finished picture, so the drawn text sits in the gap rather
+    // than over either endpoint. Read off the rendered SVG rather than
+    // from layout, because this is the one assertion that spans both.
+    const svg = renderThemed(`flowchart TB
+A[Start] -->|yes| B[End]
+`);
+
+    const boxOf = (id: string) => {
+      const rect = svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect`)!;
+      const y = Number(rect.getAttribute("y"));
+      return { top: y, bottom: y + Number(rect.getAttribute("height")) };
+    };
+    const labelY = Number(
+      svg.querySelector("text.siren-edge-label")!.getAttribute("y"),
+    );
+
+    expect(labelY).toBeGreaterThan(boxOf("A").bottom);
+    expect(labelY).toBeLessThan(boxOf("B").top);
+  });
+
+  it("paints an edge's label with `linkStyle`'s `color`, as the `fill` an SVG text takes", () => {
+    // **This replaces a test that pinned the opposite**, and it is the
+    // measurement that turned it over rather than a change of taste. The
+    // pin said what happened while an edge label was new: the `color` was
+    // resolved, reached this renderer in `style.text`, and was dropped —
+    // recorded so that whoever took the decision would meet a fact rather
+    // than a surprise.
+    //
+    // The fact, measured with `pnpm --filter @siren/core probe --paint`
+    // against mermaid 11.17.2: Mermaid paints the label. It emits
+    // `<text style="fill:#ff0000 !important">` on the label of the edge
+    // `linkStyle 0 color:#ff0000` names when it draws labels as SVG text,
+    // and `style="color:#ff0000 !important"` on the `<span>` when it draws
+    // them as HTML. So dropping it was a *silent* mis-render — a directive
+    // an author wrote, accepted without complaint, and then not drawn —
+    // which is the one thing this project's absolute condition does not
+    // allow.
+    //
+    // Nothing new is minted to fix it. ADR-0008 settled that the author
+    // writes `color` and an SVG label carries `fill`, and `resolveStyles`
+    // has performed that translation since board 3; the edge's label is
+    // simply given the text half a node's label has taken all along.
+    const svg = renderThemed(`flowchart TB
+A -->|yes| B
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+
+    const label = svg.querySelector("text.siren-edge-label")!;
+    // `fill`, not `color`: an inline `color` on a `<text>` sits in a
+    // property nothing in an SVG document reads, which is the bug this
+    // would otherwise have shipped one element over.
+    expect(label.getAttribute("style")).toBe("fill:#0f0");
+    expect(getComputedStyle(label).fill).toBe("#0f0");
+
+    // The halves still go to different elements: the line takes everything
+    // that is not `color`, and takes no `color`.
+    expect(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
+    ).toBe("stroke:#f00");
+
+    // And an edge the directive did not name keeps the theme's colour, so
+    // this is a local override and not a new default.
+    const plain = renderThemed(`flowchart TB
+A -->|yes| B
+B -->|no| C
+linkStyle 0 stroke:#f00,color:#0f0
+`);
+    expect(
+      plain.querySelector('text.siren-edge-label[data-siren-id="B-C"]')!.getAttribute("style"),
+    ).toBeNull();
+  });
+
+  it("animates the label with the line it is written on", () => {
+    // ADR-0009: a timeline target is an id, not an element. `enter A-B` has
+    // to take both, or a step reveals a line with its label already
+    // floating beside it.
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TB
+A -->|yes| B
+
+timeline:
+step 1: enter A-B fade
+`,
+      container,
+    );
+    expect(result.diagnostics).toEqual([]);
+
+    const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="A-B"]'));
+    expect(drawn().map((el) => el.tagName)).toEqual(["path", "text"]);
+    expect(drawn().every((el) => el.classList.contains("siren-pending"))).toBe(true);
+
+    result.controller!.next();
+    expect(drawn().some((el) => el.classList.contains("siren-pending"))).toBe(false);
+  });
+});
+
+/**
+ * A subgraph, from the source string to the picture — the one place the
+ * parser's block, the model's generated id, the layout's cluster and the
+ * renderer's frame are all seen at once.
+ */
+describe("render() — a subgraph groups the nodes inside it", () => {
+  /** One drawn subgraph frame's box, read off the rendered SVG. */
+  const frameBox = (svg: SVGSVGElement, id: string) => {
+    const rect = svg.querySelector(
+      `g.siren-subgraph[data-siren-id="${id}"] rect.siren-subgraph-frame`,
+    );
+    if (rect === null) throw new Error(`no subgraph "${id}" was drawn`);
+    const x = Number(rect.getAttribute("x"));
+    const y = Number(rect.getAttribute("y"));
+    return {
+      left: x,
+      top: y,
+      right: x + Number(rect.getAttribute("width")),
+      bottom: y + Number(rect.getAttribute("height")),
+    };
+  };
+
+  /** One drawn node's box. */
+  const nodeBox = (svg: SVGSVGElement, id: string) => {
+    const rect = svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`);
+    if (rect === null) throw new Error(`no node "${id}" was drawn`);
+    const x = Number(rect.getAttribute("x"));
+    const y = Number(rect.getAttribute("y"));
+    return {
+      left: x,
+      top: y,
+      right: x + Number(rect.getAttribute("width")),
+      bottom: y + Number(rect.getAttribute("height")),
+    };
+  };
+
+  const holds = (
+    outer: { left: number; top: number; right: number; bottom: number },
+    inner: { left: number; top: number; right: number; bottom: number },
+  ) =>
+    outer.left <= inner.left &&
+    outer.top <= inner.top &&
+    outer.right >= inner.right &&
+    outer.bottom >= inner.bottom;
+
+  it("draws a titled frame around the nodes declared inside it", () => {
+    const svg = renderThemed(`flowchart TB
+subgraph Ingest
+  A[Fetch] --> B[Parse]
+end
+B --> C[Publish]
+`);
+
+    expect(
+      svg.querySelector('g.siren-subgraph[data-siren-id="subgraph:1"] text.siren-subgraph-label')!
+        .textContent,
+    ).toBe("Ingest");
+
+    const frame = frameBox(svg, "subgraph:1");
+    expect(holds(frame, nodeBox(svg, "A"))).toBe(true);
+    expect(holds(frame, nodeBox(svg, "B"))).toBe(true);
+    expect(holds(frame, nodeBox(svg, "C"))).toBe(false);
+
+    // The edge leaving the group is still drawn, and still named the way
+    // every other edge is: grouping changes where a node goes, not what an
+    // edge is called.
+    expect(
+      Array.from(svg.querySelectorAll("path.siren-edge")).map((p) =>
+        p.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["A-B", "B-C"]);
+  });
+
+  it("nests two levels, with the outer frame holding the inner one whole", () => {
+    const svg = renderThemed(`flowchart TB
+subgraph Outer
+  subgraph Inner
+    A --> B
+  end
+  C --> A
+end
+B --> D
+`);
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-subgraph")).map((g) => [
+        g.getAttribute("data-siren-id"),
+        g.querySelector("text")!.textContent,
+      ]),
+    ).toEqual([
+      ["subgraph:1", "Outer"],
+      ["subgraph:2", "Inner"],
+    ]);
+
+    expect(holds(frameBox(svg, "subgraph:1"), frameBox(svg, "subgraph:2"))).toBe(true);
+    expect(holds(frameBox(svg, "subgraph:2"), nodeBox(svg, "A"))).toBe(true);
+    expect(holds(frameBox(svg, "subgraph:1"), nodeBox(svg, "C"))).toBe(true);
+    expect(holds(frameBox(svg, "subgraph:2"), nodeBox(svg, "C"))).toBe(false);
+    expect(holds(frameBox(svg, "subgraph:1"), nodeBox(svg, "D"))).toBe(false);
+  });
+
+  it("does not collide with a node the author gave the same name", () => {
+    // mermaid 11.17.2 accepts this and records both a vertex `A` and a
+    // subgraph `A` (measured). Here the frame's id is generated, so the two
+    // are different names and a lookup for `A` finds exactly one element —
+    // the node — which is the whole of ADR-0010's argument, applied.
+    const svg = renderThemed(`flowchart TB
+A[Alpha]
+subgraph A
+  B --> C
+end
+`);
+
+    expect(
+      Array.from(svg.querySelectorAll('[data-siren-id="A"]')).map((el) => el.getAttribute("class")),
+    ).toEqual(["siren-node"]);
+    expect(svg.querySelector('g.siren-subgraph[data-siren-id="subgraph:1"] text')!.textContent).toBe(
+      "A",
+    );
+  });
+
+  it("routes an edge between two groups without either frame swallowing the other", () => {
+    const svg = renderThemed(`flowchart TB
+subgraph One
+  A --> B
+end
+subgraph Two
+  C --> D
+end
+B --> C
+`);
+
+    const one = frameBox(svg, "subgraph:1");
+    const two = frameBox(svg, "subgraph:2");
+
+    const overlapping =
+      one.left < two.right && one.right > two.left && one.top < two.bottom && one.bottom > two.top;
+    expect(overlapping).toBe(false);
+    expect(holds(one, nodeBox(svg, "C"))).toBe(false);
+    expect(holds(two, nodeBox(svg, "B"))).toBe(false);
+
+    const crossing = svg.querySelector('path.siren-edge[data-siren-id="B-C"]');
+    expect(crossing).not.toBeNull();
+    expect(crossing!.getAttribute("d")).toMatch(/^M/);
+  });
+
+  it("animates a subgraph named in a timeline block, frame and title together", () => {
+    // A frame nobody can name would be a decision by omission. This is
+    // board 2's rule for the flowchart's grouping construct, and ADR-0009's
+    // "a target is an id" is what takes the title with the frame.
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart TB
+subgraph Ingest
+  A --> B
+end
+
+timeline:
+step 1: enter subgraph:1 fade
+step 2: highlight subgraph:1 outline
+`,
+      container,
+    );
+    expect(result.diagnostics).toEqual([]);
+
+    const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="subgraph:1"]'));
+    expect(drawn().map((el) => el.tagName)).toEqual(["g"]);
+    expect(drawn()[0].classList.contains("siren-pending")).toBe(true);
+
+    result.controller!.next();
+    expect(drawn()[0].classList.contains("siren-pending")).toBe(false);
+
+    result.controller!.next();
+    expect(drawn()[0].classList.contains("siren-highlight-outline")).toBe(true);
+  });
+
+  it("leaves the id space unchanged for a document that groups nothing", () => {
+    // The grouping construct adds an id space to the document; a document
+    // that uses none must not gain one. Nothing here draws a frame, and
+    // `subgraph:1` names nothing an author could reach.
+    const svg = renderThemed(`flowchart TB
+A --> B
+`);
+
+    expect(svg.querySelectorAll("g.siren-subgraph")).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-siren-id="subgraph:1"]')).toHaveLength(0);
   });
 });

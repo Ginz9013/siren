@@ -1612,18 +1612,21 @@ timeline:
       },
     ]);
 
-    // Same rule for an endpoint that is not readable at all — here a thick
-    // arrow, which is a later board's, in the middle of the line.
+    // Same rule for an arrow token that is not readable at all — here
+    // `o--x`, whose two ends disagree, in the middle of the line. It used to
+    // be `==>`, which was refused for the same reason until a thick line
+    // became one of the three an edge can be drawn with; the rule this test
+    // is about is the refusal being total, not which construct triggers it.
     const unreadable = parseSiren(`flowchart TD
   A[Start]
-  A[Other] --> B ==> C
+  A[Other] --> B o--x C
 `);
 
     expect(unreadable.document).toBeNull();
     expect(unreadable.diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized flowchart line: "A[Other] --> B ==> C"',
+        message: 'Siren does not draw the arrow "o--x" yet: "A[Other] --> B o--x C"',
         line: 3,
         column: 3,
       },
@@ -1696,5 +1699,747 @@ timeline:
 
     expect(diagnostics).toEqual([]);
     expect(document.linkStyles[0].targets).toEqual(["0", "2"]);
+  });
+});
+
+/**
+ * An arrow token is not a name, it is a decomposition: a line style, an end
+ * on each side, and a distance. Every test here reads the four fields the
+ * token produced rather than a token name, for the reason `SequenceArrow`
+ * and `ClassRelationship` are shaped the same way — thirteen spellings
+ * compose out of three small axes, and a fourteenth name for a combination
+ * of them would be a vocabulary nobody could compose in.
+ *
+ * Every expectation below was measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`, whose flowchart reader prints exactly the
+ * three axes its own parser records (`type`, `stroke`, `length`). The
+ * measurement is quoted in the test that depends on it.
+ */
+describe("the arrow token an edge is written with", () => {
+  /** The `{ line, fromEnd, toEnd, minLength }` each of a document's edges decomposed to. */
+  const formsOf = (source: string) => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB\n  ${source}\n`);
+    expect(diagnostics).toEqual([]);
+    return document.edges.map((edge) => ({
+      line: edge.line,
+      fromEnd: edge.fromEnd,
+      toEnd: edge.toEnd,
+      minLength: edge.minLength,
+    }));
+  };
+
+  it("reads `A --> B` as a solid line with an arrow on its to-end, one rank long", () => {
+    // The plain arrow is one state of the decomposition rather than the
+    // absence of one — `type="arrow_point" stroke="normal" length=1` in
+    // mermaid 11.17.2, measured, and every field is required here for the
+    // same reason `GraphNode.shape` is required for a rectangle.
+    expect(formsOf("A --> B")).toEqual([
+      { line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+    ]);
+  });
+
+  it("reads the line out of what the token is drawn with, and the ends out of its markers", () => {
+    // One row per spelling, each naming the `type`/`stroke` mermaid 11.17.2
+    // recorded for it (`pnpm --filter @siren/core probe`). Written as a
+    // table because the point is that thirteen spellings are three axes:
+    // every row below is a *combination*, and none of them is a special
+    // case in the parser.
+    const measured: [string, string, string, string][] = [
+      // token          mermaid `type`         mermaid `stroke`   line
+      ["A --- B", "arrow_open", "normal", "solid"],
+      ["A -.-> B", "arrow_point", "dotted", "dotted"],
+      ["A -.- B", "arrow_open", "dotted", "dotted"],
+      ["A ==> B", "arrow_point", "thick", "thick"],
+      ["A === B", "arrow_open", "thick", "thick"],
+    ];
+    const ends: Record<string, [string, string]> = {
+      arrow_open: ["none", "none"],
+      arrow_point: ["none", "arrow"],
+    };
+
+    expect(
+      measured.map(([source, type, , line]) => [source, line, ...ends[type]]),
+    ).toEqual(
+      measured.map(([source, type, , line]) => {
+        const [form] = formsOf(source);
+        return [source, form.line, form.fromEnd, form.toEnd];
+      }),
+    );
+  });
+
+  it("puts a lone marker on the to-end, and a repeated one on both", () => {
+    // Which end a marker lands on is the question this ticket was told to
+    // measure rather than recall. Mermaid reads `A --o B` as
+    // `type="arrow_circle"` and turns that into `arrowTypeStart: "none",
+    // arrowTypeEnd: "arrow_circle"` — so the circle is at B. Only the
+    // doubled spellings (`double_arrow_*`) decorate both ends.
+    expect([
+      formsOf("A --o B")[0],
+      formsOf("A --x B")[0],
+      formsOf("A <--> B")[0],
+      formsOf("A o--o B")[0],
+      formsOf("A x--x B")[0],
+    ]).toEqual([
+      { line: "solid", fromEnd: "none", toEnd: "circle", minLength: 1 },
+      { line: "solid", fromEnd: "none", toEnd: "cross", minLength: 1 },
+      { line: "solid", fromEnd: "arrow", toEnd: "arrow", minLength: 1 },
+      { line: "solid", fromEnd: "circle", toEnd: "circle", minLength: 1 },
+      { line: "solid", fromEnd: "cross", toEnd: "cross", minLength: 1 },
+    ]);
+  });
+
+  it("composes the three axes freely: `<-.->` is a dotted line with an arrow at each end", () => {
+    // The whole reason for decomposing rather than enumerating. Neither of
+    // these is a name anyone had to add: they fall out of a line and two
+    // ends, and Mermaid agrees — `double_arrow_point` with `stroke="dotted"`
+    // and `stroke="thick"` respectively.
+    expect([formsOf("A <-.-> B")[0], formsOf("A <==> B")[0]]).toEqual([
+      { line: "dotted", fromEnd: "arrow", toEnd: "arrow", minLength: 1 },
+      { line: "thick", fromEnd: "arrow", toEnd: "arrow", minLength: 1 },
+    ]);
+  });
+
+  it("reads a dotted arrow written without its leading dash, on either end", () => {
+    // The short dotted spellings, measured with `pnpm --filter @siren/core
+    // probe` against mermaid 11.17.2: `A .-> B` is `type="arrow_point"
+    // stroke="dotted" length=1` and `A .- B` is the `arrow_open` of the
+    // same. Both are documents Mermaid draws, so the absolute condition
+    // says Siren draws them — the dash on the left of the dots is
+    // decoration, not grammar.
+    expect([formsOf("A .-> B")[0], formsOf("A .- B")[0]]).toEqual([
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "none", minLength: 1 },
+    ]);
+  });
+
+  it("counts a longer token as more ranks — dashes for a solid line, dots for a dotted one", () => {
+    // `length` in mermaid 11.17.2, measured for each: an extra dash is an
+    // extra rank, and a dotted token counts its *dots* instead, which is
+    // why this cannot be "count the dashes".
+    expect([
+      formsOf("A ---> B")[0].minLength,
+      formsOf("A ----> B")[0].minLength,
+      formsOf("A ---- B")[0].minLength,
+      formsOf("A ----- B")[0].minLength,
+      formsOf("A ====> B")[0].minLength,
+      formsOf("A -..-> B")[0].minLength,
+      formsOf("A -...-> B")[0].minLength,
+      formsOf("A -..- B")[0].minLength,
+    ]).toEqual([2, 3, 2, 3, 3, 2, 3, 2]);
+  });
+
+  it("gives each link of a chain its own arrow", () => {
+    // A line is a chain of links, and the token is a property of the link
+    // rather than of the line: reading the first token and reusing it would
+    // draw the second edge as the wrong picture with nothing to notice.
+    expect(formsOf("A --> B ==> C -.- D")).toEqual([
+      { line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "thick", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "none", minLength: 1 },
+    ]);
+  });
+
+  it("gives every edge of an `&` group the arrow that group was joined with", () => {
+    expect(formsOf("A & B -.-> C & D")).toEqual([
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 1 },
+    ]);
+  });
+
+  it("composes the short dotted body with every end and every length, and refuses the two spellings Mermaid will not draw", () => {
+    // The whole family, measured with `pnpm --filter @siren/core probe`
+    // against mermaid 11.17.2 before a character of the pattern moved.
+    // Written as one table because the point is that dropping the leading
+    // dash is a property of the *body* and composes with everything else:
+    // not one of these rows is a special case in the parser.
+    //
+    //   A .-> B     arrow_point         dotted length=1
+    //   A .- B      arrow_open          dotted length=1
+    //   A ..-> B    arrow_point         dotted length=2
+    //   A ...-> B   arrow_point         dotted length=3
+    //   A ..- B     arrow_open          dotted length=2
+    //   A .-o B     arrow_circle        dotted length=1
+    //   A .-x B     arrow_cross         dotted length=1
+    //   A <.-> B    double_arrow_point  dotted length=1
+    //   A o.-o B    double_arrow_circle dotted length=1
+    //   A x.-x B    double_arrow_cross  dotted length=1
+    expect([
+      formsOf("A ..-> B")[0],
+      formsOf("A ...-> B")[0],
+      formsOf("A ..- B")[0],
+      formsOf("A .-o B")[0],
+      formsOf("A .-x B")[0],
+      formsOf("A <.-> B")[0],
+      formsOf("A o.-o B")[0],
+      formsOf("A x.-x B")[0],
+    ]).toEqual([
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 2 },
+      { line: "dotted", fromEnd: "none", toEnd: "arrow", minLength: 3 },
+      { line: "dotted", fromEnd: "none", toEnd: "none", minLength: 2 },
+      { line: "dotted", fromEnd: "none", toEnd: "circle", minLength: 1 },
+      { line: "dotted", fromEnd: "none", toEnd: "cross", minLength: 1 },
+      { line: "dotted", fromEnd: "arrow", toEnd: "arrow", minLength: 1 },
+      { line: "dotted", fromEnd: "circle", toEnd: "circle", minLength: 1 },
+      { line: "dotted", fromEnd: "cross", toEnd: "cross", minLength: 1 },
+    ]);
+
+    // The two the table above does not contain, and a spelling Mermaid
+    // refuses is one Siren must refuse too. `A .--> B` is a parse error
+    // there ("Expecting 'SQE', ... got '1'"), and `A <.- B` is the silent
+    // reading `A <-.- B` already stands for: an `arrow_open` whose `<`
+    // vanishes, a picture the author did not write with no diagnostic.
+    for (const source of ["A .--> B", "A <.- B"]) {
+      const { document } = parseSiren(`flowchart TB\n  ${source}\n`);
+      expect([source, document]).toEqual([source, null]);
+    }
+  });
+
+  it("does not read the `.` inside an id as the start of a dotted arrow", () => {
+    // The collateral question every widening of this pattern has to answer:
+    // **what else in this grammar can contain the character it now reads?**
+    // A node id can. `a.-b --> c` is *one* node called `a.-b` with one edge
+    // to `c` in mermaid 11.17.2, measured with the probe, and the boundary
+    // is whitespace: `A .->B` is a dotted edge there while `A.->B` is a
+    // parse error, both measured.
+    //
+    // So a leading `.` opens an arrow only where an id cannot be — exactly
+    // the rule the `o` and `x` markers already follow, for exactly the same
+    // reason. Siren's own ids are `\w+`, so it cannot draw `a.-b` under
+    // either reading; but the two wrong answers are not equally wrong. A
+    // diagnostic says the document was not understood. Cutting at the `.-`
+    // draws three nodes and two edges where Mermaid draws two nodes and
+    // one, and says nothing at all — the silent mis-render this corpus
+    // exists to remove.
+    for (const source of ["a.-b --> c", "A --> B; C.-D"]) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
+      expect([source, document]).toEqual([source, null]);
+      expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+    }
+  });
+
+  it("refuses a token whose two ends disagree, rather than drawing Mermaid's silent reading of it", () => {
+    // The one place this diverges from Mermaid, and it is the exception
+    // CONTEXT.md carves out rather than a gap. Measured: `A o--x B` is read
+    // by mermaid 11.17.2 as a plain `arrow_cross` whose leading `o` becomes
+    // part of the *length* (`length=2`), and `A <-.- B` as a plain
+    // `arrow_open` whose `<` vanishes. Both draw a picture the author did
+    // not write, with no diagnostic — so Siren refuses and says which token
+    // it could not read.
+    for (const [source, token] of [
+      ["A o--x B", "o--x"],
+      ["A <-.- B", "<-.-"],
+      ["A x--o B", "x--o"],
+    ]) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
+      expect([source, document]).toEqual([source, null]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: `Siren does not draw the arrow "${token}" yet: "${source}"`,
+          line: 2,
+          column: 3,
+        },
+      ]);
+    }
+  });
+
+  it("refuses a bare opener, which is half an arrow and not a short one", () => {
+    // What is left of the boundary the previous ticket guarded here. Both
+    // edge-label spellings are read now (see "the label an edge carries"
+    // below), and this is the part that did not change: `--`, `==` and `-.`
+    // open a labelled arrow and are not arrows themselves. Mermaid rejects
+    // `A -- B` outright, measured — it would be zero ranks long — and
+    // reading one as a plain link would draw an edge the author did not
+    // write.
+    for (const source of ["A -- B", "A == B", "A -. B"]) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
+      expect([source, document]).toEqual([source, null]);
+      expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+    }
+  });
+
+  it("keeps a declaration list out of the arrow cut, so a `--custom-property` is still a declaration", () => {
+    // Found by asking what else on a flowchart line can contain `--` now
+    // that the separator is a pattern rather than the literal `-->`. A
+    // styling statement's body is a declaration list, and `splitStatements`
+    // already keeps `;` from meaning anything inside one; this is the same
+    // rule for the same reason, one separator over.
+    //
+    // Mermaid rejects `style A --my-token:4` outright (measured), so no
+    // document it draws turns on this. What turns on it is the diagnostic:
+    // without the guard the author of a `style` statement was told Siren
+    // could not draw the arrow `--`.
+    for (const statement of [
+      "style A --my-token:4",
+      "classDef hot --my-token:4",
+      "linkStyle 0 stroke-dasharray:4--4",
+    ]) {
+      const { diagnostics } = parseSiren(`flowchart TB\n  A[X] --> B\n  ${statement}\n`);
+      expect([statement, diagnostics]).toEqual([statement, []]);
+    }
+  });
+
+  it("keeps an arrow inside a label a label, whichever token it spells", () => {
+    // `splitOutsideLabel`'s rule, now that the separator is a pattern: the
+    // cut still happens outside labels only, so a label may say `a==>b`.
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB\n  A[a==>b] --> B\n`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.label)).toEqual(["a==>b", "B"]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
+  });
+});
+
+/**
+ * An edge's label — the text an author writes on the connector itself,
+ * `A -->|yes| B` or `A -- yes --> B`.
+ *
+ * Every expectation here was measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`, which prints the `text` its own flowchart
+ * database recorded for each edge alongside the three arrow axes. The
+ * measurement is quoted in the test that depends on it.
+ */
+describe("the label an edge carries", () => {
+  /** Each of a document's edges as `from-to` and the label it carries. */
+  const labelsOf = (source: string) => {
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB\n  ${source}\n`);
+    expect(diagnostics).toEqual([]);
+    return document.edges.map((edge) => [`${edge.from}-${edge.to}`, edge.label]);
+  };
+
+  it("reads `A -->|yes| B` as the edge A to B labelled `yes`", () => {
+    // Measured: `text="yes"` on `L_A_B_0`, whose arrow axes are unchanged
+    // (`type="arrow_point" stroke="normal" length=1`) — a label decorates
+    // an arrow rather than being one.
+    expect(labelsOf("A -->|yes| B")).toEqual([["A-B", "yes"]]);
+  });
+
+  it("reads `A -- yes --> B` as the very same document `A -->|yes| B` parses to", () => {
+    // The two spellings are one construct, and this is the assertion that
+    // says so: **identical documents**, not merely the same label. A field
+    // recording which spelling was written — or a `sourceColumn` measured
+    // from the wrong half of the token — fails here rather than passing
+    // unnoticed, which is the shape board 4 used to hold `graph` against
+    // `flowchart`.
+    //
+    // Measured: mermaid 11.17.2 records `text="yes"` with
+    // `type="arrow_point" stroke="normal" length=1` for both, and its
+    // database keeps no trace of which one it read.
+    const pipe = parseFlowchartOk("flowchart TB\n  A -->|yes| B\n");
+    const inline = parseFlowchartOk("flowchart TB\n  A -- yes --> B\n");
+
+    expect(inline.diagnostics).toEqual([]);
+    expect(inline.document).toEqual(pipe.document);
+  });
+
+  it("takes the arrow's line, ends and length from the half that closes an inline label", () => {
+    // `A -- yes ==> B` is not a thick edge and `A ---- yes --> B` is not a
+    // long one — both were measured. The opener says only *that* a label
+    // follows; every axis comes from the closing half, which is why
+    // `A -- yes ---> B` is `length=2` in mermaid 11.17.2 while its opener
+    // is the same two characters as a one-rank arrow's.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  A -- yes ---> B\n  B == no ==> C\n  C -. maybe -.-> D\n  D <-- both --> E\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.label, edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
+    ).toEqual([
+      ["yes", "solid", "none", "arrow", 2],
+      ["no", "thick", "none", "arrow", 1],
+      ["maybe", "dotted", "none", "arrow", 1],
+      ["both", "solid", "arrow", "arrow", 1],
+    ]);
+  });
+
+  it("lets an inline label close with the short dotted body, and does not let one open with it", () => {
+    // Both halves measured with `pnpm --filter @siren/core probe` against
+    // mermaid 11.17.2, and they do not answer alike — which is the reason
+    // to measure rather than to reason from symmetry.
+    //
+    // The **closer** may drop its leading dash: `A -. yes .-> B` is one
+    // `arrow_point` labelled "yes", dotted, length=1, and `A -. yes .- B`
+    // is the `arrow_open` of the same.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  A -. yes .-> B\n  B -. no .- C\n",
+    );
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.label, edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
+    ).toEqual([
+      ["yes", "dotted", "none", "arrow", 1],
+      ["no", "dotted", "none", "none", 1],
+    ]);
+
+    // The **opener** may not. `.-` is a whole arrow, so `A .- yes .-> B` is
+    // not a labelled edge at all in Mermaid: it is a chain of three nodes,
+    // `L_A_yes_0` then `L_yes_B_0`, both dotted, measured. An opener is
+    // `-.` and only `-.`, and the word "yes" is a node.
+    const chain = parseFlowchartOk("flowchart TB\n  A .- yes .-> B\n");
+    expect(chain.diagnostics).toEqual([]);
+    expect(chain.document.nodes.map((node) => node.id)).toEqual(["A", "yes", "B"]);
+    expect(
+      chain.document.edges.map((edge) => [edge.from, edge.to, edge.label, edge.line, edge.toEnd]),
+    ).toEqual([
+      ["A", "yes", null, "dotted", "none"],
+      ["yes", "B", null, "dotted", "arrow"],
+    ]);
+  });
+
+  it("closes an inline label that runs straight into its closing arrow, dotted as well as solid", () => {
+    // The space around an inline label is the author's, not the grammar's:
+    // `A -- yes--> B` is one solid edge labelled "yes" in mermaid 11.17.2,
+    // and `A -. yes.-> B` and `A -.yes.-> B` are the dotted spellings of
+    // the same thing, all three measured.
+    //
+    // Worth its own test because the short dotted body is the one body a
+    // *plain* arrow may not begin with after a word character — a `.` is a
+    // node-id character there, so `a.-b` is one id. That guard has no job
+    // once an opener has already said an arrow is being written: an id
+    // ended at the `-.`, so the dots that close the run cannot be inside
+    // one. Applying it here anyway refuses a document Mermaid draws, and
+    // refuses it for the dotted stroke only, which no author could predict.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  A -. yes.-> B\n  B -.no.-> C\n  C -- sure--> D\n",
+    );
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.label, edge.line, edge.toEnd, edge.minLength]),
+    ).toEqual([
+      ["yes", "dotted", "arrow", 1],
+      ["no", "dotted", "arrow", 1],
+      ["sure", "solid", "arrow", 1],
+    ]);
+  });
+
+  it("keeps the characters the grammar would otherwise eat inside the label", () => {
+    // The three the ticket named, each measured against mermaid 11.17.2
+    // rather than decided here — an edge label is exactly where an author
+    // writes the punctuation the surrounding grammar means something by.
+    //
+    //   A -->|a-->b| B    text="a-->b"   an arrow inside a pipe label
+    //   A -- a;b --> B    text="a;b"     a statement end inside an inline one
+    //   A -- a|b --> B    text="a|b"     a pipe inside an inline one
+    //
+    // The `;` is the sharpest of the three: it is the statement separator,
+    // and the splitter that cuts a line into statements runs *before* the
+    // one that finds arrows. Without the arrow's own label being a place a
+    // `;` means nothing, `A -- a;b --> B` is two half-statements and two
+    // diagnostics.
+    const measured: [string, string][] = [
+      ["A -->|a-->b| B", "a-->b"],
+      ["A -- a;b --> B", "a;b"],
+      ["A -- a|b --> B", "a|b"],
+    ];
+
+    expect(measured.map(([source, text]) => [source, [["A-B", text]]])).toEqual(
+      measured.map(([source]) => [source, labelsOf(source)]),
+    );
+  });
+
+  it("takes a `|` into a pipe label only through the fence written to carry it", () => {
+    // Measured both ways: mermaid 11.17.2 rejects `A -->|a|b| B` with a
+    // parse error and reads `A -->|"a|b"| B` as the label `a|b`. So the
+    // fence is not decoration here, it is the only spelling that works —
+    // and the quotes are syntax, never part of the picture, exactly as
+    // they are in a node's label.
+    expect(labelsOf('A -->|"a|b"| B')).toEqual([["A-B", "a|b"]]);
+
+    const { document, diagnostics } = parseSiren("flowchart TB\n  A -->|a|b| B\n");
+    expect(document).toBeNull();
+    expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+  });
+
+  it("leaves an unlabelled edge's label null rather than empty", () => {
+    // `null`, not `""`: an author cannot write an empty label — mermaid
+    // 11.17.2 rejects `A -->|| B` outright, measured — so "no label" and
+    // "a label that says nothing" are not two states an author can tell
+    // apart, and only one of them exists.
+    expect(labelsOf("A --> B")).toEqual([["A-B", null]]);
+  });
+});
+
+/**
+ * `subgraph title ... end` is a block, which is a shape this parser did not
+ * have: every other flowchart statement is one line about one thing. What a
+ * block adds is *scope* — the nodes named between the keyword and its `end`
+ * belong to it — so the tests below are about membership as much as about
+ * the keyword parsing.
+ *
+ * Membership is Mermaid's, measured with `scripts/mermaid-probe.mjs` against
+ * mermaid 11.17.2 rather than reasoned about:
+ *
+ *     subgraph Ingest / A --> B / end        -> subgraph id="Ingest" nodes=["B","A"]
+ *     subgraph Outer / subgraph Inner ...    -> Inner nodes=["B","A"], Outer nodes=["Inner","C"]
+ *     subgraph "Two Words"                   -> id="subGraph0" title="Two Words"
+ *     subgraph one[Two Words]                -> id="one" title="Two Words"
+ *     A --> B / subgraph S / B --> C / end   -> S nodes=["C","B"]  (a node named
+ *                                               outside and again inside is the
+ *                                               subgraph's)
+ *     subgraph S / A --> B / end / subgraph T / B --> C / end
+ *                                            -> S=["B","A"], T=["C"]  (the first
+ *                                               subgraph to name a node keeps it)
+ */
+describe("a subgraph", () => {
+  it("groups the nodes named between its keyword and its end", () => {
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph Ingest\n    A --> B\n  end\n  B --> C\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      {
+        name: "Ingest",
+        label: "Ingest",
+        nodeIds: ["A", "B"],
+        subgraphs: [],
+        line: 2,
+        column: 3,
+      },
+    ]);
+    // The nodes and the edges themselves are untouched by the grouping: `C`
+    // is declared exactly as it would have been without the block, and both
+    // edges exist.
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+    expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B", "B-C"]);
+  });
+
+  it("nests, and a nested subgraph is a member of the one that encloses it", () => {
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n" +
+        "  subgraph Outer\n" +
+        "    subgraph Inner\n" +
+        "      A --> B\n" +
+        "    end\n" +
+        "    C --> A\n" +
+        "  end\n" +
+        "  B --> D\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toHaveLength(1);
+    const [outer] = document.subgraphs;
+    expect(outer.label).toBe("Outer");
+    // `A` was named inside `Inner` first, so it is `Inner`'s and not
+    // `Outer`'s — the first-claim rule mermaid 11.17.2 applies, measured.
+    expect(outer.nodeIds).toEqual(["C"]);
+    expect(outer.subgraphs.map((sub) => sub.label)).toEqual(["Inner"]);
+    expect(outer.subgraphs[0].nodeIds).toEqual(["A", "B"]);
+  });
+
+  it("keeps a node for the first subgraph that names it", () => {
+    const { document } = parseFlowchartOk(
+      "flowchart TB\n" +
+        "  subgraph S\n    A --> B\n  end\n" +
+        "  subgraph T\n    B --> C\n  end\n",
+    );
+
+    expect(document.subgraphs.map((sub) => [sub.label, sub.nodeIds])).toEqual([
+      ["S", ["A", "B"]],
+      ["T", ["C"]],
+    ]);
+  });
+
+  it("takes a node named before the block as the block's own when it is named again inside", () => {
+    const { document } = parseFlowchartOk(
+      "flowchart TB\n  A --> B\n  subgraph S\n    B --> C\n  end\n",
+    );
+
+    expect(document.subgraphs.map((sub) => sub.nodeIds)).toEqual([["B", "C"]]);
+  });
+
+  it("reads a quoted or bracketed title, and keeps the author's own handle apart from it", () => {
+    const titles = (source: string) =>
+      parseFlowchartOk(`flowchart TB\n  ${source}\n    A --> B\n  end\n`).document.subgraphs.map(
+        (sub) => [sub.name, sub.label],
+      );
+
+    // A bare word is both: mermaid 11.17.2 records `id="Ingest"
+    // title="Ingest"`.
+    expect(titles("subgraph Ingest")).toEqual([["Ingest", "Ingest"]]);
+    // A quoted title names nothing — mermaid mints `subGraph0` for it — so
+    // the author's handle is `null` and only the title survives.
+    expect(titles('subgraph "Two Words"')).toEqual([[null, "Two Words"]]);
+    // The bracket spelling is the one that separates them: `id="one"
+    // title="Two Words"`.
+    expect(titles("subgraph one[Two Words]")).toEqual([["one", "Two Words"]]);
+    expect(titles('subgraph one["Two Words"]')).toEqual([["one", "Two Words"]]);
+  });
+
+  it("closes on an `end` written as a statement on the same line", () => {
+    // `subgraph S A --> B end` is a *parse error* in mermaid 11.17.2
+    // (measured: "Expecting ... got 'LINK'"), and `subgraph S; A --> B; end`
+    // is not — the block boundary is a statement boundary, which is exactly
+    // what `;` already makes.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph S; A --> B; end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((sub) => [sub.label, sub.nodeIds])).toEqual([["S", ["A", "B"]]]);
+  });
+
+  it("refuses an `end` with no subgraph open, and a subgraph never closed", () => {
+    const stray = parseSiren("flowchart TB\n  A --> B\n  end\n");
+    expect(stray.document).toBeNull();
+    expect(stray.diagnostics.map((d) => [d.severity, d.message])).toEqual([
+      ["error", 'Unrecognized flowchart line: "end"'],
+    ]);
+
+    const unterminated = parseSiren("flowchart TB\n  subgraph S\n    A --> B\n");
+    expect(unterminated.document).toBeNull();
+    expect(unterminated.diagnostics.map((d) => [d.severity, d.message])).toEqual([
+      ["error", 'Unterminated "subgraph S" block: missing matching "end"'],
+    ]);
+  });
+});
+
+/**
+ * `direction LR` inside a subgraph, and the decision to refuse it.
+ *
+ * **Measured first.** mermaid 11.17.2 records it as `dir="LR"` on that
+ * subgraph alone and leaves the document's own direction where the header put
+ * it (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
+ * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`). So it is a
+ * *per-cluster* rank direction, and Mermaid honors it by laying each subgraph
+ * out as a diagram of its own and composing the results.
+ *
+ * **Out, and out loudly.** dagre has exactly one `rankdir` per graph —
+ * `layoutDirectedGraph` takes it as a graph-level field, which is the whole of
+ * that seam — so honoring this means recursive sub-layouts and a composition
+ * step, which is a layout feature of its own size rather than the port this
+ * ticket is. What is *not* an option is accepting the line and ignoring it: a
+ * group laid out top-to-bottom where the author wrote left-to-right is a
+ * picture with nothing in it to notice, which is the exact failure mode the
+ * project's absolute condition exists to remove. So it is refused by name,
+ * and recorded in the compatibility corpus as the backlog item it is.
+ */
+describe("a direction written inside a subgraph", () => {
+  it("is refused by name rather than ignored", () => {
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  subgraph Ingest\n    direction LR\n    A --> B\n  end\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
+      [
+        "error",
+        'Siren does not lay a subgraph out in its own direction yet: "direction LR"',
+        3,
+      ],
+    ]);
+  });
+
+  it("costs the author nothing when they never wrote one", () => {
+    const { diagnostics } = parseSiren(
+      "flowchart TB\n  subgraph Ingest\n    A --> B\n  end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+  });
+});
+
+/**
+ * An edge whose endpoint names a subgraph — the gap this ticket *creates*
+ * unless it is closed, and the reason it is closed here rather than recorded
+ * and left.
+ *
+ * **Measured.** mermaid 11.17.2 reads `One --> Two`, where `One` and `Two`
+ * are subgraphs, as an edge between the two frames — it records vertices for
+ * both names *and* the subgraphs, and its renderer joins the clusters
+ * (`scripts/mermaid-probe.mjs`). Siren has no such routing: it would declare
+ * two ordinary nodes and draw two boxes labelled `One` and `Two` *beside* the
+ * frames of the same name, with no diagnostic. That is a `silently-wrong`
+ * case, and the policy on those says their count's destination is zero — so
+ * a board must not create one.
+ *
+ * Refused by name instead, which is the honest state, and recorded in the
+ * corpus as backlog.
+ */
+describe("an edge that addresses a subgraph", () => {
+  it("is refused by name rather than drawn as a stray node beside the frame", () => {
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n" +
+        "  subgraph One\n    A\n  end\n" +
+        "  subgraph Two\n    B\n  end\n" +
+        "  One --> Two\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
+      ["error", 'Siren does not draw an edge to the subgraph "One" yet: "One --> Two"', 8],
+    ]);
+  });
+
+  it("catches it whichever order the two were written in", () => {
+    // A subgraph may be declared after the edge that names it, so this
+    // cannot be a check made while the line is read.
+    const { diagnostics } = parseSiren(
+      "flowchart TB\n  A --> Ingest\n  subgraph Ingest\n    B --> C\n  end\n",
+    );
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not draw an edge to the subgraph "Ingest" yet: "A --> Ingest"',
+    ]);
+  });
+
+  it("says nothing about a node that merely shares a subgraph's name", () => {
+    // `A[Alpha]` beside `subgraph A` is valid Mermaid that draws a box and a
+    // frame, and Siren draws both — so it is not this diagnostic's business.
+    // Only an *edge* endpoint is ambiguous, because only there does Mermaid
+    // mean the frame.
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  A[Alpha]\n  subgraph A\n    B --> C\n  end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+  });
+});
+
+/**
+ * A node written as a bare id on a line of its own **inside** a subgraph.
+ *
+ * This is how an author puts a node with no edges into a group, and it is the
+ * second most common line in a grouped document after `A --> B`. Siren
+ * refused it — a bare word has never been a node declaration here, only a
+ * bracket form has — which would have left `subgraph One / A / end` rejected
+ * while the corpus claimed `subgraph` was supported.
+ *
+ * **Measured both ways, and the two differ**, which is why the rule is scoped
+ * rather than general (`scripts/mermaid-probe.mjs`, mermaid 11.17.2):
+ *
+ *     flowchart TB / A / B[Box]        -> vertices: B only. A is not recorded.
+ *     subgraph One / A / end           -> vertices: A. subgraph One nodes=["A"].
+ *
+ * So a bare id declares a node inside a block and declares nothing outside
+ * one, and Siren follows the measurement on both sides rather than
+ * generalizing from one of them.
+ */
+describe("a bare node id inside a subgraph", () => {
+  it("declares the node and puts it in the block", () => {
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph One\n    A\n    B[Box]\n  end\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+      ["A", "A"],
+      ["B", "Box"],
+    ]);
+    expect(document.subgraphs.map((sub) => sub.nodeIds)).toEqual([["A", "B"]]);
+  });
+
+  it("is still an unrecognized line outside every block", () => {
+    // Mermaid records nothing for it there, so there is no document being
+    // refused — and a bare word accepted at the top level would swallow
+    // every mistyped keyword as a node.
+    const { document, diagnostics } = parseSiren("flowchart TB\n  A\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized flowchart line: "A"']);
   });
 });

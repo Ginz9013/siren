@@ -71,14 +71,15 @@ _Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highli
 the verb matters)
 
 **Timeline target**:
-Anything a timeline action can name by id: a flowchart node or edge; a class, relationship,
-namespace or note in a class diagram; a participant, message, control-flow block or box grouping
-in a sequence diagram. Every one of them carries `data-siren-id` in the rendered SVG, which is how
-the animation controller finds it — so a diagram kind gains animation by tagging its drawn
-elements with the ids the timeline uses, not by teaching the controller anything new.
+Anything a timeline action can name by id: a flowchart node, edge or subgraph; a class,
+relationship, namespace or note in a class diagram; a participant, message, control-flow block or
+box grouping in a sequence diagram. Every one of them carries `data-siren-id` in the rendered SVG,
+which is how the animation controller finds it — so a diagram kind gains animation by tagging its
+drawn elements with the ids the timeline uses, not by teaching the controller anything new.
 A target is the *authored thing*, not one drawn element: an id may be worn by several elements
 (a sequence participant is drawn in both participant rows, alongside its lifeline, and its
-destroy mark carries that same id) and they all animate together — see
+destroy mark carries that same id; a labelled flowchart **edge** is a `<path>` and a `<text>`
+side by side, both wearing the edge's id) and they all animate together — see
 [ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md). A destroy mark is
 therefore not a fifth sequence target: it animates when its participant does, and there is no id
 that names it alone.
@@ -227,9 +228,81 @@ several elements — say "frame" for what is drawn and "shape" for which of the 
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
-`-->` is the only form today, and an edge carries no label.
-_Avoid_: link, arrow, connector, relationship (class-diagram vocabulary), message (sequence
-vocabulary)
+
+**The token joining the two endpoints decomposes into three axes rather than naming one of
+seventeen arrows** — the third time this codebase has made that call, after a sequence
+**message**'s `{ line, head }` and a **relationship**'s `fromEnd`/`toEnd`. A **line**
+(`solid` `--`, `thick` `==`, `dotted` `-.-`, whose opening dash is decoration so `.-` is the same
+body), an **end** on each side (`none`, `arrow` `>`, `circle` `o`, `cross` `x`), and a **length**.
+So `A <-.-> B` is not an eighteenth arrow: it is a dotted line with an arrow at each end. A single
+end marker always lands on the *to*-end, measured; only the doubled spellings `<-->`, `o--o` and
+`x--x` decorate the from-end. All four fields are required on `GraphEdge`, so a plain arrow is one
+state rather than the absence of one — the rule `GraphNode.shape` already follows.
+
+**The length is the axis that is not about drawing.** `A ----> B` counts its dashes and reaches
+dagre as `minlen`, so its target sits three ranks away instead of one and the drawn diagram
+differs. Drawing every length alike would be a silent mis-render by the **compatibility corpus**'s
+own definition, and refusing long arrows would break the absolute condition, so honoring it is the
+only option those two policies leave.
+
+**An edge carries a label**, in two spellings that parse to *identical* documents — `A -->|yes| B`
+and `A -- yes --> B`, plus the dotted stroke's `A -. yes .-> B` — with nothing downstream
+recording which was written, exactly as nothing records `graph` versus `flowchart`. It is `null`
+and never `""` when there is none: mermaid 11.17.2 rejects `A -->|| B`, so "labelled with nothing"
+is not a state an author can reach. Layout reserves dagre space for it, which makes the label the
+one part of an edge that changes *where the line goes* as well as what is drawn on it; the
+renderer draws it as a `<text class="siren-edge-label">` **beside** the path rather than inside a
+wrapping group, wearing the same `data-siren-id`, so one timeline target moves two elements
+([ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md)).
+`linkStyle`'s two halves therefore land on two elements: `stroke` paints the line and the
+arrowhead minted for that colour, and `color` paints the label. The second half was **measured,
+not chosen** — Mermaid writes `fill` onto the label's own `<text>` — so dropping it, which is what
+happened while an edge had no text, was a silent mis-render.
+
+The line style is emitted as a **CSS class** (`siren-edge-dotted`, `siren-edge-thick`) and never
+as an inline declaration, on the single `<path>` an edge is drawn as. Inline, it would have
+outranked the theme, an author's `linkStyle` and a `timeline:` block's `highlight X outline`
+alike — on the one element all three already land on.
+_Avoid_: link, arrow (say "arrow" for the drawn line and its ends, or "arrow token" for the
+spelling that wrote them — never for the edge itself, the same split **message** makes),
+connector, relationship (class-diagram vocabulary), message (sequence vocabulary)
+
+**Subgraph**:
+A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around the nodes declared
+inside it and laid out as a dagre compound-graph cluster. The **fourth** grouping construct here,
+and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
+sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
+statements in time. Four things separate it from the namespace it most resembles, and none of them
+is cosmetic:
+
+- **It nests.** `ResolvedSubgraph` carries a `parentId`; `ResolvedClassNamespace` has no such
+  field, so the class model has no way to say one group is inside another.
+- **Membership lives on the node**, as `GraphNode.parentId`, in one place — so a node and the
+  frame around it cannot disagree about which holds it. A namespace keeps a `classIds` list beside
+  the classes and has to promise the two agree.
+- **A node is claimed by the first block that names it**, measured, so naming it again from
+  another block joins it rather than moving it. A class is a member of the namespace it was
+  written in.
+- **Two things written *about* one are refused by name rather than ignored**: `direction LR`
+  inside a block (Mermaid lays that group out in its own rank direction; drawing it the document's
+  way would be the wrong picture with nothing in it to notice) and an edge naming a block at
+  either end (`one --> two` joins two frames in Mermaid). Both are `rejected` corpus rows, not
+  silence.
+
+**Its id is generated, not authored** — `subgraph:1`, `subgraph:2`, … in the order the keywords
+open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) —
+because a subgraph may legitimately be named after a node, and Mermaid itself accepts `A[Alpha]`
+beside `subgraph A`. The author's title is drawn and is otherwise inert; Mermaid agrees far enough
+to mint `subGraph0` of its own for `subgraph "Two Words"`, a spelling that gives the author no
+handle at all. That generated id is why a subgraph is addressable in a `timeline:` block and
+**not** by an author style: a `timeline:` entry names an id, which this has, while `style`,
+`classDef` and the apply-directive name a target the *author* spelled, which this has not. Not an
+omission — there is nothing for a directive to say.
+_Avoid_: subgraph diagram (Mermaid has no such kind — this is a statement inside a flowchart),
+cluster (that is the dagre-side word `layoutDirectedGraph` uses for the mechanism, the same way
+**namespace**'s entry reserves it), namespace (that is the class-diagram construct), group, box
+(overloaded three ways already — see **Box grouping**), container, frame (that is the drawn
+`<rect>`, one of the two elements a subgraph is drawn with)
 
 **Participant**:
 One vertical lane in a sequence diagram, declared explicitly as `participant X` (drawn as a box)
@@ -320,10 +393,13 @@ category), arrow, link (also one of the eight types)
 
 **Namespace**:
 A named group of classes drawn as an enclosing frame behind the boxes it holds, laid out as a
-dagre compound-graph cluster. The third grouping construct in the codebase and the only spatial
+dagre compound-graph cluster. The third grouping construct in the codebase and the first spatial
 one in a graph-shaped diagram — a sequence diagram's **box grouping** bands participant lanes, and
-its **control-flow block** wraps statements in time. Addressable in a `timeline:` block under a
-generated id (`namespace:1`, `namespace:2`, … in source order).
+its **control-flow block** wraps statements in time. A flowchart's **subgraph** is the fourth and
+draws the same figure deliberately, so a theme or an author who has learned to read one need not
+learn a second vocabulary; that entry lists the four things that are nevertheless not the same,
+starting with nesting, which this construct does not do. Addressable in a `timeline:` block under
+a generated id (`namespace:1`, `namespace:2`, … in source order).
 _Avoid_: package, module, cluster (that is the dagre-side word `layoutDirectedGraph` uses for the
 mechanism, not the authored construct), group, box
 
@@ -362,8 +438,12 @@ covers every edge no specific `linkStyle` named, a specific one wins for the edg
 whichever order the two were written in, and the two merge property by property rather than one
 replacing the other.
 `color` reaches label text, in both diagram kinds — the author's spelling, translated once in the
-model to the `fill` that actually paints SVG text. Every other property goes to the frame, and a
-styled edge's arrowhead takes the edge's own `stroke` via a marker minted per distinct color.
+model to the `fill` that actually paints SVG text. That now includes a flowchart **edge**'s own
+label, which is a `<text>` the same translation lands on; the connection was made once the edge
+had somewhere to put it, and only after measuring that Mermaid makes it too. Every other property
+goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke` via a marker minted
+per distinct (end shape, color) pair — per color alone until an edge's ends had shapes, and minted
+only for the pairs a diagram actually draws, so one color and one head shape is still one marker.
 Property names must be plain CSS identifiers and values may not contain `url(`, `expression(`, `;`
 or `\`; a rejected declaration is dropped with an error diagnostic and its siblings still apply.
 That gate is `graph-model/resolveStyles.ts` and only there — no renderer re-checks anything.

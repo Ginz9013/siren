@@ -103,6 +103,27 @@ describe("layoutDirectedGraph", () => {
     expect(rl.A.y).toBe(rl.C.y);
   });
 
+  it("holds an edge's endpoints `minlen` ranks apart, and leaves an edge that asks for none where it was", () => {
+    // The shared core is read by two diagram kinds and only one of them has
+    // a notion of edge length, so the absent case is as much of a contract
+    // as the given one: a class diagram passes no `minlen` and must lay out
+    // exactly as it did before flowchart edges gained a length.
+    const nodes = [
+      { id: "A", width: 40, height: 20 },
+      { id: "B", width: 40, height: 20 },
+    ];
+    const rankGap = (edge: { id: string; from: string; to: string; minlen?: number }) => {
+      const result = layoutDirectedGraph({ rankdir: "TB", nodes, edges: [edge] });
+      const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+      return byId.B.y - (byId.A.y + byId.A.height);
+    };
+
+    const silent = rankGap({ id: "A-B", from: "A", to: "B" });
+
+    expect(rankGap({ id: "A-B", from: "A", to: "B", minlen: 1 })).toBe(silent);
+    expect(rankGap({ id: "A-B", from: "A", to: "B", minlen: 3 })).toBeGreaterThan(silent);
+  });
+
   it("reserves room between the ranks for a labelled edge and returns the label's anchor", () => {
     const nodes = [
       { id: "A", width: 40, height: 20 },

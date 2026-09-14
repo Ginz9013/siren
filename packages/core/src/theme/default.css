@@ -54,7 +54,22 @@
   --siren-node-border-radius: 6px;
   --siren-stroke-width: 1.5;
   --siren-highlight-stroke-width: 3;
+  /* A thick edge (`A ==> B`) is *derived* from the base width rather than
+     frozen at a number of its own, and that is load-bearing rather than
+     tidy: what `==>` means is "thicker than a plain edge", so a consumer
+     who retuned --siren-stroke-width up to a flat 3 would otherwise erase
+     the distinction between the two arrows entirely — a compatibility
+     contract lost to a theme change, which is exactly what a shape's kind
+     surviving the theme is meant to prevent. Override this token directly
+     to change the ratio. */
+  --siren-edge-thick-stroke-width: calc(var(--siren-stroke-width) * 2);
   --siren-lifeline-dash: 4 4;
+  /* A dotted edge (`A -.-> B`). Its own token rather than the lifeline's or
+     the note connector's, which belong to other diagram kinds, and safe to
+     freeze at :root for the reason given below them: a dash pattern carries
+     no light/dark value. The pattern matches a dotted sequence message, the
+     nearest thing in the codebase to the same idea. */
+  --siren-edge-dash: 4 3;
   /* A note's connector is dashed, as UML draws one — its own token rather than
      the lifeline's, which belongs to a different diagram kind. Declaring it
      here is safe where a *color* token would not be: a dash pattern carries no
@@ -113,10 +128,91 @@
   fill: var(--siren-node-text);
 }
 
+/*
+ * A subgraph's frame and its title — the flowchart's grouping construct, and
+ * the same figure a class diagram's namespace already draws, so it takes the
+ * same paint for the same reasons.
+ *
+ * Outlined and not filled: the frame encloses node boxes that are drawn
+ * *over* it, so a fill here would sit behind the whole group and tint nothing
+ * usefully while still hiding whatever the frame overlaps — and a nested
+ * frame would tint its parent's fill a second time. It tracks the node stroke
+ * because it is a container of boxes, not a connector.
+ *
+ * No `font-size` on the title: `layoutGraph` measures it in
+ * `--siren-font-size` and grows the frame's top strip from what it measured,
+ * so shrinking or growing it here would leave the drawn text disagreeing with
+ * the strip built to hold it.
+ */
+.siren-subgraph-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+.siren-subgraph-label {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-font-size);
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
 .siren-edge {
   fill: none;
   stroke: var(--siren-edge-stroke);
   stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * The two lines an edge can be drawn with that the base rule above is not.
+ * A solid edge has no class of its own: the rule above *is* the solid line,
+ * so `A --> B` and `.siren-edge` stay one thing.
+ *
+ * Their position in this file is the whole mechanism, and it is why the
+ * renderer emits a class here rather than an inline declaration (see
+ * `EDGE_LINE_CLASS` in renderToSVG.ts). Both carry one class, exactly as
+ * `.siren-edge` does, and both are written *after* it — so they win on
+ * source order, and lose to everything with more:
+ *
+ *   .siren-edge  <  .siren-edge-thick  <  .siren-edge.siren-highlight-outline  <  inline
+ *
+ * which is the order a reader of a diagram expects. A thick edge is thicker
+ * than a plain one; highlighting it still visibly thickens it (an edge is a
+ * timeline target, and an inline declaration here would have silently ended
+ * that); and an author's own `linkStyle 0 stroke-width:6px` beats all of
+ * them for the property it names, while leaving the ones it does not — a
+ * recoloured dotted edge stays dotted.
+ */
+.siren-edge-dotted {
+  stroke-dasharray: var(--siren-edge-dash);
+}
+
+.siren-edge-thick {
+  stroke-width: var(--siren-edge-thick-stroke-width);
+}
+
+/*
+ * The text an edge carries, drawn as a sibling of the path rather than
+ * inside it, so none of the three rules above reaches it — and it must not
+ * inherit them if it did: `.siren-edge` declares `fill: none`, which on a
+ * <text> is a label that is simply not there.
+ *
+ * Painted with the node's text color rather than the edge's stroke, and the
+ * class diagram's `.siren-relationship-label` makes the same call: the
+ * label *says* something, so it reads as text on the diagram, while
+ * `.siren-multiplicity` — an annotation *of* the line — tracks the line's
+ * color instead. It takes `--siren-label-font-size` for the same reason
+ * every other secondary label does: an edge label sits between two boxes
+ * and would crowd them at the node's own size.
+ *
+ * text-anchor/dominant-baseline stay with the renderer, for the reason
+ * `.siren-node text` gives.
+ */
+.siren-edge-label {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
 }
 
 /*
@@ -705,6 +801,21 @@
 }
 
 .siren-edge.siren-highlight-outline {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * A subgraph is addressable from a `timeline:` block under its generated id
+ * (`highlight subgraph:1 outline`), exactly as a class diagram's namespace
+ * is, so the verb has to do something. Without this rule it resolved to
+ * nothing at all — the verb parses, the model accepts it, the controller sets
+ * the class, and the picture does not change.
+ */
+.siren-subgraph.siren-highlight-outline .siren-subgraph-frame {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);
   transition:

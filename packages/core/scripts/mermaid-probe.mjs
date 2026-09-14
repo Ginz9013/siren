@@ -6,6 +6,10 @@
  *     node packages/core/scripts/mermaid-probe.mjs some-diagram.mmd
  *     cat some-diagram.mmd | node packages/core/scripts/mermaid-probe.mjs -
  *     pnpm --filter @siren/core probe some-diagram.mmd
+ *     node packages/core/scripts/mermaid-probe.mjs --paint --source 'flowchart TB
+ *     A -->|yes| B
+ *     linkStyle 0 stroke:#00ff00,color:#ff0000'
+ *     pnpm --filter @siren/core probe --paint some-diagram.mmd
  *
  * Two things to know before pointing it at an `examples/*.srn` file, both
  * measured the hard way:
@@ -52,17 +56,69 @@
  * this" is as much a measurement as any other, and it is the answer that tells
  * you a construct does not belong in the corpus.
  *
+ * ## What `--paint` prints
+ *
+ * The parse alone cannot answer every compatibility question, because a
+ * directive that reaches the database intact may still be *dropped* by the
+ * renderer, and a database dump cannot tell the two apart. `linkStyle 0
+ * stroke:#00ff00,color:#ff0000` appears nowhere in the reader above at all,
+ * so "does Mermaid paint an edge's label with the author's `color`?" was
+ * unanswerable here until this mode existed — which is exactly the shape of
+ * question that gets settled from recollection when the instrument cannot
+ * reach it.
+ *
+ * So `--paint` runs Mermaid's *renderer*, puts the SVG it produced into the
+ * jsdom document, and prints what reaches each drawn label: the element, the
+ * inline declarations Mermaid wrote onto it, and what `getComputedStyle`
+ * resolves for `fill` and `color`. Each edge path's inline style is printed
+ * beside them, because a question about a label is nearly always a question
+ * about whether it agrees with the line it is written on.
+ *
+ * **The declaration is the measurement; the resolved value is corroboration.**
+ * The `style=` column is read straight out of Mermaid's own markup and is
+ * exact. The `resolves to` column is jsdom's, and jsdom implements a subset of
+ * CSS — under the version this package pins it does not resolve `fill` from a
+ * stylesheet rule at all — so an empty value there means "nothing inline
+ * reached this element" rather than "nothing paints it"; what the theme would
+ * have painted is in the `<style>` block Mermaid emits inside the SVG. The
+ * contrast that settles a question of this kind is between a label the
+ * author's directive reached and one it did not, and both columns show it.
+ *
+ * It renders **twice, once per label mechanism**, because Mermaid has two and
+ * they spell one author declaration differently. `htmlLabels` — its default —
+ * puts a label in a `<foreignObject>`, where it is HTML and `color` is the
+ * property that paints it; `htmlLabels: false` puts it in an SVG `<text>`,
+ * where `color` names no paint at all and Mermaid emits `fill` instead.
+ * Siren draws SVG text, so the second is the comparable measurement, but a
+ * mode that reported only one would make Mermaid's own translation look like
+ * a quirk of this script.
+ *
+ * **Geometry from this mode is meaningless.** jsdom performs no layout, so
+ * `getBBox` and friends are stubbed with a fixed box purely to let Mermaid's
+ * measuring pass complete; every coordinate downstream of that stub is the
+ * stub's answer rather than Mermaid's, and several arrive as `NaN`. Ask this
+ * mode about paint, and ask the layout seam about geometry.
+ *
  * ## How it drives Mermaid
  *
  * Mermaid is browser-only: its label path calls `DOMPurify.addHook`, so a DOM
  * has to exist before the module is imported. jsdom globals are installed
  * first (jsdom is already this package's test environment), and then
  * `mermaidAPI.getDiagramFromText` runs the real grammar over the text and
- * hands back the diagram's database. No rendering, no layout — just the parse.
+ * hands back the diagram's database. No rendering, no layout — just the parse,
+ * unless `--paint` asked for the render as well.
  */
 import { readFileSync } from "node:fs";
 
-/** Install the browser globals Mermaid's module-load path needs, before it loads. */
+/**
+ * Install the browser globals Mermaid's module-load path needs, before it
+ * loads, and hand back the jsdom the SVG will later be read out of.
+ *
+ * `CSSStyleSheet` is only reached by the render path — `createCssStyles`
+ * builds the stylesheet Mermaid emits inside the SVG — but it is installed
+ * for both, because a global that appears only under a flag is a global that
+ * is missing the first time someone else needs it.
+ */
 async function installDomGlobals() {
   const { JSDOM } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
@@ -78,15 +134,45 @@ async function installDomGlobals() {
     "MutationObserver",
     "requestAnimationFrame",
     "getComputedStyle",
+    "CSSStyleSheet",
   ];
   for (const name of names) {
     if (globalThis[name] === undefined) globalThis[name] = dom.window[name];
   }
+  return dom;
 }
 
-/** The document to probe: a file path, `--source <text>`, or `-` for stdin. */
+/**
+ * The layout primitives jsdom does not implement, stubbed so that Mermaid's
+ * renderer runs to completion.
+ *
+ * jsdom parses and cascades but never lays anything out, so `getBBox` on an
+ * SVG element does not exist at all and Mermaid's measuring pass throws on
+ * the first label it sizes. A fixed box gets it past that, at the price named
+ * in the header: **every coordinate this mode produces is this stub's answer
+ * and not Mermaid's.** That is an acceptable price for a paint question and
+ * not for any other, which is why the stubs are installed only for `--paint`
+ * rather than beside the globals above — the parse path must stay a
+ * measurement of Mermaid with nothing of ours in it.
+ */
+function installLayoutStubs(dom) {
+  const box = () => ({ x: 0, y: 0, width: 40, height: 20 });
+  for (const proto of [dom.window.SVGElement.prototype, dom.window.Element.prototype]) {
+    if (proto.getBBox === undefined) proto.getBBox = box;
+    if (proto.getComputedTextLength === undefined) proto.getComputedTextLength = () => box().width;
+  }
+}
+
+/**
+ * The document to probe: a file path, `--source <text>`, or `-` for stdin.
+ *
+ * A bare `--` is dropped first. `pnpm run` forwards it verbatim rather than
+ * eating it, so the habitual `pnpm --filter @siren/core probe -- --paint`
+ * otherwise arrives here as a request to read a file called `--`, and the
+ * measurement fails with an `ENOENT` that says nothing about the mistake.
+ */
 function readSource(argv) {
-  const [first, ...rest] = argv;
+  const [first, ...rest] = argv[0] === "--" ? argv.slice(1) : argv;
   if (first === undefined) return null;
   if (first === "--source") return rest.join(" ");
   if (first === "-") return readFileSync(0, "utf8");
@@ -200,13 +286,108 @@ function report(type, db) {
   );
 }
 
-const source = readSource(process.argv.slice(2));
+/**
+ * Which half of the drawn picture a label belongs to, named by the group
+ * Mermaid put it in rather than by its own tag — the two mechanisms below
+ * draw a label with different tags, and the question being asked is always
+ * "whose label is this".
+ */
+function labelOwner(element) {
+  if (element.closest(".edgeLabels") !== null) return "edge label";
+  if (element.closest(".clusters") !== null) return "cluster label";
+  if (element.closest(".nodes") !== null) return "node label";
+  return "label";
+}
+
+/** One drawn label: what it says, what Mermaid wrote onto it, and what that resolves to. */
+function paintLine(dom, element) {
+  const resolved = dom.window.getComputedStyle(element);
+  const text = element.textContent.replace(/\s+/g, " ").trim();
+  const written = element.getAttribute("style");
+  return (
+    `${labelOwner(element)} ${JSON.stringify(text)} <${element.tagName}>` +
+    ` style=${JSON.stringify(written)}` +
+    ` resolves to fill=${resolved.fill || "(nothing inline)"}` +
+    ` color=${resolved.color || "(nothing inline)"}`
+  );
+}
+
+/**
+ * The two ways Mermaid can draw a label, as the config that selects each and
+ * the selector that finds the element carrying the paint.
+ *
+ * The selectors differ because the mechanisms do: an SVG label is a `<text>`
+ * with tspans under it that inherit, and an HTML label is a `<span>` inside a
+ * `<foreignObject>` with a `<p>` under it that does the same. Both name the
+ * outermost element of the pair, which is the one Mermaid writes the author's
+ * declaration onto.
+ */
+const LABEL_MECHANISMS = [
+  {
+    htmlLabels: false,
+    title: "paint, with labels as SVG `<text>` (`htmlLabels: false` — the form Siren draws)",
+    labels: "text",
+  },
+  {
+    htmlLabels: true,
+    title: "paint, with labels as HTML in a `<foreignObject>` (`htmlLabels: true` — Mermaid's default)",
+    labels: "foreignObject span[class]",
+  },
+];
+
+/**
+ * What Mermaid's renderer actually paints, once per label mechanism.
+ *
+ * The SVG is put into the jsdom document rather than read as a string,
+ * because the answer is a *computed* value: Mermaid emits a `<style>` block
+ * inside the SVG whose selectors are scoped to its id, so what a label ends
+ * up painted with is settled by the cascade between that block and whatever
+ * inline declarations the author's directives produced. Reading the markup
+ * alone would report the declaration and not the outcome, which is the
+ * distinction this mode exists to make.
+ */
+async function reportPaint(mermaid, dom, source) {
+  for (const { htmlLabels, title, labels } of LABEL_MECHANISMS) {
+    mermaid.initialize({ startOnLoad: false, htmlLabels, flowchart: { htmlLabels } });
+    let svg;
+    try {
+      ({ svg } = await mermaid.render(`siren-probe-${htmlLabels ? "html" : "svg"}`, source));
+    } catch (error) {
+      section(title, [`MERMAID FAILED TO RENDER THIS`, String(error.message)]);
+      continue;
+    }
+    const host = dom.window.document.createElement("div");
+    host.innerHTML = svg;
+    dom.window.document.body.appendChild(host);
+    section(title, [
+      ...[...host.querySelectorAll(labels)].map((element) => paintLine(dom, element)),
+      // Printed beside the labels rather than in a section of its own: the
+      // question is nearly always whether a label agrees with its line.
+      ...[...host.querySelectorAll(".edgePaths path")].map(
+        (path) =>
+          `edge path ${JSON.stringify(path.getAttribute("data-id"))}` +
+          ` style=${JSON.stringify(path.getAttribute("style"))}`,
+      ),
+    ]);
+    host.remove();
+  }
+}
+
+const argv = process.argv.slice(2);
+// A flag rather than a positional, and taken out of the list wherever it
+// was written, so that `--paint` reads the same before a file path, after
+// `pnpm run`'s own `--`, or at the end of a line someone is editing.
+const wantsPaint = argv.includes("--paint");
+const source = readSource(argv.filter((argument) => argument !== "--paint"));
 if (source === null) {
-  console.error("usage: mermaid-probe.mjs <file> | --source <text> | -   (- reads stdin)");
+  console.error(
+    "usage: mermaid-probe.mjs [--paint] <file> | --source <text> | -   (- reads stdin)",
+  );
   process.exit(2);
 }
 
-await installDomGlobals();
+const dom = await installDomGlobals();
+if (wantsPaint) installLayoutStubs(dom);
 const mermaid = (await import("mermaid")).default;
 mermaid.initialize({ startOnLoad: false });
 
@@ -226,3 +407,9 @@ try {
 
 console.log(`\n## diagram type\n  ${diagram.type}`);
 report(diagram.type, diagram.db);
+
+// The parse is printed first even under `--paint`, because the two readings
+// answer different halves of one question: the database says what Mermaid
+// understood, and the paint says what it did with it. A directive present in
+// the first and absent from the second is the finding.
+if (wantsPaint) await reportPaint(mermaid, dom, source);

@@ -1,12 +1,15 @@
 import type {
   Diagnostic,
   Direction,
+  EdgeEnd,
+  EdgeLine,
   FlowchartDocument,
   LinkStyleDecl,
   NodeShape,
   ParseResult,
   SirenEdge,
   SirenNode,
+  SirenSubgraph,
   SirenTimeline,
   StyleDecl,
   StyleProperty,
@@ -316,7 +319,7 @@ const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
  *
  * One endpoint rather than a whole line, because a line may name any number
  * of them: `A --> B --> C` is a chain of three. The line is cut into
- * endpoints first (`splitOutsideLabel`) and each piece read with this, so
+ * endpoints first (`cutOutsideLabel`) and each piece read with this, so
  * how many endpoints a line has is not something a pattern has to encode.
  *
  * Anchored at both ends, which is what keeps a partial read impossible: an
@@ -346,8 +349,271 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
  */
 const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
 
-/** The one arrow form Siren draws. Every other Mermaid arrow is a later board's. */
-const ARROW = "-->";
+/**
+ * What may lie between the two `|` of an edge label: the same two
+ * alternatives a node's label has, one `|` over.
+ *
+ * A fenced run, or a character that is neither the `|` ending the label nor
+ * a quote — so a `|` reaches a label only through the fence that was
+ * written to carry it. That is measured, not assumed: mermaid 11.17.2
+ * rejects `A -->|a|b| B` with a parse error and reads `A -->|"a|b"| B` as
+ * the label `a|b`. Excluding the quote from the second alternative is what
+ * makes the two disjoint, so this cannot backtrack exponentially over a
+ * line full of quotes — `LABEL_CONTENT`'s rule, and the same reasoning.
+ *
+ * `+` rather than `*`: an empty label is not a thing an author can write.
+ * Mermaid rejects `A -->|| B` outright, so a bare `-->||` is left to fall
+ * through as an unreadable line rather than quietly becoming an unlabelled
+ * edge.
+ */
+const EDGE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^|"])+`;
+
+/**
+ * The `|text|` half of `A -->|yes| B`, optional and trailing the arrow it
+ * labels.
+ *
+ * Part of the arrow token rather than a pattern of its own, because it is
+ * part of the *run* that separates two endpoints: `A` and `B` are what lie
+ * on either side of `-->|yes|`, and a cutter that stopped at the `-->`
+ * would hand `|yes| B` to the endpoint reader as if the author had written
+ * it. It is also what keeps a `;` or an `&` inside a label from being read
+ * as a separator, since `cutOutsideLabel` skips a whole arrow token.
+ *
+ * The `\s*` is Mermaid's: `A --> |yes| B` is a document it draws
+ * (measured), so the space between the arrow and its label is not a place
+ * an endpoint could be.
+ */
+const PIPE_LABEL = String.raw`(?:\s*\|(${EDGE_LABEL_CONTENT})\|)?`;
+
+/** What may decorate an arrow's from-end, and what may decorate its to-end. */
+const FROM_MARKER = String.raw`<|(?<!\w)[ox]`;
+const TO_MARKER = String.raw`[>ox]`;
+
+/**
+ * The body of a dotted line: a run of dots, closed by a dash, and opened by
+ * a dash the author may leave out.
+ *
+ * `A -.-> B` and `A .-> B` are one arrow written two ways in mermaid
+ * 11.17.2 — both `type="arrow_point" stroke="dotted" length=1`, measured
+ * with `scripts/mermaid-probe.mjs` — and so are `A -.- B` and `A .- B`.
+ * The **closing** dash is grammar and the opening one is decoration.
+ */
+const DOTTED_BODY = String.raw`-?\.+-`;
+
+/**
+ * The same body, for the one place it may **begin a run**: where a `.`
+ * following a word character would be a character of an id rather than the
+ * start of an arrow.
+ *
+ * **A dot is in Mermaid's node-id alphabet, so a leading one only opens a
+ * body where an id cannot be.** This is `ARROW_TOKEN`'s `(?<!\w)[ox]` rule
+ * a second time and it is here for the same reason: `a.-b --> c` is *one*
+ * node called `a.-b` with one edge to `c`, and the boundary is whitespace —
+ * `A .->B` is a dotted edge and `A.->B` is a parse error, all three
+ * measured. Unguarded, this pattern cuts that line at the `.-` and draws
+ * three nodes and two edges where Mermaid draws two and one, silently.
+ * Siren's ids are `\w+` and cannot spell `a.-b` under either reading, so
+ * what the guard buys is not that document but the *diagnostic*: it is
+ * refused rather than quietly redrawn.
+ *
+ * The guard is on the dash-less spelling alone. A body that opens with a
+ * dash is already unreachable from inside an id, since Mermaid ends an id
+ * at a `-` followed by a `.` — `A-.->B` is an edge there, measured — so
+ * guarding it as well would refuse a document Mermaid draws.
+ *
+ * And an `o` or an `x` that `FROM_MARKER` already took is not an id either,
+ * so the dots may follow one: `A o.-o B` is a `double_arrow_circle` and
+ * `A x.-x B` a `double_arrow_cross`, both dotted, both measured. A
+ * lookbehind cannot see that the character was consumed as a marker, so the
+ * exception restates `FROM_MARKER`'s own condition — a marker, itself not
+ * inside an id — rather than simply allowing any `o` or `x`. That is what
+ * keeps `Ax.-xB` refused, which is one node id in Mermaid and no edge at
+ * all, measured, exactly as `Ax--xB` already was.
+ *
+ * **Only a run's start needs it**, which is why there are two constants
+ * rather than one guarded body everywhere. An inline label's closer cannot
+ * begin inside an id, because the id ended at the opener that started the
+ * run — so `A -. yes.-> B` and `A -.yes.-> B` are edges labelled "yes" in
+ * Mermaid, measured, exactly as the solid `A -- yes--> B` is. Guarding the
+ * closer too refused both, and refused them for the dotted stroke alone,
+ * which is a rule no author could predict.
+ */
+const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<!\w)[ox])|(?<!\w))\.+-`;
+
+/**
+ * An arrow written as one run: a marker, a body, a marker.
+ *
+ * The lookahead is what stops this from swallowing the **opener** of an
+ * inline-labelled arrow. `--`, `==` and `-.` are not arrows — each would
+ * decompose to zero ranks, which is exactly the `minLength < 1` case
+ * `readArrow` already refuses, and Mermaid says the same thing in its own
+ * lexer by requiring a `[-xo>]` after the dashes before a run counts as a
+ * `LINK`. Without the guard, `A -- yes --> B` would be cut at its opening
+ * `--` and the label read as an endpoint; with it, the plain branch simply
+ * does not match there and the labelled branch below does.
+ *
+ * A pre-filter, not the grammar: three characters of the right kind are
+ * necessary, and the body patterns still decide what is sufficient. It
+ * guards the dashed and thick bodies **only**, because the shortest dotted
+ * arrow is two characters rather than three — `A .- B` is an `arrow_open`
+ * Mermaid draws, measured — and a three-character pre-filter would refuse
+ * it. A dotted body needs no such guard: it ends in a dash of its own, so
+ * it cannot match `-.`, the one dotted opener there is.
+ *
+ * Taken as a function of its dotted body because there are two contexts and
+ * they differ in exactly that one part — see `RUN_OPENING_DOTTED_BODY`. The
+ * rest is written once, so a change to how an end is marked cannot land in
+ * one context and not the other.
+ */
+const plainArrow = (dottedBody: string) =>
+  String.raw`(${FROM_MARKER})?((?=[-=.]{2}[-=.>ox])(?:-{2,}|={2,})|${dottedBody})(${TO_MARKER})?`;
+
+/** The plain arrow as it appears in a line, where it may not begin inside an id. */
+const PLAIN_ARROW = plainArrow(RUN_OPENING_DOTTED_BODY);
+
+/**
+ * The plain arrow as it appears **closing an inline label**, where the run
+ * it belongs to has already been opened and an id cannot be in progress.
+ */
+const INLINE_CLOSING_ARROW = plainArrow(DOTTED_BODY);
+
+/**
+ * The three strokes an inline-labelled arrow can be written in, each as the
+ * opener that starts it, the characters its label may be made of, and the
+ * body that closes it.
+ *
+ * **The label's alphabet is scoped to the stroke, and that is measured.**
+ * `A == x --> y ==> B` is one thick edge labelled `x --> y` in mermaid
+ * 11.17.2, because its lexer reads a thick label with a rule that only
+ * stops at `=`. A single stroke-agnostic alphabet would cut that line at
+ * the `-->` and draw three nodes. The three rows are Mermaid's own
+ * `edgeText`/`thickEdgeText`/`dottedEdgeText` lexer states, one for one.
+ *
+ * The closing bodies are the same three this file already uses for a plain
+ * arrow — the stroke an opener starts is the stroke that must close it,
+ * and `A -- yes ==> B` is a parse error in Mermaid, measured. `DOTTED_BODY`
+ * shared literally rather than restated, so that the closer of a labelled
+ * dotted arrow and a plain one are one spelling: `A -. yes .-> B` is one
+ * `arrow_point` labelled "yes", dotted, length=1, measured.
+ *
+ * **An opener is not a body, and the dotted pair are the reason to say so.**
+ * The closer may drop its leading dash and the opener may not: `A .- yes
+ * .-> B` is not a labelled edge in Mermaid at all but a chain of three
+ * nodes, `A .- yes` then `yes .-> B`, measured — because `.-` is a whole
+ * arrow and `-.` is the only thing that opens a dotted label. So the
+ * openers stay literal while the bodies are shared.
+ */
+const INLINE_LABEL_STROKES = [
+  { opener: String.raw`--`, alphabet: String.raw`[^-]|-(?!-)`, body: String.raw`-{2,}` },
+  { opener: String.raw`==`, alphabet: String.raw`[^=]`, body: String.raw`={2,}` },
+  { opener: String.raw`-\.`, alphabet: String.raw`[^.]`, body: DOTTED_BODY },
+];
+
+/**
+ * `-- yes -->` — the other spelling of an edge label, written between the
+ * two halves of the arrow rather than after it.
+ *
+ * Part of the arrow token for the same reason `PIPE_LABEL` is: it is the
+ * *run* that separates `A` from `B`, so a cutter that stopped at the
+ * opening `--` would hand ` yes ` to the endpoint reader as a node called
+ * `yes` — which is precisely what mermaid 11.17.2 does with
+ * `A ---- yes --> B`, whose four-dash opener is a whole arrow rather than
+ * an opener, measured.
+ *
+ * Nothing here captures. What the run *means* is read back by
+ * `readArrow`, which splits it with an anchored pattern of its own; this
+ * one only has to end the run in the same place Mermaid's lexer does, and
+ * leaving the group numbers to the plain branch is what keeps that split
+ * readable.
+ */
+const INLINE_LABELLED_ARROW = INLINE_LABEL_STROKES.map(
+  ({ opener, alphabet, body }) =>
+    String.raw`(?:${FROM_MARKER})?${opener}\s*(?:${alphabet})+?\s*(?:${FROM_MARKER})?${body}(?:${TO_MARKER})?`,
+).join("|");
+
+/**
+ * The run of characters that joins two endpoints — **one pattern for every
+ * arrow spelling**, read as three parts rather than matched against a list
+ * of thirteen names.
+ *
+ * `A <-.-> B` is not a fourteenth arrow: it is a dotted line with an arrow
+ * at each end. The parts are exactly the axes `EdgeLine`/`EdgeEnd` name, so
+ * a spelling nobody thought of composes out of the same three answers, and
+ * the ones Mermaid has no name for are refused by `readArrow` rather than
+ * silently read as something else.
+ *
+ * One pattern, used twice — sticky, to cut a line at its arrows, and
+ * anchored, to read the token that cut it (`readArrow`) — because two
+ * statements of one grammar are two things free to disagree about what
+ * `-..->` is.
+ *
+ * **The run includes the edge's label, in either spelling.** `-->|yes|` and
+ * `-- yes -->` are what lies between `A` and `B` just as `-->` is, so both
+ * belong to the thing that separates the endpoints rather than to the
+ * endpoints themselves. The consequence worth naming: everything the label
+ * contains — a `;`, an `&`, another arrow — is inside a token here, so
+ * `cutOutsideLabel` steps over it and the surrounding grammar never sees
+ * it, which is the same protection a node's `[...]` already has.
+ *
+ * The labelled branch captures nothing, so the group numbers stay the plain
+ * branch's and `readArrow` reads a plain token exactly as it did. A
+ * labelled run is split by `INLINE_LABELLED_PARTS_RE` first and then
+ * spliced back into the plain token it decorates, so there is still one
+ * decomposition and not two.
+ *
+ * **`o` and `x` are word characters, so the leading one is only a marker
+ * where an id cannot be.** Without the lookbehind, `Ax--xB` would be cut at
+ * `x--x` and drawn as `A` to `B`; mermaid 11.17.2 reads it as the node `Ax`
+ * and a plain `--x`, measured, and the guard is what makes this agree. `<`
+ * needs no guard: no id can end in one, and `A<-->B` is a document Mermaid
+ * draws.
+ */
+const ARROW_TOKEN = `(?:${PLAIN_ARROW}|${INLINE_LABELLED_ARROW})${PIPE_LABEL}`;
+
+/** The sticky form, for cutting a line into endpoints at every arrow outside a label. */
+const ARROW_RE = new RegExp(ARROW_TOKEN, "y");
+
+/**
+ * The anchored form, for reading a token the cut produced back as its three
+ * parts: the from-end marker, the line, the to-end marker.
+ *
+ * The same source text, so the two cannot drift. The lookbehind costs
+ * nothing here — nothing precedes position 0 — which is what lets one
+ * pattern serve both readings.
+ */
+const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`);
+
+/**
+ * The anchored form that splits an **inline-labelled** run back into the
+ * three things it says: the marker its opener carried, the label, and the
+ * arrow that closed it.
+ *
+ * Lazy text with the closer anchored to the end, so the split is the one
+ * whose tail is a whole arrow — and there is only one, because an arrow
+ * carries no spaces. The stroke alphabets that decided where the run *ends*
+ * are `INLINE_LABELLED_ARROW`'s and are not repeated here: by the time this
+ * pattern is handed a token, the run has already been delimited.
+ *
+ * **A plain arrow can match it, and that is why `readArrow` does not ask it
+ * first.** This comment used to claim the opposite — that a non-empty label
+ * plus a whole trailing arrow left `---->` no way to be both — and the
+ * claim held only while every dotted body opened with a dash. It does not
+ * now: `-...->` splits as the opener `-.`, the label `.` and the closer
+ * `.->`, which reads as a one-rank dotted arrow labelled "." where Mermaid
+ * records `length=3` and no label. So this pattern is no longer a test of
+ * *whether* a token is labelled; it is only the split, applied to a token
+ * `ARROW_PARTS_RE` has already found no plain reading for.
+ */
+const INLINE_LABELLED_PARTS_RE = new RegExp(
+  String.raw`^(${FROM_MARKER})?(--|==|-\.)\s*(.+?)\s*(${INLINE_CLOSING_ARROW})$`,
+);
+
+/** The stroke each inline-label opener starts, which its closer must agree with. */
+const OPENER_LINE: Record<string, EdgeLine> = {
+  "--": "solid",
+  "==": "thick",
+  "-.": "dotted",
+};
 
 /**
  * What joins the endpoints of one **group** — the several nodes an edge
@@ -386,6 +652,176 @@ const STATEMENT_END = ";";
  * `classDef hot fill:#fdd;` reads as `classDef hot fill:#fdd` does.
  */
 const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
+
+/** What an end marker draws, by the character that wrote it. */
+const END_FOR_MARKER: Record<string, EdgeEnd> = {
+  ">": "arrow",
+  o: "circle",
+  x: "cross",
+};
+
+/**
+ * Which end marker may open a token that closes with a given one. A token
+ * decorates its from-end only by *repeating* its to-end marker, `<` being
+ * the opening spelling of `>`.
+ *
+ * Measured, not assumed. In mermaid 11.17.2 a leading marker is read as one
+ * only when it matches the trailing one: `o--o` is `double_arrow_circle`
+ * while `o--x` is a plain `arrow_cross` whose leading `o` silently becomes
+ * part of the *length* (`length=2`), and `<-.-` is a plain `arrow_open`
+ * whose `<` disappears entirely. Those two are Mermaid drawing a picture
+ * nobody asked for and saying nothing, so `readArrow` refuses them — the
+ * exception CONTEXT.md carves out, recorded beside the code that takes it.
+ */
+const OPENING_MARKER: Record<string, string> = { ">": "<", o: "o", x: "x" };
+
+/** The three axes, the distance and the label one arrow token decomposes into. */
+interface ArrowForm {
+  line: EdgeLine;
+  fromEnd: EdgeEnd;
+  toEnd: EdgeEnd;
+  minLength: number;
+  /** What the author wrote on the edge, or `null` when they wrote nothing. */
+  label: string | null;
+}
+
+/**
+ * What one arrow token means, or `null` when it is not a form Siren draws —
+ * which refuses the statement rather than half of it, exactly as an
+ * unreadable endpoint does.
+ *
+ * **The whole of the decomposition, in one place.** The line comes from the
+ * character the body is made of, each end from the marker on its own side,
+ * and the distance from how long the body is:
+ *
+ * - `-` is `solid`, `=` is `thick`, and a body carrying dots is `dotted` —
+ *   mermaid 11.17.2's `stroke`, which it reports as `normal`/`thick`/
+ *   `dotted` for exactly these three spellings.
+ * - The **to**-end is the trailing marker and the **from**-end is a leading
+ *   one that repeats it. Which end a lone marker lands on was measured:
+ *   `A --o B` is `arrow_circle`, which Mermaid turns into
+ *   `arrowTypeStart: "none"` and `arrowTypeEnd: "arrow_circle"`.
+ * - The distance is the token's length past the shortest spelling of it:
+ *   `-->` and `---` are both 1, and every further character is one more
+ *   rank (`---->` is 3, `-----` is 3). A dotted token counts its dots
+ *   instead (`-.->` is 1, `-..->` is 2) — Mermaid's own rule, and the
+ *   reason this is not simply "count the dashes".
+ *
+ * A body of `--` with no marker at all is the one token this can be handed
+ * that means nothing: it would be zero ranks long, and Mermaid rejects
+ * `A -- B` outright. It is refused here rather than excluded from the
+ * pattern, so that the grammar stays one expression.
+ */
+function readArrow(token: string): ArrowForm | null {
+  const match = ARROW_PARTS_RE.exec(token);
+  if (match === null) {
+    return null;
+  }
+  const [, start, body, end, pipeLabel] = match;
+  // `ARROW_TOKEN` has two branches and only the plain one captures, so a
+  // token with no body reached here through the **labelled** branch and is
+  // read by the split below instead.
+  //
+  // **Which branch is asked first is load-bearing, and it is asked in the
+  // order `ARROW_TOKEN` itself asks.** That pattern prefers its plain
+  // branch, so a token the cutter produced from the plain branch is a plain
+  // token — and a reader that tried the labelled split first would be free
+  // to disagree with the cut that made the token. It did: once a dotted
+  // body may open without its dash, `-...->` can be split as the opener
+  // `-.`, the label `.` and the closer `.->`, which is a one-rank dotted
+  // arrow labelled "." where Mermaid records `length=3` and no label at
+  // all. Asking in `ARROW_TOKEN`'s own order makes the two agree by
+  // construction rather than by a rule stated twice.
+  if (body === undefined) {
+    return readInlineLabelledArrow(token);
+  }
+  const label = pipeLabel === undefined ? null : edgeLabelIn(pipeLabel);
+  if (label === "") {
+    // `A -->|""| B`: a fence with nothing in it is not a label an author
+    // can write, and reading it as an unlabelled edge would be the silent
+    // mis-render this parser refuses everywhere else.
+    return null;
+  }
+
+  const dots = body.length - body.replace(/\./g, "").length;
+  const line: EdgeLine = dots > 0 ? "dotted" : body.startsWith("=") ? "thick" : "solid";
+  // Past the shortest spelling: `-->` (three characters, one of them the
+  // marker) and `---` are both one rank, so an unmarked body is measured
+  // against three characters and a marked one against two plus its marker.
+  const minLength = dots > 0 ? dots : body.length - (end === undefined ? 2 : 1);
+  if (minLength < 1) {
+    return null;
+  }
+
+  const toEnd = end === undefined ? "none" : END_FOR_MARKER[end];
+  if (start === undefined) {
+    return { line, fromEnd: "none", toEnd, minLength, label };
+  }
+  if (end === undefined || start !== OPENING_MARKER[end]) {
+    return null;
+  }
+  return { line, fromEnd: toEnd, toEnd, minLength, label };
+}
+
+/**
+ * What one **inline-labelled** run means — `-- yes -->` and its two
+ * siblings — or `null` when it is not a form Siren draws.
+ *
+ * Reached only from `readArrow`, and only for a token the plain reading
+ * could not account for, which is what keeps one decomposition rather than
+ * two.
+ */
+function readInlineLabelledArrow(token: string): ArrowForm | null {
+  const inline = INLINE_LABELLED_PARTS_RE.exec(token);
+  if (inline === null) {
+    // The one spelling that reaches `ARROW_TOKEN`'s labelled branch and
+    // still has no split: an inline label *and* a pipe label on one arrow,
+    // `A -- x -->|y| B`, which mermaid 11.17.2 rejects too, measured.
+    // Refusing it here is what keeps that a diagnostic rather than a crash.
+    return null;
+  }
+  const [, openMarker, opener, text, closer] = inline;
+  // **The opener contributes exactly one thing: a from-end marker.**
+  // Everything else — the line, the to-end, the length — comes from the
+  // half that closes, which is `destructLink`'s own rule in mermaid
+  // 11.17.2 and was measured through it: `A -- yes ---> B` is `length=2`
+  // though its opener is the two characters a one-rank arrow opens with.
+  //
+  // So the run is spliced back into the plain token it decorates and read
+  // by the decomposition that already exists. `<-- yes -->` becomes
+  // `<-->`, which means the agreement rule between the two markers is not
+  // restated here: `<-- yes --x` splices to `<--x` and is refused by
+  // `OPENING_MARKER` exactly as the unlabelled spelling is.
+  const form = readArrow((openMarker ?? "") + closer);
+  // The stroke an opener starts is the stroke that must close it —
+  // `A -- yes ==> B` and `A == yes --> B` are both parse errors in
+  // Mermaid (`destructLink` returns `INVALID` when the two disagree),
+  // measured. Asked of the decomposed line rather than of the closer's
+  // characters, so there is one place that decides what `-.` draws.
+  if (form === null || form.line !== OPENER_LINE[opener]) {
+    return null;
+  }
+  const label = edgeLabelIn(text);
+  return label === "" ? null : { ...form, label };
+}
+
+/**
+ * The label an author wrote on an edge, with the fence removed and the
+ * padding dropped.
+ *
+ * Trimmed, unlike a node's label, and the difference is Mermaid's rather
+ * than a choice made here: an edge label reaches Mermaid's own database
+ * already trimmed in every spelling — `A -->|  yes  | B`,
+ * `A --   yes   --> B` and `A -->|"  yes  "| B` all record `text="yes"`,
+ * measured. A node's label does not (`fc-text-label-whitespace`), and that
+ * divergence is a corpus row rather than a precedent to spread.
+ *
+ * Trimmed on both sides of the fence, so the padding an author put inside
+ * the quotes and the padding they put outside them are dropped alike.
+ */
+function edgeLabelIn(content: string): string {
+  return labelIn(content.trim()).trim();
+}
 
 /** One place a node was written on an edge line, as written there. */
 interface EdgeEndpoint {
@@ -440,7 +876,32 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
 }
 
 /**
- * Cuts `text` at every `separator` that lies **outside** a `[...]` label.
+ * The separator that begins at `index`, or `null` when none does.
+ *
+ * Two kinds, because two of the three things that cut a flowchart line are
+ * fixed characters and the third is a grammar. A `RegExp` is matched
+ * **sticky**, so it can only match at exactly this index — a search would
+ * find the next arrow somewhere down the line and cut there, silently
+ * swallowing everything in between.
+ */
+function separatorAt(text: string, index: number, separator: string | RegExp): string | null {
+  if (typeof separator === "string") {
+    return text.startsWith(separator, index) ? separator : null;
+  }
+  separator.lastIndex = index;
+  return separator.exec(text)?.[0] ?? null;
+}
+
+/**
+ * Cuts `text` at every `separator` that lies **outside** a `[...]` label,
+ * returning both the pieces and the separators that cut them.
+ *
+ * The separators are returned because one of the three callers cares what
+ * cut its line: `;` and `&` are single characters that mean one thing, but
+ * an arrow is a **pattern**, and `A --> B -.-> C` is cut by two different
+ * tokens carrying two different pictures. A cutter that returned only the
+ * pieces would leave that caller re-finding the tokens it had already
+ * matched.
  *
  * The label depth is the whole point. `;`, `&` and `-->` all mean
  * something between statements and nothing inside a label: `A[a;b]`,
@@ -467,11 +928,16 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
  * divergence untouched: a `"` in `style A fill:"#fdd;x"` is not a fence,
  * so the `;` there still reaches the security gate that refuses it.
  *
- * Always returns at least one piece, and never trims: a caller that needs
- * a column needs the offsets left alone.
+ * Always returns at least one piece, and one fewer separator than pieces,
+ * and never trims: a caller that needs a column needs the offsets left
+ * alone.
  */
-function splitOutsideLabel(text: string, separator: string): string[] {
+function cutOutsideLabel(
+  text: string,
+  separator: string | RegExp,
+): { parts: string[]; separators: string[] } {
   const parts: string[] = [];
+  const separators: string[] = [];
   let depth = 0;
   let fenced = false;
   let start = 0;
@@ -493,14 +959,42 @@ function splitOutsideLabel(text: string, separator: string): string[] {
       }
       continue;
     }
-    if (depth === 0 && text.startsWith(separator, i)) {
-      parts.push(text.slice(start, i));
-      i += separator.length - 1;
-      start = i + 1;
+    if (depth === 0) {
+      const cut = separatorAt(text, i, separator);
+      if (cut !== null) {
+        parts.push(text.slice(start, i));
+        separators.push(cut);
+        i += cut.length - 1;
+        start = i + 1;
+        continue;
+      }
+      if (separator !== ARROW_RE) {
+        // **An arrow's own label is a label.** The two edge-label spellings
+        // put the author's text where the grammar reads its punctuation,
+        // and a `;` there is a character rather than the end of a
+        // statement: mermaid 11.17.2 reads `A -- a;b --> B` as one edge
+        // labelled `a;b`, measured. Statements are split before arrows are
+        // found, so without this the label is two half-statements and two
+        // diagnostics.
+        //
+        // Stepping over the whole run rather than tracking a depth,
+        // because an edge label has no closing character of its own to
+        // count: `-->|a;b|` and `-- a;b -->` are each one token, and
+        // `ARROW_RE` is the one statement of where they end.
+        const arrow = separatorAt(text, i, ARROW_RE);
+        if (arrow !== null) {
+          i += arrow.length - 1;
+        }
+      }
     }
   }
   parts.push(text.slice(start));
-  return parts;
+  return { parts, separators };
+}
+
+/** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
+function splitOutsideLabel(text: string, separator: string): string[] {
+  return cutOutsideLabel(text, separator).parts;
 }
 
 /**
@@ -537,6 +1031,98 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
   }
   return statements;
 }
+
+/**
+ * The opening statement of a `subgraph` block, and everything the author
+ * wrote after the keyword. What that tail *means* is `readSubgraphTitle`'s;
+ * this pattern only says a block opens here.
+ *
+ * Split in two because the tail has three spellings and only one of them is
+ * a bare word — a single pattern would either have to alternate three ways
+ * inline or, worse, accept a tail it cannot read and lose the diagnostic.
+ */
+const SUBGRAPH_OPEN_RE = /^subgraph\s+(\S.*)$/;
+
+/** The statement that closes a `subgraph` block. Mermaid's own keyword, lowercase. */
+const SUBGRAPH_END = "end";
+
+/**
+ * `one[Two Words]` — the spelling that gives a subgraph a handle *and* a
+ * title, and the only one where the two differ. Its content is read by the
+ * same `LABEL_CONTENT` every node label goes through, so `subgraph
+ * one["a, b"]` fences exactly as `A["a, b"]` does.
+ */
+const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(\w+)\s*\[(${LABEL_CONTENT})\]$`);
+
+/**
+ * A bare authored id and nothing else — `Ingest`, `A`.
+ *
+ * `\w+` is the shape every parser in this repo gives an id, and ADR-0010
+ * leans on it: a `\w` cannot be a colon, which is what makes a generated id
+ * unspellable by an authored one. Read in two places here, for two different
+ * things that are both that shape — a subgraph written with a bare title
+ * (mermaid 11.17.2 records it as both id and title) and a node written as
+ * nothing but its id inside a block.
+ */
+const AUTHORED_ID_RE = /^\w+$/;
+
+/**
+ * What the tail of a `subgraph` statement names — the author's handle and
+ * the title drawn on the frame — or `null` when it is a spelling Siren does
+ * not read.
+ *
+ * The three spellings and what mermaid 11.17.2 makes of each were measured
+ * with `scripts/mermaid-probe.mjs`, not recalled:
+ *
+ *     subgraph Ingest            id="Ingest"    title="Ingest"
+ *     subgraph "Two Words"       id="subGraph0" title="Two Words"
+ *     subgraph one[Two Words]    id="one"       title="Two Words"
+ *
+ * The middle one is why `name` is nullable rather than defaulted to the
+ * title: Mermaid mints a handle the author never wrote and could not have
+ * predicted, so there is no name here for anything to be addressed by.
+ */
+function readSubgraphTitle(
+  tail: string,
+): { name: string | null; label: string } | null {
+  const titled = SUBGRAPH_TITLED_RE.exec(tail);
+  if (titled !== null) {
+    return { name: titled[1], label: labelIn(titled[2]) };
+  }
+  const fenced = FENCED_LABEL_RE.exec(tail);
+  if (fenced !== null) {
+    return { name: null, label: fenced[1] };
+  }
+  if (AUTHORED_ID_RE.test(tail)) {
+    return { name: tail, label: tail };
+  }
+  return null;
+}
+
+/**
+ * `direction LR` written inside a `subgraph` block — a per-cluster rank
+ * direction, which Siren refuses by name rather than reading and dropping.
+ *
+ * Measured, not recalled: mermaid 11.17.2 records it as `dir="LR"` on that
+ * subgraph and leaves the document's own direction where the header put it
+ * (`scripts/mermaid-probe.mjs`). Honoring it means laying each subgraph out
+ * as a diagram of its own and composing the results, because dagre carries
+ * exactly one `rankdir` per graph and `layoutDirectedGraph` takes it as a
+ * graph-level field. That is a layout feature of its own size.
+ *
+ * The alternative is not "ignore it". A group drawn top-to-bottom where the
+ * author wrote left-to-right is the wrong picture with nothing in it to
+ * notice — a silent mis-render by the compatibility corpus's own definition,
+ * and the state this project's absolute condition exists to keep out. So the
+ * line is named in a diagnostic and the document is refused, exactly as an
+ * undrawn arrow spelling and an undrawn bracket form already are.
+ *
+ * Scoped to *inside* a block on purpose. At the top level of a flowchart
+ * mermaid 11.17.2 accepts `direction LR` and ignores it — the recorded
+ * direction stays `TB`, measured — so there is nothing there for Siren to be
+ * behind on, and it stays an unrecognized line.
+ */
+const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
 
 /**
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
@@ -619,8 +1205,28 @@ export function parseFlowchart(source: string): ParseResult {
   const edges: SirenEdge[] = [];
   const styles: StyleDecl[] = [];
   const linkStyles: LinkStyleDecl[] = [];
+  const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
+
+  /**
+   * The `subgraph` blocks currently open, innermost last, each remembered
+   * alongside the statement that opened it so an unterminated one can be
+   * quoted back at the author in their own words.
+   */
+  const openBlocks: { subgraph: SirenSubgraph; statement: string; line: number; column: number }[] =
+    [];
+
+  /** Every node id some subgraph has already claimed — the first claim wins. */
+  const claimedNodeIds = new Set<string>();
+
+  /**
+   * Every edge statement, with the endpoint ids it named — kept so that an
+   * edge addressing a subgraph can be refused after the whole document has
+   * been read. It cannot be refused while the line is read: a subgraph may
+   * legitimately be declared *below* the edge that names it.
+   */
+  const edgeStatements: { ids: string[]; text: string; line: number; column: number }[] = [];
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -756,6 +1362,22 @@ export function parseFlowchart(source: string): ParseResult {
     line: number,
     column: number,
   ) => {
+    // Membership is claimed here, at the one place a node is *written*, for
+    // the same reason the label rules live here: where it was written must
+    // not decide what it means. An edge endpoint, a declaration on a line of
+    // its own and the `:::` shorthand all reach this function, and all three
+    // put a node inside the block they were written in — which is what
+    // mermaid 11.17.2 does, measured.
+    //
+    // The innermost open block claims it, and only if nothing has: a node
+    // already inside a subgraph stays there however many later blocks name
+    // it, which is how an edge drawn *out* of a group does not move its
+    // source into the group at the other end.
+    const innermost = openBlocks[openBlocks.length - 1];
+    if (innermost !== undefined && !claimedNodeIds.has(id)) {
+      claimedNodeIds.add(id);
+      innermost.subgraph.nodeIds.push(id);
+    }
     if (label !== undefined) {
       addNode(id, labelIn(label), shape, line, column);
     } else if (!nodesById.has(id)) {
@@ -816,7 +1438,66 @@ export function parseFlowchart(source: string): ParseResult {
         break readLines;
       }
 
-      const arrowParts = splitOutsideLabel(line, ARROW);
+      // Asked before the line is cut at its arrows, because a title is a
+      // place where an arrow means nothing: `subgraph "A --> B"` is one
+      // block with a punctuated name, not a malformed edge.
+      const subgraphOpenMatch = SUBGRAPH_OPEN_RE.exec(line);
+      if (subgraphOpenMatch !== null) {
+        const title = readSubgraphTitle(subgraphOpenMatch[1]);
+        if (title === null) {
+          diagnostics.push({
+            severity: "error",
+            message: `Unrecognized flowchart line: "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+        const subgraph: SirenSubgraph = {
+          name: title.name,
+          label: title.label,
+          nodeIds: [],
+          subgraphs: [],
+          line: lineNumber,
+          column,
+        };
+        // Into the block that encloses it, or into the document when there
+        // is none — the tree `FlowchartDocument.subgraphs` is the root of.
+        const enclosing = openBlocks[openBlocks.length - 1];
+        (enclosing === undefined ? subgraphs : enclosing.subgraph.subgraphs).push(subgraph);
+        openBlocks.push({ subgraph, statement: line, line: lineNumber, column });
+        continue;
+      }
+
+      if (line === SUBGRAPH_END && openBlocks.length > 0) {
+        openBlocks.pop();
+        continue;
+      }
+
+      if (openBlocks.length > 0 && SUBGRAPH_DIRECTION_RE.test(line)) {
+        diagnostics.push({
+          severity: "error",
+          message: `Siren does not lay a subgraph out in its own direction yet: "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
+
+      // A declaration list is not a place where an arrow means anything —
+      // the same rule `splitStatements` already applies to `;` there, and
+      // the reason it has to be applied here too now that the separator is
+      // a pattern: `style A --my-token:4` carries a `--`, and cutting the
+      // statement at it would refuse a styling declaration as a malformed
+      // edge. Mermaid rejects that particular line as well, so nothing
+      // Mermaid draws turns on this; what turns on it is which diagnostic
+      // an author gets, and "not an arrow Siren draws" is the wrong one to
+      // hand someone who wrote a `style` statement.
+      const { parts: arrowParts, separators: arrowTokens } = DECLARATION_LIST_RE.test(line)
+        ? { parts: [line], separators: [] as string[] }
+        : cutOutsideLabel(line, ARROW_RE);
       if (arrowParts.length > 1) {
         // Every outcome below ends the statement. An arrow says the author
         // meant an edge, so a statement carrying one is never handed on to
@@ -828,7 +1509,27 @@ export function parseFlowchart(source: string): ParseResult {
         ) {
           diagnostics.push({
             severity: "error",
-            message: `Malformed edge: missing target after "-->" in "${line}"`,
+            // The token the author actually wrote, not `-->`: with thirteen
+            // spellings, quoting one of them at an author who wrote another
+            // sends them looking for a typo they did not make.
+            message: `Malformed edge: missing target after "${arrowTokens[arrowTokens.length - 1]}" in "${line}"`,
+            line: lineNumber,
+            column,
+          });
+          sawError = true;
+          continue;
+        }
+
+        // Read before any endpoint is, and before anything is declared: a
+        // token Siren does not draw refuses the whole statement, the same
+        // rule an unreadable endpoint follows, so no chain is ever
+        // half-consumed.
+        const arrows = arrowTokens.map(readArrow);
+        const unreadable = arrowTokens.find((_, index) => arrows[index] === null);
+        if (unreadable !== undefined) {
+          diagnostics.push({
+            severity: "error",
+            message: `Siren does not draw the arrow "${unreadable}" yet: "${line}"`,
             line: lineNumber,
             column,
           });
@@ -882,6 +1583,13 @@ export function parseFlowchart(source: string): ParseResult {
           continue;
         }
 
+        edgeStatements.push({
+          ids: written.map((endpoint) => endpoint.id),
+          text: line,
+          line: lineNumber,
+          column,
+        });
+
         // Declared once each, left to right as written — before any edge, so
         // a `:::` on an endpoint two arrows along applies exactly once rather
         // than once per link it takes part in.
@@ -892,9 +1600,19 @@ export function parseFlowchart(source: string): ParseResult {
         // `for (const start of _start) for (const end of _end)`, so
         // `A & B --> C & D` is A-C, A-D, B-C, B-D.
         for (let link = 0; link + 1 < chain.length; link++) {
+          // Every edge of one link wears that link's own arrow: in
+          // `A & B -.-> C` both edges are dotted, and in `A --> B ==> C` the
+          // second is thick and the first is not.
+          const arrow = arrows[link]!;
           for (const from of chain[link]) {
             for (const to of chain[link + 1]) {
-              edges.push({ from: from.id, to: to.id, line: lineNumber, column });
+              edges.push({
+                from: from.id,
+                to: to.id,
+                ...arrow,
+                sourceLine: lineNumber,
+                sourceColumn: column,
+              });
             }
           }
         }
@@ -1005,6 +1723,48 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
+      // A bare id inside a block, which is how a node with no edges joins a
+      // group. mermaid 11.17.2 records it as a vertex *and* a member of that
+      // block, measured with `scripts/mermaid-probe.mjs`.
+      //
+      // **The block scope is Siren's own, not Mermaid's — and this comment
+      // used to claim the opposite, citing the probe while it did.** It said
+      // Mermaid "records nothing at all" for a bare id at the top level.
+      // That is false, re-measured three ways: `flowchart TB / Orphan /
+      // A --> B` records the vertices `Orphan`, `A` and `B`, and
+      // `flowchart TB / Orphan` on its own records `Orphan`. A bare id is a
+      // vertex declaration there exactly as it is in here.
+      //
+      // So the top-level form is a construct Mermaid draws and Siren refuses,
+      // falling through to the `Unrecognized flowchart line` below and taking
+      // the whole document down with it. That gap is honest backlog and it
+      // has a row — **`fc-stmt-bare-node` in `src/compat/corpus.ts`**, which
+      // carries the measurement so the next reader finds it rather than
+      // re-deriving it. Its exit is widening this condition; it is not
+      // another measurement, and nothing here is already correct.
+      //
+      // Left as backlog rather than widened in passing, because dropping the
+      // `openBlocks` guard changes which lines a whole document may contain,
+      // and this branch is asked last precisely so that nothing meaning
+      // something else is swallowed as a node. Whoever widens it owns
+      // re-checking that, which is a ticket rather than an edit.
+      //
+      // It claims no label and names no shape, exactly as an edge's bare
+      // endpoint does; `addNodeAsWritten` holds what that means for both.
+      //
+      // Asked last, after every keyword and every other spelling, so nothing
+      // that means something else can be swallowed as a node — `end` and
+      // `A:::name` are both `\w`-only lines and both have already been read
+      // by the branches above.
+      if (openBlocks.length > 0 && AUTHORED_ID_RE.test(line)) {
+        addNodeAsWritten(
+          { id: line, label: undefined, definitionName: undefined, shape: "rect" },
+          lineNumber,
+          column,
+        );
+        continue;
+      }
+
       diagnostics.push({
         severity: "error",
         message: `Unrecognized flowchart line: "${line}"`,
@@ -1014,6 +1774,60 @@ export function parseFlowchart(source: string): ParseResult {
       sawError = true;
       continue;
     }
+  }
+
+  // An edge whose endpoint names a subgraph, refused rather than drawn.
+  //
+  // Mermaid draws this: `One --> Two`, where both are subgraphs, is an edge
+  // between the two *frames* — mermaid 11.17.2 records vertices for both
+  // names alongside the subgraphs and its renderer joins the clusters
+  // (measured). Siren has no such routing, and left alone it would declare
+  // two ordinary nodes and draw a box labelled `One` beside the frame of the
+  // same name, with no diagnostic at all. That is a `silently-wrong` case
+  // this ticket would have *created*, and the corpus's policy on those says
+  // their destination is zero — so it is refused by name and recorded as
+  // backlog instead.
+  //
+  // Asked after the whole document has been read, because a subgraph may be
+  // declared below the edge that names it, and one diagnostic per statement
+  // rather than per endpoint.
+  const subgraphNames = new Set<string>();
+  const collectNames = (blocks: readonly SirenSubgraph[]): void => {
+    for (const block of blocks) {
+      if (block.name !== null) {
+        subgraphNames.add(block.name);
+      }
+      collectNames(block.subgraphs);
+    }
+  };
+  collectNames(subgraphs);
+
+  for (const statement of edgeStatements) {
+    const named = statement.ids.find((id) => subgraphNames.has(id));
+    if (named === undefined) {
+      continue;
+    }
+    diagnostics.push({
+      severity: "error",
+      message: `Siren does not draw an edge to the subgraph "${named}" yet: "${statement.text}"`,
+      line: statement.line,
+      column: statement.column,
+    });
+    sawError = true;
+  }
+
+  // A block the author never closed, reported in the words they opened it
+  // with. One diagnostic per unclosed block, innermost first, so nesting is
+  // described rather than summarized — the same answer `parseClassDiagram`
+  // gives an unterminated `namespace`.
+  for (const block of [...openBlocks].reverse()) {
+    diagnostics.push({
+      severity: "error",
+      message: `Unterminated "${block.statement}" block: missing matching "${SUBGRAPH_END}"`,
+      line: block.line,
+      column: block.column,
+    });
+    sawError = true;
   }
 
   if (mode === "before-header" || direction === null) {
@@ -1029,6 +1843,7 @@ export function parseFlowchart(source: string): ParseResult {
     direction,
     nodes: Array.from(nodesById.values()),
     edges,
+    subgraphs,
     styles,
     linkStyles,
     timeline,

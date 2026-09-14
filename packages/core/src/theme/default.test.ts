@@ -398,6 +398,34 @@ describe("default theme coverage of the sequence renderer", () => {
  * the diamond, so adding them would widen the fixture without widening what
  * it can see. Whoever lands the Markdown label adds it for the original
  * reason.
+ *
+ * **And edges belong in here for exactly the same reason shapes did.** It
+ * drew nothing but `-->`, so a dotted or thick line's class would have
+ * shipped unthemed without failing anything — measured: adding
+ * `.siren-edge-dotted` and `.siren-edge-thick` to the renderer left every
+ * check here green until these lines were added, and fails them now. One
+ * edge per line style, and one per end shape: the hollow ring and the open
+ * cross are the two markers whose *paint* comes from a class the flowchart
+ * had never emitted (`siren-arrow-hollow`, `siren-arrow-stroke`), so an
+ * unfilled ring or an unstroked cross — a marker that is simply not there —
+ * is caught here rather than in a picture.
+ *
+ * **And a labelled edge belongs in here for the third time, for the third
+ * time for the same reason.** It drew no edge label, so `.siren-edge-label`
+ * would have shipped unthemed — an edge label left to SVG's initial
+ * `fill: black` is invisible on a dark theme — without failing anything.
+ * Both spellings are written, though they draw the same element, because
+ * this fixture is also the one place the two are seen end to end.
+ *
+ * **And a subgraph belongs in here for the fourth time, for the same reason
+ * a fourth time.** It drew no frame, so `.siren-subgraph-frame` and
+ * `.siren-subgraph-label` would have shipped unthemed without failing
+ * anything — an unstroked frame is not there at all (SVG's initial
+ * `stroke: none`) and a title left to the initial `fill: black` is invisible
+ * on a dark theme. Nested, because the outer frame and the inner one are the
+ * same two classes and one drawn example would not have caught a rule that
+ * only reached the top level. It is drawn last so that the arrow chain above
+ * it is left exactly as it was.
  */
 const EVERY_FLOWCHART_FEATURE = `flowchart TB
 A[Start]
@@ -409,6 +437,20 @@ E --> F[[Subroutine]]
 F --> G((Circle))
 G --> H(((Double)))
 H --> I[(DB)]
+I -.-> J[Dotted]
+J ==> K[Thick]
+K --- L[Open]
+L --o M[Circle end]
+M --x N[Cross end]
+N <--> O[Both ends]
+O -->|pipe label| P[Labelled]
+P -- inline label --> Q[Labelled too]
+subgraph Outer
+  subgraph Inner
+    R[Grouped] --> S[Grouped too]
+  end
+  S --> T[Beside the group]
+end
 
 timeline:
 step 1: enter B fade, enter A-B fade
@@ -664,6 +706,47 @@ linkStyle 0 stroke:#f00
     // ADR-0008's cascade argument, one element further in.
     expect(getComputedStyle(headFor("A-B")).fill).toBe("#f00");
     expect(getComputedStyle(headFor("A-B")).fill).not.toContain("--siren-edge-stroke");
+  });
+
+  it("orders the four writers of an edge's stroke-width: base, line style, highlight, author", () => {
+    // **The collision this ticket had to decide, asserted rather than
+    // commented.** A thick line is a `stroke-width`, and so are the base
+    // edge rule, the highlight, and an author's `linkStyle 0
+    // stroke-width:6px`. The renderer writes the line style as a *class*
+    // precisely to land in the middle of that order (see `EDGE_LINE_CLASS`);
+    // written inline it would have beaten the highlight too, and an edge is
+    // a timeline target, so `highlight X outline` would have silently
+    // stopped thickening thick edges.
+    //
+    // jsdom resolves the cascade but not `var()`, which is what makes each
+    // winner readable by name: what comes back is the declaration that won,
+    // verbatim.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+    const edge = (id: string) => svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+
+    // A plain edge takes the base rule; a thick one takes its own, which is
+    // derived from the base token so retuning that token cannot flatten the
+    // difference between the two.
+    expect(getComputedStyle(edge("A-B")).strokeWidth).toContain("--siren-stroke-width");
+    expect(getComputedStyle(edge("J-K")).strokeWidth).toContain(
+      "--siren-edge-thick-stroke-width",
+    );
+    expect(getComputedStyle(edge("I-J")).strokeDasharray).toContain("--siren-edge-dash");
+
+    // Highlighting a thick edge still thickens it: two classes beat one.
+    const thick = edge("J-K");
+    thick.classList.add("siren-highlight-outline");
+    expect(getComputedStyle(thick).strokeWidth).toContain("--siren-highlight-stroke-width");
+    thick.classList.remove("siren-highlight-outline");
+
+    // And the author beats all of them for the property they name — while
+    // the one they did not name survives, so a recoloured dotted edge is
+    // still dotted.
+    const dotted = edge("I-J");
+    dotted.setAttribute("style", "stroke-width: 6px; stroke: rgb(255, 0, 0)");
+    expect(getComputedStyle(dotted).strokeWidth).toBe("6px");
+    expect(getComputedStyle(dotted).stroke).toBe("rgb(255, 0, 0)");
+    expect(getComputedStyle(dotted).strokeDasharray).toContain("--siren-edge-dash");
   });
 });
 

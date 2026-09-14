@@ -107,6 +107,110 @@ function edges(result: SirenRenderResult): string[] {
 }
 
 /**
+ * One flowchart edge, described as the picture it draws:
+ * `line from-end to-end`, e.g. `dotted none arrow` for `A -.-> B`.
+ *
+ * Every part is read off the drawn SVG rather than off a `data-` attribute,
+ * which is the rule board 4 set when it reclassified two rows: an attribute
+ * is not the picture.
+ *
+ * The two ends are read by **following the path's own marker reference into
+ * this SVG's `<defs>` and looking at the shape inside** — never by spelling
+ * a marker id, which is minted per render, and never by reading its class,
+ * which says who paints it rather than what is drawn. A closed triangle, a
+ * ring and two crossing strokes are three different figures, and that is
+ * what is asserted.
+ *
+ * The line is the one part read from a class, because for a line that *is*
+ * the mechanism: the renderer names `.siren-edge-dotted` / `.siren-edge-thick`
+ * and the theme dashes and thickens them, which `theme/default.test.ts`
+ * asserts against the resolved cascade. What this reader is for is that
+ * three line styles draw three visibly different edges and that a dotted
+ * edge is not quietly drawn as a solid one.
+ */
+function edgeDrawing(result: SirenRenderResult, id: string): string {
+  const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+  if (path === null) throw new Error(`no edge "${id}" was drawn`);
+
+  const classes = (path.getAttribute("class") ?? "").split(/\s+/);
+  const line = classes.includes("siren-edge-dotted")
+    ? "dotted"
+    : classes.includes("siren-edge-thick")
+      ? "thick"
+      : "solid";
+
+  const endAt = (side: "start" | "end"): string => {
+    const reference = path.getAttribute(`marker-${side}`);
+    if (reference === null) return "none";
+    const marker = svgOf(result).querySelector(
+      `defs > marker#${reference.slice("url(#".length, -1)}`,
+    );
+    if (marker === null) throw new Error(`edge "${id}" points at a marker this SVG has not got`);
+    const drawn = marker.firstElementChild;
+    if (drawn === null) throw new Error(`edge "${id}"'s marker draws nothing`);
+    if (drawn.tagName === "circle") return "circle";
+    const d = drawn.getAttribute("d") ?? "";
+    // A closed outline is the arrowhead; two subpaths crossing each other
+    // are the cross. Read as geometry so that reverting either drawing
+    // fails this row even with every class left in place.
+    if (d.includes("Z")) return "arrow";
+    if ((d.match(/M/g) ?? []).length === 2) return "cross";
+    throw new Error(`edge "${id}" ends in an unrecognized figure: "${d}"`);
+  };
+
+  return `${line} ${endAt("start")} ${endAt("end")}`;
+}
+
+/**
+ * The text drawn on one flowchart edge, and where it was drawn.
+ *
+ * Read off the `<text>` in the finished SVG, not off the model: a row that
+ * asked the document what the label said would pass for a renderer that
+ * parsed the label and drew nothing, which is the silent mis-render this
+ * instrument exists to catch. `""` when the edge draws no label at all, so
+ * a swallowed label is a difference rather than a thrown error.
+ */
+function edgeLabel(result: SirenRenderResult, id: string): string {
+  const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
+  return text?.textContent ?? "";
+}
+
+/**
+ * The inline declarations on one flowchart edge's **label**, as opposed to
+ * on its line.
+ *
+ * Its own reader beside `edgeStyle` because the two halves of one author
+ * style land on two elements, and a row that read only the line could not
+ * tell "the author's `color` painted the label" from "the author's `color`
+ * was dropped".
+ */
+function edgeLabelStyle(result: SirenRenderResult, id: string): string {
+  const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
+  if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
+  return text.getAttribute("style") ?? "";
+}
+
+/** Where one edge's label was drawn — the anchor layout reserved space at. */
+function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
+  if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
+  return { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
+}
+
+/**
+ * How far apart, along the layout's own axis, the two ends of one edge are
+ * drawn — the only thing a *rank* is visible as in a rendered SVG.
+ *
+ * Compared between two edges of the **same document** wherever it is used,
+ * never against a number: how tall one rank is belongs to the theme
+ * (ADR-0004), while how many ranks apart two nodes are is the compatibility
+ * contract, and only the second of those is a fact about Mermaid.
+ */
+function edgeSpan(result: SirenRenderResult, from: string, to: string): number {
+  return Math.abs(nodeCenter(result, to).y - nodeCenter(result, from).y);
+}
+
+/**
  * The centre of one flowchart node's frame — how a direction is visible in
  * the result, the way `classBox` makes a class diagram's visible.
  *
@@ -121,14 +225,74 @@ function edges(result: SirenRenderResult): string[] {
  * row that needs a diamond's position has to widen this first.
  */
 function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const { top, bottom, left, right } = nodeBox(result, id);
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
+}
+
+/** One node's drawn frame as its four sides, which `nodeCenter` is the middle of. */
+function nodeBox(
+  result: SirenRenderResult,
+  id: string,
+): { top: number; bottom: number; left: number; right: number } {
   const frame = svgOf(result).querySelector(
     `g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`,
   );
   if (frame === null) throw new Error(`no node "${id}" was drawn`);
+  const x = Number(frame.getAttribute("x"));
+  const y = Number(frame.getAttribute("y"));
   return {
-    x: Number(frame.getAttribute("x")) + Number(frame.getAttribute("width")) / 2,
-    y: Number(frame.getAttribute("y")) + Number(frame.getAttribute("height")) / 2,
+    top: y,
+    bottom: y + Number(frame.getAttribute("height")),
+    left: x,
+    right: x + Number(frame.getAttribute("width")),
   };
+}
+
+/**
+ * One subgraph frame's four sides, keyed by the **title** drawn on it.
+ *
+ * By the title rather than by `data-siren-id`, and that is the point of the
+ * reader. A subgraph's id is generated (`subgraph:1`) precisely so that it
+ * cannot be spelled by anything the author wrote; the title is what the
+ * author *did* write, so it is what a row can ask about without encoding a
+ * numbering rule the corpus has no business pinning.
+ *
+ * The frame is a `<rect>`, so this reads the same four attributes `nodeBox`
+ * does — worth stating, because a shape drawn with a `<path>` reads nothing
+ * there and the two readers would otherwise look interchangeable.
+ */
+function subgraphBox(
+  result: SirenRenderResult,
+  title: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const group = elements(result, "g.siren-subgraph").find(
+    (g) => g.querySelector("text.siren-subgraph-label")?.textContent === title,
+  );
+  const frame = group?.querySelector("rect.siren-subgraph-frame");
+  if (frame === undefined || frame === null) {
+    throw new Error(`no subgraph titled "${title}" was drawn`);
+  }
+  const x = Number(frame.getAttribute("x"));
+  const y = Number(frame.getAttribute("y"));
+  return {
+    top: y,
+    bottom: y + Number(frame.getAttribute("height")),
+    left: x,
+    right: x + Number(frame.getAttribute("width")),
+  };
+}
+
+/** Whether `outer` wholly contains `inner` — how "it groups them" is read off a picture. */
+function encloses(
+  outer: { top: number; bottom: number; left: number; right: number },
+  inner: { top: number; bottom: number; left: number; right: number },
+): boolean {
+  return (
+    outer.left <= inner.left &&
+    outer.top <= inner.top &&
+    outer.right >= inner.right &&
+    outer.bottom >= inner.bottom
+  );
 }
 
 /**
@@ -849,6 +1013,33 @@ export const COMPAT_CASES: readonly CompatCase[] = [
   },
 
   // -------------------------------------------------------------------------
+  // flowchart — node ids
+  // -------------------------------------------------------------------------
+  {
+    id: "fc-node-id-dot",
+    kind: "flowchart",
+    source: `flowchart TB
+      a.b --> c`,
+    status: "rejected",
+    meaning:
+      "A node id may contain a `.`. mermaid 11.17.2 records `a.b --> c` as " +
+      "the vertices `a.b` and `c` joined by `L_a.b_c_0`, and `a.-b --> c` " +
+      "as the vertices `a.-b` and `c` joined by `L_a.-b_c_0` — one node " +
+      "either way, with the dot inside its name " +
+      "(`node scripts/mermaid-probe.mjs`). Siren's ids are `\\w+`, so it " +
+      "refuses the statement. **A node-id gap, not an arrow one**: the " +
+      "dotted arrow spellings beside it are supported, and the guard that " +
+      "keeps `a.-b` from being cut at its `.-` is what makes this an honest " +
+      "refusal rather than a chain of three nodes Mermaid never drew. The " +
+      "sharper case is a line that declares nothing: in `flowchart TB / " +
+      "A --> B / C.-D` Mermaid draws A, B and a third node `C.-D`, while " +
+      "Siren refuses the *whole document* over the third line — a picture " +
+      "Mermaid renders becomes no picture at all. Widening the id alphabet " +
+      "reaches every endpoint reader, the `:::` shorthand and the styling " +
+      "directives' target lists, which is its own ticket.",
+  },
+
+  // -------------------------------------------------------------------------
   // flowchart — edges
   // -------------------------------------------------------------------------
   {
@@ -856,72 +1047,208 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A --- B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A --- B` is an open link: a line with no arrowhead.",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      // No marker at either end, which is the whole of what `---` says. An
+      // open link that kept the arrowhead would be the `-->` it is written
+      // to not be, and nothing but the ends tells them apart.
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none none");
+    },
   },
   {
     id: "fc-edge-dotted",
     kind: "flowchart",
     source: `flowchart TB
       A -.-> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A -.-> B` is a dotted arrow.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "dotted none arrow");
+    },
+  },
+  {
+    id: "fc-edge-dotted-open",
+    kind: "flowchart",
+    source: `flowchart TB
+      A -.- B`,
+    status: "supported",
+    meaning: "`A -.- B` is a dotted line with no arrowhead.",
+    assert: (result) => {
+      // The row that proves the two axes are independent rather than a list
+      // of names: Mermaid does tell `-.-` from `-.->` (`arrow_open` versus
+      // `arrow_point`, both `stroke="dotted"`, measured), and so must this.
+      expectSame("edge", edgeDrawing(result, "A-B"), "dotted none none");
+    },
+  },
+  {
+    id: "fc-edge-dotted-short",
+    kind: "flowchart",
+    source: `flowchart TB
+      A .-> B
+      B .- C
+      C -. yes .-> D`,
+    status: "supported",
+    meaning:
+      "A dotted arrow may be written without its leading dash, and its " +
+      "short body closes an inline label as the long one does: mermaid " +
+      "11.17.2 reads `A .-> B` as `type=\"arrow_point\" stroke=\"dotted\" " +
+      "length=1`, `A .- B` as the `arrow_open` of the same, and " +
+      "`A -. yes .-> B` as that arrow labelled `yes` " +
+      "(`node scripts/mermaid-probe.mjs`).",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D"]);
+      // The **drawn** line and ends, not "it parsed". The short spelling
+      // has to arrive at the very picture the long one does — the two rows
+      // above — or it is a spelling this parser accepts and then draws as
+      // something else, which is worse than the rejection it replaced.
+      expectSame("edge", edgeDrawing(result, "A-B"), "dotted none arrow");
+      expectSame("edge", edgeDrawing(result, "B-C"), "dotted none none");
+      expectSame("edge", edgeDrawing(result, "C-D"), "dotted none arrow");
+      expectSame("label", edgeLabel(result, "C-D"), "yes");
+    },
   },
   {
     id: "fc-edge-thick",
     kind: "flowchart",
     source: `flowchart TB
       A ==> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A ==> B` is a thick arrow.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "thick none arrow");
+    },
+  },
+  {
+    id: "fc-edge-thick-open",
+    kind: "flowchart",
+    source: `flowchart TB
+      A === B`,
+    status: "supported",
+    meaning: "`A === B` is a thick line with no arrowhead.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "thick none none");
+    },
   },
   {
     id: "fc-edge-circle-end",
     kind: "flowchart",
     source: `flowchart TB
       A --o B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A --o B` ends in a circle rather than an arrowhead.",
+    assert: (result) => {
+      // At the **to**-end, measured rather than recalled: mermaid 11.17.2
+      // reads this as `arrow_circle` and turns it into
+      // `arrowTypeStart: "none", arrowTypeEnd: "arrow_circle"`. A row that
+      // only asserted "a circle somewhere" would pass for its mirror image.
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none circle");
+    },
   },
   {
     id: "fc-edge-cross-end",
     kind: "flowchart",
     source: `flowchart TB
       A --x B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A --x B` ends in a cross.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none cross");
+    },
   },
   {
     id: "fc-edge-bidirectional",
     kind: "flowchart",
     source: `flowchart TB
       A <--> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A <--> B` carries an arrowhead at both ends.",
+    assert: (result) => {
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid arrow arrow");
+    },
   },
   {
     id: "fc-edge-long",
     kind: "flowchart",
+    // Two chains in one document, which is what makes the claim assertable
+    // at all: a long arrow's meaning is *comparative* — further apart than
+    // a plain one — and an assert sees one render. Both chains are here so
+    // the comparison is between two edges of one picture, with no number
+    // from outside it.
     source: `flowchart TB
-      A ----> B`,
-    status: "rejected",
+      A --> B
+      C ----> D`,
+    status: "supported",
     meaning: "A longer arrow spans more ranks; `A ----> B` still means A to B.",
+    assert: (result) => {
+      // Still one edge from A to B: a long arrow is not a chain through
+      // invisible nodes, and nothing new is declared by writing one.
+      expectSame("edges", edges(result), ["A-B", "C-D"]);
+      expectSame("edge", edgeDrawing(result, "C-D"), "solid none arrow");
+      // The rank distance, which is the only part of an arrow token that is
+      // not about drawing. Mermaid hands its parsed `length` to dagre as
+      // `minlen` (measured: `length=3` for `---->`, `length=1` for `-->`),
+      // so the target sits further down the rank order and the drawn
+      // diagram differs. Drawing both alike would be a silent mis-render by
+      // this instrument's own definition.
+      const plain = edgeSpan(result, "A", "B");
+      const long = edgeSpan(result, "C", "D");
+      if (!(long > plain)) {
+        throw new Error(`a long arrow spans ${long}, no more than a plain one's ${plain}`);
+      }
+    },
   },
   {
     id: "fc-edge-pipe-label",
     kind: "flowchart",
     source: `flowchart TB
-      A -->|yes| B`,
-    status: "rejected",
+      A[Start] -->|yes| B[End]`,
+    status: "supported",
     meaning: "`A -->|text| B` labels the edge `text`.",
+    assert: (result) => {
+      // Drawn, not merely parsed: the text is read off the SVG.
+      expectSame("label", edgeLabel(result, "A-B"), "yes");
+      // A label decorates an arrow rather than replacing one, so every axis
+      // of the token is untouched — measured, mermaid 11.17.2 records
+      // `type="arrow_point" stroke="normal" length=1` for this line.
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none arrow");
+      // And the space is real, asserted as the drawn text landing **clear
+      // of both boxes**. Not as a comparison against an unlabelled edge in
+      // the same document, which is the shape `fc-edge-long` uses and which
+      // does not work here: ranks belong to the whole graph, so a second
+      // unlabelled chain is pushed apart by this label too and the two
+      // spans come out equal. What is left, and what the reader of a
+      // picture would check, is that the label sits in a gap rather than
+      // over an endpoint — which it can only do if layout kept one.
+      const label = edgeLabelCenter(result, "A-B");
+      if (!(label.y > nodeBox(result, "A").bottom && label.y < nodeBox(result, "B").top)) {
+        throw new Error(
+          `the label is drawn at y=${label.y}, not between A (ends ${nodeBox(result, "A").bottom}) and B (starts ${nodeBox(result, "B").top})`,
+        );
+      }
+    },
   },
   {
     id: "fc-edge-inline-label",
     kind: "flowchart",
     source: `flowchart TB
       A -- yes --> B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`A -- text --> B` is the other spelling of an edge label.",
+    assert: (result) => {
+      // The same label on the same edge as the row above, drawn the same
+      // way — which is the whole content of "the other spelling". Measured:
+      // mermaid 11.17.2 records `text="yes"` on an `arrow_point`/`normal`/
+      // `length=1` edge for both, and its database keeps no trace of which
+      // one it read.
+      expectSame("label", edgeLabel(result, "A-B"), "yes");
+      expectSame("edge", edgeDrawing(result, "A-B"), "solid none arrow");
+      // Not a node called `yes`, which is what Mermaid itself does with
+      // `A ---- yes --> B` (measured) and what a splitter that took the
+      // opener for an arrow would do here.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+    },
   },
   {
     id: "fc-edge-chained",
@@ -969,14 +1296,77 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-stmt-bare-node",
+    kind: "flowchart",
+    source: `flowchart TB
+      Orphan
+      A --> B`,
+    status: "rejected",
+    meaning:
+      "A node id on a line of its own declares that node. mermaid 11.17.2 " +
+      "records three vertices for this document — `Orphan`, `A` and `B` — " +
+      "and one edge, so the standalone node is drawn with nothing joined " +
+      "to it (`node scripts/mermaid-probe.mjs`). Siren refuses the line as " +
+      "`Unrecognized flowchart line: \"Orphan\"`, and refuses the whole " +
+      "document with it, so a picture Mermaid draws becomes no picture at " +
+      "all. **The bracketed spelling is supported**: `Orphan[Orphan]` on a " +
+      "line of its own parses here, and so does a bare id written *inside* " +
+      "a `subgraph` block — `AUTHORED_ID_RE` reads one there, which is how " +
+      "the nodes of a group are declared. So this is one missing statement " +
+      "form rather than a missing concept, and its exit is one more line " +
+      "in `parseFlowchart`'s statement dispatch. Found while mutating " +
+      "`examples/flowchart-edges.srn` to prove its assertions bite: moving " +
+      "a bare node out of the frame that held it stopped the whole example " +
+      "rendering, which is not what moving a node should do.",
+  },
+  {
     id: "fc-stmt-subgraph",
     kind: "flowchart",
     source: `flowchart TB
       subgraph one
         A --> B
       end`,
-    status: "rejected",
+    status: "supported",
     meaning: "`subgraph ... end` groups nodes inside a labelled frame.",
+    assert: (result) => {
+      // The nodes are still ordinary nodes and the edge is still `A-B`:
+      // grouping changes where a box goes, not what it is called.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+
+      // "Groups" read off the picture rather than off a parse tree: the
+      // frame is drawn, it carries the author's title, and it encloses both
+      // boxes. A frame drawn somewhere else would satisfy "it parsed".
+      const frame = subgraphBox(result, "one");
+      expectSame("frame encloses A", encloses(frame, nodeBox(result, "A")), true);
+      expectSame("frame encloses B", encloses(frame, nodeBox(result, "B")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-direction",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        direction LR
+        A --> B
+      end`,
+    status: "rejected",
+    meaning:
+      "`direction LR` inside a subgraph lays that group out left-to-right while the rest of the diagram keeps the header's direction.",
+  },
+  {
+    id: "fc-subgraph-edge",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        A
+      end
+      subgraph two
+        B
+      end
+      one --> two`,
+    status: "rejected",
+    meaning: "An edge may name a subgraph at either end, joining the two frames rather than two boxes.",
   },
 
   // -------------------------------------------------------------------------
@@ -1100,6 +1490,29 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     meaning: "`linkStyle 0` styles the first declared edge — the only directive that reaches one.",
     assert: (result) => {
       expectSame("edge A-B's inline style", edgeStyle(result, "A-B"), "stroke:#f00");
+    },
+  },
+
+  {
+    id: "fc-style-linkstyle-color",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start] -->|yes| B[End]
+      linkStyle 0 stroke:#f00,color:#0f0`,
+    status: "supported",
+    meaning:
+      "`linkStyle`'s `color` paints the edge's *label*, and its other " +
+      "declarations paint the line. Measured with " +
+      "`node scripts/mermaid-probe.mjs --paint`: mermaid 11.17.2 renders " +
+      "`linkStyle 0 color:#ff0000` as `fill:#ff0000 !important` on the " +
+      "label's `<text>` (and as `color:#ff0000 !important` on its `<span>` " +
+      "when it draws labels as HTML), while `stroke` lands on the path.",
+    assert: (result) => {
+      // The two halves, on the two elements. `fill` on the label rather
+      // than `color`, because `color` names no paint in an SVG document —
+      // the translation is ADR-0008's and is made once, in the model.
+      expectSame("edge A-B's label style", edgeLabelStyle(result, "A-B"), "fill:#0f0");
+      expectSame("edge A-B's line style", edgeStyle(result, "A-B"), "stroke:#f00");
     },
   },
 

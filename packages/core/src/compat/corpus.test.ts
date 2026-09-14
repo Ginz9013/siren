@@ -438,8 +438,152 @@ const SILENTLY_WRONG = 3;
  * parser's refusal machinery alive (`UNIMPLEMENTED_LABEL_FORMS`,
  * `unimplementedFormIn`, `BRACKET_FORM_RE`, `refuseUnimplementedForm`).
  * Whoever lands it deletes all four together.
+ *
+ * It fell by **seven, to 15**, when an arrow token stopped being one
+ * spelling and became a decomposition. `fc-edge-open`, `fc-edge-dotted`,
+ * `fc-edge-thick`, `fc-edge-circle-end`, `fc-edge-cross-end`,
+ * `fc-edge-bidirectional` and `fc-edge-long` are all `supported`: an edge
+ * now says which of three lines it is drawn with, what sits on each of its
+ * two ends, and how many ranks apart it holds them.
+ *
+ * Seven, exactly as the ticket expected, and **all seven fell because code
+ * changed** — every one of them already had a row here to leave, and each
+ * was honestly refused before and renders correctly now, so nothing became
+ * honest and nothing became wrong. `silently-wrong` is untouched at 3.
+ *
+ * Two rows were **added** alongside them, and they are the other kind of
+ * movement: `fc-edge-dotted-open` (`A -.- B`) and `fc-edge-thick-open`
+ * (`A === B`) had no row at all, so neither can make this number fall by
+ * starting to work. They are here because they are what a decomposition
+ * predicts and an enumeration does not — Mermaid tells `-.-` from `-.->`
+ * (`arrow_open` versus `arrow_point`, measured), and a corpus that only
+ * carried the arrowheaded spelling could not tell whether Siren did too.
+ * A construct that was never counted as backlog cannot lower this number,
+ * and giving it a row is still what turns it from a memory into a
+ * measurement.
+ *
+ * `fc-edge-long`'s row also grew a second chain (`A --> B` beside
+ * `C ----> D`). A long arrow's meaning is comparative — *further apart* than
+ * a plain one — and an assert sees one render, so the only way to state it
+ * without smuggling in a number from outside the picture is to put both
+ * arrows in the picture.
+ *
+ * Two edge rows remain, both labels (`fc-edge-pipe-label`,
+ * `fc-edge-inline-label`), and they are the next ticket's.
+ *
+ * It then fell by **two, to 13**, when an edge started carrying a label.
+ * `fc-edge-pipe-label` (`A -->|yes| B`) and `fc-edge-inline-label`
+ * (`A -- yes --> B`) are `supported`: both spellings parse to the same
+ * label on the same edge, dagre keeps space for it, and the text is drawn
+ * in that space. Two, exactly as the ticket expected, and **both fell
+ * because code changed** — each already had a row here to leave, each was
+ * honestly refused before and renders correctly now. `silently-wrong` is
+ * untouched at 3.
+ *
+ * **And then it rose by one, to 14, which is a third kind of movement and
+ * needs saying plainly.** `fc-edge-dotted-short` (`A .-> B`) is a
+ * construct Mermaid draws and Siren refuses, and it had no row at all —
+ * measured while landing the labels, because the same missing spelling is
+ * what stops `A -. yes .-> B` closing an inline label. **Nothing
+ * regressed**: no construct that used to render stopped, and the sum of
+ * `rejected` and `silently-wrong` grew only because the backlog was
+ * *undercounted* before, not because the code got worse. That is the
+ * reading the message below would otherwise send someone chasing, so it is
+ * written here instead: this rise is the instrument catching up, and the
+ * alternative — knowing a valid Mermaid document fails and not writing it
+ * down — is the exact blindness this corpus exists to remove.
+ *
+ * The construct is an *arrow spelling*, which belongs to the ticket that
+ * decomposed the arrow token rather than to the one that added labels, so
+ * it was recorded rather than fixed in passing.
+ *
+ * **Then `subgraph` landed, and the number moved three ways at once — one
+ * down and two up — so all three are written out rather than netted.**
+ *
+ * Down by one: `fc-stmt-subgraph` (`subgraph one / A --> B / end`) is
+ * `supported`. The block parses, the nodes inside it belong to it, dagre
+ * places the group as a cluster, and the frame is drawn with its title
+ * around the boxes it holds — asserted as enclosure off the rendered SVG,
+ * not as "it parsed". That fall is code changing: the construct was honestly
+ * refused before and renders correctly now.
+ *
+ * Up by two, and **neither rise is a regression** — nothing that used to
+ * render stopped, and both are constructs that were *already* refused with
+ * no row of their own, because until now the whole `subgraph` block was
+ * refused and took them down with it. This is the instrument catching up,
+ * the same movement `fc-edge-dotted-short` was one ticket earlier:
+ *
+ * - `fc-subgraph-direction` (`direction LR` inside a subgraph). Measured:
+ *   mermaid 11.17.2 records it as `dir="LR"` on that subgraph alone and
+ *   leaves the document's own direction alone, so it is a *per-cluster* rank
+ *   direction, honored by laying each group out as its own diagram. dagre
+ *   carries one `rankdir` per graph, so that is recursive sub-layout and a
+ *   layout feature of its own size. Refused **by name** rather than read and
+ *   dropped: a group drawn top-to-bottom where the author wrote
+ *   left-to-right would be a `silently-wrong` row, and this file's other
+ *   ratchet says where those are going.
+ * - `fc-subgraph-edge` (`one --> two`, both subgraphs). Measured: Mermaid
+ *   joins the two frames. Siren would have declared two ordinary nodes and
+ *   drawn a box labelled `one` beside the frame of the same name, with no
+ *   diagnostic — a `silently-wrong` case this ticket would have *created*.
+ *   Refused by name, so it is backlog rather than a wrong picture.
+ *
+ * So `rejected + silently-wrong` grew by one, which the failure message
+ * below reads as a regression and which this is not. The message is right to
+ * make someone say why, and the why is that two valid Mermaid documents Siren
+ * refuses had never been written down. Knowing that and not recording it is
+ * the exact blindness this corpus exists to remove.
+ *
+ * **And now down to 14, paying the row this board itself wrote.**
+ * `fc-edge-dotted-short` is `supported`: the leading dash of a dotted body
+ * is decoration, so `A .-> B`, `A .- B` and the inline `A -. yes .-> B` all
+ * draw the picture their long spellings draw, asserted as the drawn line
+ * and ends rather than as "it parsed". That is code changing — the ordinary
+ * fall, and the one the board predicted when it recorded the row two
+ * tickets ago rather than fixing it in passing.
+ *
+ * **And back to 15 in the same ticket, for the fourth instrument-catching-up
+ * rise this file records.** `fc-node-id-dot` (`a.b --> c`) is a construct
+ * Mermaid draws and Siren refuses, and it had no row: a `.` is in Mermaid's
+ * node-id alphabet, so `a.b` and `a.-b` are each *one* node with the dot
+ * inside the name, while Siren's ids are `\w+`. **Nothing regressed** — no
+ * construct that used to render stopped, and this one never rendered. It
+ * was *found* by widening the dotted arrow body, because "what else in this
+ * grammar can contain a `.`?" is the question that widening had to answer,
+ * and the answer turned out to name a document nobody had written down.
+ *
+ * It is deliberately not fixed here, for the reason `fc-edge-dotted-short`
+ * was not fixed by the ticket that found it: an id alphabet is not an arrow
+ * spelling. Widening `BARE_ENDPOINT_RE` reaches every endpoint reader, the
+ * `:::` shorthand and the styling directives' target lists, which is a
+ * ticket rather than a passing edit. The guard that keeps `a.-b --> c`
+ * *refused* rather than cut at its `.-` is what makes this row honest
+ * backlog instead of a `silently-wrong` chain of three nodes.
+ *
+ * **And to 16 at the board's close, for the fifth instrument-catching-up
+ * rise.** `fc-stmt-bare-node` (`Orphan` on a line of its own) is a statement
+ * form Mermaid reads as a vertex declaration and Siren answers with
+ * `Unrecognized flowchart line`, throwing away the whole document over a
+ * line that declares one node. **Nothing regressed** — the bracketed
+ * `Orphan[Orphan]` has always parsed, a bare id inside a `subgraph` block
+ * has parsed since the block did, and this spelling has never rendered.
+ *
+ * It was found by *mutating* `examples/flowchart-edges.srn`: moving a bare
+ * node out of the frame that held it, to prove the frame-membership
+ * assertion bites, stopped the example rendering at all. Which is the same
+ * shape as the four rises above — a question nobody had asked, answered by
+ * measuring rather than by a construct getting worse.
+ *
+ * **So this board's `rejected` reads 22 → 15 → 14 → 15 → 16, and the number
+ * that describes it is `supported` 46 → 60.** Four of this board's five
+ * tickets wrote a `rejected` row for a valid Mermaid document they had
+ * measured and chosen not to implement — `fc-edge-dotted-short`,
+ * `fc-subgraph-direction`, `fc-subgraph-edge`, `fc-node-id-dot`,
+ * `fc-stmt-bare-node` — and one of those was paid off inside the same
+ * board. A backlog that grows because someone looked is the instrument
+ * working.
  */
-const REJECTED = 22;
+const REJECTED = 16;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

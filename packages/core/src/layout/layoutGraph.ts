@@ -1,5 +1,19 @@
-import type { GraphModel, LayoutOptions, NodeShape, PositionedGraph } from "../contracts";
-import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import type {
+  GraphModel,
+  LayoutOptions,
+  NodeShape,
+  Point,
+  PositionedGraph,
+  PositionedSubgraph,
+  ResolvedSubgraph,
+} from "../contracts";
+import {
+  layoutDirectedGraph,
+  type DirectedGraphLayoutNodeBox,
+} from "./layoutDirectedGraph";
+
+/** Gap between a subgraph's frame and the boxes and frames it encloses. */
+const SUBGRAPH_PADDING = 12;
 
 /**
  * How far a shape's outline leans in from the bounding box it is inscribed
@@ -224,44 +238,219 @@ export function layoutGraph(
 ): PositionedGraph {
   const laidOut = layoutDirectedGraph({
     rankdir: graph.direction,
-    nodes: graph.nodes.map((node) => ({
-      id: node.id,
-      // The shape decides how much box the measured label needs; the shared
-      // layout core is handed sizes and never learns a shape exists.
-      ...boxForLabel(node.shape, options.measureText.measure(node.label)),
-    })),
+    nodes: [
+      ...graph.nodes.map((node) => ({
+        id: node.id,
+        // The shape decides how much box the measured label needs; the
+        // shared layout core is handed sizes and never learns a shape
+        // exists.
+        ...boxForLabel(node.shape, options.measureText.measure(node.label)),
+        // Grouping, and the only thing about a subgraph the shared core is
+        // told. `undefined` rather than `null` when the node is in no
+        // subgraph, because the core switches dagre's compound mode on by
+        // the *presence* of parentage — a field written as `null` would
+        // count.
+        ...(node.parentId === null ? {} : { parentId: node.parentId }),
+      })),
+      // One cluster per subgraph — the machinery `layoutClassDiagram` has
+      // driven since the class board, reached by declaring a node a frame
+      // rather than by anything new here. `layoutDirectedGraph` needed no
+      // change at all, nesting included.
+      //
+      // **The ids cannot collide with a node's, and not because they are
+      // prefixed here.** `layoutClassDiagram` has to prefix a namespace's
+      // (`namespace:${id}`) because a namespace carries the author's own
+      // word for it, and a class may be called the same thing. A subgraph's
+      // id is *generated* — `subgraph:1`, per ADR-0010 — and a node id is
+      // `\w+` by the parser's grammar, which cannot contain a colon. So the
+      // guard is already discharged one stage earlier, in the stronger form:
+      // unconstructible rather than avoided. Prefixing again would only
+      // produce `subgraph:subgraph:1`.
+      ...graph.subgraphs.map((subgraph) => {
+        // The core sizes a cluster from its children and ignores what it is
+        // given here; the title's own size is passed anyway, as the smallest
+        // the frame could sensibly be — and as what a childless subgraph,
+        // which the core lays out as an ordinary box, is drawn at.
+        const label = options.measureText.measure(subgraph.label);
+        return {
+          id: subgraph.id,
+          isCluster: true,
+          width: label.width + SUBGRAPH_PADDING * 2,
+          height: label.height + SUBGRAPH_PADDING * 2,
+          ...(subgraph.parentId === null ? {} : { parentId: subgraph.parentId }),
+        };
+      }),
+    ],
     edges: graph.edges.map((edge) => ({
       id: edge.id,
       from: edge.from,
       to: edge.to,
+      // The one part of an arrow token that reaches layout rather than the
+      // renderer: `A ----> B` puts B further down the rank order, so it is
+      // a rank constraint and not a proportion. Mermaid does exactly this —
+      // it hands its parsed `length` to dagre as `minlen`, measured — and
+      // drawing every length alike would be a silent mis-render by the
+      // compatibility corpus's own definition.
+      minlen: edge.minLength,
+      // The other part that reaches layout rather than the renderer, and a
+      // port rather than new machinery: the shared core has taken an edge
+      // label's size and returned where it put it since the class board,
+      // and `layoutClassDiagram` passes a relationship's label through this
+      // very field. What was missing was only that a flowchart edge had no
+      // label to pass.
+      //
+      // Measured with `options.measureText`, the one measurer every other
+      // piece of text in this pipeline goes through, so a long label
+      // reserves more room than a short one for the same reason a long node
+      // label makes a wider box.
+      ...(edge.label === null
+        ? {}
+        : { label: options.measureText.measure(edge.label) }),
     })),
   });
 
-  const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  // Boxes as the shared core placed them, in *core* coordinates. The frames
+  // below are grown in this space and can reach outside it; the translation
+  // that follows is what moves everything into the space the diagram is
+  // finally described in. `layoutClassDiagram` does exactly this, for
+  // exactly this reason.
+  const boxInCoreSpaceById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  const frames = subgraphFrames(graph.subgraphs, graph.nodes, boxInCoreSpaceById, options);
+
+  // A frame grows outward — up for its title strip, out for its padding — so
+  // it can reach above and left of the corner the core laid the graph out
+  // from. Everything is shifted by however far it did, rather than a frame
+  // being drawn at a negative coordinate, which is off the canvas.
+  //
+  // `Math.max(0, ...)` over an empty list is `0`, so a document with no
+  // subgraph shifts by nothing and every coordinate below is the core's own
+  // number untouched.
+  const shift = {
+    x: Math.max(0, ...frames.map((frame) => -frame.x)),
+    y: Math.max(0, ...frames.map((frame) => -frame.y)),
+  };
+  const shifted = (point: Point): Point => ({ x: point.x + shift.x, y: point.y + shift.y });
+
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
   const nodes = graph.nodes.map((node) => {
-    const box = boxById.get(node.id)!;
+    const box = boxInCoreSpaceById.get(node.id)!;
     return {
       ...node,
-      x: box.x,
-      y: box.y,
+      ...shifted(box),
       width: box.width,
       height: box.height,
     };
   });
 
-  const edges = graph.edges.map((edge) => ({
-    ...edge,
-    points: routeById.get(edge.id)!.points,
+  const edges = graph.edges.map((edge) => {
+    const route = routeById.get(edge.id)!;
+    return {
+      ...edge,
+      points: route.points.map(shifted),
+      // `null` rather than absent, matching the label it belongs to: an
+      // edge that asked for no space has nowhere to draw text, and one
+      // state is easier to read than a missing field.
+      labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
+    };
+  });
+
+  const subgraphs = frames.map((frame) => ({
+    ...frame,
+    ...shifted(frame),
+    labelAnchor: shifted(frame.labelAnchor),
   }));
 
   return {
     direction: graph.direction,
     nodes,
     edges,
+    subgraphs,
     timeline: graph.timeline,
-    width: laidOut.width,
-    height: laidOut.height,
+    // The core reports the extent of the graph *it* placed, which never
+    // included the title strip a frame grows upward for. Taking the larger
+    // of the two keeps a frame from being clipped by the `<svg>` it is drawn
+    // in — and with no subgraphs the second term is `0`, so the core's own
+    // numbers come through unchanged.
+    width: Math.max(laidOut.width + shift.x, ...subgraphs.map((s) => s.x + s.width)),
+    height: Math.max(laidOut.height + shift.y, ...subgraphs.map((s) => s.y + s.height)),
   };
+}
+
+/**
+ * Each subgraph's frame, in the shared core's own coordinate space.
+ *
+ * The core sizes a cluster to hold its children and knows nothing about the
+ * title this module draws on it, so a frame is grown from the cluster box the
+ * core placed until it clears every box it holds by `SUBGRAPH_PADDING` and
+ * has a strip along its top for its own title. That is `layoutClassDiagram`'s
+ * `namespaceFrame`, ported.
+ *
+ * **What is not ported is the nesting**, because a class diagram has none. A
+ * frame must clear the whole of each frame *beneath* it — title strip
+ * included, since that strip is the part that reaches highest — so the frames
+ * are grown innermost first and each parent then grows around the children
+ * already grown. The model lists subgraphs in pre-order, so walking it
+ * backwards visits every child before its parent.
+ */
+function subgraphFrames(
+  subgraphs: readonly ResolvedSubgraph[],
+  nodes: GraphModel["nodes"],
+  boxInCoreSpaceById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
+  options: LayoutOptions,
+): PositionedSubgraph[] {
+  const nodeIdsByParent = new Map<string, string[]>();
+  for (const node of nodes) {
+    if (node.parentId !== null) {
+      nodeIdsByParent.set(node.parentId, [...(nodeIdsByParent.get(node.parentId) ?? []), node.id]);
+    }
+  }
+
+  const frameById = new Map<string, PositionedSubgraph>();
+
+  for (const subgraph of [...subgraphs].reverse()) {
+    const label = options.measureText.measure(subgraph.label);
+    const cluster = boxInCoreSpaceById.get(subgraph.id)!;
+
+    const held: { x: number; y: number; width: number; height: number }[] = [
+      ...(nodeIdsByParent.get(subgraph.id) ?? []).map((id) => boxInCoreSpaceById.get(id)!),
+      ...subgraphs
+        .filter((child) => child.parentId === subgraph.id)
+        .map((child) => frameById.get(child.id)!),
+    ];
+
+    const left = Math.min(cluster.x, ...held.map((box) => box.x - SUBGRAPH_PADDING));
+    const top = Math.min(
+      cluster.y,
+      // The title strip: padding, the title line, then padding again before
+      // whatever the frame holds starts.
+      ...held.map((box) => box.y - SUBGRAPH_PADDING * 2 - label.height),
+    );
+    const right = Math.max(
+      cluster.x + cluster.width,
+      left + label.width + SUBGRAPH_PADDING * 2,
+      ...held.map((box) => box.x + box.width + SUBGRAPH_PADDING),
+    );
+    const bottom = Math.max(
+      cluster.y + cluster.height,
+      ...held.map((box) => box.y + box.height + SUBGRAPH_PADDING),
+    );
+
+    frameById.set(subgraph.id, {
+      id: subgraph.id,
+      label: subgraph.label,
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+      labelAnchor: {
+        x: (left + right) / 2,
+        y: top + SUBGRAPH_PADDING + label.height / 2,
+      },
+    });
+  }
+
+  // Back into the model's own order — outermost first, which is the order
+  // they are drawn in so that an inner frame is painted over its parent.
+  return subgraphs.map((subgraph) => frameById.get(subgraph.id)!);
 }

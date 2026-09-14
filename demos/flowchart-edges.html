@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — flowchart edges and subgraphs demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren flowchart edges and subgraphs</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+    <p class="intro">
+      <code>examples/flowchart-edges.srn</code> — every arrow form Mermaid has for a flowchart
+      edge, in one release pipeline. An arrow token is not a name out of a list of seventeen: it
+      decomposes into a <em>line</em> (<code>--</code> solid, <code>==</code> thick,
+      <code>-.-</code> dotted, or its short <code>.-</code>), an <em>end</em> on each side
+      (nothing, <code>&gt;</code> an arrow, <code>o</code> a circle, <code>x</code> a cross), and a
+      <em>length</em>. So <code>A &lt;-.-&gt; B</code> is not an eighteenth arrow — it is a dotted
+      line with an arrow on each end, and <code>A ----&gt; B</code> is a plain arrow that holds its
+      target three ranks away instead of one, which is the one part of the token that changes the
+      layout rather than the drawing. An edge carries a label in either spelling —
+      <code>A --&gt;|green| B</code> and <code>A -- pass --&gt; B</code> produce identical
+      documents — and dagre keeps room for it, so the text lands in a gap rather than over a box.
+      <code>subgraph … end</code> groups the nodes written inside it and nests; the frames are
+      addressed by a <em>generated</em> id (<code>subgraph:1</code>, <code>subgraph:2</code>,
+      <code>subgraph:3</code>), never by the author's title, because a group may legitimately be
+      named after a node. Step through it to watch that: a frame animates under its generated id
+      exactly as a node animates under its own, and a <code>highlight</code> step still beats a
+      dotted or thick line, which is why those strokes are emitted as a CSS class rather than as an
+      inline declaration. <code>linkStyle 6</code> paints the seventh edge declared, and both
+      halves land: the <code>stroke</code> colours the line <em>and</em> its arrowhead, the
+      <code>color</code> colours the label, so the edge that says “green” is green. See
+      <a href="./flowchart-shapes.html">the node shapes demo</a> for the fourteen figures these
+      edges join, <a href="./flowchart-styling.html">the author styling demo</a> for every
+      directive <code>linkStyle</code> sits beside, and
+      <a href="./complex-showcase.html">the complex showcase</a> for every timeline verb and
+      effect.
+    </p>
+
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Same mechanism as demos/flowchart-shapes.html and
+      demos/flowchart-styling.html: imports the real Vite library build of
+      @siren/board, and loads its example document via fetch() from
+      examples/flowchart-edges.srn (not inlined), so the page and
+      packages/core/src/index.test.ts read the same bytes. Run
+      `pnpm --filter @siren/core build && pnpm --filter @siren/board build`
+      first. Must be served over http(s) — file:// will fail fetch() due to
+      CORS.
+
+      controls default to on, as on demos/flowchart-shapes.html: this
+      document declares a `timeline:` block of fifteen steps, and stepping is
+      how the page makes its second point — that a subgraph frame is a
+      timeline target under an id nobody authored, and that an edge's label
+      moves with its line without the controller knowing there are two
+      elements wearing one id (ADR-0009).
+
+      @siren/board owns rendering, the text measurer, the Prev/Next/Reset
+      control bar, full-bleed sizing and error display — see ADR-0005 and
+      ADR-0006. This page keeps only what board deliberately doesn't own:
+      fetching the source, the theme toggle, and the summary line below.
+    -->
+    <script type="module">
+      import { createBoard } from "../packages/board/dist/siren-board.js";
+
+      const source = await fetch("../examples/flowchart-edges.srn").then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load examples/flowchart-edges.srn: ${response.status}`);
+        }
+        return response.text();
+      });
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+      const themeBtn = document.getElementById("theme-btn");
+
+      // Proves the design tokens in packages/core/src/theme/default.css are
+      // genuinely swappable via plain CSS: this only ever toggles an
+      // attribute, demos/theme-dark-override.css does the actual
+      // re-theming by redeclaring the same --siren-* custom properties.
+      // Unrelated to @siren/board, which never touches this attribute
+      // (ADR-0006) — theming stays this page's own concern.
+      themeBtn.addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) {
+          delete document.body.dataset.sirenTheme;
+        } else {
+          document.body.dataset.sirenTheme = "dark";
+        }
+        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
+      });
+
+      let failed = false;
+      const board = createBoard(container, {
+        source,
+        onStepChange: (current, total) => {
+          statusEl.textContent = `${edgesLine()} Step ${current} of ${total}.`;
+        },
+        onDiagnostics: (diagnostics) => {
+          for (const diagnostic of diagnostics) {
+            console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+          }
+          // The example is expected to render clean, so a diagnostic of any
+          // severity is worth saying out loud on the page rather than only
+          // in the console — this document is the one the test suite pins at
+          // zero diagnostics.
+          failed = diagnostics.length > 0;
+        },
+      });
+
+      // Counted off the mounted SVG rather than written down, for the reason
+      // demos/flowchart-shapes.html gives: a hardcoded tally would keep
+      // saying so after a form stopped being drawn. The decompositions are
+      // the interesting number — nineteen edges spelled seventeen ways come
+      // out as twelve distinct (line, from-end, to-end) triples, because the
+      // axes compose rather than enumerate.
+      function edgesLine() {
+        const svg = container.querySelector("svg");
+        if (svg === null) return "";
+        const count = (selector) => svg.querySelectorAll(selector).length;
+        const paths = [...svg.querySelectorAll("path.siren-edge")];
+        const shapeOf = (reference) => {
+          if (reference === null) return "none";
+          const marker = svg.querySelector(`marker#${reference.slice("url(#".length, -1)}`);
+          const drawn = marker?.firstElementChild;
+          if (drawn == null) return "none";
+          if (drawn.tagName === "circle") return "circle";
+          const d = drawn.getAttribute("d") ?? "";
+          return d.includes("Z") ? "arrow" : "cross";
+        };
+        const decompositions = new Set(
+          paths.map((path) => {
+            const classes = path.getAttribute("class").split(/\s+/);
+            const line = classes.includes("siren-edge-dotted")
+              ? "dotted"
+              : classes.includes("siren-edge-thick")
+                ? "thick"
+                : "solid";
+            return [
+              line,
+              shapeOf(path.getAttribute("marker-start")),
+              shapeOf(path.getAttribute("marker-end")),
+            ].join(" ");
+          }),
+        );
+        return [
+          `${paths.length} edges in ${decompositions.size} distinct decompositions`,
+          `${count("text.siren-edge-label")} of them labelled`,
+          `across ${count("g.siren-node")} nodes`,
+          `and ${count("g.siren-subgraph")} subgraph frames.`,
+        ].join(", ");
+      }
+
+      if (container.querySelector("svg") === null || failed) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        statusEl.textContent =
+          `${edgesLine()} Step ${board.controller.currentStep} of ${board.controller.totalSteps}.`;
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,183 @@
+%% examples/flowchart-edges.srn — every arrow form Mermaid has for a flowchart
+%% edge, both spellings of an edge label, and the group an edge's endpoints
+%% live in. Seventeen spellings, of which sixteen were refused until this
+%% board; `-->` is the one Siren has always drawn.
+
+%% A file of its own rather than more lines in examples/flowchart-syntax.srn
+%% or examples/flowchart-shapes.srn, on the precedent those two set: each
+%% example keeps one story. Those are about how a document may be *written*
+%% (the statement spellings) and what a node *is* (the fourteen figures);
+%% this one is about what an *edge* is. Folding it into
+%% examples/flowchart-styling.srn would also have moved every edge index its
+%% `linkStyle` statements address, which is a trap rather than a
+%% demonstration.
+
+%% The `subgraph` rides along rather than getting a fifth flowchart example
+%% of its own, and that is a decision rather than an oversight. This board's
+%% spec is titled "an edge has a form, a label, and a group to live in": a
+%% group is where the endpoints an edge joins *live*, and the two edge
+%% behaviours that only a group can show — an edge crossing a frame, and an
+%% edge leaving a *nested* frame — cannot be drawn without one. A file
+%% holding a single keyword and nothing to use it on would be a file nobody
+%% opens.
+
+%% An arrow token is not a name out of a list of seventeen. It decomposes
+%% into three things, and every spelling below is one combination of them:
+%%   - a line       solid `--`, thick `==`, dotted `-.-` (or its short `.-`)
+%%   - two ends     none, `>` arrow, `o` circle, `x` cross — one per side
+%%   - a length     `-->` is one rank, `---->` is three
+%% The same decomposition a sequence message and a class relationship already
+%% use. So `A <-.-> B` is not an eighteenth arrow: it is a dotted line with an
+%% arrow on each end.
+
+%% Measured, not remembered. Everything above the `timeline:` block is valid
+%% Mermaid — the block itself is Siren's own syntax, so it is not part of the
+%% comparison — and this prints what mermaid 11.17.2 reads out of it:
+%%     sed '/^timeline:/,$d' examples/flowchart-edges.srn \
+%%       | node packages/core/scripts/mermaid-probe.mjs -
+%% Seventeen vertices, nineteen edges, three subgraphs. Every `type`,
+%% `stroke` and `length` it reports is transcribed into `index.test.ts`
+%% beside the assertion that Siren draws the same thing, with zero
+%% diagnostics.
+flowchart TB
+
+%% `subgraph Title ... end` groups the nodes declared inside it. The title is
+%% the author's; the *id* is not — a subgraph may legitimately be named after
+%% a node, so Siren mints `subgraph:1`, `subgraph:2`, … in the order the
+%% keywords open (ADR-0010). That generated id is what the `timeline:` block
+%% at the foot of this file names, and it is the reason a `style` directive
+%% cannot address a frame: there is no authored name to write.
+subgraph Build
+
+  %% `-->` — one rank, an arrowhead on the target end and nothing on the
+  %% source end. The plain arrow, and the one form Siren has always drawn.
+  Commit[/Commit/] --> Compile[Compile]
+
+  %% `==>` — a thick line, same ends. The hot path through this pipeline is
+  %% drawn thick from here to the deploy, so it can be followed at a glance.
+  Compile ==> Artifact[(Artifact)]
+end
+
+%% A subgraph opened inside another. `Fast` is nested in `Checks`, and both
+%% frames are drawn: the inner one inside the outer one, with the outer one
+%% grown to hold it.
+subgraph Checks
+  subgraph Fast
+    Unit
+    Lint
+  end
+  Integration
+end
+
+%% An edge crossing two frame boundaries at once — out of `Build`, into the
+%% `Fast` that sits inside `Checks`. A node belongs to the first subgraph
+%% that names it, so declaring `Unit` inside `Fast` above is what put it
+%% there; naming it again here joins it rather than moving it.
+Artifact ==> Unit
+
+%% `---` — an open link: a line with no arrowhead at either end. Two checks
+%% that run beside each other, in no particular order.
+Unit --- Lint
+
+%% `A -- text --> B` — an edge label, written between the two halves of the
+%% arrow. The other spelling is a few lines down, and the two produce
+%% identical documents: nothing downstream records which one was written.
+Unit -- pass --> Integration
+
+%% `-.-` — a dotted line with no arrowhead. Lint's opinion is advisory: it
+%% reaches integration, but it does not gate it.
+Lint -.- Integration
+
+%% `A -->|text| B` — the other label spelling, and the same label on the same
+%% kind of edge. `linkStyle` paints this one at the foot of the file.
+Integration -->|green| Gate{Ship?}
+
+%% `--x` — a cross on the target end: a path that stops there.
+Integration --x Halt[Halt]
+
+%% The thick hot path arrives at the terminal it was drawn for.
+Gate ==> Deploy([Deploy])
+
+%% `-.->` — a dotted arrow: the notification is sent, and nothing waits for
+%% it.
+Gate -.-> Notify[Notify]
+
+%% `--o` — a circle on the target end: the audit trail attaches to the gate
+%% rather than continuing out of it.
+Gate --o Audit[Audit]
+
+%% `<-->` — an arrow on *both* ends, which is the from-end axis's whole
+%% point: a single marker always lands on the target end, and only the
+%% doubled spellings decorate the source end too.
+Deploy <--> Monitor[Monitor]
+
+%% `---->` — the one part of an arrow token that is not about drawing.
+%% Mermaid counts the dashes and hands the result to dagre as `minlen`, so
+%% the archive sits three ranks below the deploy rather than one, and the
+%% drawn diagram differs from the one a `-->` would have produced. Drawing
+%% both alike would be a silent mis-render.
+Deploy ----> Archive[Archive]
+
+%% `A -. text .-> B` — the label spelling again, in the dotted stroke, closed
+%% by the short body below. The opener may not drop its dash and the closer
+%% may: `-.` is the only thing that opens a dotted label, while `.->` is a
+%% whole arrow.
+Deploy -. nightly .-> Cleanup[Cleanup]
+
+%% `.->` — the dotted arrow written without its leading dash, which draws
+%% exactly what `-.->` draws. The closing dash is grammar; the opening one is
+%% decoration. Note the space: `Notify.->Digest` is a parse error in Mermaid,
+%% because a `.` is a node-id character there and a leading dot only opens an
+%% arrow where an id cannot be.
+Notify .-> Digest[Digest]
+
+%% `o--o` — a circle on both ends. The dashboard and the monitor attach to
+%% each other; neither drives the other.
+Monitor o--o Dashboard[Dashboard]
+
+%% `x--x` — a cross on both ends: a rollback and a halt are two ways for the
+%% same release to stop, and neither leads to the other.
+Halt x--x Rollback[Rollback]
+
+%% `===` — a thick line with no arrowhead, which is the spelling that proves
+%% the two axes are independent rather than a list of names: a line and an end
+%% are chosen separately, so `===` exists for the same reason `---` does.
+Halt === Audit
+
+%% `<-.->` — a dotted line with an arrow on each end, and the edge this file
+%% exists to make ordinary. Three axes, freely combined; no eighteenth name.
+Digest <-.-> Dashboard
+
+%% `linkStyle` addresses an edge by declaration index, counting from zero, so
+%% index 6 is the seventh edge declared above — `Integration -->|green| Gate`.
+%% Both halves of the declaration land, on two different elements: `stroke`
+%% paints the line and the arrowhead minted for its colour, and `color` paints
+%% the label, so the edge that says "green" is green. That second half was
+%% this board's open question, and it was settled by measurement rather than
+%% by taste: `pnpm --filter @siren/core probe --paint` shows mermaid 11.17.2
+%% writing `fill:#15803d !important` onto the label's own `<text>` for this
+%% very document, so dropping it would have been a silent mis-render.
+linkStyle 6 stroke:#15803d,color:#15803d
+
+%% Every node, every edge and every one of the three frames is named here, so
+%% the whole diagram is waiting at step 0. Two things worth watching:
+%% a subgraph animates under its *generated* id, and a `highlight` step still
+%% wins over a line style — the dotted and thick strokes are emitted as a
+%% class rather than as an inline declaration precisely so that an outline
+%% highlight can beat them on the same element.
+timeline:
+  step 1: enter subgraph:1 fade, enter Commit fade, enter Compile fade, enter Commit-Compile fade
+  step 2: enter Artifact fade, enter Compile-Artifact fade
+  step 3: enter subgraph:2 fade, enter subgraph:3 slide-top, enter Unit fade, enter Lint fade
+  step 4: enter Artifact-Unit fade, enter Unit-Lint fade
+  step 5: enter Integration fade, enter Unit-Integration fade, enter Lint-Integration fade
+  step 6: enter Gate fade, enter Integration-Gate fade
+  step 7: highlight Integration-Gate outline
+  step 8: unhighlight Integration-Gate, enter Halt slide-left, enter Integration-Halt fade
+  step 9: enter Rollback slide-left, enter Halt-Rollback fade, enter Audit fade, enter Gate-Audit fade, enter Halt-Audit fade
+  step 10: enter Deploy fade, enter Gate-Deploy fade
+  step 11: enter Notify slide-right, enter Gate-Notify fade, enter Digest slide-right, enter Notify-Digest fade
+  step 12: enter Monitor fade, enter Deploy-Monitor fade, enter Dashboard fade, enter Monitor-Dashboard fade, enter Digest-Dashboard fade
+  step 13: highlight Gate-Deploy outline, highlight Digest-Dashboard outline
+  step 14: unhighlight Gate-Deploy, unhighlight Digest-Dashboard, enter Cleanup fade, enter Deploy-Cleanup fade
+  step 15: enter Archive fade, enter Deploy-Archive fade

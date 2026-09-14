@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { renderToSVG } from "./renderToSVG";
-import type { PositionedGraph } from "../contracts";
+import type { PositionedEdge, PositionedGraph } from "../contracts";
+
+/**
+ * `A --> B`'s decomposition — a solid line, an arrow on the to-end only,
+ * one rank long — spread into the fixture below, which is about positions
+ * and paint rather than about which arrow was written. A test that *is*
+ * about the arrow sets its own.
+ */
+const PLAIN_ARROW = {
+  line: "solid",
+  fromEnd: "none",
+  toEnd: "arrow",
+  minLength: 1,
+  // An unlabelled edge, which is also what makes `labelAnchor` null: layout
+  // reports an anchor only for an edge that asked for space, and the two are
+  // absent together. A test that *is* about the label sets both.
+  label: null,
+  labelAnchor: null,
+} as const;
 
 /**
  * Hand-built fixture: A -> B -> C, B pending at step 1, C pending at step 2,
@@ -10,15 +28,16 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [
       {
         id: "A-B",
         from: "A",
         to: "B",
+        ...PLAIN_ARROW,
         style: { frame: [], text: [] },
         points: [
           { x: 40, y: 20 },
@@ -29,6 +48,7 @@ function buildFixture(): PositionedGraph {
         id: "B-C",
         from: "B",
         to: "C",
+        ...PLAIN_ARROW,
         style: { frame: [], text: [] },
         points: [
           { x: 40, y: 120 },
@@ -36,6 +56,7 @@ function buildFixture(): PositionedGraph {
         ],
       },
     ],
+    subgraphs: [],
     timeline: {
       totalSteps: 2,
       entries: [
@@ -57,11 +78,12 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] } },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null },
     ],
     edges: [],
+    subgraphs: [],
     timeline: {
       totalSteps: 2,
       entries: [
@@ -187,6 +209,7 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
         {
           id: "B",
@@ -197,9 +220,11 @@ describe("renderToSVG", () => {
           width: 80,
           height: 40,
           style: { frame: [], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 260,
@@ -274,8 +299,10 @@ describe("renderToSVG", () => {
         width: 200,
         height: 60,
         style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        parentId: null,
       })),
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -392,8 +419,10 @@ describe("renderToSVG", () => {
         width: 200,
         height: 60,
         style: { frame: [], text: [] },
+        parentId: null,
       })),
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -461,9 +490,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -497,9 +528,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
@@ -569,9 +602,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 200,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 240,
@@ -618,9 +653,11 @@ describe("renderToSVG", () => {
           width: 160,
           height: 160,
           style: { frame: [{ property: "fill", value: "#fdd" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 180,
       height: 200,
@@ -680,9 +717,11 @@ describe("renderToSVG", () => {
           width: 200,
           height: 160,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
+      subgraphs: [],
       timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 200,
@@ -752,6 +791,7 @@ describe("renderToSVG", () => {
           width: 200,
           height: 60,
           style: { frame: [], text: [] },
+          parentId: null,
         },
         {
           id: "B",
@@ -762,6 +802,7 @@ describe("renderToSVG", () => {
           width: 80,
           height: 40,
           style: { frame: [], text: [] },
+          parentId: null,
         },
       ],
       edges: [],
@@ -974,5 +1015,366 @@ describe("renderToSVG", () => {
       "stroke:#f00;stroke-width:4px;STROKE:#00f",
     );
     expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("fill:#00f");
+  });
+});
+
+/**
+ * What an arrow token's decomposition draws.
+ *
+ * The class renderer is the template throughout: it already draws a
+ * different marker at either end of a line and mints one def per endpoint
+ * shape (`END_MARKER_NAME`, `buildEndpointMarker`). What is new here is the
+ * *matrix* — board 3 mints an arrowhead per stroke colour so a styled edge's
+ * whole arrow takes it, and an end now has a shape as well as a colour.
+ */
+describe("the line and the two ends an edge is drawn with", () => {
+  /** One edge, drawn with the given decomposition, and nothing else in the graph. */
+  function drawEdge(
+    over: Partial<PositionedEdge> = {},
+    edges?: PositionedEdge[],
+  ): SVGSVGElement {
+    const graph = buildFixture();
+    const [first] = graph.edges;
+    graph.edges = edges ?? [{ ...first, ...over }];
+    return renderToSVG(graph);
+  }
+
+  const edgePath = (svg: SVGSVGElement, id = "A-B") =>
+    svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+
+  /** The `<marker>` a reference resolves to inside this same SVG, never by name. */
+  const markerAt = (svg: SVGSVGElement, path: Element, side: "start" | "end") => {
+    const reference = path.getAttribute(`marker-${side}`);
+    if (reference === null) return null;
+    return svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)}`);
+  };
+
+  it("draws no marker at an end the token decorates with nothing", () => {
+    // `A --- B` is a line and nothing else. An open link that kept the
+    // arrowhead would be the plain arrow it is written to not be.
+    const svg = drawEdge({ toEnd: "none" });
+    const path = edgePath(svg);
+
+    expect(path.getAttribute("marker-end")).toBeNull();
+    expect(path.getAttribute("marker-start")).toBeNull();
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(0);
+  });
+
+  it("draws a lone marker at the to-end only", () => {
+    const svg = drawEdge({ toEnd: "circle" });
+    const path = edgePath(svg);
+
+    expect(path.getAttribute("marker-start")).toBeNull();
+    expect(markerAt(svg, path, "end")).not.toBeNull();
+  });
+
+  it("draws a marker at each end of a `<-->`, and one def serves both", () => {
+    // `orient="auto-start-reverse"`, the class renderer's trick: the same
+    // def points outward whether it is applied as `marker-start` or
+    // `marker-end`, so a two-headed edge needs one def and not two.
+    const svg = drawEdge({ fromEnd: "arrow", toEnd: "arrow" });
+    const path = edgePath(svg);
+
+    expect(path.getAttribute("marker-start")).toBe(path.getAttribute("marker-end"));
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
+    expect(markerAt(svg, path, "start")!.getAttribute("orient")).toBe("auto-start-reverse");
+  });
+
+  it("draws each end's own shape: an arrow is filled, a circle is hollow, a cross is two open strokes", () => {
+    // The three shapes are told apart by what they are made of, not by a
+    // name: measured in mermaid 11.17.2, `arrow_circle` is `{ type:
+    // "circle", fill: false }` — a stroked, unfilled ring — and its cross is
+    // the two-stroke path `M 1,1 l 9,9 M 10,1 l -9,9`.
+    //
+    // The classes are the ones the other two renderers already use, so the
+    // theme paints all three without learning a name: a filled head is
+    // `siren-arrow-fill`, a hollow one `siren-arrow-hollow` (outlined in the
+    // line's colour, filled with the *surface* so the line does not show
+    // through its middle — the class renderer's rule) and an open one
+    // `siren-arrow-stroke`.
+    const shapeOf = (toEnd: PositionedEdge["toEnd"]) => {
+      const svg = drawEdge({ toEnd });
+      const marker = markerAt(svg, edgePath(svg), "end")!;
+      const drawn = marker.firstElementChild!;
+      return [drawn.tagName, drawn.getAttribute("class")];
+    };
+
+    expect([shapeOf("arrow"), shapeOf("circle"), shapeOf("cross")]).toEqual([
+      ["path", "siren-arrow-fill"],
+      ["circle", "siren-arrow-hollow"],
+      ["path", "siren-arrow-stroke"],
+    ]);
+  });
+
+  it("names a dotted and a thick line on the path, and leaves a solid one with the class every edge has", () => {
+    // Three lines, three different pictures, and the difference is carried
+    // by a class rather than an inline declaration — see `EDGE_LINE_CLASS`
+    // for the cascade that decides. A solid line is the base rule, so it
+    // gains nothing: the only class it needs is the one every edge wears.
+    const classOf = (line: PositionedEdge["line"]) =>
+      edgePath(drawEdge({ line })).getAttribute("class");
+
+    expect([classOf("solid"), classOf("dotted"), classOf("thick")]).toEqual([
+      "siren-edge",
+      "siren-edge siren-edge-dotted",
+      "siren-edge siren-edge-thick",
+    ]);
+  });
+
+  it("keeps `.siren-edge` on every line, so the theme, an author style and the timeline still reach it", () => {
+    // The line's own class is *added to* the name every edge has always had,
+    // never substituted for it. A dotted edge that stopped being a
+    // `.siren-edge` would silently lose the theme's stroke, `linkStyle`'s
+    // landing place and the animation controller's target in one step.
+    const svg = drawEdge({ line: "dotted" });
+
+    expect(svg.querySelectorAll("path.siren-edge")).toHaveLength(1);
+    expect(edgePath(svg).getAttribute("data-siren-id")).toBe("A-B");
+  });
+
+  it("leaves an author's own declarations to win the property they name", () => {
+    // The collision this ticket had to decide: a thick line wants
+    // `stroke-width` and so does `linkStyle 0 stroke-width:6px`. The
+    // author's declaration is written inline and outranks any stylesheet
+    // rule, so the author wins that property — and only that property: the
+    // line keeps its class, so a `linkStyle 0 stroke:#f00` recolours a
+    // thick edge without thinning it.
+    const svg = drawEdge({
+      line: "thick",
+      style: { frame: [{ property: "stroke-width", value: "6px" }], text: [] },
+    });
+
+    expect(edgePath(svg).getAttribute("class")).toBe("siren-edge siren-edge-thick");
+    expect(edgePath(svg).getAttribute("style")).toBe("stroke-width:6px");
+  });
+
+  it("mints one marker for one shape in one colour, however many edges draw it", () => {
+    // The obvious wrong turn, and the reason this is asserted rather than
+    // assumed: a matrix keyed by anything per-edge would mint a def per
+    // edge, and fifty edges under one `linkStyle default` would carry fifty
+    // copies of one picture.
+    const base = buildFixture().edges[0];
+    const svg = drawEdge({}, [
+      { ...base, id: "A-B" },
+      { ...base, id: "B-C" },
+      { ...base, id: "C-D" },
+    ]);
+
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
+    expect(edgePath(svg, "A-B").getAttribute("marker-end")).toBe(
+      edgePath(svg, "C-D").getAttribute("marker-end"),
+    );
+  });
+
+  it("mints a marker per (shape, colour) pair, and only for the pairs something draws", () => {
+    // Two shapes in two colours is four *possible* markers and this
+    // document draws three of them, so three is what it emits: the matrix
+    // is populated by the edges, never enumerated up front.
+    const base = buildFixture().edges[0];
+    const red = { frame: [{ property: "stroke", value: "#f00" }], text: [] };
+    const svg = drawEdge({}, [
+      { ...base, id: "A-B", toEnd: "arrow" },
+      { ...base, id: "B-C", toEnd: "circle" },
+      { ...base, id: "C-D", toEnd: "arrow", style: red },
+      // A second edge of the same pair as the one before it: same shape,
+      // same colour, so it must not mint a fourth.
+      { ...base, id: "D-E", toEnd: "arrow", style: red },
+    ]);
+
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(3);
+    expect(edgePath(svg, "C-D").getAttribute("marker-end")).toBe(
+      edgePath(svg, "D-E").getAttribute("marker-end"),
+    );
+    expect(edgePath(svg, "A-B").getAttribute("marker-end")).not.toBe(
+      edgePath(svg, "C-D").getAttribute("marker-end"),
+    );
+  });
+
+  it("paints a styled edge's colour where each shape actually shows it", () => {
+    // A filled head takes the colour as its `fill`; a hollow ring and an
+    // open cross take it as their `stroke`. Painting a ring's fill would
+    // give a filled dot in the author's colour — the wrong shape, in the
+    // right colour — and painting an open cross's fill would draw nothing
+    // at all.
+    const colouredEnd = (toEnd: PositionedEdge["toEnd"]) => {
+      const svg = drawEdge({
+        toEnd,
+        style: { frame: [{ property: "stroke", value: "#f00" }], text: [] },
+      });
+      const marker = markerAt(svg, edgePath(svg), "end")!;
+      return marker.firstElementChild!.getAttribute("style");
+    };
+
+    expect([colouredEnd("arrow"), colouredEnd("circle"), colouredEnd("cross")]).toEqual([
+      "fill:#f00",
+      "stroke:#f00",
+      "stroke:#f00",
+    ]);
+  });
+
+  it("gives both ends of a two-headed styled edge the one coloured def", () => {
+    const svg = drawEdge({
+      fromEnd: "arrow",
+      toEnd: "arrow",
+      style: { frame: [{ property: "stroke", value: "#f00" }], text: [] },
+    });
+    const path = edgePath(svg);
+
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
+    expect(path.getAttribute("marker-start")).toBe(path.getAttribute("marker-end"));
+  });
+});
+
+/**
+ * An edge's label is drawn where layout kept space for it, in an element the
+ * theme can name — the port of what `renderClassDiagramToSVG` has done with
+ * a relationship's label since the class board.
+ */
+describe("the label drawn on an edge", () => {
+  /** One edge carrying `label`, anchored where the fixture's route already runs. */
+  function drawLabelled(over: Partial<PositionedEdge>): SVGSVGElement {
+    const graph = buildFixture();
+    const [first] = graph.edges;
+    graph.edges = [{ ...first, ...over }];
+    return renderToSVG(graph);
+  }
+
+  it("draws the label at the anchor layout reserved for it", () => {
+    // The anchor comes from layout and is used as given — a renderer that
+    // recomputed a mid-point from `points` would put the text across the
+    // line rather than in the space made beside it.
+    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+    const text = svg.querySelector("text.siren-edge-label")!;
+
+    expect(text.textContent).toBe("yes");
+    expect(text.getAttribute("x")).toBe("55");
+    expect(text.getAttribute("y")).toBe("60");
+  });
+
+  it("mints its own class rather than borrowing the class diagram's", () => {
+    // A sibling of `.siren-relationship-label`, not the same name. Every
+    // `siren-*` class in this codebase is named for the construct it draws,
+    // and a *relationship* is the class diagram's construct while an *edge*
+    // is the flowchart's — `.siren-edge` and `.siren-relationship-line`
+    // already split that way for the connector itself. Sharing one name
+    // would mean a consumer restyling class-diagram relationship labels
+    // silently restyled every flowchart edge label too, which is the
+    // consequence a theming contract must not have (ADR-0004).
+    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+
+    expect(svg.querySelectorAll(".siren-relationship-label")).toHaveLength(0);
+    expect(svg.querySelectorAll(".siren-edge-label")).toHaveLength(1);
+  });
+
+  it("draws nothing at all for an edge that carries no label", () => {
+    // An empty `<text>` is a paintless element the theme has to reach and a
+    // node in every consumer's DOM for nothing. The class renderer already
+    // returns `null` here rather than an empty element; this is that rule.
+    const svg = drawLabelled({ label: null, labelAnchor: null });
+
+    expect(svg.querySelectorAll("text.siren-edge-label")).toHaveLength(0);
+  });
+
+  it("names the edge it belongs to, so the timeline moves the two together", () => {
+    // A timeline target is an id, not an element (ADR-0009): `exit A-B fade`
+    // has to take the label with the line it is written on, exactly as a
+    // sequence participant's several drawn elements move together.
+    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+
+    expect(
+      Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
+    ).toEqual(["path", "text"]);
+  });
+});
+
+/**
+ * A subgraph is drawn as a labelled frame *behind* what it groups — one
+ * `<g class="siren-subgraph">` holding a `<rect class="siren-subgraph-frame">`
+ * and a `<text class="siren-subgraph-label">`, the shape
+ * `renderClassDiagramToSVG` already gives a namespace.
+ *
+ * Two things about it are load-bearing rather than incidental, and both are
+ * asserted here. Paint order: the frames come first in document order, so the
+ * boxes they enclose are drawn *over* them rather than hidden behind them.
+ * And `data-siren-id`: a subgraph is a timeline target under its generated
+ * id (ADR-0010), so the frame has to carry that id or `enter subgraph:1 fade`
+ * resolves in the model and moves nothing in the picture.
+ */
+describe("renderToSVG — a subgraph", () => {
+  const framed = (subgraphs: PositionedGraph["subgraphs"]): SVGSVGElement =>
+    renderToSVG({
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Start",
+          shape: "rect",
+          x: 40,
+          y: 60,
+          width: 80,
+          height: 40,
+          style: { frame: [], text: [] },
+          parentId: "subgraph:1",
+        },
+      ],
+      edges: [],
+      subgraphs,
+      timeline: { totalSteps: 0, entries: [] },
+      width: 300,
+      height: 300,
+    });
+
+  const oneFrame = [
+    {
+      id: "subgraph:1",
+      label: "Ingest",
+      x: 20,
+      y: 20,
+      width: 140,
+      height: 100,
+      labelAnchor: { x: 90, y: 38 },
+    },
+  ];
+
+  it("draws a titled frame at the box the layout grew", () => {
+    const svg = framed(oneFrame);
+
+    const frame = svg.querySelector("g.siren-subgraph rect.siren-subgraph-frame")!;
+    expect(frame).not.toBeNull();
+    expect([
+      frame.getAttribute("x"),
+      frame.getAttribute("y"),
+      frame.getAttribute("width"),
+      frame.getAttribute("height"),
+    ]).toEqual(["20", "20", "140", "100"]);
+
+    const title = svg.querySelector("g.siren-subgraph text.siren-subgraph-label")!;
+    expect(title.textContent).toBe("Ingest");
+    // At the anchor layout reserved a strip for, not computed here from the
+    // frame: the strip is what the frame was grown to hold, and a renderer
+    // recomputing it would be a second opinion free to disagree.
+    expect([title.getAttribute("x"), title.getAttribute("y")]).toEqual(["90", "38"]);
+  });
+
+  it("carries the id a timeline names it by", () => {
+    const svg = framed(oneFrame);
+
+    const group = svg.querySelector("g.siren-subgraph")!;
+    expect(group.getAttribute("data-siren-id")).toBe("subgraph:1");
+  });
+
+  it("draws every frame before any node, so a frame never hides what it groups", () => {
+    const svg = framed(oneFrame);
+
+    const drawn = Array.from(svg.children)
+      .filter((child) => child.tagName === "g")
+      .map((child) => child.getAttribute("class"));
+    expect(drawn).toEqual(["siren-subgraph", "siren-node"]);
+  });
+
+  it("draws nothing at all when the document declares no subgraph", () => {
+    const svg = framed([]);
+
+    expect(svg.querySelectorAll(".siren-subgraph")).toHaveLength(0);
   });
 });
