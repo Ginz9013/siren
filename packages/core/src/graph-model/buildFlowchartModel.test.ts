@@ -57,7 +57,7 @@ describe("buildFlowchartModel's interactions", () => {
       argument: null,
       tooltip: "the docs",
     });
-    expect(byId.B.interaction ?? null).toBeNull();
+    expect(byId.B.interaction).toBeNull();
   });
 
   it("resolves a call interaction, passing its argument through", () => {
@@ -107,7 +107,7 @@ describe("buildFlowchartModel's interactions", () => {
     );
 
     expect(graph).not.toBeNull();
-    expect(graph!.nodes[0].interaction ?? null).toBeNull();
+    expect(graph!.nodes[0].interaction).toBeNull();
     expect(diagnostics).toEqual([
       {
         severity: "error",
@@ -136,7 +136,7 @@ describe("buildFlowchartModel's interactions", () => {
       }),
     );
 
-    expect(graph!.nodes[0].interaction ?? null).toBeNull();
+    expect(graph!.nodes[0].interaction).toBeNull();
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("error");
     expect(diagnostics[0].message).toMatch(/disallowed URL scheme/);
@@ -147,6 +147,6 @@ describe("buildFlowchartModel's interactions", () => {
       flowchartDocument({ nodes: [sirenNode({ id: "A" })] }),
     );
 
-    expect(graph!.nodes[0].interaction ?? null).toBeNull();
+    expect(graph!.nodes[0].interaction).toBeNull();
   });
 });
