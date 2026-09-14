@@ -10,6 +10,6 @@
     "build": "pnpm -r build"
   },
   "devDependencies": {
-    "gitnook": "^0.1.0"
+    "gitnook": "^0.4.0"
   }
 }
