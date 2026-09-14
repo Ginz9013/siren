@@ -6,12 +6,12 @@ import type {
   ClassModelResult,
   Diagnostic,
   ResolvedClass,
-  ResolvedClassInteraction,
   ResolvedClassNamespace,
   ResolvedClassNote,
   ResolvedClassRelationship,
 } from "../contracts";
 import { generatedId } from "./generatedId";
+import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
@@ -61,7 +61,11 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const relationships = assignRelationshipIds(document);
 
-  const interactions = resolveInteractions(document, classesById, diagnostics);
+  const interactions = resolveInteractions(
+    document.interactions,
+    new Set(classesById.keys()),
+    diagnostics,
+  );
 
   const styles = resolveStyles(document.styles, new Set(classesById.keys()), diagnostics);
 
@@ -347,147 +351,6 @@ function resolveNotes(
   });
 
   return notes;
-}
-
-/**
- * The URL schemes a `click X href "..."` may navigate to. An allowlist, not
- * a blocklist: `javascript:`, `data:` and `vbscript:` are the famous
- * script-bearing schemes, but they are not the only ones a browser or an
- * OS handler will act on, and a list of the ones we happen to know about
- * would silently admit the next one.
- */
-const ALLOWED_URL_SCHEMES = new Set<string>(["http:", "https:", "mailto:"]);
-
-/** The allowlist as a diagnostic reads it. */
-const ALLOWED_SCHEMES_PHRASE = "only http:, https: and mailto: are allowed";
-
-/**
- * A URL's scheme grammar, per RFC 3986: a letter, then letters, digits and
- * `+`, `-`, `.`.
- */
-const URL_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*$/;
-
-/**
- * A URL that names no scheme of its own and adopts the page's: `//host`, and
- * the `/\`, `\/`, `\\` spellings a browser reads the same way.
- */
-const URL_SCHEME_RELATIVE_RE = /^[/\\][/\\]/;
-
-/**
- * The characters removed from a URL before it is judged: every ASCII control
- * character, plus space and DEL. Written with escapes rather than raw bytes so
- * the file holds no control characters of its own.
- */
-const URL_STRIPPED_RE = /[\u0000-\u0020\u007f]/g;
-
-/**
- * Decides whether an author-written `href` may be emitted, returning `null`
- * when it may and the clause a diagnostic should carry when it may not.
- *
- * **This is the board's security boundary for URLs.** The parser records
- * whatever the author typed and judges none of it, and the renderer puts
- * the survivors into a live `href`, so a URL this function admits is a URL
- * a reader can be made to navigate to.
- *
- * The rules, in the order they apply:
- *
- * - Whitespace and control characters are removed from the whole URL, once,
- *   *before* any of the rules below read it. A browser does the same, so a
- *   `javascript:` URL with a tab, a newline or a NUL wedged into the word —
- *   or leading spaces in front of it — navigates exactly like the plain
- *   spelling. Matching on the raw text is the classic way an allowlist is
- *   walked past, and matching *some* rules on the stripped text and others
- *   on the raw text is the same hole with extra steps: `/<TAB>/evil.example`
- *   walked past an earlier version that stripped only for the scheme rule.
- *   The rule is deliberately stricter than the URL spec (which only strips
- *   tab and newline): no usable URL needs a control character or an interior
- *   space, so the worst an over-strict reading costs is a diagnostic on a URL
- *   that was already unusable.
- * - A URL beginning `//` — or the `\\` a browser reads as `//` — is
- *   rejected. It carries no scheme of its own, adopting instead whatever
- *   the page was served over, so it is an off-site navigation wearing the
- *   costume of a path.
- * - A URL with a scheme must have one from `ALLOWED_URL_SCHEMES`.
- * - Anything else has no scheme at all — `./docs/shape.html`, `#shape` —
- *   and resolves against the document. The allowlist rejects dangerous
- *   schemes; it does not demand absolute URLs.
- */
-function rejectUrl(url: string): string | null {
-  const stripped = url.replace(URL_STRIPPED_RE, "");
-
-  if (URL_SCHEME_RELATIVE_RE.test(stripped)) {
-    return `uses a scheme-relative URL ("${url}"), which adopts the page's scheme`;
-  }
-
-  const colon = stripped.indexOf(":");
-  if (colon === -1) {
-    return null;
-  }
-
-  const candidate = stripped.slice(0, colon);
-  if (!URL_SCHEME_RE.test(candidate)) {
-    // Not a scheme at all: the `:` belongs to a path or a fragment, as in
-    // `./a:b`. A relative URL, and allowed.
-    return null;
-  }
-
-  const scheme = `${candidate.toLowerCase()}:`;
-  if (ALLOWED_URL_SCHEMES.has(scheme)) {
-    return null;
-  }
-  return `uses the disallowed URL scheme "${scheme}"`;
-}
-
-/**
- * Resolves the document's `click`/`link`/`callback` statements into the
- * model's interactions.
- *
- * Naming a class here does not declare it, exactly as naming one in a `note
- * for` does not: an interaction is about a class that already exists, so an
- * unknown target is a typo. The interaction is dropped on its own and the
- * rest of the model still resolves.
- */
-function resolveInteractions(
-  document: ClassDocument,
-  classesById: Map<string, ClassAccumulator>,
-  diagnostics: Diagnostic[],
-): ResolvedClassInteraction[] {
-  const interactions: ResolvedClassInteraction[] = [];
-
-  for (const interaction of document.interactions) {
-    if (!classesById.has(interaction.classId)) {
-      diagnostics.push({
-        severity: "error",
-        message: `click "${interaction.classId}" references a class that does not exist; dropping the interaction.`,
-        line: interaction.line,
-        column: interaction.column,
-      });
-      continue;
-    }
-
-    if (interaction.interactionKind === "href") {
-      const rejection = rejectUrl(interaction.action);
-      if (rejection !== null) {
-        diagnostics.push({
-          severity: "error",
-          message: `click "${interaction.classId}" ${rejection}; ${ALLOWED_SCHEMES_PHRASE}; dropping the interaction.`,
-          line: interaction.line,
-          column: interaction.column,
-        });
-        continue;
-      }
-    }
-
-    interactions.push({
-      classId: interaction.classId,
-      interactionKind: interaction.interactionKind,
-      action: interaction.action,
-      argument: interaction.argument,
-      tooltip: interaction.tooltip,
-    });
-  }
-
-  return interactions;
 }
 
 /**

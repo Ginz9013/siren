@@ -11,7 +11,7 @@ import type {
   PositionedClassNote,
   PositionedClassRelationship,
   ResolvedClass,
-  ResolvedClassInteraction,
+  ResolvedInteraction,
   ResolvedClassNamespace,
 } from "../contracts";
 import {
@@ -611,9 +611,9 @@ export function layoutClassDiagram(
    * the map happens to be built: silently reversible, and nothing in the code
    * would say which end was meant to win.
    */
-  const interactionByClassId = new Map<string, ResolvedClassInteraction>();
+  const interactionByClassId = new Map<string, ResolvedInteraction>();
   for (const interaction of model.interactions) {
-    interactionByClassId.set(interaction.classId, interaction);
+    interactionByClassId.set(interaction.targetId, interaction);
   }
 
   const classes = model.classes.map<PositionedClass>((cls) => {

@@ -1280,7 +1280,7 @@ describe("layoutClassDiagram", () => {
           classes: [cls("Duck"), cls("Animal")],
           interactions: [
             {
-              classId: "Duck",
+              targetId: "Duck",
               interactionKind: "call",
               action: "showDetails",
               argument: "Duck",
@@ -1292,7 +1292,7 @@ describe("layoutClassDiagram", () => {
       );
 
       expect(classById(diagram, "Duck").interaction).toEqual({
-        classId: "Duck",
+        targetId: "Duck",
         interactionKind: "call",
         action: "showDetails",
         argument: "Duck",
@@ -1307,14 +1307,14 @@ describe("layoutClassDiagram", () => {
           classes: [cls("Duck")],
           interactions: [
             {
-              classId: "Duck",
+              targetId: "Duck",
               interactionKind: "href",
               action: "https://example.com/duck",
               argument: null,
               tooltip: null,
             },
             {
-              classId: "Duck",
+              targetId: "Duck",
               interactionKind: "call",
               action: "showDetails",
               argument: null,
@@ -1329,7 +1329,7 @@ describe("layoutClassDiagram", () => {
       // both, so a second `click` statement replaces the first rather than
       // joining it — the answer a second `style` statement already gets.
       expect(classById(diagram, "Duck").interaction).toEqual({
-        classId: "Duck",
+        targetId: "Duck",
         interactionKind: "call",
         action: "showDetails",
         argument: null,

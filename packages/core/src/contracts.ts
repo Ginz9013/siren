@@ -1168,16 +1168,19 @@ export interface ClassNote {
  * "..."`) or invokes a caller-supplied callback (`click X call fn()`,
  * `callback X "fn"`).
  */
-export type ClassInteractionKind = "href" | "call";
+export type InteractionKind = "href" | "call";
 
 /**
- * A `click`/`link`/`callback` statement making a class interactive, as
- * written. The URL allowlist is applied later, by `buildClassModel` — the
- * parser only records syntax.
+ * A `click`/`link`/`callback` statement making a target interactive, as
+ * written. `targetId` is a target's id in the sense the glossary gives that
+ * word — the authored thing an interaction is attached to — so it is a
+ * class in a class diagram and a node in a flowchart, and this type never
+ * has to know which. The URL allowlist is applied later, by the shared
+ * `resolveInteractions` — the parser only records syntax.
  */
-export interface ClassInteraction {
-  interactionKind: ClassInteractionKind;
-  classId: string;
+export interface Interaction {
+  interactionKind: InteractionKind;
+  targetId: string;
   /** The URL for `href`, or the callback function name for `call`. */
   action: string;
   /** The literal argument of a `call fn("arg")` form, or `null`. */
@@ -1285,7 +1288,7 @@ export interface ClassDocument {
   relationships: ClassRelationship[];
   namespaces: ClassNamespace[];
   notes: ClassNote[];
-  interactions: ClassInteraction[];
+  interactions: Interaction[];
   styles: StyleDecl[];
   timeline: SirenTimeline | null;
 }
@@ -1343,10 +1346,13 @@ export interface ResolvedClassNote {
  * An interaction after model resolution: target resolved and the URL
  * checked against the `http`/`https`/`mailto` allowlist (a rejected one is
  * dropped with an error diagnostic and never reaches here).
+ *
+ * `targetId` carries the same kind-agnostic meaning `Interaction.targetId`
+ * does — a class in a class diagram, a node in a flowchart.
  */
-export interface ResolvedClassInteraction {
-  classId: string;
-  interactionKind: ClassInteractionKind;
+export interface ResolvedInteraction {
+  targetId: string;
+  interactionKind: InteractionKind;
   action: string;
   argument: string | null;
   tooltip: string | null;
@@ -1378,7 +1384,7 @@ export interface ClassModel {
   relationships: ResolvedClassRelationship[];
   namespaces: ResolvedClassNamespace[];
   notes: ResolvedClassNote[];
-  interactions: ResolvedClassInteraction[];
+  interactions: ResolvedInteraction[];
   styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
 }
@@ -1434,7 +1440,7 @@ export interface PositionedClass {
   /** Author declarations to emit as this class's inline `style` attributes: the frame's on the frame rect, the text's on every label the class draws. */
   style: AuthorStyle;
   /** The link or click hook to attach, or `null`. */
-  interaction: ResolvedClassInteraction | null;
+  interaction: ResolvedInteraction | null;
 }
 
 /** A relationship with a layout-assigned path and text anchors. */

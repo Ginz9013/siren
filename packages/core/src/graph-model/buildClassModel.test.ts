@@ -635,7 +635,7 @@ describe("buildClassModel", () => {
         interactions: [
           {
             interactionKind: "href",
-            classId: "Shape",
+            targetId: "Shape",
             action: "https://example.com/shape",
             argument: null,
             tooltip: "the shape docs",
@@ -644,7 +644,7 @@ describe("buildClassModel", () => {
           },
           {
             interactionKind: "call",
-            classId: "Duck",
+            targetId: "Duck",
             action: "showDuck",
             argument: "quack",
             tooltip: null,
@@ -659,14 +659,14 @@ describe("buildClassModel", () => {
     expect(model).not.toBeNull();
     expect(model!.interactions).toEqual([
       {
-        classId: "Shape",
+        targetId: "Shape",
         interactionKind: "href",
         action: "https://example.com/shape",
         argument: null,
         tooltip: "the shape docs",
       },
       {
-        classId: "Duck",
+        targetId: "Duck",
         interactionKind: "call",
         action: "showDuck",
         argument: "quack",
@@ -684,7 +684,7 @@ describe("buildClassModel", () => {
         interactions: [
           {
             interactionKind: "href",
-            classId: "Ghost",
+            targetId: "Ghost",
             action: "https://example.com",
             argument: null,
             tooltip: null,
@@ -693,7 +693,7 @@ describe("buildClassModel", () => {
           },
           {
             interactionKind: "href",
-            classId: "Shape",
+            targetId: "Shape",
             action: "https://example.com/shape",
             argument: null,
             tooltip: null,
@@ -705,13 +705,13 @@ describe("buildClassModel", () => {
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'click "Ghost" references a class that does not exist; dropping the interaction.',
+        message: 'click "Ghost" references a target that does not exist; dropping the interaction.',
         line: 5,
         column: 3,
       },
     ]);
     expect(model).not.toBeNull();
-    expect(model!.interactions.map((i) => i.classId)).toEqual(["Shape"]);
+    expect(model!.interactions.map((i) => i.targetId)).toEqual(["Shape"]);
     expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
   });
 
@@ -729,7 +729,7 @@ describe("buildClassModel", () => {
         interactions: [
           {
             interactionKind: "href",
-            classId: "Shape",
+            targetId: "Shape",
             action: url,
             argument: null,
             tooltip: null,
@@ -864,7 +864,7 @@ describe("buildClassModel", () => {
           interactions: [
             {
               interactionKind: "call",
-              classId: "Shape",
+              targetId: "Shape",
               action: "data",
               argument: null,
               tooltip: null,

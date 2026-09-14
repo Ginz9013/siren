@@ -530,7 +530,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(document.interactions).toEqual([
       {
         interactionKind: "href",
-        classId: "Shape",
+        targetId: "Shape",
         action: "https://example.com",
         argument: null,
         tooltip: null,
@@ -539,7 +539,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       },
       {
         interactionKind: "href",
-        classId: "Other",
+        targetId: "Other",
         action: "https://example.org",
         argument: null,
         tooltip: "Read the docs",
@@ -562,7 +562,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(document.interactions).toEqual([
       {
         interactionKind: "call",
-        classId: "Shape",
+        targetId: "Shape",
         action: "callbackFn",
         argument: null,
         tooltip: null,
@@ -571,7 +571,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       },
       {
         interactionKind: "call",
-        classId: "Other",
+        targetId: "Other",
         action: "callbackFn",
         argument: "arg",
         tooltip: null,
@@ -580,7 +580,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       },
       {
         interactionKind: "call",
-        classId: "Third",
+        targetId: "Third",
         action: "callbackFn",
         argument: "arg",
         tooltip: "Do the thing",

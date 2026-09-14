@@ -2,7 +2,7 @@ import type {
   ClassDecl,
   Direction,
   ClassDocument,
-  ClassInteraction,
+  Interaction,
   ClassMember,
   ClassMemberClassifier,
   ClassMemberVisibility,
@@ -91,7 +91,7 @@ const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
  * Mermaid's optional trailing tooltip: `click Shape call fn("arg") "tip"`.
  *
  * The argument is captured as one raw string rather than a parsed list —
- * `ClassInteraction.argument` is a single string, and a caller-supplied
+ * `Interaction.argument` is a single string, and a caller-supplied
  * handler receives whatever the author wrote.
  */
 const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$/;
@@ -100,7 +100,7 @@ const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?
  * `callback Shape "callbackFn"` and `link Shape "https://example.com"` —
  * Mermaid's older spellings of `click ... call` and `click ... href`, each
  * with the same optional trailing tooltip. They produce the same
- * `ClassInteraction` shapes as their `click` equivalents: they are
+ * `Interaction` shapes as their `click` equivalents: they are
  * spellings, not separate concepts.
  */
 const CALLBACK_RE = /^callback\s+(\w+)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
@@ -357,7 +357,7 @@ export function parseClassDiagram(source: string): ParseResult {
   const relationships: ClassRelationship[] = [];
   const namespaces: ClassNamespace[] = [];
   const notes: ClassNote[] = [];
-  const interactions: ClassInteraction[] = [];
+  const interactions: Interaction[] = [];
   const styles: StyleDecl[] = [];
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
@@ -525,7 +525,7 @@ export function parseClassDiagram(source: string): ParseResult {
       // `buildClassModel`'s to resolve.
       interactions.push({
         interactionKind: "href",
-        classId: clickHrefMatch[1],
+        targetId: clickHrefMatch[1],
         action: clickHrefMatch[2],
         argument: null,
         tooltip: clickHrefMatch[3] ?? null,
@@ -539,7 +539,7 @@ export function parseClassDiagram(source: string): ParseResult {
     if (clickCallMatch !== null) {
       interactions.push({
         interactionKind: "call",
-        classId: clickCallMatch[1],
+        targetId: clickCallMatch[1],
         action: clickCallMatch[2],
         argument: callArgument(clickCallMatch[3]),
         tooltip: clickCallMatch[4] ?? null,
@@ -553,7 +553,7 @@ export function parseClassDiagram(source: string): ParseResult {
     if (callbackMatch !== null) {
       interactions.push({
         interactionKind: "call",
-        classId: callbackMatch[1],
+        targetId: callbackMatch[1],
         action: callbackMatch[2],
         argument: null,
         tooltip: callbackMatch[3] ?? null,
@@ -567,7 +567,7 @@ export function parseClassDiagram(source: string): ParseResult {
     if (linkMatch !== null) {
       interactions.push({
         interactionKind: "href",
-        classId: linkMatch[1],
+        targetId: linkMatch[1],
         action: linkMatch[2],
         argument: null,
         tooltip: linkMatch[3] ?? null,

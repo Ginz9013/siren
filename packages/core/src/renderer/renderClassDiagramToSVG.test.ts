@@ -760,7 +760,7 @@ describe("renderClassDiagramToSVG", () => {
         buildDiagram([
           buildClass({
             interaction: {
-              classId: "Animal",
+              targetId: "Animal",
               interactionKind: "href",
               action: "https://example.com/animal",
               argument: null,
@@ -786,7 +786,7 @@ describe("renderClassDiagramToSVG", () => {
         buildDiagram([
           buildClass({
             interaction: {
-              classId: "Animal",
+              targetId: "Animal",
               interactionKind: "href",
               action: "https://example.com/animal",
               argument: null,
@@ -809,7 +809,7 @@ describe("renderClassDiagramToSVG", () => {
         buildDiagram([
           buildClass({
             interaction: {
-              classId: "Animal",
+              targetId: "Animal",
               interactionKind: "href",
               action: "https://example.com/animal",
               argument: null,
@@ -827,7 +827,7 @@ describe("renderClassDiagramToSVG", () => {
         buildDiagram([
           buildClass({
             interaction: {
-              classId: "Animal",
+              targetId: "Animal",
               interactionKind: "call",
               action: "showDetails",
               argument: "Animal",
@@ -856,7 +856,7 @@ describe("renderClassDiagramToSVG", () => {
         buildDiagram([
           buildClass({
             interaction: {
-              classId: "Animal",
+              targetId: "Animal",
               interactionKind: "call",
               action: "showDetails",
               argument: null,
@@ -876,7 +876,7 @@ describe("renderClassDiagramToSVG", () => {
         buildDiagram([
           buildClass({
             interaction: {
-              classId: "Animal",
+              targetId: "Animal",
               interactionKind: "href",
               action: "https://example.com/animal",
               argument: null,
