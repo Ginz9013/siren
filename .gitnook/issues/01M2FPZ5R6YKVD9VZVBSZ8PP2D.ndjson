@@ -2,3 +2,4 @@
 {"id":"01M2FPZ5RG6WXCB6FRBVN2C0H1","t":2,"a":"83a1","op":"set","k":"description","v":"`.scratch/siren-board-viewport-slice/spec.md` non-goals：「Rubber-band/overshoot animation at pan/zoom bounds — deferred as a later polish pass.」\n\n目前拖到邊界是硬夾住（hard clamp），沒有回彈手感。純 UX 打磨，不影響功能正確性，優先度低於功能性缺口。"}
 {"id":"01M2FPZ5RGGZ4VYFS1W2NDJCXW","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M2FPZ5RGJAPDQ4KH8W7959RF","t":4,"a":"83a1","op":"label.add","v":"polish"}
+{"id":"01M2NPXJGSTCCQJHEXQDEKMA9R","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec non-goals 標的純 UX 打磨項目，不影響功能正確性。維持 backlog，等其他功能性缺口清完再排。"}

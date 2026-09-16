@@ -2,3 +2,4 @@
 {"id":"01M2FPZ9M0HKNQCENVBV64M29D","t":2,"a":"83a1","op":"set","k":"description","v":"`.scratch/siren-board-slice/spec.md` v1 non-goals：「Multiple diagrams / tabs inside one board instance.」之後沒有任何 board 再提過。\n\n目前 `createBoard()` 一個 instance 只管一份 `.srn` source（`setSource` 是取代而非新增）。要在同一個 board 容器裡切換多張圖（分頁/tab UI），consumer 現在只能自己蓋多個 board instance 再手動管理顯示/隱藏。\n\n這是體積較大的功能性擴充，動 `Board` 的公開介面（可能需要新的 `addDiagram`/`switchTo` 之類的方法），規劃前建議先確認有沒有明確的 consumer 場景（例如某個 demo 或產品頁面真的需要分頁）。"}
 {"id":"01M2FPZ9M0PE49JWC9YM4CQ12W","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M2FPZ9M1AYTY6RGB91SH3DK3","t":4,"a":"83a1","op":"label.add","v":"feature"}
+{"id":"01M2NPXKDMP9JKPHWSMT0HDYMY","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec v1 non-goals 排除項，之後沒有任何 board 再提過。會動 Board 公開介面（可能要新的 addDiagram/switchTo），規劃前建議先確認有沒有明確 consumer 場景（例如某個 demo 或產品頁真的需要分頁）。維持 backlog。"}
