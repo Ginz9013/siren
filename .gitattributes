@@ -1,1 +1,3 @@
 .issues/issues/*.ndjson merge=union
+.gitnook/issues/*.ndjson merge=union
+.gitnook/decisions/*.ndjson merge=union

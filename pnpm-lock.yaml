@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       gitnook:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.6.0
+        version: 0.6.0
 
   packages/board:
     dependencies:
@@ -957,8 +957,8 @@ packages:
     resolution: {integrity: sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g==}
     engines: {node: '>= 0.4'}
 
-  gitnook@0.4.0:
-    resolution: {integrity: sha512-FlZc/5qPFcX/jTWYOfe9adIVhAQjvrz0sChz8S0TTvPHVo76/vivc6KnXsXNGFJkZSj67pRsk4h6lECtQqIaTA==}
+  gitnook@0.6.0:
+    resolution: {integrity: sha512-RDW7z+EnFOIn8849CyW3wNh9dChZtOy7OexQ38p9qxq6Bj6d6jruLyUY8igrndFjgqCsjXww7fDOWx+BZGa2aQ==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -2227,7 +2227,7 @@ snapshots:
       dunder-proto: 1.0.1
       es-object-atoms: 1.1.2
 
-  gitnook@0.4.0: {}
+  gitnook@0.6.0: {}
 
   gopd@1.2.0: {}
 
