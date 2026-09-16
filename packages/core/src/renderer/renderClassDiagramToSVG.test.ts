@@ -78,6 +78,10 @@ function buildRelationship(
     fromMultiplicityAnchor: null,
     toMultiplicity: null,
     toMultiplicityAnchor: null,
+    fromInterfaceLabel: null,
+    fromInterfaceLabelAnchor: null,
+    toInterfaceLabel: null,
+    toInterfaceLabelAnchor: null,
     ...overrides,
   };
 }
@@ -168,6 +172,16 @@ const MERMAID_RELATIONSHIP_TYPES = [
     toEnd: "none",
     dashed: true,
     startMarked: false,
+    endMarked: false,
+  },
+  {
+    mermaid: "()--",
+    type: "lollipop",
+    line: "solid",
+    fromEnd: "circle",
+    toEnd: "none",
+    dashed: false,
+    startMarked: true,
     endMarked: false,
   },
 ] as const satisfies readonly {
@@ -323,17 +337,21 @@ describe("renderClassDiagramToSVG", () => {
     expect(line?.getAttribute("fill")).toBe("none");
   });
 
-  it("defines all four endpoint markers as distinct marker defs", () => {
+  it("defines all five endpoint markers as distinct marker defs", () => {
     const svg = renderClassDiagramToSVG(buildDiagram([], []));
 
     const markers = svg.querySelectorAll("defs > marker");
     const ids = Array.from(markers).map((marker) => marker.getAttribute("id"));
-    expect(markers.length).toBe(4);
-    expect(new Set(ids).size).toBe(4);
+    expect(markers.length).toBe(5);
+    expect(new Set(ids).size).toBe(5);
     // Each def must actually draw something, or a "distinct marker" is an
-    // empty box on screen.
+    // empty box on screen. Every shape but the lollipop's is a `<path>`; the
+    // lollipop is a `<circle>`, the one shape the others do not draw.
     for (const marker of Array.from(markers)) {
-      expect(marker.querySelector("path")?.getAttribute("d")).toBeTruthy();
+      const drawn =
+        marker.querySelector("path")?.getAttribute("d") ??
+        marker.querySelector("circle")?.getAttribute("r");
+      expect(drawn).toBeTruthy();
     }
   });
 
@@ -430,6 +448,32 @@ describe("renderClassDiagramToSVG", () => {
     const multiplicities = svg.querySelectorAll("text.siren-multiplicity");
     expect(multiplicities.length).toBe(1);
     expect(multiplicities[0].textContent).toBe("0..1");
+  });
+
+  it("renders a lollipop's interface label at its anchor", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram(
+        [],
+        [
+          buildRelationship({
+            fromEnd: "circle",
+            fromInterfaceLabel: "Duck",
+            fromInterfaceLabelAnchor: { x: 70, y: 80 },
+          }),
+        ],
+      ),
+    );
+
+    const label = svg.querySelector("text.siren-relationship-interface-label");
+    expect(label?.textContent).toBe("Duck");
+    expect(label?.getAttribute("x")).toBe("70");
+    expect(label?.getAttribute("y")).toBe("80");
+  });
+
+  it("renders no interface label when the relationship carries none", () => {
+    const svg = renderClassDiagramToSVG(buildDiagram([], [buildRelationship()]));
+
+    expect(svg.querySelectorAll("text.siren-relationship-interface-label").length).toBe(0);
   });
 
   it("leaves step-0 pending state to the controller, stamping siren-pending on none of the four addressable kinds", () => {

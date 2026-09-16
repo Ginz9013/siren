@@ -47,7 +47,7 @@ const CLASS_BLOCK_OPEN_RE = /^class\s+(\w+)(?:~(.+)~)?\s*\{$/;
  * special cases.
  */
 const RELATIONSHIP_RE =
-  /^(\w+)(?:\s+"([^"]*)")?\s*(<\|?|\*|o)?(--|\.\.)(\|>|>|\*|o)?\s*(?:"([^"]*)"\s+)?(\w+)\s*(?::\s*(.*))?$/;
+  /^(\w+)(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)\s*(?::\s*(.*))?$/;
 
 /**
  * An annotation on its own line inside a class block, `<<interface>>`.
@@ -168,6 +168,8 @@ function endpointFor(marker: string | undefined): ClassRelationshipEnd {
     case "<":
     case ">":
       return "arrow";
+    case "()":
+      return "circle";
     default:
       return "none";
   }
@@ -657,20 +659,26 @@ export function parseClassDiagram(source: string): ParseResult {
         to,
         label,
       ] = relationshipMatch;
+      const fromEnd = endpointFor(leftMarker);
+      const toEnd = endpointFor(rightMarker);
       relationships.push({
         from,
         to,
         line: lineToken === ".." ? "dashed" : "solid",
-        fromEnd: endpointFor(leftMarker),
-        toEnd: endpointFor(rightMarker),
+        fromEnd,
+        toEnd,
         label: label === undefined || label.trim().length === 0 ? null : label.trim(),
         fromMultiplicity: fromMultiplicity ?? null,
         toMultiplicity: toMultiplicity ?? null,
         sourceLine: lineNumber,
         sourceColumn: column,
       });
-      declareImplicitly(from, lineNumber, column, namespaceMembers);
-      declareImplicitly(to, lineNumber, column, namespaceMembers);
+      // A `()` (lollipop) end names an interface, not a class — Mermaid
+      // never adds that side to the class list (measured: `Duck ()--
+      // Quacks` produces a class for "Quacks" only). `buildClassModel`
+      // resolves the lollipop side into its own synthetic node instead.
+      if (fromEnd !== "circle") declareImplicitly(from, lineNumber, column, namespaceMembers);
+      if (toEnd !== "circle") declareImplicitly(to, lineNumber, column, namespaceMembers);
       return startIndex;
     }
 

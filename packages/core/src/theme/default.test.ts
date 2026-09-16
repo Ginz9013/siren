@@ -139,6 +139,7 @@ Keeper "1" --> "*" Animal : cares for
 Keeper -- Habitat
 Registry ..> Animal : looks up
 Fish .. Habitat
+Duck --() Swims
 
 note for Duck "Ducks are birds"
 note "Drawn from the keeper's ledger"

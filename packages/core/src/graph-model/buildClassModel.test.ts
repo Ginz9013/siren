@@ -364,6 +364,8 @@ describe("buildClassModel", () => {
         label: "raises",
         fromMultiplicity: "1",
         toMultiplicity: "*",
+        fromInterfaceLabel: null,
+        toInterfaceLabel: null,
       },
     ]);
   });
@@ -408,6 +410,69 @@ describe("buildClassModel", () => {
       namespaceId: null,
     });
     expect(model!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+  });
+
+  it("resolves a lollipop end into a synthetic node id and its interface label, without creating a class for it", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Quacks" })],
+        relationships: [relationship({ from: "Duck", to: "Quacks", fromEnd: "circle" })],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    // Mermaid measured (mermaid-probe.mjs): the `()` side never becomes a
+    // class — only "Quacks" does, and the defensive endpoint-declares-a-
+    // class fallback (the case above) must not resurrect it either.
+    expect(model!.classes.map((c) => c.id)).toEqual(["Quacks"]);
+    expect(model!.relationships).toHaveLength(1);
+    const [rel] = model!.relationships;
+    expect(rel.to).toBe("Quacks");
+    expect(rel.fromInterfaceLabel).toBe("Duck");
+    expect(rel.toInterfaceLabel).toBeNull();
+    // The synthetic id just has to be stable and distinct from any real
+    // class id — not a literal value the spec pins.
+    expect(rel.from).not.toBe("Duck");
+    expect(typeof rel.from).toBe("string");
+  });
+
+  it("resolves a lollipop on the to-end symmetrically", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Quacks" })],
+        relationships: [relationship({ from: "Quacks", to: "Duck", toEnd: "circle" })],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.classes.map((c) => c.id)).toEqual(["Quacks"]);
+    const [rel] = model!.relationships;
+    expect(rel.from).toBe("Quacks");
+    expect(rel.toInterfaceLabel).toBe("Duck");
+    expect(rel.fromInterfaceLabel).toBeNull();
+    expect(rel.to).not.toBe("Duck");
+  });
+
+  it("gives two relationships that both name the same lollipop label distinct synthetic ids, unmerged", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Quacks" }), classDecl({ id: "Flies" })],
+        relationships: [
+          relationship({ from: "Duck", to: "Quacks", fromEnd: "circle" }),
+          relationship({ from: "Duck", to: "Flies", fromEnd: "circle" }),
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.classes.map((c) => c.id)).toEqual(["Quacks", "Flies"]);
+    const [first, second] = model!.relationships;
+    expect(first.fromInterfaceLabel).toBe("Duck");
+    expect(second.fromInterfaceLabel).toBe("Duck");
+    expect(first.from).not.toBe(second.from);
   });
 
   it("resolves notes to stable note:n ids, an attached one carrying its target and a free one none", () => {

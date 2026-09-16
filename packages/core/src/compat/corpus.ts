@@ -1787,8 +1787,24 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "class",
     source: `classDiagram
       Duck ()-- Quacks`,
-    status: "rejected",
-    meaning: "`A ()-- B` is a lollipop: B exposes an interface that A consumes.",
+    status: "supported",
+    meaning:
+      "`A ()-- B` is a lollipop: B exposes an interface that A consumes. Measured against " +
+      "real Mermaid (mermaid-probe.mjs): the `()` side (\"Duck\") never becomes a class — " +
+      "only \"Quacks\" does — and the connecting line gets a circle marker at the lollipop end.",
+    assert: (result) => {
+      expectSame("Quacks is drawn as a class", classes(result), ["Quacks"]);
+      expectSame(
+        "the relationship is drawn as a lollipop",
+        relationships(result),
+        ["Duck-Quacks:lollipop"],
+      );
+      expectSame(
+        "the interface name is drawn as its own label",
+        texts(result, "text.siren-relationship-interface-label"),
+        ["Duck"],
+      );
+    },
   },
   // -------------------------------------------------------------------------
   // sequenceDiagram

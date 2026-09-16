@@ -514,6 +514,30 @@
 }
 
 /*
+ * The lollipop's circle — a class diagram's interface marker. Unlike
+ * `.siren-arrow-hollow` above, its fill is `none` rather than the surface
+ * color: measured against real Mermaid (`fill="transparent"`), the
+ * relationship line is meant to show straight through the ring, not be
+ * occluded by it.
+ */
+.siren-relationship-circle {
+  fill: none;
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * The name written next to a lollipop's `()` marker (`"Duck"` in `Duck ()--
+ * Quacks`) — secondary type describing what the circle stands for, so it
+ * tracks the line's color the way `.siren-multiplicity` does rather than a
+ * class's own name color.
+ */
+.siren-relationship-interface-label {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-edge-stroke);
+}
+
+/*
  * An annotation (`«interface»`) names the *kind* of thing the class is rather
  * than the class itself, so it takes the secondary type size the sequence
  * diagram's captions use, under the name's own weight. Drawing it smaller than

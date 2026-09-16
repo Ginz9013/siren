@@ -826,6 +826,45 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     },
   );
 
+  it.each([
+    ["Duck ()-- Quacks", "solid", "circle", "none"],
+    ["Quacks --() Duck", "solid", "none", "circle"],
+    ["Duck ()..Quacks", "dashed", "circle", "none"],
+    ["Duck () -- Quacks", "solid", "circle", "none"],
+    ["Duck()--Quacks", "solid", "circle", "none"],
+  ])(
+    "parses the lollipop marker %s into a circle endpoint",
+    (line, expectedLine, expectedFromEnd, expectedToEnd) => {
+      const { document, diagnostics } = parseOk(`classDiagram
+  ${line}
+`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.relationships).toHaveLength(1);
+      const [relationship] = document.relationships;
+      expect({
+        line: relationship.line,
+        fromEnd: relationship.fromEnd,
+        toEnd: relationship.toEnd,
+      }).toEqual({ line: expectedLine, fromEnd: expectedFromEnd, toEnd: expectedToEnd });
+    },
+  );
+
+  it("does not implicitly declare a class for the lollipop side of a relationship", () => {
+    const source = `classDiagram
+  Duck ()-- Quacks
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    // Mermaid measured (mermaid-probe.mjs): the `()` side never becomes a
+    // class — only "Quacks" does. Asserting the class list stays exactly
+    // ["Quacks"] catches a parser that still calls `declareImplicitly` for
+    // the lollipop side.
+    expect(document.classes.map((c) => c.id)).toEqual(["Quacks"]);
+  });
+
   it("parses a timeline: block into the same entry shape the flowchart parser produces", () => {
     const source = `classDiagram
   Animal <|-- Duck

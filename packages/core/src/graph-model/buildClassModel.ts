@@ -183,7 +183,12 @@ function resolveClasses(
   // exists for hand-built ones and for future callers, and it is not where
   // implicit declaration lives.
   for (const relationship of document.relationships) {
-    for (const endpointId of [relationship.from, relationship.to]) {
+    // A `()` end never became a class in the first place — see
+    // `assignRelationshipIds` — so this fallback must not invent one for it.
+    const endpoints: string[] = [];
+    if (relationship.fromEnd !== "circle") endpoints.push(relationship.from);
+    if (relationship.toEnd !== "circle") endpoints.push(relationship.to);
+    for (const endpointId of endpoints) {
       if (classesById.has(endpointId)) continue;
       classesById.set(endpointId, emptyClass(endpointId));
     }
@@ -365,23 +370,41 @@ function assignRelationshipIds(document: ClassDocument): ResolvedClassRelationsh
   // pair — the flowchart edge-id convention exactly, so one timeline
   // vocabulary addresses both diagram kinds.
   const seenPairCounts = new Map<string, number>();
+  // A `()` end names a lollipop interface, not a class (measured against
+  // real Mermaid — see `ClassRelationshipEnd`), so `from`/`to` on that side
+  // need an id of their own rather than the class id `relationship.from`/
+  // `.to` would otherwise be. `generatedId` (ADR-0010) is that id, counted
+  // across every lollipop end in document order — the same convention
+  // `namespace:n` and `note:n` use, and the reason two relationships that
+  // happen to name the same interface (`Duck ()-- Quacks` twice) still get
+  // two distinct, independently positioned nodes: each occurrence takes the
+  // next counter value rather than being keyed by the name it wrote.
+  let interfaceOccurrence = 0;
 
   return document.relationships.map((relationship) => {
     const pairKey = `${relationship.from}->${relationship.to}`;
     const occurrence = (seenPairCounts.get(pairKey) ?? 0) + 1;
     seenPairCounts.set(pairKey, occurrence);
     const baseId = `${relationship.from}-${relationship.to}`;
+    const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
+
+    const isFromInterface = relationship.fromEnd === "circle";
+    const isToInterface = relationship.toEnd === "circle";
 
     return {
-      id: occurrence === 1 ? baseId : `${baseId}#${occurrence}`,
-      from: relationship.from,
-      to: relationship.to,
+      id,
+      from: isFromInterface
+        ? generatedId("interface", ++interfaceOccurrence)
+        : relationship.from,
+      to: isToInterface ? generatedId("interface", ++interfaceOccurrence) : relationship.to,
       line: relationship.line,
       fromEnd: relationship.fromEnd,
       toEnd: relationship.toEnd,
       label: relationship.label,
       fromMultiplicity: relationship.fromMultiplicity,
       toMultiplicity: relationship.toMultiplicity,
+      fromInterfaceLabel: isFromInterface ? relationship.from : null,
+      toInterfaceLabel: isToInterface ? relationship.to : null,
     };
   });
 }

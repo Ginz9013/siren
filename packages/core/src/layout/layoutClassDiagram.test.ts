@@ -84,6 +84,8 @@ function relationship(
     label: null,
     fromMultiplicity: null,
     toMultiplicity: null,
+    fromInterfaceLabel: null,
+    toInterfaceLabel: null,
     ...partial,
   };
 }
@@ -1015,6 +1017,58 @@ describe("layoutClassDiagram", () => {
       expect(routed.labelAnchor).toBeNull();
       expect(routed.fromMultiplicityAnchor).toBeNull();
       expect(routed.toMultiplicityAnchor).toBeNull();
+    });
+
+    it("positions a lollipop's interface label and draws no class box for it", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Quacks")],
+          relationships: [
+            relationship("Duck-Quacks:from-interface", "Quacks", {
+              fromEnd: "circle",
+              toEnd: "none",
+              fromInterfaceLabel: "Duck",
+            }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      // Mermaid measured (mermaid-probe.mjs): the lollipop side never draws
+      // a class box — only "Quacks" does.
+      expect(diagram.classes.map((c) => c.id)).toEqual(["Quacks"]);
+
+      const routed = diagram.relationships[0];
+      expect(routed.fromInterfaceLabel).toBe("Duck");
+      expect(routed.toInterfaceLabel).toBeNull();
+      expect(routed.fromInterfaceLabelAnchor).not.toBeNull();
+      expect(Number.isFinite(routed.fromInterfaceLabelAnchor!.x)).toBe(true);
+      expect(Number.isFinite(routed.fromInterfaceLabelAnchor!.y)).toBe(true);
+      expect(routed.toInterfaceLabelAnchor).toBeNull();
+    });
+
+    it("gives two relationships that each draw the same lollipop label their own, separately positioned, anchors", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Quacks"), cls("Flies")],
+          relationships: [
+            relationship("Duck-Quacks:from-interface", "Quacks", {
+              fromEnd: "circle",
+              toEnd: "none",
+              fromInterfaceLabel: "Duck",
+            }),
+            relationship("Duck-Flies:from-interface", "Flies", {
+              fromEnd: "circle",
+              toEnd: "none",
+              fromInterfaceLabel: "Duck",
+            }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const [first, second] = diagram.relationships;
+      expect(first.fromInterfaceLabelAnchor).not.toEqual(second.fromInterfaceLabelAnchor);
     });
   });
 

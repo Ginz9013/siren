@@ -603,8 +603,11 @@ const SILENTLY_WRONG = 3;
  * named rather than fixed in passing — the same board's own argument for
  * why `fc-edge-dotted-short` was recorded rather than implemented on sight.
  * Net: two rows left, three rows arrived, so 16 - 2 + 3 = 17.
+ *
+ * `cls-lollipop` (`A ()-- B`) then moved from `rejected` to `supported`:
+ * 17 - 1 = 16.
  */
-const REJECTED = 17;
+const REJECTED = 16;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

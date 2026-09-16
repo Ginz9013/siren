@@ -379,17 +379,29 @@ _Avoid_: field, property (that is a CSS declaration's property in an author styl
 member" when the kind matters)
 
 **Relationship**:
-A directed edge between two classes, carrying one of Mermaid's eight types, an optional `: label`
+A directed edge between two classes, carrying one of Mermaid's nine types, an optional `: label`
 and optional multiplicity strings at each end. Its id follows the flowchart edge convention
 exactly: `${fromId}-${toId}`, then `#2` for a repeat pair. The type is modeled as two axes — a
 `line` (`solid` | `dashed`) and an endpoint marker at each end (`none` | `triangle` |
-`diamondFilled` | `diamondHollow` | `arrow`) — whose named compositions are `inheritance`,
-`composition`, `aggregation`, `association`, `link`, `dependency`, `realization` and `dashedLink`,
-reported as `data-siren-relationship`.
+`diamondFilled` | `diamondHollow` | `arrow` | `circle`) — whose named compositions are
+`inheritance`, `composition`, `aggregation`, `association`, `link`, `dependency`, `realization`,
+`dashedLink` and `lollipop`, reported as `data-siren-relationship`.
+
+A `circle` end (Mermaid's `()`, a lollipop — `Duck ()-- Quacks`) does not name a class: measured
+against real Mermaid (`mermaid-probe.mjs`), the identifier written there is drawn as a
+free-standing label instead — laid out like any other node, so it never overlaps a sibling, but
+framed by nothing. Its node id is generated (`generatedId("interface", n)`, ADR-0010) rather than
+the authored text, so two relationships that happen to write the same interface name still get
+two independently positioned labels rather than one merged node. Unlike **Note**/**Namespace**
+this label is not itself addressable in a `timeline:` block — only the relationship carrying it
+is — so it carries no generated-id paragraph of its own the way they do.
 _Avoid_: edge (that is flowchart vocabulary; each of the three kinds names its connector
 differently — flowchart *edge*, sequence *message*, class *relationship* — and only the
-flowchart edge is a `.siren-edge`), association (that is one of the eight types, not the
-category), arrow, link (also one of the eight types)
+flowchart edge is a `.siren-edge`), association (that is one of the nine types, not the
+category), arrow, link (also one of the nine types), interface (Mermaid's own name for the
+`circle`-end label; avoided here because this codebase already uses "interface" for the
+`<<interface>>` annotation on a class block — say "lollipop label" or "interface label" only
+with the class/relationship distinction clear from context)
 
 **Namespace**:
 A named group of classes drawn as an enclosing frame behind the boxes it holds, laid out as a

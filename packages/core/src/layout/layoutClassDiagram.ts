@@ -29,6 +29,14 @@ const NAMESPACE_PADDING = 12;
 const NOTE_PADDING_X = 10;
 /** Vertical padding between a note box's edge and its text. */
 const NOTE_PADDING_Y = 8;
+/**
+ * Padding around a lollipop's interface label, reserving just enough room
+ * for the layout core to keep the label clear of its neighbours — the label
+ * draws no frame (measured against real Mermaid: its box is invisible), so
+ * this is breathing room only, not a border to inset text from.
+ */
+const INTERFACE_LABEL_PADDING_X = 4;
+const INTERFACE_LABEL_PADDING_Y = 2;
 /** How far along the line from its own end a multiplicity string is anchored. */
 const MULTIPLICITY_OFFSET_ALONG = 12;
 /** How far to the side of the line a multiplicity string is anchored, so it never sits on it. */
@@ -341,6 +349,11 @@ function multiplicityAnchor(
   };
 }
 
+/** The center of a box — where a lollipop's interface label is drawn, since it has no frame of its own to sit beside. */
+function boxCenter(box: DirectedGraphLayoutNodeBox): Point {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
 /**
  * The id a namespace's cluster is known by inside the shared layout core.
  * Namespace ids and class ids are separate id spaces in a `ClassModel`, so a
@@ -504,6 +517,28 @@ export function layoutClassDiagram(
           width: text.width + NOTE_PADDING_X * 2,
           height: text.height + NOTE_PADDING_Y * 2,
         };
+      }),
+      // A lollipop's interface label (`buildClassModel` already minted its
+      // id onto `rel.from`/`rel.to`) is placed the same way a note is: its
+      // own node in the layout graph, sized from its measured text, so two
+      // relationships that happen to write the same interface name still
+      // get their own, independently positioned, label.
+      ...model.relationships.flatMap((rel) => {
+        const ends: Array<{ id: string; label: string }> = [];
+        if (rel.fromInterfaceLabel !== null) {
+          ends.push({ id: rel.from, label: rel.fromInterfaceLabel });
+        }
+        if (rel.toInterfaceLabel !== null) {
+          ends.push({ id: rel.to, label: rel.toInterfaceLabel });
+        }
+        return ends.map(({ id, label }) => {
+          const text = options.measureText.measure(label);
+          return {
+            id,
+            width: text.width + INTERFACE_LABEL_PADDING_X * 2,
+            height: text.height + INTERFACE_LABEL_PADDING_Y * 2,
+          };
+        });
       }),
     ],
     edges: [
@@ -685,6 +720,12 @@ export function layoutClassDiagram(
                 boxInDiagramSpaceById.get(rel.to)!,
                 options,
               ),
+        fromInterfaceLabel: rel.fromInterfaceLabel,
+        fromInterfaceLabelAnchor:
+          rel.fromInterfaceLabel === null ? null : boxCenter(boxInDiagramSpaceById.get(rel.from)!),
+        toInterfaceLabel: rel.toInterfaceLabel,
+        toInterfaceLabelAnchor:
+          rel.toInterfaceLabel === null ? null : boxCenter(boxInDiagramSpaceById.get(rel.to)!),
       };
     },
   );

@@ -1130,14 +1130,21 @@ export type ClassRelationshipLine = "solid" | "dashed";
 /**
  * The marker drawn at one end of a relationship — the other axis. `<|`/`|>`
  * is a `triangle`, `*` a `diamondFilled`, `o` a `diamondHollow`, `<`/`>` an
- * `arrow`, and a bare end is `none`.
+ * `arrow`, `()` a `circle` (a lollipop interface marker), and a bare end is
+ * `none`.
+ *
+ * A `circle` end is not just a different marker: measured against real
+ * Mermaid (`mermaid-probe.mjs`), the name on that side of the relationship
+ * never becomes a class at all — it names a synthetic interface node
+ * instead. See `ResolvedClassRelationship.fromInterfaceLabel`.
  */
 export type ClassRelationshipEnd =
   | "none"
   | "triangle"
   | "diamondFilled"
   | "diamondHollow"
-  | "arrow";
+  | "arrow"
+  | "circle";
 
 /**
  * One relationship statement between two classes.
@@ -1342,6 +1349,12 @@ export interface ResolvedClass {
  */
 export interface ResolvedClassRelationship {
   id: string;
+  /**
+   * The class id this end routes to — or, when the matching `*End` is
+   * `"circle"`, a synthetic node id `buildClassModel` minted for the
+   * lollipop interface, never a class id. Which one `from`/`to` holds is
+   * always readable from `fromEnd`/`toEnd`.
+   */
   from: string;
   to: string;
   line: ClassRelationshipLine;
@@ -1350,6 +1363,14 @@ export interface ResolvedClassRelationship {
   label: string | null;
   fromMultiplicity: string | null;
   toMultiplicity: string | null;
+  /**
+   * The name written next to a `()` marker on the from-end (`"Duck"` in
+   * `Duck ()-- Quacks`) — non-null exactly when `fromEnd` is `"circle"`.
+   * `from` itself is the synthetic node id in that case, not this name.
+   */
+  fromInterfaceLabel: string | null;
+  /** Same as `fromInterfaceLabel`, for a `()` on the to-end. */
+  toInterfaceLabel: string | null;
 }
 
 /** A namespace after model resolution: assigned id, membership resolved. */
@@ -1486,6 +1507,13 @@ export interface PositionedClassRelationship {
   toMultiplicity: string | null;
   /** Where the to-end multiplicity is drawn; `null` when there is none. */
   toMultiplicityAnchor: Point | null;
+  /** The from-end's lollipop interface name (see `ResolvedClassRelationship.fromInterfaceLabel`), or `null`. */
+  fromInterfaceLabel: string | null;
+  /** Where the from-end interface label is drawn; `null` when `fromInterfaceLabel` is `null`. */
+  fromInterfaceLabelAnchor: Point | null;
+  toInterfaceLabel: string | null;
+  /** Where the to-end interface label is drawn; `null` when `toInterfaceLabel` is `null`. */
+  toInterfaceLabelAnchor: Point | null;
 }
 
 /** A namespace with a layout-assigned frame enclosing its member classes. */

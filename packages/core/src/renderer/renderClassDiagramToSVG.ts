@@ -27,6 +27,7 @@ const TRIANGLE_MARKER_NAME = "siren-class-triangle";
 const DIAMOND_FILLED_MARKER_NAME = "siren-class-diamond-filled";
 const DIAMOND_HOLLOW_MARKER_NAME = "siren-class-diamond-hollow";
 const ARROW_MARKER_NAME = "siren-class-arrow";
+const CIRCLE_MARKER_NAME = "siren-class-circle";
 
 /**
  * The *base* name of each endpoint's marker — never an id on its own. Every
@@ -40,6 +41,7 @@ const END_MARKER_NAME: Record<ClassRelationshipEnd, string | null> = {
   diamondFilled: DIAMOND_FILLED_MARKER_NAME,
   diamondHollow: DIAMOND_HOLLOW_MARKER_NAME,
   arrow: ARROW_MARKER_NAME,
+  circle: CIRCLE_MARKER_NAME,
 };
 
 /**
@@ -57,6 +59,8 @@ const RELATIONSHIP_TYPE_NAME: Record<string, string> = {
   "dashed|arrow": "dependency",
   "dashed|triangle": "realization",
   "dashed|none": "dashedLink",
+  "solid|circle": "lollipop",
+  "dashed|circle": "lollipop",
 };
 
 /**
@@ -184,6 +188,20 @@ function buildRelationship(
     }
   }
 
+  for (const [text, anchor] of [
+    [relationship.fromInterfaceLabel, relationship.fromInterfaceLabelAnchor],
+    [relationship.toInterfaceLabel, relationship.toInterfaceLabelAnchor],
+  ] as const) {
+    const interfaceLabel = buildRelationshipText(
+      "siren-relationship-interface-label",
+      text,
+      anchor,
+    );
+    if (interfaceLabel !== null) {
+      g.appendChild(interfaceLabel);
+    }
+  }
+
   return g;
 }
 
@@ -279,6 +297,10 @@ function buildDefs(scope: string): SVGDefsElement {
       true,
     ),
   );
+  // A lollipop's circle is always hollow (measured against real Mermaid:
+  // `<circle fill="transparent">`) — the line is meant to show straight
+  // through it, unlike the diamond/triangle heads above.
+  defs.appendChild(buildCircleMarker(`${CIRCLE_MARKER_NAME}${scope}`, 14, 10, 4));
   return defs;
 }
 
@@ -309,6 +331,45 @@ function buildMarker(
   if (unfilled) {
     shape.setAttribute("fill", "none");
   }
+  marker.appendChild(shape);
+  return marker;
+}
+
+/**
+ * Builds the lollipop's circle marker. Kept apart from `buildMarker` rather
+ * than generalizing it: every other marker is a filled or hollow `<path>`,
+ * and threading a `<circle>` through that shape/`d`-attribute signature
+ * would buy every caller a branch for one shape.
+ *
+ * Its attachment point still follows the same convention `buildMarker`'s
+ * shapes do — `refX` equals `markerWidth`, so the circle's near edge (not
+ * its center) lands on the path's endpoint, the same as a triangle's tip or
+ * a diamond's vertex.
+ */
+function buildCircleMarker(
+  id: string,
+  width: number,
+  height: number,
+  radius: number,
+): SVGMarkerElement {
+  const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
+  marker.setAttribute("id", id);
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  marker.setAttribute("markerWidth", String(width));
+  marker.setAttribute("markerHeight", String(height));
+  marker.setAttribute("refX", String(width));
+  marker.setAttribute("refY", String(height / 2));
+  marker.setAttribute("orient", "auto-start-reverse");
+
+  const shape = document.createElementNS(SVG_NS, "circle");
+  shape.setAttribute("cx", String(width - radius));
+  shape.setAttribute("cy", String(height / 2));
+  shape.setAttribute("r", String(radius));
+  // Not `.siren-arrow-hollow`: that class fills with the surface color so a
+  // triangle/diamond head reads as solid-but-empty. A lollipop's circle is
+  // the opposite — measured against real Mermaid (`fill="transparent"`),
+  // the line is meant to show straight through it.
+  shape.setAttribute("class", "siren-relationship-circle");
   marker.appendChild(shape);
   return marker;
 }
