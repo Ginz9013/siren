@@ -134,16 +134,30 @@ never thrown.
 _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "error-severity
 diagnostic" for the level)
 
-**Accessible title**:
-`accTitle: text`, a document-level statement carried on the parsed/resolved/positioned document
-under `accTitle`, kept deliberately apart from `title` (a different statement, `title text` with
-no colon): `title` draws on the canvas as visible heading text and reaches no accessibility tree
-entry of its own; `accTitle` draws nothing visible at all and reaches only the rendered SVG's own
-`<title>` element (measured against real Mermaid, which puts it there with `role`/
-`aria-labelledby` wired to it on the root `<svg>`). A document may carry either, both, or neither —
-the two never merge.
+**Accessible title / description**:
+`accTitle: text` and `accDescr: text`, document-level statements carried on the
+parsed/resolved/positioned document under `accTitle`/`accDescr` in both the flowchart and the
+sequence diagram (a class diagram has neither — never measured, no tracked corpus rows).
+`accTitle` is kept deliberately apart from `title` (a different statement, `title text` with no
+colon, and one a flowchart does not have at all): `title` draws on the canvas as visible heading
+text and reaches no accessibility tree entry of its own; `accTitle` draws nothing visible and
+reaches only the rendered SVG's own `<title>` element. `accDescr` is the same shape one level
+down — draws nothing visible, reaches only the SVG's own `<desc>` element — and is independent of
+`accTitle`: a document may carry either, both, or neither of the two, and they never merge into
+one element.
+
+Measured against real Mermaid: `accTitle` puts `<title>` first among the root `<svg>`'s children
+and wires `aria-labelledby` to it; `accDescr` puts `<desc>` right after `<title>` when both are
+present and wires `aria-describedby` to it — each attribute conditional on its own field only,
+independently of the other. **Mermaid does not add `role="img"` for either, on a flowchart** — its
+role there is unconditionally `role="graphics-document document"`, unrelated to accTitle/accDescr,
+and Siren does not draw that attribute at all (a gap wider than this pair, left alone). The
+flowchart renderer follows that measurement and sets no `role`. The sequence renderer sets
+`role="img"` when `accTitle` is present — written before this entry covered `accDescr` and not
+re-measured since, so read it as an unverified claim rather than a second data point.
 _Avoid_: title (alone, for `accTitle` — the unqualified word means the visible one), aria-label,
-alt text
+alt text, accessible description (say `accDescr`, the way this entry says `accTitle` rather than
+"accessible title" for the other half)
 
 **Compatibility corpus**:
 `packages/core/src/compat/corpus.ts` — one row per Mermaid construct, stating what Siren does with
