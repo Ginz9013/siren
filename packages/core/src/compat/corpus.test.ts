@@ -623,7 +623,7 @@ const SILENTLY_WRONG = 1;
  * `seq-note-over` and `seq-note-right-of` then both moved from `rejected`
  * to `supported`: 12 - 2 = 10.
  */
-const REJECTED = 10;
+const REJECTED = 8;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

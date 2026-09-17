@@ -128,6 +128,33 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   // one, so without this the second diagram on a page silently borrows the
   // first's arrowheads.
   const scope = mintIdScope();
+
+  // Measured against real Mermaid (mermaid-probe.mjs): `accTitle` becomes
+  // the SVG's own `<title>` — its first child — and `accDescr` becomes its
+  // own `<desc>`, right after `<title>` when both are present. Each wires
+  // the root via its own aria attribute independently of the other.
+  // Deliberately no `role` attribute: real Mermaid never sets `role="img"`
+  // here for a flowchart (it is unconditionally `role="graphics-document
+  // document"`, unrelated to accTitle/accDescr, and Siren does not draw
+  // that attribute at all yet) — unlike `renderSequenceToSVG.ts`, which
+  // sets `role="img"` and was not re-measured for this change.
+  if (graph.accTitle !== null) {
+    const accTitleId = `chart-title${scope}`;
+    const accTitleEl = document.createElementNS(SVG_NS, "title");
+    accTitleEl.setAttribute("id", accTitleId);
+    accTitleEl.textContent = graph.accTitle;
+    svg.appendChild(accTitleEl);
+    svg.setAttribute("aria-labelledby", accTitleId);
+  }
+  if (graph.accDescr !== null) {
+    const accDescrId = `chart-desc${scope}`;
+    const accDescrEl = document.createElementNS(SVG_NS, "desc");
+    accDescrEl.setAttribute("id", accDescrId);
+    accDescrEl.textContent = graph.accDescr;
+    svg.appendChild(accDescrEl);
+    svg.setAttribute("aria-describedby", accDescrId);
+  }
+
   // Empty on arrival: every marker in it is minted below, by an edge that
   // actually draws one. A document of nothing but `A --- B` needs no
   // marker at all, and a `<defs>` block seeded with one would be a

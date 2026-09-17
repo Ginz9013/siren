@@ -1412,3 +1412,55 @@ describe("renderToSVG — a subgraph", () => {
     expect(svg.querySelectorAll(".siren-subgraph")).toHaveLength(0);
   });
 });
+
+describe("renderToSVG's accTitle/accDescr", () => {
+  it("draws accTitle as the SVG's own <title>, wiring aria-labelledby to it, with no role attribute", () => {
+    const svg = renderToSVG({ ...buildFixture(), accTitle: "A short title" });
+
+    const title = svg.querySelector("title");
+    expect(title).not.toBeNull();
+    expect(title!.textContent).toBe("A short title");
+    expect(svg.getAttribute("aria-labelledby")).toBe(title!.getAttribute("id"));
+    expect(svg.querySelector("desc")).toBeNull();
+    expect(svg.getAttribute("aria-describedby")).toBeNull();
+    expect(svg.getAttribute("role")).toBeNull();
+  });
+
+  it("draws accDescr as the SVG's own <desc>, wiring aria-describedby to it, with no role attribute", () => {
+    const svg = renderToSVG({ ...buildFixture(), accDescr: "A longer description" });
+
+    const desc = svg.querySelector("desc");
+    expect(desc).not.toBeNull();
+    expect(desc!.textContent).toBe("A longer description");
+    expect(svg.getAttribute("aria-describedby")).toBe(desc!.getAttribute("id"));
+    expect(svg.querySelector("title")).toBeNull();
+    expect(svg.getAttribute("aria-labelledby")).toBeNull();
+    expect(svg.getAttribute("role")).toBeNull();
+  });
+
+  it("draws <title> before <desc> and wires both aria attributes when both are present", () => {
+    const svg = renderToSVG({
+      ...buildFixture(),
+      accTitle: "A short title",
+      accDescr: "A longer description",
+    });
+
+    const children = Array.from(svg.children);
+    const titleIndex = children.findIndex((child) => child.tagName === "title");
+    const descIndex = children.findIndex((child) => child.tagName === "desc");
+    expect(titleIndex).toBeGreaterThanOrEqual(0);
+    expect(descIndex).toBeGreaterThan(titleIndex);
+    expect(svg.getAttribute("aria-labelledby")).toBe(children[titleIndex]!.getAttribute("id"));
+    expect(svg.getAttribute("aria-describedby")).toBe(children[descIndex]!.getAttribute("id"));
+  });
+
+  it("draws neither <title> nor <desc> nor any aria attribute when the document declares neither", () => {
+    const svg = renderToSVG(buildFixture());
+
+    expect(svg.querySelector("title")).toBeNull();
+    expect(svg.querySelector("desc")).toBeNull();
+    expect(svg.getAttribute("aria-labelledby")).toBeNull();
+    expect(svg.getAttribute("aria-describedby")).toBeNull();
+    expect(svg.getAttribute("role")).toBeNull();
+  });
+});

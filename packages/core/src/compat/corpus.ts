@@ -1600,8 +1600,22 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       accTitle: A short title
       A[Start] --> B[End]`,
-    status: "rejected",
-    meaning: "`accTitle:` gives the diagram its accessible title.",
+    status: "supported",
+    meaning:
+      "`accTitle:` gives the diagram its accessible title, drawn as the " +
+      "SVG's own <title> element — never on the canvas — with the root " +
+      "wired to it via aria-labelledby.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector("title");
+      if (title === null) throw new Error("no <title> was drawn");
+      expectSame("the accessible title text", title.textContent, "A short title");
+      expectSame(
+        "the root svg is labelled by that title",
+        svg.getAttribute("aria-labelledby"),
+        title.getAttribute("id"),
+      );
+    },
   },
   {
     id: "fc-acc-descr",
@@ -1609,8 +1623,22 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       accDescr: A longer description
       A[Start] --> B[End]`,
-    status: "rejected",
-    meaning: "`accDescr:` gives the diagram its accessible description.",
+    status: "supported",
+    meaning:
+      "`accDescr:` gives the diagram its accessible description, drawn as " +
+      "the SVG's own <desc> element — never on the canvas — with the root " +
+      "wired to it via aria-describedby.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const desc = svg.querySelector("desc");
+      if (desc === null) throw new Error("no <desc> was drawn");
+      expectSame("the accessible description text", desc.textContent, "A longer description");
+      expectSame(
+        "the root svg is described by that desc",
+        svg.getAttribute("aria-describedby"),
+        desc.getAttribute("id"),
+      );
+    },
   },
   {
     id: "fc-comment-trailing",
