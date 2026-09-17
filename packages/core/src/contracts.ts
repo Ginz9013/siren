@@ -435,6 +435,64 @@ export interface SequenceDestroyStatement {
   column?: number;
 }
 
+/**
+ * An `activate X` statement, or the equivalent `+` shorthand on an arrow
+ * (`A->>+B: text` — the parser expands it into a message immediately
+ * followed by this). Opens an activation bar on `id`'s lifeline; bars
+ * stack when a participant is activated more than once before its first
+ * close (measured against real Mermaid: two `activate A` draw two offset
+ * bars, not one).
+ */
+export interface SequenceActivateStatement {
+  kind: "activate";
+  id: string;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * A `deactivate X` statement, or the equivalent `-` shorthand on an arrow
+ * (`B-->>-A: text` — measured against real Mermaid: `-` closes the
+ * lifeline the arrow is *sent from* — `B` here — not the one it points
+ * at, easy to mis-state because the common `A->>+B` / `B-->>-A` pairing
+ * happens to put both markers on `B`). Closes the innermost still-open
+ * activation on `id`'s lifeline; `buildSequenceModel` diagnoses one with
+ * nothing open, matching Mermaid's own rejection.
+ */
+export interface SequenceDeactivateStatement {
+  kind: "deactivate";
+  id: string;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * Which side of its lane(s) a note draws on — Mermaid's `note over`, `note
+ * right of`, `note left of`. Modeled as one statement with an axis, the
+ * way `SequenceArrow` is `{line, head}` rather than ten named forms: all
+ * three spellings are the same shape (participant span + text), told apart
+ * only by where the box lands relative to that span.
+ */
+export type SequenceNotePlacement = "left" | "right" | "over";
+
+/**
+ * A `note over A,B: text` / `note right of A: text` / `note left of A:
+ * text` statement. `from`/`to` are the same participant when the note
+ * names only one (`right of`/`left of`, or a single-participant `over`);
+ * `over A,B` gives its two distinct ends. Measured against real Mermaid: a
+ * note occupies its own rank on the timeline, exactly like a message — it
+ * never overlaps the message before or after it.
+ */
+export interface SequenceNoteStatement {
+  kind: "note";
+  placement: SequenceNotePlacement;
+  from: string;
+  to: string;
+  text: string;
+  line?: number;
+  column?: number;
+}
+
 /** An `autonumber` statement — sequential message numbering turns on from here. */
 export interface SequenceAutonumberOnStatement {
   kind: "autonumberOn";
@@ -538,6 +596,9 @@ export type SequenceStatement =
   | SequenceMessageStatement
   | SequenceParticipantStatement
   | SequenceDestroyStatement
+  | SequenceActivateStatement
+  | SequenceDeactivateStatement
+  | SequenceNoteStatement
   | SequenceAutonumberOnStatement
   | SequenceAutonumberOffStatement
   | SequenceLoopStatement
@@ -555,10 +616,31 @@ export type SequenceStatement =
  */
 export interface SequenceDocument {
   kind: "sequence";
+  /** The diagram's visible heading, drawn on the canvas — Mermaid's `title` statement. */
   title: string | null;
+  /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:` statement.
+   * Never drawn as a visible heading; reaches only the rendered SVG's
+   * `<title>` element, distinct from `title` above, which draws on the
+   * canvas and reaches no accessibility tree entry of its own.
+   */
+  accTitle: string | null;
   participants: SequenceParticipantDecl[];
   boxes: SequenceBox[];
   statements: SequenceStatement[];
+  /**
+   * `link A: Label @ url` statements, as written. Reuses the kind-agnostic
+   * `Interaction` shape class/flowchart already share (`interactionKind:
+   * "href"`) rather than a sequence-only type: Mermaid's own class diagram
+   * grammar already treats `link`/`callback` as older spellings of `click
+   * ... href`/`click ... call` that "produce the same Interaction shapes... a
+   * spelling, not a separate concept" (see `parseClassDiagram.ts`), and
+   * sequence's `link` is the same idea under a third spelling. `Label` maps
+   * onto `Interaction.tooltip` — Mermaid's own popup-menu behavior for
+   * `link` is not something a static SVG renderer reproduces, so nothing
+   * else about it needs its own field.
+   */
+  interactions: Interaction[];
   /**
    * The `timeline:` block as written, or `null` when the document declares
    * none at all (as opposed to declaring an empty one) — the same
@@ -620,7 +702,32 @@ export type ResolvedSequenceStatement =
   | { kind: "message"; message: ResolvedSequenceMessage }
   | { kind: "participant"; participant: ResolvedSequenceParticipant }
   | { kind: "destroy"; id: string }
-  | { kind: "block"; block: ResolvedSequenceBlock };
+  | { kind: "block"; block: ResolvedSequenceBlock }
+  /**
+   * `activationId` is this bar's own generated id (`generatedId("activation",
+   * n)`, ADR-0010) — minted here rather than at layout, the same stage every
+   * other generated id in this codebase is minted at — because two bars on
+   * the same participant are not the same bar and must not share a `data-
+   * siren-id`. `deactivate` needs no id of its own: it only ever closes the
+   * innermost bar the walk already knows, never gets addressed on its own.
+   */
+  | { kind: "activate"; participantId: string; activationId: string }
+  | { kind: "deactivate"; participantId: string }
+  | { kind: "note"; note: ResolvedSequenceNote };
+
+/**
+ * A note after graph-model resolution: assigned id (`generatedId("note",
+ * n)`, the same convention a class diagram's note uses), so it is
+ * addressable in a `timeline:` block on the same terms as a message or a
+ * block.
+ */
+export interface ResolvedSequenceNote {
+  id: string;
+  placement: SequenceNotePlacement;
+  from: string;
+  to: string;
+  text: string;
+}
 
 /** A box after graph-model resolution: assigned id. */
 export interface ResolvedSequenceBox {
@@ -637,9 +744,13 @@ export interface ResolvedSequenceBox {
  */
 export interface SequenceModel {
   title: string | null;
+  /** Carried through unchanged from `SequenceDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
+  accTitle: string | null;
   participants: ResolvedSequenceParticipant[];
   boxes: ResolvedSequenceBox[];
   statements: ResolvedSequenceStatement[];
+  /** Resolved via the shared `resolveInteractions` — the same href allowlist class/flowchart interactions go through. */
+  interactions: ResolvedInteraction[];
   timeline: ResolvedTimeline;
 }
 
@@ -667,6 +778,8 @@ export interface PositionedParticipant {
   bottom: number;
   width: number;
   height: number;
+  /** The link this participant's box(es) wrap, or `null` — mirrors `PositionedClass.interaction`. */
+  interaction: ResolvedInteraction | null;
 }
 
 /** A message with layout-assigned y-coordinate and endpoint x-coordinates. */
@@ -689,11 +802,45 @@ export interface PositionedDestroyMark {
   y: number;
 }
 
+/**
+ * An activation bar with a layout-assigned span. Not a `PositionedSequenceElement`
+ * — unlike a message or a block it occupies no row of its own and can open
+ * on one side of a block and close on the other, so it is collected as its
+ * own flat, top-level array (`PositionedSequenceDiagram.activations`)
+ * instead of nesting inside the block tree — the same reason a lifeline
+ * itself is drawn as a flat pass over every participant, independent of
+ * block nesting.
+ */
+export interface PositionedActivation {
+  id: string;
+  participantId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** One element of a block's positioned body, in document order. */
 export type PositionedSequenceElement =
   | { kind: "message"; message: PositionedMessage }
   | { kind: "block"; block: PositionedBlock }
-  | { kind: "destroyMark"; mark: PositionedDestroyMark };
+  | { kind: "destroyMark"; mark: PositionedDestroyMark }
+  | { kind: "note"; note: PositionedNote };
+
+/**
+ * A note with a layout-assigned box: measured from its text, positioned
+ * beside or spanning the lane(s) it names. Carries no connector of its
+ * own — measured against real Mermaid, a sequence note draws as a plain
+ * box with no leader line, unlike a class diagram's note.
+ */
+export interface PositionedNote {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 /** A branch divider (used for `else`/`and`/`option`) with layout-assigned position. */
 export interface PositionedBlockDivider {
@@ -734,10 +881,14 @@ export interface PositionedBox {
  */
 export interface PositionedSequenceDiagram {
   title: string | null;
+  /** Carried through unchanged; drawn as the SVG's `<title>` element, never on the canvas. */
+  accTitle: string | null;
   participants: PositionedParticipant[];
   boxes: PositionedBox[];
   /** Messages, blocks, and destroy marks, in document order. */
   elements: PositionedSequenceElement[];
+  /** Every activation bar, independent of block nesting — see `PositionedActivation`. */
+  activations: PositionedActivation[];
   /** Carried through `layoutSequence` unchanged; the rules are `resolveTimeline`'s. */
   timeline: ResolvedTimeline;
   width: number;

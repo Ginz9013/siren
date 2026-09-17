@@ -312,6 +312,17 @@
 }
 
 /*
+ * An activation bar reuses the participant box's own surface/border tokens
+ * — it is a box on the same lifeline, not a new kind of mark — so it never
+ * has to be recolored the day a participant box's fill does.
+ */
+.siren-activation-bar {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
  * `stroke-dasharray` is deliberately absent here and must stay absent. The
  * renderer sets it per message, as a presentation attribute, and it is the
  * only thing distinguishing a dotted `-->>` reply from a solid `->>` call —
@@ -361,6 +372,18 @@
 .siren-block-label {
   font-size: var(--siren-label-font-size);
   font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * A block's own keyword (`loop`, `alt`, ...) — bolder than its condition
+ * label so the two read as distinct even without Mermaid's corner-tag
+ * background box, which this renderer does not reproduce (measured: the
+ * shape is decorative, the word itself is the part a reader depends on).
+ */
+.siren-block-keyword {
+  font-size: var(--siren-label-font-size);
+  font-weight: 700;
   fill: var(--siren-node-text);
 }
 

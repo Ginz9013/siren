@@ -1,14 +1,17 @@
 import type {
+  PositionedActivation,
   PositionedBlock,
   PositionedBox,
   PositionedDestroyMark,
   PositionedMessage,
+  PositionedNote,
   PositionedParticipant,
   PositionedSequenceDiagram,
   PositionedSequenceElement,
   SequenceArrowHead,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
+import { wrapInteraction } from "./wrapInteraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -19,6 +22,14 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  */
 const BLOCK_LABEL_PADDING_X = 8;
 const BLOCK_LABEL_PADDING_Y = 14;
+
+/**
+ * Horizontal room reserved for a block's own keyword (`loop`, `alt`, ...)
+ * before its condition label — a fixed estimate rather than a measurement,
+ * since this module never measures text; wide enough for `critical`, the
+ * longest of the six keywords, at the block label's font size.
+ */
+const BLOCK_KEYWORD_WIDTH = 64;
 
 /**
  * Half-diagonal of a destroy mark's X, in user units: each of its two
@@ -106,6 +117,21 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   // would draw the first container's themed arrowheads.
   const scope = mintIdScope();
 
+  // Measured against real Mermaid (--paint): `accTitle` becomes the SVG's
+  // own `<title>` — its first child, screen-reader metadata that draws
+  // nothing on the canvas — with `role`/`aria-labelledby` wired to it on
+  // the root. Distinct from `diagram.title` below, which *does* draw on the
+  // canvas and reaches no accessibility tree entry of its own.
+  if (diagram.accTitle !== null) {
+    const accTitleId = `chart-title${scope}`;
+    const accTitleEl = document.createElementNS(SVG_NS, "title");
+    accTitleEl.setAttribute("id", accTitleId);
+    accTitleEl.textContent = diagram.accTitle;
+    svg.appendChild(accTitleEl);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-labelledby", accTitleId);
+  }
+
   svg.appendChild(buildDefs(scope));
 
   if (diagram.title !== null) {
@@ -122,8 +148,17 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     svg.appendChild(buildLifeline(participant));
   }
 
+  // Painted after every lifeline and before any participant box or message,
+  // so a bar reads as sitting on its lifeline while still passing under the
+  // boxes/arrows that cross it.
+  for (const activation of diagram.activations) {
+    svg.appendChild(buildActivationBar(activation));
+  }
+
   for (const participant of diagram.participants) {
-    svg.appendChild(buildParticipant(participant, participant.top));
+    svg.appendChild(
+      wrapInteraction(buildParticipant(participant, participant.top), participant.interaction),
+    );
   }
 
   // A preamble-declared participant that survives to the end of the diagram is
@@ -135,7 +170,12 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     if (participant.origin !== "declared" || destroyedIds.has(participant.id)) {
       continue;
     }
-    svg.appendChild(buildParticipant(participant, participant.bottom - participant.height));
+    svg.appendChild(
+      wrapInteraction(
+        buildParticipant(participant, participant.bottom - participant.height),
+        participant.interaction,
+      ),
+    );
   }
 
   for (const element of diagram.elements) {
@@ -196,7 +236,42 @@ function buildSequenceElement(
       return buildBlock(element.block, scope);
     case "destroyMark":
       return buildDestroyMark(element.mark);
+    case "note":
+      return buildNote(element.note);
   }
+}
+
+/**
+ * Builds the `<g class="siren-note">` for one note: a `<rect
+ * class="siren-note-frame">` at its layout-assigned box and centered
+ * `<text class="siren-note-text">` — the same two-class shape a class
+ * diagram's own note uses, since it is the same idea (a boxed annotation),
+ * minus the connector a sequence note never draws (measured against real
+ * Mermaid: no leader line, just the box).
+ */
+function buildNote(note: PositionedNote): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-note");
+  g.setAttribute("data-siren-id", note.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-note-frame");
+  frame.setAttribute("x", String(note.x));
+  frame.setAttribute("y", String(note.y));
+  frame.setAttribute("width", String(note.width));
+  frame.setAttribute("height", String(note.height));
+  g.appendChild(frame);
+
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("class", "siren-note-text");
+  text.setAttribute("x", String(note.x + note.width / 2));
+  text.setAttribute("y", String(note.y + note.height / 2));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "middle");
+  text.textContent = note.text;
+  g.appendChild(text);
+
+  return g;
 }
 
 /**
@@ -243,8 +318,19 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
     g.appendChild(buildBlockFill(block));
   } else {
     g.appendChild(buildBlockFrame(block));
+    // Measured against real Mermaid: only the header (never a divider) gets
+    // a keyword, drawn beside its condition rather than replacing it —
+    // `loop every day` draws both the word "loop" and the bracketed
+    // `[every day]`.
     g.appendChild(
-      buildBlockLabel(block.label ?? "", block.x + BLOCK_LABEL_PADDING_X, block.y + BLOCK_LABEL_PADDING_Y),
+      buildBlockKeyword(block.kind, block.x + BLOCK_LABEL_PADDING_X, block.y + BLOCK_LABEL_PADDING_Y),
+    );
+    g.appendChild(
+      buildBlockLabel(
+        bracketedCondition(block.label),
+        block.x + BLOCK_LABEL_PADDING_X + BLOCK_KEYWORD_WIDTH,
+        block.y + BLOCK_LABEL_PADDING_Y,
+      ),
     );
     for (const divider of block.dividers) {
       const line = document.createElementNS(SVG_NS, "line");
@@ -258,7 +344,7 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
       if (divider.label !== null) {
         g.appendChild(
           buildBlockLabel(
-            divider.label,
+            bracketedCondition(divider.label),
             block.x + BLOCK_LABEL_PADDING_X,
             divider.y + BLOCK_LABEL_PADDING_Y,
           ),
@@ -318,6 +404,34 @@ function buildBlockLabel(text: string, x: number, y: number): SVGTextElement {
   label.setAttribute("text-anchor", "start");
   label.textContent = text;
   return label;
+}
+
+/**
+ * Wraps a block's condition text in brackets, the way Mermaid draws it
+ * (measured: `loop every day` renders as `[every day]`). `null`/empty stays
+ * empty rather than becoming a bracket pair around nothing — Mermaid itself
+ * draws an invisible placeholder for a condition-less block, which for a
+ * renderer with no equivalent need means drawing nothing visible.
+ */
+function bracketedCondition(text: string | null): string {
+  return text === null || text.length === 0 ? "" : `[${text}]`;
+}
+
+/**
+ * Builds a block's own `<text class="siren-block-keyword">` — its kind
+ * (`loop`, `alt`, ...) drawn as a literal word beside its condition.
+ * Header-only: measured against real Mermaid, a divider branch (`else`,
+ * `and`, `option`) never draws a keyword of its own, however many there
+ * are, so `buildBlock` calls this once per block and never per divider.
+ */
+function buildBlockKeyword(kind: string, x: number, y: number): SVGTextElement {
+  const keyword = document.createElementNS(SVG_NS, "text") as SVGTextElement;
+  keyword.setAttribute("class", "siren-block-keyword");
+  keyword.setAttribute("x", String(x));
+  keyword.setAttribute("y", String(y));
+  keyword.setAttribute("text-anchor", "start");
+  keyword.textContent = kind;
+  return keyword;
 }
 
 /** Builds the `<text class="siren-title">`, centered above the diagram. */
@@ -460,6 +574,18 @@ function buildLifeline(participant: PositionedParticipant): SVGLineElement {
   return line;
 }
 
+/** Builds one `<rect class="siren-activation-bar">` at its layout-assigned span. */
+function buildActivationBar(activation: PositionedActivation): SVGRectElement {
+  const rect = document.createElementNS(SVG_NS, "rect") as SVGRectElement;
+  rect.setAttribute("class", "siren-activation-bar");
+  rect.setAttribute("data-siren-id", activation.id);
+  rect.setAttribute("x", String(activation.x));
+  rect.setAttribute("y", String(activation.y));
+  rect.setAttribute("width", String(activation.width));
+  rect.setAttribute("height", String(activation.height));
+  return rect;
+}
+
 /**
  * Every participant id carrying a destroy mark anywhere in the diagram — the
  * renderer's way of telling a destroyed lifeline from a surviving one, since
@@ -493,6 +619,17 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-participant");
   g.setAttribute("data-siren-id", participant.id);
+
+  // First child, before anything else: SVG surfaces a `<title>` as the
+  // hover tooltip only when it is its parent's first child element — the
+  // same `click`/`link` tooltip convention `renderClassDiagramToSVG`'s
+  // `buildClass` follows.
+  const tooltip = participant.interaction?.tooltip ?? null;
+  if (tooltip !== null) {
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = tooltip;
+    g.appendChild(title);
+  }
 
   if (participant.participantKind === "actor") {
     g.appendChild(buildActorIcon(participant, top));

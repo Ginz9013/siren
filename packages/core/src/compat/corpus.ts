@@ -1901,19 +1901,20 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       loop every minute
         A->>B: poll
       end`,
-    status: "silently-wrong",
+    status: "supported",
     meaning:
       "`loop label ... end` frames the messages it wraps, and Mermaid draws the " +
-      "keyword `loop` in a corner tag on that frame.",
+      "keyword `loop` in a corner tag on that frame, beside the condition — " +
+      "which Mermaid itself brackets: `every minute` draws as `[every minute]`.",
     assert: (result) => {
-      // What is drawn: the frame, the label, the messages. What is NOT drawn:
-      // the keyword. `data-siren-block-kind` carries it, but an attribute is
-      // not the picture -- a reader of the SVG cannot tell this frame from an
-      // `opt`, a `par` or a `critical`, and those mean different things.
       expectSame("blocks", blocks(result), ["loop:loop:1"]);
-      expectSame("block label", texts(result, "text.siren-block-label"), ["every minute"]);
+      expectSame(
+        "the condition is drawn bracketed",
+        texts(result, "text.siren-block-label"),
+        ["[every minute]"],
+      );
+      expectSame("the keyword is drawn", texts(result, "text.siren-block-keyword"), ["loop"]);
       expectSame("messages", messages(result), ["A-B: poll"]);
-      expectSame("the keyword is nowhere in the drawing", drew(result, "text.siren-block-keyword"), false);
     },
   },
   {
@@ -1927,19 +1928,26 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       else is not
         A->>B: stop
       end`,
-    status: "silently-wrong",
+    status: "supported",
     meaning:
-      "`alt`/`else` frames two branches divided by a line, and Mermaid draws " +
-      "`alt` and `else` as corner tags beside each branch's label.",
+      "`alt`/`else` frames two branches divided by a line. Measured against " +
+      "real Mermaid: only `alt`, the header, draws a corner-tag keyword — " +
+      "`else` draws none of its own, however many branches there are — and " +
+      "every branch's condition is bracketed (`is ok` draws as `[is ok]`).",
     assert: (result) => {
-      // Both branch labels and the divider are drawn; only the two keywords are
-      // missing. The same one gap as `seq-loop`, and it is why these two are
-      // the cases the board carries forward: their exit is drawing the keyword,
-      // not rejecting the construct.
       expectSame("blocks", blocks(result), ["alt:alt:1"]);
       expectSame("messages", messages(result), ["A-B: proceed", "A-B#2: stop"]);
       expectSame("a divider was drawn between the branches", drew(result, "line.siren-block-divider"), true);
-      expectSame("neither keyword is in the drawing", drew(result, "text.siren-block-keyword"), false);
+      expectSame(
+        "both branch conditions are drawn bracketed",
+        texts(result, "text.siren-block-label"),
+        ["[is ok]", "[is not]"],
+      );
+      expectSame(
+        "only the header's keyword is drawn, never the divider's",
+        texts(result, "text.siren-block-keyword"),
+        ["alt"],
+      );
     },
   },
   {
@@ -1981,7 +1989,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       participant B
       A->>+B: request
       B-->>-A: response`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "The shorthand for `activate`/`deactivate`, drawn as a bar on a lane — " +
       "and the two markers name *different* lanes. `+` activates the lifeline " +
@@ -1994,6 +2002,12 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "activation end on **B** for `B-->>-A`, and writing `A->>-B` instead " +
       "fails with `Trying to inactivate an inactive participant (A)` — the " +
       "sender.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: request", "B-A: response"]);
+      // Both markers land on B, so this reads as one bar, not two.
+      const bars = svgOf(result).querySelectorAll("rect.siren-activation-bar");
+      expectSame("exactly one activation bar was drawn", bars.length, 1);
+    },
   },
   {
     id: "seq-activate",
@@ -2005,8 +2019,12 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       activate B
       B-->>A: response
       deactivate B`,
-    status: "rejected",
+    status: "supported",
     meaning: "`activate X` / `deactivate X` is the long form of the same activation bar.",
+    assert: (result) => {
+      const bars = svgOf(result).querySelectorAll("rect.siren-activation-bar");
+      expectSame("exactly one activation bar was drawn", bars.length, 1);
+    },
   },
   {
     id: "seq-note-over",
@@ -2015,8 +2033,14 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       participant A
       participant B
       note over A,B: they agree`,
-    status: "rejected",
+    status: "supported",
     meaning: "`note over A,B: text` draws a note spanning both lanes.",
+    assert: (result) => {
+      expectSame("the note text is drawn", texts(result, "text.siren-note-text"), [
+        "they agree",
+      ]);
+      expectSame("a note frame was drawn", drew(result, "rect.siren-note-frame"), true);
+    },
   },
   {
     id: "seq-note-right-of",
@@ -2024,8 +2048,11 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `sequenceDiagram
       participant A
       note right of A: thinking`,
-    status: "rejected",
+    status: "supported",
     meaning: "`note right of X: text` draws a note beside one lane.",
+    assert: (result) => {
+      expectSame("the note text is drawn", texts(result, "text.siren-note-text"), ["thinking"]);
+    },
   },
   {
     id: "seq-acc-title",
@@ -2035,8 +2062,22 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       participant A
       participant B
       A->>B: Hello`,
-    status: "rejected",
-    meaning: "`accTitle:` gives the diagram its accessible title.",
+    status: "supported",
+    meaning:
+      "`accTitle:` gives the diagram its accessible title, drawn as the " +
+      "SVG's own <title> element — never on the canvas — with the root " +
+      "wired to it via aria-labelledby.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector("title");
+      if (title === null) throw new Error("no <title> was drawn");
+      expectSame("the accessible title text", title.textContent, "A short title");
+      expectSame(
+        "the root svg is labelled by that title",
+        svg.getAttribute("aria-labelledby"),
+        title.getAttribute("id"),
+      );
+    },
   },
   {
     id: "seq-link",
@@ -2044,8 +2085,25 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `sequenceDiagram
       participant A
       link A: Dashboard @ https://example.com`,
-    status: "rejected",
-    meaning: "`link X: Label @ url` hangs a menu entry off the participant.",
+    status: "supported",
+    meaning:
+      "`link X: Label @ url` hangs a menu entry off the participant. " +
+      "Mermaid's popup menu is not reproducible in a static SVG (measured: " +
+      "it is a `display:none` panel toggled by JS), so this reuses the " +
+      "kind-agnostic href interaction class/flowchart already share — X's " +
+      "box becomes a plain navigable link, with Label as its tooltip.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector("a.siren-link");
+      if (link === null) throw new Error("no link was drawn");
+      expectSame("the link navigates to the given url", link.getAttribute("href"), "https://example.com");
+      const group = link.querySelector('g.siren-participant[data-siren-id="A"]');
+      expectSame("it wraps the participant's own group", group !== null, true);
+      expectSame(
+        "Label reaches the reader as the participant's tooltip",
+        group?.querySelector("title")?.textContent,
+        "Dashboard",
+      );
+    },
   },
 ];
 

@@ -25,6 +25,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     bottom: 300,
     width: 100,
     height: 40,
+    interaction: null,
   };
   const bob: PositionedParticipant = {
     id: "Bob",
@@ -36,12 +37,15 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     bottom: 300,
     width: 60,
     height: 50,
+    interaction: null,
   };
   return {
     title: null,
+    accTitle: null,
     participants: [alice, bob],
     boxes: [],
     elements: [],
+    activations: [],
     timeline: { totalSteps: 0, entries: [] },
     width: 300,
     height: 300,
@@ -417,6 +421,31 @@ describe("renderSequenceToSVG", () => {
     expect(noNumberText).toBeNull();
   });
 
+  it("renders each activation bar as an identified siren-activation-bar rect at its assigned span", () => {
+    const diagram: PositionedSequenceDiagram = {
+      ...buildParticipantsFixture(),
+      activations: [
+        { id: "activation:1", participantId: "Alice", x: 55, y: 40, width: 10, height: 120 },
+      ],
+    };
+
+    const svg = renderSequenceToSVG(diagram);
+
+    const bars = svg.querySelectorAll("rect.siren-activation-bar");
+    expect(bars).toHaveLength(1);
+    const bar = bars[0]!;
+    expect(bar.getAttribute("data-siren-id")).toBe("activation:1");
+    expect(bar.getAttribute("x")).toBe("55");
+    expect(bar.getAttribute("y")).toBe("40");
+    expect(bar.getAttribute("width")).toBe("10");
+    expect(bar.getAttribute("height")).toBe("120");
+  });
+
+  it("renders no activation bar when the diagram has none", () => {
+    const svg = renderSequenceToSVG(buildParticipantsFixture());
+    expect(svg.querySelectorAll("rect.siren-activation-bar")).toHaveLength(0);
+  });
+
   it("renders exactly one siren-title text when a title is present, and none when absent", () => {
     const withTitle: PositionedSequenceDiagram = { ...buildParticipantsFixture(), title: "My Diagram" };
     const withoutTitle = buildParticipantsFixture();
@@ -429,6 +458,70 @@ describe("renderSequenceToSVG", () => {
     expect(titles[0]!.textContent).toBe("My Diagram");
 
     expect(svgWithoutTitle.querySelectorAll("text.siren-title")).toHaveLength(0);
+  });
+
+  it("gives the svg root an aria-labelled <title> (its first child) when accTitle is present, and adds nothing when it is absent", () => {
+    const withAccTitle: PositionedSequenceDiagram = {
+      ...buildParticipantsFixture(),
+      accTitle: "A short accessible title",
+    };
+    const withoutAccTitle = buildParticipantsFixture();
+
+    const svgWithAccTitle = renderSequenceToSVG(withAccTitle);
+    const svgWithoutAccTitle = renderSequenceToSVG(withoutAccTitle);
+
+    // Measured against real Mermaid: accTitle becomes the SVG's own <title>
+    // (screen-reader metadata, never drawn on the canvas), its first child,
+    // with role/aria-labelledby wired to it on the root.
+    const title = svgWithAccTitle.firstElementChild!;
+    expect(title.tagName.toLowerCase()).toBe("title");
+    expect(title.textContent).toBe("A short accessible title");
+    expect(title.getAttribute("id")).toBeTruthy();
+    expect(svgWithAccTitle.getAttribute("role")).toBe("img");
+    expect(svgWithAccTitle.getAttribute("aria-labelledby")).toBe(title.getAttribute("id"));
+
+    expect(svgWithoutAccTitle.querySelector("title")).toBeNull();
+    expect(svgWithoutAccTitle.getAttribute("role")).toBeNull();
+    expect(svgWithoutAccTitle.getAttribute("aria-labelledby")).toBeNull();
+  });
+
+  it("wraps a participant carrying an href interaction (from a link statement) in a link, at both its top and bottom boxes", () => {
+    const diagram = buildParticipantsFixture();
+    diagram.participants[0] = {
+      ...diagram.participants[0]!,
+      interaction: {
+        targetId: "Alice",
+        interactionKind: "href",
+        action: "https://example.com/dashboard",
+        argument: null,
+        tooltip: "Dashboard",
+      },
+    };
+
+    const svg = renderSequenceToSVG(diagram);
+
+    const links = svg.querySelectorAll("a.siren-link");
+    // Alice is drawn twice (top row + bottom row, per the existing "second
+    // box at the diagram's bottom row" convention) and both wrap in a link.
+    expect(links).toHaveLength(2);
+    for (const link of Array.from(links)) {
+      expect(link.getAttribute("href")).toBe("https://example.com/dashboard");
+      const group = link.querySelector('g.siren-participant[data-siren-id="Alice"]');
+      expect(group).not.toBeNull();
+      // A link's `Label` (`link A: Dashboard @ url`) reaches the reader as
+      // the participant's tooltip — the class diagram precedent for a
+      // `click`/`link` tooltip: a `<title>` as the group's first child,
+      // which is the only position SVG shows as a hover tooltip.
+      const title = group!.querySelector("title");
+      expect(title?.textContent).toBe("Dashboard");
+      expect(group!.firstElementChild).toBe(title);
+    }
+
+    // Bob carries no interaction, so he wraps in nothing extra.
+    const bobGroups = svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]');
+    for (const bobGroup of Array.from(bobGroups)) {
+      expect(bobGroup.closest("a.siren-link")).toBeNull();
+    }
   });
 
   it("renders message labels, participant labels, and the title via textContent only, never as parsed markup", () => {
@@ -476,9 +569,13 @@ describe("renderSequenceToSVG", () => {
     expect(frame.getAttribute("width")).toBe("200");
     expect(frame.getAttribute("height")).toBe("80");
 
+    // Mermaid wraps a block's condition text in brackets when it draws it
+    // (measured: `loop n < 5` renders as `[n < 5]`), so the condition and the
+    // raw author text are never the same string once a keyword exists to
+    // draw beside it.
     const label = group.querySelector("text.siren-block-label")!;
     expect(label).not.toBeNull();
-    expect(label.textContent).toBe("n < 5");
+    expect(label.textContent).toBe("[n < 5]");
     // Top-left per Mermaid's convention: inside the frame, hugging its top edge.
     const labelX = Number(label.getAttribute("x"));
     const labelY = Number(label.getAttribute("y"));
@@ -486,6 +583,12 @@ describe("renderSequenceToSVG", () => {
     expect(labelX).toBeLessThan(block.x + block.width);
     expect(labelY).toBeGreaterThanOrEqual(block.y);
     expect(labelY).toBeLessThan(block.y + 20);
+
+    // Only the header draws a keyword — never a divider (see the alt/else
+    // test below) — and a `loop` block's is the literal word "loop".
+    const keywords = group.querySelectorAll("text.siren-block-keyword");
+    expect(keywords).toHaveLength(1);
+    expect(keywords[0]!.textContent).toBe("loop");
   });
 
   it("renders one divider line + branch label per branch after the first, for an alt with three branches", () => {
@@ -514,11 +617,20 @@ describe("renderSequenceToSVG", () => {
     expect(dividers[0]!.getAttribute("x2")).toBe("260");
     expect(dividers[1]!.getAttribute("y1")).toBe("140");
 
-    // Header condition label plus one label per divider branch.
+    // Header condition label plus one label per divider branch, every one
+    // bracket-wrapped the way Mermaid draws a block's condition text.
     const labels = Array.from(group.querySelectorAll("text.siren-block-label")).map(
       (label) => label.textContent,
     );
-    expect(labels).toEqual(["x == 1", "x == 2", "else"]);
+    expect(labels).toEqual(["[x == 1]", "[x == 2]", "[else]"]);
+
+    // Measured against real Mermaid: only the header's keyword ("alt") is
+    // ever drawn — a divider branch (`else` here, `and`/`option` for
+    // par/critical) draws no keyword of its own, however many there are.
+    const keywords = Array.from(group.querySelectorAll("text.siren-block-keyword")).map(
+      (keyword) => keyword.textContent,
+    );
+    expect(keywords).toEqual(["alt"]);
   });
 
   it("renders a rect block as a filled background rect using its color, with no frame border, behind its contained message in paint order", () => {
@@ -548,10 +660,12 @@ describe("renderSequenceToSVG", () => {
 
     const group = svg.querySelector('g.siren-block[data-siren-id="rect:1"]')!;
 
-    // No outlined frame, no header/branch labels — distinct from the other
-    // six block kinds.
+    // No outlined frame, no header/branch labels, no keyword — distinct from
+    // the other six block kinds (measured: Mermaid draws a `rect` block with
+    // no label and no corner tag at all).
     expect(group.querySelector("rect.siren-block-frame")).toBeNull();
     expect(group.querySelectorAll("text.siren-block-label")).toHaveLength(0);
+    expect(group.querySelectorAll("text.siren-block-keyword")).toHaveLength(0);
 
     const fill = group.querySelector("rect.siren-block-fill")!;
     expect(fill).not.toBeNull();
@@ -704,6 +818,32 @@ describe("renderSequenceToSVG", () => {
     }
   });
 
+  it("renders a note as a siren-note group with a frame at its layout-assigned box and centered text", () => {
+    const diagram: PositionedSequenceDiagram = {
+      ...buildParticipantsFixture(),
+      elements: [
+        {
+          kind: "note",
+          note: { id: "note:1", text: "they agree", x: 40, y: 60, width: 120, height: 30 },
+        },
+      ],
+    };
+
+    const svg = renderSequenceToSVG(diagram);
+
+    const group = svg.querySelector('g.siren-note[data-siren-id="note:1"]')!;
+    expect(group).not.toBeNull();
+
+    const frame = group.querySelector("rect.siren-note-frame")!;
+    expect(frame.getAttribute("x")).toBe("40");
+    expect(frame.getAttribute("y")).toBe("60");
+    expect(frame.getAttribute("width")).toBe("120");
+    expect(frame.getAttribute("height")).toBe("30");
+
+    const text = group.querySelector("text.siren-note-text")!;
+    expect(text.textContent).toBe("they agree");
+  });
+
   it("renders a box's label as text inside its group when given, none when absent, and via textContent only", () => {
     const labelled: PositionedBox = {
       id: "box:1",
@@ -844,6 +984,54 @@ describe("renderSequenceToSVG", () => {
     const labels = Array.from(svg.querySelectorAll("text.siren-block-label")).map(
       (label) => label.textContent,
     );
-    expect(labels).toEqual(["<b>x == 1</b>", "<i>else</i>"]);
+    expect(labels).toEqual(["[<b>x == 1</b>]", "[<i>else</i>]"]);
   });
+
+  it("draws no bracketed label and no keyword-adjacent shift for a block with no condition text", () => {
+    // Measured against real Mermaid: `loop` with no condition draws an
+    // (invisible) placeholder rather than literal brackets around nothing —
+    // for a renderer with no equivalent placeholder need, that means: draw
+    // no visible bracket text, the same as today's "no label at all" case.
+    const block: PositionedBlock = {
+      id: "loop:1",
+      kind: "loop",
+      label: null,
+      x: 40,
+      y: 50,
+      width: 200,
+      height: 80,
+      dividers: [],
+      children: [],
+    };
+    const svg = renderSequenceToSVG(buildBlockFixture(block));
+
+    const group = svg.querySelector('g.siren-block[data-siren-id="loop:1"]')!;
+    const label = group.querySelector("text.siren-block-label")!;
+    expect(label.textContent).toBe("");
+
+    const keyword = group.querySelector("text.siren-block-keyword")!;
+    expect(keyword.textContent).toBe("loop");
+  });
+
+  it.each(["opt", "par", "critical", "break"] as const)(
+    "draws the literal keyword %s for that block kind",
+    (kind) => {
+      const block: PositionedBlock = {
+        id: `${kind}:1`,
+        kind,
+        label: "condition",
+        x: 40,
+        y: 50,
+        width: 200,
+        height: 80,
+        dividers: [],
+        children: [],
+      };
+      const svg = renderSequenceToSVG(buildBlockFixture(block));
+
+      const group = svg.querySelector(`g.siren-block[data-siren-id="${kind}:1"]`)!;
+      const keyword = group.querySelector("text.siren-block-keyword")!;
+      expect(keyword.textContent).toBe(kind);
+    },
+  );
 });

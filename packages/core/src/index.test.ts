@@ -599,17 +599,18 @@ A->>GHOST: Hello
     expect(dividerCount("break:1")).toBe(0);
     expect(dividerCount("rect:1")).toBe(0);
 
-    // Header and branch conditions come through as literal text.
+    // Header and branch conditions come through as literal text, bracketed
+    // the way Mermaid itself draws a block's condition.
     const labelsOf = (id: string) =>
       Array.from(byId(id).querySelectorAll(":scope > text.siren-block-label")).map(
         (t) => t.textContent,
       );
-    expect(labelsOf("loop:1")).toEqual(["Every minute"]);
-    expect(labelsOf("alt:1")).toEqual(["is fresh", "is stale", "is missing"]);
-    expect(labelsOf("par:1")).toEqual(["Fan out", "Second branch"]);
-    expect(labelsOf("critical:1")).toEqual(["Acquire lock", "Timeout"]);
-    expect(labelsOf("break:1")).toEqual(["Fatal error"]);
-    expect(labelsOf("opt:1")).toEqual(["Warm the cache"]);
+    expect(labelsOf("loop:1")).toEqual(["[Every minute]"]);
+    expect(labelsOf("alt:1")).toEqual(["[is fresh]", "[is stale]", "[is missing]"]);
+    expect(labelsOf("par:1")).toEqual(["[Fan out]", "[Second branch]"]);
+    expect(labelsOf("critical:1")).toEqual(["[Acquire lock]", "[Timeout]"]);
+    expect(labelsOf("break:1")).toEqual(["[Fatal error]"]);
+    expect(labelsOf("opt:1")).toEqual(["[Warm the cache]"]);
 
     // A block spans the lanes its body touches: loop (and its nested alt)
     // only reach Server, par reaches all the way out to Cache.
@@ -835,7 +836,7 @@ end
       result.svg!.querySelector('g.siren-participant[data-siren-id="A"] text')!.textContent,
     ).toBe("<i>Alpha</i>");
     expect(result.svg!.querySelector("text.siren-block-label")!.textContent).toBe(
-      '<img src=x onerror="alert(1)">',
+      '[<img src=x onerror="alert(1)">]',
     );
     expect(result.svg!.querySelector("text.siren-message-label")!.textContent).toBe(
       '<script>alert("message")</script>',
@@ -2542,7 +2543,7 @@ timeline:
     // The loop's own frame and header label are inside the tagged group and
     // hold no id, so they animate with it.
     expect(loopGroup.querySelectorAll("rect.siren-block-frame").length).toBeGreaterThan(0);
-    expect(loopGroup.querySelector("text.siren-block-label")!.textContent).toBe("retry");
+    expect(loopGroup.querySelector("text.siren-block-label")!.textContent).toBe("[retry]");
     // Having an id of its own is what makes an element separately driven:
     // the nested alt and message are inside the loop's group but do not take
     // the loop's class.

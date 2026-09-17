@@ -7,9 +7,13 @@ import type {
   PositionedParticipant,
   PositionedSequenceDiagram,
   PositionedSequenceElement,
+  PositionedActivation,
+  PositionedNote,
+  ResolvedInteraction,
   ResolvedSequenceBlock,
   ResolvedSequenceBox,
   ResolvedSequenceMessage,
+  ResolvedSequenceNote,
   ResolvedSequenceStatement,
   SequenceModel,
 } from "../contracts";
@@ -24,6 +28,14 @@ const LANE_GAP = 40;
 const LEFT_MARGIN = 20;
 /** Vertical distance between consecutive message rows. */
 const MESSAGE_ROW_HEIGHT = 40;
+/** Horizontal padding added around a note's measured text. */
+const NOTE_PADDING_X = 10;
+/** Vertical padding added around a note's measured text. */
+const NOTE_PADDING_Y = 8;
+/** Vertical gap between the row before a note and the note's own row. */
+const NOTE_ROW_GAP = 20;
+/** Horizontal gap between a `right of`/`left of` note and the lane box it sits beside. */
+const NOTE_SIDE_GAP = 10;
 /** Horizontal distance a self-message's arrow loops out from its lane center. */
 const SELF_MESSAGE_LOOP_WIDTH = 50;
 /** Right margin reserved after the last participant lane's box. */
@@ -79,6 +91,94 @@ interface SequenceLayoutContext {
   createdTopById: Map<string, number>;
   /** y-coordinate a `destroy`ed participant's lifeline ends at, keyed by id. */
   destroyedBottomById: Map<string, number>;
+  /** Activations not yet closed, per participant id — a stack, since Mermaid stacks repeat activations rather than merging them. */
+  openActivationsByParticipantId: Map<string, OpenActivation[]>;
+  /** Every closed bar, in the order it closed — `layoutSequence` sorts nothing further, since draw order does not depend on it. */
+  closedActivations: PositionedActivation[];
+  /** Threaded down for note sizing, the one statement kind `layoutStatements` measures text for. */
+  measureText: LayoutOptions["measureText"];
+}
+
+/** One activation bar's still-open half: its own id and the y it opened at. */
+interface OpenActivation {
+  activationId: string;
+  startY: number;
+}
+
+/** Width every activation bar shares, regardless of nesting depth (measured against real Mermaid). */
+const ACTIVATION_BAR_WIDTH = 10;
+/** Per-nesting-level x offset a stacked activation bar shifts by (measured). */
+const ACTIVATION_BAR_NESTED_OFFSET_X = 5;
+/** Per-nesting-level y inset a stacked activation bar's top/bottom shrink by (measured). */
+const ACTIVATION_BAR_NESTED_INSET_Y = 2;
+
+/**
+ * Turns one closed activation into its positioned bar. `nestingLevel` is
+ * how many activations are still open on the same lifeline at the moment
+ * this one closes — 0 when this was the only one open (or the last still
+ * open to close), 1 when one more was open underneath it, and so on —
+ * read from the stack's length right after this bar's own pop, which is
+ * exactly that count. The first-opened bar on a lifeline therefore closes
+ * *last* and gets `nestingLevel` 0 then; a bar opened while another was
+ * already open closes first (LIFO) and gets a higher `nestingLevel`,
+ * offset further from the lifeline than the one still open beneath it.
+ */
+function closeActivation(
+  open: OpenActivation,
+  participantId: string,
+  endY: number,
+  ctx: SequenceLayoutContext,
+): PositionedActivation {
+  const nestingLevel = ctx.openActivationsByParticipantId.get(participantId)?.length ?? 0;
+  const laneCenter = ctx.laneCenterById.get(participantId) ?? 0;
+  const x = laneCenter - ACTIVATION_BAR_WIDTH / 2 + nestingLevel * ACTIVATION_BAR_NESTED_OFFSET_X;
+  const y = open.startY + nestingLevel * ACTIVATION_BAR_NESTED_INSET_Y;
+  const height = Math.max(0, endY - open.startY - nestingLevel * ACTIVATION_BAR_NESTED_INSET_Y * 2);
+  return {
+    id: open.activationId,
+    participantId,
+    x,
+    y,
+    width: ACTIVATION_BAR_WIDTH,
+    height,
+  };
+}
+
+/**
+ * Positions one note's box. `right`/`left` sit beside their one lane,
+ * outside its box; `over` centers on the midpoint between its two lanes
+ * (the same lane twice, for a single-participant `over`), widening past
+ * the natural gap when the measured text needs more room than the lanes
+ * leave between them — matching how a class diagram's namespace frame
+ * grows to fit rather than clipping its label.
+ */
+function layoutNote(
+  note: ResolvedSequenceNote,
+  measuredTextWidth: number,
+  height: number,
+  ctx: SequenceLayoutContext,
+  y: number,
+): PositionedNote {
+  const width = measuredTextWidth + NOTE_PADDING_X * 2;
+
+  if (note.placement === "right" || note.placement === "left") {
+    const participant = ctx.participantsById.get(note.from);
+    const laneCenter = ctx.laneCenterById.get(note.from) ?? 0;
+    const laneHalfWidth = (participant?.width ?? 0) / 2;
+    const x =
+      note.placement === "right"
+        ? laneCenter + laneHalfWidth + NOTE_SIDE_GAP
+        : laneCenter - laneHalfWidth - NOTE_SIDE_GAP - width;
+    return { id: note.id, text: note.text, x, y, width, height };
+  }
+
+  const fromCenter = ctx.laneCenterById.get(note.from) ?? 0;
+  const toCenter = ctx.laneCenterById.get(note.to) ?? 0;
+  const spanLeft = Math.min(fromCenter, toCenter);
+  const spanRight = Math.max(fromCenter, toCenter);
+  const midpoint = (spanLeft + spanRight) / 2;
+  const spanWidth = Math.max(spanRight - spanLeft, width);
+  return { id: note.id, text: note.text, x: midpoint - spanWidth / 2, y, width: spanWidth, height };
 }
 
 /**
@@ -94,6 +194,13 @@ function layoutParticipants(
 ): PositionedParticipant[] {
   const participants: PositionedParticipant[] = [];
   let nextLeft = LEFT_MARGIN;
+
+  // One `link` per participant at most, mirroring `layoutClassDiagram`'s
+  // `interactionByClassId` — the later one wins if an author repeats it.
+  const interactionByParticipantId = new Map<string, ResolvedInteraction>();
+  for (const interaction of model.interactions) {
+    interactionByParticipantId.set(interaction.targetId, interaction);
+  }
 
   for (const decl of model.participants) {
     const measured = options.measureText.measure(decl.label);
@@ -111,6 +218,7 @@ function layoutParticipants(
       bottom: 0,
       width,
       height,
+      interaction: interactionByParticipantId.get(decl.id) ?? null,
     });
 
     nextLeft = nextLeft + width + LANE_GAP;
@@ -167,6 +275,43 @@ function layoutStatements(
           y,
         },
       });
+      continue;
+    }
+
+    if (statement.kind === "note") {
+      const measured = ctx.measureText.measure(statement.note.text);
+      const height = measured.height + NOTE_PADDING_Y * 2;
+      y += NOTE_ROW_GAP;
+      elements.push({
+        kind: "note",
+        note: layoutNote(statement.note, measured.width, height, ctx, y),
+      });
+      y += height;
+      continue;
+    }
+
+    if (statement.kind === "activate") {
+      // Opens at the current y — the row the triggering message (or the
+      // standalone `activate` line) already claimed — and occupies no row
+      // of its own: an activation bar is a decoration on the lifeline, not
+      // a new event on the timeline.
+      const stack = ctx.openActivationsByParticipantId.get(statement.participantId) ?? [];
+      stack.push({ activationId: statement.activationId, startY: y });
+      ctx.openActivationsByParticipantId.set(statement.participantId, stack);
+      continue;
+    }
+
+    if (statement.kind === "deactivate") {
+      const stack = ctx.openActivationsByParticipantId.get(statement.participantId);
+      // `buildSequenceModel` already diagnosed and dropped a `deactivate`
+      // with nothing open, so an empty stack here would mean a bug in that
+      // check rather than a document to render defensively around — but an
+      // empty stack is still handled rather than trusted, the same
+      // discipline `resolveClasses`' own defensive fallback follows.
+      const open = stack?.pop();
+      if (open !== undefined) {
+        ctx.closedActivations.push(closeActivation(open, statement.participantId, y, ctx));
+      }
       continue;
     }
 
@@ -330,6 +475,9 @@ export function layoutSequence(
     participantsById: new Map(participants.map((p) => [p.id, p])),
     createdTopById: new Map(),
     destroyedBottomById: new Map(),
+    openActivationsByParticipantId: new Map(),
+    closedActivations: [],
+    measureText: options.measureText,
   };
 
   // Every declared lane's box hangs downward from the top row's own top edge
@@ -359,6 +507,16 @@ export function layoutSequence(
   );
   const lifelineBottom = endY + BOTTOM_MARGIN + bottomRowHeight;
 
+  // Mermaid's own behavior for an activation that outlives the diagram was
+  // not among the constructs this board measured; extending it to the
+  // lifeline's own bottom is the same policy an un-`destroy`ed lifeline
+  // already gets, applied consistently rather than left undefined.
+  for (const [participantId, stack] of ctx.openActivationsByParticipantId) {
+    for (let open = stack.pop(); open !== undefined; open = stack.pop()) {
+      ctx.closedActivations.push(closeActivation(open, participantId, lifelineBottom, ctx));
+    }
+  }
+
   for (const participant of participants) {
     participant.top = ctx.createdTopById.get(participant.id) ?? topRowTop;
     participant.bottom = ctx.destroyedBottomById.get(participant.id) ?? lifelineBottom;
@@ -377,9 +535,11 @@ export function layoutSequence(
 
   return {
     title: model.title,
+    accTitle: model.accTitle,
     participants,
     boxes,
     elements,
+    activations: ctx.closedActivations,
     // Carried straight through: the timeline names ids, and layout assigns
     // coordinates — neither has anything to say about the other.
     timeline: model.timeline,

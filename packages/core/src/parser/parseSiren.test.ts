@@ -892,12 +892,11 @@ timeline:
     ]);
   });
 
-  it("refuses activation shorthand through the dispatching seam too, naming activation", () => {
-    // This test used to assert the reverse: it fed `A->>+B` and expected zero
-    // diagnostics, because `MESSAGE_RE` matched the `+` and threw it away.
-    // Mermaid draws an activation bar and a thickened lifeline for it and
-    // Siren draws neither, so the swallow handed the author a wrong picture
-    // with nothing in it to say so. Being told what is missing is the point.
+  it("parses activation shorthand through the dispatching seam too, expanding it into activate/deactivate statements", () => {
+    // This test used to assert the opposite: that the seam refused these
+    // lines. Siren now draws the activation bar the shorthand describes, so
+    // the dispatching seam's job is to pass the expanded statements through
+    // unchanged, the same as it does for any other sequence construct.
     const source = `sequenceDiagram
   participant A
   participant B
@@ -907,10 +906,18 @@ timeline:
 
     const { document, diagnostics } = parseSiren(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw an activation bar (the `+` after the arrow) yet: "A->>+B: request"',
-      'Siren does not draw an activation bar (the `-` after the arrow) yet: "B-->>-A: response"',
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("sequence");
+    const statementKinds =
+      document!.kind === "sequence" ? document!.statements.map((s) => s.kind) : [];
+    expect(statementKinds).toEqual([
+      "participant",
+      "participant",
+      "message",
+      "activate",
+      "message",
+      "deactivate",
     ]);
   });
 

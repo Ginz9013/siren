@@ -85,31 +85,139 @@ describe("parseSequenceDiagram", () => {
     );
   });
 
-  it("refuses activation shorthand, naming activation rather than calling the line unrecognized", () => {
-    // Mermaid draws an activation bar and a visibly thickened lifeline for
-    // these. Siren draws neither, so the honest answer names the gap; the
-    // author wrote valid Mermaid and must not be told their input was wrong.
+  it("expands the `+` activation shorthand into the message plus an activate statement targeting the arrow's destination", () => {
     const source = `sequenceDiagram
   participant A
   participant B
   A->>+B: request
-  A->>-B: cancel
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.slice(2)).toEqual([
+      {
+        kind: "message",
+        from: "A",
+        to: "B",
+        text: "request",
+        arrow: { line: "solid", head: "filled" },
+        line: 4,
+        column: 3,
+      },
+      { kind: "activate", id: "B", line: 4, column: 3 },
+    ]);
+  });
+
+  it("expands the `-` activation shorthand into the message plus a deactivate statement targeting the arrow's sender, not its destination", () => {
+    // Measured against real Mermaid: `-` closes the lifeline the arrow is
+    // *sent from*. In `B-->>-A: response`, that is B — not A, the arrow's
+    // destination — which is the detail this shorthand is easy to mis-state.
+    const source = `sequenceDiagram
+  participant A
+  participant B
   B-->>-A: response
 `;
 
-    const { document, diagnostics } = parseSequenceDiagram(source);
+    const { document, diagnostics } = parseOk(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw an activation bar (the `+` after the arrow) yet: "A->>+B: request"',
-      'Siren does not draw an activation bar (the `-` after the arrow) yet: "A->>-B: cancel"',
-      'Siren does not draw an activation bar (the `-` after the arrow) yet: "B-->>-A: response"',
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.slice(2)).toEqual([
+      {
+        kind: "message",
+        from: "B",
+        to: "A",
+        text: "response",
+        arrow: { line: "dotted", head: "filled" },
+        line: 4,
+        column: 3,
+      },
+      { kind: "deactivate", id: "B", line: 4, column: 3 },
     ]);
-    expect(diagnostics.every((d) => d.severity === "error")).toBe(true);
-    expect(diagnostics.map((d) => [d.line, d.column])).toEqual([
-      [4, 3],
-      [5, 3],
-      [6, 3],
+  });
+
+  it("parses standalone `activate X` / `deactivate X` statements", () => {
+    const source = `sequenceDiagram
+  participant A
+  activate A
+  deactivate A
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.slice(1)).toEqual([
+      { kind: "activate", id: "A", line: 3, column: 3 },
+      { kind: "deactivate", id: "A", line: 4, column: 3 },
+    ]);
+  });
+
+  it("parses `note over A,B: text` into a note statement spanning both participants", () => {
+    const source = `sequenceDiagram
+  participant A
+  participant B
+  note over A,B: they agree
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.slice(2)).toEqual([
+      {
+        kind: "note",
+        placement: "over",
+        from: "A",
+        to: "B",
+        text: "they agree",
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("parses `note over A: text` (a single participant) with from and to equal", () => {
+    const source = `sequenceDiagram
+  participant A
+  note over A: alone
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.slice(1)).toEqual([
+      { kind: "note", placement: "over", from: "A", to: "A", text: "alone", line: 3, column: 3 },
+    ]);
+  });
+
+  it("parses `note right of A: text` and `note left of A: text`, each with from and to equal", () => {
+    const source = `sequenceDiagram
+  participant A
+  note right of A: thinking
+  note left of A: pondering
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.statements.slice(1)).toEqual([
+      {
+        kind: "note",
+        placement: "right",
+        from: "A",
+        to: "A",
+        text: "thinking",
+        line: 3,
+        column: 3,
+      },
+      {
+        kind: "note",
+        placement: "left",
+        from: "A",
+        to: "A",
+        text: "pondering",
+        line: 4,
+        column: 3,
+      },
     ]);
   });
 
@@ -175,6 +283,53 @@ describe("parseSequenceDiagram", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.title).toBe("Order confirmation flow");
+  });
+
+  it("parses accTitle into the document's accTitle field, distinct from title", () => {
+    const source = `sequenceDiagram
+  title Order confirmation flow
+  accTitle: A short accessible title
+  participant A
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.title).toBe("Order confirmation flow");
+    expect(document.accTitle).toBe("A short accessible title");
+  });
+
+  it("leaves accTitle null when the document declares none", () => {
+    const source = `sequenceDiagram
+  participant A
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBeNull();
+  });
+
+  it("parses link into an href interaction, its label carried as the tooltip", () => {
+    const source = `sequenceDiagram
+  participant A
+  link A: Dashboard @ https://example.com
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://example.com",
+        argument: null,
+        tooltip: "Dashboard",
+        line: 3,
+        column: 3,
+      },
+    ]);
   });
 
   it("returns a null document plus an error diagnostic for an unrecognized statement line, without throwing", () => {

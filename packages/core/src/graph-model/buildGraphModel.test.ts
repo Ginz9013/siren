@@ -548,6 +548,8 @@ describe("buildGraphModel", () => {
     const document: SirenDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },

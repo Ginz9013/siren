@@ -19,6 +19,8 @@ const fakeMeasurer: TextMeasurer = {
 function coreModel(): SequenceModel {
   return {
     title: null,
+    accTitle: null,
+    interactions: [],
     participants: [
       {
         id: "A",
@@ -121,6 +123,12 @@ function destroyMarksOf(positioned: { elements: PositionedSequenceElement[] }) {
     .map((el) => el.mark);
 }
 
+function notesOf(positioned: { elements: PositionedSequenceElement[] }) {
+  return positioned.elements
+    .filter((el): el is Extract<PositionedSequenceElement, { kind: "note" }> => el.kind === "note")
+    .map((el) => el.note);
+}
+
 describe("layoutSequence", () => {
   it("assigns each participant a distinct x in declaration order, sized from its label", () => {
     const model = coreModel();
@@ -160,6 +168,8 @@ describe("layoutSequence", () => {
   it("gives a self-message a distinct fromX/toX loop instead of a zero-length path", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         {
           id: "A",
@@ -248,6 +258,8 @@ describe("layoutSequence", () => {
   it("gives a loop wrapping two messages a box spanning its two adjacent participant lanes, enclosing both messages vertically", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         {
           id: "A",
@@ -337,6 +349,8 @@ describe("layoutSequence", () => {
   it("gives an alt with two branches one divider labeled with the else branch's condition, positioned between the branches", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         {
           id: "A",
@@ -426,6 +440,8 @@ describe("layoutSequence", () => {
   it("spans a block touching non-adjacent lanes across the untouched lane in between, matching Mermaid's own behavior", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         {
           id: "A",
@@ -550,6 +566,8 @@ describe("layoutSequence", () => {
 
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         {
           id: "A",
@@ -637,6 +655,8 @@ describe("layoutSequence", () => {
 
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [participant("A", "Alice"), participant("B", "Bob"), participant("C", "Carol")],
       boxes: [],
       statements: [
@@ -710,6 +730,8 @@ describe("layoutSequence", () => {
 
     const withoutBlock: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [participant("A", "Alice"), participant("B", "Bob")],
       boxes: [],
       statements: [
@@ -799,6 +821,8 @@ describe("layoutSequence", () => {
   it("starts a created participant's lifeline at its create statement's y, below the messages that precede it", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
         declaredParticipant("B", "Bob"),
@@ -851,6 +875,8 @@ describe("layoutSequence", () => {
   it("ends a destroyed participant's lifeline at its destroy statement's y and emits a destroy mark there", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
         { ...declaredParticipant("B", "Bob"), destroyedAt: 1 },
@@ -884,6 +910,169 @@ describe("layoutSequence", () => {
     expect(byId.B.top).toBe(byId.A.top);
   });
 
+  it("spans an activation bar from its activate statement's row to its deactivate statement's row, centered on the participant's lane", () => {
+    const model: SequenceModel = {
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "B", "request"),
+        { kind: "activate", participantId: "B", activationId: "activation:1" },
+        messageStatement("m2", "B", "A", "response"),
+        { kind: "deactivate", participantId: "B" },
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    expect(positioned.activations).toHaveLength(1);
+    const bar = positioned.activations[0]!;
+    expect(bar.id).toBe("activation:1");
+    expect(bar.participantId).toBe("B");
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    const [request, response] = messagesOf(positioned);
+
+    // Centered on B's lane.
+    expect(bar.x).toBeLessThan(byId.B.x);
+    expect(bar.x + bar.width).toBeGreaterThan(byId.B.x);
+
+    // Opens at the request's row, closes at the response's row.
+    expect(bar.y).toBe(request.y);
+    expect(bar.y + bar.height).toBe(response.y);
+  });
+
+  it("offsets two stacked activations on one participant so both are visible, without changing either's width", () => {
+    const model: SequenceModel = {
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice")],
+      boxes: [],
+      statements: [
+        { kind: "activate", participantId: "A", activationId: "activation:1" },
+        { kind: "activate", participantId: "A", activationId: "activation:2" },
+        { kind: "deactivate", participantId: "A" },
+        { kind: "deactivate", participantId: "A" },
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    expect(positioned.activations).toHaveLength(2);
+    const outer = positioned.activations.find((a) => a.id === "activation:1")!;
+    const inner = positioned.activations.find((a) => a.id === "activation:2")!;
+    expect(outer.width).toBe(inner.width);
+    expect(outer.x).not.toBe(inner.x);
+  });
+
+  it("extends an activation that is never deactivated to the diagram's own bottom, the same policy an un-destroyed lifeline gets", () => {
+    const model: SequenceModel = {
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "B", "request"),
+        { kind: "activate", participantId: "B", activationId: "activation:1" },
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    expect(positioned.activations).toHaveLength(1);
+    const bar = positioned.activations[0]!;
+    expect(bar.y + bar.height).toBe(positioned.height);
+  });
+
+  it("occupies its own rank, positioned strictly between the message rows before and after it", () => {
+    const model: SequenceModel = {
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [
+        messageStatement("m1", "A", "B", "request"),
+        {
+          kind: "note",
+          note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
+        },
+        messageStatement("m2", "B", "A", "response"),
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    const notes = notesOf(positioned);
+    expect(notes).toHaveLength(1);
+    const [request, response] = messagesOf(positioned);
+    expect(notes[0]!.y).toBeGreaterThan(request.y);
+    expect(notes[0]!.y).toBeLessThan(response.y);
+  });
+
+  it("spans a note over two participants from one lane center to the other, growing symmetrically when the text is wider than the gap", () => {
+    const model: SequenceModel = {
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements: [
+        {
+          kind: "note",
+          note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
+        },
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    const note = notesOf(positioned)[0]!;
+    expect(note.x).toBeLessThanOrEqual(byId.A.x);
+    expect(note.x + note.width).toBeGreaterThanOrEqual(byId.B.x);
+    // Centered on the midpoint between the two lanes.
+    const midpoint = (byId.A.x + byId.B.x) / 2;
+    expect(note.x + note.width / 2).toBeCloseTo(midpoint, 5);
+  });
+
+  it("places a note right of / left of a single participant's lane, on the correct side, with from and to the same participant", () => {
+    const model: SequenceModel = {
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice")],
+      boxes: [],
+      statements: [
+        {
+          kind: "note",
+          note: { id: "note:1", placement: "right", from: "A", to: "A", text: "thinking" },
+        },
+        {
+          kind: "note",
+          note: { id: "note:2", placement: "left", from: "A", to: "A", text: "pondering" },
+        },
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    const [right, left] = notesOf(positioned);
+    expect(right!.x).toBeGreaterThan(byId.A.x);
+    expect(left!.x + left!.width).toBeLessThan(byId.A.x);
+  });
+
   it("spans a created-then-destroyed participant's lifeline exactly between its create and destroy rows, even nested inside a block", () => {
     const carol: ResolvedSequenceParticipant = {
       id: "C",
@@ -896,6 +1085,8 @@ describe("layoutSequence", () => {
 
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [declaredParticipant("A", "Alice"), carol],
       boxes: [],
       statements: [
@@ -947,6 +1138,8 @@ describe("layoutSequence", () => {
   it("reserves a bottom row inside the diagram's height for participants that get a bottom box, and none when every participant is created or destroyed", () => {
     const withBottomRow: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
       statements: [messageStatement("m1", "A", "B", "Hi")],
@@ -976,6 +1169,8 @@ describe("layoutSequence", () => {
     };
     const withoutBottomRow: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [{ ...declaredParticipant("A", "Alice"), destroyedAt: 4 }, carol],
       boxes: [],
       statements: [
@@ -999,6 +1194,8 @@ describe("layoutSequence", () => {
   it("gives a box a background rect spanning its member lanes only, over the diagram's full height", () => {
     const model: SequenceModel = {
       title: "Grouped",
+      accTitle: null,
+      interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
         declaredParticipant("B", "Bob"),
@@ -1052,6 +1249,8 @@ describe("layoutSequence", () => {
 
     const withoutBox: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob"), carol],
       boxes: [],
       statements: [
@@ -1094,6 +1293,8 @@ describe("layoutSequence", () => {
   it("reserves the top row's band below each declared participant's top, so the first message clears its box", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
       statements: [messageStatement("m1", "A", "B", "first message")],
@@ -1115,6 +1316,8 @@ describe("layoutSequence", () => {
   it("keeps a block that opens the diagram below the top row's band, frame and message alike", () => {
     const model: SequenceModel = {
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
       statements: [
@@ -1150,6 +1353,8 @@ describe("layoutSequence", () => {
   it("leaves a labelled box's caption band clear of the participant boxes it groups", () => {
     const model: SequenceModel = {
       title: "Grouped",
+      accTitle: null,
+      interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [
         { id: "box:1", color: null, label: "Service tier", participantIds: ["A", "B"] },

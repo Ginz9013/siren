@@ -28,9 +28,9 @@ const defaultThemeCss = (
 /**
  * A Siren document exercising every sequence feature the renderer has a
  * distinct class or shape for: a colored box and an uncolored one, an actor
- * and a participant, autonumbering, `create`/`destroy`, a dotted message, the
- * cross and open arrowheads, all six framed block kinds plus `rect`, and a
- * title. Kept inline rather than read from `examples/`: what these tests need
+ * and a participant, autonumbering, an activation bar, `create`/`destroy`, a
+ * dotted message, the cross and open arrowheads, all six framed block kinds
+ * plus `rect`, and a title. Kept inline rather than read from `examples/`: what these tests need
  * is exhaustive *class* coverage, which is a different thing from what a demo
  * example is for, and an example edited for the demo's sake should not
  * quietly narrow what the theme is checked against.
@@ -50,6 +50,10 @@ autonumber
 Shopper->>Web: Open checkout
 Web-->>Shopper: Draft ready
 autonumber off
+
+activate Web
+Web->>Payments: Check balance
+deactivate Web
 
 create participant Retry
 Web->Payments: Quote fees

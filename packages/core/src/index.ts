@@ -139,9 +139,12 @@ function establishStepZero(controller: AnimationController): void {
  * `container` on success, and always returns the aggregated diagnostics
  * from every stage. A class diagram and a flowchart both have
  * `options.onClick`, if one was given, attached to whichever of their
- * classes or nodes the author made clickable with a `call` interaction; a
- * sequence diagram accepts no interaction directives at all, so it wires
- * nothing.
+ * classes or nodes the author made clickable with a `call` interaction. A
+ * sequence diagram's only interaction directive is `link`, which resolves
+ * to an `href` (never a `call`), so its participants come back already
+ * wrapped in a live `<a>` from `renderSequenceToSVG` itself — nothing here
+ * needs to call `attachClickHooks` for it, the same reason a class's own
+ * `href` interactions never do either.
  */
 export function render(
   source: string,

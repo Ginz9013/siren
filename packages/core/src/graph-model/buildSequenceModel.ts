@@ -19,6 +19,7 @@ import type {
   SequenceStatement,
 } from "../contracts";
 import { generatedId } from "./generatedId";
+import { resolveInteractions } from "./resolveInteractions";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
 
 /**
@@ -49,6 +50,12 @@ interface ResolutionState {
   declaredSoFar: Set<string>;
   seenPairCounts: Map<string, number>;
   blockCounters: Map<string, number>;
+  /** How many activations are currently open on each participant's lifeline — the validity check `deactivate` needs. */
+  openActivationCounts: Map<string, number>;
+  /** 1-based counter behind `generatedId("activation", n)`, one shared sequence across every participant. */
+  activationCounter: number;
+  /** 1-based counter behind `generatedId("note", n)`. */
+  noteCounter: number;
   autonumbering: boolean;
   autonumberCounter: number;
   /**
@@ -92,11 +99,22 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   }));
   const participantsById = new Map(participants.map((p) => [p.id, p]));
 
+  // A `link` targets a participant, not a message or a block — the same
+  // narrower set `click`/`callback` resolve against on the other two kinds.
+  const interactions = resolveInteractions(
+    document.interactions,
+    new Set(participants.map((p) => p.id)),
+    diagnostics,
+  );
+
   const state: ResolutionState = {
     diagnostics,
     declaredSoFar: new Set<string>(),
     seenPairCounts: new Map<string, number>(),
     blockCounters: new Map<string, number>(),
+    openActivationCounts: new Map<string, number>(),
+    activationCounter: 0,
+    noteCounter: 0,
     autonumbering: false,
     autonumberCounter: 0,
     position: 0,
@@ -141,9 +159,11 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const model: SequenceModel = {
     title: document.title,
+    accTitle: document.accTitle,
     participants,
     boxes,
     statements,
+    interactions,
     timeline,
   };
 
@@ -322,6 +342,92 @@ function resolveStatements(
         autonumber: state.autonumbering ? state.autonumberCounter : null,
       };
       resolved.push({ kind: "message", message });
+      touched.add(statement.from);
+      touched.add(statement.to);
+      continue;
+    }
+
+    if (statement.kind === "activate") {
+      if (!state.declaredSoFar.has(statement.id)) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `activate references undeclared participant "${statement.id}"`,
+          line: statement.line,
+          column: statement.column,
+        });
+        continue;
+      }
+      state.openActivationCounts.set(
+        statement.id,
+        (state.openActivationCounts.get(statement.id) ?? 0) + 1,
+      );
+      state.activationCounter += 1;
+      const activationId = generatedId("activation", state.activationCounter);
+      ++state.position;
+      resolved.push({ kind: "activate", participantId: statement.id, activationId });
+      touched.add(statement.id);
+      continue;
+    }
+
+    if (statement.kind === "deactivate") {
+      if (!state.declaredSoFar.has(statement.id)) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `deactivate references undeclared participant "${statement.id}"`,
+          line: statement.line,
+          column: statement.column,
+        });
+        continue;
+      }
+      // Matches Mermaid's own rejection ("Trying to inactivate an inactive
+      // participant") — a `deactivate` with nothing open is dropped rather
+      // than drawing a bar with no start, the same partial-failure
+      // tolerance a bad `destroy`/message reference gets.
+      const openCount = state.openActivationCounts.get(statement.id) ?? 0;
+      if (openCount === 0) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `deactivate references participant "${statement.id}", which has no open activation`,
+          line: statement.line,
+          column: statement.column,
+        });
+        continue;
+      }
+      state.openActivationCounts.set(statement.id, openCount - 1);
+      ++state.position;
+      resolved.push({ kind: "deactivate", participantId: statement.id });
+      touched.add(statement.id);
+      continue;
+    }
+
+    if (statement.kind === "note") {
+      // Explicit-reference rule, same as a message's two ends.
+      const referencedIds = [...new Set([statement.from, statement.to])];
+      const missingIds = referencedIds.filter((id) => !state.declaredSoFar.has(id));
+      if (missingIds.length > 0) {
+        for (const id of missingIds) {
+          state.diagnostics.push({
+            severity: "error",
+            message: `note references undeclared participant "${id}"`,
+            line: statement.line,
+            column: statement.column,
+          });
+        }
+        continue;
+      }
+
+      state.noteCounter += 1;
+      ++state.position;
+      resolved.push({
+        kind: "note",
+        note: {
+          id: generatedId("note", state.noteCounter),
+          placement: statement.placement,
+          from: statement.from,
+          to: statement.to,
+          text: statement.text,
+        },
+      });
       touched.add(statement.from);
       touched.add(statement.to);
       continue;

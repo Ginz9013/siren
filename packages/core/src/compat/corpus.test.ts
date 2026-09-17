@@ -288,8 +288,13 @@ describe("the corpus, case by case", () => {
  * constructs and does not touch this number is the ordinary case, not a
  * suspicious one — and none of these three is a flowchart node shape, so a
  * board about node shapes was never going to be the one that closes them.
+ *
+ * `seq-loop`/`seq-alt-else` then closed the way this comment always said
+ * they would: a keyword drawn, not a construct refused. 3 - 2 = 1, leaving
+ * only `fc-text-label-whitespace` — a flowchart parser trim, out of scope
+ * for the sequence board that closed the other two.
  */
-const SILENTLY_WRONG = 3;
+const SILENTLY_WRONG = 1;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -606,8 +611,19 @@ const SILENTLY_WRONG = 3;
  *
  * `cls-lollipop` (`A ()-- B`) then moved from `rejected` to `supported`:
  * 17 - 1 = 16.
+ *
+ * `seq-acc-title` (`accTitle:`) then moved from `rejected` to `supported`:
+ * 16 - 1 = 15.
+ *
+ * `seq-link` then moved from `rejected` to `supported`: 15 - 1 = 14.
+ *
+ * `seq-activation-shorthand` and `seq-activate` then both moved from
+ * `rejected` to `supported`: 14 - 2 = 12.
+ *
+ * `seq-note-over` and `seq-note-right-of` then both moved from `rejected`
+ * to `supported`: 12 - 2 = 10.
  */
-const REJECTED = 16;
+const REJECTED = 10;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

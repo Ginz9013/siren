@@ -72,8 +72,8 @@ the verb matters)
 
 **Timeline target**:
 Anything a timeline action can name by id: a flowchart node, edge or subgraph; a class,
-relationship, namespace or note in a class diagram; a participant, message, control-flow block or
-box grouping in a sequence diagram. Every one of them carries `data-siren-id` in the rendered SVG,
+relationship, namespace or note in a class diagram; a participant, message, control-flow block,
+box grouping, activation bar or note in a sequence diagram. Every one of them carries `data-siren-id` in the rendered SVG,
 which is how the animation controller finds it — so a diagram kind gains animation by tagging its
 drawn elements with the ids the timeline uses, not by teaching the controller anything new.
 A target is the *authored thing*, not one drawn element: an id may be worn by several elements
@@ -133,6 +133,17 @@ document — an unresolved timeline reference, a duplicate node id, etc. Returne
 never thrown.
 _Avoid_: error, warning (too broad alone — say "diagnostic" for the type, "error-severity
 diagnostic" for the level)
+
+**Accessible title**:
+`accTitle: text`, a document-level statement carried on the parsed/resolved/positioned document
+under `accTitle`, kept deliberately apart from `title` (a different statement, `title text` with
+no colon): `title` draws on the canvas as visible heading text and reaches no accessibility tree
+entry of its own; `accTitle` draws nothing visible at all and reaches only the rendered SVG's own
+`<title>` element (measured against real Mermaid, which puts it there with `role`/
+`aria-labelledby` wired to it on the root `<svg>`). A document may carry either, both, or neither —
+the two never merge.
+_Avoid_: title (alone, for `accTitle` — the unqualified word means the visible one), aria-label,
+alt text
 
 **Compatibility corpus**:
 `packages/core/src/compat/corpus.ts` — one row per Mermaid construct, stating what Siren does with
@@ -333,14 +344,32 @@ Mermaid's ten arrow forms.
 _Avoid_: edge (that is flowchart vocabulary — messages are ordered in time, edges are not), call,
 arrow (say "arrow" only for the drawn line/head, not the message itself)
 
+**Activation bar**:
+The rectangle Mermaid draws beside a participant's lifeline while it is "active" — opened by
+`activate X` or the `+` shorthand on an arrow, closed by `deactivate X` or the `-` shorthand.
+Measured against real Mermaid: `+` opens the lifeline the arrow *points at* (its destination) and
+`-` closes the lifeline the arrow is *sent from* (its source) — not the same lane in general, and
+easy to mis-state because the common `A->>+B` / `B-->>-A` pairing happens to put both markers on
+`B`. Bars stack rather than merge when a lifeline is activated more than once before its first
+close — offset outward from the lifeline the later a bar closes. Addressable in a `timeline:`
+block under a generated id (`activation:1`, `activation:2`, … one shared counter across every
+participant, assigned when the bar opens). `deactivate`ing a lifeline with nothing open is an
+error, matching Mermaid's own rejection, not a silent no-op.
+_Avoid_: activation (alone — say "activation bar" for the drawn rectangle, "activate"/"deactivate"
+for the statements that open/close it)
+
 **Control-flow block**:
 A `loop`/`alt`/`opt`/`par`/`critical`/`break`/`rect` region wrapping a run of statements in a
 sequence diagram, nestable to any depth. Drawn as a frame spanning every participant lane its body
-touches, with one divider per extra branch (`else`/`and`/`option`). `rect` is the exception: a
-filled background highlight with no frame. Addressable in a `timeline:` block under a generated
-id — its kind, then a 1-based counter per kind in source order: `loop:1`, `alt:2`, `rect:1`. The
-colon is load-bearing: a participant id is `\w+`, so no message id (`${from}-${to}`) can ever
-spell one of these.
+touches, with one divider per extra branch (`else`/`and`/`option`). Its own keyword (`loop`, `alt`,
+…) draws once, on the block's own header — never on a divider, however many branches there are —
+beside the bracket-wrapped condition text (`loop every day` draws the word `loop` and `[every
+day]`; measured against real Mermaid, which brackets a block's condition the same way whether it
+sits on the header or on a divider). `rect` is the exception: a filled background highlight with no
+frame, no keyword and no label. Addressable in a `timeline:` block under a generated id — its kind,
+then a 1-based counter per kind in source order: `loop:1`, `alt:2`, `rect:1`. The colon is
+load-bearing: a participant id is `\w+`, so no message id (`${from}-${to}`) can ever spell one of
+these.
 _Avoid_: block (alone — too vague), group, section, box
 
 **Box grouping**:
@@ -416,12 +445,20 @@ _Avoid_: package, module, cluster (that is the dagre-side word `layoutDirectedGr
 mechanism, not the authored construct), group, box
 
 **Note**:
-A free-standing annotation box in a class diagram, either attached to one class
-(`note for Shelf "..."`, drawn with a connector to that class's box) or standing alone
-(`note "..."`). Laid out as an ordinary node in the graph, so the layout engine itself guarantees
-it never overlaps a class box — at the cost of occupying a rank. Addressable in a `timeline:`
-block under a generated id (`note:1`, `note:2`, … in source order, which a dropped note does not
-renumber).
+A free-standing annotation box, in either of the two diagram kinds that have one — a class
+diagram's, either attached to one class (`note for Shelf "..."`, drawn with a connector to that
+class's box) or standing alone (`note "..."`); a sequence diagram's `note over A,B`/`note right of
+A`/`note left of A`, modeled as one statement with a `left`/`right`/`over` placement axis (the
+same two/one-axis pattern as `SequenceArrow`/`ClassRelationshipEnd`) rather than three statement
+kinds, and drawn with the class diagram's own `siren-note`/`siren-note-frame`/`siren-note-text`
+classes — deliberately reused rather than duplicated, since it is the same idea (a boxed
+annotation) in both kinds. The two differ in layout: a class diagram's note is laid out as an
+ordinary graph node, so the layout engine itself guarantees it never overlaps a class box, at the
+cost of occupying a rank; a sequence diagram's note occupies its own rank on the timeline the same
+way a message does (measured against real Mermaid: it never overlaps the message before or after
+it) and draws no connector at all, unlike the class diagram's attached form. Addressable in a
+`timeline:` block under a generated id in both kinds (`note:1`, `note:2`, … in source order, which
+a dropped note does not renumber).
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing), label,
 callout
@@ -467,14 +504,20 @@ classes — say "the apply-directive" for the statement, and see **Class**), lin
 `linkStyle` is a directive spelled one way)
 
 **Interaction target**:
-A class or a flowchart node the author made clickable, with `click X href "url"` (rendered as an
-`<a class="siren-link">` wrapper) or `click X call fn()` (rendered as a `data-siren-click` hook
-that `render()` reports to `options.onClick`). Both forms are author input reaching a live sink,
-so the URL is checked against an `http`/`https`/`mailto` allowlist — a scheme-relative or otherwise
-disallowed URL is dropped with an error diagnostic — and a callback is only ever a *name* handed to
-the host, never a function this package looks up and invokes. A class diagram additionally accepts
-`link X "url"` and `callback X "fn"` as older, standalone spellings of the same two directives; a
-flowchart does not — `link`/`callback` are not valid flowchart Mermaid syntax at all (measured
-against mermaid 11.17.2), so a flowchart only ever reaches this concept through `click`.
-_Avoid_: link (that is one of the two forms, and only for a class diagram at that), handler, action
+A class, a flowchart node, or a sequence diagram participant the author made clickable, with
+`click X href "url"` (rendered as an `<a class="siren-link">` wrapper) or `click X call fn()`
+(rendered as a `data-siren-click` hook that `render()` reports to `options.onClick`). Both forms
+are author input reaching a live sink, so the URL is checked against an `http`/`https`/`mailto`
+allowlist — a scheme-relative or otherwise disallowed URL is dropped with an error diagnostic —
+and a callback is only ever a *name* handed to the host, never a function this package looks up
+and invokes. A class diagram additionally accepts `link X "url"` and `callback X "fn"` as older,
+standalone spellings of the same two directives; a flowchart does not — `link`/`callback` are not
+valid flowchart Mermaid syntax at all (measured against mermaid 11.17.2), so a flowchart only ever
+reaches this concept through `click`. A sequence diagram reaches it through a third spelling,
+`link A: Label @ url` — parsed straight into an `href`-kind interaction (no third `InteractionKind`
+was added for it: Mermaid's own popup-menu semantics for this directive are not reproducible in a
+static SVG anyway, measured as a `display:none` panel toggled by JS), with `Label` carried as the
+interaction's `tooltip` and drawn as a `<title>` — the same "first child of the group" tooltip
+convention `click`/`link` already use on a class.
+_Avoid_: link (one of several spellings, not a fourth kind of interaction), handler, action
 (that is the callback-name field of one, not the whole thing), hotspot

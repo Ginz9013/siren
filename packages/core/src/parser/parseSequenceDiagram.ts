@@ -1,5 +1,6 @@
 import type {
   Diagnostic,
+  Interaction,
   ParseResult,
   SequenceAltBranch,
   SequenceArrowHead,
@@ -7,6 +8,7 @@ import type {
   SequenceBox,
   SequenceCriticalBranch,
   SequenceDocument,
+  SequenceNotePlacement,
   SequenceParBranch,
   SequenceParticipantDecl,
   SequenceParticipantKind,
@@ -32,6 +34,10 @@ const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
 const TIMELINE_TERMINATOR = "timeline:";
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/;
 const TITLE_RE = /^title\s+(.+)$/;
+/** `accTitle: text` — screen-reader-only, distinct from the visible `title` above. The colon is required. */
+const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
+/** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
+const LINK_RE = /^link\s+(\w+):\s*(.+?)\s*@\s*(\S+)$/;
 /** The lone participant id argument of a `destroy` statement. */
 const DESTROY_ID_RE = /^(\w+)$/;
 
@@ -113,27 +119,32 @@ const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$
  * The same message shape, but with the activation shorthand's `+`/`-`
  * between the arrow and the target (`A->>+B: x`, `B-->>-A: y`).
  *
- * Siren does not draw activation bars, and this pattern exists to *refuse*
- * such a line rather than to read it. That is a reversal: this regex's
- * `[+-]` used to live inside `MESSAGE_RE`, where the marker was matched
- * and thrown away so that one unimplemented feature would not cost the
- * author their whole document. Under the condition this codebase now holds
- * itself to — a document that renders in Mermaid renders here — swallowing
- * is the worse trade: Mermaid draws a bar and a visibly thickened
- * lifeline, Siren drew neither and said nothing, so the author was handed
- * a wrong picture with no signal in it. An honest rejection at least names
- * what is missing.
+ * Matched *after* `MESSAGE_RE`, though the two are disjoint: a target is
+ * `\w+` and can never begin with `+` or `-`, so no arrow token ending in
+ * `-x`, `--x`, `-)` or `--)` can be reread as a marker.
  *
- * It is matched *after* `MESSAGE_RE`, though the two are disjoint: a
- * target is `\w+` and can never begin with `+` or `-`, so no arrow token
- * ending in `-x`, `--x`, `-)` or `--)` can be reread as a marker.
- *
- * `activate X` / `deactivate X`, the long form, is a separate gap: it
- * stays an unrecognized line, as it is today.
+ * Measured against real Mermaid: `+` opens an activation on the arrow's
+ * *destination*; `-` closes one on its *source* — not the same lane, and
+ * easy to mis-state because the common `A->>+B` / `B-->>-A` pairing puts
+ * both markers on `B`. The statement handler below expands a match into
+ * the message plus a synthetic `activate`/`deactivate` statement rather
+ * than keeping the shorthand as its own shape, so every later stage reads
+ * one representation regardless of which spelling the author used.
  */
 const ACTIVATION_MESSAGE_RE = new RegExp(
-  `^(?:\\w+)(?:${ARROW_ALTERNATION})([+-])(?:\\w+)\\s*:\\s*(?:.*)$`,
+  `^(\\w+)(${ARROW_ALTERNATION})([+-])(\\w+)\\s*:\\s*(.*)$`,
 );
+/** `activate X` / `deactivate X` — the long form of the same activation bar. */
+const ACTIVATE_RE = /^activate\s+(\w+)$/;
+const DEACTIVATE_RE = /^deactivate\s+(\w+)$/;
+/**
+ * `note over A,B: text` / `note over A: text` / `note right of A: text` /
+ * `note left of A: text`. The participant-list group is `[\w,]+` rather
+ * than two separate `\w+`s: `over` may name one or two ids, `right of`/
+ * `left of` name exactly one, and splitting on `,` after the match reads
+ * either shape without two regexes.
+ */
+const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/;
 
 /** Mutable cursor + accumulators threaded through the recursive-descent body parser. */
 interface ParserState {
@@ -145,6 +156,8 @@ interface ParserState {
   readonly boxes: SequenceBox[];
   sawError: boolean;
   title: string | null;
+  accTitle: string | null;
+  readonly interactions: Interaction[];
 }
 
 /** Result of matching a line against a single leading keyword (e.g. `loop`, `end`). */
@@ -362,6 +375,29 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
       continue;
     }
 
+    const accTitleMatch = ACC_TITLE_RE.exec(line);
+    if (accTitleMatch !== null) {
+      state.accTitle = accTitleMatch[1].trim();
+      state.index++;
+      continue;
+    }
+
+    const linkMatch = LINK_RE.exec(line);
+    if (linkMatch !== null) {
+      const [, targetId, label, url] = linkMatch;
+      state.interactions.push({
+        interactionKind: "href",
+        targetId,
+        action: url,
+        argument: null,
+        tooltip: label,
+        line: lineNumber,
+        column,
+      });
+      state.index++;
+      continue;
+    }
+
     if (line === "autonumber") {
       statements.push({ kind: "autonumberOn", line: lineNumber, column });
       state.index++;
@@ -395,15 +431,62 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const activationMatch = ACTIVATION_MESSAGE_RE.exec(line);
     if (activationMatch !== null) {
-      state.diagnostics.push({
-        severity: "error",
-        message:
-          `Siren does not draw an activation bar (the \`${activationMatch[1]}\` ` +
-          `after the arrow) yet: "${line}"`,
+      const [, from, arrowToken, marker, to, text] = activationMatch;
+      const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
+      statements.push({
+        kind: "message",
+        from,
+        to,
+        text: text.trim(),
+        arrow: { line: arrowDef!.line, head: arrowDef!.head },
         line: lineNumber,
         column,
       });
-      state.sawError = true;
+      // `+` opens on the arrow's destination; `-` closes on its source —
+      // see `ACTIVATION_MESSAGE_RE`'s own doc comment for why those are
+      // different lanes.
+      if (marker === "+") {
+        statements.push({ kind: "activate", id: to, line: lineNumber, column });
+      } else {
+        statements.push({ kind: "deactivate", id: from, line: lineNumber, column });
+      }
+      state.index++;
+      continue;
+    }
+
+    const activateMatch = ACTIVATE_RE.exec(line);
+    if (activateMatch !== null) {
+      statements.push({ kind: "activate", id: activateMatch[1], line: lineNumber, column });
+      state.index++;
+      continue;
+    }
+
+    const deactivateMatch = DEACTIVATE_RE.exec(line);
+    if (deactivateMatch !== null) {
+      statements.push({ kind: "deactivate", id: deactivateMatch[1], line: lineNumber, column });
+      state.index++;
+      continue;
+    }
+
+    const noteMatch = NOTE_RE.exec(line);
+    if (noteMatch !== null) {
+      const [, keyword, participantList, text] = noteMatch;
+      const ids = participantList.split(",").map((id) => id.trim());
+      const placement: SequenceNotePlacement =
+        keyword === "over" ? "over" : keyword === "right of" ? "right" : "left";
+      statements.push({
+        kind: "note",
+        placement,
+        from: ids[0],
+        // A single-participant `over`/`right of`/`left of` has nothing to
+        // pair with, so `to` mirrors `from` rather than being left unset —
+        // the same "from and to are the same id" shape a flowchart's own
+        // self-edge already models.
+        to: ids.length > 1 ? ids[1] : ids[0],
+        text: text.trim(),
+        line: lineNumber,
+        column,
+      });
       state.index++;
       continue;
     }
@@ -662,6 +745,8 @@ export function parseSequenceDiagram(source: string): ParseResult {
     boxes: [],
     sawError: false,
     title: null,
+    accTitle: null,
+    interactions: [],
   };
 
   while (state.index < lines.length && lines[state.index].trim().length === 0) {
@@ -713,7 +798,12 @@ export function parseSequenceDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const hasBody = state.title !== null || state.participants.length > 0 || statements.length > 0;
+  const hasBody =
+    state.title !== null ||
+    state.accTitle !== null ||
+    state.participants.length > 0 ||
+    state.interactions.length > 0 ||
+    statements.length > 0;
   if (!hasBody) {
     diagnostics.push({
       severity: "error",
@@ -727,6 +817,8 @@ export function parseSequenceDiagram(source: string): ParseResult {
   const document: SequenceDocument = {
     kind: "sequence",
     title: state.title,
+    accTitle: state.accTitle,
+    interactions: state.interactions,
     participants: state.participants,
     boxes: state.boxes,
     statements,

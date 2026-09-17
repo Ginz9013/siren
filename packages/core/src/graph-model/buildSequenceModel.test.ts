@@ -7,6 +7,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -49,6 +51,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "Alice", participantKind: "participant" },
         { id: "B", label: "Bob", participantKind: "actor" },
@@ -89,6 +93,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -131,6 +137,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -166,6 +174,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [{ id: "A", label: "A", participantKind: "participant" }],
       boxes: [],
       statements: [
@@ -184,10 +194,211 @@ describe("buildSequenceModel", () => {
     expect(diagnostics[0]!.message).toContain("does-not-exist");
   });
 
+  it("resolves activate/deactivate into their own statements, minting a generated activation id", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "activate", id: "A" },
+        { kind: "deactivate", id: "A" },
+      ],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model).not.toBeNull();
+    expect(model!.statements).toEqual([
+      { kind: "participant", participant: expect.objectContaining({ id: "A" }) },
+      { kind: "activate", participantId: "A", activationId: "activation:1" },
+      { kind: "deactivate", participantId: "A" },
+    ]);
+  });
+
+  it("gives two separate activations on the same participant distinct generated ids, in document order", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "activate", id: "A" },
+        { kind: "deactivate", id: "A" },
+        { kind: "activate", id: "A" },
+        { kind: "deactivate", id: "A" },
+      ],
+      timeline: null,
+    };
+
+    const { model } = buildSequenceModel(document);
+
+    const activationIds = model!.statements
+      .filter((s): s is Extract<typeof s, { kind: "activate" }> => s.kind === "activate")
+      .map((s) => s.activationId);
+    expect(activationIds).toEqual(["activation:1", "activation:2"]);
+  });
+
+  it("allows stacked activations on one participant — two opens before any close", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "activate", id: "A" },
+        { kind: "activate", id: "A" },
+        { kind: "deactivate", id: "A" },
+        { kind: "deactivate", id: "A" },
+      ],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.statements.filter((s) => s.kind === "deactivate")).toHaveLength(2);
+  });
+
+  it("drops a deactivate with nothing open on that participant, reporting an error diagnostic (matches Mermaid's own rejection)", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "deactivate", id: "A", line: 3, column: 1 },
+      ],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    expect(model!.statements.some((s) => s.kind === "deactivate")).toBe(false);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("A");
+    expect(diagnostics[0]!.message.toLowerCase()).toContain("no open activation");
+  });
+
+  it("drops an activate/deactivate referencing an undeclared participant and reports an error diagnostic", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [],
+      boxes: [],
+      statements: [{ kind: "activate", id: "does-not-exist" }],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    expect(model!.statements).toEqual([]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("does-not-exist");
+  });
+
+  it("resolves a note into a generated note:n id, carrying its placement, span and text through unchanged", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [
+        { id: "A", label: "A", participantKind: "participant" },
+        { id: "B", label: "B", participantKind: "participant" },
+      ],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "note", placement: "over", from: "A", to: "B", text: "they agree" },
+      ],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.statements.at(-1)).toEqual({
+      kind: "note",
+      note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
+    });
+  });
+
+  it("gives two notes distinct generated ids in document order", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "note", placement: "right", from: "A", to: "A", text: "first" },
+        { kind: "note", placement: "left", from: "A", to: "A", text: "second" },
+      ],
+      timeline: null,
+    };
+
+    const { model } = buildSequenceModel(document);
+
+    const noteIds = model!.statements
+      .filter((s): s is Extract<typeof s, { kind: "note" }> => s.kind === "note")
+      .map((s) => s.note.id);
+    expect(noteIds).toEqual(["note:1", "note:2"]);
+  });
+
+  it("drops a note referencing an undeclared participant and reports an error diagnostic", () => {
+    const document: SequenceDocument = {
+      kind: "sequence",
+      title: null,
+      accTitle: null,
+      interactions: [],
+      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      boxes: [],
+      statements: [
+        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "note", placement: "over", from: "A", to: "does-not-exist", text: "x" },
+      ],
+      timeline: null,
+    };
+
+    const { model, diagnostics } = buildSequenceModel(document);
+
+    expect(model).not.toBeNull();
+    expect(model!.statements.some((s) => s.kind === "note")).toBe(false);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]!.severity).toBe("error");
+    expect(diagnostics[0]!.message).toContain("does-not-exist");
+  });
+
   it("passes title through unchanged and assigns sequential autonumbers to messages between autonumber and autonumber off", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: "Order confirmation flow",
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -222,6 +433,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -266,6 +479,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -310,6 +525,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -377,6 +594,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -452,6 +671,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [{ id: "A", label: "A", participantKind: "participant" }],
       boxes: [],
       statements: [
@@ -489,6 +710,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -522,6 +745,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "Bob", participantKind: "actor" },
@@ -566,6 +791,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -604,6 +831,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [{ id: "A", label: "A", participantKind: "participant" }],
       boxes: [],
       // Positions: 1 participant A, 2 destroy A. The second destroy is
@@ -631,6 +860,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -672,6 +903,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -703,6 +936,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [{ id: "A", label: "A", participantKind: "participant" }],
       boxes: [
         {
@@ -736,6 +971,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -769,6 +1006,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -808,6 +1047,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -848,6 +1089,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [{ id: "A", label: "A", participantKind: "participant" }],
       boxes: [],
       statements: [
@@ -866,6 +1109,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -921,6 +1166,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -984,6 +1231,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -1036,6 +1285,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -1083,6 +1334,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
@@ -1136,6 +1389,8 @@ describe("buildSequenceModel", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
+      accTitle: null,
+      interactions: [],
       participants: [
         { id: "A", label: "A", participantKind: "participant" },
         { id: "B", label: "B", participantKind: "participant" },
