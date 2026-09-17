@@ -18,6 +18,8 @@ function flowchartDocument(overrides: Partial<FlowchartDocument> = {}): Flowchar
     styles: [],
     linkStyles: [],
     interactions: [],
+    accTitle: null,
+    accDescr: null,
     timeline: null,
     ...overrides,
   };
@@ -148,5 +150,23 @@ describe("buildFlowchartModel's interactions", () => {
     );
 
     expect(graph!.nodes[0].interaction).toBeNull();
+  });
+});
+
+describe("buildFlowchartModel's accTitle/accDescr", () => {
+  it("carries accTitle and accDescr through unchanged", () => {
+    const { graph } = buildFlowchartModel(
+      flowchartDocument({ accTitle: "A short title", accDescr: "A longer description" }),
+    );
+
+    expect(graph!.accTitle).toBe("A short title");
+    expect(graph!.accDescr).toBe("A longer description");
+  });
+
+  it("leaves accTitle and accDescr null when the document carries neither", () => {
+    const { graph } = buildFlowchartModel(flowchartDocument());
+
+    expect(graph!.accTitle).toBeNull();
+    expect(graph!.accDescr).toBeNull();
   });
 });

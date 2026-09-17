@@ -366,6 +366,8 @@ export function layoutGraph(
     nodes,
     edges,
     subgraphs,
+    accTitle: graph.accTitle,
+    accDescr: graph.accDescr,
     timeline: graph.timeline,
     // The core reports the extent of the graph *it* placed, which never
     // included the title strip a frame grows upward for. Taking the larger

@@ -124,6 +124,8 @@ export function buildFlowchartModel(
     nodes,
     edges,
     subgraphs,
+    accTitle: document.accTitle,
+    accDescr: document.accDescr,
     timeline: { totalSteps, entries },
   };
 

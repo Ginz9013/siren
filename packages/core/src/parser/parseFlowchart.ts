@@ -1155,6 +1155,12 @@ const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
  */
 const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$/;
 
+/** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
+const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
+
+/** `accDescr: text` — screen-reader-only, the description counterpart of `accTitle`. The colon is required. */
+const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
+
 /**
  * Strips one layer of surrounding quotes from a `call fn("arg")` argument,
  * and reads an empty argument list as no argument at all.
@@ -1259,6 +1265,8 @@ export function parseFlowchart(source: string): ParseResult {
   const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
+  let accTitle: string | null = null;
+  let accDescr: string | null = null;
 
   /**
    * The `subgraph` blocks currently open, innermost last, each remembered
@@ -1675,6 +1683,23 @@ export function parseFlowchart(source: string): ParseResult {
       // click statement carries no arrow, so it never reached the block
       // above, but it does reach every pattern below unless it is refused
       // here first.
+      // Checked before the node-declaration fallback for the same reason
+      // `click` is: an unrecognized-line diagnostic would otherwise be the
+      // result, exactly as it was before these two existed. Last write wins
+      // on a repeat — no diagnostic — matching `parseSequenceDiagram`'s
+      // `ACC_TITLE_RE` handling.
+      const accTitleMatch = ACC_TITLE_RE.exec(line);
+      if (accTitleMatch !== null) {
+        accTitle = accTitleMatch[1].trim();
+        continue;
+      }
+
+      const accDescrMatch = ACC_DESCR_RE.exec(line);
+      if (accDescrMatch !== null) {
+        accDescr = accDescrMatch[1].trim();
+        continue;
+      }
+
       const clickHrefMatch = CLICK_HREF_RE.exec(line);
       if (clickHrefMatch !== null) {
         // Naming a node here does not declare it, exactly as naming one in a
@@ -1935,6 +1960,8 @@ export function parseFlowchart(source: string): ParseResult {
     styles,
     linkStyles,
     interactions,
+    accTitle,
+    accDescr,
     timeline,
   };
 

@@ -34,6 +34,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -60,6 +62,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -87,6 +91,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "B", effect: "fade" },
@@ -131,6 +137,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "B", effect: "fade" },
@@ -165,6 +173,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -190,6 +200,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -216,6 +228,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -240,6 +254,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "A", effect: "fade" },
@@ -278,6 +294,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "enter", step: 3, targetId: "A", effect: "slide-left" },
@@ -309,6 +327,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           // B's actual enter step is 2, but this highlight is (mis)placed at step 1,
@@ -339,6 +359,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [{ kind: "exit", step: 3, targetId: "A", effect: "fade" }],
       },
@@ -363,6 +385,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "enter", step: 2, targetId: "B", effect: "fade" },
@@ -394,6 +418,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "exit", step: 1, targetId: "does-not-exist", effect: "fade" },
@@ -424,6 +450,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "enter", step: 1, targetId: "A", effect: "slide-top" },
@@ -465,6 +493,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [{ kind: "exit", step: 5, targetId: "A", effect: "fade" }],
       },
@@ -499,6 +529,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "exit", step: 5, targetId: "A", effect: "fade" },
@@ -531,6 +563,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: {
         entries: [
           { kind: "exit", step: 5, targetId: "A", effect: "fade" },
@@ -588,6 +622,8 @@ describe("buildGraphModel", () => {
       subgraphs: [],
       linkStyles: [],
       styles: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -664,6 +700,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -703,6 +741,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -742,6 +782,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -785,6 +827,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -826,6 +870,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -872,6 +918,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     });
 
@@ -918,6 +966,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -966,6 +1016,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -1003,6 +1055,8 @@ describe("buildGraphModel", () => {
       styles: [],
       subgraphs: [],
       linkStyles,
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     });
 
@@ -1072,6 +1126,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -1130,6 +1186,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -1171,6 +1229,8 @@ describe("buildGraphModel", () => {
           column: 1,
         },
       ],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     };
 
@@ -1193,6 +1253,10 @@ describe("buildGraphModel", () => {
       "to",
     ].sort());
     expect(Object.keys(graph!).sort()).toEqual([
+      // The document's screen-reader-only title/description, carried
+      // through unchanged — same reasoning as `subgraphs` below.
+      "accDescr",
+      "accTitle",
       "direction",
       "edges",
       "nodes",
@@ -1226,6 +1290,8 @@ describe("an edge's arrow through the model", () => {
     subgraphs: [],
     linkStyles: [],
     styles: [],
+    accTitle: null,
+    accDescr: null,
     timeline: null,
   });
 
@@ -1316,6 +1382,8 @@ describe("a subgraph in the graph model", () => {
     subgraphs,
     linkStyles: [],
     styles: [],
+    accTitle: null,
+    accDescr: null,
     timeline: null,
   });
 

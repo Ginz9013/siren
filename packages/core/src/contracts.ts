@@ -320,6 +320,20 @@ export interface FlowchartDocument {
    * pair of patterns here to produce this array from.
    */
   interactions: Interaction[];
+  /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:` statement.
+   * Never drawn as a visible heading; reaches only the rendered SVG's
+   * `<title>` element. A flowchart has no visible `title` statement of its
+   * own to be distinct from (unlike `SequenceDocument.title`), so this field
+   * carries the whole of the construct.
+   */
+  accTitle: string | null;
+  /**
+   * The diagram's screen-reader-only description — Mermaid's `accDescr:`
+   * statement. Draws nothing on the canvas, the same as `accTitle` above;
+   * reaches only the rendered SVG's `<desc>` element.
+   */
+  accDescr: string | null;
   timeline: SirenTimeline | null;
 }
 
@@ -1070,6 +1084,10 @@ export interface GraphModel {
    * diagram with no grouping out of dagre's compound mode.
    */
   subgraphs: ResolvedSubgraph[];
+  /** Carried through unchanged from `FlowchartDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
+  accTitle: string | null;
+  /** Carried through unchanged from `FlowchartDocument.accDescr` — no resolution needed for plain text with no target to validate against. */
+  accDescr: string | null;
   timeline: ResolvedTimeline;
 }
 
@@ -1179,6 +1197,10 @@ export interface PositionedGraph {
    * would be hidden by the outer one.
    */
   subgraphs: PositionedSubgraph[];
+  /** Carried through unchanged from `GraphModel.accTitle`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `GraphModel.accDescr`. */
+  accDescr: string | null;
   timeline: ResolvedTimeline;
   width: number;
   height: number;

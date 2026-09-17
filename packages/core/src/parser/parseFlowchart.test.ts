@@ -167,3 +167,49 @@ describe("a flowchart's click statements", () => {
     ]);
   });
 });
+
+describe("a flowchart's accTitle/accDescr statements", () => {
+  it("parses accTitle into the document's accTitle field", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  accTitle: A short title
+  A[Start] --> B[End]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("A short title");
+  });
+
+  it("parses accDescr into the document's accDescr field", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  accDescr: A longer description
+  A[Start] --> B[End]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accDescr).toBe("A longer description");
+  });
+
+  it("leaves accTitle and accDescr null when the document declares neither", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A[Start] --> B[End]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBeNull();
+    expect(document.accDescr).toBeNull();
+  });
+
+  it("keeps the last accTitle/accDescr when declared more than once", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  accTitle: First title
+  accTitle: Second title
+  accDescr: First description
+  accDescr: Second description
+  A[Start] --> B[End]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("Second title");
+    expect(document.accDescr).toBe("Second description");
+  });
+});

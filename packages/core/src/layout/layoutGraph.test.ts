@@ -37,6 +37,8 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
       { id: "B-C", from: "B", to: "C", ...PLAIN_ARROW, style: { frame: [], text: [] } },
     ],
     subgraphs: [],
+    accTitle: null,
+    accDescr: null,
     timeline: { totalSteps: 0, entries: [] },
   };
 }
@@ -159,6 +161,8 @@ describe("layoutGraph", () => {
       ],
       edges: [],
       subgraphs: [],
+      accTitle: null,
+      accDescr: null,
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -236,6 +240,8 @@ describe("layoutGraph", () => {
       ]),
       edges: [],
       subgraphs: [],
+      accTitle: null,
+      accDescr: null,
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -314,6 +320,8 @@ describe("layoutGraph", () => {
       ],
       edges: [],
       subgraphs: [],
+      accTitle: null,
+      accDescr: null,
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -375,6 +383,8 @@ describe("layoutGraph", () => {
       ],
       edges: [],
       subgraphs: [],
+      accTitle: null,
+      accDescr: null,
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -436,6 +446,8 @@ describe("layoutGraph", () => {
       ],
       edges: [],
       subgraphs: [],
+      accTitle: null,
+      accDescr: null,
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -504,6 +516,8 @@ describe("layoutGraph", () => {
       ],
       edges: [],
       subgraphs: [],
+      accTitle: null,
+      accDescr: null,
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -547,6 +561,19 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
     expect(positioned.timeline).toEqual(graph.timeline);
+  });
+
+  it("passes accTitle and accDescr through unchanged onto PositionedGraph", () => {
+    const graph: GraphModel = {
+      ...chainGraph("TB"),
+      accTitle: "A short title",
+      accDescr: "A longer description",
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    expect(positioned.accTitle).toBe("A short title");
+    expect(positioned.accDescr).toBe("A longer description");
   });
 
   it("passes each node's resolved author styling through unchanged onto PositionedNode.style", () => {
@@ -642,6 +669,8 @@ describe("how long an edge holds its endpoints apart", () => {
       },
     ],
     subgraphs: [],
+    accTitle: null,
+    accDescr: null,
     timeline: { totalSteps: 0, entries: [] },
   });
 
@@ -709,6 +738,8 @@ describe("the room an edge label is given", () => {
       },
     ],
     subgraphs: [],
+    accTitle: null,
+    accDescr: null,
     timeline: { totalSteps: 0, entries: [] },
   });
 
@@ -871,6 +902,8 @@ describe("a subgraph's frame", () => {
     nodes,
     edges,
     subgraphs,
+    accTitle: null,
+    accDescr: null,
     timeline: { totalSteps: 0, entries: [] },
   });
 
