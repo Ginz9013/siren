@@ -6,3 +6,4 @@
 {"id":"01M2SBCMFZZ2GSDYWQN3VRXW5H","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M2SBMVKRGC6DMGEBBA4PREGB","t":7,"a":"83a1","op":"comment","body":"完成並已 commit（72b26dc）。labelIn 在拿掉 fence 後補 .trim()，quoted/unquoted 兩種拼法\n都會 trim；edgeLabelIn 原本自己疊了一層 .trim() 掩蓋這個 divergence，現在跟著簡化掉\n（fence 前的 trim 還留著，因為是讓 fenced pattern 對到 padding-outside-quotes 的必要條件）。\n\nfc-text-label-whitespace 轉 supported，assert 讀真實 SVG 驗證 nodes(result)。\nSILENTLY_WRONG 1→0——corpus.test.ts 裡追蹤這個數字好幾個 board 的長篇註解也補了收尾句。\n\n933/933 測試全過（新增 1 個 parser 測試），tsc --noEmit 乾淨。Standards/Spec 自我 review\n無 findings（diff 很小，沒有另外派兩個 review agent）。"}
 {"id":"01M2SBMVT0F9A3GZ6B4XNSK97A","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2SYPY9Y5QMV83Z6W5SVN50G","t":9,"a":"83a1","op":"set","k":"archived","v":true}

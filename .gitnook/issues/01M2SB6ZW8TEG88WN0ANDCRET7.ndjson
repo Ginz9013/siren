@@ -6,3 +6,4 @@
 {"id":"01M2SDMTNXG4HQWVB3NFNP5GD0","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M2SDTZGAGNBYV8Z7MS88MQ9D","t":7,"a":"83a1","op":"comment","body":"完成並已 commit（933eba4）。跟規劃時查證的一致：不用動任何契約，純粹加一條\nCLICK_CALL_BARE_RE 在 CLICK_CALL_RE 之後 dispatch，重用完全一樣的 call Interaction 形狀\n（action: myFn, argument: null）。跟 call fn() 不衝突——後者一定先被 CLICK_CALL_RE 吃掉。\n\nfc-click-bare-callback 轉 supported。REJECTED 5→4。\n\n自我 review 時注意到一個很邊緣的情況：這條新 regex 是 ^click\\s+(id)\\s+(\\w+)$，如果作者寫\n`click A href`（漏掉 URL，本來就不是合法 Mermaid）或 `click A call`（漏掉括號），會被這條\n新規則誤判成「呼叫一個叫 href/call 的函式」而不是之前的 Unrecognized line 錯誤。這兩種都是\n本來就無效的輸入、沒有對應的 corpus case、也不是這張票的範圍，記錄起來但沒有處理。\n\n944/944 測試全過，tsc --noEmit 乾淨。已自行驗證 diff。"}
 {"id":"01M2SDTZPQE48N7PXEM6Z06X2K","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2SYPZ3HHMKGT7AJJQPY0FMT","t":9,"a":"83a1","op":"set","k":"archived","v":true}
