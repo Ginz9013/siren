@@ -2195,6 +2195,7 @@ describe("a subgraph", () => {
         label: "Ingest",
         nodeIds: ["A", "B"],
         subgraphs: [],
+        direction: null,
         line: 2,
         column: 3,
       },
@@ -2297,39 +2298,31 @@ describe("a subgraph", () => {
 });
 
 /**
- * `direction LR` inside a subgraph, and the decision to refuse it.
+ * `direction LR` inside a subgraph — a per-cluster rank direction.
  *
- * **Measured first.** mermaid 11.17.2 records it as `dir="LR"` on that
- * subgraph alone and leaves the document's own direction where the header put
- * it (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
- * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`). So it is a
- * *per-cluster* rank direction, and Mermaid honors it by laying each subgraph
- * out as a diagram of its own and composing the results.
- *
- * **Out, and out loudly.** dagre has exactly one `rankdir` per graph —
- * `layoutDirectedGraph` takes it as a graph-level field, which is the whole of
- * that seam — so honoring this means recursive sub-layouts and a composition
- * step, which is a layout feature of its own size rather than the port this
- * ticket is. What is *not* an option is accepting the line and ignoring it: a
- * group laid out top-to-bottom where the author wrote left-to-right is a
- * picture with nothing in it to notice, which is the exact failure mode the
- * project's absolute condition exists to remove. So it is refused by name,
- * and recorded in the compatibility corpus as the backlog item it is.
+ * **Measured.** mermaid 11.17.2 records it as `dir="LR"` on that subgraph
+ * alone and leaves the document's own direction where the header put it
+ * (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
+ * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`).
+ * `layoutDirectedGraph` honors it the same way, by way of dagre's own
+ * `recursiveClusterLayout`: a cluster node carrying a `rankdir` of its own
+ * lays its children out as a sub-graph of their own.
  */
 describe("a direction written inside a subgraph", () => {
-  it("is refused by name rather than ignored", () => {
+  it("is read onto that subgraph, not refused", () => {
     const { document, diagnostics } = parseSiren(
       "flowchart TB\n  subgraph Ingest\n    direction LR\n    A --> B\n  end\n",
     );
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
-      [
-        "error",
-        'Siren does not lay a subgraph out in its own direction yet: "direction LR"',
-        3,
-      ],
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("flowchart");
+    expect((document as FlowchartDocument).subgraphs).toEqual([
+      expect.objectContaining({ name: "Ingest", direction: "LR" }),
     ]);
+    // The document's own direction, where the header put it — untouched by
+    // the subgraph's own.
+    expect((document as FlowchartDocument).direction).toBe("TB");
   });
 
   it("costs the author nothing when they never wrote one", () => {

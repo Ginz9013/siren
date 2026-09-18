@@ -1389,9 +1389,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         direction LR
         A --> B
       end`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`direction LR` inside a subgraph lays that group out left-to-right while the rest of the diagram keeps the header's direction.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+
+      // The picture, not the claim: the header said `TB`, so the only way
+      // `B` can land beside `A` rather than below it is the subgraph's own
+      // `direction LR` actually reaching layout.
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn to the right of A", to.x > from.x, true);
+      expectSame("and in the same row", to.y === from.y, true);
+
+      // Still an ordinary frame, on the same terms `fc-stmt-subgraph`
+      // already checks: a `direction` inside the block does not stop it
+      // enclosing its own members.
+      const frame = subgraphBox(result, "one");
+      expectSame("frame encloses A", encloses(frame, nodeBox(result, "A")), true);
+      expectSame("frame encloses B", encloses(frame, nodeBox(result, "B")), true);
+    },
   },
   {
     id: "fc-subgraph-edge",

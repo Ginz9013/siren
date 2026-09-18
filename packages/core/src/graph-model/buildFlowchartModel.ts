@@ -252,7 +252,7 @@ function resolveSubgraphs(
 
   const visit = (subgraph: SirenSubgraph, parentId: string | null): void => {
     const id = generatedId("subgraph", resolved.length + 1);
-    resolved.push({ id, label: subgraph.label, parentId });
+    resolved.push({ id, label: subgraph.label, parentId, direction: subgraph.direction });
 
     for (const nodeId of subgraph.nodeIds) {
       // A member the document has no node for cannot arise from this

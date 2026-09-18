@@ -176,6 +176,39 @@ describe("buildFlowchartModel's labelRuns", () => {
   });
 });
 
+describe("buildFlowchartModel's subgraph direction", () => {
+  it("carries a subgraph's own direction through onto the resolved subgraph", () => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" })],
+        subgraphs: [
+          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: "LR" },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.subgraphs).toEqual([
+      { id: "subgraph:1", label: "one", parentId: null, direction: "LR" },
+    ]);
+  });
+
+  it("leaves a resolved subgraph's direction null when the author wrote none", () => {
+    const { graph } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" })],
+        subgraphs: [
+          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+        ],
+      }),
+    );
+
+    expect(graph!.subgraphs).toEqual([
+      { id: "subgraph:1", label: "one", parentId: null, direction: null },
+    ]);
+  });
+});
+
 describe("buildFlowchartModel's accTitle/accDescr", () => {
   it("carries accTitle and accDescr through unchanged", () => {
     const { graph } = buildFlowchartModel(

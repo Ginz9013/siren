@@ -661,8 +661,15 @@ const SILENTLY_WRONG = 0;
  * `fc-text-multiline` (a label whose Markdown fence closes on a later
  * physical source line than it opened on). Net: one row left `rejected`,
  * two rows arrived already `supported`: 3 - 1 = 2.
+ *
+ * `fc-subgraph-direction` (`direction LR` inside a `subgraph` block) then
+ * moved from `rejected` to `supported`: `@dagrejs/dagre@3.1.1`'s pinned
+ * version turned out to already carry `recursiveClusterLayout`, a per-cluster
+ * `rankdir` — verified directly against dagre before any of this board's code
+ * changed — so honoring the block's own direction needed no new layout math,
+ * only threading the field through: 2 - 1 = 1.
  */
-const REJECTED = 2;
+const REJECTED = 1;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

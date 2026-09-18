@@ -18,7 +18,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
+import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 /**
@@ -1136,28 +1136,25 @@ function readSubgraphTitle(
 
 /**
  * `direction LR` written inside a `subgraph` block — a per-cluster rank
- * direction, which Siren refuses by name rather than reading and dropping.
+ * direction, read onto that block alone.
  *
  * Measured, not recalled: mermaid 11.17.2 records it as `dir="LR"` on that
  * subgraph and leaves the document's own direction where the header put it
- * (`scripts/mermaid-probe.mjs`). Honoring it means laying each subgraph out
- * as a diagram of its own and composing the results, because dagre carries
- * exactly one `rankdir` per graph and `layoutDirectedGraph` takes it as a
- * graph-level field. That is a layout feature of its own size.
+ * (`scripts/mermaid-probe.mjs`). `layoutDirectedGraph` honors it the same
+ * way, by way of dagre's own `recursiveClusterLayout`: a cluster node
+ * carrying a `rankdir` of its own lays its children out as a sub-graph of
+ * their own, independent of the outer graph's direction.
  *
- * The alternative is not "ignore it". A group drawn top-to-bottom where the
- * author wrote left-to-right is the wrong picture with nothing in it to
- * notice — a silent mis-render by the compatibility corpus's own definition,
- * and the state this project's absolute condition exists to keep out. So the
- * line is named in a diagnostic and the document is refused, exactly as an
- * undrawn arrow spelling and an undrawn bracket form already are.
+ * Read with `matchClassDirection` rather than a pattern of this file's own —
+ * the spelling, the alias (`TD` → `TB`), and the diagnostic-worthy set of
+ * five are already settled there for the header, and a second regex here
+ * would only give the two a chance to drift.
  *
  * Scoped to *inside* a block on purpose. At the top level of a flowchart
  * mermaid 11.17.2 accepts `direction LR` and ignores it — the recorded
- * direction stays `TB`, measured — so there is nothing there for Siren to be
- * behind on, and it stays an unrecognized line.
+ * direction stays `TB`, measured — so there is nothing there for Siren to
+ * read either, and it stays an unrecognized line.
  */
-const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
 
 /** The window target mermaid 11.17.2's grammar accepts as an `href` interaction's fourth argument — see `LinkTarget`. */
 const LINK_TARGETS: readonly LinkTarget[] = ["_blank", "_self", "_top", "_parent"];
@@ -1646,6 +1643,10 @@ export function parseFlowchart(source: string): ParseResult {
           label: title.label,
           nodeIds: [],
           subgraphs: [],
+          // Filled in below when the block's own body writes a `direction`
+          // line; `null` here rather than left out, the empty-not-absent
+          // rule every other optional statement in this parser follows.
+          direction: null,
           line: lineNumber,
           column,
         };
@@ -1662,15 +1663,12 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
-      if (openBlocks.length > 0 && SUBGRAPH_DIRECTION_RE.test(line)) {
-        diagnostics.push({
-          severity: "error",
-          message: `Siren does not lay a subgraph out in its own direction yet: "${line}"`,
-          line: lineNumber,
-          column,
-        });
-        sawError = true;
-        continue;
+      if (openBlocks.length > 0) {
+        const blockDirection = matchClassDirection(line);
+        if (blockDirection !== null) {
+          openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
+          continue;
+        }
       }
 
       // A declaration list is not a place where an arrow means anything —

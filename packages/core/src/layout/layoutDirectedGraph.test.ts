@@ -204,4 +204,23 @@ describe("layoutDirectedGraph", () => {
     expect(group.x + group.width).toBeLessThanOrEqual(result.width);
     expect(group.y + group.height).toBeLessThanOrEqual(result.height);
   });
+
+  it("lays a cluster's own children out in a rankdir of its own, independent of the outer graph's", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", width: 40, height: 20, parentId: "group" },
+        { id: "B", width: 40, height: 20, parentId: "group" },
+      ],
+      edges: [{ id: "A-B", from: "A", to: "B" }],
+    });
+
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // LR ranks B to the right of A, on the same row — the opposite of what
+    // the outer TB graph would have done to an ungrouped pair.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x);
+    expect(byId.B.y).toBe(byId.A.y);
+  });
 });

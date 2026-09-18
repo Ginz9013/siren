@@ -1389,12 +1389,14 @@ describe("a subgraph in the graph model", () => {
 
   it("gives each one a generated id and puts its members' parentage on the nodes", () => {
     const { graph, diagnostics } = buildGraphModel(
-      grouped([{ name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [] }]),
+      grouped([
+        { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },
+      ]),
     );
 
     expect(diagnostics).toEqual([]);
     expect(graph!.subgraphs).toEqual([
-      { id: "subgraph:1", label: "Ingest", parentId: null },
+      { id: "subgraph:1", label: "Ingest", parentId: null, direction: null },
     ]);
     expect(graph!.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ["A", "subgraph:1"],
@@ -1412,7 +1414,16 @@ describe("a subgraph in the graph model", () => {
           name: "Outer",
           label: "Outer",
           nodeIds: ["C"],
-          subgraphs: [{ name: "Inner", label: "Inner", nodeIds: ["A", "B"], subgraphs: [] }],
+          subgraphs: [
+            {
+              name: "Inner",
+              label: "Inner",
+              nodeIds: ["A", "B"],
+              subgraphs: [],
+              direction: null,
+            },
+          ],
+          direction: null,
         },
       ]),
     );
@@ -1420,8 +1431,8 @@ describe("a subgraph in the graph model", () => {
     // Pre-order, which is the order the author wrote the `subgraph` keywords
     // in and therefore the order they would count them in.
     expect(graph!.subgraphs).toEqual([
-      { id: "subgraph:1", label: "Outer", parentId: null },
-      { id: "subgraph:2", label: "Inner", parentId: "subgraph:1" },
+      { id: "subgraph:1", label: "Outer", parentId: null, direction: null },
+      { id: "subgraph:2", label: "Inner", parentId: "subgraph:1", direction: null },
     ]);
     expect(graph!.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ["A", "subgraph:2"],
@@ -1435,7 +1446,7 @@ describe("a subgraph in the graph model", () => {
     // node *and* the word the author titled the block with. Two elements,
     // two ids, and the frame's cannot be spelled by any node.
     const { graph, diagnostics } = buildGraphModel(
-      grouped([{ name: "A", label: "A", nodeIds: ["B"], subgraphs: [] }]),
+      grouped([{ name: "A", label: "A", nodeIds: ["B"], subgraphs: [], direction: null }]),
     );
 
     expect(diagnostics).toEqual([]);
@@ -1451,7 +1462,7 @@ describe("a subgraph in the graph model", () => {
     // way — so `step 1: enter subgraph:1 fade` has to resolve rather than be
     // dropped as an unknown target.
     const document = grouped([
-      { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [] },
+      { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },
     ]) as FlowchartDocument;
     const { graph, diagnostics } = buildGraphModel({
       ...document,

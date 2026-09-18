@@ -321,6 +321,14 @@ export function layoutGraph(
           width: label.width + SUBGRAPH_PADDING * 2,
           height: label.height + SUBGRAPH_PADDING * 2,
           ...(subgraph.parentId === null ? {} : { parentId: subgraph.parentId }),
+          // The subgraph's own `direction LR` (or `TB`/`BT`/`RL`), reaching
+          // dagre's `recursiveClusterLayout` through the one field it reads
+          // per cluster. `undefined` rather than `null` when the author
+          // wrote none, matching `parentId`'s own convention just above —
+          // the shared core switches this behavior on by the field's
+          // *presence*, so a subgraph that named no direction lays out along
+          // the outer graph's, exactly as before this field existed.
+          ...(subgraph.direction === null ? {} : { rankdir: subgraph.direction }),
         };
       }),
     ],

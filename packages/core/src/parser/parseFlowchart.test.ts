@@ -178,6 +178,53 @@ describe("a flowchart node id's alphabet", () => {
   });
 });
 
+describe("a direction written inside a subgraph", () => {
+  it("is read onto that subgraph alone, leaving the document's own direction where the header put it", () => {
+    const source = `flowchart TB
+  subgraph one
+    direction LR
+    A --> B
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.direction).toBe("TB");
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "one", direction: "LR" }),
+    ]);
+  });
+
+  it("normalizes `TD` to `TB`, exactly as the header spelling does", () => {
+    const source = `flowchart TB
+  subgraph one
+    direction TD
+    A --> B
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "one", direction: "TB" }),
+    ]);
+  });
+
+  it("leaves a subgraph's direction `null` when the author wrote none", () => {
+    const source = `flowchart TB
+  subgraph one
+    A --> B
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "one", direction: null }),
+    ]);
+  });
+});
+
 describe("a flowchart's bare node declarations", () => {
   it("declares a node from a bare id on its own line, outside any subgraph", () => {
     const source = `flowchart TB

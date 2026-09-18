@@ -14,6 +14,18 @@ export interface DirectedGraphLayoutNode {
    * here are ignored. The returned box is the frame enclosing those children.
    */
   isCluster?: boolean;
+  /**
+   * Lays this cluster's own children out in this direction, independent of
+   * the outer graph's `rankdir` — dagre's `recursiveClusterLayout`, switched
+   * on for exactly this node by giving it a `rankdir` of its own (verified
+   * directly against `@dagrejs/dagre` before this field existed: a cluster
+   * node carrying `rankdir` gets its children laid out as a sub-graph of
+   * their own, then integrated back as a fixed-size block). Meaningless on a
+   * node that is not a cluster, and absent for one that is when its members
+   * take the outer graph's own direction, exactly as before this field
+   * existed.
+   */
+  rankdir?: Direction;
 }
 
 /** An edge to route between two nodes, addressed by the caller's own id. */
@@ -75,6 +87,70 @@ export interface DirectedGraphLayoutResult {
   height: number;
 }
 
+/** The middle of the segment from `a` to `b`. */
+function midpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * Where the straight line from `box`'s centre to the point `(towardX,
+ * towardY)` crosses `box`'s own boundary — the classic rectangle/ray
+ * intersection, scaling the direction vector down by whichever of the two
+ * half-extents it would first cross.
+ */
+function boundaryPoint(
+  box: DirectedGraphLayoutNodeBox,
+  towardX: number,
+  towardY: number,
+): Point {
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (dx === 0 && dy === 0) {
+    return { x: cx, y: cy };
+  }
+  const scale = Math.min(
+    dx === 0 ? Infinity : box.width / 2 / Math.abs(dx),
+    dy === 0 ? Infinity : box.height / 2 / Math.abs(dy),
+  );
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+/**
+ * A two-point straight route between two boxes, clipped to each box's own
+ * boundary — the fallback for the one case dagre's `recursiveClusterLayout`
+ * does not route at all (see the call site).
+ *
+ * **An approximation of dagre's own routing, and the reason it is a safe one
+ * is measured rather than argued.** Dagre drops the *routes* for these edges
+ * but still runs its *positioning* phase over them: the ranks it would have
+ * bent a route through are still spread apart to make room for it. Probed
+ * directly against `@dagrejs/dagre@3.1.1` with the shapes that would break a
+ * naive straight line — a five-node chain with a four-rank skip edge across
+ * it, three branches converging on one node, and an edge crossing into the
+ * cluster from outside — and in every one the straight centre-to-centre
+ * segment stays clear of every other node's box, because the skipped ranks
+ * were displaced to leave exactly that lane open.
+ *
+ * What it is *not* is dagre's own bent polyline: an edge that dagre would
+ * have drawn with a bend here is drawn as one segment instead. That is a
+ * simplification of the same connection between the same two boxes, not a
+ * different picture — and it is confined to a construct that drew no picture
+ * at all until this field existed.
+ */
+function straightLineRoute(
+  from: DirectedGraphLayoutNodeBox,
+  to: DirectedGraphLayoutNodeBox,
+): Point[] {
+  const fromCenter = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+  const toCenter = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+  return [
+    boundaryPoint(from, toCenter.x, toCenter.y),
+    boundaryPoint(to, fromCenter.x, fromCenter.y),
+  ];
+}
+
 /**
  * The single call site for `@dagrejs/dagre` in the pipeline. Takes sizes,
  * returns coordinates: it measures no text, knows no diagram kind, and sees
@@ -103,7 +179,11 @@ export function layoutDirectedGraph(
   g.setDefaultEdgeLabel(() => ({}));
 
   for (const node of input.nodes) {
-    g.setNode(node.id, { width: node.width, height: node.height });
+    g.setNode(node.id, {
+      width: node.width,
+      height: node.height,
+      ...(node.rankdir === undefined ? {} : { rankdir: node.rankdir }),
+    });
   }
 
   // Parentage is assigned only once every node exists, so a cluster may be
@@ -139,14 +219,30 @@ export function layoutDirectedGraph(
     };
   });
 
+  // Keyed for the fallback below: an edge with either endpoint inside a
+  // per-cluster `rankdir` never gets `points` back from
+  // `recursiveClusterLayout` (verified directly against `@dagrejs/dagre`:
+  // node positions come back correct, but every edge touching that cluster's
+  // descendants — inside it or crossing its boundary — comes back with an
+  // empty label, `{}`, no matter how deep the nesting). Dagre's own
+  // undocumented gap, not this module's; the fallback below is what keeps a
+  // subgraph's own `direction` from taking its members' edges down with it.
+  const boxById = new Map(nodes.map((node) => [node.id, node]));
+
   const edges = input.edges.map<DirectedGraphLayoutEdgeRoute>((edge) => {
     const routed = g.edge(edge.from, edge.to, edge.id);
+    const points: Point[] =
+      routed.points ??
+      straightLineRoute(boxById.get(edge.from)!, boxById.get(edge.to)!);
     const route: DirectedGraphLayoutEdgeRoute = {
       id: edge.id,
-      points: routed.points.map((p: Point) => ({ x: p.x, y: p.y })),
+      points: points.map((p: Point) => ({ x: p.x, y: p.y })),
     };
     if (edge.label) {
-      route.labelAnchor = { x: routed.x, y: routed.y };
+      route.labelAnchor =
+        routed.x === undefined || routed.y === undefined
+          ? midpoint(points[0], points[points.length - 1])
+          : { x: routed.x, y: routed.y };
     }
     return route;
   });

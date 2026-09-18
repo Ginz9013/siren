@@ -301,6 +301,16 @@ export interface SirenSubgraph {
   nodeIds: string[];
   /** Subgraphs opened inside this one, in source order. */
   subgraphs: SirenSubgraph[];
+  /**
+   * This block's own `direction LR` (or `TB`/`BT`/`RL`), written on a line of
+   * its own inside the block — or `null` when the author wrote none.
+   *
+   * A per-cluster rank direction, not a cascading one: nothing here means
+   * "inherit the enclosing block's direction", because there is no such
+   * concept to carry — a nested subgraph with no `direction` of its own
+   * takes the outer flowchart's, exactly as an unlabelled one always has.
+   */
+  direction: Direction | null;
   line?: number;
   column?: number;
 }
@@ -1032,6 +1042,14 @@ export interface ResolvedSubgraph {
   label: string;
   /** The subgraph this one is nested in, or `null` at the top level. */
   parentId: string | null;
+  /**
+   * This subgraph's own `direction`, carried straight through from
+   * `SirenSubgraph.direction` — a `Direction` is already a closed
+   * parser-level type, so there is nothing here for this stage to validate.
+   * `null` when the author wrote none, and the block lays out along the
+   * document's own direction.
+   */
+  direction: Direction | null;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
