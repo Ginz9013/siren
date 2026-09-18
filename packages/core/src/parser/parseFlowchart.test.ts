@@ -265,17 +265,40 @@ describe("a flowchart's click statements", () => {
     ]);
   });
 
-  it("refuses the bare callback-name shorthand", () => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB
+  it("parses the bare callback-name shorthand into the same call interaction shape as `call fn()`", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
   A[Start]
   click A myFn
 `);
 
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
       {
-        severity: "error",
-        message: 'Unrecognized flowchart line: "click A myFn"',
+        interactionKind: "call",
+        targetId: "A",
+        action: "myFn",
+        argument: null,
+        tooltip: null,
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("still reads a name followed by parens as `call fn()`, not the bare shorthand", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A[Start]
+  click A call myFn()
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "call",
+        targetId: "A",
+        action: "myFn",
+        argument: null,
+        tooltip: null,
         line: 3,
         column: 3,
       },

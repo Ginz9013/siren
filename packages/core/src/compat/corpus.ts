@@ -1594,13 +1594,20 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A[Start]
       click A myFn`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "`click A myFn` is Mermaid's bare callback-name shorthand — a different " +
-      "semantic from `click A call fn()`, not merely a shorter spelling of it " +
-      "(Mermaid passes the clicked node's id to the named function rather than " +
-      "the literal argument an author wrote). Siren draws only the `call fn()` " +
-      "form.",
+      "`click A myFn` is Mermaid's bare callback-name shorthand for " +
+      "`click A call myFn()`. It parses into the same call interaction Siren " +
+      "already draws: `render()`'s `onClick` reports the clicked node's own " +
+      "id for every `call` interaction regardless of which click spelling " +
+      "produced it, so the bare form and `call fn()` land on exactly the " +
+      "same wire shape.",
+    assert: (result) => {
+      const node = svgOf(result).querySelector('g.siren-node[data-siren-id="A"]');
+      if (node === null) throw new Error('no node "A" was drawn');
+      expectSame("A's click callback", node.getAttribute("data-siren-click"), "myFn");
+      expectSame("A's click argument", node.getAttribute("data-siren-click-arg"), null);
+    },
   },
   {
     id: "fc-click-tooltip-only",

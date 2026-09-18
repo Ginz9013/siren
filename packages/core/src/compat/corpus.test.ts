@@ -636,8 +636,16 @@ const SILENTLY_WRONG = 0;
  *
  * `fc-click-target` (`click A href "url" "tip" _blank`) then moved from
  * `rejected` to `supported`: 6 - 1 = 5.
+ *
+ * `fc-click-bare-callback` (`click A myFn`, the bare callback-name
+ * shorthand) then moved from `rejected` to `supported`: a planning-stage
+ * investigation corrected the earlier record of it as a different semantic
+ * from `call fn()` — `render()`'s `onClick` already reports the clicked
+ * node's own id for every `call` interaction regardless of click spelling,
+ * so the bare form parses into the same `Interaction` shape as `call fn()`
+ * with no runtime-model change needed: 5 - 1 = 4.
  */
-const REJECTED = 5;
+const REJECTED = 4;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

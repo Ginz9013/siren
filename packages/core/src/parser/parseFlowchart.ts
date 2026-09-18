@@ -1179,15 +1179,30 @@ const CLICK_HREF_RE = new RegExp(
  * `click A call callbackFn()`, with an optional literal argument and
  * Mermaid's optional trailing tooltip: `click A call fn("arg") "tip"`.
  *
- * Spelled exactly as the class diagram's `CLICK_CALL_RE` is, and for the
- * same reason: `click A myFn` — the bare callback-name shorthand, a
- * different Mermaid semantic from `call fn()` — has no parentheses to match
- * this pattern's `\(([^)]*)\)`, so it falls through rather than being
- * silently read as a call with no arguments.
+ * Spelled exactly as the class diagram's `CLICK_CALL_RE` is. `click A myFn`
+ * — the bare callback-name shorthand — has no parentheses to match this
+ * pattern's `\(([^)]*)\)`, so it falls through to `CLICK_CALL_BARE_RE` below
+ * rather than being silently read as a call with no arguments here.
  */
 const CLICK_CALL_RE = new RegExp(
   String.raw`^click\s+(${ID_RUN})\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$`,
 );
+
+/**
+ * `click A myFn` — Mermaid's bare callback-name shorthand for
+ * `click A call myFn()`. Parsed into the exact same `Interaction` shape
+ * (`interactionKind: "call"`, `action: "myFn"`, `argument: null`): `render()`'s
+ * `onClick` already reports the clicked node's own id for every `call`
+ * interaction regardless of which click spelling produced it, so there is no
+ * separate semantic here to model — reusing the `call` shape is not a
+ * simplification, it is the correct reading.
+ *
+ * Checked after `CLICK_CALL_RE`, so a name followed by parens is still read
+ * by that pattern: this one's `(\w+)$` has no `(...)` to match, so
+ * `click A call myFn()` never reaches here in the first place, and ordering
+ * only matters for defense in depth.
+ */
+const CLICK_CALL_BARE_RE = new RegExp(String.raw`^click\s+(${ID_RUN})\s+(\w+)$`);
 
 /** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
 const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
@@ -1768,6 +1783,20 @@ export function parseFlowchart(source: string): ParseResult {
           action: clickCallMatch[2],
           argument: callArgument(clickCallMatch[3]),
           tooltip: clickCallMatch[4] ?? null,
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const clickCallBareMatch = CLICK_CALL_BARE_RE.exec(line);
+      if (clickCallBareMatch !== null) {
+        interactions.push({
+          interactionKind: "call",
+          targetId: clickCallBareMatch[1],
+          action: clickCallBareMatch[2],
+          argument: null,
+          tooltip: null,
           line: lineNumber,
           column,
         });
