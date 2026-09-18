@@ -305,17 +305,42 @@ describe("a flowchart's click statements", () => {
     ]);
   });
 
-  it("refuses a tooltip-only click, with no href or call", () => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB
+  it("parses the bare-quoted-string shorthand `click A \"url\"` into the same href interaction shape as `click A href \"url\"`", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A[Start]
+  click A "https://example.com"
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://example.com",
+        argument: null,
+        tooltip: null,
+        linkTarget: null,
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("parses the bare-quoted-string shorthand's content as written, whether or not it looks like a URL — the http/https/mailto allowlist is resolveInteractions' job, not the parser's", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
   A[Start]
   click A "tip"
 `);
 
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
       {
-        severity: "error",
-        message: 'Unrecognized flowchart line: "click A "tip""',
+        interactionKind: "href",
+        targetId: "A",
+        action: "tip",
+        argument: null,
+        tooltip: null,
+        linkTarget: null,
         line: 3,
         column: 3,
       },

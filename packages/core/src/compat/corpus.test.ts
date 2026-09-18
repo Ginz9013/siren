@@ -645,7 +645,7 @@ const SILENTLY_WRONG = 0;
  * so the bare form parses into the same `Interaction` shape as `call fn()`
  * with no runtime-model change needed: 5 - 1 = 4.
  */
-const REJECTED = 4;
+const REJECTED = 3;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

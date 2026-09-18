@@ -1204,6 +1204,28 @@ const CLICK_CALL_RE = new RegExp(
  */
 const CLICK_CALL_BARE_RE = new RegExp(String.raw`^click\s+(${ID_RUN})\s+(\w+)$`);
 
+/**
+ * `click A "https://example.com"` — Mermaid's bare-quoted-string shorthand
+ * for `click A href "https://example.com"` with the `href` keyword omitted.
+ * Parsed into the exact same `Interaction` shape as `CLICK_HREF_RE` produces
+ * for its two-argument form (`interactionKind: "href"`, the string as
+ * `action`, `argument`/`tooltip`/`linkTarget` all `null`): measured against
+ * real Mermaid 11.17.2, `click A "tip"` renders `<a href="tip">` — the
+ * quoted string becomes the href value regardless of whether it looks like a
+ * URL, so this is a keyword-omitting shorthand, not a tooltip-only concept.
+ * The `http`/`https`/`mailto` allowlist that rejects a non-URL string like
+ * `"tip"` is `resolveInteractions`' job, not this parser's, exactly as it is
+ * for `CLICK_HREF_RE`.
+ *
+ * Checked after `CLICK_HREF_RE`, `CLICK_CALL_RE` and `CLICK_CALL_BARE_RE`.
+ * There is no ordering hazard with any of them: `CLICK_HREF_RE` requires the
+ * literal word `href` this pattern never has, `CLICK_CALL_RE` requires
+ * `call fn(...)`, and `CLICK_CALL_BARE_RE`'s `(\w+)$` cannot match a quoted
+ * string — `\w` excludes the `"` characters this pattern's payload is
+ * bracketed by.
+ */
+const CLICK_HREF_BARE_RE = new RegExp(String.raw`^click\s+(${ID_RUN})\s+"([^"]*)"$`);
+
 /** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
 const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
 
@@ -1797,6 +1819,21 @@ export function parseFlowchart(source: string): ParseResult {
           action: clickCallBareMatch[2],
           argument: null,
           tooltip: null,
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const clickHrefBareMatch = CLICK_HREF_BARE_RE.exec(line);
+      if (clickHrefBareMatch !== null) {
+        interactions.push({
+          interactionKind: "href",
+          targetId: clickHrefBareMatch[1],
+          action: clickHrefBareMatch[2],
+          argument: null,
+          tooltip: null,
+          linkTarget: null,
           line: lineNumber,
           column,
         });

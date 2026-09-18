@@ -1610,16 +1610,32 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
-    id: "fc-click-tooltip-only",
+    id: "fc-click-bare-href",
     kind: "flowchart",
     source: `flowchart TB
       A[Start]
-      click A "tip"`,
-    status: "rejected",
+      click A "https://example.com"`,
+    status: "supported",
     meaning:
-      "`click A \"tip\"` gives a node a tooltip with no href or call attached " +
-      "to it. Siren's tooltip is carried on an `href`/`call` interaction's own " +
-      "trailing string; there is no interaction-less spelling of it yet.",
+      "`click A \"url\"` is Mermaid's bare-quoted-string shorthand for " +
+      "`click A href \"url\"` with the `href` keyword omitted — measured " +
+      "against real Mermaid 11.17.2 with `scripts/mermaid-probe.mjs`: " +
+      "`click A \"tip\"` renders `<a href=\"tip\">`, the quoted string becomes " +
+      "the href value regardless of whether it looks like a URL, not a " +
+      "tooltip-only concept. It parses into the same href interaction Siren " +
+      "already draws for `click A href \"url\"`, so it renders the same " +
+      "`<a class=\"siren-link\">` wrapper.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector(
+        'a.siren-link > g.siren-node[data-siren-id="A"]',
+      );
+      if (link === null) throw new Error('node "A" was not wrapped in an <a class="siren-link">');
+      expectSame(
+        "A's link href",
+        link.parentElement?.getAttribute("href"),
+        "https://example.com",
+      );
+    },
   },
   {
     id: "fc-acc-title",
