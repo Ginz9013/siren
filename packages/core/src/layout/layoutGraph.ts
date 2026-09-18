@@ -10,6 +10,7 @@ import type {
   TextMeasurer,
 } from "../contracts";
 import {
+  clipRouteEndToBox,
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
@@ -394,11 +395,35 @@ export function layoutGraph(
     };
   });
 
+  // Edges whose endpoints are frames rather than boxes, re-clipped to the
+  // frame this module drew.
+  //
+  // The shared core already clipped such an edge to the *cluster box* it
+  // placed, which is the honest answer in its own coordinates — but a frame
+  // is grown outward from that box, by `SUBGRAPH_PADDING` all round and a
+  // title strip along the top (`subgraphFrames`, below). An arrowhead left
+  // where the core put it would therefore land inside the frame by exactly
+  // the height of the title strip. Growing the frame is this module's
+  // decision, so paying for it is too — with the core's own clipper, so that
+  // "on the boundary" means one thing in both spaces.
+  const frameById = new Map(frames.map((frame) => [frame.id, frame]));
+
   const edges = graph.edges.map((edge) => {
     const route = routeById.get(edge.id)!;
+
+    let points = route.points;
+    const fromFrame = frameById.get(edge.from);
+    if (fromFrame !== undefined) {
+      points = clipRouteEndToBox(points, fromFrame, "start");
+    }
+    const toFrame = frameById.get(edge.to);
+    if (toFrame !== undefined) {
+      points = clipRouteEndToBox(points, toFrame, "end");
+    }
+
     return {
       ...edge,
-      points: route.points.map(shifted),
+      points: points.map(shifted),
       // `null` rather than absent, matching the label it belongs to: an
       // edge that asked for no space has nowhere to draw text, and one
       // state is easier to read than a missing field.

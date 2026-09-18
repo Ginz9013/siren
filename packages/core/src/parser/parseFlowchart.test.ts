@@ -225,6 +225,97 @@ describe("a direction written inside a subgraph", () => {
   });
 });
 
+/**
+ * An edge whose endpoint names a `subgraph` block.
+ *
+ * **Measured.** mermaid 11.17.2 reads `one --> two`, where both are
+ * subgraphs, as an edge between the two *frames*, and its renderer joins the
+ * clusters (`scripts/mermaid-probe.mjs`). The parser's job here is only to
+ * record what was written and to take back the node it would otherwise have
+ * declared for the name — resolving the name to the frame's generated id is
+ * `buildFlowchartModel`'s.
+ */
+describe("an edge whose endpoint names a subgraph", () => {
+  it("records the edge as written and declares no node for the name", () => {
+    const source = `flowchart TB
+  subgraph one
+    A
+  end
+  subgraph two
+    B
+  end
+  one --> two`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges).toEqual([expect.objectContaining({ from: "one", to: "two" })]);
+    // The frames are the endpoints, so there is no box called `one` beside
+    // the frame of the same name.
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+
+  it("takes the node back whichever order the two were written in", () => {
+    // A subgraph may be declared below the edge that names it, so the node
+    // an endpoint provisionally declares can only be taken back once the
+    // whole document has been read.
+    const source = `flowchart TB
+  A --> Ingest
+  subgraph Ingest
+    B --> C
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C"]);
+    expect(document.edges).toEqual([
+      expect.objectContaining({ from: "A", to: "Ingest" }),
+      expect.objectContaining({ from: "B", to: "C" }),
+    ]);
+  });
+
+  it("leaves a node the author declared in their own right alone", () => {
+    // `A[Alpha]` is a declaration, not a provisional mention, so the box
+    // stays drawn beside the frame of the same name — what Mermaid does, and
+    // what ADR-0010's generated subgraph id exists to keep apart. The edge
+    // endpoint still means the frame.
+    const source = `flowchart TB
+  A[Alpha]
+  subgraph A
+    B --> C
+  end
+  A --> D`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C", "D"]);
+    expect(document.nodes.find((node) => node.id === "A")?.label).toBe("Alpha");
+  });
+
+  it("takes the block's claim on the name back with the node", () => {
+    // The endpoint is written inside `outer`, which would have claimed it as
+    // a member — so taking the node back has to take the membership with it.
+    const source = `flowchart TB
+  subgraph one
+    A
+  end
+  subgraph outer
+    one --> B
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(document.subgraphs.map((sub) => [sub.name, sub.nodeIds])).toEqual([
+      ["one", ["A"]],
+      ["outer", ["B"]],
+    ]);
+  });
+});
+
 describe("a flowchart's bare node declarations", () => {
   it("declares a node from a bare id on its own line, outside any subgraph", () => {
     const source = `flowchart TB

@@ -1084,6 +1084,48 @@ describe("a subgraph's frame", () => {
     expect(last.y).toBeGreaterThan(first.y);
   });
 
+  it("routes an edge between two frames from one frame's own boundary to the other's", () => {
+    const positioned = laidOut(
+      model(
+        [node("A", "subgraph:1"), node("B", "subgraph:2")],
+        [
+          {
+            id: "one-two",
+            from: "subgraph:1",
+            to: "subgraph:2",
+            ...PLAIN_ARROW,
+            style: { frame: [], text: [] },
+          },
+        ],
+        [
+          { id: "subgraph:1", label: "One", parentId: null, direction: null },
+          { id: "subgraph:2", label: "Two", parentId: null, direction: null },
+        ],
+      ),
+    );
+
+    const frames = Object.fromEntries(positioned.subgraphs.map((s) => [s.id, s]));
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+    const joining = positioned.edges.find((e) => e.id === "one-two")!;
+    const first = joining.points[0];
+    const last = joining.points[joining.points.length - 1];
+
+    // Not left at the origin, which is what an unrouted edge looks like.
+    expect(joining.points.length).toBeGreaterThan(1);
+    expect(last.y).toBeGreaterThan(first.y);
+
+    // On the *drawn* frames' boundaries — the frames `layoutGraph` grew for
+    // their titles and their padding, not the smaller cluster boxes the
+    // shared core placed.
+    expect(first.y).toBe(frames["subgraph:1"].y + frames["subgraph:1"].height);
+    expect(last.y).toBe(frames["subgraph:2"].y);
+
+    // And clear of the members it was routed through: a member's box is not
+    // where this edge ends.
+    expect(first.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(last.y).toBeLessThan(byId.B.y);
+  });
+
   it("lays a subgraph's own members out in its own direction, independent of the outer graph's", () => {
     // The outer graph is TB, so an ungrouped `A --> B` would stack B below A.
     // A subgraph carrying its own `direction: "LR"` lays its own members out

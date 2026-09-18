@@ -31,7 +31,15 @@ export interface DirectedGraphLayoutNode {
 /** An edge to route between two nodes, addressed by the caller's own id. */
 export interface DirectedGraphLayoutEdge {
   id: string;
+  /**
+   * The node this edge leaves, **or a cluster node it leaves the frame of**.
+   * A cluster endpoint is routed through a representative member and the
+   * route handed back is clipped to the frame's own box — see
+   * `representativeOf` and `clipRouteEndToBox` for what that costs and why
+   * it is done here rather than by the caller.
+   */
   from: string;
+  /** The node this edge arrives at, on the same terms as `from`. */
   to: string;
   /**
    * Space to keep clear along the edge for a label. Given a size, the layout
@@ -117,6 +125,68 @@ function boundaryPoint(
   return { x: cx + dx * scale, y: cy + dy * scale };
 }
 
+/** Whether `point` lies strictly within `box` — on the boundary is not inside. */
+function strictlyInside(box: DirectedGraphLayoutNodeBox, point: Point): boolean {
+  return (
+    point.x > box.x &&
+    point.x < box.x + box.width &&
+    point.y > box.y &&
+    point.y < box.y + box.height
+  );
+}
+
+/**
+ * `points` with one end moved out onto `box`'s own boundary: the run of
+ * points lying inside `box` at that end is dropped, and the place the route
+ * crosses out of the box is put in their place.
+ *
+ * **Exported because the frame a caller draws may be bigger than the box
+ * this module placed.** `layoutGraph` grows a subgraph's frame outward from
+ * the cluster box — padding all round, and a title strip along the top — so
+ * an edge clipped here to the cluster box would end up *inside* the drawn
+ * frame by exactly that much. Rather than teach this module about title
+ * strips, the growing caller re-clips with the same function against the box
+ * it actually draws. One implementation, applied twice in two coordinate
+ * spaces, instead of two implementations free to disagree about what "on the
+ * boundary" means.
+ *
+ * The crossing point is `boundaryPoint`'s — a ray from the box's centre
+ * toward the first point outside it — rather than the exact intersection of
+ * the polyline's own crossing segment with the box. The two agree whenever
+ * the route leaves along the axis it was ranked on, which is every case
+ * dagre produces for an edge between two ranks, and where they differ the
+ * answer is still a point on the boundary in the direction the route is
+ * travelling.
+ *
+ * A route lying wholly inside the box is returned untouched: there is no
+ * point outside to aim at, and the only construct that produces one is a
+ * self-edge on a cluster, whose loop dagre draws around the representative
+ * member.
+ */
+export function clipRouteEndToBox(
+  points: readonly Point[],
+  box: DirectedGraphLayoutNodeBox,
+  end: "start" | "end",
+): Point[] {
+  const ordered = end === "start" ? [...points] : [...points].reverse();
+
+  let first = 0;
+  while (first < ordered.length && strictlyInside(box, ordered[first])) {
+    first++;
+  }
+  if (first === ordered.length) {
+    return [...points];
+  }
+
+  const outside = ordered[first];
+  const crossing = boundaryPoint(box, outside.x, outside.y);
+  const kept = ordered.slice(first);
+  const clipped =
+    crossing.x === outside.x && crossing.y === outside.y ? kept : [crossing, ...kept];
+
+  return end === "start" ? clipped : clipped.reverse();
+}
+
 /**
  * A two-point straight route between two boxes, clipped to each box's own
  * boundary — the fallback for the one case dagre's `recursiveClusterLayout`
@@ -194,10 +264,55 @@ export function layoutDirectedGraph(
     }
   }
 
-  for (const edge of input.edges) {
+  // Which node stands in for which endpoint. An edge whose endpoint is a
+  // cluster cannot be handed to dagre as written — `dagre.layout()` throws
+  // `Cannot set properties of undefined (setting 'rank')`, verified directly
+  // against `@dagrejs/dagre@3.1.1` — so the cluster is swapped for one of its
+  // own members on the way in and the route is clipped back to the frame on
+  // the way out. That is Mermaid's own strategy for the same construct
+  // (`findNonClusterChild` in its `mermaid-graphlib.js`), reached
+  // independently here because dagre offers no flag to turn the behavior on.
+  const childrenOf = new Map<string, DirectedGraphLayoutNode[]>();
+  for (const node of input.nodes) {
+    if (node.parentId !== undefined) {
+      childrenOf.set(node.parentId, [...(childrenOf.get(node.parentId) ?? []), node]);
+    }
+  }
+
+  /**
+   * The node dagre is handed in `id`'s place: `id` itself unless it has
+   * children, and otherwise the **first leaf below it in a depth-first walk
+   * of the caller's own node order**.
+   *
+   * Two things make that the choice rather than a nicer-sounding one. It is
+   * a *leaf*, because a leaf is exactly what dagre treats as an ordinary
+   * node — clusterhood is not `isCluster` here but "something named me as
+   * its parent", so a childless cluster needs no proxy at all and gets none.
+   * And it is the *first* such leaf in input order, because the caller's
+   * order is the author's order and nothing else about the graph is stable
+   * enough to choose by: picking by placement would depend on the layout
+   * this call is computing.
+   *
+   * Which member it is never shows in the picture — the route is clipped to
+   * the frame before it is returned — so the choice decides only which side
+   * of the frame the edge leaves from, and it decides it the same way every
+   * run.
+   */
+  const representativeOf = (id: string): string => {
+    const children = childrenOf.get(id);
+    return children === undefined ? id : representativeOf(children[0].id);
+  };
+
+  const proxied = input.edges.map((edge) => ({
+    edge,
+    from: representativeOf(edge.from),
+    to: representativeOf(edge.to),
+  }));
+
+  for (const { edge, from, to } of proxied) {
     g.setEdge(
-      edge.from,
-      edge.to,
+      from,
+      to,
       {
         ...(edge.label ? { width: edge.label.width, height: edge.label.height } : {}),
         ...(edge.minlen === undefined ? {} : { minlen: edge.minlen }),
@@ -229,15 +344,29 @@ export function layoutDirectedGraph(
   // subgraph's own `direction` from taking its members' edges down with it.
   const boxById = new Map(nodes.map((node) => [node.id, node]));
 
-  const edges = input.edges.map<DirectedGraphLayoutEdgeRoute>((edge) => {
-    const routed = g.edge(edge.from, edge.to, edge.id);
-    const points: Point[] =
+  const edges = proxied.map<DirectedGraphLayoutEdgeRoute>(({ edge, from, to }) => {
+    const routed = g.edge(from, to, edge.id);
+    // The fallback is drawn between the boxes the *caller* named, not
+    // between the proxies: a cluster endpoint's own box is what the edge is
+    // meant to touch, so the straight line already arrives where the clip
+    // below would have put it.
+    const routedPoints: Point[] =
       routed.points ??
       straightLineRoute(boxById.get(edge.from)!, boxById.get(edge.to)!);
-    const route: DirectedGraphLayoutEdgeRoute = {
-      id: edge.id,
-      points: points.map((p: Point) => ({ x: p.x, y: p.y })),
-    };
+
+    // Back out of the proxy. Dagre routed from a *member* of the frame, so
+    // the run of the route still inside the frame is what the picture must
+    // not show; clipping each proxied end to its own cluster box is what
+    // turns an edge between two members into an edge between two frames.
+    let points = routedPoints.map((p: Point) => ({ x: p.x, y: p.y }));
+    if (from !== edge.from) {
+      points = clipRouteEndToBox(points, boxById.get(edge.from)!, "start");
+    }
+    if (to !== edge.to) {
+      points = clipRouteEndToBox(points, boxById.get(edge.to)!, "end");
+    }
+
+    const route: DirectedGraphLayoutEdgeRoute = { id: edge.id, points };
     if (edge.label) {
       route.labelAnchor =
         routed.x === undefined || routed.y === undefined

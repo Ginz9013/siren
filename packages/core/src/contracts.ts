@@ -279,11 +279,16 @@ export interface SirenSubgraph {
    * `subgraph "Two Words"` does not (mermaid 11.17.2 mints `subGraph0` for
    * that case, measured).
    *
-   * Kept apart from `label` because it is the name an *edge* could try to
-   * use: Mermaid lets `One --> Two` join two subgraph frames, which Siren
-   * does not draw, and refusing that honestly needs to know which names are
-   * a subgraph's. Nothing else reads it — it is deliberately not an id, and
-   * it never becomes one.
+   * Kept apart from `label` because it is the name an *edge* uses:
+   * `One --> Two` joins two subgraph frames, and drawing that needs to know
+   * which names are a subgraph's. `buildFlowchartModel` reads this to turn
+   * the author's handle into the frame's generated id, and the parser reads
+   * it to take back the node an endpoint would otherwise have declared for
+   * the name.
+   *
+   * Still deliberately **not** an id and it never becomes one: what the
+   * frame is addressed by downstream is `ResolvedSubgraph.id`, generated per
+   * ADR-0010, because a subgraph may legitimately be named after a node.
    */
   name: string | null;
   /** The text drawn on the frame. `subgraph Ingest` labels itself. */
@@ -1054,8 +1059,27 @@ export interface ResolvedSubgraph {
 
 /** An edge after graph-model resolution, carrying its assigned id. */
 export interface GraphEdge {
+  /**
+   * `${from}-${to}` in the **author's** own words, then `#2`, `#3`, … for
+   * repeats of the same pair — so an edge naming a subgraph is `one-two`
+   * and not `subgraph:1-subgraph:2`.
+   *
+   * Spelled from the source rather than from the two fields below precisely
+   * so that it stays colon-free, which is the promise ADR-0010 separates
+   * generated ids from connector ids on; it also keeps the edge addressable
+   * in a `timeline:` block by words the author can actually type. The two
+   * spellings cannot collide, because a name a `subgraph` block claimed is
+   * never also a node.
+   */
   id: string;
+  /**
+   * The id this edge leaves: a node's, or a **subgraph's** when the author
+   * named a block at that end. `buildFlowchartModel` resolves the authored
+   * handle to `ResolvedSubgraph.id` here, so nothing downstream has to know
+   * that an endpoint could have been written as anything else.
+   */
   from: string;
+  /** The id this edge arrives at, on the same terms as `from`. */
   to: string;
   /**
    * The arrow token's decomposition, carried unchanged from the spelling

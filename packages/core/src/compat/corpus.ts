@@ -230,6 +230,28 @@ function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y:
 }
 
 /**
+ * The two ends of one edge's drawn path, read off the `d` attribute itself.
+ *
+ * Where a path *starts* and *stops* is the whole of what "this edge joins
+ * these two things" means in a picture, and it is the only reader here that
+ * can tell an edge that meets a frame from one that stops at a box inside
+ * it. Everything between the ends is left alone on purpose: how many bends
+ * the route takes is the layout engine's, not a fact about Mermaid.
+ */
+function edgeEnds(
+  result: SirenRenderResult,
+  id: string,
+): { start: { x: number; y: number }; end: { x: number; y: number } } {
+  const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+  if (path === null) throw new Error(`no edge "${id}" was drawn`);
+  const points = (path.getAttribute("d") ?? "").split(/\s+/).map((command) => {
+    const [x, y] = command.slice(1).split(",");
+    return { x: Number(x), y: Number(y) };
+  });
+  return { start: points[0], end: points[points.length - 1] };
+}
+
+/**
  * How far apart, along the layout's own axis, the two ends of one edge are
  * drawn — the only thing a *rank* is visible as in a rendered SVG.
  *
@@ -1423,8 +1445,87 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         B
       end
       one --> two`,
-    status: "rejected",
+    status: "supported",
     meaning: "An edge may name a subgraph at either end, joining the two frames rather than two boxes.",
+    assert: (result) => {
+      // The names the edge used are the *frames*, so the document draws two
+      // boxes and not four: no stray `one` beside the frame of that name.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["one-two"]);
+
+      const one = subgraphBox(result, "one");
+      const two = subgraphBox(result, "two");
+      const { start, end } = edgeEnds(result, "one-two");
+
+      // The picture, not the claim. `TB`, so the edge leaves `one` through
+      // the bottom of its frame and arrives at `two` through the top of its
+      // — which is what makes this an edge between two frames rather than
+      // between two of their members.
+      expectSame("the edge leaves the bottom of `one`'s frame", start.y, one.bottom);
+      expectSame("the edge arrives at the top of `two`'s frame", end.y, two.top);
+      expectSame(
+        "and it spans the gap between them",
+        start.x >= one.left && start.x <= one.right && end.x >= two.left && end.x <= two.right,
+        true,
+      );
+
+      // Not on a member's box, and not at the origin — the two ways an edge
+      // that had not really been routed to the frames could still satisfy
+      // "a path was drawn".
+      expectSame(
+        "the edge clears A's box on the way out",
+        start.y > nodeBox(result, "A").bottom,
+        true,
+      );
+      expectSame(
+        "and stops short of B's box on the way in",
+        end.y < nodeBox(result, "B").top,
+        true,
+      );
+    },
+  },
+  {
+    id: "fc-subgraph-self-edge",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        A
+      end
+      one --> one`,
+    status: "silently-wrong",
+    meaning:
+      "A subgraph may name itself at both ends of an edge, drawing a loop " +
+      "around its own **frame** — mermaid 11.17.2 renders it as the edge " +
+      "`L_one_one_0` alongside the `one` cluster, measured. Siren draws the " +
+      "loop dagre gave the member standing in for the frame, so it lands " +
+      "*inside* the frame beside `A` rather than encircling the frame — the " +
+      "right edge, attached to the wrong figure, with no diagnostic saying " +
+      "so. **Its exit is implementing frame-level self-loop geometry, not " +
+      "refusing it**: refusing would cost the whole document a picture " +
+      "Mermaid draws, which is the trade the compatibility condition exists " +
+      "to refuse. The clip that puts an ordinary frame-to-frame edge on the " +
+      "frame boundary cannot help here — a self-loop never leaves the box, " +
+      "so there is no point outside it to aim at (`clipRouteEndToBox` says " +
+      "the same in its own words).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("edges", edges(result), ["one-one"]);
+
+      // The wrong picture, spelled out: every point of the loop lies inside
+      // the frame, which is precisely what encircling the frame would not do.
+      const frame = subgraphBox(result, "one");
+      const { start, end } = edgeEnds(result, "one-one");
+      expectSame(
+        "the loop starts inside the frame rather than on its boundary",
+        start.x > frame.left && start.x < frame.right,
+        true,
+      );
+      expectSame(
+        "and ends inside it too",
+        end.x > frame.left && end.x < frame.right,
+        true,
+      );
+    },
   },
 
   // -------------------------------------------------------------------------

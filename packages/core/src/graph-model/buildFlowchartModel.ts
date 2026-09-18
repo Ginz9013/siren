@@ -39,8 +39,10 @@ export function buildFlowchartModel(
   const diagnostics: Diagnostic[] = [];
 
   const nodes = resolveNodes(document, diagnostics);
-  const edges = assignEdgeIds(document);
-  const subgraphs = resolveSubgraphs(document, nodes);
+  // Before the edges, because an edge endpoint may name a subgraph and the
+  // id it names it by is minted here.
+  const { subgraphs, idByName } = resolveSubgraphs(document, nodes);
+  const edges = assignEdgeIds(document, idByName);
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
@@ -242,17 +244,29 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
  * list here as well would be a second statement of the same fact, free to
  * disagree with the first; the frame is grown from the boxes that name it, so
  * the boxes are where the naming belongs.
+ *
+ * It also returns what an *edge* needs: the generated id for each authored
+ * handle a block was opened with. That is the one thing `SirenSubgraph.name`
+ * is kept for — the author can write `one --> two`, and this is where the
+ * word they wrote becomes the id the frame is addressed by. **First block
+ * wins** on a repeated handle, the same rule the parser already applies to a
+ * node claimed by two blocks, so a second `subgraph one` further down cannot
+ * quietly take an edge written above it.
  */
 function resolveSubgraphs(
   document: FlowchartDocument,
   nodes: readonly GraphNode[],
-): ResolvedSubgraph[] {
+): { subgraphs: ResolvedSubgraph[]; idByName: ReadonlyMap<string, string> } {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const resolved: ResolvedSubgraph[] = [];
+  const idByName = new Map<string, string>();
 
   const visit = (subgraph: SirenSubgraph, parentId: string | null): void => {
     const id = generatedId("subgraph", resolved.length + 1);
     resolved.push({ id, label: subgraph.label, parentId, direction: subgraph.direction });
+    if (subgraph.name !== null && !idByName.has(subgraph.name)) {
+      idByName.set(subgraph.name, id);
+    }
 
     for (const nodeId of subgraph.nodeIds) {
       // A member the document has no node for cannot arise from this
@@ -274,10 +288,28 @@ function resolveSubgraphs(
     visit(subgraph, null);
   }
 
-  return resolved;
+  return { subgraphs: resolved, idByName };
 }
 
-function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
+/**
+ * The document's edges with their ids assigned and each endpoint resolved to
+ * the thing it addresses — a node id as written, or the generated id of the
+ * `subgraph` frame whose handle it names.
+ *
+ * **The id is spelled in the author's own words and the endpoints are not**,
+ * which is the one place in this pipeline those two come apart. ADR-0010
+ * separates generated ids from connector ids on the promise that no
+ * `${from}-${to}` id can contain a colon, and `subgraph:1` is all colon — so
+ * `one --> two` is the edge `one-two`, addressable in a `timeline:` block by
+ * the words on the page, running between `subgraph:1` and `subgraph:2`. It
+ * cannot collide with an edge between two *nodes* of those names, because a
+ * name a block claimed is never a node: the parser takes back the node an
+ * endpoint would have declared for it.
+ */
+function assignEdgeIds(
+  document: FlowchartDocument,
+  idByName: ReadonlyMap<string, string>,
+): GraphEdge[] {
   const seenPairCounts = new Map<string, number>();
 
   return document.edges.map((edge) => {
@@ -294,8 +326,8 @@ function assignEdgeIds(document: FlowchartDocument): GraphEdge[] {
     // one function up.
     return {
       id,
-      from: edge.from,
-      to: edge.to,
+      from: idByName.get(edge.from) ?? edge.from,
+      to: idByName.get(edge.to) ?? edge.to,
       line: edge.line,
       fromEnd: edge.fromEnd,
       toEnd: edge.toEnd,

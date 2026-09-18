@@ -298,8 +298,20 @@ describe("the corpus, case by case", () => {
  * fence is removed, so a padded label draws exactly as Mermaid draws it.
  * 1 - 1 = 0. Every case this constant has ever named is now either
  * `supported` or `rejected` — the destination this policy always pointed at.
+ *
+ * It rose to **1** again when `fc-subgraph-edge` landed, and the rise is the
+ * legitimate kind twice over: the construct it belongs to drew *no* picture
+ * at all before that board, and the case was found and written down by the
+ * board that caused it rather than by the next one to trip over it.
+ * **`fc-subgraph-self-edge`** is the one named case: `one --> one`, where
+ * `one` is a subgraph, draws the loop around the member standing in for the
+ * frame instead of around the frame itself. Its exit is implementation —
+ * frame-level self-loop geometry — and not refusal, because Mermaid draws
+ * this document and refusing it would cost the whole picture. Until then it
+ * is a wrong figure with the right edge on it, and this number is the thing
+ * that will not let it be forgotten.
  */
-const SILENTLY_WRONG = 0;
+const SILENTLY_WRONG = 1;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -668,8 +680,25 @@ const SILENTLY_WRONG = 0;
  * `rankdir` — verified directly against dagre before any of this board's code
  * changed — so honoring the block's own direction needed no new layout math,
  * only threading the field through: 2 - 1 = 1.
+ *
+ * `fc-subgraph-edge` (`one --> two`, both subgraphs) then moved from
+ * `rejected` to `supported`: **1 - 1 = 0, and this file has no `rejected`
+ * flowchart row left.** Unlike the row above it, this one dagre could not be
+ * talked into: an edge whose endpoint *is* a cluster node makes
+ * `dagre.layout()` throw outright (`Cannot set properties of undefined
+ * (setting 'rank')`, verified directly against `@dagrejs/dagre@3.1.1`), and
+ * there is no flag to turn the behavior on. What closed it is Mermaid's own
+ * strategy for the same construct, arrived at independently and confined to
+ * `layoutDirectedGraph`: hand dagre a member of the frame in the cluster's
+ * place, then clip the route it returns back to the frame's own boundary.
+ *
+ * **Zero is where this number was always going, and reaching it is not the
+ * end of the instrument.** It means every construct written down here either
+ * renders or renders correctly — not that nothing is missing. The rises
+ * recorded above are what finding a missing one looks like, and the next one
+ * found will put this back above zero without anything having regressed.
  */
-const REJECTED = 1;
+const REJECTED = 0;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

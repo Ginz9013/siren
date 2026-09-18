@@ -2335,24 +2335,26 @@ describe("a direction written inside a subgraph", () => {
 });
 
 /**
- * An edge whose endpoint names a subgraph — the gap this ticket *creates*
- * unless it is closed, and the reason it is closed here rather than recorded
- * and left.
+ * An edge whose endpoint names a subgraph — an edge between two *frames*
+ * rather than two boxes.
  *
  * **Measured.** mermaid 11.17.2 reads `One --> Two`, where `One` and `Two`
  * are subgraphs, as an edge between the two frames — it records vertices for
  * both names *and* the subgraphs, and its renderer joins the clusters
- * (`scripts/mermaid-probe.mjs`). Siren has no such routing: it would declare
- * two ordinary nodes and draw two boxes labelled `One` and `Two` *beside* the
- * frames of the same name, with no diagnostic. That is a `silently-wrong`
- * case, and the policy on those says their count's destination is zero — so
- * a board must not create one.
+ * (`scripts/mermaid-probe.mjs`). Siren draws it the same way now: the
+ * endpoint is recorded as the author wrote it here, resolved to the frame's
+ * generated id by `buildFlowchartModel`, and routed by `layoutDirectedGraph`
+ * through a member of the frame whose route is then clipped back to the
+ * frame's own boundary.
  *
- * Refused by name instead, which is the honest state, and recorded in the
- * corpus as backlog.
+ * It used to be **refused by name**, and this block used to pin the refusal.
+ * That was the honest state while nothing could route it: the alternative
+ * then was two stray boxes drawn beside the frames of the same name, with no
+ * diagnostic — a `silently-wrong` row, and the policy on those says their
+ * count's destination is zero.
  */
 describe("an edge that addresses a subgraph", () => {
-  it("is refused by name rather than drawn as a stray node beside the frame", () => {
+  it("joins the two frames rather than drawing stray nodes beside them", () => {
     const { document, diagnostics } = parseSiren(
       "flowchart TB\n" +
         "  subgraph One\n    A\n  end\n" +
@@ -2360,35 +2362,40 @@ describe("an edge that addresses a subgraph", () => {
         "  One --> Two\n",
     );
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
-      ["error", 'Siren does not draw an edge to the subgraph "One" yet: "One --> Two"', 8],
-    ]);
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    const flowchart = document as FlowchartDocument;
+    expect(flowchart.edges.map((edge) => [edge.from, edge.to])).toEqual([["One", "Two"]]);
+    // No box called `One` beside the frame of the same name.
+    expect(flowchart.nodes.map((node) => node.id)).toEqual(["A", "B"]);
   });
 
-  it("catches it whichever order the two were written in", () => {
+  it("reads it whichever order the two were written in", () => {
     // A subgraph may be declared after the edge that names it, so this
-    // cannot be a check made while the line is read.
-    const { diagnostics } = parseSiren(
+    // cannot be decided while the line is read.
+    const { document, diagnostics } = parseSiren(
       "flowchart TB\n  A --> Ingest\n  subgraph Ingest\n    B --> C\n  end\n",
     );
 
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw an edge to the subgraph "Ingest" yet: "A --> Ingest"',
+    expect(diagnostics).toEqual([]);
+    expect((document as FlowchartDocument).nodes.map((node) => node.id)).toEqual([
+      "A",
+      "B",
+      "C",
     ]);
   });
 
   it("says nothing about a node that merely shares a subgraph's name", () => {
     // `A[Alpha]` beside `subgraph A` is valid Mermaid that draws a box and a
-    // frame, and Siren draws both — so it is not this diagnostic's business.
-    // Only an *edge* endpoint is ambiguous, because only there does Mermaid
-    // mean the frame.
+    // frame, and Siren draws both. Only an *edge* endpoint means the frame,
+    // so a declaration keeps its box whatever a block is called.
     const { document, diagnostics } = parseSiren(
       "flowchart TB\n  A[Alpha]\n  subgraph A\n    B --> C\n  end\n",
     );
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
+    expect((document as FlowchartDocument).nodes.map((node) => node.id)).toContain("A");
   });
 });
 

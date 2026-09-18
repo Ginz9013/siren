@@ -1430,12 +1430,24 @@ export function parseFlowchart(source: string): ParseResult {
   const claimedNodeIds = new Set<string>();
 
   /**
-   * Every edge statement, with the endpoint ids it named — kept so that an
-   * edge addressing a subgraph can be refused after the whole document has
-   * been read. It cannot be refused while the line is read: a subgraph may
-   * legitimately be declared *below* the edge that names it.
+   * Every node this parse declared *only* because an edge endpoint mentioned
+   * it bare — no label, no bracket, no line of its own — paired with the
+   * block that claimed it as a member, if any.
+   *
+   * An endpoint that turns out to name a `subgraph` addresses that block's
+   * frame, so the node provisionally declared for it is taken back once the
+   * whole document has been read. It cannot be decided while the line is
+   * read: a subgraph may legitimately be declared *below* the edge naming
+   * it. The claim is carried alongside so that `subgraph outer / one --> B /
+   * end` does not leave `outer` holding a member that no longer exists.
+   *
+   * Only a *bare* mention is provisional. `one[Label]` and a bare `one` on a
+   * line of its own are declarations the author made in their own right, and
+   * they keep their box beside the frame — which is what mermaid 11.17.2
+   * does for `A[Alpha]` beside `subgraph A`, measured, and what ADR-0010's
+   * generated subgraph id exists to keep apart.
    */
-  const edgeStatements: { ids: string[]; text: string; line: number; column: number }[] = [];
+  const provisionalEndpointNodes = new Map<string, SirenSubgraph | null>();
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -1544,7 +1556,17 @@ export function parseFlowchart(source: string): ParseResult {
     { id, label, definitionName, shape }: EdgeEndpoint,
     line: number,
     column: number,
+    /**
+     * Where this mention was written. Only an *edge endpoint* can mean a
+     * subgraph's frame rather than a node — that is Mermaid's rule and the
+     * reason this parameter exists — so a bare mention there declares the
+     * node provisionally, while the same spelling on a line of its own
+     * declares it outright.
+     */
+    writtenAs: "an edge endpoint" | "a declaration" = "a declaration",
   ) => {
+    const undeclared = !nodesById.has(id);
+
     // Membership is claimed here, at the one place a node is *written*, for
     // the same reason the label rules live here: where it was written must
     // not decide what it means. An edge endpoint, a declaration on a line of
@@ -1557,18 +1579,32 @@ export function parseFlowchart(source: string): ParseResult {
     // it, which is how an edge drawn *out* of a group does not move its
     // source into the group at the other end.
     const innermost = openBlocks[openBlocks.length - 1];
+    let claimedBy: SirenSubgraph | null = null;
     if (innermost !== undefined && !claimedNodeIds.has(id)) {
       claimedNodeIds.add(id);
       innermost.subgraph.nodeIds.push(id);
+      claimedBy = innermost.subgraph;
     }
     if (label !== undefined) {
       const parsed = parseNodeLabel(label);
       addNode(id, parsed.label, parsed.labelRuns, shape, line, column);
-    } else if (!nodesById.has(id)) {
+    } else if (undeclared) {
       nodesById.set(id, { id, label: id, labelRuns: null, shape, line, column });
     }
     if (definitionName !== undefined) {
       applyAtDeclaration(id, definitionName, line, column);
+    }
+
+    // A bare edge endpoint declares its node provisionally; anything else —
+    // a label written here, or the same id written anywhere as a declaration
+    // — settles it as a node the author asked for, whatever a `subgraph`
+    // further down happens to be called.
+    if (writtenAs === "an edge endpoint" && label === undefined) {
+      if (undeclared) {
+        provisionalEndpointNodes.set(id, claimedBy);
+      }
+    } else {
+      provisionalEndpointNodes.delete(id);
     }
   };
 
@@ -1746,18 +1782,11 @@ export function parseFlowchart(source: string): ParseResult {
         const chain = groups as EdgeEndpoint[][];
         const written = chain.flat();
 
-        edgeStatements.push({
-          ids: written.map((endpoint) => endpoint.id),
-          text: line,
-          line: lineNumber,
-          column,
-        });
-
         // Declared once each, left to right as written — before any edge, so
         // a `:::` on an endpoint two arrows along applies exactly once rather
         // than once per link it takes part in.
         for (const endpoint of written) {
-          addNodeAsWritten(endpoint, lineNumber, column);
+          addNodeAsWritten(endpoint, lineNumber, column, "an edge endpoint");
         }
         // Sources outermost, which is Mermaid's order: `FlowDB.addLink` is
         // `for (const start of _start) for (const end of _end)`, so
@@ -1997,21 +2026,22 @@ export function parseFlowchart(source: string): ParseResult {
     }
   }
 
-  // An edge whose endpoint names a subgraph, refused rather than drawn.
+  // An edge whose endpoint names a subgraph addresses that block's *frame*,
+  // so the node the endpoint provisionally declared is taken back.
   //
-  // Mermaid draws this: `One --> Two`, where both are subgraphs, is an edge
-  // between the two *frames* — mermaid 11.17.2 records vertices for both
-  // names alongside the subgraphs and its renderer joins the clusters
-  // (measured). Siren has no such routing, and left alone it would declare
-  // two ordinary nodes and draw a box labelled `One` beside the frame of the
-  // same name, with no diagnostic at all. That is a `silently-wrong` case
-  // this ticket would have *created*, and the corpus's policy on those says
-  // their destination is zero — so it is refused by name and recorded as
-  // backlog instead.
+  // Mermaid draws exactly this: `One --> Two`, where both are subgraphs, is
+  // an edge between the two frames — mermaid 11.17.2 records vertices for
+  // both names alongside the subgraphs and its renderer joins the clusters,
+  // measured. The frame is what it draws, and a box labelled `One` beside a
+  // frame of the same name is what it does *not*.
+  //
+  // What stays in `edges` is the name as written. Turning it into the
+  // frame's id is `buildFlowchartModel`'s — a subgraph's id is generated
+  // (ADR-0010) and does not exist yet at this stage, which is the same
+  // reason `SirenSubgraph` carries no id either.
   //
   // Asked after the whole document has been read, because a subgraph may be
-  // declared below the edge that names it, and one diagnostic per statement
-  // rather than per endpoint.
+  // declared below the edge that names it.
   const subgraphNames = new Set<string>();
   const collectNames = (blocks: readonly SirenSubgraph[]): void => {
     for (const block of blocks) {
@@ -2023,18 +2053,17 @@ export function parseFlowchart(source: string): ParseResult {
   };
   collectNames(subgraphs);
 
-  for (const statement of edgeStatements) {
-    const named = statement.ids.find((id) => subgraphNames.has(id));
-    if (named === undefined) {
+  for (const [id, claimedBy] of provisionalEndpointNodes) {
+    if (!subgraphNames.has(id)) {
       continue;
     }
-    diagnostics.push({
-      severity: "error",
-      message: `Siren does not draw an edge to the subgraph "${named}" yet: "${statement.text}"`,
-      line: statement.line,
-      column: statement.column,
-    });
-    sawError = true;
+    nodesById.delete(id);
+    // The membership goes with the node. `subgraph outer / one --> B / end`
+    // would otherwise leave `outer` holding a member id nothing declares,
+    // and layout grows a frame from the boxes that name it.
+    if (claimedBy !== null) {
+      claimedBy.nodeIds = claimedBy.nodeIds.filter((member) => member !== id);
+    }
   }
 
   // A block the author never closed, reported in the words they opened it

@@ -209,6 +209,98 @@ describe("buildFlowchartModel's subgraph direction", () => {
   });
 });
 
+/**
+ * An edge endpoint that names a `subgraph` block. The parser records the
+ * author's own word for it; this is where it becomes the frame's generated
+ * id, because that id does not exist until this stage mints it.
+ */
+describe("buildFlowchartModel's subgraph edge endpoints", () => {
+  it("resolves an authored subgraph name at either end to that subgraph's generated id", () => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        subgraphs: [
+          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+          { name: "two", label: "two", nodeIds: ["B"], subgraphs: [], direction: null },
+        ],
+        edges: [
+          {
+            from: "one",
+            to: "two",
+            line: "solid",
+            fromEnd: "none",
+            toEnd: "arrow",
+            minLength: 1,
+            label: null,
+          },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["subgraph:1", "subgraph:2"],
+    ]);
+  });
+
+  it("keeps the edge's id spelled in the author's own words, colon-free", () => {
+    // ADR-0010 puts generated ids and connector ids in separate spaces, and
+    // the promise that makes them separate is that no `${from}-${to}`
+    // connector id contains a colon. Deriving this edge's id from the
+    // resolved endpoints would have broken it — and taken the author's own
+    // handle on the edge with it, since `subgraph:1` is by design a word
+    // they cannot write.
+    const { graph } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" })],
+        subgraphs: [
+          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+        ],
+        edges: [
+          {
+            from: "A",
+            to: "one",
+            line: "solid",
+            fromEnd: "none",
+            toEnd: "arrow",
+            minLength: 1,
+            label: null,
+          },
+        ],
+      }),
+    );
+
+    expect(graph!.edges.map((edge) => edge.id)).toEqual(["A-one"]);
+  });
+
+  it("leaves an endpoint that names no subgraph as the node id it is", () => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        subgraphs: [
+          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+        ],
+        edges: [
+          {
+            from: "A",
+            to: "B",
+            line: "solid",
+            fromEnd: "none",
+            toEnd: "arrow",
+            minLength: 1,
+            label: null,
+          },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph!.edges.map((edge) => [edge.id, edge.from, edge.to])).toEqual([
+      ["A-B", "A", "B"],
+    ]);
+  });
+});
+
 describe("buildFlowchartModel's accTitle/accDescr", () => {
   it("carries accTitle and accDescr through unchanged", () => {
     const { graph } = buildFlowchartModel(

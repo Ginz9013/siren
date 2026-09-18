@@ -317,7 +317,7 @@ A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around 
 inside it and laid out as a dagre compound-graph cluster. The **fourth** grouping construct here,
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
-statements in time. Four things separate it from the namespace it most resembles, and none of them
+statements in time. Five things separate it from the namespace it most resembles, and none of them
 is cosmetic:
 
 - **It nests.** `ResolvedSubgraph` carries a `parentId`; `ResolvedClassNamespace` has no such
@@ -328,11 +328,20 @@ is cosmetic:
 - **A node is claimed by the first block that names it**, measured, so naming it again from
   another block joins it rather than moving it. A class is a member of the namespace it was
   written in.
-- **Two things written *about* one are refused by name rather than ignored**: `direction LR`
-  inside a block (Mermaid lays that group out in its own rank direction; drawing it the document's
-  way would be the wrong picture with nothing in it to notice) and an edge naming a block at
-  either end (`one --> two` joins two frames in Mermaid). Both are `rejected` corpus rows, not
-  silence.
+- **It lays out in a rank direction of its own.** `direction LR` written inside a block turns that
+  group alone into a row while the document keeps the header's direction — dagre's
+  `recursiveClusterLayout`, one `rankdir` per cluster. A namespace has no such statement.
+- **An edge may name one at either end.** `one --> two` joins the two *frames*, not two boxes —
+  so an endpoint that names a block declares no node of that name, while a node the author
+  declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. dagre cannot route
+  that edge as written (it throws on an endpoint that *is* a cluster), so `layoutDirectedGraph`
+  hands it a member of the frame instead and clips the returned route back to the frame's own
+  boundary — Mermaid's own strategy for the same construct, arrived at independently. **One
+  spelling of it is still drawn wrongly and is written down as such**: a block naming *itself* at
+  both ends (`one --> one`) draws its loop around that stand-in member, inside the frame, rather
+  than around the frame — the clip has nothing to bite on, since a self-loop never leaves the box
+  it belongs to. That is the corpus's one `silently-wrong` row, `fc-subgraph-self-edge`, and its
+  exit is drawing the loop around the frame rather than refusing the line.
 
 **Its id is generated, not authored** — `subgraph:1`, `subgraph:2`, … in the order the keywords
 open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) —

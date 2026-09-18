@@ -223,4 +223,90 @@ describe("layoutDirectedGraph", () => {
     expect(byId.B.x).toBeGreaterThan(byId.A.x);
     expect(byId.B.y).toBe(byId.A.y);
   });
+
+  it("routes an edge whose endpoints are clusters from one frame's boundary to the other's", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "one", width: 0, height: 0, isCluster: true },
+        { id: "two", width: 0, height: 0, isCluster: true },
+        { id: "A", width: 40, height: 20, parentId: "one" },
+        { id: "B", width: 40, height: 20, parentId: "two" },
+      ],
+      edges: [{ id: "one-two", from: "one", to: "two" }],
+    });
+
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+    const route = result.edges[0];
+    expect(route.id).toBe("one-two");
+
+    const start = route.points[0];
+    const end = route.points[route.points.length - 1];
+
+    // TB, so the edge leaves `one` through its bottom edge and arrives at
+    // `two` through its top edge — the two frames' own boundaries.
+    expect(start.y).toBe(byId.one.y + byId.one.height);
+    expect(end.y).toBe(byId.two.y);
+    expect(start.x).toBeGreaterThanOrEqual(byId.one.x);
+    expect(start.x).toBeLessThanOrEqual(byId.one.x + byId.one.width);
+    expect(end.x).toBeGreaterThanOrEqual(byId.two.x);
+    expect(end.x).toBeLessThanOrEqual(byId.two.x + byId.two.width);
+
+    // And not on the member it was routed through: the whole point of the
+    // proxy is that it is not what the picture shows.
+    expect(start.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(end.y).toBeLessThan(byId.B.y);
+  });
+
+  it("routes an edge to a cluster with no members as the ordinary box dagre lays it out as", () => {
+    // A cluster is a cluster to dagre only because something named it as a
+    // parent, so a childless one is an ordinary node and needs no proxy —
+    // and the route dagre returns already ends on its box.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "empty", width: 60, height: 30, isCluster: true },
+        { id: "A", width: 40, height: 20 },
+      ],
+      edges: [{ id: "A-empty", from: "A", to: "empty" }],
+    });
+
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+    const end = result.edges[0].points[result.edges[0].points.length - 1];
+
+    expect(byId.empty.width).toBe(60);
+    expect(byId.empty.height).toBe(30);
+    expect(end.y).toBeLessThanOrEqual(byId.empty.y);
+    expect(end.y).toBeGreaterThan(byId.A.y);
+  });
+
+  it("routes a cluster's self-edge as the loop dagre drew around the member standing in for it", () => {
+    // `one --> one` is the one construct where the clip has nothing to do:
+    // dagre's self-loop never leaves the frame, so there is no point outside
+    // the box to clip to and the loop is returned as drawn — inside the
+    // frame, beside the member it was routed around, rather than around the
+    // frame as Mermaid draws it. A simplification of the same connection,
+    // confined to a construct that did not lay out at all before this, and
+    // it is *not* an unrouted edge left at the origin.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "one", width: 0, height: 0, isCluster: true },
+        { id: "A", width: 40, height: 20, parentId: "one" },
+      ],
+      edges: [{ id: "one-one", from: "one", to: "one" }],
+    });
+
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+    const route = result.edges[0];
+
+    expect(route.id).toBe("one-one");
+    expect(route.points.length).toBeGreaterThan(1);
+    for (const point of route.points) {
+      expect(point.x).toBeGreaterThanOrEqual(byId.one.x);
+      expect(point.x).toBeLessThanOrEqual(byId.one.x + byId.one.width);
+      expect(point.y).toBeGreaterThanOrEqual(byId.one.y);
+      expect(point.y).toBeLessThanOrEqual(byId.one.y + byId.one.height);
+    }
+  });
 });
