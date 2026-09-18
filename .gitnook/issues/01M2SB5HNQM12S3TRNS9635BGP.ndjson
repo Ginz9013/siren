@@ -1,0 +1,5 @@
+{"id":"01M2SB5HNQ266JRN2NZ5AZXQK8","t":1,"a":"83a1","op":"create","title":"flowchart: label 前後空白要 trim (fc-text-label-whitespace)"}
+{"id":"01M2SB5HP09A7060J46PYSHYYW","t":2,"a":"83a1","op":"set","k":"description","v":"語料庫 fc-text-label-whitespace，目前 status: \"silently-wrong\"——這是政策要求歸零的那類\n（跟 rejected 的 backlog 不同，count 只能靠實作退場，不能靠拒絕）。\n\n缺口：`A[  padded  ] --> B[\"  padded  \"]`，Mermaid 不論加不加引號都會 trim label 前後空白\n（實測 mermaid 11.17.2：`text=\"padded\"`），Siren 目前完整保留空白，畫出一個比較寬、文字偏離\n置中的框，且沒有任何診斷。\n\n範圍：flowchart parser 的 label 讀取路徑補一個 trim，corpus.ts 的 assert 跟著改（現有 assert\n驗證的是「保留空白」的錯誤行為，要改成驗證「trim 過」）。\n\nWrite scope：packages/core/src/parser/parseFlowchart.ts、packages/core/src/compat/corpus.ts\n\n驗證：pnpm --filter @siren/core test、pnpm --filter @siren/core exec tsc --noEmit\n（baseline 932/932、tsc 乾淨）；完成後 SILENTLY_WRONG 1→0。\n\n無阻塞，建議這批裡最先做。詳見母票 01M2FPMX99HG4C8S1FKB9C4569（已拆分）。"}
+{"id":"01M2SB5KQ448Q0Z1TKXDNRNTWB","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M2SB5KQD9S8Q5ZEJJGDWJQ9G","t":4,"a":"83a1","op":"label.add","v":"flowchart"}
+{"id":"01M2SB5KXEQQDY4WDBSR4DMCA2","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
