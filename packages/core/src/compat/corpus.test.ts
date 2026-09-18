@@ -643,9 +643,26 @@ const SILENTLY_WRONG = 0;
  * from `call fn()` — `render()`'s `onClick` already reports the clicked
  * node's own id for every `call` interaction regardless of click spelling,
  * so the bare form parses into the same `Interaction` shape as `call fn()`
- * with no runtime-model change needed: 5 - 1 = 4.
+ * with no runtime-model change needed. Two further click rows moved the
+ * same way in the tickets right after (the bare-href `"url"` shorthand
+ * among them), landing this board's `rejected` at its baseline for this
+ * one, 3.
+ *
+ * `fc-text-markdown` (`` A["`**bold**`"] ``) then moved from `rejected` to
+ * `supported`, and the parser's last named-refusal mechanism
+ * (`UNIMPLEMENTED_LABEL_FORMS`/`unimplementedFormIn`/`BRACKET_FORM_RE`/
+ * `refuseUnimplementedForm`) was deleted with it, per the doc comment that
+ * had named it as the row to delete them on. The ticket's own scope was the
+ * full measured shape of a Markdown label — bold, italic and an embedded
+ * line break, all independent axes — so two rows arrived beside it that
+ * neither can make this number fall by starting to work, the same
+ * instrument-catching-up shape `fc-edge-dotted-open` and
+ * `fc-edge-thick-open` were: `fc-text-italic` (`` A["`*italic*`"] ``) and
+ * `fc-text-multiline` (a label whose Markdown fence closes on a later
+ * physical source line than it opened on). Net: one row left `rejected`,
+ * two rows arrived already `supported`: 3 - 1 = 2.
  */
-const REJECTED = 3;
+const REJECTED = 2;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

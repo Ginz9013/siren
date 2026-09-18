@@ -5,6 +5,7 @@ import type {
   EdgeLine,
   FlowchartDocument,
   Interaction,
+  LabelRun,
   LinkStyleDecl,
   LinkTarget,
   NodeShape,
@@ -191,88 +192,16 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  * Groups are `id`, `label`, `definitionName` in every one of them, which is
  * what lets `readNodeDeclaration` read them all with one body.
  *
- * `LABEL_CONTENT` still reads a bracket's label loosely, but it no longer
- * gets first refusal on the line: `UNIMPLEMENTED_LABEL_FORMS` is asked
- * first, and the one form it names never reaches here. Widening these
- * patterns without reading that one re-opens the bug that comment exists to
- * close.
+ * `LABEL_CONTENT` reads a bracket's label loosely — including the fenced
+ * `` "`...`" `` Markdown-string spelling, which is not a form this pattern
+ * has to know exists: it captures the bracket content whole, and
+ * `parseNodeLabel` is what tells a Markdown label from an ordinary one once
+ * the content reaches it.
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
   re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`),
 }));
-
-/**
- * Everything Mermaid writes *inside* `[...]` that is **still** not a plain
- * label, paired with the name Mermaid gives it. **No node shape is left
- * here.** The four slanted forms left when `NODE_SPELLINGS` learned to read
- * them, the subroutine box left when it did, and the cylinder — the last of
- * them, and the row this list was first written for — left with the three
- * shapes drawn with a curve. What remains is one *label* form, which is why
- * this no longer says "bracket forms": the shapes it was named for are all
- * drawn.
- *
- * **This list is refused, not swallowed.** That is the policy, and it is the
- * whole reason this constant survives its last shape: while a construct is
- * unimplemented, reject it — never render something else in its place.
- * `NODE_RE`'s `[^\]]*` used to take any bracket content as a label, so
- * `A[(DB)]` drew a rectangle labelled `(DB)` and said nothing. That
- * disguised *not implemented* as *supported*, and it hid the gap from
- * `src/compat/corpus.ts` — the instrument built to measure exactly this. A
- * mislabelled rectangle is a worse answer than a refusal, because the author
- * never learns anything is missing.
- *
- * The one row left is not a permanent refusal either. Its `described` is
- * written for the author who will read it: it names what Mermaid means, so
- * the answer is "wait" rather than "rewrite your line". Whoever implements
- * it deletes the row, and with it this constant, `unimplementedFormIn`,
- * `BRACKET_FORM_RE` and `refuseUnimplementedForm` — the plain quoted label
- * was a row here until quoting arrived, and `labelIn` is what replaced it.
- *
- * The form is anchored at **both ends** of the bracket content on purpose.
- * An over-tight pattern would be its own compatibility bug, traded for the
- * one it fixed: `A[a/b]`, `A[x (y)]`, `A[100%]` and `A[say "hi" now]` are
- * ordinary labels that merely *contain* a character a form also opens with,
- * and they still draw as rectangles.
- */
-const UNIMPLEMENTED_LABEL_FORMS: ReadonlyArray<{
-  open: string;
-  close: string;
-  described: string;
-}> = [
-  // A Markdown string, which is the label fence with backticks inside it.
-  // Read before `labelIn` strips that fence, so an author who wrote
-  // Markdown is told about Markdown rather than handed a label with
-  // backticks and asterisks in it — half-implementing the feature would
-  // draw `**bold**` where Mermaid draws bold text, which is the swallow
-  // this whole list exists to refuse.
-  {
-    open: '"`',
-    close: '`"',
-    described: "a Markdown string label (a quoted label fenced in backticks)",
-  },
-];
-
-/**
- * What Mermaid means by this bracket content, when it means something Siren
- * does not draw yet — as the prose a diagnostic quotes. `null` when the
- * content is an ordinary label, which is the common case.
- *
- * The length test is what keeps the fences from overlapping themselves:
- * `A[/]` is a label reading `/`, not an empty parallelogram.
- */
-function unimplementedFormIn(content: string): string | null {
-  for (const form of UNIMPLEMENTED_LABEL_FORMS) {
-    if (
-      content.length >= form.open.length + form.close.length &&
-      content.startsWith(form.open) &&
-      content.endsWith(form.close)
-    ) {
-      return form.described;
-    }
-  }
-  return null;
-}
 
 /**
  * The quotation mark that fences a label: `A["Quoted, with comma"]`.
@@ -316,17 +245,95 @@ function labelIn(content: string): string {
 }
 
 /**
- * A node written with brackets, read **greedily**: the content is whatever
- * lies between the first `[` and the last `]`.
+ * What is left of a fenced label once `labelIn`'s own quote fence has come
+ * off, when that remainder is itself fenced in backticks — Mermaid's
+ * Markdown-string spelling: `` A["`**bold**`"] ``. Anchored at both ends,
+ * the same rule `FENCED_LABEL_RE` follows: one run spanning everything left,
+ * not a backtick that merely appears somewhere inside an ordinary label.
  *
- * It accepts nothing — the patterns above still decide what a node
- * declaration is. This pattern exists only to ask what the author meant,
- * which needs the greedy read those deliberately do not have: a form whose
- * content carries a `]` of its own is invisible to `LABEL_CONTENT`, so
- * without this it would fall all the way through to "unrecognized line"
- * rather than to a diagnostic naming the shape Mermaid means.
+ * `[\s\S]` rather than `.`, because the content between the backticks may
+ * carry a real line break — see `joinMarkdownFence`, which is what lets one
+ * reach here at all: mermaid 11.17.2 reads a quoted label across physical
+ * source lines when the closing quote has not been reached yet, measured
+ * (`scripts/mermaid-probe.mjs`, `node="A" text="line1\nline2"`), and `.`
+ * does not match a newline without the `s` flag this file avoids elsewhere.
  */
-const BRACKET_FORM_RE = new RegExp(String.raw`^${ID_RUN}\s*\[(.*)\]\s*(?::::\w+)?\s*$`);
+const MARKDOWN_FENCE_RE = /^`([\s\S]*)`$/;
+
+/**
+ * `**bold**` or `*italic*`, read left to right and non-nested: the bold
+ * alternative is tried first at every position, so `**bold**` is one bold
+ * run rather than two italic runs sharing a doubled star.
+ *
+ * **Deliberately not what mermaid 11.17.2 itself does**, and that gap is
+ * measured rather than assumed: real Mermaid tokenizes a Markdown label by
+ * *word*, so `plain **bold** plain` draws four `<tspan>`s (one per word) and
+ * a bold run nested inside an italic one loses the bold the moment the
+ * italic opens (`**bold *and* still**` draws "and" italic and not bold,
+ * `scripts/mermaid-probe.mjs`). This board's own corpus rows never mix or
+ * nest the two within a line — `fc-text-markdown` is bold-only,
+ * `fc-text-italic` is italic-only, `fc-text-multiline` carries neither — so
+ * a span-per-run reading is indistinguishable from Mermaid's word-per-run
+ * one for everything this ticket measures, and building the word-splitting,
+ * style-dropping machinery to match an untested case would be building past
+ * what was measured.
+ */
+const MARKDOWN_RUN_RE = /\*\*(.*?)\*\*|\*(.*?)\*/g;
+
+/**
+ * One line of a Markdown label, split into the runs `MARKDOWN_RUN_RE` finds,
+ * with the plain text between and around them carried as runs of their own.
+ *
+ * Always at least one run, even for an empty line — a blank row in a
+ * multi-line label still has a `<tspan class="row">` to draw in Mermaid, and
+ * an empty plain run is what the renderer draws nothing for.
+ */
+function markdownLineRuns(line: string): LabelRun[] {
+  const runs: LabelRun[] = [];
+  let lastIndex = 0;
+  MARKDOWN_RUN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MARKDOWN_RUN_RE.exec(line)) !== null) {
+    if (match.index > lastIndex) {
+      runs.push({ text: line.slice(lastIndex, match.index), bold: false, italic: false });
+    }
+    if (match[1] !== undefined) {
+      runs.push({ text: match[1], bold: true, italic: false });
+    } else {
+      runs.push({ text: match[2]!, bold: false, italic: true });
+    }
+    lastIndex = MARKDOWN_RUN_RE.lastIndex;
+  }
+  if (lastIndex < line.length || runs.length === 0) {
+    runs.push({ text: line.slice(lastIndex), bold: false, italic: false });
+  }
+  return runs;
+}
+
+/**
+ * A node label read from bracket content, split into its Markdown runs when
+ * the author wrote the fenced `` "`...`" `` spelling — the one place both
+ * spellings are told apart, so a standalone declaration
+ * (`readNodeDeclaration`) and an edge endpoint cannot disagree about what a
+ * label means, exactly as `labelIn` already keeps them from disagreeing
+ * about quoting.
+ *
+ * `label` is always the *flattened* plain text — every run's text
+ * concatenated in source order, each line joined by `\n` — so it stays
+ * meaningful to a reader that never learns `labelRuns` exists: an error
+ * message, or the redeclaration warning `addNode` raises by comparing two
+ * plain strings.
+ */
+function parseNodeLabel(content: string): { label: string; labelRuns: LabelRun[][] | null } {
+  const stripped = labelIn(content);
+  const markdown = MARKDOWN_FENCE_RE.exec(stripped);
+  if (markdown === null) {
+    return { label: stripped, labelRuns: null };
+  }
+  const labelRuns = markdown[1].split("\n").map(markdownLineRuns);
+  const label = labelRuns.map((line) => line.map((run) => run.text).join("")).join("\n");
+  return { label, labelRuns };
+}
 
 /**
  * The bare `A:::emphasis` shorthand — the same application written without a
@@ -934,7 +941,7 @@ function separatorAt(text: string, index: number, separator: string | RegExp): s
  * something between statements and nothing inside a label: `A[a;b]`,
  * `A[a&b]` and `A[a-->b]` are ordinary labels in Mermaid, and a splitter
  * that did not know where a label starts would cut them into nonsense —
- * the same class of bug `UNIMPLEMENTED_LABEL_FORMS` exists to keep out.
+ * a document Mermaid draws refused as unreadable.
  *
  * **A brace opens a label as surely as a bracket does, and so does a
  * parenthesis.** Counting only `[`/`]` made three spellings of one idea
@@ -1319,6 +1326,74 @@ function splitTargetIds(text: string): string[] {
 }
 
 /**
+ * Whether `text`, scanned left to right, ends with a Markdown label's fence
+ * (`` "` `` … `` `" ``) still open — the two-character opener seen and its
+ * closer not yet.
+ *
+ * Scoped to exactly those two character pairs, which is what keeps this from
+ * firing on anything else this grammar writes: a quote and a backtick never
+ * land next to each other outside a Markdown label's fence, so an ordinary
+ * line — a `style` declaration, a `click ... "tip"`, a plain quoted label —
+ * can never be mistaken for one that continues.
+ */
+function markdownFenceIsOpenAtEndOf(text: string): boolean {
+  let open = false;
+  for (let i = 0; i < text.length - 1; i++) {
+    if (!open && text[i] === '"' && text[i + 1] === "`") {
+      open = true;
+      i++;
+    } else if (open && text[i] === "`" && text[i + 1] === '"') {
+      open = false;
+      i++;
+    }
+  }
+  return open;
+}
+
+/**
+ * Joins a Markdown label's fence back into one physical line when the
+ * author's closing backtick lies on a later one — `` A["`line1 `` on one
+ * line and `` line2`"]  `` on the next, which mermaid 11.17.2 reads as a
+ * single vertex labelled `"line1\nline2"` (measured,
+ * `scripts/mermaid-probe.mjs`). Every other construct in this grammar is
+ * read one physical line at a time; this is the one place that is not
+ * enough, because a Markdown label is the one place Mermaid's own lexer
+ * keeps reading past a line break in search of the quote that closes it.
+ *
+ * **Lines keep their positions, not their count.** The physical lines a
+ * fence swallows are blanked rather than removed, so every line number after
+ * the join still means what it meant before: `splitStatements` already
+ * treats a blank line as carrying no statements, so a blanked line costs
+ * nothing downstream, and the merged text lands on the line the fence
+ * opened on — the line a diagnostic about it should point at anyway.
+ *
+ * A fence still open at the end of the document is left merged through to
+ * the last line: whatever statement pattern is then asked to read it finds
+ * an unclosed fence in its capture and fails to match, which is the same
+ * "unrecognized line" a Mermaid author sees for any other malformed
+ * statement, not a crash.
+ */
+function joinMarkdownFences(lines: readonly string[]): string[] {
+  const joined = [...lines];
+  for (let i = 0; i < joined.length; i++) {
+    let text = joined[i];
+    let end = i;
+    while (markdownFenceIsOpenAtEndOf(text) && end + 1 < joined.length) {
+      end++;
+      text += "\n" + joined[end];
+    }
+    if (end !== i) {
+      joined[i] = text;
+      for (let blank = i + 1; blank <= end; blank++) {
+        joined[blank] = "";
+      }
+      i = end;
+    }
+  }
+  return joined;
+}
+
+/**
  * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header — or
  * `graph`, Mermaid's original spelling of the same word — node/edge
  * declarations, author styling statements, and an optional `timeline:` block) into a
@@ -1333,7 +1408,7 @@ function splitTargetIds(text: string): string[] {
  */
 export function parseFlowchart(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
-  const lines = source.split(/\r\n|\r|\n/);
+  const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];
@@ -1421,46 +1496,17 @@ export function parseFlowchart(source: string): ParseResult {
     });
   };
 
-  /**
-   * Refuses one place a node was written, when what was written there is a
-   * bracket form Siren does not draw yet — naming which one. `true` when the
-   * line was refused, so the caller stops reading it.
-   *
-   * Shared by the two places a label can appear, for the reason
-   * `addNodeAsWritten` is shared: where a node was written must not decide
-   * what it means, so `A[(DB)] --> B` cannot quietly draw the cylinder that
-   * `A[(DB)]` on a line of its own refuses.
-   */
-  const refuseUnimplementedForm = (
-    content: string | undefined,
-    line: string,
-    lineNumber: number,
-    column: number,
-  ): boolean => {
-    const form = content === undefined ? null : unimplementedFormIn(content);
-    if (form === null) {
-      return false;
-    }
-    diagnostics.push({
-      severity: "error",
-      message: `Siren does not draw ${form} yet: "${line}"`,
-      line: lineNumber,
-      column,
-    });
-    sawError = true;
-    return true;
-  };
-
   const addNode = (
     id: string,
     label: string,
+    labelRuns: LabelRun[][] | null,
     shape: NodeShape,
     line: number,
     column: number,
   ) => {
     const existing = nodesById.get(id);
     if (existing === undefined) {
-      nodesById.set(id, { id, label, shape, line, column });
+      nodesById.set(id, { id, label, labelRuns, shape, line, column });
       return;
     }
     if (existing.label !== label) {
@@ -1492,7 +1538,10 @@ export function parseFlowchart(source: string): ParseResult {
    * `label` is bracket content as written, so the fence comes off here —
    * once, for every place a label can appear, which is why `A["x, y"]` on
    * a line of its own and at an edge endpoint cannot disagree about what
-   * the author wrote.
+   * the author wrote. `parseNodeLabel` is what removes it now, in place of
+   * the plain `labelIn` this function used to call directly, so a Markdown
+   * label is told apart from an ordinary one in the one place both
+   * spellings already meet.
    */
   const addNodeAsWritten = (
     { id, label, definitionName, shape }: EdgeEndpoint,
@@ -1516,9 +1565,10 @@ export function parseFlowchart(source: string): ParseResult {
       innermost.subgraph.nodeIds.push(id);
     }
     if (label !== undefined) {
-      addNode(id, labelIn(label), shape, line, column);
+      const parsed = parseNodeLabel(label);
+      addNode(id, parsed.label, parsed.labelRuns, shape, line, column);
     } else if (!nodesById.has(id)) {
-      nodesById.set(id, { id, label: id, shape, line, column });
+      nodesById.set(id, { id, label: id, labelRuns: null, shape, line, column });
     }
     if (definitionName !== undefined) {
       applyAtDeclaration(id, definitionName, line, column);
@@ -1697,28 +1747,6 @@ export function parseFlowchart(source: string): ParseResult {
         // check above earned.
         const chain = groups as EdgeEndpoint[][];
         const written = chain.flat();
-
-        // Asked of every endpoint before any of them is declared, so a shape
-        // written anywhere on the line refuses the line rather than leaving
-        // the endpoints before it drawn. `some` stops at the first, which is
-        // one diagnostic per statement.
-        if (
-          written.some((endpoint) =>
-            refuseUnimplementedForm(
-              // Only a `[...]` label can carry one of those forms. The
-              // punctuation another spelling fences is that spelling's own
-              // content: mermaid 11.17.2 reads `A{"(DB)"}` as a diamond
-              // labelled `(DB)`, not as a cylinder, so asking this of a
-              // brace's label would refuse a document Mermaid draws.
-              endpoint.shape === "rect" ? endpoint.label : undefined,
-              line,
-              lineNumber,
-              column,
-            ),
-          )
-        ) {
-          continue;
-        }
 
         edgeStatements.push({
           ids: written.map((endpoint) => endpoint.id),
@@ -1905,22 +1933,6 @@ export function parseFlowchart(source: string): ParseResult {
           column,
         });
         continue;
-      }
-
-      const bracketFormMatch = BRACKET_FORM_RE.exec(line);
-      if (bracketFormMatch !== null) {
-        // Asked before `NODE_RE`, because `NODE_RE` would take the form's own
-        // punctuation as a label — which is the swallow this refuses.
-        if (
-          refuseUnimplementedForm(
-            bracketFormMatch[1],
-            line,
-            lineNumber,
-            column,
-          )
-        ) {
-          continue;
-        }
       }
 
       const declared = readNodeDeclaration(line);

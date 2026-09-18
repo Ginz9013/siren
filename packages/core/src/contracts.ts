@@ -79,10 +79,45 @@ export type HighlightEffect = "outline" | "glow";
 /** Verbs recognized in a `timeline:` block. */
 export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
 
+/**
+ * One run of a Markdown-formatted node label: a stretch of text sharing one
+ * combination of bold/italic. Independent axes rather than a closed set of
+ * "styles" — matches mermaid 11.17.2's own `font-weight`/`font-style` pair,
+ * measured (`htmlLabels: false`, a throwaway `mermaid-probe.mjs`-based
+ * script): `**bold**` sets only `font-weight`, `*italic*` sets only
+ * `font-style`, and a run written inside both would carry both. This
+ * board's own corpus rows never nest the two, so no run either of them
+ * produces does in practice, but the shape leaves room for one that does.
+ */
+export interface LabelRun {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+}
+
 /** A node as declared in source, before graph-model resolution. */
 export interface SirenNode {
   id: string;
   label: string;
+  /**
+   * The label's Markdown runs, one array per line, in source order — or
+   * `null` when the label carries no Markdown formatting, the overwhelming
+   * common case: an ordinary `A[label]` or `A["label"]` never sets this.
+   *
+   * Non-null only when the author wrote the fenced `` "`...`" `` Markdown-
+   * string spelling — measured, mermaid 11.17.2's own syntax for a label
+   * that may be bold, italic or carry a line break. `label` above still
+   * holds the *flattened* plain text in that case (every run's text
+   * concatenated in order, each line joined by `\n`), so it stays
+   * meaningful to a reader that has never heard of this field — an error
+   * message, a diagnostic quoting a redeclared label.
+   *
+   * Required rather than optional, the same rule `GraphNode.style`/
+   * `parentId`/`interaction` already follow: "no formatting" is a state
+   * every node has, not the absence of a field some nodes carry and others
+   * do not.
+   */
+  labelRuns: LabelRun[][] | null;
   /**
    * The shape its bracket spelling named — `"rect"` for a bare `A`, for
    * `A[label]`, and for `A:::name`.
@@ -913,6 +948,12 @@ export interface PositionedSequenceDiagram {
 export interface GraphNode {
   id: string;
   label: string;
+  /**
+   * Carried unchanged from `SirenNode.labelRuns` — see that field for what
+   * `null` versus non-null means. `buildFlowchartModel` re-decides nothing
+   * about a label's own text here, the same rule `shape` already follows.
+   */
+  labelRuns: LabelRun[][] | null;
   /**
    * The shape this node is drawn as, carried unchanged from the spelling
    * the author used. Required for the same reason `style` is: "no shape"

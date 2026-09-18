@@ -247,6 +247,26 @@ the exception, and it is stated under **Design token**.
 Mermaid's v11 `A@{ shape: cyl }` spelling is a second, larger vocabulary of about thirty names and
 is unimplemented: a line spelling one is refused as an unrecognized flowchart line rather than
 drawn as something else. Its own board, and it reuses all of this.
+
+**A label may itself carry Markdown formatting**, written as the fenced `` A["`**bold**`"] ``
+spelling — a quoted label whose content is itself fenced in backticks. `SirenNode`/`GraphNode`/
+`PositionedNode` each carry a `labelRuns: LabelRun[][] | null` alongside the plain-string `label`
+they have always had: `null` — the overwhelming common case — means the label carries no
+formatting and `label` alone is authoritative, exactly as before this field existed; non-null only
+for the fenced spelling, one array of `{ text, bold, italic }` runs per line, in source order, with
+`label` still holding the *flattened* plain text (every run's text concatenated, lines joined by
+`\n`) so a reader that has never heard of `labelRuns` — an error message, the redeclaration warning
+— still reads something sensible. Bold and italic are independent axes, not a closed set of
+"styles", matching mermaid 11.17.2's own `font-weight`/`font-style` pair (measured, `htmlLabels:
+false`). A line break inside the fence is real Mermaid too: its lexer reads a quoted label across
+physical source lines when the closing quote has not been reached yet, so the flowchart parser
+joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`) before anything else
+reads them — the one place this grammar is not read one physical line at a time. Layout sizes a
+Markdown-labelled box by its **plain text** (widest line's width, one line-height times line count)
+rather than weighing a bold run's actual glyph width — a deliberate simplification, not a gap — and
+the renderer draws the shape real Mermaid draws for this construct: one `<tspan class=
+"siren-node-label-row">` per line, absolute-positioned to center the block vertically, each holding
+one inner `<tspan>` per run with `font-weight`/`font-style` set only when true.
 _Avoid_: box, vertex, block, state, "the shape" for one drawn element (a node's frame may be
 several elements — say "frame" for what is drawn and "shape" for which of the fourteen it is)
 

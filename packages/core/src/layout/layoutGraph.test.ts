@@ -28,9 +28,9 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ],
     edges: [
       { id: "A-B", from: "A", to: "B", ...PLAIN_ARROW, style: { frame: [], text: [] } },
@@ -155,9 +155,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -235,8 +235,8 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: shapes.flatMap((shape) => [
-        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       ]),
       edges: [],
       subgraphs: [],
@@ -313,10 +313,10 @@ describe("layoutGraph", () => {
       direction: "TB",
       nodes: [
         ...shapes.flatMap((shape) => [
-          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
-          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
+          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
         ]),
-        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -377,9 +377,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -440,9 +440,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -510,9 +510,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -642,6 +642,70 @@ describe("layoutGraph", () => {
   });
 });
 
+describe("a Markdown-labelled node's box", () => {
+  it("sizes width from the widest line and height from single-line height times line count", () => {
+    // Per the ticket's own simplification: the plain-text approximation,
+    // not exact per-run bold-width measurement. "A" is 1 char (width 8
+    // under `fakeMeasurer`), "BB" is 2 (width 16) — the box takes the wider
+    // line's width and a height of two line-heights.
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "A\nBB",
+          labelRuns: [
+            [{ text: "A", bold: false, italic: false }],
+            [{ text: "BB", bold: true, italic: false }],
+          ],
+          shape: "rect",
+          style: { frame: [], text: [] },
+          parentId: null,
+          interaction: null,
+        },
+      ],
+      edges: [],
+      subgraphs: [],
+      accTitle: null,
+      accDescr: null,
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    expect(positioned.nodes[0].width).toBe(16);
+    expect(positioned.nodes[0].height).toBe(48);
+  });
+
+  it("measures a labelRuns-null node exactly as before — one call to measureText.measure", () => {
+    const graph: GraphModel = {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "Start",
+          labelRuns: null,
+          shape: "rect",
+          style: { frame: [], text: [] },
+          parentId: null,
+          interaction: null,
+        },
+      ],
+      edges: [],
+      subgraphs: [],
+      accTitle: null,
+      accDescr: null,
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    const expected = fakeMeasurer.measure("Start");
+    expect(positioned.nodes[0].width).toBe(expected.width);
+    expect(positioned.nodes[0].height).toBe(expected.height);
+  });
+});
+
 /**
  * A long arrow is the one part of an arrow token that is not about drawing:
  * `A ----> B` puts B further down the rank order, so the claim is about
@@ -652,8 +716,8 @@ describe("how long an edge holds its endpoints apart", () => {
   const twoNodes = (minLength: number): GraphModel => ({
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ],
     edges: [
       {
@@ -724,8 +788,8 @@ describe("the room an edge label is given", () => {
   ): GraphModel => ({
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ],
     edges: [
       {
@@ -882,7 +946,7 @@ describe("a subgraph's frame", () => {
     shape: "rect" as const,
     style: { frame: [], text: [] },
     parentId,
-    interaction: null,
+    interaction: null, labelRuns: null,
   });
 
   const edge = (from: string, to: string) => ({

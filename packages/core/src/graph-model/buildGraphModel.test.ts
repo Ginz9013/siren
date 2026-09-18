@@ -23,9 +23,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -52,8 +52,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -80,9 +80,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -130,8 +130,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -165,9 +165,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "Is it ready?", shape: "rhombus" },
-        { id: "B", label: "Done", shape: "rect" },
-        { id: "A", label: "Is it ready?", shape: "rect" },
+        { id: "A", label: "Is it ready?", shape: "rhombus", labelRuns: null },
+        { id: "B", label: "Done", shape: "rect", labelRuns: null },
+        { id: "A", label: "Is it ready?", shape: "rect", labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -182,8 +182,8 @@ describe("buildGraphModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ]);
   });
 
@@ -193,8 +193,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "Start", shape: "rect" },
-        { id: "A", label: "Begin", shape: "rect" },
+        { id: "A", label: "Start", shape: "rect", labelRuns: null },
+        { id: "A", label: "Begin", shape: "rect", labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -209,7 +209,7 @@ describe("buildGraphModel", () => {
 
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
@@ -221,8 +221,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -247,8 +247,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -289,7 +289,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect" }],
+      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -320,8 +320,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [],
       subgraphs: [],
@@ -354,7 +354,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect" }],
+      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -380,7 +380,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "B", label: "B", shape: "rect" }],
+      nodes: [{ id: "B", label: "B", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -411,8 +411,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -445,7 +445,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect" }],
+      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -486,8 +486,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -522,8 +522,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -552,9 +552,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW }, // A-B: edge exits at the same step as A
@@ -617,7 +617,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect" }],
+      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -633,7 +633,7 @@ describe("buildGraphModel", () => {
     expect(model).toBeNull();
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ]);
   });
 
@@ -680,8 +680,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -726,7 +726,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect" }],
+      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -764,7 +764,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect" }],
+      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -807,10 +807,10 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
-        { id: "D", label: "D", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "D", label: "D", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -852,9 +852,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -900,9 +900,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -949,8 +949,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1044,9 +1044,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1099,9 +1099,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
-        { id: "C", label: "C", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "C", label: "C", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1163,8 +1163,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       styles: [],
@@ -1213,8 +1213,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect" },
-        { id: "B", label: "B", shape: "rect" },
+        { id: "A", label: "A", shape: "rect", labelRuns: null },
+        { id: "B", label: "B", shape: "rect", labelRuns: null },
       ],
       edges: [
         { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
@@ -1283,8 +1283,8 @@ describe("an edge's arrow through the model", () => {
     interactions: [],
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect" },
-      { id: "B", label: "B", shape: "rect" },
+      { id: "A", label: "A", shape: "rect", labelRuns: null },
+      { id: "B", label: "B", shape: "rect", labelRuns: null },
     ],
     edges,
     subgraphs: [],
@@ -1374,9 +1374,9 @@ describe("a subgraph in the graph model", () => {
     interactions: [],
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect" },
-      { id: "B", label: "B", shape: "rect" },
-      { id: "C", label: "C", shape: "rect" },
+      { id: "A", label: "A", shape: "rect", labelRuns: null },
+      { id: "B", label: "B", shape: "rect", labelRuns: null },
+      { id: "C", label: "C", shape: "rect", labelRuns: null },
     ],
     edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
     subgraphs,

@@ -696,44 +696,39 @@ classDef hot fill:#fdd
     expect(document.nodes.map((n) => n.label)).toEqual(['say "hi" now']);
   });
 
-  it("names a Markdown string label as Markdown, not merely as a quoted label", () => {
-    // Mermaid draws **bold** as bold text here. Siren drew the backticks
-    // and the asterisks; naming the construct is what tells an author the
-    // feature is missing rather than that their quoting was wrong.
+  it("names a Markdown string label as Markdown, drawing **bold** as one bold run", () => {
+    // Mermaid draws **bold** as bold text here — the construct this used to
+    // be refused by name, before the flowchart leftover-gaps board
+    // implemented it.
     const source = `flowchart TB
   A["\`**bold**\`"]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      "Siren does not draw a Markdown string label (a quoted label fenced " +
-        'in backticks) yet: "A["`**bold**`"]"',
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(["bold"]);
+    expect(document.nodes.map((n) => n.labelRuns)).toEqual([
+      [[{ text: "bold", bold: true, italic: false }]],
     ]);
   });
 
-  it("refuses a form written at an edge endpoint too — where it is written must not decide what it means", () => {
+  it("reads a form written at an edge endpoint too — where it is written must not decide what it means", () => {
     // Two endpoints on two different lines and at both ends of an arrow, so
     // the rule is visibly about the *place* rather than about one line's
-    // shape. It used to read two different rows of the table; the slanted
-    // shapes left it when they were drawn and the cylinder when it was, so
-    // the Markdown label is the whole of what is left to refuse — and the
-    // rule it stands for is the reason the mechanism outlives the shapes.
+    // shape: a Markdown label declared inline at an edge endpoint parses
+    // into the exact same labelRuns a standalone declaration would.
     const source = `flowchart TB
   A["` + "`" + `**bold**` + "`" + `"] --> B[Read]
   C[Write] --> D["` + "`" + `**bold**` + "`" + `"]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      "Siren does not draw a Markdown string label (a quoted label fenced " +
-        'in backticks) yet: "A["`**bold**`"] --> B[Read]"',
-      "Siren does not draw a Markdown string label (a quoted label fenced " +
-        'in backticks) yet: "C[Write] --> D["`**bold**`"]"',
-    ]);
+    expect(diagnostics).toEqual([]);
+    const byId = Object.fromEntries(document.nodes.map((n) => [n.id, n]));
+    expect(byId.A.labelRuns).toEqual([[{ text: "bold", bold: true, italic: false }]]);
+    expect(byId.D.labelRuns).toEqual([[{ text: "bold", bold: true, italic: false }]]);
   });
 
   it("parses all four timeline verbs with the correct kind/targetId/step, and effect only where expected", () => {
@@ -1596,34 +1591,20 @@ timeline:
   });
 
   it("refuses a chain whole, declaring nothing from the endpoints it could read", () => {
-    // The property board 3's pin was protecting, kept now that the line is
-    // accepted: reading some of a line's nodes and dropping the rest would
-    // draw a diagram nobody wrote. The redeclaration warning is what makes
-    // "nothing was taken" observable — `A` already has a label, so if the
-    // first endpoint had been declared before the refusal there would be a
-    // warning sitting next to the error.
-    const refused = parseSiren(`flowchart TD
-  A[Start]
-  A[Other] --> B["` + "`" + `**bold**` + "`" + `"] --> C
-`);
-
-    expect(refused.document).toBeNull();
-    expect(refused.diagnostics).toEqual([
-      {
-        severity: "error",
-        message:
-          "Siren does not draw a Markdown string label (a quoted label fenced " +
-          'in backticks) yet: "A[Other] --> B["`**bold**`"] --> C"',
-        line: 3,
-        column: 3,
-      },
-    ]);
-
-    // Same rule for an arrow token that is not readable at all — here
-    // `o--x`, whose two ends disagree, in the middle of the line. It used to
-    // be `==>`, which was refused for the same reason until a thick line
-    // became one of the three an edge can be drawn with; the rule this test
-    // is about is the refusal being total, not which construct triggers it.
+    // The property board 3's pin was protecting: reading some of a line's
+    // nodes and dropping the rest would draw a diagram nobody wrote. Proven
+    // with an arrow token that is not readable at all — here `o--x`, whose
+    // two ends disagree, in the middle of the line. It used to be `==>`,
+    // which was refused for the same reason until a thick line became one of
+    // the three an edge can be drawn with; the Markdown label used to be a
+    // second demonstration of the same rule here, until the flowchart
+    // leftover-gaps board implemented it — the rule this test is about is
+    // the refusal being total, not which construct triggers it, and one
+    // still-unreadable construct is enough to show that.
+    //
+    // The redeclaration warning is what makes "nothing was taken" observable
+    // — `A` already has a label, so if the first endpoint had been declared
+    // before the refusal there would be a warning sitting next to the error.
     const unreadable = parseSiren(`flowchart TD
   A[Start]
   A[Other] --> B o--x C

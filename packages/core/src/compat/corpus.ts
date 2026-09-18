@@ -96,6 +96,38 @@ function textOf(element: Element): string {
   return element.querySelector("text")?.textContent ?? "";
 }
 
+/**
+ * A Markdown-labelled node's drawn rows, read off the actual `<tspan>`
+ * structure rather than off `textContent` — `textOf` above already proves
+ * the *text* survived (concatenating every descendant text node, tspans
+ * included), so this is what a `fc-text-*` Markdown row needs beyond that:
+ * proof that each row is its own `tspan.siren-node-label-row` and that a
+ * bold/italic run actually carries `font-weight`/`font-style`, not merely
+ * that the letters are on the page.
+ *
+ * One string per row, each run's text immediately followed by `(b)`, `(i)`
+ * or `(bi)` when that run carries `font-weight:bold`/`font-style:italic` —
+ * nothing appended for a plain run, so a row of plain text alone reads as
+ * its own text with no decoration, and a failure names the exact run that
+ * disagrees rather than a diff of the whole label.
+ */
+function markdownRows(result: SirenRenderResult, id: string): string[] {
+  const text = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`);
+  if (text === null) {
+    return [];
+  }
+  return Array.from(text.querySelectorAll("tspan.siren-node-label-row")).map((row) =>
+    Array.from(row.querySelectorAll("tspan"))
+      .map((run) => {
+        const flags =
+          (run.getAttribute("font-weight") === "bold" ? "b" : "") +
+          (run.getAttribute("font-style") === "italic" ? "i" : "");
+        return flags === "" ? (run.textContent ?? "") : `${run.textContent}(${flags})`;
+      })
+      .join(""),
+  );
+}
+
 /** Every flowchart node as `id[label]`, in draw order. */
 function nodes(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-node").map((g) => `${idOf(g)}[${textOf(g)}]`);
@@ -1451,8 +1483,64 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A["\`**bold**\`"]`,
-    status: "rejected",
-    meaning: "A Markdown string draws **bold** as bold text.",
+    status: "supported",
+    meaning:
+      "A Markdown string label draws `**bold**` as bold text: mermaid " +
+      "11.17.2 sets `font-weight: bold` on the run and nothing else, " +
+      "measured (`htmlLabels: false`, a throwaway mermaid-probe.mjs-based " +
+      "script).",
+    assert: (result) => {
+      // The plain text still reads right off `textContent` — tspans concatenate.
+      expectSame("nodes", nodes(result), ["A[bold]"]);
+      // And the run that carries it is drawn bold, not merely spelled "bold".
+      expectSame("markdown rows", markdownRows(result, "A"), ["bold(b)"]);
+    },
+  },
+  {
+    id: "fc-text-italic",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`*italic*\`"]`,
+    status: "supported",
+    meaning:
+      "A Markdown string label draws `*italic*` as italic text: mermaid " +
+      "11.17.2 sets `font-style: italic` on the run and nothing else, " +
+      "measured — the other half of the axis `fc-text-markdown`'s bold " +
+      "measures, independent rather than a second spelling of the same rule.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[italic]"]);
+      expectSame("markdown rows", markdownRows(result, "A"), ["italic(i)"]);
+    },
+  },
+  {
+    id: "fc-text-multiline",
+    kind: "flowchart",
+    // The continuation line is flush left on purpose: mermaid 11.17.2 reads
+    // a Markdown label's fence across physical source lines (measured,
+    // `node="A" text="line1\nline2"`), and the embedded line break is
+    // whatever text sits between the two physical lines verbatim — an
+    // indented continuation would put leading spaces on "line2" that nobody
+    // wrote as part of the label.
+    source: `flowchart TB
+      A["\`line1
+line2\`"]`,
+    status: "supported",
+    meaning:
+      "A Markdown label's fence may close on a later physical line than it " +
+      "opened on, and mermaid 11.17.2 reads the line break in between as " +
+      "part of the label: one vertex, `text=\"line1\\nline2\"`, `labelType=" +
+      '"markdown"` (measured). Drawn as two rows rather than one line with a ' +
+      "literal backslash-n in it.",
+    assert: (result) => {
+      // Two sibling `<tspan>` rows, not one text node with a `\n` in it —
+      // `textContent` concatenates them with nothing in between (no
+      // separator a DOM ever inserts between sibling elements), so the
+      // line break these two rows draw is visible in *where* the SVG puts
+      // them, not in this string. `markdownRows` is the assert that reads
+      // that structure; this is only proof the letters themselves made it.
+      expectSame("nodes", nodes(result), ["A[line1line2]"]);
+      expectSame("markdown rows", markdownRows(result, "A"), ["line1", "line2"]);
+    },
   },
 
   // -------------------------------------------------------------------------

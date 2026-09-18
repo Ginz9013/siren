@@ -27,7 +27,7 @@ function flowchartDocument(overrides: Partial<FlowchartDocument> = {}): Flowchar
 
 /** A `SirenNode` with the fields a test does not care about defaulted. */
 function sirenNode(overrides: Partial<SirenNode> & { id: string }): SirenNode {
-  return { label: overrides.id, shape: "rect", ...overrides };
+  return { label: overrides.id, labelRuns: null, shape: "rect", ...overrides };
 }
 
 describe("buildFlowchartModel's interactions", () => {
@@ -152,6 +152,27 @@ describe("buildFlowchartModel's interactions", () => {
     );
 
     expect(graph!.nodes[0].interaction).toBeNull();
+  });
+});
+
+describe("buildFlowchartModel's labelRuns", () => {
+  it("carries a node's Markdown label runs through unchanged", () => {
+    const labelRuns = [[{ text: "bold", bold: true, italic: false }]];
+    const { graph } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A", label: "bold", labelRuns })],
+      }),
+    );
+
+    expect(graph!.nodes[0].labelRuns).toEqual(labelRuns);
+  });
+
+  it("leaves an ordinary node's labelRuns null", () => {
+    const { graph } = buildFlowchartModel(
+      flowchartDocument({ nodes: [sirenNode({ id: "A" })] }),
+    );
+
+    expect(graph!.nodes[0].labelRuns).toBeNull();
   });
 });
 

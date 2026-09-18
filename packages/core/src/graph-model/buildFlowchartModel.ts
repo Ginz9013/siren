@@ -194,6 +194,7 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
       nodesById.set(node.id, {
         id: node.id,
         label: node.label,
+        labelRuns: node.labelRuns,
         shape: node.shape,
         style: unstyled(),
         // Filled in by `resolveSubgraphs`, once the blocks have ids to point

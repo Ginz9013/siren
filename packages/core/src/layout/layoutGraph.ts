@@ -1,11 +1,13 @@
 import type {
   GraphModel,
+  GraphNode,
   LayoutOptions,
   NodeShape,
   Point,
   PositionedGraph,
   PositionedSubgraph,
   ResolvedSubgraph,
+  TextMeasurer,
 } from "../contracts";
 import {
   layoutDirectedGraph,
@@ -76,6 +78,47 @@ export const SHAPE_LEAN = {
 interface Box {
   width: number;
   height: number;
+}
+
+/**
+ * The box a node's label measures to, before `boxForLabel` asks the shape
+ * what it costs to inscribe it.
+ *
+ * `node.labelRuns === null` — the overwhelming common case — is completely
+ * unchanged: one call to `measureText.measure`, exactly as every node was
+ * measured before this field existed.
+ *
+ * A Markdown label is measured by its **plain text**, one call per line,
+ * deliberately not weighing what a bold run's heavier glyphs would actually
+ * cost: the ticket that added `labelRuns` chose this simplification outright
+ * — a pixel-exact width would have to know the font `measureText` is
+ * measuring against for *every* weight it draws, and nothing downstream
+ * needs the box to be that exact. Width is the widest line's plain-text
+ * measurement, so the box holds every row without clipping any of them
+ * sideways; height is one line's own height times how many rows there are,
+ * so `layoutGraph`'s block stacks with no gap and no overlap between rows —
+ * matching what `renderToSVG` steps by when it draws them.
+ *
+ * Any line's own measured height stands for "one line's height": both
+ * measurers in this codebase (`packages/core/src/index.ts`'s
+ * `defaultMeasurer`, and every test's `fakeMeasurer`) return a height that
+ * depends on the font, not on the string's content or length, so this never
+ * has to guess which of the label's lines is the "representative" one.
+ */
+function measureLabelBox(node: GraphNode, measureText: TextMeasurer): Box {
+  if (node.labelRuns === null) {
+    return measureText.measure(node.label);
+  }
+  const lineBoxes = node.labelRuns.map((run) =>
+    measureText.measure(run.map((labelRun) => labelRun.text).join("")),
+  );
+  return {
+    width: Math.max(...lineBoxes.map((box) => box.width)),
+    // `labelRuns` is never an empty array — `parseNodeLabel` always
+    // produces at least one line, even for an empty Markdown string — so
+    // `lineBoxes[0]` is never reached with nothing measured.
+    height: lineBoxes[0]!.height * lineBoxes.length,
+  };
 }
 
 /**
@@ -244,7 +287,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...boxForLabel(node.shape, options.measureText.measure(node.label)),
+        ...boxForLabel(node.shape, measureLabelBox(node, options.measureText)),
         // Grouping, and the only thing about a subgraph the shared core is
         // told. `undefined` rather than `null` when the node is in no
         // subgraph, because the core switches dagre's compound mode on by

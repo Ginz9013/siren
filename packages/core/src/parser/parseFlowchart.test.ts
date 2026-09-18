@@ -30,6 +30,66 @@ describe("a flowchart node's label", () => {
   });
 });
 
+describe("a flowchart node's Markdown label", () => {
+  it("leaves labelRuns null for an ordinary label", () => {
+    const source = `flowchart TB
+  A[Start]`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.labelRuns).toBeNull();
+  });
+
+  it("reads a `**bold**` Markdown string label into one bold run", () => {
+    const source = "flowchart TB\n  A[\"`**bold**`\"]";
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.label).toBe("bold");
+    expect(document.nodes[0]?.labelRuns).toEqual([
+      [{ text: "bold", bold: true, italic: false }],
+    ]);
+  });
+
+  it("reads a `*italic*` Markdown string label into one italic run", () => {
+    const source = "flowchart TB\n  A[\"`*italic*`\"]";
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.label).toBe("italic");
+    expect(document.nodes[0]?.labelRuns).toEqual([
+      [{ text: "italic", bold: false, italic: true }],
+    ]);
+  });
+
+  it("breaks a Markdown string label's embedded line break into one run array per line", () => {
+    const source = 'flowchart TB\n  A["`line1\nline2`"]';
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.label).toBe("line1\nline2");
+    expect(document.nodes[0]?.labelRuns).toEqual([
+      [{ text: "line1", bold: false, italic: false }],
+      [{ text: "line2", bold: false, italic: false }],
+    ]);
+  });
+
+  it("still parses the statement after a merged multi-line Markdown label at the right line number", () => {
+    const source = 'flowchart TB\n  A["`line1\nline2`"]\n  A --> B';
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges).toEqual([
+      expect.objectContaining({ from: "A", to: "B", sourceLine: 4 }),
+    ]);
+  });
+});
+
 describe("a flowchart node id's alphabet", () => {
   it("accepts a `.` in a bare edge endpoint", () => {
     const source = `flowchart TB
