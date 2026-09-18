@@ -1426,19 +1426,17 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A[  padded  ] --> B["  padded  "]`,
-    status: "silently-wrong",
+    status: "supported",
     meaning:
       "Mermaid trims the whitespace around a label, quoted or not: mermaid " +
       "11.17.2 records `text=\"padded\"` for both of these vertices " +
       "(`node scripts/mermaid-probe.mjs`). Padding a label is how an author " +
       "lays a document out; it is not part of what the box says.",
     assert: (result) => {
-      // Both boxes keep the spaces they were padded with, and neither says
-      // anything about it -- a wider box with the label off its own centre,
-      // and no diagnostic. Uniform across the quoted and the unquoted
-      // spelling, which is why this is one row: it is one missing trim in
-      // the parser, not a quoting bug.
-      expectSame("nodes", nodes(result), ["A[  padded  ]", "B[  padded  ]"]);
+      // Both boxes drop the padding they were written with, uniformly
+      // across the quoted and the unquoted spelling -- one trim in the
+      // parser's label reader, not a quoting-specific fix.
+      expectSame("nodes", nodes(result), ["A[padded]", "B[padded]"]);
     },
   },
   {

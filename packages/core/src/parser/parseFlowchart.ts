@@ -278,12 +278,18 @@ const FENCED_LABEL_RE = /^"([^"]*)"$/;
 
 /**
  * The label an author wrote inside `[...]`, with the fence removed when
- * there is one. Ordinary content is returned untouched, which is the common
- * case.
+ * there is one, and the padding around it dropped.
+ *
+ * Trimmed whether or not the label was quoted: mermaid 11.17.2 records
+ * `text="padded"` for both `A[  padded  ]` and `A["  padded  "]`
+ * (`node scripts/mermaid-probe.mjs`, `fc-text-label-whitespace`). Padding a
+ * label is how an author lays a document out, not part of what the box
+ * says, so it is dropped here rather than drawn.
  */
 function labelIn(content: string): string {
   const fenced = FENCED_LABEL_RE.exec(content);
-  return fenced === null ? content : fenced[1];
+  const label = fenced === null ? content : fenced[1];
+  return label.trim();
 }
 
 /**
@@ -808,20 +814,16 @@ function readInlineLabelledArrow(token: string): ArrowForm | null {
 
 /**
  * The label an author wrote on an edge, with the fence removed and the
- * padding dropped.
+ * padding dropped — the padding outside the fence and the padding inside it
+ * alike, exactly as `labelIn` drops a node's.
  *
- * Trimmed, unlike a node's label, and the difference is Mermaid's rather
- * than a choice made here: an edge label reaches Mermaid's own database
- * already trimmed in every spelling — `A -->|  yes  | B`,
- * `A --   yes   --> B` and `A -->|"  yes  "| B` all record `text="yes"`,
- * measured. A node's label does not (`fc-text-label-whitespace`), and that
- * divergence is a corpus row rather than a precedent to spread.
- *
- * Trimmed on both sides of the fence, so the padding an author put inside
- * the quotes and the padding they put outside them are dropped alike.
+ * The outer `.trim()` runs before the fence is read rather than relying on
+ * `labelIn`'s own, because it is what lets the fenced pattern match at all
+ * when an author padded outside the quotes — `A -->|  "yes"  | B` has
+ * nothing to do with `^"..."$` until the surrounding spaces are gone.
  */
 function edgeLabelIn(content: string): string {
-  return labelIn(content.trim()).trim();
+  return labelIn(content.trim());
 }
 
 /** One place a node was written on an edge line, as written there. */

@@ -18,6 +18,18 @@ function parseOk(source: string): { document: FlowchartDocument; diagnostics: Di
   return { document, diagnostics };
 }
 
+describe("a flowchart node's label", () => {
+  it("trims the padding around a label, whether or not it is quoted", () => {
+    const source = `flowchart TB
+  A[  padded  ] --> B["  padded  "]`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.label)).toEqual(["padded", "padded"]);
+  });
+});
+
 describe("a flowchart's click statements", () => {
   it("parses a click href interaction, with and without the trailing tooltip", () => {
     const source = `flowchart TB

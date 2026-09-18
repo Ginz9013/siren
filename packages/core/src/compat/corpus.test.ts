@@ -293,8 +293,13 @@ describe("the corpus, case by case", () => {
  * they would: a keyword drawn, not a construct refused. 3 - 2 = 1, leaving
  * only `fc-text-label-whitespace` — a flowchart parser trim, out of scope
  * for the sequence board that closed the other two.
+ *
+ * `fc-text-label-whitespace` closed the same way: `labelIn` trims after the
+ * fence is removed, so a padded label draws exactly as Mermaid draws it.
+ * 1 - 1 = 0. Every case this constant has ever named is now either
+ * `supported` or `rejected` — the destination this policy always pointed at.
  */
-const SILENTLY_WRONG = 1;
+const SILENTLY_WRONG = 0;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
