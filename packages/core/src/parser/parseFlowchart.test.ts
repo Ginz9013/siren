@@ -152,6 +152,7 @@ describe("a flowchart's click statements", () => {
         action: "https://example.com",
         argument: null,
         tooltip: null,
+        linkTarget: null,
         line: 4,
         column: 3,
       },
@@ -161,6 +162,7 @@ describe("a flowchart's click statements", () => {
         action: "https://example.org",
         argument: null,
         tooltip: "Read the docs",
+        linkTarget: null,
         line: 5,
         column: 3,
       },
@@ -211,17 +213,52 @@ describe("a flowchart's click statements", () => {
     ]);
   });
 
-  it("refuses href's target attribute, rather than truncating it to the 3-argument form", () => {
+  it("parses href's optional trailing target attribute, one of Mermaid's four LINK_TARGET values", () => {
+    const source = `flowchart TB
+  A[Start]
+  B[Middle]
+  click A href "https://example.com" "tip" _blank
+  click B href "https://example.org" _self
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://example.com",
+        argument: null,
+        tooltip: "tip",
+        linkTarget: "_blank",
+        line: 4,
+        column: 3,
+      },
+      {
+        interactionKind: "href",
+        targetId: "B",
+        action: "https://example.org",
+        argument: null,
+        tooltip: null,
+        linkTarget: "_self",
+        line: 5,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("refuses a target that is not one of Mermaid's four LINK_TARGET values, rather than truncating it away", () => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB
   A[Start]
-  click A href "https://example.com" "tip" _blank
+  click A href "https://example.com" "tip" _bogus
 `);
 
     expect(document).toBeNull();
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized flowchart line: "click A href "https://example.com" "tip" _blank"',
+        message: 'Unrecognized flowchart line: "click A href "https://example.com" "tip" _bogus"',
         line: 3,
         column: 3,
       },
@@ -276,6 +313,7 @@ describe("a flowchart's click statements", () => {
         action: "https://example.com",
         argument: null,
         tooltip: null,
+        linkTarget: null,
         line: 2,
         column: 3,
       },

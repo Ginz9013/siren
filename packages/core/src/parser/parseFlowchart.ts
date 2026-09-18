@@ -6,6 +6,7 @@ import type {
   FlowchartDocument,
   Interaction,
   LinkStyleDecl,
+  LinkTarget,
   NodeShape,
   ParseResult,
   SirenEdge,
@@ -1151,24 +1152,27 @@ function readSubgraphTitle(
  */
 const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
 
+/** The window target mermaid 11.17.2's grammar accepts as an `href` interaction's fourth argument — see `LinkTarget`. */
+const LINK_TARGETS: readonly LinkTarget[] = ["_blank", "_self", "_top", "_parent"];
+
 /**
  * `click A href "https://example.com"`, with Mermaid's optional trailing
- * tooltip string — the 2- and 3-argument forms only.
+ * tooltip string and optional trailing window target — the 2-, 3- and
+ * 4-argument forms, `click A href "url" ["tip"] [_blank|_self|_top|_parent]`.
  *
  * Anchored with `$`, exactly as the class diagram's own `CLICK_HREF_RE` is,
- * so a form this does not read — the target attribute, `click A href "url"
- * "tip" _blank` or `click A href "url" _blank` — falls all the way through
- * to "Unrecognized flowchart line" rather than silently matching a truncated
- * read of it. Measured against mermaid 11.17.2 with
- * `scripts/mermaid-probe.mjs`: both are valid Mermaid and neither is this
- * board's to implement.
+ * so a fifth token — or a target that is not one of `LinkTarget`'s four —
+ * falls all the way through to "Unrecognized flowchart line" rather than
+ * silently matching a truncated read of it (measured: mermaid's own grammar
+ * has exactly these four as a fixed `LINK_TARGET` lexer token, and a fifth
+ * is a parse error there too).
  *
  * The URL is captured as written, exactly as the class diagram's does — the
  * `http`/`https`/`mailto` allowlist is `resolveInteractions`' job, not this
  * parser's, and that resolver is shared rather than copied.
  */
 const CLICK_HREF_RE = new RegExp(
-  String.raw`^click\s+(${ID_RUN})\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$`,
+  String.raw`^click\s+(${ID_RUN})\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?(?:\s+(${LINK_TARGETS.join("|")}))?$`,
 );
 
 /**
@@ -1749,6 +1753,7 @@ export function parseFlowchart(source: string): ParseResult {
           action: clickHrefMatch[2],
           argument: null,
           tooltip: clickHrefMatch[3] ?? null,
+          linkTarget: (clickHrefMatch[4] as LinkTarget | undefined) ?? null,
           line: lineNumber,
           column,
         });

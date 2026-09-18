@@ -533,5 +533,21 @@ was added for it: Mermaid's own popup-menu semantics for this directive are not 
 static SVG anyway, measured as a `display:none` panel toggled by JS), with `Label` carried as the
 interaction's `tooltip` and drawn as a `<title>` — the same "first child of the group" tooltip
 convention `click`/`link` already use on a class.
+
+A flowchart's `click X href "url"` additionally accepts an optional fourth argument, one of
+Mermaid's four `LINK_TARGET` values (`_blank`/`_self`/`_top`/`_parent`, a fixed lexer token —
+anything else is a parse error, measured), carried as `Interaction.linkTarget`. **Mermaid's own
+rendered SVG carries no `target` attribute for any of the four, measured** — the effect apparently
+lives in a JS bind-time layer this package's `render()` has no equivalent of. Siren's `<a
+class="siren-link">` is a real, self-contained anchor with no such layer, so it sets `target`
+itself when `linkTarget` is present, plus `rel="noopener noreferrer"` against reverse tabnabbing —
+a deliberate divergence from Mermaid's own static markup, recorded here rather than treated as a
+mis-render, because it reaches the same author intent (opening the link in a new tab) through the
+mechanism this renderer actually has. `linkTarget` is optional rather than required-nullable on
+`Interaction`/`ResolvedInteraction`, unlike its sibling fields: only a flowchart's `click ... href`
+can ever set it, so a class diagram's and a sequence diagram's own `href`-kind spellings never
+carry the key at all rather than carrying it as `null`.
 _Avoid_: link (one of several spellings, not a fourth kind of interaction), handler, action
-(that is the callback-name field of one, not the whole thing), hotspot
+(that is the callback-name field of one, not the whole thing), hotspot, target (alone, for
+`linkTarget` — this entry's own `targetId` already uses "target" for the authored thing an
+interaction is attached to, a different concept)

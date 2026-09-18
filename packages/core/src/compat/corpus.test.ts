@@ -633,8 +633,11 @@ const SILENTLY_WRONG = 0;
  *
  * `fc-node-id-dot` (a `.` in a node id) then moved from `rejected` to
  * `supported`: 7 - 1 = 6.
+ *
+ * `fc-click-target` (`click A href "url" "tip" _blank`) then moved from
+ * `rejected` to `supported`: 6 - 1 = 5.
  */
-const REJECTED = 6;
+const REJECTED = 5;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

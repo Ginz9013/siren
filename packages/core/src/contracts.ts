@@ -1376,6 +1376,16 @@ export interface ClassNote {
 export type InteractionKind = "href" | "call";
 
 /**
+ * The window target mermaid 11.17.2's grammar accepts after an `href`
+ * interaction's optional tooltip — `click A href "url" "tip" _blank`. A
+ * fixed `LINK_TARGET` token in Mermaid's own lexer, not a free string:
+ * measured with `scripts/mermaid-probe.mjs`, these four values are the whole
+ * of what it accepts there, and a fifth is a parse error
+ * ("Expecting 'LINK_TARGET', got 'NODE_STRING'").
+ */
+export type LinkTarget = "_blank" | "_self" | "_top" | "_parent";
+
+/**
  * A `click`/`link`/`callback` statement making a target interactive, as
  * written. `targetId` is a target's id in the sense the glossary gives that
  * word — the authored thing an interaction is attached to — so it is a
@@ -1392,6 +1402,19 @@ export interface Interaction {
   argument: string | null;
   /** The optional trailing tooltip string, or `null`. */
   tooltip: string | null;
+  /**
+   * The optional trailing window target on a flowchart's own `click X href
+   * "url" ["tip"] _blank` — `null` when the author wrote no fourth argument.
+   *
+   * Optional, unlike `argument`/`tooltip`: a class diagram's and a sequence
+   * diagram's own `href`-kind spellings (`click ... href`, `link "..."`,
+   * `link A: Label @ url`) have no target concept in Mermaid at all, so
+   * those parsers never set this field at all rather than setting it to
+   * `null` — the empty-not-absent rule the sibling fields follow is a
+   * flowchart-only promise here, not a kind-agnostic one. A `call`
+   * interaction never sets it either, target being an `href`-only concept.
+   */
+  linkTarget?: LinkTarget | null;
   line?: number;
   column?: number;
 }
@@ -1575,6 +1598,8 @@ export interface ResolvedInteraction {
   action: string;
   argument: string | null;
   tooltip: string | null;
+  /** Carried through unchanged from `Interaction.linkTarget` — see that field. */
+  linkTarget?: LinkTarget | null;
 }
 
 /**

@@ -1565,13 +1565,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A[Start]
       click A href "https://example.com" "tip" _blank`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`click A href \"url\" \"tip\" _blank` opens the link in a new tab — the " +
-      "target attribute trailing the tooltip. Siren reads the 2- and 3-argument " +
-      "forms of `click ... href` and refuses this fourth argument by name " +
-      "(`CLICK_HREF_RE` is anchored with `$`), rather than truncating it to the " +
-      "form it does read.",
+      "target attribute trailing the tooltip, one of Mermaid's four " +
+      "`LINK_TARGET` values (`_blank`/`_self`/`_top`/`_parent`). Mermaid's own " +
+      "rendered SVG carries no `target` attribute for any of them (measured); " +
+      "Siren's `<a href>` has no JS bind-time layer to fall back on, so it " +
+      "sets `target` itself, plus `rel=\"noopener noreferrer\"` against " +
+      "reverse tabnabbing — a deliberate, measured mechanism divergence, not " +
+      "a mis-render.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector(
+        'a.siren-link > g.siren-node[data-siren-id="A"]',
+      );
+      if (link === null) throw new Error('node "A" was not wrapped in an <a class="siren-link">');
+      expectSame("A's link target", link.parentElement?.getAttribute("target"), "_blank");
+      expectSame(
+        "A's link rel",
+        link.parentElement?.getAttribute("rel"),
+        "noopener noreferrer",
+      );
+    },
   },
   {
     id: "fc-click-bare-callback",

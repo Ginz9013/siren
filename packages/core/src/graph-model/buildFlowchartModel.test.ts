@@ -58,6 +58,7 @@ describe("buildFlowchartModel's interactions", () => {
       action: "https://example.com",
       argument: null,
       tooltip: "the docs",
+      linkTarget: null,
     });
     expect(byId.B.interaction).toBeNull();
   });
@@ -87,6 +88,7 @@ describe("buildFlowchartModel's interactions", () => {
       action: "showDetails",
       argument: "42",
       tooltip: null,
+      linkTarget: null,
     });
   });
 
