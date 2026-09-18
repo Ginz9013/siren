@@ -696,44 +696,39 @@ classDef hot fill:#fdd
     expect(document.nodes.map((n) => n.label)).toEqual(['say "hi" now']);
   });
 
-  it("names a Markdown string label as Markdown, not merely as a quoted label", () => {
-    // Mermaid draws **bold** as bold text here. Siren drew the backticks
-    // and the asterisks; naming the construct is what tells an author the
-    // feature is missing rather than that their quoting was wrong.
+  it("names a Markdown string label as Markdown, drawing **bold** as one bold run", () => {
+    // Mermaid draws **bold** as bold text here — the construct this used to
+    // be refused by name, before the flowchart leftover-gaps board
+    // implemented it.
     const source = `flowchart TB
   A["\`**bold**\`"]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      "Siren does not draw a Markdown string label (a quoted label fenced " +
-        'in backticks) yet: "A["`**bold**`"]"',
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.label)).toEqual(["bold"]);
+    expect(document.nodes.map((n) => n.labelRuns)).toEqual([
+      [[{ text: "bold", bold: true, italic: false }]],
     ]);
   });
 
-  it("refuses a form written at an edge endpoint too — where it is written must not decide what it means", () => {
+  it("reads a form written at an edge endpoint too — where it is written must not decide what it means", () => {
     // Two endpoints on two different lines and at both ends of an arrow, so
     // the rule is visibly about the *place* rather than about one line's
-    // shape. It used to read two different rows of the table; the slanted
-    // shapes left it when they were drawn and the cylinder when it was, so
-    // the Markdown label is the whole of what is left to refuse — and the
-    // rule it stands for is the reason the mechanism outlives the shapes.
+    // shape: a Markdown label declared inline at an edge endpoint parses
+    // into the exact same labelRuns a standalone declaration would.
     const source = `flowchart TB
   A["` + "`" + `**bold**` + "`" + `"] --> B[Read]
   C[Write] --> D["` + "`" + `**bold**` + "`" + `"]
 `;
 
-    const { document, diagnostics } = parseSiren(source);
+    const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      "Siren does not draw a Markdown string label (a quoted label fenced " +
-        'in backticks) yet: "A["`**bold**`"] --> B[Read]"',
-      "Siren does not draw a Markdown string label (a quoted label fenced " +
-        'in backticks) yet: "C[Write] --> D["`**bold**`"]"',
-    ]);
+    expect(diagnostics).toEqual([]);
+    const byId = Object.fromEntries(document.nodes.map((n) => [n.id, n]));
+    expect(byId.A.labelRuns).toEqual([[{ text: "bold", bold: true, italic: false }]]);
+    expect(byId.D.labelRuns).toEqual([[{ text: "bold", bold: true, italic: false }]]);
   });
 
   it("parses all four timeline verbs with the correct kind/targetId/step, and effect only where expected", () => {
@@ -1596,34 +1591,20 @@ timeline:
   });
 
   it("refuses a chain whole, declaring nothing from the endpoints it could read", () => {
-    // The property board 3's pin was protecting, kept now that the line is
-    // accepted: reading some of a line's nodes and dropping the rest would
-    // draw a diagram nobody wrote. The redeclaration warning is what makes
-    // "nothing was taken" observable — `A` already has a label, so if the
-    // first endpoint had been declared before the refusal there would be a
-    // warning sitting next to the error.
-    const refused = parseSiren(`flowchart TD
-  A[Start]
-  A[Other] --> B["` + "`" + `**bold**` + "`" + `"] --> C
-`);
-
-    expect(refused.document).toBeNull();
-    expect(refused.diagnostics).toEqual([
-      {
-        severity: "error",
-        message:
-          "Siren does not draw a Markdown string label (a quoted label fenced " +
-          'in backticks) yet: "A[Other] --> B["`**bold**`"] --> C"',
-        line: 3,
-        column: 3,
-      },
-    ]);
-
-    // Same rule for an arrow token that is not readable at all — here
-    // `o--x`, whose two ends disagree, in the middle of the line. It used to
-    // be `==>`, which was refused for the same reason until a thick line
-    // became one of the three an edge can be drawn with; the rule this test
-    // is about is the refusal being total, not which construct triggers it.
+    // The property board 3's pin was protecting: reading some of a line's
+    // nodes and dropping the rest would draw a diagram nobody wrote. Proven
+    // with an arrow token that is not readable at all — here `o--x`, whose
+    // two ends disagree, in the middle of the line. It used to be `==>`,
+    // which was refused for the same reason until a thick line became one of
+    // the three an edge can be drawn with; the Markdown label used to be a
+    // second demonstration of the same rule here, until the flowchart
+    // leftover-gaps board implemented it — the rule this test is about is
+    // the refusal being total, not which construct triggers it, and one
+    // still-unreadable construct is enough to show that.
+    //
+    // The redeclaration warning is what makes "nothing was taken" observable
+    // — `A` already has a label, so if the first endpoint had been declared
+    // before the refusal there would be a warning sitting next to the error.
     const unreadable = parseSiren(`flowchart TD
   A[Start]
   A[Other] --> B o--x C
@@ -1913,16 +1894,27 @@ describe("the arrow token an edge is written with", () => {
     //
     // So a leading `.` opens an arrow only where an id cannot be — exactly
     // the rule the `o` and `x` markers already follow, for exactly the same
-    // reason. Siren's own ids are `\w+`, so it cannot draw `a.-b` under
-    // either reading; but the two wrong answers are not equally wrong. A
-    // diagnostic says the document was not understood. Cutting at the `.-`
-    // draws three nodes and two edges where Mermaid draws two nodes and
-    // one, and says nothing at all — the silent mis-render this corpus
-    // exists to remove.
-    for (const source of ["a.-b --> c", "A --> B; C.-D"]) {
-      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
-      expect([source, document]).toEqual([source, null]);
-      expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+    // reason. Once the id alphabet was widened to admit `.` (the
+    // `fc-node-id-dot` ticket), Siren draws `a.-b` under that same reading
+    // rather than merely refusing it: this guard is what leaves the `.-`
+    // whole for the id reader, instead of cutting the line at it and
+    // drawing three nodes and two edges where Mermaid draws two and one.
+    const dotDash = parseSiren("flowchart TB\n  a.-b --> c\n");
+    expect(dotDash.diagnostics).toEqual([]);
+    expect(dotDash.document?.kind).toBe("flowchart");
+    if (dotDash.document?.kind === "flowchart") {
+      expect(dotDash.document.nodes.map((node) => node.id)).toEqual(["a.-b", "c"]);
+      expect(dotDash.document.edges).toEqual([
+        expect.objectContaining({ from: "a.-b", to: "c" }),
+      ]);
+    }
+
+    const bareThird = parseSiren("flowchart TB\n  A --> B; C.-D\n");
+    expect(bareThird.diagnostics).toEqual([]);
+    expect(bareThird.document?.kind).toBe("flowchart");
+    if (bareThird.document?.kind === "flowchart") {
+      expect(bareThird.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C.-D"]);
+      expect(bareThird.document.edges).toEqual([expect.objectContaining({ from: "A", to: "B" })]);
     }
   });
 
@@ -2203,6 +2195,7 @@ describe("a subgraph", () => {
         label: "Ingest",
         nodeIds: ["A", "B"],
         subgraphs: [],
+        direction: null,
         line: 2,
         column: 3,
       },
@@ -2305,39 +2298,31 @@ describe("a subgraph", () => {
 });
 
 /**
- * `direction LR` inside a subgraph, and the decision to refuse it.
+ * `direction LR` inside a subgraph — a per-cluster rank direction.
  *
- * **Measured first.** mermaid 11.17.2 records it as `dir="LR"` on that
- * subgraph alone and leaves the document's own direction where the header put
- * it (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
- * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`). So it is a
- * *per-cluster* rank direction, and Mermaid honors it by laying each subgraph
- * out as a diagram of its own and composing the results.
- *
- * **Out, and out loudly.** dagre has exactly one `rankdir` per graph —
- * `layoutDirectedGraph` takes it as a graph-level field, which is the whole of
- * that seam — so honoring this means recursive sub-layouts and a composition
- * step, which is a layout feature of its own size rather than the port this
- * ticket is. What is *not* an option is accepting the line and ignoring it: a
- * group laid out top-to-bottom where the author wrote left-to-right is a
- * picture with nothing in it to notice, which is the exact failure mode the
- * project's absolute condition exists to remove. So it is refused by name,
- * and recorded in the compatibility corpus as the backlog item it is.
+ * **Measured.** mermaid 11.17.2 records it as `dir="LR"` on that subgraph
+ * alone and leaves the document's own direction where the header put it
+ * (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
+ * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`).
+ * `layoutDirectedGraph` honors it the same way, by way of dagre's own
+ * `recursiveClusterLayout`: a cluster node carrying a `rankdir` of its own
+ * lays its children out as a sub-graph of their own.
  */
 describe("a direction written inside a subgraph", () => {
-  it("is refused by name rather than ignored", () => {
+  it("is read onto that subgraph, not refused", () => {
     const { document, diagnostics } = parseSiren(
       "flowchart TB\n  subgraph Ingest\n    direction LR\n    A --> B\n  end\n",
     );
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
-      [
-        "error",
-        'Siren does not lay a subgraph out in its own direction yet: "direction LR"',
-        3,
-      ],
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect(document!.kind).toBe("flowchart");
+    expect((document as FlowchartDocument).subgraphs).toEqual([
+      expect.objectContaining({ name: "Ingest", direction: "LR" }),
     ]);
+    // The document's own direction, where the header put it — untouched by
+    // the subgraph's own.
+    expect((document as FlowchartDocument).direction).toBe("TB");
   });
 
   it("costs the author nothing when they never wrote one", () => {
@@ -2350,24 +2335,26 @@ describe("a direction written inside a subgraph", () => {
 });
 
 /**
- * An edge whose endpoint names a subgraph — the gap this ticket *creates*
- * unless it is closed, and the reason it is closed here rather than recorded
- * and left.
+ * An edge whose endpoint names a subgraph — an edge between two *frames*
+ * rather than two boxes.
  *
  * **Measured.** mermaid 11.17.2 reads `One --> Two`, where `One` and `Two`
  * are subgraphs, as an edge between the two frames — it records vertices for
  * both names *and* the subgraphs, and its renderer joins the clusters
- * (`scripts/mermaid-probe.mjs`). Siren has no such routing: it would declare
- * two ordinary nodes and draw two boxes labelled `One` and `Two` *beside* the
- * frames of the same name, with no diagnostic. That is a `silently-wrong`
- * case, and the policy on those says their count's destination is zero — so
- * a board must not create one.
+ * (`scripts/mermaid-probe.mjs`). Siren draws it the same way now: the
+ * endpoint is recorded as the author wrote it here, resolved to the frame's
+ * generated id by `buildFlowchartModel`, and routed by `layoutDirectedGraph`
+ * through a member of the frame whose route is then clipped back to the
+ * frame's own boundary.
  *
- * Refused by name instead, which is the honest state, and recorded in the
- * corpus as backlog.
+ * It used to be **refused by name**, and this block used to pin the refusal.
+ * That was the honest state while nothing could route it: the alternative
+ * then was two stray boxes drawn beside the frames of the same name, with no
+ * diagnostic — a `silently-wrong` row, and the policy on those says their
+ * count's destination is zero.
  */
 describe("an edge that addresses a subgraph", () => {
-  it("is refused by name rather than drawn as a stray node beside the frame", () => {
+  it("joins the two frames rather than drawing stray nodes beside them", () => {
     const { document, diagnostics } = parseSiren(
       "flowchart TB\n" +
         "  subgraph One\n    A\n  end\n" +
@@ -2375,59 +2362,58 @@ describe("an edge that addresses a subgraph", () => {
         "  One --> Two\n",
     );
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
-      ["error", 'Siren does not draw an edge to the subgraph "One" yet: "One --> Two"', 8],
-    ]);
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    const flowchart = document as FlowchartDocument;
+    expect(flowchart.edges.map((edge) => [edge.from, edge.to])).toEqual([["One", "Two"]]);
+    // No box called `One` beside the frame of the same name.
+    expect(flowchart.nodes.map((node) => node.id)).toEqual(["A", "B"]);
   });
 
-  it("catches it whichever order the two were written in", () => {
+  it("reads it whichever order the two were written in", () => {
     // A subgraph may be declared after the edge that names it, so this
-    // cannot be a check made while the line is read.
-    const { diagnostics } = parseSiren(
+    // cannot be decided while the line is read.
+    const { document, diagnostics } = parseSiren(
       "flowchart TB\n  A --> Ingest\n  subgraph Ingest\n    B --> C\n  end\n",
     );
 
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not draw an edge to the subgraph "Ingest" yet: "A --> Ingest"',
+    expect(diagnostics).toEqual([]);
+    expect((document as FlowchartDocument).nodes.map((node) => node.id)).toEqual([
+      "A",
+      "B",
+      "C",
     ]);
   });
 
   it("says nothing about a node that merely shares a subgraph's name", () => {
     // `A[Alpha]` beside `subgraph A` is valid Mermaid that draws a box and a
-    // frame, and Siren draws both — so it is not this diagnostic's business.
-    // Only an *edge* endpoint is ambiguous, because only there does Mermaid
-    // mean the frame.
+    // frame, and Siren draws both. Only an *edge* endpoint means the frame,
+    // so a declaration keeps its box whatever a block is called.
     const { document, diagnostics } = parseSiren(
       "flowchart TB\n  A[Alpha]\n  subgraph A\n    B --> C\n  end\n",
     );
 
     expect(diagnostics).toEqual([]);
     expect(document).not.toBeNull();
+    expect((document as FlowchartDocument).nodes.map((node) => node.id)).toContain("A");
   });
 });
 
 /**
- * A node written as a bare id on a line of its own **inside** a subgraph.
+ * A node written as a bare id on a line of its own, inside a subgraph or at
+ * the top level alike.
  *
- * This is how an author puts a node with no edges into a group, and it is the
- * second most common line in a grouped document after `A --> B`. Siren
- * refused it — a bare word has never been a node declaration here, only a
- * bracket form has — which would have left `subgraph One / A / end` rejected
- * while the corpus claimed `subgraph` was supported.
- *
- * **Measured both ways, and the two differ**, which is why the rule is scoped
- * rather than general (`scripts/mermaid-probe.mjs`, mermaid 11.17.2):
- *
- *     flowchart TB / A / B[Box]        -> vertices: B only. A is not recorded.
- *     subgraph One / A / end           -> vertices: A. subgraph One nodes=["A"].
- *
- * So a bare id declares a node inside a block and declares nothing outside
- * one, and Siren follows the measurement on both sides rather than
- * generalizing from one of them.
+ * This is how an author puts a node with no edges into a document, and
+ * inside a block it is the second most common line after `A --> B`. Siren
+ * used to refuse the top-level spelling — a bare word declared a node only
+ * inside a `subgraph` block, never outside one — on a since-corrected
+ * measurement: re-measured with `scripts/mermaid-probe.mjs` (mermaid
+ * 11.17.2), `flowchart TB / A / B[Box]` records vertices `A` *and* `B`, not
+ * `B` alone (`fc-stmt-bare-node`). The two spellings are one rule, not two:
+ * a bare id declares a node wherever it is written.
  */
-describe("a bare node id inside a subgraph", () => {
-  it("declares the node and puts it in the block", () => {
+describe("a bare node id on its own line", () => {
+  it("declares the node and puts it in the block, inside a subgraph", () => {
     const { document, diagnostics } = parseFlowchartOk(
       "flowchart TB\n  subgraph One\n    A\n    B[Box]\n  end\n",
     );
@@ -2440,13 +2426,10 @@ describe("a bare node id inside a subgraph", () => {
     expect(document.subgraphs.map((sub) => sub.nodeIds)).toEqual([["A", "B"]]);
   });
 
-  it("is still an unrecognized line outside every block", () => {
-    // Mermaid records nothing for it there, so there is no document being
-    // refused — and a bare word accepted at the top level would swallow
-    // every mistyped keyword as a node.
-    const { document, diagnostics } = parseSiren("flowchart TB\n  A\n");
+  it("declares the node outside every block too", () => {
+    const { document, diagnostics } = parseFlowchartOk("flowchart TB\n  A\n");
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized flowchart line: "A"']);
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([["A", "A"]]);
   });
 });

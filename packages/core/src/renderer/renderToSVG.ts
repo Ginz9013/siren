@@ -1,6 +1,7 @@
 import type {
   EdgeEnd,
   EdgeLine,
+  LabelRun,
   PositionedEdge,
   PositionedGraph,
   PositionedNode,
@@ -218,11 +219,16 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     }
 
     const text = document.createElementNS(SVG_NS, "text");
-    text.setAttribute("x", String(node.x + node.width / 2));
-    text.setAttribute("y", String(node.y + node.height / 2));
+    const centerX = node.x + node.width / 2;
+    text.setAttribute("x", String(centerX));
     text.setAttribute("text-anchor", "middle");
     text.setAttribute("dominant-baseline", "middle");
-    text.textContent = node.label;
+    if (node.labelRuns === null) {
+      text.setAttribute("y", String(node.y + node.height / 2));
+      text.textContent = node.label;
+    } else {
+      buildMarkdownLabel(text, node.labelRuns, centerX, node.y + node.height / 2, node.height);
+    }
     // The other half of the author's declaration. A node draws two things —
     // the frame and this label — and `resolveStyles` already decided which
     // of them each declaration is about, so there is nothing to sort here.
@@ -828,6 +834,60 @@ function applyInlineStyle(element: SVGElement, style: StyleProperty[]): void {
     "style",
     style.map(({ property, value }) => `${property}:${value}`).join(";"),
   );
+}
+
+/**
+ * Fills a node's `<text>` with the nested-`<tspan>` structure a Markdown
+ * label draws: one `<tspan class="siren-node-label-row">` per line, each
+ * holding one inner `<tspan>` per bold/italic/plain run — the shape real
+ * mermaid 11.17.2 draws for this construct, measured (`htmlLabels: false`,
+ * a throwaway `mermaid-probe.mjs`-based script): one outer row tspan per
+ * line and one inner tspan per formatting run within it.
+ *
+ * **Absolute `y` on every row, not Mermaid's own relative `transform:
+ * translate(...)` plus chained `dy`.** Siren already positions everything
+ * else in this file in absolute coordinates, and a row here is no
+ * different: `lineHeight` is `boxHeight / lines.length`, which is exact
+ * rather than approximate because `layoutGraph`'s `measureLabelBox` sized
+ * this very node's box the same way (single-line height times line count),
+ * so dividing back out recovers the number layout started from. Each row is
+ * then centred on `centerY` the way a single-line label already is —
+ * `dominant-baseline: middle`, inherited from the enclosing `<text>`, reads
+ * each row's own explicit `y` as that row's vertical middle — spread one
+ * `lineHeight` apart so the whole block centers on `centerY`.
+ *
+ * `font-weight`/`font-style` are written only when true, never
+ * `font-weight="normal"` for a plain run — the same omit-the-default
+ * convention `wrapInteraction`'s `target`/`rel` pair and every conditional
+ * attribute in this file already follow, rather than stating every run's
+ * axis explicitly.
+ */
+function buildMarkdownLabel(
+  text: SVGTextElement,
+  labelRuns: readonly LabelRun[][],
+  centerX: number,
+  centerY: number,
+  boxHeight: number,
+): void {
+  const lineHeight = boxHeight / labelRuns.length;
+  labelRuns.forEach((lineRuns, index) => {
+    const row = document.createElementNS(SVG_NS, "tspan");
+    row.setAttribute("class", "siren-node-label-row");
+    row.setAttribute("x", String(centerX));
+    row.setAttribute("y", String(centerY + lineHeight * (index - (labelRuns.length - 1) / 2)));
+    for (const run of lineRuns) {
+      const runEl = document.createElementNS(SVG_NS, "tspan");
+      if (run.bold) {
+        runEl.setAttribute("font-weight", "bold");
+      }
+      if (run.italic) {
+        runEl.setAttribute("font-style", "italic");
+      }
+      runEl.textContent = run.text;
+      row.appendChild(runEl);
+    }
+    text.appendChild(row);
+  });
 }
 
 /**

@@ -29,6 +29,38 @@ describe("wrapInteraction", () => {
     expect(result.firstChild).toBe(group);
   });
 
+  it("sets target and rel=noopener noreferrer on the anchor when the interaction carries a linkTarget", () => {
+    const group = document.createElementNS(SVG_NS, "g");
+
+    const result = wrapInteraction(group, {
+      targetId: "Shape",
+      interactionKind: "href",
+      action: "https://example.com",
+      argument: null,
+      tooltip: null,
+      linkTarget: "_blank",
+    });
+
+    expect(result.getAttribute("target")).toBe("_blank");
+    expect(result.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("sets no target or rel attribute when the interaction carries no linkTarget", () => {
+    const group = document.createElementNS(SVG_NS, "g");
+
+    const result = wrapInteraction(group, {
+      targetId: "Shape",
+      interactionKind: "href",
+      action: "https://example.com",
+      argument: null,
+      tooltip: null,
+      linkTarget: null,
+    });
+
+    expect(result.hasAttribute("target")).toBe(false);
+    expect(result.hasAttribute("rel")).toBe(false);
+  });
+
   it("stamps a data-siren-click hook on the group for a call interaction, with no wrapper", () => {
     const group = document.createElementNS(SVG_NS, "g");
 

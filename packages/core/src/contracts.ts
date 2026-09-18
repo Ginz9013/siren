@@ -79,10 +79,45 @@ export type HighlightEffect = "outline" | "glow";
 /** Verbs recognized in a `timeline:` block. */
 export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
 
+/**
+ * One run of a Markdown-formatted node label: a stretch of text sharing one
+ * combination of bold/italic. Independent axes rather than a closed set of
+ * "styles" — matches mermaid 11.17.2's own `font-weight`/`font-style` pair,
+ * measured (`htmlLabels: false`, a throwaway `mermaid-probe.mjs`-based
+ * script): `**bold**` sets only `font-weight`, `*italic*` sets only
+ * `font-style`, and a run written inside both would carry both. This
+ * board's own corpus rows never nest the two, so no run either of them
+ * produces does in practice, but the shape leaves room for one that does.
+ */
+export interface LabelRun {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+}
+
 /** A node as declared in source, before graph-model resolution. */
 export interface SirenNode {
   id: string;
   label: string;
+  /**
+   * The label's Markdown runs, one array per line, in source order — or
+   * `null` when the label carries no Markdown formatting, the overwhelming
+   * common case: an ordinary `A[label]` or `A["label"]` never sets this.
+   *
+   * Non-null only when the author wrote the fenced `` "`...`" `` Markdown-
+   * string spelling — measured, mermaid 11.17.2's own syntax for a label
+   * that may be bold, italic or carry a line break. `label` above still
+   * holds the *flattened* plain text in that case (every run's text
+   * concatenated in order, each line joined by `\n`), so it stays
+   * meaningful to a reader that has never heard of this field — an error
+   * message, a diagnostic quoting a redeclared label.
+   *
+   * Required rather than optional, the same rule `GraphNode.style`/
+   * `parentId`/`interaction` already follow: "no formatting" is a state
+   * every node has, not the absence of a field some nodes carry and others
+   * do not.
+   */
+  labelRuns: LabelRun[][] | null;
   /**
    * The shape its bracket spelling named — `"rect"` for a bare `A`, for
    * `A[label]`, and for `A:::name`.
@@ -244,11 +279,16 @@ export interface SirenSubgraph {
    * `subgraph "Two Words"` does not (mermaid 11.17.2 mints `subGraph0` for
    * that case, measured).
    *
-   * Kept apart from `label` because it is the name an *edge* could try to
-   * use: Mermaid lets `One --> Two` join two subgraph frames, which Siren
-   * does not draw, and refusing that honestly needs to know which names are
-   * a subgraph's. Nothing else reads it — it is deliberately not an id, and
-   * it never becomes one.
+   * Kept apart from `label` because it is the name an *edge* uses:
+   * `One --> Two` joins two subgraph frames, and drawing that needs to know
+   * which names are a subgraph's. `buildFlowchartModel` reads this to turn
+   * the author's handle into the frame's generated id, and the parser reads
+   * it to take back the node an endpoint would otherwise have declared for
+   * the name.
+   *
+   * Still deliberately **not** an id and it never becomes one: what the
+   * frame is addressed by downstream is `ResolvedSubgraph.id`, generated per
+   * ADR-0010, because a subgraph may legitimately be named after a node.
    */
   name: string | null;
   /** The text drawn on the frame. `subgraph Ingest` labels itself. */
@@ -266,6 +306,16 @@ export interface SirenSubgraph {
   nodeIds: string[];
   /** Subgraphs opened inside this one, in source order. */
   subgraphs: SirenSubgraph[];
+  /**
+   * This block's own `direction LR` (or `TB`/`BT`/`RL`), written on a line of
+   * its own inside the block — or `null` when the author wrote none.
+   *
+   * A per-cluster rank direction, not a cascading one: nothing here means
+   * "inherit the enclosing block's direction", because there is no such
+   * concept to carry — a nested subgraph with no `direction` of its own
+   * takes the outer flowchart's, exactly as an unlabelled one always has.
+   */
+  direction: Direction | null;
   line?: number;
   column?: number;
 }
@@ -914,6 +964,12 @@ export interface GraphNode {
   id: string;
   label: string;
   /**
+   * Carried unchanged from `SirenNode.labelRuns` — see that field for what
+   * `null` versus non-null means. `buildFlowchartModel` re-decides nothing
+   * about a label's own text here, the same rule `shape` already follows.
+   */
+  labelRuns: LabelRun[][] | null;
+  /**
    * The shape this node is drawn as, carried unchanged from the spelling
    * the author used. Required for the same reason `style` is: "no shape"
    * is not a second state, it is `"rect"`.
@@ -991,12 +1047,39 @@ export interface ResolvedSubgraph {
   label: string;
   /** The subgraph this one is nested in, or `null` at the top level. */
   parentId: string | null;
+  /**
+   * This subgraph's own `direction`, carried straight through from
+   * `SirenSubgraph.direction` — a `Direction` is already a closed
+   * parser-level type, so there is nothing here for this stage to validate.
+   * `null` when the author wrote none, and the block lays out along the
+   * document's own direction.
+   */
+  direction: Direction | null;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
 export interface GraphEdge {
+  /**
+   * `${from}-${to}` in the **author's** own words, then `#2`, `#3`, … for
+   * repeats of the same pair — so an edge naming a subgraph is `one-two`
+   * and not `subgraph:1-subgraph:2`.
+   *
+   * Spelled from the source rather than from the two fields below precisely
+   * so that it stays colon-free, which is the promise ADR-0010 separates
+   * generated ids from connector ids on; it also keeps the edge addressable
+   * in a `timeline:` block by words the author can actually type. The two
+   * spellings cannot collide, because a name a `subgraph` block claimed is
+   * never also a node.
+   */
   id: string;
+  /**
+   * The id this edge leaves: a node's, or a **subgraph's** when the author
+   * named a block at that end. `buildFlowchartModel` resolves the authored
+   * handle to `ResolvedSubgraph.id` here, so nothing downstream has to know
+   * that an endpoint could have been written as anything else.
+   */
   from: string;
+  /** The id this edge arrives at, on the same terms as `from`. */
   to: string;
   /**
    * The arrow token's decomposition, carried unchanged from the spelling
@@ -1376,6 +1459,16 @@ export interface ClassNote {
 export type InteractionKind = "href" | "call";
 
 /**
+ * The window target mermaid 11.17.2's grammar accepts after an `href`
+ * interaction's optional tooltip — `click A href "url" "tip" _blank`. A
+ * fixed `LINK_TARGET` token in Mermaid's own lexer, not a free string:
+ * measured with `scripts/mermaid-probe.mjs`, these four values are the whole
+ * of what it accepts there, and a fifth is a parse error
+ * ("Expecting 'LINK_TARGET', got 'NODE_STRING'").
+ */
+export type LinkTarget = "_blank" | "_self" | "_top" | "_parent";
+
+/**
  * A `click`/`link`/`callback` statement making a target interactive, as
  * written. `targetId` is a target's id in the sense the glossary gives that
  * word — the authored thing an interaction is attached to — so it is a
@@ -1392,6 +1485,19 @@ export interface Interaction {
   argument: string | null;
   /** The optional trailing tooltip string, or `null`. */
   tooltip: string | null;
+  /**
+   * The optional trailing window target on a flowchart's own `click X href
+   * "url" ["tip"] _blank` — `null` when the author wrote no fourth argument.
+   *
+   * Optional, unlike `argument`/`tooltip`: a class diagram's and a sequence
+   * diagram's own `href`-kind spellings (`click ... href`, `link "..."`,
+   * `link A: Label @ url`) have no target concept in Mermaid at all, so
+   * those parsers never set this field at all rather than setting it to
+   * `null` — the empty-not-absent rule the sibling fields follow is a
+   * flowchart-only promise here, not a kind-agnostic one. A `call`
+   * interaction never sets it either, target being an `href`-only concept.
+   */
+  linkTarget?: LinkTarget | null;
   line?: number;
   column?: number;
 }
@@ -1575,6 +1681,8 @@ export interface ResolvedInteraction {
   action: string;
   argument: string | null;
   tooltip: string | null;
+  /** Carried through unchanged from `Interaction.linkTarget` — see that field. */
+  linkTarget?: LinkTarget | null;
 }
 
 /**

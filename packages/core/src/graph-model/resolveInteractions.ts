@@ -143,6 +143,7 @@ export function resolveInteractions(
       action: interaction.action,
       argument: interaction.argument,
       tooltip: interaction.tooltip,
+      linkTarget: interaction.linkTarget ?? null,
     });
   }
 

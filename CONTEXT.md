@@ -247,6 +247,26 @@ the exception, and it is stated under **Design token**.
 Mermaid's v11 `A@{ shape: cyl }` spelling is a second, larger vocabulary of about thirty names and
 is unimplemented: a line spelling one is refused as an unrecognized flowchart line rather than
 drawn as something else. Its own board, and it reuses all of this.
+
+**A label may itself carry Markdown formatting**, written as the fenced `` A["`**bold**`"] ``
+spelling — a quoted label whose content is itself fenced in backticks. `SirenNode`/`GraphNode`/
+`PositionedNode` each carry a `labelRuns: LabelRun[][] | null` alongside the plain-string `label`
+they have always had: `null` — the overwhelming common case — means the label carries no
+formatting and `label` alone is authoritative, exactly as before this field existed; non-null only
+for the fenced spelling, one array of `{ text, bold, italic }` runs per line, in source order, with
+`label` still holding the *flattened* plain text (every run's text concatenated, lines joined by
+`\n`) so a reader that has never heard of `labelRuns` — an error message, the redeclaration warning
+— still reads something sensible. Bold and italic are independent axes, not a closed set of
+"styles", matching mermaid 11.17.2's own `font-weight`/`font-style` pair (measured, `htmlLabels:
+false`). A line break inside the fence is real Mermaid too: its lexer reads a quoted label across
+physical source lines when the closing quote has not been reached yet, so the flowchart parser
+joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`) before anything else
+reads them — the one place this grammar is not read one physical line at a time. Layout sizes a
+Markdown-labelled box by its **plain text** (widest line's width, one line-height times line count)
+rather than weighing a bold run's actual glyph width — a deliberate simplification, not a gap — and
+the renderer draws the shape real Mermaid draws for this construct: one `<tspan class=
+"siren-node-label-row">` per line, absolute-positioned to center the block vertically, each holding
+one inner `<tspan>` per run with `font-weight`/`font-style` set only when true.
 _Avoid_: box, vertex, block, state, "the shape" for one drawn element (a node's frame may be
 several elements — say "frame" for what is drawn and "shape" for which of the fourteen it is)
 
@@ -297,7 +317,7 @@ A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around 
 inside it and laid out as a dagre compound-graph cluster. The **fourth** grouping construct here,
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
-statements in time. Four things separate it from the namespace it most resembles, and none of them
+statements in time. Five things separate it from the namespace it most resembles, and none of them
 is cosmetic:
 
 - **It nests.** `ResolvedSubgraph` carries a `parentId`; `ResolvedClassNamespace` has no such
@@ -308,11 +328,20 @@ is cosmetic:
 - **A node is claimed by the first block that names it**, measured, so naming it again from
   another block joins it rather than moving it. A class is a member of the namespace it was
   written in.
-- **Two things written *about* one are refused by name rather than ignored**: `direction LR`
-  inside a block (Mermaid lays that group out in its own rank direction; drawing it the document's
-  way would be the wrong picture with nothing in it to notice) and an edge naming a block at
-  either end (`one --> two` joins two frames in Mermaid). Both are `rejected` corpus rows, not
-  silence.
+- **It lays out in a rank direction of its own.** `direction LR` written inside a block turns that
+  group alone into a row while the document keeps the header's direction — dagre's
+  `recursiveClusterLayout`, one `rankdir` per cluster. A namespace has no such statement.
+- **An edge may name one at either end.** `one --> two` joins the two *frames*, not two boxes —
+  so an endpoint that names a block declares no node of that name, while a node the author
+  declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. dagre cannot route
+  that edge as written (it throws on an endpoint that *is* a cluster), so `layoutDirectedGraph`
+  hands it a member of the frame instead and clips the returned route back to the frame's own
+  boundary — Mermaid's own strategy for the same construct, arrived at independently. **One
+  spelling of it is still drawn wrongly and is written down as such**: a block naming *itself* at
+  both ends (`one --> one`) draws its loop around that stand-in member, inside the frame, rather
+  than around the frame — the clip has nothing to bite on, since a self-loop never leaves the box
+  it belongs to. That is the corpus's one `silently-wrong` row, `fc-subgraph-self-edge`, and its
+  exit is drawing the loop around the frame rather than refusing the line.
 
 **Its id is generated, not authored** — `subgraph:1`, `subgraph:2`, … in the order the keywords
 open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) —
@@ -533,5 +562,21 @@ was added for it: Mermaid's own popup-menu semantics for this directive are not 
 static SVG anyway, measured as a `display:none` panel toggled by JS), with `Label` carried as the
 interaction's `tooltip` and drawn as a `<title>` — the same "first child of the group" tooltip
 convention `click`/`link` already use on a class.
+
+A flowchart's `click X href "url"` additionally accepts an optional fourth argument, one of
+Mermaid's four `LINK_TARGET` values (`_blank`/`_self`/`_top`/`_parent`, a fixed lexer token —
+anything else is a parse error, measured), carried as `Interaction.linkTarget`. **Mermaid's own
+rendered SVG carries no `target` attribute for any of the four, measured** — the effect apparently
+lives in a JS bind-time layer this package's `render()` has no equivalent of. Siren's `<a
+class="siren-link">` is a real, self-contained anchor with no such layer, so it sets `target`
+itself when `linkTarget` is present, plus `rel="noopener noreferrer"` against reverse tabnabbing —
+a deliberate divergence from Mermaid's own static markup, recorded here rather than treated as a
+mis-render, because it reaches the same author intent (opening the link in a new tab) through the
+mechanism this renderer actually has. `linkTarget` is optional rather than required-nullable on
+`Interaction`/`ResolvedInteraction`, unlike its sibling fields: only a flowchart's `click ... href`
+can ever set it, so a class diagram's and a sequence diagram's own `href`-kind spellings never
+carry the key at all rather than carrying it as `null`.
 _Avoid_: link (one of several spellings, not a fourth kind of interaction), handler, action
-(that is the callback-name field of one, not the whole thing), hotspot
+(that is the callback-name field of one, not the whole thing), hotspot, target (alone, for
+`linkTarget` — this entry's own `targetId` already uses "target" for the authored thing an
+interaction is attached to, a different concept)

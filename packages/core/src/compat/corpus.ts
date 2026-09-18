@@ -96,6 +96,38 @@ function textOf(element: Element): string {
   return element.querySelector("text")?.textContent ?? "";
 }
 
+/**
+ * A Markdown-labelled node's drawn rows, read off the actual `<tspan>`
+ * structure rather than off `textContent` — `textOf` above already proves
+ * the *text* survived (concatenating every descendant text node, tspans
+ * included), so this is what a `fc-text-*` Markdown row needs beyond that:
+ * proof that each row is its own `tspan.siren-node-label-row` and that a
+ * bold/italic run actually carries `font-weight`/`font-style`, not merely
+ * that the letters are on the page.
+ *
+ * One string per row, each run's text immediately followed by `(b)`, `(i)`
+ * or `(bi)` when that run carries `font-weight:bold`/`font-style:italic` —
+ * nothing appended for a plain run, so a row of plain text alone reads as
+ * its own text with no decoration, and a failure names the exact run that
+ * disagrees rather than a diff of the whole label.
+ */
+function markdownRows(result: SirenRenderResult, id: string): string[] {
+  const text = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`);
+  if (text === null) {
+    return [];
+  }
+  return Array.from(text.querySelectorAll("tspan.siren-node-label-row")).map((row) =>
+    Array.from(row.querySelectorAll("tspan"))
+      .map((run) => {
+        const flags =
+          (run.getAttribute("font-weight") === "bold" ? "b" : "") +
+          (run.getAttribute("font-style") === "italic" ? "i" : "");
+        return flags === "" ? (run.textContent ?? "") : `${run.textContent}(${flags})`;
+      })
+      .join(""),
+  );
+}
+
 /** Every flowchart node as `id[label]`, in draw order. */
 function nodes(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-node").map((g) => `${idOf(g)}[${textOf(g)}]`);
@@ -195,6 +227,28 @@ function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y:
   const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
   if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
   return { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
+}
+
+/**
+ * The two ends of one edge's drawn path, read off the `d` attribute itself.
+ *
+ * Where a path *starts* and *stops* is the whole of what "this edge joins
+ * these two things" means in a picture, and it is the only reader here that
+ * can tell an edge that meets a frame from one that stops at a box inside
+ * it. Everything between the ends is left alone on purpose: how many bends
+ * the route takes is the layout engine's, not a fact about Mermaid.
+ */
+function edgeEnds(
+  result: SirenRenderResult,
+  id: string,
+): { start: { x: number; y: number }; end: { x: number; y: number } } {
+  const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+  if (path === null) throw new Error(`no edge "${id}" was drawn`);
+  const points = (path.getAttribute("d") ?? "").split(/\s+/).map((command) => {
+    const [x, y] = command.slice(1).split(",");
+    return { x: Number(x), y: Number(y) };
+  });
+  return { start: points[0], end: points[points.length - 1] };
 }
 
 /**
@@ -1020,23 +1074,30 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       a.b --> c`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "A node id may contain a `.`. mermaid 11.17.2 records `a.b --> c` as " +
       "the vertices `a.b` and `c` joined by `L_a.b_c_0`, and `a.-b --> c` " +
       "as the vertices `a.-b` and `c` joined by `L_a.-b_c_0` — one node " +
       "either way, with the dot inside its name " +
-      "(`node scripts/mermaid-probe.mjs`). Siren's ids are `\\w+`, so it " +
-      "refuses the statement. **A node-id gap, not an arrow one**: the " +
-      "dotted arrow spellings beside it are supported, and the guard that " +
-      "keeps `a.-b` from being cut at its `.-` is what makes this an honest " +
-      "refusal rather than a chain of three nodes Mermaid never drew. The " +
-      "sharper case is a line that declares nothing: in `flowchart TB / " +
-      "A --> B / C.-D` Mermaid draws A, B and a third node `C.-D`, while " +
-      "Siren refuses the *whole document* over the third line — a picture " +
-      "Mermaid renders becomes no picture at all. Widening the id alphabet " +
-      "reaches every endpoint reader, the `:::` shorthand and the styling " +
-      "directives' target lists, which is its own ticket.",
+      "(`node scripts/mermaid-probe.mjs`). **A node-id gap, not an arrow " +
+      "one**: the dotted arrow spellings beside it were already supported, " +
+      "and the guard that keeps `a.-b` from being cut at its `.-` is what " +
+      "leaves the text for the widened id alphabet (`ID_RUN` in " +
+      "`parseFlowchart.ts`) to read whole, rather than a chain of three " +
+      "nodes Mermaid never drew. The sharper case was a line that declares " +
+      "nothing else: in `flowchart TB / A --> B / C.-D` Mermaid draws A, B " +
+      "and a third node `C.-D`, and Siren used to refuse the *whole " +
+      "document* over that third line — a picture Mermaid renders becoming " +
+      "no picture at all — which `parseFlowchart.test.ts`'s \"declares a " +
+      "bare id whose \\`.-\\` looks like a dotted-arrow opener\" test now " +
+      "pins directly. Widening the id alphabet reached every endpoint " +
+      "reader, the `:::` shorthand and the `style`/`class` directives' " +
+      "target lists.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["a.b[a.b]", "c[c]"]);
+      expectSame("edges", edges(result), ["a.b-c"]);
+    },
   },
 
   // -------------------------------------------------------------------------
@@ -1301,23 +1362,23 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       Orphan
       A --> B`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "A node id on a line of its own declares that node. mermaid 11.17.2 " +
       "records three vertices for this document — `Orphan`, `A` and `B` — " +
       "and one edge, so the standalone node is drawn with nothing joined " +
-      "to it (`node scripts/mermaid-probe.mjs`). Siren refuses the line as " +
-      "`Unrecognized flowchart line: \"Orphan\"`, and refuses the whole " +
-      "document with it, so a picture Mermaid draws becomes no picture at " +
-      "all. **The bracketed spelling is supported**: `Orphan[Orphan]` on a " +
-      "line of its own parses here, and so does a bare id written *inside* " +
-      "a `subgraph` block — `AUTHORED_ID_RE` reads one there, which is how " +
-      "the nodes of a group are declared. So this is one missing statement " +
-      "form rather than a missing concept, and its exit is one more line " +
-      "in `parseFlowchart`'s statement dispatch. Found while mutating " +
-      "`examples/flowchart-edges.srn` to prove its assertions bite: moving " +
-      "a bare node out of the frame that held it stopped the whole example " +
-      "rendering, which is not what moving a node should do.",
+      "to it (`node scripts/mermaid-probe.mjs`). Siren's statement dispatch " +
+      "now reads a bare id at the top level exactly as it already did " +
+      "inside a `subgraph` block, so `Orphan` declares a node with its " +
+      "default label — its own id — same as the bracketed `Orphan[Orphan]` " +
+      "spelling.",
+    assert: (result) => {
+      // Three vertices — the standalone `Orphan` plus the edge's `A` and
+      // `B` — and one edge, matching mermaid 11.17.2's own count for this
+      // document.
+      expectSame("nodes", nodes(result), ["Orphan[Orphan]", "A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
   },
   {
     id: "fc-stmt-subgraph",
@@ -1350,9 +1411,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         direction LR
         A --> B
       end`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`direction LR` inside a subgraph lays that group out left-to-right while the rest of the diagram keeps the header's direction.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+
+      // The picture, not the claim: the header said `TB`, so the only way
+      // `B` can land beside `A` rather than below it is the subgraph's own
+      // `direction LR` actually reaching layout.
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn to the right of A", to.x > from.x, true);
+      expectSame("and in the same row", to.y === from.y, true);
+
+      // Still an ordinary frame, on the same terms `fc-stmt-subgraph`
+      // already checks: a `direction` inside the block does not stop it
+      // enclosing its own members.
+      const frame = subgraphBox(result, "one");
+      expectSame("frame encloses A", encloses(frame, nodeBox(result, "A")), true);
+      expectSame("frame encloses B", encloses(frame, nodeBox(result, "B")), true);
+    },
   },
   {
     id: "fc-subgraph-edge",
@@ -1365,8 +1445,87 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         B
       end
       one --> two`,
-    status: "rejected",
+    status: "supported",
     meaning: "An edge may name a subgraph at either end, joining the two frames rather than two boxes.",
+    assert: (result) => {
+      // The names the edge used are the *frames*, so the document draws two
+      // boxes and not four: no stray `one` beside the frame of that name.
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["one-two"]);
+
+      const one = subgraphBox(result, "one");
+      const two = subgraphBox(result, "two");
+      const { start, end } = edgeEnds(result, "one-two");
+
+      // The picture, not the claim. `TB`, so the edge leaves `one` through
+      // the bottom of its frame and arrives at `two` through the top of its
+      // — which is what makes this an edge between two frames rather than
+      // between two of their members.
+      expectSame("the edge leaves the bottom of `one`'s frame", start.y, one.bottom);
+      expectSame("the edge arrives at the top of `two`'s frame", end.y, two.top);
+      expectSame(
+        "and it spans the gap between them",
+        start.x >= one.left && start.x <= one.right && end.x >= two.left && end.x <= two.right,
+        true,
+      );
+
+      // Not on a member's box, and not at the origin — the two ways an edge
+      // that had not really been routed to the frames could still satisfy
+      // "a path was drawn".
+      expectSame(
+        "the edge clears A's box on the way out",
+        start.y > nodeBox(result, "A").bottom,
+        true,
+      );
+      expectSame(
+        "and stops short of B's box on the way in",
+        end.y < nodeBox(result, "B").top,
+        true,
+      );
+    },
+  },
+  {
+    id: "fc-subgraph-self-edge",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        A
+      end
+      one --> one`,
+    status: "silently-wrong",
+    meaning:
+      "A subgraph may name itself at both ends of an edge, drawing a loop " +
+      "around its own **frame** — mermaid 11.17.2 renders it as the edge " +
+      "`L_one_one_0` alongside the `one` cluster, measured. Siren draws the " +
+      "loop dagre gave the member standing in for the frame, so it lands " +
+      "*inside* the frame beside `A` rather than encircling the frame — the " +
+      "right edge, attached to the wrong figure, with no diagnostic saying " +
+      "so. **Its exit is implementing frame-level self-loop geometry, not " +
+      "refusing it**: refusing would cost the whole document a picture " +
+      "Mermaid draws, which is the trade the compatibility condition exists " +
+      "to refuse. The clip that puts an ordinary frame-to-frame edge on the " +
+      "frame boundary cannot help here — a self-loop never leaves the box, " +
+      "so there is no point outside it to aim at (`clipRouteEndToBox` says " +
+      "the same in its own words).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("edges", edges(result), ["one-one"]);
+
+      // The wrong picture, spelled out: every point of the loop lies inside
+      // the frame, which is precisely what encircling the frame would not do.
+      const frame = subgraphBox(result, "one");
+      const { start, end } = edgeEnds(result, "one-one");
+      expectSame(
+        "the loop starts inside the frame rather than on its boundary",
+        start.x > frame.left && start.x < frame.right,
+        true,
+      );
+      expectSame(
+        "and ends inside it too",
+        end.x > frame.left && end.x < frame.right,
+        true,
+      );
+    },
   },
 
   // -------------------------------------------------------------------------
@@ -1426,19 +1585,17 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A[  padded  ] --> B["  padded  "]`,
-    status: "silently-wrong",
+    status: "supported",
     meaning:
       "Mermaid trims the whitespace around a label, quoted or not: mermaid " +
       "11.17.2 records `text=\"padded\"` for both of these vertices " +
       "(`node scripts/mermaid-probe.mjs`). Padding a label is how an author " +
       "lays a document out; it is not part of what the box says.",
     assert: (result) => {
-      // Both boxes keep the spaces they were padded with, and neither says
-      // anything about it -- a wider box with the label off its own centre,
-      // and no diagnostic. Uniform across the quoted and the unquoted
-      // spelling, which is why this is one row: it is one missing trim in
-      // the parser, not a quoting bug.
-      expectSame("nodes", nodes(result), ["A[  padded  ]", "B[  padded  ]"]);
+      // Both boxes drop the padding they were written with, uniformly
+      // across the quoted and the unquoted spelling -- one trim in the
+      // parser's label reader, not a quoting-specific fix.
+      expectSame("nodes", nodes(result), ["A[padded]", "B[padded]"]);
     },
   },
   {
@@ -1446,8 +1603,64 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A["\`**bold**\`"]`,
-    status: "rejected",
-    meaning: "A Markdown string draws **bold** as bold text.",
+    status: "supported",
+    meaning:
+      "A Markdown string label draws `**bold**` as bold text: mermaid " +
+      "11.17.2 sets `font-weight: bold` on the run and nothing else, " +
+      "measured (`htmlLabels: false`, a throwaway mermaid-probe.mjs-based " +
+      "script).",
+    assert: (result) => {
+      // The plain text still reads right off `textContent` — tspans concatenate.
+      expectSame("nodes", nodes(result), ["A[bold]"]);
+      // And the run that carries it is drawn bold, not merely spelled "bold".
+      expectSame("markdown rows", markdownRows(result, "A"), ["bold(b)"]);
+    },
+  },
+  {
+    id: "fc-text-italic",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`*italic*\`"]`,
+    status: "supported",
+    meaning:
+      "A Markdown string label draws `*italic*` as italic text: mermaid " +
+      "11.17.2 sets `font-style: italic` on the run and nothing else, " +
+      "measured — the other half of the axis `fc-text-markdown`'s bold " +
+      "measures, independent rather than a second spelling of the same rule.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[italic]"]);
+      expectSame("markdown rows", markdownRows(result, "A"), ["italic(i)"]);
+    },
+  },
+  {
+    id: "fc-text-multiline",
+    kind: "flowchart",
+    // The continuation line is flush left on purpose: mermaid 11.17.2 reads
+    // a Markdown label's fence across physical source lines (measured,
+    // `node="A" text="line1\nline2"`), and the embedded line break is
+    // whatever text sits between the two physical lines verbatim — an
+    // indented continuation would put leading spaces on "line2" that nobody
+    // wrote as part of the label.
+    source: `flowchart TB
+      A["\`line1
+line2\`"]`,
+    status: "supported",
+    meaning:
+      "A Markdown label's fence may close on a later physical line than it " +
+      "opened on, and mermaid 11.17.2 reads the line break in between as " +
+      "part of the label: one vertex, `text=\"line1\\nline2\"`, `labelType=" +
+      '"markdown"` (measured). Drawn as two rows rather than one line with a ' +
+      "literal backslash-n in it.",
+    assert: (result) => {
+      // Two sibling `<tspan>` rows, not one text node with a `\n` in it —
+      // `textContent` concatenates them with nothing in between (no
+      // separator a DOM ever inserts between sibling elements), so the
+      // line break these two rows draw is visible in *where* the SVG puts
+      // them, not in this string. `markdownRows` is the assert that reads
+      // that structure; this is only proof the letters themselves made it.
+      expectSame("nodes", nodes(result), ["A[line1line2]"]);
+      expectSame("markdown rows", markdownRows(result, "A"), ["line1", "line2"]);
+    },
   },
 
   // -------------------------------------------------------------------------
@@ -1560,13 +1773,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A[Start]
       click A href "https://example.com" "tip" _blank`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`click A href \"url\" \"tip\" _blank` opens the link in a new tab — the " +
-      "target attribute trailing the tooltip. Siren reads the 2- and 3-argument " +
-      "forms of `click ... href` and refuses this fourth argument by name " +
-      "(`CLICK_HREF_RE` is anchored with `$`), rather than truncating it to the " +
-      "form it does read.",
+      "target attribute trailing the tooltip, one of Mermaid's four " +
+      "`LINK_TARGET` values (`_blank`/`_self`/`_top`/`_parent`). Mermaid's own " +
+      "rendered SVG carries no `target` attribute for any of them (measured); " +
+      "Siren's `<a href>` has no JS bind-time layer to fall back on, so it " +
+      "sets `target` itself, plus `rel=\"noopener noreferrer\"` against " +
+      "reverse tabnabbing — a deliberate, measured mechanism divergence, not " +
+      "a mis-render.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector(
+        'a.siren-link > g.siren-node[data-siren-id="A"]',
+      );
+      if (link === null) throw new Error('node "A" was not wrapped in an <a class="siren-link">');
+      expectSame("A's link target", link.parentElement?.getAttribute("target"), "_blank");
+      expectSame(
+        "A's link rel",
+        link.parentElement?.getAttribute("rel"),
+        "noopener noreferrer",
+      );
+    },
   },
   {
     id: "fc-click-bare-callback",
@@ -1574,25 +1802,48 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A[Start]
       click A myFn`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "`click A myFn` is Mermaid's bare callback-name shorthand — a different " +
-      "semantic from `click A call fn()`, not merely a shorter spelling of it " +
-      "(Mermaid passes the clicked node's id to the named function rather than " +
-      "the literal argument an author wrote). Siren draws only the `call fn()` " +
-      "form.",
+      "`click A myFn` is Mermaid's bare callback-name shorthand for " +
+      "`click A call myFn()`. It parses into the same call interaction Siren " +
+      "already draws: `render()`'s `onClick` reports the clicked node's own " +
+      "id for every `call` interaction regardless of which click spelling " +
+      "produced it, so the bare form and `call fn()` land on exactly the " +
+      "same wire shape.",
+    assert: (result) => {
+      const node = svgOf(result).querySelector('g.siren-node[data-siren-id="A"]');
+      if (node === null) throw new Error('no node "A" was drawn');
+      expectSame("A's click callback", node.getAttribute("data-siren-click"), "myFn");
+      expectSame("A's click argument", node.getAttribute("data-siren-click-arg"), null);
+    },
   },
   {
-    id: "fc-click-tooltip-only",
+    id: "fc-click-bare-href",
     kind: "flowchart",
     source: `flowchart TB
       A[Start]
-      click A "tip"`,
-    status: "rejected",
+      click A "https://example.com"`,
+    status: "supported",
     meaning:
-      "`click A \"tip\"` gives a node a tooltip with no href or call attached " +
-      "to it. Siren's tooltip is carried on an `href`/`call` interaction's own " +
-      "trailing string; there is no interaction-less spelling of it yet.",
+      "`click A \"url\"` is Mermaid's bare-quoted-string shorthand for " +
+      "`click A href \"url\"` with the `href` keyword omitted — measured " +
+      "against real Mermaid 11.17.2 with `scripts/mermaid-probe.mjs`: " +
+      "`click A \"tip\"` renders `<a href=\"tip\">`, the quoted string becomes " +
+      "the href value regardless of whether it looks like a URL, not a " +
+      "tooltip-only concept. It parses into the same href interaction Siren " +
+      "already draws for `click A href \"url\"`, so it renders the same " +
+      "`<a class=\"siren-link\">` wrapper.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector(
+        'a.siren-link > g.siren-node[data-siren-id="A"]',
+      );
+      if (link === null) throw new Error('node "A" was not wrapped in an <a class="siren-link">');
+      expectSame(
+        "A's link href",
+        link.parentElement?.getAttribute("href"),
+        "https://example.com",
+      );
+    },
   },
   {
     id: "fc-acc-title",

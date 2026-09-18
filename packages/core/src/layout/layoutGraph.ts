@@ -1,13 +1,16 @@
 import type {
   GraphModel,
+  GraphNode,
   LayoutOptions,
   NodeShape,
   Point,
   PositionedGraph,
   PositionedSubgraph,
   ResolvedSubgraph,
+  TextMeasurer,
 } from "../contracts";
 import {
+  clipRouteEndToBox,
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
@@ -76,6 +79,47 @@ export const SHAPE_LEAN = {
 interface Box {
   width: number;
   height: number;
+}
+
+/**
+ * The box a node's label measures to, before `boxForLabel` asks the shape
+ * what it costs to inscribe it.
+ *
+ * `node.labelRuns === null` — the overwhelming common case — is completely
+ * unchanged: one call to `measureText.measure`, exactly as every node was
+ * measured before this field existed.
+ *
+ * A Markdown label is measured by its **plain text**, one call per line,
+ * deliberately not weighing what a bold run's heavier glyphs would actually
+ * cost: the ticket that added `labelRuns` chose this simplification outright
+ * — a pixel-exact width would have to know the font `measureText` is
+ * measuring against for *every* weight it draws, and nothing downstream
+ * needs the box to be that exact. Width is the widest line's plain-text
+ * measurement, so the box holds every row without clipping any of them
+ * sideways; height is one line's own height times how many rows there are,
+ * so `layoutGraph`'s block stacks with no gap and no overlap between rows —
+ * matching what `renderToSVG` steps by when it draws them.
+ *
+ * Any line's own measured height stands for "one line's height": both
+ * measurers in this codebase (`packages/core/src/index.ts`'s
+ * `defaultMeasurer`, and every test's `fakeMeasurer`) return a height that
+ * depends on the font, not on the string's content or length, so this never
+ * has to guess which of the label's lines is the "representative" one.
+ */
+function measureLabelBox(node: GraphNode, measureText: TextMeasurer): Box {
+  if (node.labelRuns === null) {
+    return measureText.measure(node.label);
+  }
+  const lineBoxes = node.labelRuns.map((run) =>
+    measureText.measure(run.map((labelRun) => labelRun.text).join("")),
+  );
+  return {
+    width: Math.max(...lineBoxes.map((box) => box.width)),
+    // `labelRuns` is never an empty array — `parseNodeLabel` always
+    // produces at least one line, even for an empty Markdown string — so
+    // `lineBoxes[0]` is never reached with nothing measured.
+    height: lineBoxes[0]!.height * lineBoxes.length,
+  };
 }
 
 /**
@@ -244,7 +288,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...boxForLabel(node.shape, options.measureText.measure(node.label)),
+        ...boxForLabel(node.shape, measureLabelBox(node, options.measureText)),
         // Grouping, and the only thing about a subgraph the shared core is
         // told. `undefined` rather than `null` when the node is in no
         // subgraph, because the core switches dagre's compound mode on by
@@ -278,6 +322,14 @@ export function layoutGraph(
           width: label.width + SUBGRAPH_PADDING * 2,
           height: label.height + SUBGRAPH_PADDING * 2,
           ...(subgraph.parentId === null ? {} : { parentId: subgraph.parentId }),
+          // The subgraph's own `direction LR` (or `TB`/`BT`/`RL`), reaching
+          // dagre's `recursiveClusterLayout` through the one field it reads
+          // per cluster. `undefined` rather than `null` when the author
+          // wrote none, matching `parentId`'s own convention just above —
+          // the shared core switches this behavior on by the field's
+          // *presence*, so a subgraph that named no direction lays out along
+          // the outer graph's, exactly as before this field existed.
+          ...(subgraph.direction === null ? {} : { rankdir: subgraph.direction }),
         };
       }),
     ],
@@ -343,11 +395,35 @@ export function layoutGraph(
     };
   });
 
+  // Edges whose endpoints are frames rather than boxes, re-clipped to the
+  // frame this module drew.
+  //
+  // The shared core already clipped such an edge to the *cluster box* it
+  // placed, which is the honest answer in its own coordinates — but a frame
+  // is grown outward from that box, by `SUBGRAPH_PADDING` all round and a
+  // title strip along the top (`subgraphFrames`, below). An arrowhead left
+  // where the core put it would therefore land inside the frame by exactly
+  // the height of the title strip. Growing the frame is this module's
+  // decision, so paying for it is too — with the core's own clipper, so that
+  // "on the boundary" means one thing in both spaces.
+  const frameById = new Map(frames.map((frame) => [frame.id, frame]));
+
   const edges = graph.edges.map((edge) => {
     const route = routeById.get(edge.id)!;
+
+    let points = route.points;
+    const fromFrame = frameById.get(edge.from);
+    if (fromFrame !== undefined) {
+      points = clipRouteEndToBox(points, fromFrame, "start");
+    }
+    const toFrame = frameById.get(edge.to);
+    if (toFrame !== undefined) {
+      points = clipRouteEndToBox(points, toFrame, "end");
+    }
+
     return {
       ...edge,
-      points: route.points.map(shifted),
+      points: points.map(shifted),
       // `null` rather than absent, matching the label it belongs to: an
       // edge that asked for no space has nowhere to draw text, and one
       // state is easier to read than a missing field.

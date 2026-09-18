@@ -28,9 +28,9 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ],
     edges: [
       {
@@ -80,9 +80,9 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ],
     edges: [],
     subgraphs: [],
@@ -214,7 +214,7 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
         {
           id: "B",
@@ -226,7 +226,7 @@ describe("renderToSVG", () => {
           height: 40,
           style: { frame: [], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -308,7 +308,7 @@ describe("renderToSVG", () => {
         height: 60,
         style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
         parentId: null,
-        interaction: null,
+        interaction: null, labelRuns: null,
       })),
       edges: [],
       subgraphs: [],
@@ -431,7 +431,7 @@ describe("renderToSVG", () => {
         height: 60,
         style: { frame: [], text: [] },
         parentId: null,
-        interaction: null,
+        interaction: null, labelRuns: null,
       })),
       edges: [],
       subgraphs: [],
@@ -505,7 +505,7 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -546,7 +546,7 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -623,7 +623,7 @@ describe("renderToSVG", () => {
           height: 200,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -677,7 +677,7 @@ describe("renderToSVG", () => {
           height: 160,
           style: { frame: [{ property: "fill", value: "#fdd" }], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -744,7 +744,7 @@ describe("renderToSVG", () => {
           height: 160,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -821,7 +821,7 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
         {
           id: "B",
@@ -833,7 +833,7 @@ describe("renderToSVG", () => {
           height: 40,
           style: { frame: [], text: [] },
           parentId: null,
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -1346,7 +1346,7 @@ describe("renderToSVG — a subgraph", () => {
           height: 40,
           style: { frame: [], text: [] },
           parentId: "subgraph:1",
-          interaction: null,
+          interaction: null, labelRuns: null,
         },
       ],
       edges: [],
@@ -1462,5 +1462,91 @@ describe("renderToSVG's accTitle/accDescr", () => {
     expect(svg.getAttribute("aria-labelledby")).toBeNull();
     expect(svg.getAttribute("aria-describedby")).toBeNull();
     expect(svg.getAttribute("role")).toBeNull();
+  });
+});
+
+describe("a Markdown-labelled node's drawn text", () => {
+  function markdownFixture(): PositionedGraph {
+    return {
+      direction: "TB",
+      nodes: [
+        {
+          id: "A",
+          label: "bold\nplain",
+          labelRuns: [
+            [{ text: "bold", bold: true, italic: false }],
+            [{ text: "plain", bold: false, italic: false }],
+          ],
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 40,
+          shape: "rect",
+          style: { frame: [], text: [] },
+          parentId: null,
+          interaction: null,
+        },
+      ],
+      edges: [],
+      subgraphs: [],
+      accTitle: null,
+      accDescr: null,
+      timeline: { totalSteps: 0, entries: [] },
+      width: 80,
+      height: 40,
+    };
+  }
+
+  it("draws one tspan.siren-node-label-row per line, each carrying that line's text", () => {
+    const svg = renderToSVG(markdownFixture());
+
+    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-node-label-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toBe("bold");
+    expect(rows[1]!.textContent).toBe("plain");
+  });
+
+  it("sets font-weight=bold only on a bold run, and omits it on a plain run", () => {
+    const svg = renderToSVG(markdownFixture());
+
+    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-node-label-row');
+    const boldRun = rows[0]!.querySelector("tspan")!;
+    const plainRun = rows[1]!.querySelector("tspan")!;
+    expect(boldRun.getAttribute("font-weight")).toBe("bold");
+    expect(boldRun.getAttribute("font-style")).toBeNull();
+    expect(plainRun.getAttribute("font-weight")).toBeNull();
+    expect(plainRun.getAttribute("font-style")).toBeNull();
+  });
+
+  it("sets font-style=italic only on an italic run, and centers the block's rows around the node's own center", () => {
+    const graph = markdownFixture();
+    graph.nodes[0] = {
+      ...graph.nodes[0],
+      labelRuns: [
+        [{ text: "italic", bold: false, italic: true }],
+        [{ text: "plain", bold: false, italic: false }],
+      ],
+    };
+
+    const svg = renderToSVG(graph);
+
+    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-node-label-row');
+    const italicRun = rows[0]!.querySelector("tspan")!;
+    expect(italicRun.getAttribute("font-style")).toBe("italic");
+    expect(italicRun.getAttribute("font-weight")).toBeNull();
+
+    // node.y + node.height/2 == 20; two rows of height 20 each (40/2),
+    // spread symmetrically above and below that center.
+    const rowYs = Array.from(rows).map((row) => Number(row.getAttribute("y")));
+    expect(rowYs[0]).toBe(10);
+    expect(rowYs[1]).toBe(30);
+  });
+
+  it("draws an ordinary (labelRuns: null) node's text as a plain textContent, with no row tspans", () => {
+    const svg = renderToSVG(buildFixture());
+
+    const text = svg.querySelector('g.siren-node[data-siren-id="A"] text')!;
+    expect(text.textContent).toBe("Start");
+    expect(text.querySelectorAll("tspan.siren-node-label-row")).toHaveLength(0);
   });
 });

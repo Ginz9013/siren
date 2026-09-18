@@ -729,6 +729,7 @@ describe("buildClassModel", () => {
         action: "https://example.com/shape",
         argument: null,
         tooltip: "the shape docs",
+        linkTarget: null,
       },
       {
         targetId: "Duck",
@@ -736,6 +737,7 @@ describe("buildClassModel", () => {
         action: "showDuck",
         argument: "quack",
         tooltip: null,
+        linkTarget: null,
       },
     ]);
   });

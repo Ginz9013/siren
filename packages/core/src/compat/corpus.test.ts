@@ -293,6 +293,23 @@ describe("the corpus, case by case", () => {
  * they would: a keyword drawn, not a construct refused. 3 - 2 = 1, leaving
  * only `fc-text-label-whitespace` — a flowchart parser trim, out of scope
  * for the sequence board that closed the other two.
+ *
+ * `fc-text-label-whitespace` closed the same way: `labelIn` trims after the
+ * fence is removed, so a padded label draws exactly as Mermaid draws it.
+ * 1 - 1 = 0. Every case this constant has ever named is now either
+ * `supported` or `rejected` — the destination this policy always pointed at.
+ *
+ * It rose to **1** again when `fc-subgraph-edge` landed, and the rise is the
+ * legitimate kind twice over: the construct it belongs to drew *no* picture
+ * at all before that board, and the case was found and written down by the
+ * board that caused it rather than by the next one to trip over it.
+ * **`fc-subgraph-self-edge`** is the one named case: `one --> one`, where
+ * `one` is a subgraph, draws the loop around the member standing in for the
+ * frame instead of around the frame itself. Its exit is implementation —
+ * frame-level self-loop geometry — and not refusal, because Mermaid draws
+ * this document and refusing it would cost the whole picture. Until then it
+ * is a wrong figure with the right edge on it, and this number is the thing
+ * that will not let it be forgotten.
  */
 const SILENTLY_WRONG = 1;
 
@@ -622,8 +639,66 @@ const SILENTLY_WRONG = 1;
  *
  * `seq-note-over` and `seq-note-right-of` then both moved from `rejected`
  * to `supported`: 12 - 2 = 10.
+ *
+ * `fc-stmt-bare-node` (a bare id on its own line, outside any subgraph) then
+ * moved from `rejected` to `supported`: 8 - 1 = 7.
+ *
+ * `fc-node-id-dot` (a `.` in a node id) then moved from `rejected` to
+ * `supported`: 7 - 1 = 6.
+ *
+ * `fc-click-target` (`click A href "url" "tip" _blank`) then moved from
+ * `rejected` to `supported`: 6 - 1 = 5.
+ *
+ * `fc-click-bare-callback` (`click A myFn`, the bare callback-name
+ * shorthand) then moved from `rejected` to `supported`: a planning-stage
+ * investigation corrected the earlier record of it as a different semantic
+ * from `call fn()` — `render()`'s `onClick` already reports the clicked
+ * node's own id for every `call` interaction regardless of click spelling,
+ * so the bare form parses into the same `Interaction` shape as `call fn()`
+ * with no runtime-model change needed. Two further click rows moved the
+ * same way in the tickets right after (the bare-href `"url"` shorthand
+ * among them), landing this board's `rejected` at its baseline for this
+ * one, 3.
+ *
+ * `fc-text-markdown` (`` A["`**bold**`"] ``) then moved from `rejected` to
+ * `supported`, and the parser's last named-refusal mechanism
+ * (`UNIMPLEMENTED_LABEL_FORMS`/`unimplementedFormIn`/`BRACKET_FORM_RE`/
+ * `refuseUnimplementedForm`) was deleted with it, per the doc comment that
+ * had named it as the row to delete them on. The ticket's own scope was the
+ * full measured shape of a Markdown label — bold, italic and an embedded
+ * line break, all independent axes — so two rows arrived beside it that
+ * neither can make this number fall by starting to work, the same
+ * instrument-catching-up shape `fc-edge-dotted-open` and
+ * `fc-edge-thick-open` were: `fc-text-italic` (`` A["`*italic*`"] ``) and
+ * `fc-text-multiline` (a label whose Markdown fence closes on a later
+ * physical source line than it opened on). Net: one row left `rejected`,
+ * two rows arrived already `supported`: 3 - 1 = 2.
+ *
+ * `fc-subgraph-direction` (`direction LR` inside a `subgraph` block) then
+ * moved from `rejected` to `supported`: `@dagrejs/dagre@3.1.1`'s pinned
+ * version turned out to already carry `recursiveClusterLayout`, a per-cluster
+ * `rankdir` — verified directly against dagre before any of this board's code
+ * changed — so honoring the block's own direction needed no new layout math,
+ * only threading the field through: 2 - 1 = 1.
+ *
+ * `fc-subgraph-edge` (`one --> two`, both subgraphs) then moved from
+ * `rejected` to `supported`: **1 - 1 = 0, and this file has no `rejected`
+ * flowchart row left.** Unlike the row above it, this one dagre could not be
+ * talked into: an edge whose endpoint *is* a cluster node makes
+ * `dagre.layout()` throw outright (`Cannot set properties of undefined
+ * (setting 'rank')`, verified directly against `@dagrejs/dagre@3.1.1`), and
+ * there is no flag to turn the behavior on. What closed it is Mermaid's own
+ * strategy for the same construct, arrived at independently and confined to
+ * `layoutDirectedGraph`: hand dagre a member of the frame in the cluster's
+ * place, then clip the route it returns back to the frame's own boundary.
+ *
+ * **Zero is where this number was always going, and reaching it is not the
+ * end of the instrument.** It means every construct written down here either
+ * renders or renders correctly — not that nothing is missing. The rises
+ * recorded above are what finding a missing one looks like, and the next one
+ * found will put this back above zero without anything having regressed.
  */
-const REJECTED = 8;
+const REJECTED = 0;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

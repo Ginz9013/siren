@@ -64,7 +64,7 @@ describe("resolveInteractions", () => {
 
     expect(diagnostics).toEqual([]);
     expect(resolved).toEqual([
-      { targetId: "Shape", interactionKind: "href", action: "https://example.com", argument: null, tooltip: "docs" },
+      { targetId: "Shape", interactionKind: "href", action: "https://example.com", argument: null, tooltip: "docs", linkTarget: null },
     ]);
   });
 
@@ -79,7 +79,7 @@ describe("resolveInteractions", () => {
 
     expect(diagnostics).toEqual([]);
     expect(resolved).toEqual([
-      { targetId: "Shape", interactionKind: "href", action: "./docs/shape.html", argument: null, tooltip: null },
+      { targetId: "Shape", interactionKind: "href", action: "./docs/shape.html", argument: null, tooltip: null, linkTarget: null },
     ]);
   });
 
@@ -94,7 +94,7 @@ describe("resolveInteractions", () => {
 
     expect(diagnostics).toEqual([]);
     expect(resolved).toEqual([
-      { targetId: "Shape", interactionKind: "call", action: "showDetails", argument: "a", tooltip: null },
+      { targetId: "Shape", interactionKind: "call", action: "showDetails", argument: "a", tooltip: null, linkTarget: null },
     ]);
   });
 
@@ -111,7 +111,7 @@ describe("resolveInteractions", () => {
     );
 
     expect(resolved).toEqual([
-      { targetId: "Shape", interactionKind: "call", action: "showDetails", argument: null, tooltip: null },
+      { targetId: "Shape", interactionKind: "call", action: "showDetails", argument: null, tooltip: null, linkTarget: null },
     ]);
     expect(diagnostics).toHaveLength(1);
   });

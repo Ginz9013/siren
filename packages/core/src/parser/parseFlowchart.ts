@@ -5,7 +5,9 @@ import type {
   EdgeLine,
   FlowchartDocument,
   Interaction,
+  LabelRun,
   LinkStyleDecl,
+  LinkTarget,
   NodeShape,
   ParseResult,
   SirenEdge,
@@ -16,7 +18,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
+import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 /**
@@ -88,6 +90,28 @@ const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
  * first alternative here, exactly as it is inside `[...]` and `{...}`.
  */
 const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
+
+/**
+ * A node's id, widened to admit `.` — the punctuation mermaid 11.17.2's own
+ * id alphabet allows there, measured with `scripts/mermaid-probe.mjs`:
+ * `a.b --> c` records the vertices `a.b` and `c`, and `a.-b --> c` records
+ * `a.-b` and `c` — one node either way, the dot (and, in the second case,
+ * the dash right after it) inside the id rather than cutting it in two.
+ *
+ * The second shape is not a coincidence this pattern has to special-case.
+ * `RUN_OPENING_DOTTED_BODY` already refuses to read a `.-` run as the start
+ * of a dotted arrow when it follows a word character — the guard board 2
+ * wrote so `a.-b` would be an honest refusal rather than three nodes drawn
+ * from two — so the text that reaches an id reader here can already contain
+ * that run whole. This pattern is what accepts it: one or more word
+ * characters, then any number of "a run of dots, optionally closed by one
+ * dash, then more word characters" segments — the exact shape a guarded
+ * dotted body has, and no wider. `-` is not a general id character here:
+ * `a-b` is a separate gap this ticket does not claim, and the dash this
+ * pattern admits is only ever the one immediately after a dot, measured
+ * where `a.-b` puts it.
+ */
+const ID_RUN = String.raw`\w+(?:\.+-?\w*)*`;
 
 /**
  * Every bracket spelling of a node, paired with the shape it names — the
@@ -168,88 +192,16 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  * Groups are `id`, `label`, `definitionName` in every one of them, which is
  * what lets `readNodeDeclaration` read them all with one body.
  *
- * `LABEL_CONTENT` still reads a bracket's label loosely, but it no longer
- * gets first refusal on the line: `UNIMPLEMENTED_LABEL_FORMS` is asked
- * first, and the one form it names never reaches here. Widening these
- * patterns without reading that one re-opens the bug that comment exists to
- * close.
+ * `LABEL_CONTENT` reads a bracket's label loosely — including the fenced
+ * `` "`...`" `` Markdown-string spelling, which is not a form this pattern
+ * has to know exists: it captures the bracket content whole, and
+ * `parseNodeLabel` is what tells a Markdown label from an ordinary one once
+ * the content reaches it.
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
-  re: new RegExp(String.raw`^(\w+)\s*${bracket}\s*(?::::(\w+))?\s*$`),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`),
 }));
-
-/**
- * Everything Mermaid writes *inside* `[...]` that is **still** not a plain
- * label, paired with the name Mermaid gives it. **No node shape is left
- * here.** The four slanted forms left when `NODE_SPELLINGS` learned to read
- * them, the subroutine box left when it did, and the cylinder — the last of
- * them, and the row this list was first written for — left with the three
- * shapes drawn with a curve. What remains is one *label* form, which is why
- * this no longer says "bracket forms": the shapes it was named for are all
- * drawn.
- *
- * **This list is refused, not swallowed.** That is the policy, and it is the
- * whole reason this constant survives its last shape: while a construct is
- * unimplemented, reject it — never render something else in its place.
- * `NODE_RE`'s `[^\]]*` used to take any bracket content as a label, so
- * `A[(DB)]` drew a rectangle labelled `(DB)` and said nothing. That
- * disguised *not implemented* as *supported*, and it hid the gap from
- * `src/compat/corpus.ts` — the instrument built to measure exactly this. A
- * mislabelled rectangle is a worse answer than a refusal, because the author
- * never learns anything is missing.
- *
- * The one row left is not a permanent refusal either. Its `described` is
- * written for the author who will read it: it names what Mermaid means, so
- * the answer is "wait" rather than "rewrite your line". Whoever implements
- * it deletes the row, and with it this constant, `unimplementedFormIn`,
- * `BRACKET_FORM_RE` and `refuseUnimplementedForm` — the plain quoted label
- * was a row here until quoting arrived, and `labelIn` is what replaced it.
- *
- * The form is anchored at **both ends** of the bracket content on purpose.
- * An over-tight pattern would be its own compatibility bug, traded for the
- * one it fixed: `A[a/b]`, `A[x (y)]`, `A[100%]` and `A[say "hi" now]` are
- * ordinary labels that merely *contain* a character a form also opens with,
- * and they still draw as rectangles.
- */
-const UNIMPLEMENTED_LABEL_FORMS: ReadonlyArray<{
-  open: string;
-  close: string;
-  described: string;
-}> = [
-  // A Markdown string, which is the label fence with backticks inside it.
-  // Read before `labelIn` strips that fence, so an author who wrote
-  // Markdown is told about Markdown rather than handed a label with
-  // backticks and asterisks in it — half-implementing the feature would
-  // draw `**bold**` where Mermaid draws bold text, which is the swallow
-  // this whole list exists to refuse.
-  {
-    open: '"`',
-    close: '`"',
-    described: "a Markdown string label (a quoted label fenced in backticks)",
-  },
-];
-
-/**
- * What Mermaid means by this bracket content, when it means something Siren
- * does not draw yet — as the prose a diagnostic quotes. `null` when the
- * content is an ordinary label, which is the common case.
- *
- * The length test is what keeps the fences from overlapping themselves:
- * `A[/]` is a label reading `/`, not an empty parallelogram.
- */
-function unimplementedFormIn(content: string): string | null {
-  for (const form of UNIMPLEMENTED_LABEL_FORMS) {
-    if (
-      content.length >= form.open.length + form.close.length &&
-      content.startsWith(form.open) &&
-      content.endsWith(form.close)
-    ) {
-      return form.described;
-    }
-  }
-  return null;
-}
 
 /**
  * The quotation mark that fences a label: `A["Quoted, with comma"]`.
@@ -278,26 +230,110 @@ const FENCED_LABEL_RE = /^"([^"]*)"$/;
 
 /**
  * The label an author wrote inside `[...]`, with the fence removed when
- * there is one. Ordinary content is returned untouched, which is the common
- * case.
+ * there is one, and the padding around it dropped.
+ *
+ * Trimmed whether or not the label was quoted: mermaid 11.17.2 records
+ * `text="padded"` for both `A[  padded  ]` and `A["  padded  "]`
+ * (`node scripts/mermaid-probe.mjs`, `fc-text-label-whitespace`). Padding a
+ * label is how an author lays a document out, not part of what the box
+ * says, so it is dropped here rather than drawn.
  */
 function labelIn(content: string): string {
   const fenced = FENCED_LABEL_RE.exec(content);
-  return fenced === null ? content : fenced[1];
+  const label = fenced === null ? content : fenced[1];
+  return label.trim();
 }
 
 /**
- * A node written with brackets, read **greedily**: the content is whatever
- * lies between the first `[` and the last `]`.
+ * What is left of a fenced label once `labelIn`'s own quote fence has come
+ * off, when that remainder is itself fenced in backticks — Mermaid's
+ * Markdown-string spelling: `` A["`**bold**`"] ``. Anchored at both ends,
+ * the same rule `FENCED_LABEL_RE` follows: one run spanning everything left,
+ * not a backtick that merely appears somewhere inside an ordinary label.
  *
- * It accepts nothing — the patterns above still decide what a node
- * declaration is. This pattern exists only to ask what the author meant,
- * which needs the greedy read those deliberately do not have: a form whose
- * content carries a `]` of its own is invisible to `LABEL_CONTENT`, so
- * without this it would fall all the way through to "unrecognized line"
- * rather than to a diagnostic naming the shape Mermaid means.
+ * `[\s\S]` rather than `.`, because the content between the backticks may
+ * carry a real line break — see `joinMarkdownFence`, which is what lets one
+ * reach here at all: mermaid 11.17.2 reads a quoted label across physical
+ * source lines when the closing quote has not been reached yet, measured
+ * (`scripts/mermaid-probe.mjs`, `node="A" text="line1\nline2"`), and `.`
+ * does not match a newline without the `s` flag this file avoids elsewhere.
  */
-const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
+const MARKDOWN_FENCE_RE = /^`([\s\S]*)`$/;
+
+/**
+ * `**bold**` or `*italic*`, read left to right and non-nested: the bold
+ * alternative is tried first at every position, so `**bold**` is one bold
+ * run rather than two italic runs sharing a doubled star.
+ *
+ * **Deliberately not what mermaid 11.17.2 itself does**, and that gap is
+ * measured rather than assumed: real Mermaid tokenizes a Markdown label by
+ * *word*, so `plain **bold** plain` draws four `<tspan>`s (one per word) and
+ * a bold run nested inside an italic one loses the bold the moment the
+ * italic opens (`**bold *and* still**` draws "and" italic and not bold,
+ * `scripts/mermaid-probe.mjs`). This board's own corpus rows never mix or
+ * nest the two within a line — `fc-text-markdown` is bold-only,
+ * `fc-text-italic` is italic-only, `fc-text-multiline` carries neither — so
+ * a span-per-run reading is indistinguishable from Mermaid's word-per-run
+ * one for everything this ticket measures, and building the word-splitting,
+ * style-dropping machinery to match an untested case would be building past
+ * what was measured.
+ */
+const MARKDOWN_RUN_RE = /\*\*(.*?)\*\*|\*(.*?)\*/g;
+
+/**
+ * One line of a Markdown label, split into the runs `MARKDOWN_RUN_RE` finds,
+ * with the plain text between and around them carried as runs of their own.
+ *
+ * Always at least one run, even for an empty line — a blank row in a
+ * multi-line label still has a `<tspan class="row">` to draw in Mermaid, and
+ * an empty plain run is what the renderer draws nothing for.
+ */
+function markdownLineRuns(line: string): LabelRun[] {
+  const runs: LabelRun[] = [];
+  let lastIndex = 0;
+  MARKDOWN_RUN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MARKDOWN_RUN_RE.exec(line)) !== null) {
+    if (match.index > lastIndex) {
+      runs.push({ text: line.slice(lastIndex, match.index), bold: false, italic: false });
+    }
+    if (match[1] !== undefined) {
+      runs.push({ text: match[1], bold: true, italic: false });
+    } else {
+      runs.push({ text: match[2]!, bold: false, italic: true });
+    }
+    lastIndex = MARKDOWN_RUN_RE.lastIndex;
+  }
+  if (lastIndex < line.length || runs.length === 0) {
+    runs.push({ text: line.slice(lastIndex), bold: false, italic: false });
+  }
+  return runs;
+}
+
+/**
+ * A node label read from bracket content, split into its Markdown runs when
+ * the author wrote the fenced `` "`...`" `` spelling — the one place both
+ * spellings are told apart, so a standalone declaration
+ * (`readNodeDeclaration`) and an edge endpoint cannot disagree about what a
+ * label means, exactly as `labelIn` already keeps them from disagreeing
+ * about quoting.
+ *
+ * `label` is always the *flattened* plain text — every run's text
+ * concatenated in source order, each line joined by `\n` — so it stays
+ * meaningful to a reader that never learns `labelRuns` exists: an error
+ * message, or the redeclaration warning `addNode` raises by comparing two
+ * plain strings.
+ */
+function parseNodeLabel(content: string): { label: string; labelRuns: LabelRun[][] | null } {
+  const stripped = labelIn(content);
+  const markdown = MARKDOWN_FENCE_RE.exec(stripped);
+  if (markdown === null) {
+    return { label: stripped, labelRuns: null };
+  }
+  const labelRuns = markdown[1].split("\n").map(markdownLineRuns);
+  const label = labelRuns.map((line) => line.map((run) => run.text).join("")).join("\n");
+  return { label, labelRuns };
+}
 
 /**
  * The bare `A:::emphasis` shorthand — the same application written without a
@@ -305,7 +341,7 @@ const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
  * itself keeps being an unrecognized line rather than silently declaring a
  * node: what makes this a declaration is the `:::`.
  */
-const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
+const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
 
 /**
  * **One** endpoint of an edge line, in each bracket spelling: an id, free to
@@ -336,7 +372,7 @@ const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
  */
 const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
-  re: new RegExp(String.raw`^(\w+)\s*${bracket}(?:\s*:::(\w+))?$`),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}(?:\s*:::(\w+))?$`),
 }));
 
 /**
@@ -348,7 +384,7 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
  * means — declaring the node only when nothing else has — is
  * `addNodeAsWritten`'s, as it has always been.
  */
-const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
+const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${ID_RUN})(?:\s*:::(\w+))?$`);
 
 /**
  * What may lie between the two `|` of an edge label: the same two
@@ -413,9 +449,10 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * `A .->B` is a dotted edge and `A.->B` is a parse error, all three
  * measured. Unguarded, this pattern cuts that line at the `.-` and draws
  * three nodes and two edges where Mermaid draws two and one, silently.
- * Siren's ids are `\w+` and cannot spell `a.-b` under either reading, so
- * what the guard buys is not that document but the *diagnostic*: it is
- * refused rather than quietly redrawn.
+ * `ID_RUN` is what spells `a.-b` as one id — this guard is what leaves the
+ * text for it to spell: without the guard, the `.-` would already be gone
+ * as an arrow token by the time an id reader saw anything, and no widening
+ * of the alphabet could put it back.
  *
  * The guard is on the dash-less spelling alone. A body that opens with a
  * dash is already unreachable from inside an id, since Mermaid ends an id
@@ -808,20 +845,16 @@ function readInlineLabelledArrow(token: string): ArrowForm | null {
 
 /**
  * The label an author wrote on an edge, with the fence removed and the
- * padding dropped.
+ * padding dropped — the padding outside the fence and the padding inside it
+ * alike, exactly as `labelIn` drops a node's.
  *
- * Trimmed, unlike a node's label, and the difference is Mermaid's rather
- * than a choice made here: an edge label reaches Mermaid's own database
- * already trimmed in every spelling — `A -->|  yes  | B`,
- * `A --   yes   --> B` and `A -->|"  yes  "| B` all record `text="yes"`,
- * measured. A node's label does not (`fc-text-label-whitespace`), and that
- * divergence is a corpus row rather than a precedent to spread.
- *
- * Trimmed on both sides of the fence, so the padding an author put inside
- * the quotes and the padding they put outside them are dropped alike.
+ * The outer `.trim()` runs before the fence is read rather than relying on
+ * `labelIn`'s own, because it is what lets the fenced pattern match at all
+ * when an author padded outside the quotes — `A -->|  "yes"  | B` has
+ * nothing to do with `^"..."$` until the surrounding spaces are gone.
  */
 function edgeLabelIn(content: string): string {
-  return labelIn(content.trim()).trim();
+  return labelIn(content.trim());
 }
 
 /** One place a node was written on an edge line, as written there. */
@@ -908,7 +941,7 @@ function separatorAt(text: string, index: number, separator: string | RegExp): s
  * something between statements and nothing inside a label: `A[a;b]`,
  * `A[a&b]` and `A[a-->b]` are ordinary labels in Mermaid, and a splitter
  * that did not know where a label starts would cut them into nonsense —
- * the same class of bug `UNIMPLEMENTED_LABEL_FORMS` exists to keep out.
+ * a document Mermaid draws refused as unreadable.
  *
  * **A brace opens a label as surely as a bracket does, and so does a
  * parenthesis.** Counting only `[`/`]` made three spellings of one idea
@@ -1053,19 +1086,20 @@ const SUBGRAPH_END = "end";
  * same `LABEL_CONTENT` every node label goes through, so `subgraph
  * one["a, b"]` fences exactly as `A["a, b"]` does.
  */
-const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(\w+)\s*\[(${LABEL_CONTENT})\]$`);
+const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTENT})\]$`);
 
 /**
- * A bare authored id and nothing else — `Ingest`, `A`.
+ * A bare authored id and nothing else — `Ingest`, `A`, `a.-b`.
  *
- * `\w+` is the shape every parser in this repo gives an id, and ADR-0010
- * leans on it: a `\w` cannot be a colon, which is what makes a generated id
- * unspellable by an authored one. Read in two places here, for two different
- * things that are both that shape — a subgraph written with a bare title
+ * `ID_RUN` is this file's own answer to the shape ADR-0010 leans on: neither
+ * a `\w` nor a `.` nor the one dash this pattern admits is a colon, which is
+ * what still makes a generated id unspellable by an authored one here. Read
+ * in two places here, for two different things that are both that shape — a
+ * subgraph written with a bare title
  * (mermaid 11.17.2 records it as both id and title) and a node written as
  * nothing but its id inside a block.
  */
-const AUTHORED_ID_RE = /^\w+$/;
+const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
 
 /**
  * What the tail of a `subgraph` statement names — the author's handle and
@@ -1102,58 +1136,99 @@ function readSubgraphTitle(
 
 /**
  * `direction LR` written inside a `subgraph` block — a per-cluster rank
- * direction, which Siren refuses by name rather than reading and dropping.
+ * direction, read onto that block alone.
  *
  * Measured, not recalled: mermaid 11.17.2 records it as `dir="LR"` on that
  * subgraph and leaves the document's own direction where the header put it
- * (`scripts/mermaid-probe.mjs`). Honoring it means laying each subgraph out
- * as a diagram of its own and composing the results, because dagre carries
- * exactly one `rankdir` per graph and `layoutDirectedGraph` takes it as a
- * graph-level field. That is a layout feature of its own size.
+ * (`scripts/mermaid-probe.mjs`). `layoutDirectedGraph` honors it the same
+ * way, by way of dagre's own `recursiveClusterLayout`: a cluster node
+ * carrying a `rankdir` of its own lays its children out as a sub-graph of
+ * their own, independent of the outer graph's direction.
  *
- * The alternative is not "ignore it". A group drawn top-to-bottom where the
- * author wrote left-to-right is the wrong picture with nothing in it to
- * notice — a silent mis-render by the compatibility corpus's own definition,
- * and the state this project's absolute condition exists to keep out. So the
- * line is named in a diagnostic and the document is refused, exactly as an
- * undrawn arrow spelling and an undrawn bracket form already are.
+ * Read with `matchClassDirection` rather than a pattern of this file's own —
+ * the spelling, the alias (`TD` → `TB`), and the diagnostic-worthy set of
+ * five are already settled there for the header, and a second regex here
+ * would only give the two a chance to drift.
  *
  * Scoped to *inside* a block on purpose. At the top level of a flowchart
  * mermaid 11.17.2 accepts `direction LR` and ignores it — the recorded
- * direction stays `TB`, measured — so there is nothing there for Siren to be
- * behind on, and it stays an unrecognized line.
+ * direction stays `TB`, measured — so there is nothing there for Siren to
+ * read either, and it stays an unrecognized line.
  */
-const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
+
+/** The window target mermaid 11.17.2's grammar accepts as an `href` interaction's fourth argument — see `LinkTarget`. */
+const LINK_TARGETS: readonly LinkTarget[] = ["_blank", "_self", "_top", "_parent"];
 
 /**
  * `click A href "https://example.com"`, with Mermaid's optional trailing
- * tooltip string — the 2- and 3-argument forms only.
+ * tooltip string and optional trailing window target — the 2-, 3- and
+ * 4-argument forms, `click A href "url" ["tip"] [_blank|_self|_top|_parent]`.
  *
  * Anchored with `$`, exactly as the class diagram's own `CLICK_HREF_RE` is,
- * so a form this does not read — the target attribute, `click A href "url"
- * "tip" _blank` or `click A href "url" _blank` — falls all the way through
- * to "Unrecognized flowchart line" rather than silently matching a truncated
- * read of it. Measured against mermaid 11.17.2 with
- * `scripts/mermaid-probe.mjs`: both are valid Mermaid and neither is this
- * board's to implement.
+ * so a fifth token — or a target that is not one of `LinkTarget`'s four —
+ * falls all the way through to "Unrecognized flowchart line" rather than
+ * silently matching a truncated read of it (measured: mermaid's own grammar
+ * has exactly these four as a fixed `LINK_TARGET` lexer token, and a fifth
+ * is a parse error there too).
  *
  * The URL is captured as written, exactly as the class diagram's does — the
  * `http`/`https`/`mailto` allowlist is `resolveInteractions`' job, not this
  * parser's, and that resolver is shared rather than copied.
  */
-const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+const CLICK_HREF_RE = new RegExp(
+  String.raw`^click\s+(${ID_RUN})\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?(?:\s+(${LINK_TARGETS.join("|")}))?$`,
+);
 
 /**
  * `click A call callbackFn()`, with an optional literal argument and
  * Mermaid's optional trailing tooltip: `click A call fn("arg") "tip"`.
  *
- * Spelled exactly as the class diagram's `CLICK_CALL_RE` is, and for the
- * same reason: `click A myFn` — the bare callback-name shorthand, a
- * different Mermaid semantic from `call fn()` — has no parentheses to match
- * this pattern's `\(([^)]*)\)`, so it falls through rather than being
- * silently read as a call with no arguments.
+ * Spelled exactly as the class diagram's `CLICK_CALL_RE` is. `click A myFn`
+ * — the bare callback-name shorthand — has no parentheses to match this
+ * pattern's `\(([^)]*)\)`, so it falls through to `CLICK_CALL_BARE_RE` below
+ * rather than being silently read as a call with no arguments here.
  */
-const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$/;
+const CLICK_CALL_RE = new RegExp(
+  String.raw`^click\s+(${ID_RUN})\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$`,
+);
+
+/**
+ * `click A myFn` — Mermaid's bare callback-name shorthand for
+ * `click A call myFn()`. Parsed into the exact same `Interaction` shape
+ * (`interactionKind: "call"`, `action: "myFn"`, `argument: null`): `render()`'s
+ * `onClick` already reports the clicked node's own id for every `call`
+ * interaction regardless of which click spelling produced it, so there is no
+ * separate semantic here to model — reusing the `call` shape is not a
+ * simplification, it is the correct reading.
+ *
+ * Checked after `CLICK_CALL_RE`, so a name followed by parens is still read
+ * by that pattern: this one's `(\w+)$` has no `(...)` to match, so
+ * `click A call myFn()` never reaches here in the first place, and ordering
+ * only matters for defense in depth.
+ */
+const CLICK_CALL_BARE_RE = new RegExp(String.raw`^click\s+(${ID_RUN})\s+(\w+)$`);
+
+/**
+ * `click A "https://example.com"` — Mermaid's bare-quoted-string shorthand
+ * for `click A href "https://example.com"` with the `href` keyword omitted.
+ * Parsed into the exact same `Interaction` shape as `CLICK_HREF_RE` produces
+ * for its two-argument form (`interactionKind: "href"`, the string as
+ * `action`, `argument`/`tooltip`/`linkTarget` all `null`): measured against
+ * real Mermaid 11.17.2, `click A "tip"` renders `<a href="tip">` — the
+ * quoted string becomes the href value regardless of whether it looks like a
+ * URL, so this is a keyword-omitting shorthand, not a tooltip-only concept.
+ * The `http`/`https`/`mailto` allowlist that rejects a non-URL string like
+ * `"tip"` is `resolveInteractions`' job, not this parser's, exactly as it is
+ * for `CLICK_HREF_RE`.
+ *
+ * Checked after `CLICK_HREF_RE`, `CLICK_CALL_RE` and `CLICK_CALL_BARE_RE`.
+ * There is no ordering hazard with any of them: `CLICK_HREF_RE` requires the
+ * literal word `href` this pattern never has, `CLICK_CALL_RE` requires
+ * `call fn(...)`, and `CLICK_CALL_BARE_RE`'s `(\w+)$` cannot match a quoted
+ * string — `\w` excludes the `"` characters this pattern's payload is
+ * bracketed by.
+ */
+const CLICK_HREF_BARE_RE = new RegExp(String.raw`^click\s+(${ID_RUN})\s+"([^"]*)"$`);
 
 /** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
 const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
@@ -1184,7 +1259,7 @@ function callArgument(raw: string): string | null {
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
  * node, spelled exactly as a class diagram spells it.
  */
-const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
+const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`);
 
 /**
  * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
@@ -1207,6 +1282,10 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
  * and `linkStyle default` without three: `[\w,\s]` cannot cross the first
  * `:` of the declarations, so it gives back everything up to the space that
  * separates the two halves.
+ *
+ * Left as `\w` alone, unlike `CLASS_APPLY_RE`'s target list: an address here
+ * is a declaration index or the literal word `default`, never a node id, so
+ * widening the id alphabet for `.` gives this list nothing to admit.
  */
 const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
 
@@ -1216,12 +1295,15 @@ const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
  * one `apply` kind here, so no model, renderer or test downstream learns
  * that two spellings exist.
  *
- * The target list is greedy up to the trailing name: `[\w\s,]` swallows the
+ * The target list is greedy up to the trailing name: `[\w\s,.]` swallows the
  * whole tail and backtracks until a bare `\w+` is left for the definition
  * name, which is what lets `class A, B emphasis` be read the same as
- * `class A,B emphasis` without a second pattern.
+ * `class A,B emphasis` without a second pattern. The `.` in that class is
+ * this ticket's: `class a.b,c.d hot` is a target list of two dotted ids,
+ * matching what `STYLE_RE`'s single target and `NODE_CLASS_RE`'s shorthand
+ * already accept.
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = /^class\s+([\w\s,.]*[\w,.])\s+(\w+)\s*$/;
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B
@@ -1241,6 +1323,74 @@ function splitTargetIds(text: string): string[] {
 }
 
 /**
+ * Whether `text`, scanned left to right, ends with a Markdown label's fence
+ * (`` "` `` … `` `" ``) still open — the two-character opener seen and its
+ * closer not yet.
+ *
+ * Scoped to exactly those two character pairs, which is what keeps this from
+ * firing on anything else this grammar writes: a quote and a backtick never
+ * land next to each other outside a Markdown label's fence, so an ordinary
+ * line — a `style` declaration, a `click ... "tip"`, a plain quoted label —
+ * can never be mistaken for one that continues.
+ */
+function markdownFenceIsOpenAtEndOf(text: string): boolean {
+  let open = false;
+  for (let i = 0; i < text.length - 1; i++) {
+    if (!open && text[i] === '"' && text[i + 1] === "`") {
+      open = true;
+      i++;
+    } else if (open && text[i] === "`" && text[i + 1] === '"') {
+      open = false;
+      i++;
+    }
+  }
+  return open;
+}
+
+/**
+ * Joins a Markdown label's fence back into one physical line when the
+ * author's closing backtick lies on a later one — `` A["`line1 `` on one
+ * line and `` line2`"]  `` on the next, which mermaid 11.17.2 reads as a
+ * single vertex labelled `"line1\nline2"` (measured,
+ * `scripts/mermaid-probe.mjs`). Every other construct in this grammar is
+ * read one physical line at a time; this is the one place that is not
+ * enough, because a Markdown label is the one place Mermaid's own lexer
+ * keeps reading past a line break in search of the quote that closes it.
+ *
+ * **Lines keep their positions, not their count.** The physical lines a
+ * fence swallows are blanked rather than removed, so every line number after
+ * the join still means what it meant before: `splitStatements` already
+ * treats a blank line as carrying no statements, so a blanked line costs
+ * nothing downstream, and the merged text lands on the line the fence
+ * opened on — the line a diagnostic about it should point at anyway.
+ *
+ * A fence still open at the end of the document is left merged through to
+ * the last line: whatever statement pattern is then asked to read it finds
+ * an unclosed fence in its capture and fails to match, which is the same
+ * "unrecognized line" a Mermaid author sees for any other malformed
+ * statement, not a crash.
+ */
+function joinMarkdownFences(lines: readonly string[]): string[] {
+  const joined = [...lines];
+  for (let i = 0; i < joined.length; i++) {
+    let text = joined[i];
+    let end = i;
+    while (markdownFenceIsOpenAtEndOf(text) && end + 1 < joined.length) {
+      end++;
+      text += "\n" + joined[end];
+    }
+    if (end !== i) {
+      joined[i] = text;
+      for (let blank = i + 1; blank <= end; blank++) {
+        joined[blank] = "";
+      }
+      i = end;
+    }
+  }
+  return joined;
+}
+
+/**
  * Parses Siren flowchart source text (a `flowchart TB|BT|LR|RL` header — or
  * `graph`, Mermaid's original spelling of the same word — node/edge
  * declarations, author styling statements, and an optional `timeline:` block) into a
@@ -1255,7 +1405,7 @@ function splitTargetIds(text: string): string[] {
  */
 export function parseFlowchart(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
-  const lines = source.split(/\r\n|\r|\n/);
+  const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];
@@ -1280,12 +1430,24 @@ export function parseFlowchart(source: string): ParseResult {
   const claimedNodeIds = new Set<string>();
 
   /**
-   * Every edge statement, with the endpoint ids it named — kept so that an
-   * edge addressing a subgraph can be refused after the whole document has
-   * been read. It cannot be refused while the line is read: a subgraph may
-   * legitimately be declared *below* the edge that names it.
+   * Every node this parse declared *only* because an edge endpoint mentioned
+   * it bare — no label, no bracket, no line of its own — paired with the
+   * block that claimed it as a member, if any.
+   *
+   * An endpoint that turns out to name a `subgraph` addresses that block's
+   * frame, so the node provisionally declared for it is taken back once the
+   * whole document has been read. It cannot be decided while the line is
+   * read: a subgraph may legitimately be declared *below* the edge naming
+   * it. The claim is carried alongside so that `subgraph outer / one --> B /
+   * end` does not leave `outer` holding a member that no longer exists.
+   *
+   * Only a *bare* mention is provisional. `one[Label]` and a bare `one` on a
+   * line of its own are declarations the author made in their own right, and
+   * they keep their box beside the frame — which is what mermaid 11.17.2
+   * does for `A[Alpha]` beside `subgraph A`, measured, and what ADR-0010's
+   * generated subgraph id exists to keep apart.
    */
-  const edgeStatements: { ids: string[]; text: string; line: number; column: number }[] = [];
+  const provisionalEndpointNodes = new Map<string, SirenSubgraph | null>();
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -1343,46 +1505,17 @@ export function parseFlowchart(source: string): ParseResult {
     });
   };
 
-  /**
-   * Refuses one place a node was written, when what was written there is a
-   * bracket form Siren does not draw yet — naming which one. `true` when the
-   * line was refused, so the caller stops reading it.
-   *
-   * Shared by the two places a label can appear, for the reason
-   * `addNodeAsWritten` is shared: where a node was written must not decide
-   * what it means, so `A[(DB)] --> B` cannot quietly draw the cylinder that
-   * `A[(DB)]` on a line of its own refuses.
-   */
-  const refuseUnimplementedForm = (
-    content: string | undefined,
-    line: string,
-    lineNumber: number,
-    column: number,
-  ): boolean => {
-    const form = content === undefined ? null : unimplementedFormIn(content);
-    if (form === null) {
-      return false;
-    }
-    diagnostics.push({
-      severity: "error",
-      message: `Siren does not draw ${form} yet: "${line}"`,
-      line: lineNumber,
-      column,
-    });
-    sawError = true;
-    return true;
-  };
-
   const addNode = (
     id: string,
     label: string,
+    labelRuns: LabelRun[][] | null,
     shape: NodeShape,
     line: number,
     column: number,
   ) => {
     const existing = nodesById.get(id);
     if (existing === undefined) {
-      nodesById.set(id, { id, label, shape, line, column });
+      nodesById.set(id, { id, label, labelRuns, shape, line, column });
       return;
     }
     if (existing.label !== label) {
@@ -1414,13 +1547,26 @@ export function parseFlowchart(source: string): ParseResult {
    * `label` is bracket content as written, so the fence comes off here —
    * once, for every place a label can appear, which is why `A["x, y"]` on
    * a line of its own and at an edge endpoint cannot disagree about what
-   * the author wrote.
+   * the author wrote. `parseNodeLabel` is what removes it now, in place of
+   * the plain `labelIn` this function used to call directly, so a Markdown
+   * label is told apart from an ordinary one in the one place both
+   * spellings already meet.
    */
   const addNodeAsWritten = (
     { id, label, definitionName, shape }: EdgeEndpoint,
     line: number,
     column: number,
+    /**
+     * Where this mention was written. Only an *edge endpoint* can mean a
+     * subgraph's frame rather than a node — that is Mermaid's rule and the
+     * reason this parameter exists — so a bare mention there declares the
+     * node provisionally, while the same spelling on a line of its own
+     * declares it outright.
+     */
+    writtenAs: "an edge endpoint" | "a declaration" = "a declaration",
   ) => {
+    const undeclared = !nodesById.has(id);
+
     // Membership is claimed here, at the one place a node is *written*, for
     // the same reason the label rules live here: where it was written must
     // not decide what it means. An edge endpoint, a declaration on a line of
@@ -1433,17 +1579,32 @@ export function parseFlowchart(source: string): ParseResult {
     // it, which is how an edge drawn *out* of a group does not move its
     // source into the group at the other end.
     const innermost = openBlocks[openBlocks.length - 1];
+    let claimedBy: SirenSubgraph | null = null;
     if (innermost !== undefined && !claimedNodeIds.has(id)) {
       claimedNodeIds.add(id);
       innermost.subgraph.nodeIds.push(id);
+      claimedBy = innermost.subgraph;
     }
     if (label !== undefined) {
-      addNode(id, labelIn(label), shape, line, column);
-    } else if (!nodesById.has(id)) {
-      nodesById.set(id, { id, label: id, shape, line, column });
+      const parsed = parseNodeLabel(label);
+      addNode(id, parsed.label, parsed.labelRuns, shape, line, column);
+    } else if (undeclared) {
+      nodesById.set(id, { id, label: id, labelRuns: null, shape, line, column });
     }
     if (definitionName !== undefined) {
       applyAtDeclaration(id, definitionName, line, column);
+    }
+
+    // A bare edge endpoint declares its node provisionally; anything else —
+    // a label written here, or the same id written anywhere as a declaration
+    // — settles it as a node the author asked for, whatever a `subgraph`
+    // further down happens to be called.
+    if (writtenAs === "an edge endpoint" && label === undefined) {
+      if (undeclared) {
+        provisionalEndpointNodes.set(id, claimedBy);
+      }
+    } else {
+      provisionalEndpointNodes.delete(id);
     }
   };
 
@@ -1518,6 +1679,10 @@ export function parseFlowchart(source: string): ParseResult {
           label: title.label,
           nodeIds: [],
           subgraphs: [],
+          // Filled in below when the block's own body writes a `direction`
+          // line; `null` here rather than left out, the empty-not-absent
+          // rule every other optional statement in this parser follows.
+          direction: null,
           line: lineNumber,
           column,
         };
@@ -1534,15 +1699,12 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
-      if (openBlocks.length > 0 && SUBGRAPH_DIRECTION_RE.test(line)) {
-        diagnostics.push({
-          severity: "error",
-          message: `Siren does not lay a subgraph out in its own direction yet: "${line}"`,
-          line: lineNumber,
-          column,
-        });
-        sawError = true;
-        continue;
+      if (openBlocks.length > 0) {
+        const blockDirection = matchClassDirection(line);
+        if (blockDirection !== null) {
+          openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
+          continue;
+        }
       }
 
       // A declaration list is not a place where an arrow means anything —
@@ -1620,40 +1782,11 @@ export function parseFlowchart(source: string): ParseResult {
         const chain = groups as EdgeEndpoint[][];
         const written = chain.flat();
 
-        // Asked of every endpoint before any of them is declared, so a shape
-        // written anywhere on the line refuses the line rather than leaving
-        // the endpoints before it drawn. `some` stops at the first, which is
-        // one diagnostic per statement.
-        if (
-          written.some((endpoint) =>
-            refuseUnimplementedForm(
-              // Only a `[...]` label can carry one of those forms. The
-              // punctuation another spelling fences is that spelling's own
-              // content: mermaid 11.17.2 reads `A{"(DB)"}` as a diamond
-              // labelled `(DB)`, not as a cylinder, so asking this of a
-              // brace's label would refuse a document Mermaid draws.
-              endpoint.shape === "rect" ? endpoint.label : undefined,
-              line,
-              lineNumber,
-              column,
-            ),
-          )
-        ) {
-          continue;
-        }
-
-        edgeStatements.push({
-          ids: written.map((endpoint) => endpoint.id),
-          text: line,
-          line: lineNumber,
-          column,
-        });
-
         // Declared once each, left to right as written — before any edge, so
         // a `:::` on an endpoint two arrows along applies exactly once rather
         // than once per link it takes part in.
         for (const endpoint of written) {
-          addNodeAsWritten(endpoint, lineNumber, column);
+          addNodeAsWritten(endpoint, lineNumber, column, "an edge endpoint");
         }
         // Sources outermost, which is Mermaid's order: `FlowDB.addLink` is
         // `for (const start of _start) for (const end of _end)`, so
@@ -1712,6 +1845,7 @@ export function parseFlowchart(source: string): ParseResult {
           action: clickHrefMatch[2],
           argument: null,
           tooltip: clickHrefMatch[3] ?? null,
+          linkTarget: (clickHrefMatch[4] as LinkTarget | undefined) ?? null,
           line: lineNumber,
           column,
         });
@@ -1726,6 +1860,35 @@ export function parseFlowchart(source: string): ParseResult {
           action: clickCallMatch[2],
           argument: callArgument(clickCallMatch[3]),
           tooltip: clickCallMatch[4] ?? null,
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const clickCallBareMatch = CLICK_CALL_BARE_RE.exec(line);
+      if (clickCallBareMatch !== null) {
+        interactions.push({
+          interactionKind: "call",
+          targetId: clickCallBareMatch[1],
+          action: clickCallBareMatch[2],
+          argument: null,
+          tooltip: null,
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const clickHrefBareMatch = CLICK_HREF_BARE_RE.exec(line);
+      if (clickHrefBareMatch !== null) {
+        interactions.push({
+          interactionKind: "href",
+          targetId: clickHrefBareMatch[1],
+          action: clickHrefBareMatch[2],
+          argument: null,
+          tooltip: null,
+          linkTarget: null,
           line: lineNumber,
           column,
         });
@@ -1799,22 +1962,6 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
-      const bracketFormMatch = BRACKET_FORM_RE.exec(line);
-      if (bracketFormMatch !== null) {
-        // Asked before `NODE_RE`, because `NODE_RE` would take the form's own
-        // punctuation as a label — which is the swallow this refuses.
-        if (
-          refuseUnimplementedForm(
-            bracketFormMatch[1],
-            line,
-            lineNumber,
-            column,
-          )
-        ) {
-          continue;
-        }
-      }
-
       const declared = readNodeDeclaration(line);
       if (declared !== null) {
         addNodeAsWritten(declared, lineNumber, column);
@@ -1836,40 +1983,30 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
-      // A bare id inside a block, which is how a node with no edges joins a
-      // group. mermaid 11.17.2 records it as a vertex *and* a member of that
-      // block, measured with `scripts/mermaid-probe.mjs`.
-      //
-      // **The block scope is Siren's own, not Mermaid's — and this comment
-      // used to claim the opposite, citing the probe while it did.** It said
-      // Mermaid "records nothing at all" for a bare id at the top level.
-      // That is false, re-measured three ways: `flowchart TB / Orphan /
-      // A --> B` records the vertices `Orphan`, `A` and `B`, and
-      // `flowchart TB / Orphan` on its own records `Orphan`. A bare id is a
-      // vertex declaration there exactly as it is in here.
-      //
-      // So the top-level form is a construct Mermaid draws and Siren refuses,
-      // falling through to the `Unrecognized flowchart line` below and taking
-      // the whole document down with it. That gap is honest backlog and it
-      // has a row — **`fc-stmt-bare-node` in `src/compat/corpus.ts`**, which
-      // carries the measurement so the next reader finds it rather than
-      // re-deriving it. Its exit is widening this condition; it is not
-      // another measurement, and nothing here is already correct.
-      //
-      // Left as backlog rather than widened in passing, because dropping the
-      // `openBlocks` guard changes which lines a whole document may contain,
-      // and this branch is asked last precisely so that nothing meaning
-      // something else is swallowed as a node. Whoever widens it owns
-      // re-checking that, which is a ticket rather than an edit.
+      // A bare id on a line of its own, inside a block or not. mermaid
+      // 11.17.2 records it as a vertex — and, when it sits inside a
+      // `subgraph`, as a member of that block too — measured with
+      // `scripts/mermaid-probe.mjs`. `flowchart TB / Orphan / A --> B`
+      // records the vertices `Orphan`, `A` and `B`, and `flowchart TB /
+      // Orphan` on its own records `Orphan`: a bare id is a vertex
+      // declaration at the top level exactly as it is inside a block.
       //
       // It claims no label and names no shape, exactly as an edge's bare
-      // endpoint does; `addNodeAsWritten` holds what that means for both.
+      // endpoint does; `addNodeAsWritten` holds what that means for both,
+      // including the default label (the id itself) both spellings share
+      // with the bracketed `Orphan[Orphan]` form.
       //
       // Asked last, after every keyword and every other spelling, so nothing
-      // that means something else can be swallowed as a node — `end` and
-      // `A:::name` are both `\w`-only lines and both have already been read
-      // by the branches above.
-      if (openBlocks.length > 0 && AUTHORED_ID_RE.test(line)) {
+      // that means something else can be swallowed as a node — `A:::name`
+      // is `NODE_CLASS_RE`'s own shape and has already been read by a branch
+      // above. `end` needs naming explicitly rather than falling out of that
+      // same logic: inside an open block it is consumed above, but a *stray*
+      // `end` (no block open) reaches this line exactly as `Orphan` does,
+      // and `ID_RUN` matches it too. Swallowing it as a node named "end" would
+      // hide a mistyped or dangling `end` behind a silent, useless vertex
+      // instead of the diagnostic below — so it is excluded by name, not by
+      // block state.
+      if (line !== SUBGRAPH_END && AUTHORED_ID_RE.test(line)) {
         addNodeAsWritten(
           { id: line, label: undefined, definitionName: undefined, shape: "rect" },
           lineNumber,
@@ -1889,21 +2026,22 @@ export function parseFlowchart(source: string): ParseResult {
     }
   }
 
-  // An edge whose endpoint names a subgraph, refused rather than drawn.
+  // An edge whose endpoint names a subgraph addresses that block's *frame*,
+  // so the node the endpoint provisionally declared is taken back.
   //
-  // Mermaid draws this: `One --> Two`, where both are subgraphs, is an edge
-  // between the two *frames* — mermaid 11.17.2 records vertices for both
-  // names alongside the subgraphs and its renderer joins the clusters
-  // (measured). Siren has no such routing, and left alone it would declare
-  // two ordinary nodes and draw a box labelled `One` beside the frame of the
-  // same name, with no diagnostic at all. That is a `silently-wrong` case
-  // this ticket would have *created*, and the corpus's policy on those says
-  // their destination is zero — so it is refused by name and recorded as
-  // backlog instead.
+  // Mermaid draws exactly this: `One --> Two`, where both are subgraphs, is
+  // an edge between the two frames — mermaid 11.17.2 records vertices for
+  // both names alongside the subgraphs and its renderer joins the clusters,
+  // measured. The frame is what it draws, and a box labelled `One` beside a
+  // frame of the same name is what it does *not*.
+  //
+  // What stays in `edges` is the name as written. Turning it into the
+  // frame's id is `buildFlowchartModel`'s — a subgraph's id is generated
+  // (ADR-0010) and does not exist yet at this stage, which is the same
+  // reason `SirenSubgraph` carries no id either.
   //
   // Asked after the whole document has been read, because a subgraph may be
-  // declared below the edge that names it, and one diagnostic per statement
-  // rather than per endpoint.
+  // declared below the edge that names it.
   const subgraphNames = new Set<string>();
   const collectNames = (blocks: readonly SirenSubgraph[]): void => {
     for (const block of blocks) {
@@ -1915,18 +2053,17 @@ export function parseFlowchart(source: string): ParseResult {
   };
   collectNames(subgraphs);
 
-  for (const statement of edgeStatements) {
-    const named = statement.ids.find((id) => subgraphNames.has(id));
-    if (named === undefined) {
+  for (const [id, claimedBy] of provisionalEndpointNodes) {
+    if (!subgraphNames.has(id)) {
       continue;
     }
-    diagnostics.push({
-      severity: "error",
-      message: `Siren does not draw an edge to the subgraph "${named}" yet: "${statement.text}"`,
-      line: statement.line,
-      column: statement.column,
-    });
-    sawError = true;
+    nodesById.delete(id);
+    // The membership goes with the node. `subgraph outer / one --> B / end`
+    // would otherwise leave `outer` holding a member id nothing declares,
+    // and layout grows a frame from the boxes that name it.
+    if (claimedBy !== null) {
+      claimedBy.nodeIds = claimedBy.nodeIds.filter((member) => member !== id);
+    }
   }
 
   // A block the author never closed, reported in the words they opened it
