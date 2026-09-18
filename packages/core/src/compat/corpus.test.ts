@@ -627,8 +627,11 @@ const SILENTLY_WRONG = 0;
  *
  * `seq-note-over` and `seq-note-right-of` then both moved from `rejected`
  * to `supported`: 12 - 2 = 10.
+ *
+ * `fc-stmt-bare-node` (a bare id on its own line, outside any subgraph) then
+ * moved from `rejected` to `supported`: 8 - 1 = 7.
  */
-const REJECTED = 8;
+const REJECTED = 7;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

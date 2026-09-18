@@ -1838,40 +1838,30 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
-      // A bare id inside a block, which is how a node with no edges joins a
-      // group. mermaid 11.17.2 records it as a vertex *and* a member of that
-      // block, measured with `scripts/mermaid-probe.mjs`.
-      //
-      // **The block scope is Siren's own, not Mermaid's — and this comment
-      // used to claim the opposite, citing the probe while it did.** It said
-      // Mermaid "records nothing at all" for a bare id at the top level.
-      // That is false, re-measured three ways: `flowchart TB / Orphan /
-      // A --> B` records the vertices `Orphan`, `A` and `B`, and
-      // `flowchart TB / Orphan` on its own records `Orphan`. A bare id is a
-      // vertex declaration there exactly as it is in here.
-      //
-      // So the top-level form is a construct Mermaid draws and Siren refuses,
-      // falling through to the `Unrecognized flowchart line` below and taking
-      // the whole document down with it. That gap is honest backlog and it
-      // has a row — **`fc-stmt-bare-node` in `src/compat/corpus.ts`**, which
-      // carries the measurement so the next reader finds it rather than
-      // re-deriving it. Its exit is widening this condition; it is not
-      // another measurement, and nothing here is already correct.
-      //
-      // Left as backlog rather than widened in passing, because dropping the
-      // `openBlocks` guard changes which lines a whole document may contain,
-      // and this branch is asked last precisely so that nothing meaning
-      // something else is swallowed as a node. Whoever widens it owns
-      // re-checking that, which is a ticket rather than an edit.
+      // A bare id on a line of its own, inside a block or not. mermaid
+      // 11.17.2 records it as a vertex — and, when it sits inside a
+      // `subgraph`, as a member of that block too — measured with
+      // `scripts/mermaid-probe.mjs`. `flowchart TB / Orphan / A --> B`
+      // records the vertices `Orphan`, `A` and `B`, and `flowchart TB /
+      // Orphan` on its own records `Orphan`: a bare id is a vertex
+      // declaration at the top level exactly as it is inside a block.
       //
       // It claims no label and names no shape, exactly as an edge's bare
-      // endpoint does; `addNodeAsWritten` holds what that means for both.
+      // endpoint does; `addNodeAsWritten` holds what that means for both,
+      // including the default label (the id itself) both spellings share
+      // with the bracketed `Orphan[Orphan]` form.
       //
       // Asked last, after every keyword and every other spelling, so nothing
-      // that means something else can be swallowed as a node — `end` and
-      // `A:::name` are both `\w`-only lines and both have already been read
-      // by the branches above.
-      if (openBlocks.length > 0 && AUTHORED_ID_RE.test(line)) {
+      // that means something else can be swallowed as a node — `A:::name`
+      // is a `\w`-only line and has already been read by a branch above.
+      // `end` needs naming explicitly rather than falling out of that same
+      // logic: inside an open block it is consumed above, but a *stray*
+      // `end` (no block open) reaches this line exactly as `Orphan` does,
+      // and `\w+` matches it too. Swallowing it as a node named "end" would
+      // hide a mistyped or dangling `end` behind a silent, useless vertex
+      // instead of the diagnostic below — so it is excluded by name, not by
+      // block state.
+      if (line !== SUBGRAPH_END && AUTHORED_ID_RE.test(line)) {
         addNodeAsWritten(
           { id: line, label: undefined, definitionName: undefined, shape: "rect" },
           lineNumber,

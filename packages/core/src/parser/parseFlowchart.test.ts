@@ -30,6 +30,21 @@ describe("a flowchart node's label", () => {
   });
 });
 
+describe("a flowchart's bare node declarations", () => {
+  it("declares a node from a bare id on its own line, outside any subgraph", () => {
+    const source = `flowchart TB
+  Orphan
+  A --> B`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["Orphan", "A", "B"]);
+    expect(document.nodes.find((node) => node.id === "Orphan")?.label).toBe("Orphan");
+    expect(document.edges).toEqual([expect.objectContaining({ from: "A", to: "B" })]);
+  });
+});
+
 describe("a flowchart's click statements", () => {
   it("parses a click href interaction, with and without the trailing tooltip", () => {
     const source = `flowchart TB

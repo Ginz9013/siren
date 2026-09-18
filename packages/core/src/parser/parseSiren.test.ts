@@ -2408,26 +2408,20 @@ describe("an edge that addresses a subgraph", () => {
 });
 
 /**
- * A node written as a bare id on a line of its own **inside** a subgraph.
+ * A node written as a bare id on a line of its own, inside a subgraph or at
+ * the top level alike.
  *
- * This is how an author puts a node with no edges into a group, and it is the
- * second most common line in a grouped document after `A --> B`. Siren
- * refused it — a bare word has never been a node declaration here, only a
- * bracket form has — which would have left `subgraph One / A / end` rejected
- * while the corpus claimed `subgraph` was supported.
- *
- * **Measured both ways, and the two differ**, which is why the rule is scoped
- * rather than general (`scripts/mermaid-probe.mjs`, mermaid 11.17.2):
- *
- *     flowchart TB / A / B[Box]        -> vertices: B only. A is not recorded.
- *     subgraph One / A / end           -> vertices: A. subgraph One nodes=["A"].
- *
- * So a bare id declares a node inside a block and declares nothing outside
- * one, and Siren follows the measurement on both sides rather than
- * generalizing from one of them.
+ * This is how an author puts a node with no edges into a document, and
+ * inside a block it is the second most common line after `A --> B`. Siren
+ * used to refuse the top-level spelling — a bare word declared a node only
+ * inside a `subgraph` block, never outside one — on a since-corrected
+ * measurement: re-measured with `scripts/mermaid-probe.mjs` (mermaid
+ * 11.17.2), `flowchart TB / A / B[Box]` records vertices `A` *and* `B`, not
+ * `B` alone (`fc-stmt-bare-node`). The two spellings are one rule, not two:
+ * a bare id declares a node wherever it is written.
  */
-describe("a bare node id inside a subgraph", () => {
-  it("declares the node and puts it in the block", () => {
+describe("a bare node id on its own line", () => {
+  it("declares the node and puts it in the block, inside a subgraph", () => {
     const { document, diagnostics } = parseFlowchartOk(
       "flowchart TB\n  subgraph One\n    A\n    B[Box]\n  end\n",
     );
@@ -2440,13 +2434,10 @@ describe("a bare node id inside a subgraph", () => {
     expect(document.subgraphs.map((sub) => sub.nodeIds)).toEqual([["A", "B"]]);
   });
 
-  it("is still an unrecognized line outside every block", () => {
-    // Mermaid records nothing for it there, so there is no document being
-    // refused — and a bare word accepted at the top level would swallow
-    // every mistyped keyword as a node.
-    const { document, diagnostics } = parseSiren("flowchart TB\n  A\n");
+  it("declares the node outside every block too", () => {
+    const { document, diagnostics } = parseFlowchartOk("flowchart TB\n  A\n");
 
-    expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized flowchart line: "A"']);
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([["A", "A"]]);
   });
 });
