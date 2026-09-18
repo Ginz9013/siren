@@ -90,6 +90,28 @@ const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
 const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
 
 /**
+ * A node's id, widened to admit `.` — the punctuation mermaid 11.17.2's own
+ * id alphabet allows there, measured with `scripts/mermaid-probe.mjs`:
+ * `a.b --> c` records the vertices `a.b` and `c`, and `a.-b --> c` records
+ * `a.-b` and `c` — one node either way, the dot (and, in the second case,
+ * the dash right after it) inside the id rather than cutting it in two.
+ *
+ * The second shape is not a coincidence this pattern has to special-case.
+ * `RUN_OPENING_DOTTED_BODY` already refuses to read a `.-` run as the start
+ * of a dotted arrow when it follows a word character — the guard board 2
+ * wrote so `a.-b` would be an honest refusal rather than three nodes drawn
+ * from two — so the text that reaches an id reader here can already contain
+ * that run whole. This pattern is what accepts it: one or more word
+ * characters, then any number of "a run of dots, optionally closed by one
+ * dash, then more word characters" segments — the exact shape a guarded
+ * dotted body has, and no wider. `-` is not a general id character here:
+ * `a-b` is a separate gap this ticket does not claim, and the dash this
+ * pattern admits is only ever the one immediately after a dot, measured
+ * where `a.-b` puts it.
+ */
+const ID_RUN = String.raw`\w+(?:\.+-?\w*)*`;
+
+/**
  * Every bracket spelling of a node, paired with the shape it names — the
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
@@ -176,7 +198,7 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
-  re: new RegExp(String.raw`^(\w+)\s*${bracket}\s*(?::::(\w+))?\s*$`),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`),
 }));
 
 /**
@@ -303,7 +325,7 @@ function labelIn(content: string): string {
  * without this it would fall all the way through to "unrecognized line"
  * rather than to a diagnostic naming the shape Mermaid means.
  */
-const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
+const BRACKET_FORM_RE = new RegExp(String.raw`^${ID_RUN}\s*\[(.*)\]\s*(?::::\w+)?\s*$`);
 
 /**
  * The bare `A:::emphasis` shorthand — the same application written without a
@@ -311,7 +333,7 @@ const BRACKET_FORM_RE = /^\w+\s*\[(.*)\]\s*(?::::\w+)?\s*$/;
  * itself keeps being an unrecognized line rather than silently declaring a
  * node: what makes this a declaration is the `:::`.
  */
-const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
+const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
 
 /**
  * **One** endpoint of an edge line, in each bracket spelling: an id, free to
@@ -342,7 +364,7 @@ const NODE_CLASS_RE = /^(\w+)\s*:::(\w+)\s*$/;
  */
 const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
-  re: new RegExp(String.raw`^(\w+)\s*${bracket}(?:\s*:::(\w+))?$`),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}(?:\s*:::(\w+))?$`),
 }));
 
 /**
@@ -354,7 +376,7 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
  * means — declaring the node only when nothing else has — is
  * `addNodeAsWritten`'s, as it has always been.
  */
-const BARE_ENDPOINT_RE = /^(\w+)(?:\s*:::(\w+))?$/;
+const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${ID_RUN})(?:\s*:::(\w+))?$`);
 
 /**
  * What may lie between the two `|` of an edge label: the same two
@@ -419,9 +441,10 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * `A .->B` is a dotted edge and `A.->B` is a parse error, all three
  * measured. Unguarded, this pattern cuts that line at the `.-` and draws
  * three nodes and two edges where Mermaid draws two and one, silently.
- * Siren's ids are `\w+` and cannot spell `a.-b` under either reading, so
- * what the guard buys is not that document but the *diagnostic*: it is
- * refused rather than quietly redrawn.
+ * `ID_RUN` is what spells `a.-b` as one id — this guard is what leaves the
+ * text for it to spell: without the guard, the `.-` would already be gone
+ * as an arrow token by the time an id reader saw anything, and no widening
+ * of the alphabet could put it back.
  *
  * The guard is on the dash-less spelling alone. A body that opens with a
  * dash is already unreachable from inside an id, since Mermaid ends an id
@@ -1055,19 +1078,20 @@ const SUBGRAPH_END = "end";
  * same `LABEL_CONTENT` every node label goes through, so `subgraph
  * one["a, b"]` fences exactly as `A["a, b"]` does.
  */
-const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(\w+)\s*\[(${LABEL_CONTENT})\]$`);
+const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTENT})\]$`);
 
 /**
- * A bare authored id and nothing else — `Ingest`, `A`.
+ * A bare authored id and nothing else — `Ingest`, `A`, `a.-b`.
  *
- * `\w+` is the shape every parser in this repo gives an id, and ADR-0010
- * leans on it: a `\w` cannot be a colon, which is what makes a generated id
- * unspellable by an authored one. Read in two places here, for two different
- * things that are both that shape — a subgraph written with a bare title
+ * `ID_RUN` is this file's own answer to the shape ADR-0010 leans on: neither
+ * a `\w` nor a `.` nor the one dash this pattern admits is a colon, which is
+ * what still makes a generated id unspellable by an authored one here. Read
+ * in two places here, for two different things that are both that shape — a
+ * subgraph written with a bare title
  * (mermaid 11.17.2 records it as both id and title) and a node written as
  * nothing but its id inside a block.
  */
-const AUTHORED_ID_RE = /^\w+$/;
+const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
 
 /**
  * What the tail of a `subgraph` statement names — the author's handle and
@@ -1143,7 +1167,9 @@ const SUBGRAPH_DIRECTION_RE = /^direction\s+\w+$/;
  * `http`/`https`/`mailto` allowlist is `resolveInteractions`' job, not this
  * parser's, and that resolver is shared rather than copied.
  */
-const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+const CLICK_HREF_RE = new RegExp(
+  String.raw`^click\s+(${ID_RUN})\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$`,
+);
 
 /**
  * `click A call callbackFn()`, with an optional literal argument and
@@ -1155,7 +1181,9 @@ const CLICK_HREF_RE = /^click\s+(\w+)\s+href\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
  * this pattern's `\(([^)]*)\)`, so it falls through rather than being
  * silently read as a call with no arguments.
  */
-const CLICK_CALL_RE = /^click\s+(\w+)\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$/;
+const CLICK_CALL_RE = new RegExp(
+  String.raw`^click\s+(${ID_RUN})\s+call\s+(\w+)\(([^)]*)\)(?:\s+"([^"]*)")?$`,
+);
 
 /** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
 const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
@@ -1186,7 +1214,7 @@ function callArgument(raw: string): string | null {
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
  * node, spelled exactly as a class diagram spells it.
  */
-const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
+const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`);
 
 /**
  * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
@@ -1209,6 +1237,10 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
  * and `linkStyle default` without three: `[\w,\s]` cannot cross the first
  * `:` of the declarations, so it gives back everything up to the space that
  * separates the two halves.
+ *
+ * Left as `\w` alone, unlike `CLASS_APPLY_RE`'s target list: an address here
+ * is a declaration index or the literal word `default`, never a node id, so
+ * widening the id alphabet for `.` gives this list nothing to admit.
  */
 const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
 
@@ -1218,12 +1250,15 @@ const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
  * one `apply` kind here, so no model, renderer or test downstream learns
  * that two spellings exist.
  *
- * The target list is greedy up to the trailing name: `[\w\s,]` swallows the
+ * The target list is greedy up to the trailing name: `[\w\s,.]` swallows the
  * whole tail and backtracks until a bare `\w+` is left for the definition
  * name, which is what lets `class A, B emphasis` be read the same as
- * `class A,B emphasis` without a second pattern.
+ * `class A,B emphasis` without a second pattern. The `.` in that class is
+ * this ticket's: `class a.b,c.d hot` is a target list of two dotted ids,
+ * matching what `STYLE_RE`'s single target and `NODE_CLASS_RE`'s shorthand
+ * already accept.
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = /^class\s+([\w\s,.]*[\w,.])\s+(\w+)\s*$/;
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B
@@ -1853,11 +1888,11 @@ export function parseFlowchart(source: string): ParseResult {
       //
       // Asked last, after every keyword and every other spelling, so nothing
       // that means something else can be swallowed as a node — `A:::name`
-      // is a `\w`-only line and has already been read by a branch above.
-      // `end` needs naming explicitly rather than falling out of that same
-      // logic: inside an open block it is consumed above, but a *stray*
+      // is `NODE_CLASS_RE`'s own shape and has already been read by a branch
+      // above. `end` needs naming explicitly rather than falling out of that
+      // same logic: inside an open block it is consumed above, but a *stray*
       // `end` (no block open) reaches this line exactly as `Orphan` does,
-      // and `\w+` matches it too. Swallowing it as a node named "end" would
+      // and `ID_RUN` matches it too. Swallowing it as a node named "end" would
       // hide a mistyped or dangling `end` behind a silent, useless vertex
       // instead of the diagnostic below — so it is excluded by name, not by
       // block state.

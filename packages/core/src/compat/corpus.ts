@@ -1020,23 +1020,30 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       a.b --> c`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "A node id may contain a `.`. mermaid 11.17.2 records `a.b --> c` as " +
       "the vertices `a.b` and `c` joined by `L_a.b_c_0`, and `a.-b --> c` " +
       "as the vertices `a.-b` and `c` joined by `L_a.-b_c_0` — one node " +
       "either way, with the dot inside its name " +
-      "(`node scripts/mermaid-probe.mjs`). Siren's ids are `\\w+`, so it " +
-      "refuses the statement. **A node-id gap, not an arrow one**: the " +
-      "dotted arrow spellings beside it are supported, and the guard that " +
-      "keeps `a.-b` from being cut at its `.-` is what makes this an honest " +
-      "refusal rather than a chain of three nodes Mermaid never drew. The " +
-      "sharper case is a line that declares nothing: in `flowchart TB / " +
-      "A --> B / C.-D` Mermaid draws A, B and a third node `C.-D`, while " +
-      "Siren refuses the *whole document* over the third line — a picture " +
-      "Mermaid renders becomes no picture at all. Widening the id alphabet " +
-      "reaches every endpoint reader, the `:::` shorthand and the styling " +
-      "directives' target lists, which is its own ticket.",
+      "(`node scripts/mermaid-probe.mjs`). **A node-id gap, not an arrow " +
+      "one**: the dotted arrow spellings beside it were already supported, " +
+      "and the guard that keeps `a.-b` from being cut at its `.-` is what " +
+      "leaves the text for the widened id alphabet (`ID_RUN` in " +
+      "`parseFlowchart.ts`) to read whole, rather than a chain of three " +
+      "nodes Mermaid never drew. The sharper case was a line that declares " +
+      "nothing else: in `flowchart TB / A --> B / C.-D` Mermaid draws A, B " +
+      "and a third node `C.-D`, and Siren used to refuse the *whole " +
+      "document* over that third line — a picture Mermaid renders becoming " +
+      "no picture at all — which `parseFlowchart.test.ts`'s \"declares a " +
+      "bare id whose \\`.-\\` looks like a dotted-arrow opener\" test now " +
+      "pins directly. Widening the id alphabet reached every endpoint " +
+      "reader, the `:::` shorthand and the `style`/`class` directives' " +
+      "target lists.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["a.b[a.b]", "c[c]"]);
+      expectSame("edges", edges(result), ["a.b-c"]);
+    },
   },
 
   // -------------------------------------------------------------------------

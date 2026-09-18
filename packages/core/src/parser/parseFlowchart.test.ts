@@ -30,6 +30,94 @@ describe("a flowchart node's label", () => {
   });
 });
 
+describe("a flowchart node id's alphabet", () => {
+  it("accepts a `.` in a bare edge endpoint", () => {
+    const source = `flowchart TB
+  a.b --> c`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["a.b", "c"]);
+    expect(document.edges).toEqual([expect.objectContaining({ from: "a.b", to: "c" })]);
+  });
+
+  it("declares a bare id whose `.-` looks like a dotted-arrow opener, rather than refusing the document", () => {
+    // The sharper case the ticket names: `C.-D` on a line of its own
+    // declares nothing but a vertex in mermaid 11.17.2 (measured), because
+    // the id's own `.-` is never cut as an arrow. Before this ticket Siren
+    // could not spell that id at all, so this line alone sank the whole
+    // document — a picture Mermaid draws becoming no picture.
+    const source = `flowchart TB
+  A --> B
+  C.-D`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C.-D"]);
+    expect(document.edges).toEqual([expect.objectContaining({ from: "A", to: "B" })]);
+  });
+
+  it("accepts a `.` in a bracketed node declaration, on a line of its own and at an edge endpoint", () => {
+    const source = `flowchart TB
+  a.b[Label]
+  c.d[Other] --> e.f`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["a.b", "c.d", "e.f"]);
+    expect(document.nodes.find((node) => node.id === "a.b")?.label).toBe("Label");
+    expect(document.edges).toEqual([expect.objectContaining({ from: "c.d", to: "e.f" })]);
+  });
+
+  it("accepts a `.` in the `:::` apply-directive shorthand, on a declaration and at an edge endpoint", () => {
+    const source = `flowchart TB
+  a.b:::hot
+  a.b --> c.d:::cold`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toEqual([
+      expect.objectContaining({ styleKind: "apply", targetIds: ["a.b"], name: "hot" }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["c.d"], name: "cold" }),
+    ]);
+  });
+
+  it("accepts a `.` in a `style` and a `class` apply-directive's target list", () => {
+    const source = `flowchart TB
+  a.b --> c.d
+  style a.b fill:#fdd
+  class a.b,c.d hot`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toEqual([
+      expect.objectContaining({ styleKind: "style", targetIds: ["a.b"] }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["a.b", "c.d"], name: "hot" }),
+    ]);
+  });
+
+  it("accepts a `.` in a subgraph's bare-word handle and in a click statement's target", () => {
+    const source = `flowchart TB
+  subgraph a.b
+    c.d
+  end
+  click c.d href "https://example.com"`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([expect.objectContaining({ name: "a.b", nodeIds: ["c.d"] })]);
+    expect(document.interactions).toEqual([
+      expect.objectContaining({ interactionKind: "href", targetId: "c.d" }),
+    ]);
+  });
+});
+
 describe("a flowchart's bare node declarations", () => {
   it("declares a node from a bare id on its own line, outside any subgraph", () => {
     const source = `flowchart TB

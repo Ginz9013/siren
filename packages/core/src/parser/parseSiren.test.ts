@@ -1913,16 +1913,27 @@ describe("the arrow token an edge is written with", () => {
     //
     // So a leading `.` opens an arrow only where an id cannot be — exactly
     // the rule the `o` and `x` markers already follow, for exactly the same
-    // reason. Siren's own ids are `\w+`, so it cannot draw `a.-b` under
-    // either reading; but the two wrong answers are not equally wrong. A
-    // diagnostic says the document was not understood. Cutting at the `.-`
-    // draws three nodes and two edges where Mermaid draws two nodes and
-    // one, and says nothing at all — the silent mis-render this corpus
-    // exists to remove.
-    for (const source of ["a.-b --> c", "A --> B; C.-D"]) {
-      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${source}\n`);
-      expect([source, document]).toEqual([source, null]);
-      expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+    // reason. Once the id alphabet was widened to admit `.` (the
+    // `fc-node-id-dot` ticket), Siren draws `a.-b` under that same reading
+    // rather than merely refusing it: this guard is what leaves the `.-`
+    // whole for the id reader, instead of cutting the line at it and
+    // drawing three nodes and two edges where Mermaid draws two and one.
+    const dotDash = parseSiren("flowchart TB\n  a.-b --> c\n");
+    expect(dotDash.diagnostics).toEqual([]);
+    expect(dotDash.document?.kind).toBe("flowchart");
+    if (dotDash.document?.kind === "flowchart") {
+      expect(dotDash.document.nodes.map((node) => node.id)).toEqual(["a.-b", "c"]);
+      expect(dotDash.document.edges).toEqual([
+        expect.objectContaining({ from: "a.-b", to: "c" }),
+      ]);
+    }
+
+    const bareThird = parseSiren("flowchart TB\n  A --> B; C.-D\n");
+    expect(bareThird.diagnostics).toEqual([]);
+    expect(bareThird.document?.kind).toBe("flowchart");
+    if (bareThird.document?.kind === "flowchart") {
+      expect(bareThird.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C.-D"]);
+      expect(bareThird.document.edges).toEqual([expect.objectContaining({ from: "A", to: "B" })]);
     }
   });
 

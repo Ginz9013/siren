@@ -630,8 +630,11 @@ const SILENTLY_WRONG = 0;
  *
  * `fc-stmt-bare-node` (a bare id on its own line, outside any subgraph) then
  * moved from `rejected` to `supported`: 8 - 1 = 7.
+ *
+ * `fc-node-id-dot` (a `.` in a node id) then moved from `rejected` to
+ * `supported`: 7 - 1 = 6.
  */
-const REJECTED = 7;
+const REJECTED = 6;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
