@@ -2018,6 +2018,18 @@ export interface StateDocument {
   kind: "state";
   states: StateDecl[];
   transitions: StateTransition[];
+  /**
+   * The `timeline:` block the author wrote, or `null` when they wrote none —
+   * the same distinction `ClassDocument.timeline` draws, where `null` means
+   * "declares no animation at all" rather than "declares an empty block".
+   *
+   * Read by the shared `parseTimelineBlock` grammar rather than by anything
+   * this kind owns: ADR-0002 keeps the block apart from the structural
+   * definition precisely so its entries name ids and verbs and know nothing
+   * about the statements above them. So the ids in it are resolved by
+   * `buildStateModel` and validated nowhere else.
+   */
+  timeline: SirenTimeline | null;
 }
 
 // ---------------------------------------------------------------------------

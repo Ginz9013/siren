@@ -7,7 +7,10 @@ import type {
   StateModelResult,
 } from "../contracts";
 import { generatedId } from "./generatedId";
-import { resolveTimeline } from "./resolveTimeline";
+import {
+  resolveTimeline,
+  warnOnConnectorsOutlivingTheirEndpoints,
+} from "./resolveTimeline";
 
 /**
  * Resolves a parsed `StateDocument` into a validated `StateModel`: every
@@ -60,16 +63,29 @@ export function buildStateModel(document: StateDocument): StateModelResult {
   );
   const transitions = assignTransitionIds(document, pseudoIdsByLevel);
 
-  // No `timeline:` block reaches this kind yet — `parseStateDiagram` refuses
-  // one, and teaching it the block is the animation ticket's. The call is
-  // made against `null` rather than a `{ totalSteps: 0, entries: [] }`
-  // literal so that the seam is already the shared resolver's, and so that
-  // what a state diagram's valid target ids *are* is written down here
-  // rather than discovered later: states and transitions share one id space,
-  // exactly as a flowchart's nodes and edges do.
+  // States and transitions share one id space, exactly as a flowchart's
+  // nodes and edges do, so an author animates any element of the diagram the
+  // same way and the shared resolver never has to learn which kind of element
+  // an id belongs to. Three of the kind's four addressable things need no
+  // entry of their own here: a **composite** is a state (it is in
+  // `states`, wearing the author's own name — unlike a flowchart subgraph,
+  // whose id has to be minted), and so is a **pseudo-state**, which arrives
+  // here already carrying the generated id assigned above.
   const timeline = resolveTimeline(
-    null,
+    document.timeline,
     new Set([...states.map((state) => state.id), ...transitions.map((t) => t.id)]),
+    diagnostics,
+  );
+
+  // A transition is a connector — two ids joined by a drawn line — so the
+  // rule that already covers a flowchart edge, a class relationship and a
+  // sequence message covers it, called rather than copied. Advisory only:
+  // nothing is dropped, and an author who gives the transition its own
+  // `exit` silences it.
+  warnOnConnectorsOutlivingTheirEndpoints(
+    timeline.entries,
+    transitions,
+    "transition",
     diagnostics,
   );
 

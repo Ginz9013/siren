@@ -1,6 +1,7 @@
 import type {
   Diagnostic,
   ParseResult,
+  SirenTimeline,
   StateDecl,
   StateDocument,
   StateTransition,
@@ -10,6 +11,7 @@ import {
   matchClassDirection,
   matchDiagramHeader,
 } from "./parseDirection";
+import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 /**
  * The headers this parser accepts, asked for by kind rather than written out
@@ -97,6 +99,94 @@ const COMPOSITE_OPEN_RE = /^state\s+(\w+)\s*\{$/;
 const COMPOSITE_CLOSE = "}";
 
 /**
+ * The constructs this parser reads well enough to *recognize* and does not
+ * implement — each refused **by name**, in the author's own words.
+ *
+ * CONTEXT.md's opening policy is what makes this a table rather than a
+ * silence: while a construct is unimplemented, Siren rejects it and says
+ * what is missing, so an author knows to route around it. Every one of
+ * these is valid Mermaid (measured against 11.17.2 with
+ * `scripts/mermaid-probe.mjs`) and carries a `rejected` row in the
+ * compatibility corpus, which is where the measurement of each one lives.
+ * Falling through to `Unrecognized stateDiagram line` would tell the author
+ * their document is malformed — a different claim, and an untrue one.
+ *
+ * Read **last**, after every construct this parser does implement, so a
+ * pattern here can never shadow a working one: `direction LR` inside a
+ * composite is read above and only a document-level one reaches this, and
+ * `state Outer {` likewise, so only the quoted spelling arrives. Each
+ * pattern is anchored on the *statement* rather than on a bare word, which
+ * is what leaves a state the author simply named `note` or `class` alone.
+ */
+const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
+  {
+    // Measured: a closed set of three, recorded as a `type` on the state
+    // itself (`type="choice"`) rather than as a state of its own.
+    pattern: /<<\s*(choice|fork|join)\s*>>/,
+    name: (match) => `the "<<${match[1]}>>" stereotype`,
+  },
+  {
+    // Measured: the note hangs off the state it names, as
+    // `note={"position":"right of","text":"..."}` — **not** a separate note
+    // collection the way a class diagram's is.
+    pattern: /^note\s+\S/,
+    name: () => 'a "note" annotation',
+  },
+  {
+    // Measured: synthesises `divider`-typed states and re-parents the
+    // members under them — and Mermaid's own ids for those dividers carry a
+    // random component (`id-g8d8ncxe8va-1`), so an implementation must mint
+    // its own through `generatedId` rather than copy Mermaid's.
+    pattern: /^-{2,}$/,
+    name: () => 'the "--" concurrency divider',
+  },
+  {
+    // Measured: a state diagram supports author styling too — the state
+    // carries a `classes` array and `getClasses()` returns the definitions.
+    pattern: /^classDef\s+\S/,
+    name: () => 'the "classDef" author-style directive',
+  },
+  {
+    // The apply-directive, `class Busy urgent`. Two arguments, so a lone
+    // `class` stays the ordinary state id it is.
+    pattern: /^class\s+\S+\s+\S/,
+    name: () => 'the "class" author-style directive',
+  },
+  {
+    // Measured: legal at the document's own level, where it sets the whole
+    // diagram's rank direction. Inside a composite it is implemented and is
+    // read before this table.
+    pattern: /^direction\s+\S+$/,
+    name: () => 'a document-level "direction" statement',
+  },
+  {
+    // `state "Label" as Outer { ... }` — the quoted-description spelling
+    // *with a block*. Measured: a composite `Outer` whose `descriptions`
+    // hold the quoted text and whose members nest under it, so it is both
+    // constructs at once. `COMPOSITE_OPEN_RE` matches only `state \w+ {`,
+    // and the description spelling above matches only a line with no block
+    // on it, so this falls between them.
+    pattern: /^state\s+"[^"]*"\s+as\s+\w+\s*\{$/,
+    name: () => "a composite state opened with a quoted description",
+  },
+];
+
+/**
+ * The refusal for `line`, or `null` when this parser has no name for what is
+ * wrong with it and the generic unrecognized-line message is the honest
+ * answer.
+ */
+function unimplementedIn(line: string): string | null {
+  for (const { pattern, name } of UNIMPLEMENTED) {
+    const match = pattern.exec(line);
+    if (match !== null) {
+      return `Unimplemented stateDiagram construct: ${name(match)}, in "${line}"`;
+    }
+  }
+  return null;
+}
+
+/**
  * Parses Siren state-diagram source text — a `stateDiagram` (or
  * `stateDiagram-v2`) header — into a `StateDocument`. Never throws on
  * malformed input: syntax problems are reported as diagnostics, and a
@@ -110,6 +200,14 @@ const COMPOSITE_CLOSE = "}";
  * `parseFlowchart` declares a node named only by an edge. Repeat mentions of
  * one id are folded here rather than in the model, because a state carries
  * no payload for a later stage to reconcile: it is a name and a position.
+ *
+ * A `timeline:` block ends the diagram body and runs to the end of the
+ * document, exactly as it does in a flowchart and a class diagram — and it is
+ * read by the same grammar, `parseTimelineBlock`, rather than by a fourth copy
+ * of it here. Nothing about a timeline entry is diagram-kind-specific
+ * (ADR-0002 keeps the block separate from the structural definition precisely
+ * so it can name any id), so the ids in it are resolved by `buildStateModel`
+ * and validated nowhere else.
  *
  * `%%` comments are already gone by the time this runs: `parseSiren` strips
  * them for every diagram kind before dispatching.
@@ -149,6 +247,13 @@ export function parseStateDiagram(source: string): ParseResult {
    * what is wrong, and no half-parsed document reaches the next stage.
    */
   let sawError = false;
+
+  /**
+   * The `timeline:` block, once one has been opened. `null` until then, which
+   * is what tells `buildStateModel` the document declares no animation at all
+   * (as opposed to declaring an empty block).
+   */
+  let timeline: SirenTimeline | null = null;
 
   /** Every state declared so far, by the id the author named it with. */
   const declaredById = new Map<string, StateDecl>();
@@ -299,6 +404,27 @@ export function parseStateDiagram(source: string): ParseResult {
     const lineNumber = index + 1;
     const column = rawLine.length - rawLine.trimStart().length + 1;
 
+    if (isTimelineHeader(line)) {
+      // Read *before* every structural pattern, and once read the block runs
+      // to the end of the document — the same one-way switch `parseFlowchart`
+      // and `parseClassDiagram` make, so a transition written after
+      // `timeline:` is a timeline diagnostic rather than silently parsing as
+      // structure. Draining it is `parseTimelineBody`'s job; what stays here
+      // is only what is this parser's own: where the block starts, and that a
+      // diagnostic inside it costs the whole document.
+      //
+      // An unterminated composite block is still reported below: the loop
+      // breaks, and the `openBlocks` pass runs either way, so `state Outer {`
+      // followed by `timeline:` is two problems and names both.
+      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(lines, index + 1);
+      diagnostics.push(...bodyDiagnostics);
+      if (bodyDiagnostics.length > 0) {
+        sawError = true;
+      }
+      timeline = { entries };
+      break;
+    }
+
     const transitionMatch = TRANSITION_RE.exec(line);
     if (transitionMatch !== null) {
       const [, fromSpelling, toSpelling, label] = transitionMatch;
@@ -384,9 +510,13 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
+    // Read last, so nothing here can shadow a construct this parser does
+    // implement: a line only reaches the table once every working pattern
+    // above has declined it.
+    const unimplemented = unimplementedIn(line);
     diagnostics.push({
       severity: "error",
-      message: `Unrecognized stateDiagram line: "${line}"`,
+      message: unimplemented ?? `Unrecognized stateDiagram line: "${line}"`,
       line: lineNumber,
       column,
     });
@@ -412,7 +542,7 @@ export function parseStateDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: StateDocument = { kind: "state", states, transitions };
+  const document: StateDocument = { kind: "state", states, transitions, timeline };
 
   return { document, diagnostics };
 }

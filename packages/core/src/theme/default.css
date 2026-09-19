@@ -1057,15 +1057,26 @@
  * `<g class="siren-state">` whose stroke lives on an inner
  * `.siren-state-frame`, and on a `<g class="siren-transition">` whose stroke
  * lives on an inner `.siren-transition-line`, and no rule above names
- * either. Both are already addressable by id in the rendered SVG, so the
- * day this kind reads a `timeline:` block these have to mean something.
+ * either. Both are addressable by id in the rendered SVG, and this kind now
+ * reads a `timeline:` block, so these mean something.
  *
  * A pseudo-state's disc and ring are named here for the same reason, and it
  * is the start that needs saying: it carries no stroke of its own, so
  * `highlight start:1 outline` gives it one — the outline lands on the
  * figure that is there rather than on a frame it does not have.
+ *
+ * `.siren-composite-frame` is named beside them because a composite is the
+ * third of this kind's timeline targets and is drawn with a frame of its
+ * own rather than with `.siren-state-frame` — a frame encloses the boxes
+ * drawn over it, so it cannot be the filled figure the first selector names.
+ * It was the one target the rule above missed while composites were landing
+ * with no timeline to name them, which made `highlight Outer outline` a step
+ * on which nothing visibly happened. A group's outer `<g>` still wears the
+ * same `siren-state` class whichever figure is inside it, so the highlight
+ * class lands in one place and only the inner selector differs.
  */
 .siren-state.siren-highlight-outline .siren-state-frame,
+.siren-state.siren-highlight-outline .siren-composite-frame,
 .siren-state.siren-highlight-outline .siren-state-start,
 .siren-state.siren-highlight-outline .siren-state-end,
 .siren-transition.siren-highlight-outline .siren-transition-line {
