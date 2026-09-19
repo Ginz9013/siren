@@ -5,7 +5,11 @@ import type {
   StateDocument,
   StateTransition,
 } from "../contracts";
-import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
+import {
+  listAcceptedHeaders,
+  matchClassDirection,
+  matchDiagramHeader,
+} from "./parseDirection";
 
 /**
  * The headers this parser accepts, asked for by kind rather than written out
@@ -75,21 +79,22 @@ const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/;
 const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
 
 /**
- * The constructs this parser can read but deliberately does not draw yet,
- * each with the name its diagnostic calls it by.
+ * The statement that opens a composite state: `state Outer {`.
  *
- * This is CONTEXT.md's opening policy made executable: while a construct is
- * unimplemented Siren refuses it rather than drawing it wrongly, and it
- * refuses it *by name* so an author knows what to route around instead of
- * hunting a typo.
+ * The id is read in the same `\w+` alphabet every other endpoint here is, so
+ * a composite is named by exactly the spellings a transition can name, which
+ * is what makes `Start --> Outer` reach the frame rather than declare a
+ * second state beside it.
  *
- * Every row here is a later ticket on the same board — the composite block
- * is what is left of them. Rows are matched *after* every construct this
- * parser does implement, so nothing it draws can be caught by one of them.
+ * Anchored on `{` at the end of the line: Mermaid's own grammar puts the
+ * block's body on the lines that follow, and reading a one-line spelling
+ * that Mermaid does not accept would be drawing a picture for a document
+ * that does not render.
  */
-const UNIMPLEMENTED_CONSTRUCTS: readonly { name: string; pattern: RegExp }[] = [
-  { name: "composite state", pattern: /^state\s+.*\{\s*$/ },
-];
+const COMPOSITE_OPEN_RE = /^state\s+(\w+)\s*\{$/;
+
+/** The statement that closes a composite state's block. */
+const COMPOSITE_CLOSE = "}";
 
 /**
  * Parses Siren state-diagram source text — a `stateDiagram` (or
@@ -149,17 +154,54 @@ export function parseStateDiagram(source: string): ParseResult {
   const declaredById = new Map<string, StateDecl>();
 
   /**
+   * The composite states whose blocks are open, outermost first, each
+   * remembered with the statement that opened it so an unterminated one can
+   * be reported in the author's own words.
+   */
+  const openBlocks: { state: StateDecl; statement: string; line: number; column: number }[] =
+    [];
+
+  /** The level a statement read right now belongs to: the innermost open block, or the document's own. */
+  const currentParentId = (): string | null =>
+    openBlocks.length === 0 ? null : openBlocks[openBlocks.length - 1].state.id;
+
+  /**
    * Records a state the given statement named, and hands back its one
    * declaration. Only the first mention creates it, so a state named by ten
    * transitions is still one state, positioned where it was first written —
    * and a later line describing it adds to the declaration already there.
+   *
+   * **A later block may still claim it.** A state written at the document's
+   * level and then named inside a composite belongs to that composite, and
+   * the *first* block to name it keeps it against every later one — the rule
+   * `parseFlowchart` already applies to a subgraph's members, applied here
+   * rather than invented a second time (see `StateDecl.parentId`). Only an
+   * unclaimed state moves, which is what makes the first claim the one that
+   * counts.
    */
   const declareState = (id: string, line: number, column: number): StateDecl => {
     const already = declaredById.get(id);
     if (already !== undefined) {
+      // A block naming a composite that is currently open — its own id, or
+      // an enclosing one — claims nothing: a frame cannot be inside itself,
+      // and `Outer --> Inner` written inside `state Outer { }` is a
+      // transition out of the frame rather than a membership statement.
+      if (already.parentId === null && !openBlocks.some((block) => block.state.id === id)) {
+        already.parentId = currentParentId();
+      }
       return already;
     }
-    const declaration: StateDecl = { id, kind: "state", descriptions: [], line, column };
+    const declaration: StateDecl = {
+      id,
+      kind: "state",
+      descriptions: [],
+      parentId: currentParentId(),
+      // Filled in below if this state turns out to be a composite whose
+      // block writes a `direction` of its own.
+      direction: null,
+      line,
+      column,
+    };
     declaredById.set(id, declaration);
     states.push(declaration);
     return declaration;
@@ -195,27 +237,33 @@ export function parseStateDiagram(source: string): ParseResult {
    * to a state named five times, and the parser is the one place that rule
    * lives for either.
    *
-   * This parser reads one level — the root — because that is all
-   * `stateDiagram` syntax offers until a composite state opens a second
-   * one, which is still refused above. A composite's own `[*]` belongs to
-   * *its* level; when that lands, this pair becomes one pair per open
-   * level rather than a different mechanism.
+   * **A level, not a document**: a composite state's block is a level of
+   * its own, and its `[*]` is that composite's start rather than the
+   * document's — measured (mermaid 11.17.2): `state Outer { [*] --> Inner }`
+   * reports `Outer_start in="root/Outer"`, with the document's own
+   * `root_start` nowhere in it. So the fold is keyed by the level a `[*]`
+   * was written at, which is the innermost open block or the document
+   * itself.
    */
-  const declaredPseudoKinds = new Set<"start" | "end">();
+  const declaredPseudoKinds = new Map<string | null, Set<"start" | "end">>();
   const declarePseudoState = (
     kind: "start" | "end",
     line: number,
     column: number,
   ): void => {
-    if (declaredPseudoKinds.has(kind)) {
+    const parentId = currentParentId();
+    const atThisLevel = declaredPseudoKinds.get(parentId) ?? new Set<"start" | "end">();
+    declaredPseudoKinds.set(parentId, atThisLevel);
+    if (atThisLevel.has(kind)) {
       return;
     }
-    declaredPseudoKinds.add(kind);
+    atThisLevel.add(kind);
     // No id: the author never named this, and an id for a thing nobody
     // named is a *generated* id, which `buildStateModel` mints (ADR-0010).
     // No descriptions either, and never any: `[*]` is not an id, so there
     // is no spelling of either description form that names a pseudo-state.
-    states.push({ id: null, kind, descriptions: [], line, column });
+    // And never a direction: only a composite has a block to write one in.
+    states.push({ id: null, kind, descriptions: [], parentId, direction: null, line, column });
   };
 
   /**
@@ -266,10 +314,53 @@ export function parseStateDiagram(source: string): ParseResult {
         // No label means `null`, and so does a `:` with nothing after it —
         // see `StateTransition.label`.
         label: label === undefined || label.trim().length === 0 ? null : label.trim(),
+        // Which level the transition was written at — the only thing that
+        // says which start or end pseudo-state a `null` endpoint means, now
+        // that there is one pair per level rather than one per document.
+        parentId: currentParentId(),
         sourceLine: lineNumber,
         sourceColumn: column,
       });
       continue;
+    }
+
+    // Read before the bare-state and description patterns for the reason the
+    // transition is: `state Outer {` must never be mistaken for one of them.
+    const compositeOpenMatch = COMPOSITE_OPEN_RE.exec(line);
+    if (compositeOpenMatch !== null) {
+      // Declared first, at the level that *holds* it, and only then pushed:
+      // a composite is a state of the enclosing level, not of its own.
+      const composite = declareState(compositeOpenMatch[1], lineNumber, column);
+      // A state a transition already named is the same state, now known to
+      // be a frame — so the kind is upgraded rather than a second
+      // declaration made.
+      composite.kind = "composite";
+      openBlocks.push({ state: composite, statement: line, line: lineNumber, column });
+      continue;
+    }
+
+    if (line === COMPOSITE_CLOSE && openBlocks.length > 0) {
+      openBlocks.pop();
+      continue;
+    }
+
+    // `direction` is read *inside* a block only, and onto that block alone —
+    // measured: mermaid 11.17.2 records it on the composite and leaves the
+    // document's own direction where the header put it. Read with
+    // `matchClassDirection` rather than a pattern of this file's own, so the
+    // five spellings and the `TD` alias cannot drift between two regexes;
+    // the name is the class diagram's only because that is where the
+    // statement was first read.
+    //
+    // At the document's own level this parser does not read one yet, so
+    // `direction` there stays an unrecognized line rather than being
+    // silently accepted and ignored.
+    if (openBlocks.length > 0) {
+      const blockDirection = matchClassDirection(line);
+      if (blockDirection !== null) {
+        openBlocks[openBlocks.length - 1].state.direction = blockDirection;
+        continue;
+      }
     }
 
     const stateMatch = STATE_DECL_RE.exec(line);
@@ -293,23 +384,26 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
-    const unimplemented = UNIMPLEMENTED_CONSTRUCTS.find(({ pattern }) => pattern.test(line));
-    if (unimplemented !== undefined) {
-      diagnostics.push({
-        severity: "error",
-        message: `Siren does not draw the state diagram's ${unimplemented.name} yet: "${line}"`,
-        line: lineNumber,
-        column,
-      });
-      sawError = true;
-      continue;
-    }
-
     diagnostics.push({
       severity: "error",
       message: `Unrecognized stateDiagram line: "${line}"`,
       line: lineNumber,
       column,
+    });
+    sawError = true;
+  }
+
+  // A block the author never closed, reported in the words they opened it
+  // with — one diagnostic per unclosed block, innermost first, so nesting is
+  // described rather than summarized. The answer `parseFlowchart` gives an
+  // unterminated `subgraph` and `parseClassDiagram` an unterminated
+  // `namespace`.
+  for (const block of [...openBlocks].reverse()) {
+    diagnostics.push({
+      severity: "error",
+      message: `Unterminated "${block.statement}" block: missing matching "${COMPOSITE_CLOSE}"`,
+      line: block.line,
+      column: block.column,
     });
     sawError = true;
   }

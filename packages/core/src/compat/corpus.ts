@@ -782,6 +782,7 @@ function states(result: SirenRenderResult): string[] {
  */
 const STATE_FIGURES: readonly [selector: string, figure: string][] = [
   ["rect.siren-state-frame", "box"],
+  ["rect.siren-composite-frame", "frame"],
   ["circle.siren-state-start", "disc"],
   ["circle.siren-state-end", "ring"],
   ["circle.siren-state-end-inner", "dot"],
@@ -868,6 +869,79 @@ function stateCenter(result: SirenRenderResult, id: string): { x: number; y: num
     x: number("x") + number("width") / 2,
     y: number("y") + number("height") / 2,
   };
+}
+
+/**
+ * The rectangle one state is drawn in — a state's own box, or a composite's
+ * frame. Either way the one `<rect>` in that state's group, so a row asking
+ * "is this inside that?" does not have to know which figure it is asking
+ * about.
+ *
+ * In the same edges-of-the-box shape `subgraphBox` reads a flowchart frame
+ * in, so that one containment rule (`encloses`) serves both.
+ */
+function stateRect(
+  result: SirenRenderResult,
+  id: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const rect = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"] rect`);
+  if (rect === null) throw new Error(`no state "${id}" was drawn with a rectangle`);
+  const number = (name: string) => Number(rect.getAttribute(name));
+  return {
+    top: number("y"),
+    bottom: number("y") + number("height"),
+    left: number("x"),
+    right: number("x") + number("width"),
+  };
+}
+
+/** One state's centre, for a row reading a direction off the picture. */
+function stateRectCenter(
+  result: SirenRenderResult,
+  id: string,
+): { x: number; y: number } {
+  const box = stateRect(result, id);
+  return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+}
+
+/**
+ * Whether one end of a transition's drawn line sits on the boundary of the
+ * rectangle drawn for `id` — on it, neither inside nor short of it.
+ *
+ * The question an edge naming a composite raises. The layout engine cannot
+ * route to a frame, so the route is taken through a member of it and clipped
+ * back; a row asking only "was a path drawn?" would pass on an arrowhead
+ * buried inside the frame, pointing at that stand-in.
+ */
+function transitionTouches(
+  result: SirenRenderResult,
+  transitionId: string,
+  end: "start" | "end",
+  stateId: string,
+): boolean {
+  const path = svgOf(result).querySelector(
+    `g.siren-transition[data-siren-id="${transitionId}"] path.siren-transition-line`,
+  );
+  if (path === null) throw new Error(`no transition "${transitionId}" was drawn`);
+  const points = (path.getAttribute("d") ?? "")
+    .split(" ")
+    .map((step) => step.slice(1).split(","))
+    .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
+  const point = end === "start" ? points[0] : points[points.length - 1];
+
+  const box = stateRect(result, stateId);
+  const tolerance = 1e-6;
+  const within =
+    point.x >= box.left - tolerance &&
+    point.x <= box.right + tolerance &&
+    point.y >= box.top - tolerance &&
+    point.y <= box.bottom + tolerance;
+  const onAnEdge =
+    Math.abs(point.x - box.left) < tolerance ||
+    Math.abs(point.x - box.right) < tolerance ||
+    Math.abs(point.y - box.top) < tolerance ||
+    Math.abs(point.y - box.bottom) < tolerance;
+  return within && onAnEdge;
 }
 
 /**
@@ -2884,6 +2958,204 @@ line2\`"]`,
       expectSame("transitions", transitions(result), ["Idle-Running: "]);
     },
   },
+  {
+    id: "st-composite",
+    kind: "state",
+    source: `stateDiagram-v2
+      state Outer {
+        Idle --> Busy
+      }`,
+    status: "supported",
+    meaning:
+      "`state X { ... }` is a composite state: a state that holds a state " +
+      "machine of its own. Measured (mermaid 11.17.2, `--markup`): the " +
+      "block opens a level — the states inside it report `in=\"root/Outer\"` " +
+      "— and it is drawn as a `g.statediagram-cluster`, a titled frame " +
+      "around them rather than a box beside them.",
+    assert: (result) => {
+      // The frame is its own figure: a composite drawn as an ordinary box
+      // would satisfy an id-only check and be the wrong picture.
+      expectSame("states and their figures", stateFigures(result), [
+        "Outer: frame",
+        "Idle: box",
+        "Busy: box",
+      ]);
+      expectSame("transitions", transitions(result), ["Idle-Busy: "]);
+      // Titled with the author's own word — a composite's id is the name
+      // they wrote, unlike a flowchart subgraph's generated one.
+      expectSame(
+        "the frame's title",
+        texts(result, 'g.siren-state[data-siren-id="Outer"] text.siren-composite-label'),
+        ["Outer"],
+      );
+      // "Around", as geometry: a frame drawn beside what it holds is still
+      // a frame to find, and is the wrong picture.
+      for (const member of ["Idle", "Busy"]) {
+        expectSame(
+          `${member} is drawn inside the frame`,
+          encloses(stateRect(result, "Outer"), stateRect(result, member)),
+          true,
+        );
+      }
+    },
+  },
+  {
+    id: "st-composite-nested",
+    kind: "state",
+    source: `stateDiagram-v2
+      state Outer {
+        Beside --> Also
+        state Inner {
+          Deep --> Deeper
+        }
+      }`,
+    status: "supported",
+    meaning:
+      "Composite states nest: a block may open another. Measured: the " +
+      "innermost states report `in=\"root/Outer/Inner\"`, so this is a frame " +
+      "inside a frame and not two frames side by side.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "Outer: frame",
+        "Beside: box",
+        "Also: box",
+        "Inner: frame",
+        "Deep: box",
+        "Deeper: box",
+      ]);
+      expectSame(
+        "the inner frame is drawn inside the outer one",
+        encloses(stateRect(result, "Outer"), stateRect(result, "Inner")),
+        true,
+      );
+      expectSame("the inner frame holds its own", encloses(stateRect(result, "Inner"), stateRect(result, "Deep")), true);
+      expectSame(
+        "a state written beside the inner block is in the outer frame only",
+        [encloses(stateRect(result, "Outer"), stateRect(result, "Beside")), encloses(stateRect(result, "Inner"), stateRect(result, "Beside"))],
+        [true, false],
+      );
+    },
+  },
+  {
+    id: "st-composite-transition-endpoint",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Outer
+      state Outer {
+        Inner --> Other
+      }
+      Outer --> Done`,
+    status: "supported",
+    meaning:
+      "A transition may name a composite at either end. Measured: " +
+      "`[*] --> Outer` and `Outer --> Done` are recorded as relations " +
+      "`in=\"root\"` naming `Outer` itself, so the arrow joins the **frame**, " +
+      "not a state inside it.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Outer: frame",
+        "Inner: box",
+        "Other: box",
+        "Done: box",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-Outer: ",
+        "Inner-Other: ",
+        "Outer-Done: ",
+      ]);
+      // On the frame's own boundary, as geometry. The layout engine cannot
+      // route to a frame, so the route goes through a member and is clipped
+      // back — a row asking only "was a path drawn?" would pass on an
+      // arrowhead buried inside the frame, pointing at that stand-in.
+      expectSame(
+        "the arrow into the composite ends on the frame",
+        transitionTouches(result, "start:1-Outer", "end", "Outer"),
+        true,
+      );
+      expectSame(
+        "the arrow out of the composite starts on the frame",
+        transitionTouches(result, "Outer-Done", "start", "Outer"),
+        true,
+      );
+    },
+  },
+  {
+    id: "st-composite-direction",
+    kind: "state",
+    source: `stateDiagram-v2
+      Before --> Outer
+      state Outer {
+        direction LR
+        First --> Second
+      }`,
+    status: "supported",
+    meaning:
+      "`direction LR` inside a composite is that block's own rank " +
+      "direction. Measured: mermaid 11.17.2 records it on the composite and " +
+      "leaves the document's own direction `TB`, so the block alone lays " +
+      "out sideways.",
+    assert: (result) => {
+      const centre = (id: string) => stateRectCenter(result, id);
+      // Sideways inside the block, read off the picture: `Second` to the
+      // right of `First`, and on the same row.
+      expectSame(
+        `Second is drawn right of First (${JSON.stringify([centre("First"), centre("Second")])})`,
+        centre("Second").x > centre("First").x,
+        true,
+      );
+      expectSame(
+        "and on the same row",
+        Math.abs(centre("Second").y - centre("First").y) < 1,
+        true,
+      );
+      // Top to bottom outside it: a `direction` that leaked to the document
+      // would draw this pair side by side instead.
+      expectSame(
+        "the composite is still drawn below the state pointing at it",
+        centre("Outer").y > centre("Before").y,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-composite-pseudo-state",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Outer
+      state Outer {
+        [*] --> Inner
+        Inner --> [*]
+      }
+      Outer --> [*]`,
+    status: "supported",
+    meaning:
+      "A composite's `[*]` is **that composite's** start and end, not the " +
+      "document's. Measured: the inner relation comes back from " +
+      "`Outer_start in=\"root/Outer\"` while the outer one comes from " +
+      "`root_start` — two different start pseudo-states, one per level, and " +
+      "the same for the two ends.",
+    assert: (result) => {
+      // Four pseudo-states, two per level, each drawn as its own mark.
+      // Siren's generated ids number the levels (ADR-0010), the document's
+      // first.
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Outer: frame",
+        "start:2: disc",
+        "Inner: box",
+        "end:2: ring+dot",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-Outer: ",
+        "start:2-Inner: ",
+        "Inner-end:2: ",
+        "Outer-end:1: ",
+      ]);
+      // And the inner level really is inside the frame: a `[*]` read as the
+      // document's would draw its arrow from outside it.
+      expectSame("the inner state is inside the frame", encloses(stateRect(result, "Outer"), stateRect(result, "Inner")), true);
+    },
+  },
 ];
-
-

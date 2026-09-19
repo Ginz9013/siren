@@ -695,6 +695,35 @@
 }
 
 /*
+ * A composite state's frame encloses state boxes that are drawn *over* it,
+ * so it is outlined and not filled — the same reason `.siren-subgraph-frame`
+ * and `.siren-namespace-frame` are, and the reason it cannot simply take
+ * `.siren-state-frame`'s rule: a fill here would sit behind the whole group
+ * and hide whatever the frame overlaps. Rounded like the state box it is a
+ * frame around, through the same token.
+ */
+.siren-composite-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/*
+ * The name on the strip along the frame's top, weighted like every other
+ * thing that titles a group — a subgraph's label and a namespace's.
+ *
+ * No `font-size`: `layoutStateDiagram` measures this text in the group font
+ * declared above and grows the strip from what it measured, so shrinking or
+ * growing it here would leave the drawn title disagreeing with the strip
+ * built to hold it.
+ */
+.siren-composite-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
  * The two pseudo-states `[*]` spells, drawn the way UML draws them and
  * Mermaid confirms (measured, 11.17.2): a start is a filled disc, an end a
  * ring around a smaller filled one.

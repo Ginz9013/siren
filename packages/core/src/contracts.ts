@@ -1854,22 +1854,30 @@ export interface PositionedClassDiagram {
 // ---------------------------------------------------------------------------
 
 /**
- * Which of three things one box in a state diagram is: a state the author
- * named, or one of the two pseudo-states `[*]` spells.
+ * Which of four things one figure in a state diagram is: a state the author
+ * named, a **composite** state they opened a `{ }` block on, or one of the
+ * two pseudo-states `[*]` spells.
  *
- * Three values rather than a `isPseudo` flag beside a `start`/`end` one,
+ * Separate values rather than an `isPseudo` flag beside a `start`/`end` one,
  * because start and end are two *different* pseudo-states and not one node
  * used twice — measured (mermaid 11.17.2): `[*] --> A` and `A --> [*]`
  * report the relations `root_start → A` and `A → root_end`. Closed and
  * required, the rule `NodeShape` already follows, so "no kind" is not a
- * fourth state for a reader downstream to fold into one of these.
+ * fifth state for a reader downstream to fold into one of these.
+ *
+ * `"composite"` is a state *and* a frame, which is why it is a value of this
+ * union rather than a list beside the states: a transition may name one at
+ * either end, and everything that addresses a state by id addresses a
+ * composite the same way. What differs is the figure — a titled frame around
+ * the states written inside its block, rather than a labelled box — and this
+ * field is what says so.
  *
  * `"state"` is the ordinary case and happens to spell the same word
  * `StateDocument.kind` discriminates the whole diagram by; they are
  * different questions asked at different levels, and nothing reads one for
  * the other.
  */
-export type StateKind = "state" | "start" | "end";
+export type StateKind = "state" | "composite" | "start" | "end";
 
 /**
  * A state as the parser read it — one declaration per state, in the order
@@ -1909,6 +1917,43 @@ export interface StateDecl {
    * difference downstream could act on where Mermaid has none.
    */
   descriptions: string[];
+  /**
+   * The composite state whose `{ }` block holds this one, or `null` at the
+   * document's own level.
+   *
+   * **Membership lives here rather than in a list on the composite**, the
+   * split CONTEXT.md's **Subgraph** entry already draws between
+   * `GraphNode.parentId` and `ResolvedClassNamespace.classIds`: a state and
+   * the frame around it cannot disagree about which holds it. It is also the
+   * only place it *could* live for a pseudo-state, which has no id for a
+   * membership list to name — and a composite's `[*]` belongs to that
+   * composite's level (measured: `state Outer { [*] --> Inner }` reports
+   * `Outer_start in="root/Outer"`, not `root_start`).
+   *
+   * A composite's own id, not a generated one: unlike a flowchart subgraph,
+   * a composite state is named by the author, so there is nothing for
+   * ADR-0010 to mint here.
+   *
+   * **A state is claimed by the first block that names it** — the rule
+   * `SirenSubgraph.nodeIds` records for a flowchart, applied here rather
+   * than invented again. So a state first written at the document's level
+   * joins the first composite to name it, and a second composite naming it
+   * again leaves it where it is. (Mermaid's own parse tree keeps a
+   * same-named state per level and its renderer then draws one node for
+   * them; Siren's ids are global, so one rule decides which level that one
+   * node is drawn at.)
+   */
+  parentId: string | null;
+  /**
+   * This composite's own `direction LR` (or `TB`/`BT`/`RL`), written on a
+   * line of its own inside its block — `null` when the author wrote none,
+   * and always `null` on anything that is not a composite.
+   *
+   * A per-level rank direction and not a cascading one, exactly as
+   * `SirenSubgraph.direction` is: a nested composite that names none lays
+   * out along the document's own direction rather than its parent's.
+   */
+  direction: Direction | null;
   /** 1-based line the state was first named on. */
   line: number;
   /** 1-based column the statement that first named it starts at. */
@@ -1942,6 +1987,17 @@ export interface StateTransition {
   /** The state this transition enters — `null` for `[*]`, the level's **end** pseudo-state. */
   to: string | null;
   label: string | null;
+  /**
+   * The composite state whose block this transition was written in, or
+   * `null` at the document's own level.
+   *
+   * Carried for one reason: it is what says *which* level's start or end a
+   * `null` endpoint means, now that `[*]` is one pair per level rather than
+   * one per document. `buildStateModel` resolves both endpoints against it
+   * and nothing downstream needs it, because by then every endpoint is an
+   * id in the diagram's one global id space.
+   */
+  parentId: string | null;
   /** 1-based line the transition was written on. */
   sourceLine: number;
   /** 1-based column the statement starts at. */
@@ -1972,14 +2028,36 @@ export interface StateDocument {
  * A state after model resolution — named, whoever named it.
  *
  * `id` is no longer nullable: a pseudo-state the author never named has by
- * now been given its generated id (`start:1`, `end:1`), so everything
- * downstream addresses a state the same way. `kind` survives because the
- * two pseudo-states are *drawn* differently from a state — a disc and a
- * ring rather than a labelled box — and nothing but this field says which.
+ * now been given its generated id (`start:1`, `end:1` — `start:2` for the
+ * first composite's own level), so everything downstream addresses a state
+ * the same way. `kind` survives because a composite and the two
+ * pseudo-states are *drawn* differently from a state — a titled frame, a
+ * disc and a ring rather than a labelled box — and nothing but this field
+ * says which.
+ *
+ * **Flat, with a `parentId`, rather than the tree the parser read.** The
+ * shape `ResolvedSubgraph` already takes and for the same reason: what
+ * reads this is layout, which wants one cluster per entry and a parent to
+ * point each at. What is *not* the same is that there is no second list
+ * beside the states — a composite is a state, so nesting is a field on the
+ * one list rather than a parallel one to keep in step.
  */
 export interface ResolvedState {
   id: string;
   kind: StateKind;
+  /**
+   * The composite state that holds this one, or `null` at the document's
+   * own level — carried through from `StateDecl.parentId`, which is where
+   * the "first block to name it claims it" rule was already applied.
+   */
+  parentId: string | null;
+  /**
+   * A composite's own rank direction, carried straight through from
+   * `StateDecl.direction`; `null` on everything else, and on a composite
+   * whose block named none. A `Direction` is already a closed parser-level
+   * type, so there is nothing here for this stage to validate.
+   */
+  direction: Direction | null;
   /**
    * The descriptions the author wrote, in written order, exactly as
    * `StateDecl.descriptions` carried them — authored text with nothing for

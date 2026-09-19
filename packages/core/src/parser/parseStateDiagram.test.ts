@@ -43,7 +43,7 @@ describe("parseStateDiagram", () => {
 
     expect(document.states.map((state) => state.id)).toEqual(["Idle", "Running"]);
     expect(document.transitions).toEqual([
-      { from: "Idle", to: "Running", label: null, sourceLine: 2, sourceColumn: 3 },
+      { from: "Idle", to: "Running", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
     ]);
   });
 
@@ -58,6 +58,7 @@ describe("parseStateDiagram", () => {
         from: "Idle",
         to: "Running",
         label: "start the job",
+        parentId: null,
         sourceLine: 2,
         sourceColumn: 3,
       },
@@ -96,7 +97,14 @@ describe("parseStateDiagram", () => {
 
     expect(document.states.map((state) => state.id)).toEqual(["Running"]);
     expect(document.transitions).toEqual([
-      { from: "Running", to: "Running", label: "retry", sourceLine: 2, sourceColumn: 3 },
+      {
+        from: "Running",
+        to: "Running",
+        label: "retry",
+        parentId: null,
+        sourceLine: 2,
+        sourceColumn: 3,
+      },
     ]);
   });
 
@@ -114,8 +122,16 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Idle\n  Idle --> Running\n");
 
     expect(document.states).toEqual([
-      { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
-      { id: "Running", kind: "state", descriptions: [], line: 3, column: 3 },
+      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
+      {
+        id: "Running",
+        kind: "state",
+        descriptions: [],
+        parentId: null,
+        direction: null,
+        line: 3,
+        column: 3,
+      },
     ]);
   });
 
@@ -132,9 +148,9 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n");
 
     expect(document.states).toEqual([
-      { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
-      { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
-      { id: null, kind: "end", descriptions: [], line: 3, column: 3 },
+      { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
+      { id: null, kind: "end", descriptions: [], parentId: null, direction: null, line: 3, column: 3 },
     ]);
     expect(document.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
       "null->Idle",
@@ -165,7 +181,7 @@ describe("parseStateDiagram", () => {
 
     expect(document.states.map((state) => state.kind)).toEqual(["start", "end"]);
     expect(document.transitions).toEqual([
-      { from: null, to: null, label: null, sourceLine: 2, sourceColumn: 3 },
+      { from: null, to: null, label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
     ]);
   });
 
@@ -178,7 +194,15 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Lonely :    waits here\n");
 
     expect(document.states).toEqual([
-      { id: "Lonely", kind: "state", descriptions: ["waits here"], line: 2, column: 3 },
+      {
+        id: "Lonely",
+        kind: "state",
+        descriptions: ["waits here"],
+        parentId: null,
+        direction: null,
+        line: 2,
+        column: 3,
+      },
     ]);
     expect(document.transitions).toEqual([]);
   });
@@ -203,6 +227,8 @@ describe("parseStateDiagram", () => {
         id: "Both",
         kind: "state",
         descriptions: ["one", "two", "three"],
+        parentId: null,
+        direction: null,
         line: 2,
         column: 3,
       },
@@ -231,28 +257,118 @@ describe("parseStateDiagram", () => {
     expect(quoted.document).toEqual(colon.document);
   });
 
-  it("refuses by name every construct this parser does not draw, rather than swallowing it", () => {
-    // CONTEXT.md's opening policy: while a construct is unimplemented, Siren
-    // rejects it rather than rendering it wrongly. Each of these is valid
-    // Mermaid that a later ticket implements, and the refusal names the
-    // construct rather than merely reporting an unrecognized line, so an
-    // author reading it knows what to route around.
-    const refusals: [string, string][] = [["state Outer {", "composite state"]];
+  it("reads a composite state's block, and holds the states written inside it", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): `state Outer {
+    // Inner1 --> Inner2 }` reports `Outer in="root"` and both inner states
+    // `in="root/Outer"` — the block is a level of its own, and the composite
+    // is a state at the level that holds it.
+    const document = documentOf(
+      "stateDiagram-v2\n  state Outer {\n    Inner1 --> Inner2\n  }\n",
+    );
 
-    for (const [statement, construct] of refusals) {
-      const { document, diagnostics } = parseStateDiagram(
-        `stateDiagram-v2\n  ${statement}\n`,
-      );
+    expect(document.states.map((state) => [state.id, state.kind, state.parentId])).toEqual([
+      ["Outer", "composite", null],
+      ["Inner1", "state", "Outer"],
+      ["Inner2", "state", "Outer"],
+    ]);
+  });
 
-      expect(document, statement).toBeNull();
-      expect(diagnostics, statement).toHaveLength(1);
-      expect(diagnostics[0].severity, statement).toBe("error");
-      // Named, not merely refused: an author who reads "unrecognized line"
-      // goes looking for a typo they did not make.
-      expect(diagnostics[0].message, statement).toContain(construct);
-      expect(diagnostics[0].message, statement).toContain(statement);
-      expect(diagnostics[0], statement).toMatchObject({ line: 2, column: 3 });
-    }
+  it("gives a composite's block its own start and end, apart from the document's", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): `state Outer {
+    // [*] --> Inner }` reports `Outer_start in="root/Outer"` — the
+    // composite's own start, not `root_start`. So "one start and one end per
+    // level" is exactly that: per level, and a block is a level.
+    const document = documentOf(
+      "stateDiagram-v2\n" +
+        "  [*] --> Outer\n" +
+        "  state Outer {\n    [*] --> Inner\n    Inner --> [*]\n  }\n" +
+        "  Outer --> [*]\n",
+    );
+
+    expect(
+      document.states.map((state) => [state.kind, state.id, state.parentId]),
+    ).toEqual([
+      ["start", null, null],
+      ["composite", "Outer", null],
+      ["start", null, "Outer"],
+      ["state", "Inner", "Outer"],
+      ["end", null, "Outer"],
+      ["end", null, null],
+    ]);
+    // And each transition says which level it was written at, which is the
+    // only thing that can tell those two starts apart at the far end.
+    expect(
+      document.transitions.map((t) => [t.from, t.to, t.parentId]),
+    ).toEqual([
+      [null, "Outer", null],
+      [null, "Inner", "Outer"],
+      ["Inner", null, "Outer"],
+      ["Outer", null, null],
+    ]);
+  });
+
+  it("reads a composite's own `direction` onto that block alone", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): `direction LR`
+    // inside `state Outer { }` is that block's own rank direction, and the
+    // document's stays `TB`. A per-level statement, not a cascading one —
+    // the reading `SirenSubgraph.direction` already records for a subgraph.
+    const document = documentOf(
+      "stateDiagram-v2\n  state Outer {\n    direction LR\n    A --> B\n  }\n",
+    );
+
+    expect(
+      document.states.map((state) => [state.id, state.direction]),
+    ).toEqual([
+      ["Outer", "LR"],
+      ["A", null],
+      ["B", null],
+    ]);
+  });
+
+  it("leaves a state where the first block that named it put it", () => {
+    // The rule CONTEXT.md's **Subgraph** entry already records for a
+    // flowchart — "a node is claimed by the first block that names it" —
+    // applied here rather than invented a second time. A state written at
+    // the document's level joins the first composite to name it, and a
+    // second composite naming it again leaves it where it is.
+    //
+    // (Mermaid's own parse tree keeps a same-named state at each level it
+    // was written at and its renderer then draws one node for them, so
+    // Mermaid has no answer to borrow here; Siren's ids are global, and
+    // this is the rule Siren already applies to the same question.)
+    const document = documentOf(
+      "stateDiagram-v2\n" +
+        "  Shared --> Other\n" +
+        "  state First {\n    Shared --> A\n  }\n" +
+        "  state Second {\n    Shared --> B\n  }\n",
+    );
+
+    expect(
+      document.states.map((state) => [state.id, state.parentId]),
+    ).toEqual([
+      ["Shared", "First"],
+      ["Other", null],
+      ["First", null],
+      ["A", "First"],
+      ["Second", null],
+      ["B", "Second"],
+    ]);
+  });
+
+  it("refuses a composite block the author never closed, in the words they opened it with", () => {
+    // The answer `parseFlowchart` gives an unterminated `subgraph` and
+    // `parseClassDiagram` an unterminated `namespace` — one diagnostic per
+    // open block, innermost first, so nesting is described rather than
+    // summarized.
+    const { document, diagnostics } = parseStateDiagram(
+      "stateDiagram-v2\n  state Outer {\n    state Inner {\n      A --> B\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.message, d.line])).toEqual([
+      ["error", 'Unterminated "state Inner {" block: missing matching "}"', 3],
+      ["error", 'Unterminated "state Outer {" block: missing matching "}"', 2],
+    ]);
   });
 
   it("names both spellings when the header is something else", () => {

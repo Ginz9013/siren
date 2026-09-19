@@ -964,9 +964,11 @@ describe("default theme's design tokens", () => {
  * states, a labelled transition, an unlabelled one, the self-loop —
  * which is the one figure whose line is drawn beside a box rather than
  * between two, and so the one most likely to be left unpainted by a rule
- * written for the straight case — and both pseudo-states, whose discs are
+ * written for the straight case — both pseudo-states, whose discs are
  * the one figure here that has no stroke to fall back on: a `<circle>` the
- * theme forgets to fill is not a faint shape, it is nothing at all.
+ * theme forgets to fill is not a faint shape, it is nothing at all — and a
+ * composite, whose frame and title are painted by rules of their own
+ * because a frame encloses boxes drawn over it and so must not be filled.
  *
  * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`
  * and `EVERY_CLASS_FEATURE` are: exhaustive *class* coverage is a different
@@ -981,6 +983,10 @@ Running --> Idle
 Running --> [*]
 Running : working
 state "on the current job" as Running
+state Grouped {
+direction LR
+Held --> Beside
+}
 `;
 
 describe("default theme coverage of the state renderer", () => {
