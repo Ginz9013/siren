@@ -2,14 +2,21 @@ import type {
   LayoutOptions,
   PositionedState,
   PositionedStateDiagram,
+  PositionedStateRow,
   PositionedStateTransition,
+  ResolvedState,
   StateModel,
 } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
-/** Horizontal padding between a state box's edge and its label. */
+/** Horizontal padding between a state box's edge and its widest row of text. */
 const STATE_PADDING_X = 14;
-/** Vertical padding between a state box's edge and its label. */
+/**
+ * Vertical padding between a state box's edge and its first or last row of
+ * text — and, in a box carrying two or more descriptions, between the
+ * divider and the rows either side of it, the way a class compartment is
+ * padded.
+ */
 const STATE_PADDING_Y = 8;
 
 /**
@@ -49,19 +56,15 @@ export function layoutStateDiagram(
   model: StateModel,
   options: LayoutOptions,
 ): PositionedStateDiagram {
+  const planById = new Map(
+    model.states.map((state) => [state.id, planStateBox(state, options)] as const),
+  );
+
   const laidOut = layoutDirectedGraph({
     rankdir: STATE_RANKDIR,
     nodes: model.states.map((state) => {
-      if (state.kind !== "state") {
-        const size = PSEUDO_STATE_RADIUS * 2;
-        return { id: state.id, width: size, height: size };
-      }
-      const label = options.measureText.measure(state.id);
-      return {
-        id: state.id,
-        width: label.width + STATE_PADDING_X * 2,
-        height: label.height + STATE_PADDING_Y * 2,
-      };
+      const plan = planById.get(state.id)!;
+      return { id: state.id, width: plan.width, height: plan.height };
     }),
     edges: model.transitions.map((transition) => ({
       id: transition.id,
@@ -80,6 +83,7 @@ export function layoutStateDiagram(
 
   const states = model.states.map<PositionedState>((state) => {
     const box = boxById.get(state.id)!;
+    const plan = planById.get(state.id)!;
     return {
       id: state.id,
       kind: state.kind,
@@ -87,6 +91,11 @@ export function layoutStateDiagram(
       y: box.y,
       width: box.width,
       height: box.height,
+      // The plan measured everything from the box's own top edge, before
+      // the core knew where the box would go; this is where that box
+      // landed.
+      rows: plan.rows.map((row) => ({ text: row.text, y: box.y + row.y })),
+      dividerY: plan.dividerY === null ? null : box.y + plan.dividerY,
     };
   });
 
@@ -115,6 +124,71 @@ export function layoutStateDiagram(
     // `viewBox`.
     width: Math.max(laidOut.width, bounds.width),
     height: Math.max(laidOut.height, bounds.height),
+  };
+}
+
+/**
+ * A state box measured but not yet placed: its size, and where each row of
+ * its text sits relative to its own top edge. Computed before the shared
+ * core runs, because the core needs the size; translated into diagram
+ * coordinates once the core has placed the box — the division
+ * `layoutClassDiagram` already draws between planning a box and placing it.
+ */
+interface StateBoxPlan {
+  width: number;
+  height: number;
+  rows: PositionedStateRow[];
+  dividerY: number | null;
+}
+
+/**
+ * Measures one state's box from the text it actually draws.
+ *
+ * **Which text that is, is the whole point.** A state with descriptions
+ * draws them and not its id — measured (mermaid 11.17.2): once `s : text`
+ * is written, `s` appears nowhere in the picture, and the id is left doing
+ * the job a flowchart id does under `A[label]`, namely addressing. A state
+ * with no descriptions draws its id, as it always has.
+ *
+ * A pseudo-state is sized from the disc's radius instead, because its id is
+ * generated (`start:1`) and nothing draws it: measuring it would reserve
+ * the diagram room for a string no reader ever sees. The figure is a
+ * circle, so the box is square and holds no rows.
+ */
+function planStateBox(state: ResolvedState, options: LayoutOptions): StateBoxPlan {
+  if (state.kind !== "state") {
+    const size = PSEUDO_STATE_RADIUS * 2;
+    return { width: size, height: size, rows: [], dividerY: null };
+  }
+
+  const texts = state.descriptions.length === 0 ? [state.id] : state.descriptions;
+  const widths: number[] = [];
+  const rows: PositionedStateRow[] = [];
+  let bottom = STATE_PADDING_Y;
+  let dividerY: number | null = null;
+
+  texts.forEach((text, index) => {
+    // The divider closes the title row and opens the compartment the rest
+    // of the descriptions share — the two-compartment shape a class box is
+    // built from, with one row in the first compartment instead of one
+    // name. Only a box with a second row has one: measured, a single
+    // description is drawn as a plain rounded rect with no line in it.
+    if (index === 1) {
+      bottom += STATE_PADDING_Y;
+      dividerY = bottom;
+      bottom += STATE_PADDING_Y;
+    }
+    const measured = options.measureText.measure(text);
+    widths.push(measured.width);
+    rows.push({ text, y: bottom + measured.height / 2 });
+    bottom += measured.height;
+  });
+
+  return {
+    width: Math.max(...widths) + STATE_PADDING_X * 2,
+    height: bottom + STATE_PADDING_Y,
+    rows,
+    dividerY,
   };
 }
 

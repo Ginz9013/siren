@@ -4,8 +4,26 @@ import { renderStateDiagramToSVG } from "./renderStateDiagramToSVG";
 
 const DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "Idle", kind: "state", x: 10, y: 20, width: 80, height: 40 },
-    { id: "Running", kind: "state", x: 10, y: 120, width: 100, height: 40 },
+    {
+      id: "Idle",
+      kind: "state",
+      x: 10,
+      y: 20,
+      width: 80,
+      height: 40,
+      rows: [{ text: "Idle", y: 40 }],
+      dividerY: null,
+    },
+    {
+      id: "Running",
+      kind: "state",
+      x: 10,
+      y: 120,
+      width: 100,
+      height: 40,
+      rows: [{ text: "Running", y: 140 }],
+      dividerY: null,
+    },
   ],
   transitions: [
     {
@@ -152,9 +170,18 @@ describe("renderStateDiagramToSVG", () => {
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14 },
-    { id: "Idle", kind: "state", x: 10, y: 60, width: 80, height: 40 },
-    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14 },
+    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], dividerY: null },
+    {
+      id: "Idle",
+      kind: "state",
+      x: 10,
+      y: 60,
+      width: 80,
+      height: 40,
+      rows: [{ text: "Idle", y: 80 }],
+      dividerY: null,
+    },
+    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], dividerY: null },
   ],
   transitions: [
     {
@@ -173,6 +200,122 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   width: 200,
   height: 180,
 };
+
+/**
+ * A described state beside an undescribed one, laid out: `s : waiting for
+ * work` draws its description where its id used to go, `Plain` still draws
+ * its id, and `t` carries the three rows and the divider a state with two
+ * or more descriptions is given.
+ */
+const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
+  states: [
+    {
+      id: "s",
+      kind: "state",
+      x: 10,
+      y: 20,
+      width: 160,
+      height: 40,
+      rows: [{ text: "waiting for work", y: 40 }],
+      dividerY: null,
+    },
+    {
+      id: "Plain",
+      kind: "state",
+      x: 10,
+      y: 120,
+      width: 100,
+      height: 40,
+      rows: [{ text: "Plain", y: 140 }],
+      dividerY: null,
+    },
+    {
+      id: "t",
+      kind: "state",
+      x: 10,
+      y: 220,
+      width: 160,
+      height: 120,
+      rows: [
+        { text: "title row", y: 240 },
+        { text: "second", y: 290 },
+        { text: "third", y: 320 },
+      ],
+      dividerY: 260,
+    },
+  ],
+  transitions: [],
+  timeline: { totalSteps: 0, entries: [] },
+  width: 300,
+  height: 360,
+};
+
+describe("renderStateDiagramToSVG, on a described state", () => {
+  it("draws the rows the layout measured, at the y it measured each one at", () => {
+    // A described state draws its description and not its id — measured
+    // (mermaid 11.17.2): once `s : text` is written, `s` appears nowhere in
+    // the picture. By here the question is already settled: layout hands
+    // over the rows, and this draws them.
+    const svg = renderStateDiagramToSVG(DESCRIBED_DIAGRAM);
+
+    const described = svg.querySelector('g.siren-state[data-siren-id="s"]')!;
+    const texts = Array.from(described.querySelectorAll("text"));
+    expect(texts.map((text) => text.textContent)).toEqual(["waiting for work"]);
+    expect(texts[0].getAttribute("y")).toBe("40");
+    // Centred in its own box, as the id it replaced was.
+    expect(texts[0].getAttribute("x")).toBe("90");
+
+    // An undescribed state is untouched by any of this: its one row is its
+    // id, and it still draws it.
+    const plain = svg.querySelector('g.siren-state[data-siren-id="Plain"]')!;
+    expect(plain.querySelector("text.siren-state-label")!.textContent).toBe("Plain");
+
+    // Three rows, each at its own y — a renderer that centred every row in
+    // the box would stack all three on one line and draw one smudge.
+    const titled = svg.querySelector('g.siren-state[data-siren-id="t"]')!;
+    const rows = Array.from(titled.querySelectorAll("text"));
+    expect(rows.map((text) => text.textContent)).toEqual(["title row", "second", "third"]);
+    expect(rows.map((text) => text.getAttribute("y"))).toEqual(["240", "290", "320"]);
+  });
+});
+
+describe("renderStateDiagramToSVG, on a state with two or more descriptions", () => {
+  it("draws the divider under the title row, and draws none where the layout measured none", () => {
+    // Measured (mermaid 11.17.2, `--markup`): two or more descriptions are
+    // drawn as `rect.outer.title-state` *plus* a `line.divider`, the first
+    // description titling the box above the line and the rest below it —
+    // while one description gets a plain rounded rect with no line in it.
+    const svg = renderStateDiagramToSVG(DESCRIBED_DIAGRAM);
+
+    const titled = svg.querySelector('g.siren-state[data-siren-id="t"]')!;
+    const divider = titled.querySelector("line.siren-state-divider");
+    expect(divider).not.toBeNull();
+    expect(divider!.getAttribute("y1")).toBe("260");
+    expect(divider!.getAttribute("y2")).toBe("260");
+    // Spanning the frame, so it reads as part of the box rather than as a
+    // stray line beside it.
+    expect(divider!.getAttribute("x1")).toBe("10");
+    expect(divider!.getAttribute("x2")).toBe("170");
+
+    // The first description titles the box and the rest are its
+    // description rows — two classes, because a theme that cannot tell the
+    // title row from the rows below it cannot weight one differently.
+    expect(titled.querySelector("text.siren-state-label")!.textContent).toBe("title row");
+    expect(
+      Array.from(titled.querySelectorAll("text.siren-state-description")).map(
+        (text) => text.textContent,
+      ),
+    ).toEqual(["second", "third"]);
+
+    // One description, and none at all: no line, and the one row each
+    // draws is the box's title.
+    for (const id of ["s", "Plain"]) {
+      const group = svg.querySelector(`g.siren-state[data-siren-id="${id}"]`)!;
+      expect(group.querySelector("line"), id).toBeNull();
+      expect(group.querySelector("text")!.getAttribute("class"), id).toBe("siren-state-label");
+    }
+  });
+});
 
 describe("renderStateDiagramToSVG, on the start and end pseudo-states", () => {
   it("draws a start as one filled disc centred in its box, with no frame and no label", () => {

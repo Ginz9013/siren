@@ -21,7 +21,10 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * Builds a real `SVGSVGElement` from a `PositionedStateDiagram`: one
  * `<g class="siren-state">` per state (a rounded
  * `<rect class="siren-state-frame">` and the
- * `<text class="siren-state-label">` centred in it — or, for the two
+ * `<text class="siren-state-label">` titling it, plus — for a state the
+ * author wrote two or more descriptions on — a
+ * `<line class="siren-state-divider">` under that title row and a
+ * `<text class="siren-state-description">` for each row below it — or, for the two
  * pseudo-states `[*]` spells, the filled `<circle class="siren-state-start">`
  * or the `<circle class="siren-state-end">` ring around its
  * `.siren-state-end-inner` disc) and one
@@ -110,12 +113,27 @@ function buildState(state: PositionedState): SVGGElement {
   // on `.siren-state-frame`) exactly as a flowchart rectangle's is. Writing
   // one inline would put it out of a consumer's reach — see the design-token
   // entry in CONTEXT.md.
-  g.appendChild(
-    buildCenteredText("siren-state-label", state.id, {
-      x: state.x + state.width / 2,
-      y: state.y + state.height / 2,
-    }),
-  );
+
+  // The divider before the text, so a row is never drawn under the line it
+  // sits beside: document order is paint order.
+  if (state.dividerY !== null) {
+    g.appendChild(buildDivider(state, state.dividerY));
+  }
+
+  // The rows, at the y the layout measured each one at. *What* they say was
+  // settled there: a described state's rows are its descriptions and an
+  // undescribed one's is its id, and by here they are simply the text this
+  // box holds.
+  //
+  // The first row titles the box — the id, the one description, or the
+  // first of several — and every row below the divider is a description
+  // row, the split `.siren-class-name` and `.siren-member` already draw so
+  // that a theme can weight the title differently from what follows it.
+  const centerX = state.x + state.width / 2;
+  state.rows.forEach((row, index) => {
+    const className = index === 0 ? "siren-state-label" : "siren-state-description";
+    g.appendChild(buildCenteredText(className, row.text, { x: centerX, y: row.y }));
+  });
 
   return g;
 }
@@ -149,6 +167,22 @@ function buildPseudoState(state: PositionedState): SVGGElement {
     buildCircle("siren-state-end-inner", center, radius * END_STATE_INNER_RATIO),
   );
   return g;
+}
+
+/**
+ * Builds the `<line class="siren-state-divider">` closing a described
+ * state's title row, spanning the frame's full width — the line Mermaid
+ * draws as `line.divider` inside a `rect.outer.title-state` (measured,
+ * 11.17.2), and the same figure a class box's compartment divider is.
+ */
+function buildDivider(state: PositionedState, y: number): SVGLineElement {
+  const line = document.createElementNS(SVG_NS, "line") as SVGLineElement;
+  line.setAttribute("class", "siren-state-divider");
+  line.setAttribute("x1", String(state.x));
+  line.setAttribute("y1", String(y));
+  line.setAttribute("x2", String(state.x + state.width));
+  line.setAttribute("y2", String(y));
+  return line;
 }
 
 /** One `<circle>` of the given class, centred on `center`. */

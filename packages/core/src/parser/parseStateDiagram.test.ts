@@ -114,8 +114,8 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Idle\n  Idle --> Running\n");
 
     expect(document.states).toEqual([
-      { id: "Idle", kind: "state", line: 2, column: 3 },
-      { id: "Running", kind: "state", line: 3, column: 3 },
+      { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
+      { id: "Running", kind: "state", descriptions: [], line: 3, column: 3 },
     ]);
   });
 
@@ -132,9 +132,9 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n");
 
     expect(document.states).toEqual([
-      { id: null, kind: "start", line: 2, column: 3 },
-      { id: "Idle", kind: "state", line: 2, column: 3 },
-      { id: null, kind: "end", line: 3, column: 3 },
+      { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+      { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
+      { id: null, kind: "end", descriptions: [], line: 3, column: 3 },
     ]);
     expect(document.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
       "null->Idle",
@@ -169,17 +169,75 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
+  it("reads `s : text` as a description on that state, and declares the state by describing it", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs):
+    // `Lonely :    waits here` puts `Lonely` into the state table with
+    // `descriptions=["waits here"]` — the id is untouched, the text is
+    // trimmed, and no relation is produced by a colon with no arrow in
+    // front of it.
+    const document = documentOf("stateDiagram-v2\n  Lonely :    waits here\n");
+
+    expect(document.states).toEqual([
+      { id: "Lonely", kind: "state", descriptions: ["waits here"], line: 2, column: 3 },
+    ]);
+    expect(document.transitions).toEqual([]);
+  });
+
+  it("accumulates a state's descriptions in written order, whichever spelling wrote each one", () => {
+    // Measured (mermaid 11.17.2): `Both : one` followed by
+    // `state "two" as Both` reports `descriptions=["one","two"]` on the one
+    // state — a second description is a second line of text rather than a
+    // correction of the first, and the two spellings share the one list.
+    //
+    // A guard rather than a red-green slice: accumulation falls out of the
+    // array the two branches above push into, and this is what keeps a
+    // later "one description per state" narrowing from being made by
+    // mistake. The state also keeps the position of the line that first
+    // named it.
+    const document = documentOf(
+      'stateDiagram-v2\n  Both : one\n  state "two" as Both\n  Both : three\n',
+    );
+
+    expect(document.states).toEqual([
+      {
+        id: "Both",
+        kind: "state",
+        descriptions: ["one", "two", "three"],
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it('reads `state "text" as s` as the very same document `s : text` parses to', () => {
+    // The two spellings are one construct, and this is the assertion that
+    // says so: **identical documents**, not merely the same text somewhere.
+    // A field recording which spelling was written, or an id taken from the
+    // quoted half, fails here rather than passing unnoticed — the shape the
+    // flowchart's two edge-label spellings are held to.
+    //
+    // Measured (mermaid 11.17.2): both report
+    // `descriptions=["waiting for work"]` on a state whose id is still `s`.
+    // `state "text" as s` is emphatically **not** a rename, which is the
+    // reading the keyword `as` invites — the transition below still names
+    // the state `s` in both documents.
+    const colon = parseStateDiagram("stateDiagram-v2\n  s : waiting for work\n  s --> Done\n");
+    const quoted = parseStateDiagram(
+      'stateDiagram-v2\n  state "waiting for work" as s\n  s --> Done\n',
+    );
+
+    expect(quoted.diagnostics).toEqual([]);
+    expect(quoted.document).not.toBeNull();
+    expect(quoted.document).toEqual(colon.document);
+  });
+
   it("refuses by name every construct this parser does not draw, rather than swallowing it", () => {
     // CONTEXT.md's opening policy: while a construct is unimplemented, Siren
     // rejects it rather than rendering it wrongly. Each of these is valid
-    // Mermaid that a later ticket implements, and each would otherwise be
-    // read as something else — `Idle : running` as a transition-shaped line
-    // with no arrow.
-    const refusals: [string, string][] = [
-      ["Idle : waiting for work", "state description"],
-      ['state "waiting for work" as Idle', "state description"],
-      ["state Outer {", "composite state"],
-    ];
+    // Mermaid that a later ticket implements, and the refusal names the
+    // construct rather than merely reporting an unrecognized line, so an
+    // author reading it knows what to route around.
+    const refusals: [string, string][] = [["state Outer {", "composite state"]];
 
     for (const [statement, construct] of refusals) {
       const { document, diagnostics } = parseStateDiagram(

@@ -979,6 +979,8 @@ Idle --> Running : start
 Running --> Running : retry
 Running --> Idle
 Running --> [*]
+Running : working
+state "on the current job" as Running
 `;
 
 describe("default theme coverage of the state renderer", () => {

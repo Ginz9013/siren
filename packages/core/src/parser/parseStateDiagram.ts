@@ -41,28 +41,54 @@ const PSEUDO_STATE = "[*]";
 const STATE_DECL_RE = /^(?:state\s+)?(\w+)$/;
 
 /**
+ * A description written onto a state — `Idle : waiting for work`.
+ *
+ * Read *after* the transition pattern, so the `: label` half of
+ * `A --> B : text` is never mistaken for one: what makes this a description
+ * rather than a transition label is that no arrow precedes the colon.
+ *
+ * The text is whatever follows the colon, and the line has already been
+ * trimmed, so the capture is the trimmed description Mermaid records
+ * (measured: `Trim :    padded   ` reports `descriptions=["padded"]`).
+ * `\S` at its head makes a description of nothing unmatchable, because
+ * `Empty :` is a **parse error in Mermaid** (measured, 11.17.2) rather than
+ * an empty description — so it falls through to this parser's own
+ * unrecognized-line diagnostic instead of entering a state table.
+ */
+const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/;
+
+/**
+ * The other spelling of the very same thing — `state "waiting" as Idle`.
+ *
+ * **Not a rename**, which is the reading `as` invites: measured (mermaid
+ * 11.17.2), this lands in the described state's `descriptions` array and
+ * leaves its id alone, so `Idle` is still what a transition names. It is
+ * therefore read into the same list the colon spelling writes to, and which
+ * spelling was written is recorded nowhere.
+ *
+ * The capture is the quoted text with any surrounding spaces taken off, so
+ * both spellings of one description are one string. `\S` inside makes an
+ * empty description unmatchable for the same measured reason `Empty :` is:
+ * `state "" as X` is a **parse error in Mermaid**, not a state with a blank
+ * description.
+ */
+const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
+
+/**
  * The constructs this parser can read but deliberately does not draw yet,
  * each with the name its diagnostic calls it by.
  *
  * This is CONTEXT.md's opening policy made executable: while a construct is
  * unimplemented Siren refuses it rather than drawing it wrongly, and it
  * refuses it *by name* so an author knows what to route around instead of
- * hunting a typo. Without these, one of them would not even be an honest
- * refusal — `Idle : waiting` is colon-shaped, and a looser reading of it
- * would put a transition to nowhere into the picture with no diagnostic.
+ * hunting a typo.
  *
- * Every row here is a later ticket on the same board: the description forms
- * and the composite block. They are matched *after* the transition and the
- * declaration, so nothing this parser does implement can be caught by one
- * of them.
+ * Every row here is a later ticket on the same board — the composite block
+ * is what is left of them. Rows are matched *after* every construct this
+ * parser does implement, so nothing it draws can be caught by one of them.
  */
 const UNIMPLEMENTED_CONSTRUCTS: readonly { name: string; pattern: RegExp }[] = [
   { name: "composite state", pattern: /^state\s+.*\{\s*$/ },
-  // A description is the colon form with no arrow in front of it — an
-  // arrowed line has already been read as a transition by the time this
-  // runs — and the `state "text" as id` spelling of the same thing.
-  { name: "state description", pattern: /^\w+\s*:/ },
-  { name: "state description", pattern: /^state\s+".*"\s+as\s+\w+$/ },
 ];
 
 /**
@@ -112,8 +138,6 @@ export function parseStateDiagram(source: string): ParseResult {
 
   const states: StateDecl[] = [];
   const transitions: StateTransition[] = [];
-  /** Every state id seen so far, however it was introduced. */
-  const declaredIds = new Set<string>();
   /**
    * Whether any error-severity problem was found. Like every other Siren
    * parser, a document with one comes back as `null`: the diagnostics say
@@ -121,17 +145,43 @@ export function parseStateDiagram(source: string): ParseResult {
    */
   let sawError = false;
 
+  /** Every state declared so far, by the id the author named it with. */
+  const declaredById = new Map<string, StateDecl>();
+
   /**
-   * Records a state the given statement named. Only the first mention
-   * creates a declaration, so a state named by ten transitions is still one
-   * state, positioned where it was first written.
+   * Records a state the given statement named, and hands back its one
+   * declaration. Only the first mention creates it, so a state named by ten
+   * transitions is still one state, positioned where it was first written —
+   * and a later line describing it adds to the declaration already there.
    */
-  const declareState = (id: string, line: number, column: number): void => {
-    if (declaredIds.has(id)) {
-      return;
+  const declareState = (id: string, line: number, column: number): StateDecl => {
+    const already = declaredById.get(id);
+    if (already !== undefined) {
+      return already;
     }
-    declaredIds.add(id);
-    states.push({ id, kind: "state", line, column });
+    const declaration: StateDecl = { id, kind: "state", descriptions: [], line, column };
+    declaredById.set(id, declaration);
+    states.push(declaration);
+    return declaration;
+  };
+
+  /**
+   * Records one description on the state it was written for, declaring that
+   * state if this is the first line to name it — `Lonely : waits` is a
+   * declaration as well as a description, measured.
+   *
+   * Descriptions **accumulate** rather than replace: measured, `s : first`
+   * followed by `s : second` reports `descriptions=["first","second"]`, so
+   * a second description is a second line of text and not a correction of
+   * the first.
+   */
+  const describeState = (
+    id: string,
+    description: string,
+    line: number,
+    column: number,
+  ): void => {
+    declareState(id, line, column).descriptions.push(description);
   };
 
   /**
@@ -163,7 +213,9 @@ export function parseStateDiagram(source: string): ParseResult {
     declaredPseudoKinds.add(kind);
     // No id: the author never named this, and an id for a thing nobody
     // named is a *generated* id, which `buildStateModel` mints (ADR-0010).
-    states.push({ id: null, kind, line, column });
+    // No descriptions either, and never any: `[*]` is not an id, so there
+    // is no spelling of either description form that names a pseudo-state.
+    states.push({ id: null, kind, descriptions: [], line, column });
   };
 
   /**
@@ -223,6 +275,21 @@ export function parseStateDiagram(source: string): ParseResult {
     const stateMatch = STATE_DECL_RE.exec(line);
     if (stateMatch !== null) {
       declareState(stateMatch[1], lineNumber, column);
+      continue;
+    }
+
+    const descriptionMatch = STATE_DESCRIPTION_RE.exec(line);
+    if (descriptionMatch !== null) {
+      describeState(descriptionMatch[1], descriptionMatch[2], lineNumber, column);
+      continue;
+    }
+
+    // The quoted spelling writes the same description onto the same state,
+    // through the same call: the two are one construct, and the only
+    // difference between the branches is which capture holds which half.
+    const quotedMatch = QUOTED_DESCRIPTION_RE.exec(line);
+    if (quotedMatch !== null) {
+      describeState(quotedMatch[2], quotedMatch[1], lineNumber, column);
       continue;
     }
 

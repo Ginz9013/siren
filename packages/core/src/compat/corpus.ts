@@ -817,6 +817,44 @@ function transitions(result: SirenRenderResult): string[] {
 }
 
 /**
+ * The text one state box actually draws, top to bottom.
+ *
+ * The reader a description row needs, because what a described state is
+ * *about* is that the id stops being drawn: a row asserting only that the
+ * description appears somewhere would pass on a box drawing its id and its
+ * description one above the other, which is a picture Mermaid never draws.
+ */
+function stateRows(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+  return Array.from(group.querySelectorAll("text")).map((text) => text.textContent ?? "");
+}
+
+/**
+ * The y each of one state box's rows is drawn at, in draw order, and — last
+ * — the y of the divider under its title row, or `null` where it draws
+ * none.
+ *
+ * Coordinates rather than presence, because "is there a divider?" is the
+ * weaker half of the question: a line drawn above the first row or below
+ * the last is still a `<line>` to find, and is the wrong picture.
+ */
+function stateRowGeometry(
+  result: SirenRenderResult,
+  id: string,
+): { rowYs: number[]; dividerY: number | null } {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+  const divider = group.querySelector("line.siren-state-divider");
+  return {
+    rowYs: Array.from(group.querySelectorAll("text")).map((text) =>
+      Number(text.getAttribute("y")),
+    ),
+    dividerY: divider === null ? null : Number(divider.getAttribute("y1")),
+  };
+}
+
+/**
  * One state box's centre — how a state diagram's top-to-bottom direction is
  * visible in the result rather than merely claimed.
  */
@@ -2739,6 +2777,111 @@ line2\`"]`,
         elements(result, "g.siren-transition").some((g) => idOf(g) === "root_start-root_start"),
         false,
       );
+    },
+  },
+  {
+    id: "st-description-colon",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle : waiting for work
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`s : text` describes the state `s`. Measured (mermaid 11.17.2): the " +
+      "text lands in `s`'s `descriptions` array, the id is unchanged, and " +
+      "the **id stops being drawn** — the description is what the box " +
+      "holds, the same split a flowchart's `A[label]` draws between the id " +
+      "that addresses a node and the text that is drawn in it. An " +
+      "undescribed state in the same diagram still draws its id.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("the described state's rows", stateRows(result, "Idle"), [
+        "waiting for work",
+      ]);
+      expectSame("the undescribed state's rows", stateRows(result, "Running"), ["Running"]);
+      // The id still addresses the state, which is what makes this a
+      // description and not a rename.
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+      // One description is a plain box: measured, Mermaid draws it with the
+      // same rounded rect an undescribed state gets and no divider at all.
+      expectSame(
+        "one description draws no divider",
+        stateRowGeometry(result, "Idle").dividerY,
+        null,
+      );
+    },
+  },
+  {
+    id: "st-description-quoted",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "waiting for work" as Idle
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`state \"text\" as s` is the other spelling of the very same thing, " +
+      "and **not a rename** — the reading the keyword `as` invites. " +
+      "Measured: the text lands in the same `descriptions` array and the " +
+      "state is still `Idle`, so a transition still names it `Idle`. The " +
+      "picture is the one `Idle : waiting for work` draws, down to the " +
+      "undescribed state beside it keeping its id.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("the described state's rows", stateRows(result, "Idle"), [
+        "waiting for work",
+      ]);
+      expectSame("the undescribed state's rows", stateRows(result, "Running"), ["Running"]);
+      // The id survives the quoted spelling: a rename would leave nothing
+      // called `Idle` for this transition to join.
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+      expectSame(
+        "one description draws no divider",
+        stateRowGeometry(result, "Idle").dividerY,
+        null,
+      );
+    },
+  },
+  {
+    id: "st-description-accumulates",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle : waiting for work
+      state "nothing queued" as Idle
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "Descriptions **accumulate**, and the two spellings share one list: " +
+      "measured, `Idle : waiting for work` followed by " +
+      "`state \"nothing queued\" as Idle` reports " +
+      "`descriptions=[\"waiting for work\",\"nothing queued\"]` on the one " +
+      "state. Two or more of them are drawn as a titled box — measured " +
+      "with `--markup`: `rect.outer.title-state` plus a `line.divider`, " +
+      "the **first** description titling the box above the line and the " +
+      "rest below it.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      // Both rows, in written order — a second description is another line
+      // of text rather than a correction of the first.
+      expectSame("the described state's rows", stateRows(result, "Idle"), [
+        "waiting for work",
+        "nothing queued",
+      ]);
+      // The first description is the row that titles the box.
+      expectSame(
+        "the title row",
+        texts(result, 'g.siren-state[data-siren-id="Idle"] text.siren-state-label'),
+        ["waiting for work"],
+      );
+      // And the divider is *between* them: a line drawn above the title row
+      // or below the last row is still a `<line>` to find, and is the wrong
+      // picture.
+      const { rowYs, dividerY } = stateRowGeometry(result, "Idle");
+      expectSame(
+        `the divider sits between the two rows (rows at ${JSON.stringify(rowYs)}, divider at ${dividerY})`,
+        dividerY !== null && dividerY > rowYs[0] && dividerY < rowYs[1],
+        true,
+      );
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
     },
   },
 ];
