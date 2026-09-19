@@ -1854,16 +1854,44 @@ export interface PositionedClassDiagram {
 // ---------------------------------------------------------------------------
 
 /**
- * A state as the parser read it — one declaration per state id, in the order
+ * Which of three things one box in a state diagram is: a state the author
+ * named, or one of the two pseudo-states `[*]` spells.
+ *
+ * Three values rather than a `isPseudo` flag beside a `start`/`end` one,
+ * because start and end are two *different* pseudo-states and not one node
+ * used twice — measured (mermaid 11.17.2): `[*] --> A` and `A --> [*]`
+ * report the relations `root_start → A` and `A → root_end`. Closed and
+ * required, the rule `NodeShape` already follows, so "no kind" is not a
+ * fourth state for a reader downstream to fold into one of these.
+ *
+ * `"state"` is the ordinary case and happens to spell the same word
+ * `StateDocument.kind` discriminates the whole diagram by; they are
+ * different questions asked at different levels, and nothing reads one for
+ * the other.
+ */
+export type StateKind = "state" | "start" | "end";
+
+/**
+ * A state as the parser read it — one declaration per state, in the order
  * the document first named it.
  *
  * Unlike `ClassDecl`, a state carries no repeatable payload (no members, no
  * annotation), so the parser folds repeat mentions here rather than leaving
  * a merge for the model: naming a state five times is one declaration,
- * positioned at its first mention.
+ * positioned at its first mention. A pseudo-state folds the same way and
+ * for a stronger reason — measured, `[*]` is **one start and one end per
+ * level** rather than one per occurrence, so two `[*] -->` lines share a
+ * single declaration.
  */
 export interface StateDecl {
-  id: string;
+  /**
+   * The id the author wrote — `null` for a pseudo-state, which no author
+   * names and which `buildStateModel` gives a generated id (ADR-0010), the
+   * way a flowchart subgraph's is `buildFlowchartModel`'s to mint. A parser
+   * reads authored spellings; it does not invent ids.
+   */
+  id: string | null;
+  kind: StateKind;
   /** 1-based line the state was first named on. */
   line: number;
   /** 1-based column the statement that first named it starts at. */
@@ -1885,8 +1913,17 @@ export interface StateDecl {
  * this state" loop.
  */
 export interface StateTransition {
-  from: string;
-  to: string;
+  /**
+   * The state this transition leaves — `null` when the author wrote `[*]`
+   * there, which is the level's **start** pseudo-state. Which of the two
+   * pseudo-states `[*]` means is decided by the side of the arrow it sits
+   * on and by nothing else, so the endpoint carries no second field saying
+   * which: a `null` here is always the start, and a `null` on `to` is
+   * always the end.
+   */
+  from: string | null;
+  /** The state this transition enters — `null` for `[*]`, the level's **end** pseudo-state. */
+  to: string | null;
   label: string | null;
   /** 1-based line the transition was written on. */
   sourceLine: number;
@@ -1914,9 +1951,18 @@ export interface StateDocument {
 // State diagram — graph-model (post `buildStateModel`) types
 // ---------------------------------------------------------------------------
 
-/** A state after model resolution. */
+/**
+ * A state after model resolution — named, whoever named it.
+ *
+ * `id` is no longer nullable: a pseudo-state the author never named has by
+ * now been given its generated id (`start:1`, `end:1`), so everything
+ * downstream addresses a state the same way. `kind` survives because the
+ * two pseudo-states are *drawn* differently from a state — a disc and a
+ * ring rather than a labelled box — and nothing but this field says which.
+ */
 export interface ResolvedState {
   id: string;
+  kind: StateKind;
 }
 
 /**
@@ -1959,6 +2005,13 @@ export interface StateModelResult {
  */
 export interface PositionedState {
   id: string;
+  /**
+   * Which figure the renderer draws here — a labelled box, or the filled
+   * disc and the ring the two pseudo-states are. Carried this far because
+   * layout has already sized the box differently for each and only this
+   * says which one was sized.
+   */
+  kind: StateKind;
   x: number;
   y: number;
   width: number;

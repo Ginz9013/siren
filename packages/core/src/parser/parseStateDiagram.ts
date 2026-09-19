@@ -14,17 +14,20 @@ import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 const STATE_HEADER_SPELLINGS = listAcceptedHeaders(["state"]);
 
 /**
- * A transition statement: two state ids either side of `-->`, with an
+ * A transition statement: two endpoints either side of `-->`, with an
  * optional `: label` after the target.
  *
- * The ids are `\w+`, the alphabet every other Siren parser reads an id in.
- * That is deliberately narrower than Mermaid's, and it is what keeps
- * `[*] --> Idle` *out* of this pattern: the start/end pseudo-state is a
- * later ticket's, and a regex loose enough to match it here would declare a
- * state literally named `[*]` — a silent mis-render rather than the refusal
- * the policy asks for.
+ * An endpoint is either an authored id — `\w+`, the alphabet every other
+ * Siren parser reads an id in, and deliberately narrower than Mermaid's —
+ * or the literal `[*]`, which names no state at all but the level's start
+ * or end pseudo-state. The two spellings are alternatives inside one group
+ * rather than a looser `.+`, so nothing else bracket-shaped is read as an
+ * endpoint and a state literally named `[*]` stays unconstructible.
  */
-const TRANSITION_RE = /^(\w+)\s*-->\s*(\w+)\s*(?::\s*(.*))?$/;
+const TRANSITION_RE = /^(\w+|\[\*\])\s*-->\s*(\w+|\[\*\])\s*(?::\s*(.*))?$/;
+
+/** The one spelling of a pseudo-state endpoint, as an author writes it. */
+const PSEUDO_STATE = "[*]";
 
 /**
  * A state written on a line of its own — `Idle`, or `state Idle` with
@@ -44,18 +47,16 @@ const STATE_DECL_RE = /^(?:state\s+)?(\w+)$/;
  * This is CONTEXT.md's opening policy made executable: while a construct is
  * unimplemented Siren refuses it rather than drawing it wrongly, and it
  * refuses it *by name* so an author knows what to route around instead of
- * hunting a typo. Without these, two of them would not even be honest
- * refusals — `[*] --> Still` is arrow-shaped and `Idle : waiting` is
- * colon-shaped, and a looser reading of either would put a state called
- * `[*]`, or a transition to nowhere, into the picture with no diagnostic.
+ * hunting a typo. Without these, one of them would not even be an honest
+ * refusal — `Idle : waiting` is colon-shaped, and a looser reading of it
+ * would put a transition to nowhere into the picture with no diagnostic.
  *
- * Every row here is a later ticket on the same board: the pseudo-state, the
- * description forms and the composite block. They are matched *after* the
- * transition and the declaration, so nothing this parser does implement can
- * be caught by one of them.
+ * Every row here is a later ticket on the same board: the description forms
+ * and the composite block. They are matched *after* the transition and the
+ * declaration, so nothing this parser does implement can be caught by one
+ * of them.
  */
 const UNIMPLEMENTED_CONSTRUCTS: readonly { name: string; pattern: RegExp }[] = [
-  { name: "start/end pseudo-state `[*]`", pattern: /(^|\s)\[\*\]($|\s)/ },
   { name: "composite state", pattern: /^state\s+.*\{\s*$/ },
   // A description is the colon form with no arrow in front of it — an
   // arrowed line has already been read as a transition by the time this
@@ -130,7 +131,62 @@ export function parseStateDiagram(source: string): ParseResult {
       return;
     }
     declaredIds.add(id);
-    states.push({ id, line, column });
+    states.push({ id, kind: "state", line, column });
+  };
+
+  /**
+   * Records the level's start or end pseudo-state, at the first `[*]` that
+   * asked for it.
+   *
+   * **One per level, not one per occurrence** — measured against mermaid
+   * 11.17.2: two `[*] --> ...` lines both came back from a single
+   * `root_start`, and two `... --> [*]` lines both reached a single
+   * `root_end`. Folding them here is the same rule `declareState` applies
+   * to a state named five times, and the parser is the one place that rule
+   * lives for either.
+   *
+   * This parser reads one level — the root — because that is all
+   * `stateDiagram` syntax offers until a composite state opens a second
+   * one, which is still refused above. A composite's own `[*]` belongs to
+   * *its* level; when that lands, this pair becomes one pair per open
+   * level rather than a different mechanism.
+   */
+  const declaredPseudoKinds = new Set<"start" | "end">();
+  const declarePseudoState = (
+    kind: "start" | "end",
+    line: number,
+    column: number,
+  ): void => {
+    if (declaredPseudoKinds.has(kind)) {
+      return;
+    }
+    declaredPseudoKinds.add(kind);
+    // No id: the author never named this, and an id for a thing nobody
+    // named is a *generated* id, which `buildStateModel` mints (ADR-0010).
+    states.push({ id: null, kind, line, column });
+  };
+
+  /**
+   * One side of a transition, as the transition itself records it: the
+   * authored id, or `null` for `[*]` — declaring the pseudo-state that
+   * side means on the way.
+   *
+   * Which pseudo-state `[*]` names is decided by the side alone: on the
+   * from side it is the level's start, on the to side its end. Measured —
+   * they are two different pseudo-states, not one node used twice.
+   */
+  const readEndpoint = (
+    spelling: string,
+    side: "start" | "end",
+    line: number,
+    column: number,
+  ): string | null => {
+    if (spelling === PSEUDO_STATE) {
+      declarePseudoState(side, line, column);
+      return null;
+    }
+    declareState(spelling, line, column);
+    return spelling;
   };
 
   for (; index < lines.length; index++) {
@@ -145,9 +201,13 @@ export function parseStateDiagram(source: string): ParseResult {
 
     const transitionMatch = TRANSITION_RE.exec(line);
     if (transitionMatch !== null) {
-      const [, from, to, label] = transitionMatch;
-      declareState(from, lineNumber, column);
-      declareState(to, lineNumber, column);
+      const [, fromSpelling, toSpelling, label] = transitionMatch;
+      // Read in written order, so that `[*] --> Idle` declares the start
+      // pseudo-state before `Idle` — first-mention order, which is the
+      // order Mermaid's own state table reports and the order the diagram
+      // is drawn in.
+      const from = readEndpoint(fromSpelling, "start", lineNumber, column);
+      const to = readEndpoint(toSpelling, "end", lineNumber, column);
       transitions.push({
         from,
         to,

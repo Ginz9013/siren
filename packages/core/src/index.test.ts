@@ -5686,11 +5686,93 @@ describe("render() — a state diagram, end to end", () => {
   });
 
   it("draws nothing and says which construct is missing when the document uses one this renderer has not got", () => {
-    const { result } = renderState("stateDiagram-v2\n  [*] --> Idle\n");
+    const { result } = renderState("stateDiagram-v2\n  Idle : waiting for work\n");
 
     expect(result.svg).toBeNull();
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0].severity).toBe("error");
-    expect(result.diagnostics[0].message).toContain("start/end pseudo-state");
+    expect(result.diagnostics[0].message).toContain("state description");
+  });
+
+  it("draws `[*]` as a start disc and an end ring, one of each however often it is written", () => {
+    // Measured (mermaid 11.17.2): two `[*] -->` lines at one level both come
+    // back from a single `root_start`, and two `--> [*]` lines both reach a
+    // single `root_end` — one per level, not one per occurrence. Start and
+    // end are two different pseudo-states.
+    const { result } = renderState(
+      "stateDiagram-v2\n  [*] --> Idle\n  [*] --> Busy\n  Idle --> [*]\n  Busy --> [*]\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "Idle", "Busy", "end:1"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1-Idle", "start:1-Busy", "Idle-end:1", "Busy-end:1"]);
+
+    // The figures, not just the ids: a disc for the start, a ring around a
+    // disc for the end, and no label on either.
+    expect(svg.querySelectorAll("circle.siren-state-start")).toHaveLength(1);
+    expect(svg.querySelectorAll("circle.siren-state-end")).toHaveLength(1);
+    expect(svg.querySelectorAll("circle.siren-state-end-inner")).toHaveLength(1);
+    expect(
+      Array.from(svg.querySelectorAll("text.siren-state-label")).map((t) => t.textContent),
+    ).toEqual(["Idle", "Busy"]);
+  });
+
+  it("joins `[*] --> [*]` from the start pseudo-state to the end one", () => {
+    const { result } = renderState("stateDiagram-v2\n  [*] --> [*]\n");
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "end:1"]);
+    expect(
+      svg.querySelector('g.siren-transition[data-siren-id="start:1-end:1"]'),
+    ).not.toBeNull();
+  });
+
+  it("leaves the start pseudo-state alone when the author declares a state named `root_start`", () => {
+    // Siren diverging from Mermaid, and removing a bug by doing so.
+    // Measured, 11.17.2: this document means three nodes and two edges, and
+    // Mermaid draws two nodes with the relations `root_start → root_start`
+    // and `root_start → B` — the start pseudo-state swallowed by the
+    // author's own state, its edge turned into a self-loop nobody wrote,
+    // and no diagnostic. Siren's generated ids carry a colon that an
+    // authored `\w+` id cannot, so there is nothing to collide.
+    const { result } = renderState(
+      "stateDiagram-v2\n  [*] --> root_start\n  root_start --> B\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "root_start", "B"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1-root_start", "root_start-B"]);
+    // The author's state is a box with its own name in it, and the disc is
+    // still the disc.
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="root_start"] text.siren-state-label')!
+        .textContent,
+    ).toBe("root_start");
+    expect(svg.querySelectorAll("circle.siren-state-start")).toHaveLength(1);
   });
 });

@@ -21,7 +21,10 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * Builds a real `SVGSVGElement` from a `PositionedStateDiagram`: one
  * `<g class="siren-state">` per state (a rounded
  * `<rect class="siren-state-frame">` and the
- * `<text class="siren-state-label">` centred in it) and one
+ * `<text class="siren-state-label">` centred in it — or, for the two
+ * pseudo-states `[*]` spells, the filled `<circle class="siren-state-start">`
+ * or the `<circle class="siren-state-end">` ring around its
+ * `.siren-state-end-inner` disc) and one
  * `<g class="siren-transition">` per transition (a
  * `<path class="siren-transition-line">` along the layout's points, ending
  * in an arrowhead, plus a `<text class="siren-transition-label">` when the
@@ -62,13 +65,34 @@ export function renderStateDiagramToSVG(diagram: PositionedStateDiagram): SVGSVG
 }
 
 /**
+ * How much of a pseudo-state's radius the filled disc inside an end
+ * pseudo-state's ring takes up.
+ *
+ * The *figure* is UML's and Mermaid's — a ring around a filled disc,
+ * measured (11.17.2: an outer circle of r=7 with a smaller filled one
+ * inside it). The *proportion* is Siren's, the split CONTEXT.md's
+ * design-token entry draws between a shape's kind and how it is
+ * proportioned.
+ */
+const END_STATE_INNER_RATIO = 0.5;
+
+/**
  * Builds the `<g class="siren-state">` for one state: its frame at the
- * layout-assigned box, and its name centred inside it.
+ * layout-assigned box, and its name centred inside it — or, for a
+ * pseudo-state, the disc or ring that stands in for both.
  *
  * As on `.siren-node` and `.siren-class`, `data-siren-id` and the animation
  * classes land on this enclosing `<g>`; its parts carry none of their own.
+ * The group's class is the same `siren-state` whichever figure is inside
+ * it, for the reason a participant's `<g>` does not say whether it holds a
+ * box or an actor: what is drawn differs, what it *is* does not, and the
+ * timeline addresses the group.
  */
 function buildState(state: PositionedState): SVGGElement {
+  if (state.kind !== "state") {
+    return buildPseudoState(state);
+  }
+
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-state");
   g.setAttribute("data-siren-id", state.id);
@@ -94,6 +118,51 @@ function buildState(state: PositionedState): SVGGElement {
   );
 
   return g;
+}
+
+/**
+ * Builds the `<g class="siren-state">` for a start or end pseudo-state: the
+ * filled disc UML draws a start as, or the ring around a filled disc it
+ * draws an end as. Concentric in the square box layout sized for it.
+ *
+ * No label, and deliberately: a pseudo-state's id is *generated*
+ * (`start:1`), so the only text there could be to draw is a string the
+ * author never wrote and no reader should be shown.
+ */
+function buildPseudoState(state: PositionedState): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-state");
+  g.setAttribute("data-siren-id", state.id);
+
+  const center = { x: state.x + state.width / 2, y: state.y + state.height / 2 };
+  const radius = state.width / 2;
+
+  if (state.kind === "start") {
+    g.appendChild(buildCircle("siren-state-start", center, radius));
+    return g;
+  }
+
+  // Drawn outer first so the inner disc lands on top of it — a ring is a
+  // circle with a smaller one over it, and document order is paint order.
+  g.appendChild(buildCircle("siren-state-end", center, radius));
+  g.appendChild(
+    buildCircle("siren-state-end-inner", center, radius * END_STATE_INNER_RATIO),
+  );
+  return g;
+}
+
+/** One `<circle>` of the given class, centred on `center`. */
+function buildCircle(
+  className: string,
+  center: Point,
+  radius: number,
+): SVGCircleElement {
+  const circle = document.createElementNS(SVG_NS, "circle") as SVGCircleElement;
+  circle.setAttribute("class", className);
+  circle.setAttribute("cx", String(center.x));
+  circle.setAttribute("cy", String(center.y));
+  circle.setAttribute("r", String(radius));
+  return circle;
 }
 
 /**
