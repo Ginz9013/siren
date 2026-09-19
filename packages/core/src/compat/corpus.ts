@@ -18,7 +18,7 @@
 import type { SirenRenderResult } from "../contracts";
 
 /** Which Mermaid diagram kind a case is written in. */
-export type CompatKind = "flowchart" | "class" | "sequence";
+export type CompatKind = "flowchart" | "class" | "sequence" | "state";
 
 /**
  * Where Siren stands on one Mermaid construct.
@@ -768,6 +768,54 @@ function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
     (g) => `${g.getAttribute("data-siren-block-kind") ?? "<none>"}:${idOf(g)}`,
   );
+}
+
+/** Every state-diagram state as `id`, in draw order. */
+function states(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-state").map(idOf);
+}
+
+/**
+ * Every state-diagram transition as `id: label`, in draw order — the label
+ * empty when the transition carries none, which is a picture a reader can
+ * tell from one that carries an empty label only because nothing is drawn.
+ */
+function transitions(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-transition").map(
+    (g) => `${idOf(g)}: ${g.querySelector("text.siren-transition-label")?.textContent ?? ""}`,
+  );
+}
+
+/**
+ * One state box's centre — how a state diagram's top-to-bottom direction is
+ * visible in the result rather than merely claimed.
+ */
+function stateCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const frame = svgOf(result).querySelector(
+    `g.siren-state[data-siren-id="${id}"] rect.siren-state-frame`,
+  );
+  if (frame === null) throw new Error(`no state "${id}" was drawn`);
+  const number = (name: string) => Number(frame.getAttribute(name));
+  return {
+    x: number("x") + number("width") / 2,
+    y: number("y") + number("height") / 2,
+  };
+}
+
+/**
+ * The distinct coordinates one transition's line is drawn through, read off
+ * the `<path>`'s own `d`.
+ *
+ * Distinct, because the question a self-loop raises is whether a *loop* was
+ * drawn: a route that collapsed onto a single point still leaves a `<path>`
+ * in the SVG to find, and draws nothing at all.
+ */
+function transitionPoints(result: SirenRenderResult, id: string): string[] {
+  const path = svgOf(result).querySelector(
+    `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
+  );
+  if (path === null) throw new Error(`no transition "${id}" was drawn`);
+  return [...new Set((path.getAttribute("d") ?? "").split(" "))];
 }
 
 /** Whether the diagram drew anything at all under `selector`. */
@@ -2381,6 +2429,125 @@ line2\`"]`,
         "Label reaches the reader as the participant's tooltip",
         group?.querySelector("title")?.textContent,
         "Dashboard",
+      );
+    },
+  },
+  // -------------------------------------------------------------------------
+  // stateDiagram
+  // -------------------------------------------------------------------------
+  {
+    id: "st-header-v1",
+    kind: "state",
+    source: `stateDiagram
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`stateDiagram` opens a state diagram. Measured (mermaid 11.17.2): it " +
+      "and `stateDiagram-v2` report the same diagram type, so they are one " +
+      "kind written two ways.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+    },
+  },
+  {
+    id: "st-header-v2",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`stateDiagram-v2` is the modern spelling of the same header, and lays " +
+      "the diagram out top to bottom — the direction Mermaid reports for a " +
+      "state diagram that names none.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+      // The direction, read off the picture: asserting the two states alone
+      // would pass for a document laid out sideways.
+      expectSame(
+        "Running is drawn below Idle",
+        stateCenter(result, "Running").y > stateCenter(result, "Idle").y,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-state-bare",
+    kind: "state",
+    source: `stateDiagram-v2
+      Lonely`,
+    status: "supported",
+    meaning:
+      "A bare identifier on a line of its own declares a state. Measured: it " +
+      "enters Mermaid's state table with no transition needed, so a state " +
+      "nothing points at still draws.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Lonely"]);
+      expectSame("transitions", transitions(result), []);
+      expectSame(
+        "its name is drawn in the box",
+        texts(result, "g.siren-state text.siren-state-label"),
+        ["Lonely"],
+      );
+    },
+  },
+  {
+    id: "st-transition",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Running
+      Running --> Done`,
+    status: "supported",
+    meaning:
+      "`A --> B` is a transition from A to B, and declares both states. " +
+      "Written with no label, it draws no label — Mermaid reports the " +
+      "relation title as empty, and an empty label is not a label.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running", "Done"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: ", "Running-Done: "]);
+      expectSame("no transition drew a label", texts(result, "text.siren-transition-label"), []);
+    },
+  },
+  {
+    id: "st-transition-label",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Running : start the job`,
+    status: "supported",
+    meaning:
+      "`A --> B : text` labels the transition. Measured: the text rides on " +
+      "the relation itself (`relationTitle`), not on a statement of its own.",
+    assert: (result) => {
+      expectSame("transitions", transitions(result), ["Idle-Running: start the job"]);
+      // Drawn on the line rather than merely present somewhere: the label
+      // belongs to the transition's own group.
+      expectSame(
+        "the label is drawn inside the transition's group",
+        texts(result, 'g.siren-transition[data-siren-id="Idle-Running"] text'),
+        ["start the job"],
+      );
+    },
+  },
+  {
+    id: "st-self-transition",
+    kind: "state",
+    source: `stateDiagram-v2
+      Running --> Running : retry`,
+    status: "supported",
+    meaning:
+      "`A --> A` is the 'stays in this state' loop, and legitimate syntax " +
+      "rather than an error. Measured: one state, one relation onto itself.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Running"]);
+      expectSame("transitions", transitions(result), ["Running-Running: retry"]);
+      // A drawn loop and not a point: a route collapsed onto one coordinate
+      // leaves a `<path>` to find and draws nothing.
+      const drawn = transitionPoints(result, "Running-Running");
+      expectSame(
+        `the loop is drawn through more than one point (got ${JSON.stringify(drawn)})`,
+        drawn.length > 1,
+        true,
       );
     },
   },

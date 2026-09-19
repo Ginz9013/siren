@@ -5612,3 +5612,85 @@ click C href "https://example.com/finish"
     expect(confirm.getAttribute("data-siren-click-arg")).toBe("42");
   });
 });
+
+describe("render() — a state diagram, end to end", () => {
+  /** Renders `source` into a fresh attached container and hands back the result. */
+  const renderState = (source: string) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    return { container, result: render(source, container) };
+  };
+
+  it("draws a state diagram written with either header spelling, identically", () => {
+    // Measured (mermaid 11.17.2): both spellings report the diagram type
+    // `stateDiagram`, so the two documents are the same document and must
+    // draw the same picture.
+    const pictureOf = (header: string) => {
+      const { result } = renderState(`${header}\n  Idle --> Running : start\n`);
+      expect(result.diagnostics, header).toEqual([]);
+      return result.svg!.innerHTML.replace(/__[A-Za-z0-9]{8}/g, "__scope");
+    };
+
+    expect(pictureOf("stateDiagram")).toBe(pictureOf("stateDiagram-v2"));
+  });
+
+  it("mounts one siren-state group per state and one siren-transition per transition, each carrying its id", () => {
+    const { container, result } = renderState(
+      "stateDiagram-v2\n  Idle --> Running : start\n  Running --> Idle\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Idle", "Running"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Idle-Running", "Running-Idle"]);
+    expect(
+      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] text')!.textContent,
+    ).toBe("start");
+  });
+
+  it("draws the self-loop `A --> A : retry` as one state with one transition onto itself", () => {
+    const { result } = renderState("stateDiagram-v2\n  Running --> Running : retry\n");
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(svg.querySelectorAll("g.siren-state")).toHaveLength(1);
+
+    const loop = svg.querySelector('g.siren-transition[data-siren-id="Running-Running"]')!;
+    const path = loop.querySelector("path.siren-transition-line")!;
+    // A drawn loop, not a point: a route that collapsed onto one coordinate
+    // would draw nothing at all and still have a `<path>` to find.
+    const points = (path.getAttribute("d") ?? "").split(" ");
+    expect(points.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(points).size).toBeGreaterThanOrEqual(2);
+    expect(loop.querySelector("text")!.textContent).toBe("retry");
+  });
+
+  it("returns a working controller for a state diagram, as every other kind does", () => {
+    // `SirenRenderResult.controller` is null *only* when rendering failed, so
+    // a kind that returned none would break that promise for its callers.
+    const { result } = renderState("stateDiagram-v2\n  Idle --> Running\n");
+
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+  });
+
+  it("draws nothing and says which construct is missing when the document uses one this renderer has not got", () => {
+    const { result } = renderState("stateDiagram-v2\n  [*] --> Idle\n");
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].severity).toBe("error");
+    expect(result.diagnostics[0].message).toContain("start/end pseudo-state");
+  });
+});

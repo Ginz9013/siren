@@ -264,7 +264,9 @@
 .siren-class,
 .siren-relationship,
 .siren-namespace,
-.siren-note {
+.siren-note,
+.siren-state,
+.siren-transition {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -637,6 +639,54 @@
 }
 
 /*
+ * State diagram, per the frozen SVG conventions in
+ * renderStateDiagramToSVG.ts. The same bargain the class diagram's block
+ * strikes above: the flowchart's five color tokens are reused rather than
+ * extended with state-diagram-specific ones (a state *is* a node, a
+ * transition *is* an edge), and each is named at the point of use rather
+ * than aliased into a new `--siren-*` in `:root`, which would freeze its
+ * light value above the demos' `<body>`-scoped dark override.
+ */
+
+/*
+ * A state box is rounded, which a class box is not: UML draws a state as a
+ * rounded rectangle, and the radius is decoration of the box rather than the
+ * figure itself — so it is the token's, and `renderStateDiagramToSVG`
+ * deliberately writes no `rx` of its own for a consumer's redeclaration to
+ * lose to.
+ */
+.siren-state-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/* Same weight as a class name: the state's name titles its box. */
+.siren-state-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * `fill` is absent because the renderer writes `fill="none"` onto the path
+ * itself: a transition's points make an open, multi-segment path that a
+ * default fill would paint as a polygon over the states it joins. A
+ * self-transition's loop is the same path drawn beside one box, and takes
+ * this same rule.
+ */
+.siren-transition-line {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/* Secondary type naming the transition, exactly as a relationship label is. */
+.siren-transition-label {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
  * Step-reveal states: elements with an `enter` action carry `siren-pending`
  * at step 0 (invisible). No renderer marks them — `createAnimationController`
  * does, from `computeClassStateAtStep(timeline, 0)`, which every kind's
@@ -908,6 +958,24 @@
  */
 .siren-namespace.siren-highlight-outline .siren-namespace-frame,
 .siren-note.siren-highlight-outline .siren-note-frame {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * The state diagram's own `outline` rules, for the reason the class
+ * diagram's exist one block up: the highlight class lands on a
+ * `<g class="siren-state">` whose stroke lives on an inner
+ * `.siren-state-frame`, and on a `<g class="siren-transition">` whose stroke
+ * lives on an inner `.siren-transition-line`, and no rule above names
+ * either. Both are already addressable by id in the rendered SVG, so the
+ * day this kind reads a `timeline:` block these have to mean something.
+ */
+.siren-state.siren-highlight-outline .siren-state-frame,
+.siren-transition.siren-highlight-outline .siren-transition-line {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);
   transition:

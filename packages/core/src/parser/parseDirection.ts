@@ -119,6 +119,11 @@ const DIAGRAM_HEADERS: Record<DiagramKind, DiagramHeader> = {
   },
   sequence: keywordHeader("sequenceDiagram"),
   class: keywordHeader("classDiagram", "classDiagram-v2"),
+  // Two spellings of one kind, exactly as the class diagram's are: measured
+  // against mermaid 11.17.2, `stateDiagram` and `stateDiagram-v2` both report
+  // the diagram type `stateDiagram`. Collapsing them here is what keeps that
+  // fact in one place rather than in a parser and a diagnostic separately.
+  state: keywordHeader("stateDiagram", "stateDiagram-v2"),
 };
 
 const EVERY_KIND = Object.keys(DIAGRAM_HEADERS) as DiagramKind[];

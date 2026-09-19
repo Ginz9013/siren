@@ -390,9 +390,13 @@ export interface FlowchartDocument {
 /**
  * The parsed document, tagged by diagram kind. Produced by `parseSiren`
  * (which dispatches on the source's header line to `parseFlowchart`,
- * `parseSequenceDiagram` or `parseClassDiagram`).
+ * `parseSequenceDiagram`, `parseClassDiagram` or `parseStateDiagram`).
  */
-export type SirenDocument = FlowchartDocument | SequenceDocument | ClassDocument;
+export type SirenDocument =
+  | FlowchartDocument
+  | SequenceDocument
+  | ClassDocument
+  | StateDocument;
 
 /** Result of `parseSiren` (and, independently, `parseSequenceDiagram`). */
 export interface ParseResult {
@@ -1176,19 +1180,26 @@ export interface GraphModel {
 
 /**
  * Result of `buildGraphModel`. Carries `graph` (flowchart), `model`
- * (sequence) and `classModel` (class) so the one dispatcher function can
- * return any of the three shapes.
+ * (sequence), `classModel` (class) and `stateModel` (state) so the one
+ * dispatcher function can return any of the four shapes.
  *
  * At most one is non-null, matching the `SirenDocument.kind` of the document
  * it resolved — not exactly one, because a stage that fails resolution
- * returns all three null alongside an error-severity diagnostic explaining
+ * returns all four null alongside an error-severity diagnostic explaining
  * why. A caller must therefore branch on the field it expects being non-null,
- * never assume the other two being null means its own is populated.
+ * never assume the other three being null means its own is populated.
+ *
+ * "Four nullable fields, at most one non-null" is a shape a discriminated
+ * union would say better, and that is known, recorded debt rather than an
+ * oversight: turning it into one touches every caller of every stage and is
+ * tracked as its own refactor rather than smuggled into the ticket that
+ * added a fourth kind.
  */
 export interface GraphModelResult {
   graph: GraphModel | null;
   model: SequenceModel | null;
   classModel: ClassModel | null;
+  stateModel: StateModel | null;
   diagnostics: Diagnostic[];
 }
 
@@ -1833,6 +1844,150 @@ export interface PositionedClassDiagram {
   /** Namespace frames, drawn before (behind) the classes they enclose. */
   namespaces: PositionedClassNamespace[];
   notes: PositionedClassNote[];
+  timeline: ResolvedTimeline;
+  width: number;
+  height: number;
+}
+
+// ---------------------------------------------------------------------------
+// State diagram — parser-level (pre graph-model) types
+// ---------------------------------------------------------------------------
+
+/**
+ * A state as the parser read it — one declaration per state id, in the order
+ * the document first named it.
+ *
+ * Unlike `ClassDecl`, a state carries no repeatable payload (no members, no
+ * annotation), so the parser folds repeat mentions here rather than leaving
+ * a merge for the model: naming a state five times is one declaration,
+ * positioned at its first mention.
+ */
+export interface StateDecl {
+  id: string;
+  /** 1-based line the state was first named on. */
+  line: number;
+  /** 1-based column the statement that first named it starts at. */
+  column: number;
+}
+
+/**
+ * A transition as the parser read it: `A --> B`, with the optional `: label`
+ * that rides on it.
+ *
+ * `label` is `null` when the author wrote none, never `""`. Mermaid reports
+ * an unlabelled relation's `relationTitle` as the empty string (measured,
+ * 11.17.2), and Siren spells the absence the way `Edge.label` and
+ * `ClassRelationship.label` already do — `""` is a label that draws nothing,
+ * which is a different document from one that carries no label at all.
+ *
+ * A self-transition (`A --> A`) is an ordinary transition and not an error:
+ * measured, it is one state with one relation onto itself — the "stays in
+ * this state" loop.
+ */
+export interface StateTransition {
+  from: string;
+  to: string;
+  label: string | null;
+  /** 1-based line the transition was written on. */
+  sourceLine: number;
+  /** 1-based column the statement starts at. */
+  sourceColumn: number;
+}
+
+/**
+ * The parsed `stateDiagram` (or `stateDiagram-v2`) source: states and the
+ * transitions between them. Produced by `parseStateDiagram`. One arm of the
+ * `SirenDocument` union.
+ *
+ * Which of the two header spellings the author wrote is resolved in the
+ * parser and recorded nowhere: measured against mermaid 11.17.2, both
+ * report the diagram type `stateDiagram`, so they are one kind with two
+ * spellings exactly as `classDiagram`/`classDiagram-v2` are.
+ */
+export interface StateDocument {
+  kind: "state";
+  states: StateDecl[];
+  transitions: StateTransition[];
+}
+
+// ---------------------------------------------------------------------------
+// State diagram — graph-model (post `buildStateModel`) types
+// ---------------------------------------------------------------------------
+
+/** A state after model resolution. */
+export interface ResolvedState {
+  id: string;
+}
+
+/**
+ * A transition after model resolution: assigned the id the renderer — and,
+ * once the timeline reaches this kind, a `timeline:` block — addresses it
+ * by, following the convention flowchart edges and class relationships
+ * already share: `${from}-${to}`, then `#2`, `#3`, ... for repeats of the
+ * same ordered pair.
+ */
+export interface ResolvedStateTransition {
+  id: string;
+  from: string;
+  to: string;
+  label: string | null;
+}
+
+/**
+ * The normalized in-memory state diagram produced by `buildStateModel`:
+ * states, identified transitions, and the resolved timeline.
+ */
+export interface StateModel {
+  states: ResolvedState[];
+  transitions: ResolvedStateTransition[];
+  timeline: ResolvedTimeline;
+}
+
+/** Result of `buildStateModel`. */
+export interface StateModelResult {
+  model: StateModel | null;
+  diagnostics: Diagnostic[];
+}
+
+// ---------------------------------------------------------------------------
+// State diagram — layout (post `layoutStateDiagram`) types
+// ---------------------------------------------------------------------------
+
+/**
+ * A state with a layout-assigned box. `x`/`y` are the box's top-left corner,
+ * matching `PositionedNode` and `PositionedClass`.
+ */
+export interface PositionedState {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A transition with a layout-assigned path and, when it carries one, a label anchor. */
+export interface PositionedStateTransition {
+  id: string;
+  from: string;
+  to: string;
+  points: Point[];
+  label: string | null;
+  /**
+   * Where to draw `label`: the centre of the space layout kept clear for it,
+   * or `null` when the transition carries no label and asked for none — the
+   * shape `PositionedEdge.labelAnchor` already has, for the reason given
+   * there.
+   */
+  labelAnchor: Point | null;
+}
+
+/**
+ * The state diagram after layout: positioned states and transitions plus the
+ * resolved timeline, ready for `renderStateDiagramToSVG`.
+ */
+export interface PositionedStateDiagram {
+  states: PositionedState[];
+  transitions: PositionedStateTransition[];
   timeline: ResolvedTimeline;
   width: number;
   height: number;

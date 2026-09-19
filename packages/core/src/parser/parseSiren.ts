@@ -3,6 +3,7 @@ import { parseClassDiagram } from "./parseClassDiagram";
 import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
+import { parseStateDiagram } from "./parseStateDiagram";
 
 /**
  * Every spelling the language accepts, with no kind named here — so this
@@ -21,6 +22,7 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
   flowchart: parseFlowchart,
   sequence: parseSequenceDiagram,
   class: parseClassDiagram,
+  state: parseStateDiagram,
 };
 
 /**

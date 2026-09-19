@@ -938,6 +938,20 @@ timeline:
     expect(document!.kind).toBe("class");
   });
 
+  it("dispatches both stateDiagram spellings to parseStateDiagram, tagged kind: \"state\"", () => {
+    // Measured (mermaid 11.17.2): both report the diagram type
+    // `stateDiagram`, so — exactly as with `classDiagram-v2` above — the two
+    // spellings are one kind and nothing downstream learns which was
+    // written.
+    for (const header of ["stateDiagram", "stateDiagram-v2"]) {
+      const { document, diagnostics } = parseSiren(`${header}\n`);
+
+      expect(diagnostics, header).toEqual([]);
+      expect(document, header).not.toBeNull();
+      expect(document!.kind, header).toBe("state");
+    }
+  });
+
   it("ignores whole-line, indented and trailing %% comments in a flowchart", () => {
     const source = `%% what this diagram is for
 flowchart TD
@@ -2443,17 +2457,23 @@ describe("the header spellings the dispatcher teaches", () => {
   const ACCEPTED =
     '"flowchart TB", "flowchart BT", "flowchart LR", "flowchart RL",' +
     ' "graph TB", "graph BT", "graph LR", "graph RL",' +
-    ' "sequenceDiagram", "classDiagram", or "classDiagram-v2"';
+    ' "sequenceDiagram", "classDiagram", "classDiagram-v2",' +
+    ' "stateDiagram", or "stateDiagram-v2"';
 
-  it("names `classDiagram-v2` among them when it rejects a header", () => {
+  it("names both `classDiagram-v2` and `stateDiagram-v2` among them when it rejects a header", () => {
     // `parseClassDiagram` has always accepted `classDiagram-v2`, and the
     // dispatcher has always dispatched it, while this message taught only
     // the bare spelling — an author sent to rewrite a header that was
-    // already correct.
-    const { document, diagnostics } = parseSiren("stateDiagram-v2\n  [*] --> Still\n");
+    // already correct. The state diagram arrived with both spellings at
+    // once, and this is what keeps the pair from drifting the same way.
+    //
+    // The probe is a header no kind claims: every spelling this message
+    // names is now routed somewhere, so a rejection can only be provoked by
+    // a word that is not one of them.
+    const { document, diagnostics } = parseSiren("stateChart-v2\n  Still --> Moving\n");
 
     expect(document).toBeNull();
-    expect(diagnostics[0].message).toBe(`Expected ${ACCEPTED}, found "stateDiagram-v2"`);
+    expect(diagnostics[0].message).toBe(`Expected ${ACCEPTED}, found "stateChart-v2"`);
   });
   it("names the same set when the document is empty", () => {
     const { document, diagnostics } = parseSiren("\n  \n");
@@ -2466,11 +2486,11 @@ describe("the header spellings the dispatcher teaches", () => {
     // The property the single list buys, stated without naming the list: a
     // spelling the diagnostic teaches has to be one the dispatcher routes,
     // or the message is sending authors to write a header that is rejected.
-    const rejected = parseSiren("stateDiagram-v2\n").diagnostics[0].message;
+    const rejected = parseSiren("stateChart-v2\n").diagnostics[0].message;
     const named = rejected.slice(0, rejected.indexOf(', found "'));
     const spellings = [...named.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
-    expect(spellings).toHaveLength(11);
+    expect(spellings).toHaveLength(13);
     for (const spelling of spellings) {
       // Only the header is under test: a document that is nothing but one
       // has other things wrong with it (an empty `sequenceDiagram` has no
