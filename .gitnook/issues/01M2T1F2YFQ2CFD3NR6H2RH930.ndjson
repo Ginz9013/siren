@@ -3,3 +3,4 @@
 {"id":"01M2T1F35B1G4AFBCBTK0NJH5T","t":3,"a":"83a1","op":"label.add","v":"state"}
 {"id":"01M2T1F35M8JJP90VZYTSSZEX0","t":4,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M2T1F3BXBR4NSWD40QEH07ZF","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2WK8AYSZ6P8AG93G1T7EAFH","t":6,"a":"83a1","op":"comment","body":"規劃時的兩個錯誤修正（票 2 落地時發現）：\n\n1. **沒有 SUPPORTED 棘輪這種東西。** 票面描述提到「SUPPORTED 棘輪跟著動」是我寫錯的。\n   corpus.test.ts 只有兩個棘輪：`SILENTLY_WRONG` 與 `REJECTED`。supported 的數字只活在\n   那個檔案的長篇註解裡，沒有 literal 要更新。票 2 的 worker 正確地拒絕自己發明第三個棘輪\n   ——那是 corpus 的政策決定（新棘輪能往哪個方向動、為什麼），不是一張實作票能決定的。\n   **不要新增第三個棘輪**，要的話另開票討論。\n\n2. **mermaid-probe.mjs 原本讀不了狀態圖**，而且是默默讀錯：狀態圖的 db 也有 `getClasses`\n   （classDef 在那裡），所以它會落進 class 分支，印出「classes (none)」跟一張少了\n   `relationTitle` 的 relations 表——是錯的報告而不是它自己那句「no reader for diagram\n   type」。已修（commit e545fbf），現在會印出巢狀層級（`in=\"root/Compound\"`）、複合狀態\n   內部的關係、以及 direction。**要量 Mermaid 行為時直接用它**。"}
