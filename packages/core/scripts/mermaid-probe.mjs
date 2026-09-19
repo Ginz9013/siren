@@ -217,6 +217,18 @@ function section(title, lines) {
  * about — what a node is labelled and what shape it takes, which edges exist
  * and in what order, which lifeline a message activates.
  */
+/**
+ * The `state` statements inside a composite state's `doc`, which mixes
+ * statement kinds: a `relation` entry holds its two states inline rather
+ * than declaring them, so the states a composite *contains* are the ones it
+ * declares plus the ones its relations mention.
+ */
+function statesIn(doc) {
+  return doc.flatMap((entry) =>
+    entry.stmt === "relation" ? [entry.state1, entry.state2] : entry.stmt === "state" ? [entry] : [],
+  );
+}
+
 function report(type, db) {
   if (typeof db.getVertices === "function") {
     section(
@@ -256,6 +268,59 @@ function report(type, db) {
         describe(message, ["id", "type", "from", "to", "message", "activate", "wrap"]),
       ),
     );
+    return;
+  }
+
+  // Asked before the class-diagram branch, and that order is the whole point:
+  // a state diagram's database *also* answers `getClasses` (it is where
+  // `classDef` lives for that kind too), so without this the state reader
+  // below is unreachable and a state document is reported as a class diagram
+  // with no classes — a wrong report rather than the honest "no reader for
+  // diagram type" this file falls back to. Measured the hard way, by a board
+  // that read that empty table as a fact.
+  if (typeof db.getStates === "function") {
+    // A composite state carries its children in `doc`, so the tree is walked
+    // rather than listed: the id a nested state is recorded under is scoped
+    // to the composite that holds it (`Compound_start`, not `root_start`),
+    // and a flat table would hide that.
+    //
+    // Deduplicated per level, because a state is reached once per relation
+    // that names it — `[*] --> Inner` and `Inner --> [*]` mention `Inner`
+    // twice, and printing it twice would read as two states.
+    const walk = (states, path) => {
+      const seen = new Set();
+      return records(states).flatMap((state) => {
+        if (seen.has(state.id)) return [];
+        seen.add(state.id);
+        return [
+          describe({ ...state, in: path }, ["id", "type", "in", "descriptions", "note", "classes"]),
+          ...(state.doc === undefined ? [] : walk(statesIn(state.doc), `${path}/${state.id}`)),
+        ];
+      });
+    };
+    section("states (nested ones shown under the composite that holds them)", walk(db.getStates(), "root"));
+
+    // `getRelations()` answers for the root level only; a composite's own
+    // transitions live in its `doc` and are gathered here, so "which
+    // transitions exist" is one question with one answer.
+    const relationsIn = (doc, path) =>
+      doc.flatMap((entry) => [
+        ...(entry.stmt === "relation"
+          ? [describe({ ...entry, id1: entry.state1.id, id2: entry.state2.id, in: path }, ["id1", "id2", "relationTitle", "in"])]
+          : []),
+        ...(entry.stmt === "state" && entry.doc !== undefined
+          ? relationsIn(entry.doc, `${path}/${entry.id}`)
+          : []),
+      ]);
+    section("relations", [
+      ...records(db.getRelations()).map((relation) =>
+        describe({ ...relation, in: "root" }, ["id1", "id2", "relationTitle", "in"]),
+      ),
+      ...records(db.getStates()).flatMap((state) =>
+        state.doc === undefined ? [] : relationsIn(state.doc, `root/${state.id}`),
+      ),
+    ]);
+    console.log(`\n## direction\n  ${db.getDirection?.() ?? "(none recorded)"}`);
     return;
   }
 
