@@ -222,9 +222,65 @@ function straightLineRoute(
 }
 
 /**
+ * Thrown by `layoutDirectedGraph` when the engine handed back something other
+ * than a finite box for a node it was given — no entry at all, or an entry
+ * whose `x`, `y`, `width` or `height` is `undefined`, `NaN` or infinite.
+ *
+ * **A thrown error rather than a diagnostic returned alongside a result,
+ * because there is no result.** Every other stage of this pipeline reports
+ * problems as `Diagnostic`s it accumulates and carries on with, which works
+ * because those problems are *local*: one unresolved timeline reference costs
+ * that reference and nothing else. A node with no coordinates is not local —
+ * the graph's own bounds are computed over it, so it takes the `<svg>`'s
+ * `width`, `height` and `viewBox` down with it, and every edge routed to it.
+ * There is no partial picture left to hand back, so this module has nothing
+ * to return and says so in the one way a function with no answer can.
+ *
+ * `render()` catches it at each of its three layout call sites and converts
+ * it to the error-severity diagnostic an author sees; `Diagnostic`'s contract
+ * — returned from `render()`, never thrown — is therefore unchanged. This
+ * type is exported for that conversion and for nothing else: a caller
+ * matching on it by name is matching on "this document cannot be laid out",
+ * which is the whole of its meaning.
+ */
+export class UnplacedNodesError extends Error {
+  /** The nodes the engine left without coordinates, in the caller's own order. */
+  readonly nodeIds: readonly string[];
+
+  constructor(nodeIds: readonly string[]) {
+    super(
+      `Layout produced no coordinates for ${nodeIds
+        .map((id) => `"${id}"`)
+        .join(", ")}. The known cause is a cluster carrying a direction of ` +
+        `its own that has another cluster as a direct child: the layout ` +
+        `engine expands such a cluster exactly one level, leaving the nested ` +
+        `frame unexpanded and everything inside it unplaced (01M2WQV0). ` +
+        `This document cannot be drawn.`,
+    );
+    this.name = "UnplacedNodesError";
+    this.nodeIds = nodeIds;
+  }
+}
+
+/** Whether the engine really placed this node: four finite numbers, not `undefined`. */
+function isPlaced(placed: { x?: number; y?: number; width?: number; height?: number } | undefined): boolean {
+  return (
+    placed !== undefined &&
+    Number.isFinite(placed.x) &&
+    Number.isFinite(placed.y) &&
+    Number.isFinite(placed.width) &&
+    Number.isFinite(placed.height)
+  );
+}
+
+/**
  * The single call site for `@dagrejs/dagre` in the pipeline. Takes sizes,
  * returns coordinates: it measures no text, knows no diagram kind, and sees
  * no labels, shapes or timelines. Pure and deterministic.
+ *
+ * Throws `UnplacedNodesError` when the engine did not place every node it was
+ * given. See that type for why this one failure is a throw rather than a
+ * value.
  *
  * Keeping every dagre interaction here is what ADR-0001 means by layout math
  * being an implementation detail behind our own seam.
@@ -323,16 +379,30 @@ export function layoutDirectedGraph(
 
   dagre.layout(g);
 
-  const nodes = input.nodes.map((node) => {
-    const placed = g.node(node.id);
-    return {
-      id: node.id,
-      x: placed.x - placed.width / 2,
-      y: placed.y - placed.height / 2,
-      width: placed.width,
-      height: placed.height,
-    };
-  });
+  // Checked before a single subtraction, and checked for *finiteness* rather
+  // than for the construct that is known to produce it. `undefined - 30` is
+  // `NaN`, and `NaN` propagates silently through every arithmetic step below
+  // it — into the boxes, into the routes computed from them, and into the
+  // bounds computed from those — so the only place this can be caught while
+  // it still names something is here, at the boundary where the engine's
+  // answer arrives. Testing the *shape of the answer* also means any future
+  // source of a missing coordinate is caught by the same line, rather than by
+  // a second special case written after the next silent mis-render is found.
+  const placements = input.nodes.map((node) => ({ node, placed: g.node(node.id) }));
+  const unplaced = placements
+    .filter(({ placed }) => !isPlaced(placed))
+    .map(({ node }) => node.id);
+  if (unplaced.length > 0) {
+    throw new UnplacedNodesError(unplaced);
+  }
+
+  const nodes = placements.map(({ node, placed }) => ({
+    id: node.id,
+    x: placed.x - placed.width / 2,
+    y: placed.y - placed.height / 2,
+    width: placed.width,
+    height: placed.height,
+  }));
 
   // Keyed for the fallback below: an edge with either endpoint inside a
   // per-cluster `rankdir` never gets `points` back from

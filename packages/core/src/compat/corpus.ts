@@ -1625,6 +1625,34 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-direction-nested",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph Outer
+        direction LR
+        subgraph Inner
+          A --> B
+        end
+        Inner --> C
+      end`,
+    status: "rejected",
+    meaning:
+      "The row above's construct with a subgraph nested inside the one " +
+      "carrying the `direction`. Measured against mermaid 11.17.2: it draws " +
+      "this document completely — both frames, all three nodes and both edge " +
+      "paths, no coordinate missing — so the absolute compatibility " +
+      "condition says Siren must draw it too, and this row's exit is " +
+      "implementation. It is `rejected` rather than `silently-wrong` only " +
+      "because refusing it is what the layout stage now does; drawing it is " +
+      "ticket `01M2XJWM4`. Measured against `@dagrejs/dagre@3.1.1` directly: " +
+      "a cluster given a `rankdir` of its own has its children expanded " +
+      "exactly one level, so `Inner` comes back at the size it was handed " +
+      "and `A` and `B` come back with `x`/`y` of `undefined` — which this " +
+      "pipeline subtracted from until it had `NaN` in 29 attributes of the " +
+      "rendered markup, the `<svg>`'s own `width`, `height` and `viewBox` " +
+      "among them, and said nothing at all (`01M2WQV0`).",
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB

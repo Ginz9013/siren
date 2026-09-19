@@ -6233,3 +6233,179 @@ describe("render() — a state diagram, end to end", () => {
     expect(byId("Working").classList.contains("siren-highlight-outline")).toBe(false);
   });
 });
+
+/**
+ * Whether the layout stage ever hands the renderer a coordinate that is not a
+ * number — the failure this group of tests is about, read where an author
+ * would see it rather than off an intermediate structure.
+ *
+ * Every attribute of every element, because the damage spreads: one unplaced
+ * node puts `NaN` into its own `<rect x>`, into the `d` of every path routed
+ * to it, and into the `<svg>`'s own `width`/`height`/`viewBox` by way of the
+ * bounds computed over it.
+ */
+function nanAttributes(svg: SVGSVGElement): string[] {
+  const found: string[] = [];
+  const visit = (element: Element): void => {
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.value.includes("NaN")) {
+        found.push(`<${element.tagName} ${attribute.name}="${attribute.value}">`);
+      }
+    }
+    for (const child of Array.from(element.children)) {
+      visit(child);
+    }
+  };
+  visit(svg);
+  return found;
+}
+
+/** `render()` into a throwaway container — the seam, with nothing else attached. */
+function renderInto(source: string) {
+  return render(source, document.createElement("div"));
+}
+
+/**
+ * The three combinations around the one that breaks, pinned before the
+ * coordinate guard exists so that the guard cannot quietly take them with it.
+ *
+ * Dagre's limitation is narrow and was measured narrowly (`01M2WQV0`): a
+ * cluster carrying a `rankdir` of its own expands its children exactly one
+ * level, so a *direct child that is itself a cluster* is left as an
+ * unexpanded box and everything below it is never positioned at all. Every
+ * neighbouring combination — nesting without a direction, a direction on the
+ * innermost frame whose children are all leaves, a direction with no nesting
+ * under it — lays out correctly today, in both the kinds that share this
+ * layout core. A guard that fires on any of these is a wrong guard, not a
+ * newly discovered defect.
+ */
+describe("render() — the layout combinations around per-cluster direction that do lay out", () => {
+  const cases: Array<[string, string]> = [
+    [
+      "nested subgraphs, no direction anywhere",
+      `flowchart TB
+  subgraph Outer
+    subgraph Inner
+      A --> B
+    end
+    Inner --> C
+  end`,
+    ],
+    [
+      "direction on the innermost subgraph, whose children are all leaves",
+      `flowchart TB
+  subgraph Outer
+    subgraph Inner
+      direction LR
+      A --> B
+    end
+    Inner --> C
+  end`,
+    ],
+    [
+      "direction on a subgraph with no nesting under it",
+      `flowchart TB
+  subgraph one
+    direction LR
+    A --> B
+  end`,
+    ],
+    [
+      "nested composite states, no direction anywhere",
+      `stateDiagram-v2
+  [*] --> Outer
+  state Outer {
+    state Inner {
+      A --> B
+    }
+    Inner --> C
+  }`,
+    ],
+    [
+      "direction on the innermost composite, whose children are all leaves",
+      `stateDiagram-v2
+  [*] --> Outer
+  state Outer {
+    state Inner {
+      direction LR
+      A --> B
+    }
+    Inner --> C
+  }`,
+    ],
+    [
+      "direction on a composite with no nesting under it",
+      `stateDiagram-v2
+  [*] --> Outer
+  state Outer {
+    direction LR
+    A --> B
+  }`,
+    ],
+  ];
+
+  for (const [name, source] of cases) {
+    it(`draws a picture and says nothing: ${name}`, () => {
+      const result = renderInto(source);
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.svg).not.toBeNull();
+      expect(nanAttributes(result.svg!)).toEqual([]);
+    });
+  }
+});
+
+/**
+ * The combination dagre cannot place, in both kinds that share the layout
+ * core — a cluster carrying its own direction with another cluster as a
+ * direct child (`01M2WQV0`).
+ *
+ * Measured against `@dagrejs/dagre@3.1.1` directly: it does not return `NaN`
+ * for the states below the unexpanded frame, it returns `undefined`, and
+ * subtracting from `undefined` is where the `NaN` in the markup was minted.
+ * A document this pipeline cannot place is a document it must refuse, which
+ * is CONTEXT.md's opening policy: an author gets an error-severity
+ * diagnostic naming what went wrong, not a picture with holes in it.
+ */
+describe("render() — a cluster whose own direction leaves its nested cluster unplaced", () => {
+  const flowchart = `flowchart TB
+  subgraph Outer
+    direction LR
+    subgraph Inner
+      A --> B
+    end
+    Inner --> C
+  end`;
+
+  const stateDiagram = `stateDiagram-v2
+  [*] --> Outer
+  state Outer {
+    direction LR
+    state Inner {
+      A --> B
+    }
+    Inner --> C
+  }`;
+
+  it("refuses the flowchart spelling rather than drawing NaN coordinates", () => {
+    const result = renderInto(flowchart);
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    // Named to the node, so an author can find the part of their document
+    // that did not survive layout without reading dagre's source.
+    expect(errors.some((d) => d.message.includes(`"A"`))).toBe(true);
+    expect(result.svg).toBeNull();
+    expect(result.controller).toBeNull();
+  });
+
+  it("refuses the state-diagram spelling on the same terms", () => {
+    const result = renderInto(stateDiagram);
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors.some((d) => d.message.includes(`"A"`))).toBe(true);
+    expect(result.svg).toBeNull();
+    expect(result.controller).toBeNull();
+  });
+});

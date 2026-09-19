@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Direction } from "../contracts";
 import {
   layoutDirectedGraph,
+  UnplacedNodesError,
   type DirectedGraphLayoutInput,
 } from "./layoutDirectedGraph";
 
@@ -308,5 +309,94 @@ describe("layoutDirectedGraph", () => {
       expect(point.y).toBeGreaterThanOrEqual(byId.one.y);
       expect(point.y).toBeLessThanOrEqual(byId.one.y + byId.one.height);
     }
+  });
+});
+
+/**
+ * The coordinate invariant, driven through the *measured* matrix in
+ * `01M2WQV0` rather than through one repro document.
+ *
+ * Three levels of cluster — `L0 > L1 > L2 > {X, Y}`, with `Z` beside `L1`
+ * under `L0` — and the `rankdir` moved between them. The engine expands a
+ * cluster carrying a direction of its own exactly one level: its direct
+ * children are laid out, and any of them that is itself a cluster is kept at
+ * the size it was handed, with everything below that child never positioned
+ * at all. So *which* nodes come back without coordinates depends on where
+ * the direction was written, and both answers below are read off that table,
+ * not off this code.
+ *
+ * What these pin beyond the repro is that the guard is a check on the
+ * engine's *answer*, not a check for one document shape: it reports whatever
+ * came back unplaced, at whatever depth, and it reports all of it.
+ */
+describe("layoutDirectedGraph's coordinate invariant", () => {
+  /** `L0 > L1 > L2 > {X, Y}`, `Z` under `L0`, with `rankdir` on whichever cluster is named. */
+  function threeLevels(rankdirOn: string): DirectedGraphLayoutInput {
+    const cluster = (id: string, parentId?: string) => ({
+      id,
+      width: 60,
+      height: 40,
+      isCluster: true,
+      ...(parentId === undefined ? {} : { parentId }),
+      ...(id === rankdirOn ? { rankdir: "LR" as const } : {}),
+    });
+    return {
+      rankdir: "TB",
+      nodes: [
+        cluster("L0"),
+        cluster("L1", "L0"),
+        cluster("L2", "L1"),
+        { id: "X", width: 40, height: 20, parentId: "L2" },
+        { id: "Y", width: 40, height: 20, parentId: "L2" },
+        { id: "Z", width: 40, height: 20, parentId: "L0" },
+      ],
+      edges: [
+        { id: "X-Y", from: "X", to: "Y" },
+        { id: "X-Z", from: "X", to: "Z" },
+      ],
+    };
+  }
+
+  /** The `UnplacedNodesError` `run` threw, or a failure naming what it did instead. */
+  function refusalOf(run: () => unknown): UnplacedNodesError {
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof UnplacedNodesError) return error;
+      throw error;
+    }
+    throw new Error("expected layoutDirectedGraph to refuse this graph, and it returned");
+  }
+
+  it("names every node left unplaced under the outermost cluster's own direction", () => {
+    // `L1` is the direct child kept unexpanded, so it has a box; `L2` and the
+    // two leaves under it are never positioned.
+    expect(refusalOf(() => layoutDirectedGraph(threeLevels("L0"))).nodeIds).toEqual([
+      "L2",
+      "X",
+      "Y",
+    ]);
+  });
+
+  it("names a different set when the direction is written one level in", () => {
+    // Same document, direction moved: now `L2` is the unexpanded direct child
+    // and only the leaves below it are lost. A guard keyed on "nested cluster
+    // plus direction" could not tell these two apart.
+    const refusal = refusalOf(() => layoutDirectedGraph(threeLevels("L1")));
+    expect(refusal.nodeIds).toEqual(["X", "Y"]);
+    expect(refusal.message).toContain('"X", "Y"');
+  });
+
+  it("places every node, and refuses nothing, when the direction is on the innermost cluster", () => {
+    // The measured-correct row of the same table: `L2`'s children are all
+    // leaves, so one level of expansion is all this document needs.
+    const result = layoutDirectedGraph(threeLevels("L2"));
+
+    for (const box of result.nodes) {
+      for (const value of [box.x, box.y, box.width, box.height]) {
+        expect(Number.isFinite(value)).toBe(true);
+      }
+    }
+    expect(result.nodes.map((n) => n.id)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
   });
 });

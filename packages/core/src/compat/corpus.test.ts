@@ -726,8 +726,32 @@ const SILENTLY_WRONG = 1;
  * except that those arrived `supported` and these arrive as the honest
  * backlog they are. Each has a route out: implement the construct, move the
  * row to `supported` with an assert, and lower this number by one.
+ *
+ * **6 → 7, and this rise is the one the rule below does not describe: it is
+ * the same "measuring more" as 0 → 6, not a case trading `silently-wrong`
+ * for honesty.** `fc-subgraph-direction-nested` — a `subgraph` carrying its
+ * own `direction` with another `subgraph` inside it — was never written down
+ * here, so `silently-wrong` has nothing to give back. Before this ticket the
+ * document drew a picture with `NaN` in 29 of its attributes — 26 across the
+ * figures plus the `<svg>` root's own `width`, `height` and `viewBox`, the
+ * three that decide whether there is a picture at all — and reported no
+ * diagnostic at all: not a wrong figure, an absent one, and invisible to
+ * both ratchets because no row named it. `silently-wrong` is deliberately
+ * left at 1 rather than moved through — it was never 2, and inventing the
+ * intermediate step to make the arithmetic tidy would be recording a
+ * measurement that was never taken.
+ *
+ * **This row is a temporary state, and its exit is implementation, not
+ * refusal.** Mermaid 11.17.2 draws this document completely (measured, in the
+ * row's own `meaning`), so the absolute compatibility condition forbids
+ * leaving it refused; what this ticket did is stop the silence, by checking
+ * that the layout engine returned finite coordinates before computing with
+ * them. Ticket `01M2XJWM4`'s implementation — composing the nested cluster's
+ * sub-layout ourselves, the level of expansion the engine does not do — is
+ * what moves this row to `supported` and this number back to 6. Whoever
+ * lands it should expect to delete this paragraph rather than add to it.
  */
-const REJECTED = 6;
+const REJECTED = 7;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
