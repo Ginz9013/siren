@@ -1477,3 +1477,59 @@ describe("a subgraph in the graph model", () => {
     ]);
   });
 });
+
+describe("buildGraphModel — a state document", () => {
+  const stateDocument: SirenDocument = {
+    kind: "state",
+    timeline: null,
+    states: [
+      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, line: 2, column: 1 },
+      {
+        id: "Running",
+        kind: "state",
+        descriptions: [],
+        parentId: null,
+        direction: null,
+        line: 2,
+        column: 1,
+      },
+    ],
+    transitions: [
+      {
+        from: "Idle",
+        to: "Running",
+        label: "start",
+        parentId: null,
+        sourceLine: 2,
+        sourceColumn: 1,
+      },
+      {
+        from: "Running",
+        to: "Running",
+        label: "retry",
+        parentId: null,
+        sourceLine: 3,
+        sourceColumn: 1,
+      },
+    ],
+  };
+
+  it("resolves it through buildStateModel into `stateModel`, leaving the other three null", () => {
+    // `GraphModelResult`'s fourth nullable field: at most one is non-null,
+    // and which one says what kind of document was resolved. A caller must
+    // branch on the field it expects being non-null, never on the others
+    // being null.
+    const { graph, model, classModel, stateModel, diagnostics } = buildGraphModel(stateDocument);
+
+    expect(diagnostics).toEqual([]);
+    expect(graph).toBeNull();
+    expect(model).toBeNull();
+    expect(classModel).toBeNull();
+    expect(stateModel).not.toBeNull();
+    expect(stateModel!.states.map((state) => state.id)).toEqual(["Idle", "Running"]);
+    expect(stateModel!.transitions.map((transition) => transition.id)).toEqual([
+      "Idle-Running",
+      "Running-Running",
+    ]);
+  });
+});

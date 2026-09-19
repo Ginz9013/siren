@@ -1,12 +1,29 @@
 import type { Diagnostic, ParseResult } from "../contracts";
 import { parseClassDiagram } from "./parseClassDiagram";
-import { listAcceptedHeaders, matchFlowchartHeader } from "./parseDirection";
+import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
+import { parseStateDiagram } from "./parseStateDiagram";
 
-const HEADER_SPELLINGS = listAcceptedHeaders(["sequenceDiagram", "classDiagram"]);
-const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
-const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
+/**
+ * Every spelling the language accepts, with no kind named here — so this
+ * message gains a kind's headers on the day `parseDirection` does, rather
+ * than on the day someone remembers that it, too, keeps a list.
+ */
+const HEADER_SPELLINGS = listAcceptedHeaders();
+
+/**
+ * Which parser each kind's header hands the document to. The header itself
+ * is not matched here: `matchDiagramHeader` names the kind, and this record
+ * only says who parses it, so the two facts cannot disagree about which
+ * spellings exist.
+ */
+const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
+  flowchart: parseFlowchart,
+  sequence: parseSequenceDiagram,
+  class: parseClassDiagram,
+  state: parseStateDiagram,
+};
 
 /**
  * Removes `%%` comments from every line of `source`, keeping one output
@@ -70,16 +87,9 @@ export function parseSiren(source: string): ParseResult {
   // match the document the author wrote.
   const strippedSource = lines.join("\n");
 
-  if (SEQUENCE_HEADER_RE.test(trimmed)) {
-    return parseSequenceDiagram(strippedSource);
-  }
-
-  if (matchFlowchartHeader(trimmed) !== null) {
-    return parseFlowchart(strippedSource);
-  }
-
-  if (CLASS_HEADER_RE.test(trimmed)) {
-    return parseClassDiagram(strippedSource);
+  const kind = matchDiagramHeader(trimmed);
+  if (kind !== null) {
+    return PARSE_KIND[kind](strippedSource);
   }
 
   const column = rawLine.length - rawLine.trimStart().length + 1;

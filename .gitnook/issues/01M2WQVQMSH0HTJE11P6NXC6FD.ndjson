@@ -1,0 +1,3 @@
+{"id":"01M2WQVQMS3WFNZZT36FDW1Q8V","t":1,"a":"83a1","op":"create","title":"corpus: rejected 棘輪的失敗訊息少講了一種合法的上升情況"}
+{"id":"01M2WQVQN2Z7E5JXF2P6R1R5JM","t":2,"a":"83a1","op":"set","k":"description","v":"小事，但會誤導下一個動到棘輪的人。\n\n`corpus.test.ts` 的 `rejected` 棘輪，**失敗訊息字串**說這個數字「只在一種情況下可以上升\n——一列從 silently-wrong 移出來」。\n\nState Diagram board 的票 6 示範了**第二種合法的上升**：一個 board 把自己刻意排除的構造\n寫下來（未被量測 → 誠實的 backlog）。那次 REJECTED 0→6，沒有任何東西退步。\n\n該次的推理已經寫進棘輪上方的敘述註解了，但**失敗訊息本身沒改**（那次的 write scope 只給了\nliteral 與註解）。現在註解跟訊息互相矛盾。\n\n修法：把訊息字串改成同時承認兩種情況。很小，但這個訊息是下一個撞到棘輪的人第一個讀到的\n東西，比註解更前面。"}
+{"id":"01M2WQVQV47VMHXR7V9BZJ41E5","t":3,"a":"83a1","op":"label.add","v":"compat"}

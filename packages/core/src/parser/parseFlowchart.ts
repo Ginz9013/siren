@@ -22,6 +22,14 @@ import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 /**
+ * The headers this parser accepts — its own kind's and no other's, because
+ * a `sequenceDiagram` line reaching here is a caller's routing mistake, not
+ * something naming it would help the author fix. `parseSiren` names the
+ * whole language; this names the one kind it parses.
+ */
+const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
+
+/**
  * What may lie between the `[` and the `]` of a node: either a fenced run,
  * or a character that is not the `]` ending the bracket.
  *
@@ -1624,7 +1632,7 @@ export function parseFlowchart(source: string): ParseResult {
         if (headerDirection === null) {
           diagnostics.push({
             severity: "error",
-            message: `Expected ${listAcceptedHeaders()}, found "${line}"`,
+            message: `Expected ${FLOWCHART_HEADER_SPELLINGS}, found "${line}"`,
             line: lineNumber,
             column,
           });

@@ -697,8 +697,37 @@ const SILENTLY_WRONG = 1;
  * renders or renders correctly — not that nothing is missing. The rises
  * recorded above are what finding a missing one looks like, and the next one
  * found will put this back above zero without anything having regressed.
+ *
+ * **0 → 6, and this is the sentence the paragraph above predicted.** The
+ * State Diagram board added a fourth diagram kind, and its closing ticket
+ * wrote down the six Mermaid constructs the board deliberately left out of
+ * scope: `st-stereotype-choice` (`<<choice>>`/`<<fork>>`/`<<join>>`),
+ * `st-note` (`note right of X : text`), `st-concurrency-divider` (`--`
+ * inside a composite), `st-author-style` (`classDef` plus the apply-
+ * directive), `st-direction-document` (`direction LR` at the document's own
+ * level) and `st-composite-quoted-description` (`state "Label" as Outer {`).
+ *
+ * **Nothing regressed, and nothing that used to render stopped.** These six
+ * never rendered here; before this ticket they were simply not written down,
+ * which is precisely the blindness this file exists to remove — the flowchart
+ * gap reached 34/39 because unmeasured meant unnoticed. Each row is valid
+ * Mermaid, measured against 11.17.2 with `scripts/mermaid-probe.mjs`, and
+ * each is now refused **by name** by `parseStateDiagram`'s `UNIMPLEMENTED`
+ * table rather than reported as a malformed line, which is CONTEXT.md's
+ * opening policy carried out rather than merely restated. `silently-wrong`
+ * did not move, because none of the six ever drew a wrong picture: the sum
+ * of the two counts grew, and it grew by *measuring more*, not by breaking
+ * anything.
+ *
+ * The rule above the literal still holds for every case already listed: a row
+ * here may only leave by starting to work. What this rise records is the
+ * instrument catching up with the language, the same shape as
+ * `fc-edge-dotted-open` and `fc-text-italic` arriving already measured —
+ * except that those arrived `supported` and these arrive as the honest
+ * backlog they are. Each has a route out: implement the construct, move the
+ * row to `supported` with an assert, and lower this number by one.
  */
-const REJECTED = 0;
+const REJECTED = 6;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

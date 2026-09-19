@@ -958,3 +958,109 @@ describe("default theme's design tokens", () => {
     expect(dangling).toEqual([]);
   });
 });
+
+/**
+ * A state diagram exercising every class the state renderer emits: two
+ * states, a labelled transition, an unlabelled one, the self-loop —
+ * which is the one figure whose line is drawn beside a box rather than
+ * between two, and so the one most likely to be left unpainted by a rule
+ * written for the straight case — both pseudo-states, whose discs are
+ * the one figure here that has no stroke to fall back on: a `<circle>` the
+ * theme forgets to fill is not a faint shape, it is nothing at all — and a
+ * composite, whose frame and title are painted by rules of their own
+ * because a frame encloses boxes drawn over it and so must not be filled.
+ *
+ * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`
+ * and `EVERY_CLASS_FEATURE` are: exhaustive *class* coverage is a different
+ * goal from a demo example's, and an example narrowed for the demo's sake
+ * must not quietly narrow what the theme is checked against.
+ */
+const EVERY_STATE_FEATURE = `stateDiagram-v2
+[*] --> Idle
+Idle --> Running : start
+Running --> Running : retry
+Running --> Idle
+Running --> [*]
+Running : working
+state "on the current job" as Running
+state Grouped {
+direction LR
+Held --> Beside
+}
+`;
+
+describe("default theme coverage of the state renderer", () => {
+  it("has a rule selecting every class the state renderer emits", () => {
+    const emitted = emittedSirenClasses(renderThemedSVG(EVERY_STATE_FEATURE));
+    expect(emitted.length).toBeGreaterThan(0);
+
+    const unthemed = emitted.filter(
+      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
+    );
+    expect(unthemed).toEqual([]);
+  });
+
+  it("gives every drawn element a paint, including the ones carrying no class", () => {
+    expect(paintlessElements(renderThemedSVG(EVERY_STATE_FEATURE))).toEqual([]);
+  });
+
+  it("gives a highlighted state and transition the outline effect, not just the glow one", () => {
+    // Both are addressable by id in the rendered SVG, which is what a
+    // `timeline:` block will name once this kind reads one — and the
+    // flowchart's and class diagram's outline rules name their own classes,
+    // so without rules of its own `highlight X outline` here would be a step
+    // on which nothing visibly happens.
+    const svg = renderThemedSVG(EVERY_STATE_FEATURE);
+
+    // Named by id rather than by "the first `.siren-state`": the three
+    // figures a state group can hold are highlighted through three
+    // different inner elements, and a pseudo-state has no frame for a rule
+    // written against one to land on.
+    const cases: [string, string][] = [
+      ['g.siren-state[data-siren-id="Idle"]', ".siren-state-frame"],
+      ['g.siren-state[data-siren-id="start:1"]', ".siren-state-start"],
+      ['g.siren-state[data-siren-id="end:1"]', ".siren-state-end"],
+      // A composite is the kind's third timeline target, addressed under the
+      // author's own name, and its frame is a fourth figure again: a
+      // `.siren-composite-frame` rather than the `.siren-state-frame` the
+      // first case covers, so a rule written for the box misses it and
+      // `highlight Grouped outline` is a step on which nothing happens.
+      ['g.siren-state[data-siren-id="Grouped"]', ".siren-composite-frame"],
+      [".siren-transition", ".siren-transition-line"],
+    ];
+
+    for (const [groupSelector, shapeSelector] of cases) {
+      const group = svg.querySelector(groupSelector);
+      const shape = group?.querySelector(shapeSelector);
+      if (group === null || group === undefined || shape === null || shape === undefined) {
+        throw new Error(`no ${shapeSelector} inside ${groupSelector}`);
+      }
+
+      const before = getComputedStyle(shape).stroke;
+      group.classList.add("siren-highlight-outline");
+      const after = getComputedStyle(shape).stroke;
+      group.classList.remove("siren-highlight-outline");
+
+      expect(after).not.toBe(before);
+      expect(after).toContain("--siren-highlight-color");
+    }
+  });
+
+  it("sets the theme's type on the state-diagram groups", () => {
+    // The `<text>` children carry no font of their own and inherit the
+    // group's, exactly as a class diagram's do — so a group left out of the
+    // shared font rule renders its labels in the browser's default serif at
+    // the browser's default size, while `layoutStateDiagram` sized every box
+    // from the theme's font. The box and its text would disagree.
+    const svg = renderThemedSVG(EVERY_STATE_FEATURE);
+
+    const groups = Array.from(svg.querySelectorAll(".siren-state, .siren-transition"));
+    expect(groups.length).toBeGreaterThan(0);
+
+    const untyped = groups.filter((group) => {
+      const style = getComputedStyle(group);
+      return style.fontFamily === "" || style.fontSize === "";
+    });
+    expect(untyped.map(describeElement)).toEqual([]);
+  });
+});
