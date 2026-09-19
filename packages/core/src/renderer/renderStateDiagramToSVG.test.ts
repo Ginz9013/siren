@@ -430,4 +430,65 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     expect(group.querySelector("rect.siren-state-frame")).toBeNull();
     expect(group.querySelector("text.siren-state-label")).toBeNull();
   });
+
+  it("leaves step-0 pending state to the controller, stamping siren-pending on none of the three addressable kinds", () => {
+    // The guard `renderToSVG` and `renderClassDiagramToSVG` already carry,
+    // written here the moment this kind started reading a `timeline:` block.
+    // Step 0 is `createAnimationController(...).reset()`'s, computed from
+    // `computeClassStateAtStep(timeline, 0)`; a copy of the "elements with an
+    // `enter` action start hidden" rule in this file would be a second
+    // opinion that has to agree with the controller's forever, by hand. Two
+    // such copies were deleted from this codebase once already.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          rows: [{ text: "Outer", y: 30 }],
+          dividerY: null,
+        },
+        {
+          id: "Idle",
+          kind: "state",
+          x: 40,
+          y: 60,
+          width: 80,
+          height: 40,
+          rows: [{ text: "Idle", y: 80 }],
+          dividerY: null,
+        },
+      ],
+      transitions: [
+        {
+          id: "Idle-Outer",
+          from: "Idle",
+          to: "Outer",
+          points: [
+            { x: 50, y: 60 },
+            { x: 60, y: 120 },
+          ],
+          label: null,
+          labelAnchor: null,
+        },
+      ],
+      // Every one of the three kinds given an `enter` at step 1, so a
+      // renderer deciding step 0 for itself would hide all of them.
+      timeline: {
+        totalSteps: 1,
+        entries: [
+          { kind: "enter", step: 1, targetId: "Outer", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "Idle", effect: "fade" },
+          { kind: "enter", step: 1, targetId: "Idle-Outer", effect: "fade" },
+        ],
+      },
+      width: 220,
+      height: 180,
+    });
+
+    expect(svg.querySelectorAll(".siren-pending")).toHaveLength(0);
+  });
 });

@@ -3158,4 +3158,110 @@ line2\`"]`,
       expectSame("the inner state is inside the frame", encloses(stateRect(result, "Outer"), stateRect(result, "Inner")), true);
     },
   },
+  // The six constructs the State Diagram board deliberately left out. Each
+  // one is valid Mermaid, measured against 11.17.2 with
+  // `scripts/mermaid-probe.mjs`, and each is refused **by name** by
+  // `parseStateDiagram`'s `UNIMPLEMENTED` table rather than swallowed or
+  // reported as a malformed line. They are this file's first `rejected` rows
+  // since the flowchart backlog closed, and they are honest backlog: written
+  // down so the gap is measured rather than forgotten.
+  {
+    id: "st-stereotype-choice",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle
+      state Choice <<choice>>
+      Idle --> Choice
+      Choice --> Busy`,
+    status: "rejected",
+    meaning:
+      "`<<choice>>`, `<<fork>>` and `<<join>>` mark a state as a pseudo-state " +
+      "drawn as a diamond or a bar rather than as a box. Measured: a closed " +
+      "set of three, recorded as a `type` field on the state itself " +
+      "(`id=\"Choice\" type=\"choice\"`) — the state keeps its authored id and " +
+      "its place in the relations, so this is a change of figure, not a " +
+      "change of structure.",
+  },
+  {
+    id: "st-note",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      note right of Idle : waiting for work`,
+    status: "rejected",
+    meaning:
+      "A note attached to one state, on the left or the right of it. " +
+      "Measured: the note hangs off **the state itself** as " +
+      "`note={\"position\":\"right of\",\"text\":\"waiting for work\"}` — not a " +
+      "separate note collection the way a class diagram's is, so a state " +
+      "carries at most one and it is addressable only through that state.",
+  },
+  {
+    id: "st-concurrency-divider",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Active
+      state Active {
+        Reading --> Parsing
+        --
+        Logging --> Flushed
+      }`,
+    status: "rejected",
+    meaning:
+      "`--` inside a composite splits it into concurrent regions. Measured: " +
+      "Mermaid synthesises `divider`-typed states and re-parents each " +
+      "region's members under one of them (`in=\"root/Active/divider-id-1\"`), " +
+      "and **their ids carry a random component** — the second divider came " +
+      "back as `id-g8d8ncxe8va-1`, a different string on every run. So an " +
+      "implementation must mint its own ids through `generatedId` (ADR-0010) " +
+      "and must not copy Mermaid's, which are not reproducible.",
+  },
+  {
+    id: "st-author-style",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef urgent fill:#f96
+      Idle --> Busy
+      class Busy urgent`,
+    status: "rejected",
+    meaning:
+      "`classDef` defines a named set of declarations and the apply-directive " +
+      "`class Busy urgent` applies it. Measured: a state diagram supports " +
+      "both — the state carries a `classes` array (`classes=[\"urgent\"]`) and " +
+      "`getClasses()` returns the definitions, the same shape a flowchart's " +
+      "and a class diagram's already have.",
+  },
+  {
+    id: "st-direction-document",
+    kind: "state",
+    source: `stateDiagram-v2
+      direction LR
+      Idle --> Busy
+      Busy --> Done`,
+    status: "rejected",
+    meaning:
+      "`direction LR` written at the document's own level, outside any " +
+      "composite, sets the whole diagram's rank direction. Measured: the " +
+      "document reports `direction LR`. Siren reads this statement **inside** " +
+      "a composite (`st-composite-direction`) and only there, so the " +
+      "document-level spelling is the unimplemented half of one construct.",
+  },
+  {
+    id: "st-composite-quoted-description",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Outer
+      state "the outer block" as Outer {
+        First --> Second
+      }`,
+    status: "rejected",
+    meaning:
+      "The quoted-description spelling with a block on it. Measured: one " +
+      "composite `Outer` carrying `descriptions=[\"the outer block\"]` with " +
+      "`First` and `Second` nested `in=\"root/Outer\"` — both constructs at " +
+      "once. Siren implements each half separately (`st-description-quoted` " +
+      "and `st-composite`) and neither pattern matches this line, which is " +
+      "why it is refused by name rather than falling out of the two that " +
+      "nearly cover it.",
+  },
 ];

@@ -1020,6 +1020,12 @@ describe("default theme coverage of the state renderer", () => {
       ['g.siren-state[data-siren-id="Idle"]', ".siren-state-frame"],
       ['g.siren-state[data-siren-id="start:1"]', ".siren-state-start"],
       ['g.siren-state[data-siren-id="end:1"]', ".siren-state-end"],
+      // A composite is the kind's third timeline target, addressed under the
+      // author's own name, and its frame is a fourth figure again: a
+      // `.siren-composite-frame` rather than the `.siren-state-frame` the
+      // first case covers, so a rule written for the box misses it and
+      // `highlight Grouped outline` is a step on which nothing happens.
+      ['g.siren-state[data-siren-id="Grouped"]', ".siren-composite-frame"],
       [".siren-transition", ".siren-transition-line"],
     ];
 

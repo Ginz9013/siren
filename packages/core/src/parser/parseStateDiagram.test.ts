@@ -371,6 +371,110 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
+  it("reads a `timeline:` block through the shared grammar, and lets the block run to the end of the document", () => {
+    // ADR-0002 keeps the block separate from the structural definition, so
+    // the grammar is `parseTimelineBlock`'s and this parser only decides
+    // where the block starts — the same split `parseFlowchart` and
+    // `parseClassDiagram` already make.
+    const document = documentOf(
+      "stateDiagram-v2\n" +
+        "  [*] --> Idle\n" +
+        "  state Outer {\n" +
+        "    Idle --> Busy\n" +
+        "  }\n" +
+        "timeline:\n" +
+        "  step 1: enter Idle fade\n" +
+        "  step 2: enter Idle-Busy fade, highlight Outer outline\n",
+    );
+
+    expect(document.timeline).not.toBeNull();
+    expect(
+      document.timeline!.entries.map((e) => [e.kind, e.step, e.targetId, e.effect ?? null]),
+    ).toEqual([
+      ["enter", 1, "Idle", "fade"],
+      ["enter", 2, "Idle-Busy", "fade"],
+      ["highlight", 2, "Outer", "outline"],
+    ]);
+  });
+
+  it("gives a document with no `timeline:` block a null timeline, not an empty one", () => {
+    // The distinction `ClassDocument.timeline` already draws: `null` says the
+    // author declared no animation at all, which is a different document from
+    // one declaring an empty block.
+    expect(documentOf("stateDiagram-v2\n  Idle --> Running\n").timeline).toBeNull();
+  });
+
+  it("costs the whole document when a line inside the `timeline:` block is malformed", () => {
+    const { document, diagnostics } = parseStateDiagram(
+      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  step 1: wobble Idle fade\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 4]]);
+    expect(diagnostics[0].message).toContain('Unrecognized timeline verb "wobble"');
+  });
+
+  it("refuses each construct this kind does not implement by name, rather than as an unrecognized line", () => {
+    // CONTEXT.md's opening policy: while a construct is unimplemented, Siren
+    // rejects it *and says what is missing*, so an author knows to route
+    // around it. Every one of these is valid Mermaid (measured, 11.17.2, via
+    // scripts/mermaid-probe.mjs) and carries a `rejected` corpus row; the
+    // generic "Unrecognized stateDiagram line" would tell the author their
+    // document was malformed, which is a different and untrue claim.
+    const cases: [string, string][] = [
+      ["state Choice <<choice>>", 'the "<<choice>>" stereotype'],
+      ["state Split <<fork>>", 'the "<<fork>>" stereotype'],
+      ["state Merge <<join>>", 'the "<<join>>" stereotype'],
+      ["note right of Idle : waiting", 'a "note" annotation'],
+      ["note left of Idle : waiting", 'a "note" annotation'],
+      ["--", 'the "--" concurrency divider'],
+      ["classDef urgent fill:#f96", 'the "classDef" author-style directive'],
+      ["class Idle urgent", 'the "class" author-style directive'],
+      ["direction LR", 'a document-level "direction" statement'],
+      ['state "the outer block" as Outer {', "a composite state opened with a quoted description"],
+    ];
+
+    for (const [statement, named] of cases) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${statement}\n`,
+      );
+
+      expect(document, `for "${statement}"`).toBeNull();
+      const refusal = diagnostics.find((d) => d.line === 3);
+      expect(refusal, `for "${statement}"`).toBeDefined();
+      expect(refusal!.severity, `for "${statement}"`).toBe("error");
+      expect(refusal!.message, `for "${statement}"`).toContain(named);
+      // Named, and quoting the author's own line back at them — the same
+      // shape every other diagnostic in this parser takes.
+      expect(refusal!.message, `for "${statement}"`).toContain(`"${statement}"`);
+      expect(refusal!.message, `for "${statement}"`).not.toContain("Unrecognized");
+    }
+  });
+
+  it("still reads the two `direction` and `state ... {` spellings it does implement", () => {
+    // The refusals above must not shadow what already works: `direction` is
+    // read inside a composite's block, and `state Outer {` opens one.
+    const document = documentOf(
+      "stateDiagram-v2\n  state Outer {\n    direction LR\n    A --> B\n  }\n",
+    );
+
+    expect(document.states.map((s) => [s.id, s.kind, s.direction])).toEqual([
+      ["Outer", "composite", "LR"],
+      ["A", "state", null],
+      ["B", "state", null],
+    ]);
+  });
+
+  it("leaves a state the author simply named `note` or `class` alone", () => {
+    // The refusals key on the *statement*, not on a bare word: `note` and
+    // `class` on their own are ordinary `\w+` state ids, and Mermaid reads
+    // them as such.
+    const document = documentOf("stateDiagram-v2\n  note\n  class\n  note --> class\n");
+
+    expect(document.states.map((s) => s.id)).toEqual(["note", "class"]);
+    expect(document.transitions.map((t) => [t.from, t.to])).toEqual([["note", "class"]]);
+  });
+
   it("names both spellings when the header is something else", () => {
     const { document, diagnostics } = parseStateDiagram("stateChart\n");
 

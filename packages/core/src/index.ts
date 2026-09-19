@@ -138,8 +138,7 @@ function establishStepZero(controller: AnimationController): void {
  * runs layoutSequence -> renderSequenceToSVG -> createAnimationController;
  * a state diagram runs layoutStateDiagram -> renderStateDiagramToSVG ->
  * createAnimationController. All four return a working controller — one with
- * `totalSteps: 0` when the document declares no `timeline:` block (which is
- * every state diagram today: that parser does not read the block yet). Mounts the resulting SVG into
+ * `totalSteps: 0` when the document declares no `timeline:` block. Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
  * from every stage. A class diagram and a flowchart both have
  * `options.onClick`, if one was given, attached to whichever of their
@@ -178,10 +177,12 @@ export function render(
 
     container.replaceChildren(stateSvg);
 
-    // A state diagram comes back with a working controller like every other
-    // kind — `totalSteps: 0` until the document can declare a `timeline:`
-    // block — because `SirenRenderResult.controller` is null *only* when
-    // rendering failed, and a caller that has checked `svg` has already
+    // A state diagram animates on the same terms as every other kind: its
+    // states, its composite frames and its transitions all carry
+    // `data-siren-id`, so the one controller drives them unchanged. A
+    // document declaring no `timeline:` block still gets a controller, with
+    // `totalSteps: 0`, because `SirenRenderResult.controller` is null *only*
+    // when rendering failed, and a caller that has checked `svg` has already
     // checked this.
     const stateController = createAnimationController(
       stateSvg,

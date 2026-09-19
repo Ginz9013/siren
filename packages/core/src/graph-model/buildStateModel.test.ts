@@ -12,6 +12,7 @@ function document(
     transitions.flatMap(({ from, to }) => [from, to]).filter((id, index, all) => all.indexOf(id) === index);
   return {
     kind: "state",
+    timeline: null,
     states: ids.map((id) => ({
       id,
       kind: "state" as const,
@@ -104,6 +105,7 @@ describe("buildStateModel", () => {
     // statement can name one.
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      timeline: null,
       states: [
         {
           id: null,
@@ -168,6 +170,7 @@ describe("buildStateModel", () => {
     // no authored `\w+` id can spell).
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      timeline: null,
       states: [
         {
           id: null,
@@ -236,6 +239,7 @@ describe("buildStateModel", () => {
     // and never `start:1` beside `start:2`.
     const { model } = buildStateModel({
       kind: "state",
+      timeline: null,
       states: [
         {
           id: null,
@@ -324,6 +328,7 @@ describe("buildStateModel", () => {
   it("joins `[*] --> [*]` from the start pseudo-state to the end one, which are two different states", () => {
     const { model } = buildStateModel({
       kind: "state",
+      timeline: null,
       states: [
         {
           id: null,
@@ -372,6 +377,7 @@ describe("buildStateModel", () => {
     // collision is unconstructible rather than merely unlikely.
     const { model } = buildStateModel({
       kind: "state",
+      timeline: null,
       states: [
         {
           id: null,
@@ -440,6 +446,7 @@ describe("buildStateModel", () => {
     // spelling being invented for a nested one.
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      timeline: null,
       states: [
         { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
         {
@@ -470,5 +477,83 @@ describe("buildStateModel", () => {
     // Each `[*]` endpoint resolves against the level the transition was
     // written at — the only thing that tells the two starts apart.
     expect(model!.transitions.map((t) => t.id)).toEqual(["start:1-Outer", "start:2-Inner"]);
+  });
+
+  it("resolves a timeline naming all four addressable kinds — a state, a transition, a composite and a pseudo-state", () => {
+    // States and transitions share one id space, exactly as a flowchart's
+    // nodes and edges do, and a composite is a state — so `highlight Outer`
+    // needs no separate collection for the resolver to look in. A
+    // pseudo-state is addressable for free: `buildStateModel` has just given
+    // it a generated id, and an id is all `resolveTimeline` asks for.
+    const { model, diagnostics } = buildStateModel({
+      kind: "state",
+      states: [
+        { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
+        { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, line: 3, column: 3 },
+        { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, line: 4, column: 5 },
+      ],
+      transitions: [
+        { from: null, to: "Outer", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
+        { from: "Outer", to: "Inner", label: null, parentId: null, sourceLine: 5, sourceColumn: 3 },
+      ],
+      timeline: {
+        entries: [
+          { kind: "enter", step: 1, targetId: "start:1", effect: "fade", line: 8, column: 3 },
+          { kind: "enter", step: 2, targetId: "Outer", effect: "fade", line: 9, column: 3 },
+          { kind: "enter", step: 3, targetId: "Inner", effect: "slide-top", line: 10, column: 3 },
+          { kind: "highlight", step: 4, targetId: "Outer-Inner", effect: "outline", line: 11, column: 3 },
+        ],
+      },
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.timeline.totalSteps).toBe(4);
+    expect(model!.timeline.entries.map((e) => [e.step, e.targetId])).toEqual([
+      [1, "start:1"],
+      [2, "Outer"],
+      [3, "Inner"],
+      [4, "Outer-Inner"],
+    ]);
+  });
+
+  it("drops a timeline entry naming an id no state or transition carries, reports it, and still builds the model", () => {
+    const source = document([{ from: "Idle", to: "Busy" }]);
+    const { model, diagnostics } = buildStateModel({
+      ...source,
+      timeline: {
+        entries: [
+          { kind: "enter", step: 1, targetId: "Idle", effect: "fade", line: 5, column: 3 },
+          { kind: "enter", step: 1, targetId: "Ghost", effect: "fade", line: 5, column: 20 },
+        ],
+      },
+    });
+
+    expect(model).not.toBeNull();
+    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["Idle"]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("error");
+    expect(diagnostics[0].message).toContain("Ghost");
+  });
+
+  it("warns when a transition stays visible after a state it joins has exited", () => {
+    // A transition is a connector, so the rule `warnOnConnectorsOutlivingTheirEndpoints`
+    // already applies to a flowchart edge and a class relationship applies
+    // here too — a line left drawn into empty space. Advisory only: nothing
+    // is dropped.
+    const source = document([{ from: "Idle", to: "Busy" }]);
+    const { model, diagnostics } = buildStateModel({
+      ...source,
+      timeline: {
+        entries: [
+          { kind: "exit", step: 1, targetId: "Busy", effect: "fade", line: 5, column: 3 },
+        ],
+      },
+    });
+
+    expect(model!.timeline.entries).toHaveLength(1);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics[0].message).toContain('transition "Idle-Busy"');
+    expect(diagnostics[0].message).toContain('"Busy" exits at step 1');
   });
 });
