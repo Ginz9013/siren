@@ -390,9 +390,13 @@ export interface FlowchartDocument {
 /**
  * The parsed document, tagged by diagram kind. Produced by `parseSiren`
  * (which dispatches on the source's header line to `parseFlowchart`,
- * `parseSequenceDiagram` or `parseClassDiagram`).
+ * `parseSequenceDiagram`, `parseClassDiagram` or `parseStateDiagram`).
  */
-export type SirenDocument = FlowchartDocument | SequenceDocument | ClassDocument;
+export type SirenDocument =
+  | FlowchartDocument
+  | SequenceDocument
+  | ClassDocument
+  | StateDocument;
 
 /** Result of `parseSiren` (and, independently, `parseSequenceDiagram`). */
 export interface ParseResult {
@@ -1176,19 +1180,26 @@ export interface GraphModel {
 
 /**
  * Result of `buildGraphModel`. Carries `graph` (flowchart), `model`
- * (sequence) and `classModel` (class) so the one dispatcher function can
- * return any of the three shapes.
+ * (sequence), `classModel` (class) and `stateModel` (state) so the one
+ * dispatcher function can return any of the four shapes.
  *
  * At most one is non-null, matching the `SirenDocument.kind` of the document
  * it resolved — not exactly one, because a stage that fails resolution
- * returns all three null alongside an error-severity diagnostic explaining
+ * returns all four null alongside an error-severity diagnostic explaining
  * why. A caller must therefore branch on the field it expects being non-null,
- * never assume the other two being null means its own is populated.
+ * never assume the other three being null means its own is populated.
+ *
+ * "Four nullable fields, at most one non-null" is a shape a discriminated
+ * union would say better, and that is known, recorded debt rather than an
+ * oversight: turning it into one touches every caller of every stage and is
+ * tracked as its own refactor rather than smuggled into the ticket that
+ * added a fourth kind.
  */
 export interface GraphModelResult {
   graph: GraphModel | null;
   model: SequenceModel | null;
   classModel: ClassModel | null;
+  stateModel: StateModel | null;
   diagnostics: Diagnostic[];
 }
 
@@ -1833,6 +1844,358 @@ export interface PositionedClassDiagram {
   /** Namespace frames, drawn before (behind) the classes they enclose. */
   namespaces: PositionedClassNamespace[];
   notes: PositionedClassNote[];
+  timeline: ResolvedTimeline;
+  width: number;
+  height: number;
+}
+
+// ---------------------------------------------------------------------------
+// State diagram — parser-level (pre graph-model) types
+// ---------------------------------------------------------------------------
+
+/**
+ * Which of four things one figure in a state diagram is: a state the author
+ * named, a **composite** state they opened a `{ }` block on, or one of the
+ * two pseudo-states `[*]` spells.
+ *
+ * Separate values rather than an `isPseudo` flag beside a `start`/`end` one,
+ * because start and end are two *different* pseudo-states and not one node
+ * used twice — measured (mermaid 11.17.2): `[*] --> A` and `A --> [*]`
+ * report the relations `root_start → A` and `A → root_end`. Closed and
+ * required, the rule `NodeShape` already follows, so "no kind" is not a
+ * fifth state for a reader downstream to fold into one of these.
+ *
+ * `"composite"` is a state *and* a frame, which is why it is a value of this
+ * union rather than a list beside the states: a transition may name one at
+ * either end, and everything that addresses a state by id addresses a
+ * composite the same way. What differs is the figure — a titled frame around
+ * the states written inside its block, rather than a labelled box — and this
+ * field is what says so.
+ *
+ * `"state"` is the ordinary case and happens to spell the same word
+ * `StateDocument.kind` discriminates the whole diagram by; they are
+ * different questions asked at different levels, and nothing reads one for
+ * the other.
+ */
+export type StateKind = "state" | "composite" | "start" | "end";
+
+/**
+ * A state as the parser read it — one declaration per state, in the order
+ * the document first named it.
+ *
+ * Unlike `ClassDecl`, a state carries no repeatable payload (no members, no
+ * annotation), so the parser folds repeat mentions here rather than leaving
+ * a merge for the model: naming a state five times is one declaration,
+ * positioned at its first mention. A pseudo-state folds the same way and
+ * for a stronger reason — measured, `[*]` is **one start and one end per
+ * level** rather than one per occurrence, so two `[*] -->` lines share a
+ * single declaration.
+ */
+export interface StateDecl {
+  /**
+   * The id the author wrote — `null` for a pseudo-state, which no author
+   * names and which `buildStateModel` gives a generated id (ADR-0010), the
+   * way a flowchart subgraph's is `buildFlowchartModel`'s to mint. A parser
+   * reads authored spellings; it does not invent ids.
+   */
+  id: string | null;
+  kind: StateKind;
+  /**
+   * The descriptions the author wrote for this state, in written order —
+   * empty when they wrote none, which is the ordinary case and the one that
+   * keeps drawing the id.
+   *
+   * An array rather than a string because descriptions **accumulate**:
+   * measured (mermaid 11.17.2), `s : first` followed by `s : second`
+   * reports `descriptions=["first","second"]` on the one state.
+   *
+   * The two spellings — `s : text` and `state "text" as s` — write into
+   * this same list and are recorded nowhere else, because they are one
+   * construct written two ways: measured, both land in `descriptions` and
+   * **neither renames the state**, so `state "text" as s` is a description
+   * and not an alias. A field saying which spelling was read would be a
+   * difference downstream could act on where Mermaid has none.
+   */
+  descriptions: string[];
+  /**
+   * The composite state whose `{ }` block holds this one, or `null` at the
+   * document's own level.
+   *
+   * **Membership lives here rather than in a list on the composite**, the
+   * split CONTEXT.md's **Subgraph** entry already draws between
+   * `GraphNode.parentId` and `ResolvedClassNamespace.classIds`: a state and
+   * the frame around it cannot disagree about which holds it. It is also the
+   * only place it *could* live for a pseudo-state, which has no id for a
+   * membership list to name — and a composite's `[*]` belongs to that
+   * composite's level (measured: `state Outer { [*] --> Inner }` reports
+   * `Outer_start in="root/Outer"`, not `root_start`).
+   *
+   * A composite's own id, not a generated one: unlike a flowchart subgraph,
+   * a composite state is named by the author, so there is nothing for
+   * ADR-0010 to mint here.
+   *
+   * **A state is claimed by the first block that names it** — the rule
+   * `SirenSubgraph.nodeIds` records for a flowchart, applied here rather
+   * than invented again. So a state first written at the document's level
+   * joins the first composite to name it, and a second composite naming it
+   * again leaves it where it is. (Mermaid's own parse tree keeps a
+   * same-named state per level and its renderer then draws one node for
+   * them; Siren's ids are global, so one rule decides which level that one
+   * node is drawn at.)
+   */
+  parentId: string | null;
+  /**
+   * This composite's own `direction LR` (or `TB`/`BT`/`RL`), written on a
+   * line of its own inside its block — `null` when the author wrote none,
+   * and always `null` on anything that is not a composite.
+   *
+   * A per-level rank direction and not a cascading one, exactly as
+   * `SirenSubgraph.direction` is: a nested composite that names none lays
+   * out along the document's own direction rather than its parent's.
+   */
+  direction: Direction | null;
+  /** 1-based line the state was first named on. */
+  line: number;
+  /** 1-based column the statement that first named it starts at. */
+  column: number;
+}
+
+/**
+ * A transition as the parser read it: `A --> B`, with the optional `: label`
+ * that rides on it.
+ *
+ * `label` is `null` when the author wrote none, never `""`. Mermaid reports
+ * an unlabelled relation's `relationTitle` as the empty string (measured,
+ * 11.17.2), and Siren spells the absence the way `Edge.label` and
+ * `ClassRelationship.label` already do — `""` is a label that draws nothing,
+ * which is a different document from one that carries no label at all.
+ *
+ * A self-transition (`A --> A`) is an ordinary transition and not an error:
+ * measured, it is one state with one relation onto itself — the "stays in
+ * this state" loop.
+ */
+export interface StateTransition {
+  /**
+   * The state this transition leaves — `null` when the author wrote `[*]`
+   * there, which is the level's **start** pseudo-state. Which of the two
+   * pseudo-states `[*]` means is decided by the side of the arrow it sits
+   * on and by nothing else, so the endpoint carries no second field saying
+   * which: a `null` here is always the start, and a `null` on `to` is
+   * always the end.
+   */
+  from: string | null;
+  /** The state this transition enters — `null` for `[*]`, the level's **end** pseudo-state. */
+  to: string | null;
+  label: string | null;
+  /**
+   * The composite state whose block this transition was written in, or
+   * `null` at the document's own level.
+   *
+   * Carried for one reason: it is what says *which* level's start or end a
+   * `null` endpoint means, now that `[*]` is one pair per level rather than
+   * one per document. `buildStateModel` resolves both endpoints against it
+   * and nothing downstream needs it, because by then every endpoint is an
+   * id in the diagram's one global id space.
+   */
+  parentId: string | null;
+  /** 1-based line the transition was written on. */
+  sourceLine: number;
+  /** 1-based column the statement starts at. */
+  sourceColumn: number;
+}
+
+/**
+ * The parsed `stateDiagram` (or `stateDiagram-v2`) source: states and the
+ * transitions between them. Produced by `parseStateDiagram`. One arm of the
+ * `SirenDocument` union.
+ *
+ * Which of the two header spellings the author wrote is resolved in the
+ * parser and recorded nowhere: measured against mermaid 11.17.2, both
+ * report the diagram type `stateDiagram`, so they are one kind with two
+ * spellings exactly as `classDiagram`/`classDiagram-v2` are.
+ */
+export interface StateDocument {
+  kind: "state";
+  states: StateDecl[];
+  transitions: StateTransition[];
+  /**
+   * The `timeline:` block the author wrote, or `null` when they wrote none —
+   * the same distinction `ClassDocument.timeline` draws, where `null` means
+   * "declares no animation at all" rather than "declares an empty block".
+   *
+   * Read by the shared `parseTimelineBlock` grammar rather than by anything
+   * this kind owns: ADR-0002 keeps the block apart from the structural
+   * definition precisely so its entries name ids and verbs and know nothing
+   * about the statements above them. So the ids in it are resolved by
+   * `buildStateModel` and validated nowhere else.
+   */
+  timeline: SirenTimeline | null;
+}
+
+// ---------------------------------------------------------------------------
+// State diagram — graph-model (post `buildStateModel`) types
+// ---------------------------------------------------------------------------
+
+/**
+ * A state after model resolution — named, whoever named it.
+ *
+ * `id` is no longer nullable: a pseudo-state the author never named has by
+ * now been given its generated id (`start:1`, `end:1` — `start:2` for the
+ * first composite's own level), so everything downstream addresses a state
+ * the same way. `kind` survives because a composite and the two
+ * pseudo-states are *drawn* differently from a state — a titled frame, a
+ * disc and a ring rather than a labelled box — and nothing but this field
+ * says which.
+ *
+ * **Flat, with a `parentId`, rather than the tree the parser read.** The
+ * shape `ResolvedSubgraph` already takes and for the same reason: what
+ * reads this is layout, which wants one cluster per entry and a parent to
+ * point each at. What is *not* the same is that there is no second list
+ * beside the states — a composite is a state, so nesting is a field on the
+ * one list rather than a parallel one to keep in step.
+ */
+export interface ResolvedState {
+  id: string;
+  kind: StateKind;
+  /**
+   * The composite state that holds this one, or `null` at the document's
+   * own level — carried through from `StateDecl.parentId`, which is where
+   * the "first block to name it claims it" rule was already applied.
+   */
+  parentId: string | null;
+  /**
+   * A composite's own rank direction, carried straight through from
+   * `StateDecl.direction`; `null` on everything else, and on a composite
+   * whose block named none. A `Direction` is already a closed parser-level
+   * type, so there is nothing here for this stage to validate.
+   */
+  direction: Direction | null;
+  /**
+   * The descriptions the author wrote, in written order, exactly as
+   * `StateDecl.descriptions` carried them — authored text with nothing for
+   * this stage to resolve.
+   *
+   * Empty is the ordinary case, and it is what keeps the **id** on the
+   * drawn box: a state with descriptions draws them instead, and its id
+   * becomes addressing-only. That is the split a flowchart's `A[label]`
+   * already draws between the id and the text — measured for a state
+   * diagram too (mermaid 11.17.2 draws no `s` once `s : text` is written).
+   */
+  descriptions: string[];
+}
+
+/**
+ * A transition after model resolution: assigned the id the renderer — and,
+ * once the timeline reaches this kind, a `timeline:` block — addresses it
+ * by, following the convention flowchart edges and class relationships
+ * already share: `${from}-${to}`, then `#2`, `#3`, ... for repeats of the
+ * same ordered pair.
+ */
+export interface ResolvedStateTransition {
+  id: string;
+  from: string;
+  to: string;
+  label: string | null;
+}
+
+/**
+ * The normalized in-memory state diagram produced by `buildStateModel`:
+ * states, identified transitions, and the resolved timeline.
+ */
+export interface StateModel {
+  states: ResolvedState[];
+  transitions: ResolvedStateTransition[];
+  timeline: ResolvedTimeline;
+}
+
+/** Result of `buildStateModel`. */
+export interface StateModelResult {
+  model: StateModel | null;
+  diagnostics: Diagnostic[];
+}
+
+// ---------------------------------------------------------------------------
+// State diagram — layout (post `layoutStateDiagram`) types
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of text drawn inside a state's box: what it says, and the y its
+ * text is centred on, in diagram coordinates.
+ *
+ * A row rather than a label, because a described state draws several of
+ * them stacked — `PositionedClass`'s member lines in the shape a state's
+ * box needs.
+ */
+export interface PositionedStateRow {
+  text: string;
+  y: number;
+}
+
+/**
+ * A state with a layout-assigned box. `x`/`y` are the box's top-left corner,
+ * matching `PositionedNode` and `PositionedClass`.
+ */
+export interface PositionedState {
+  id: string;
+  /**
+   * Which figure the renderer draws here — a labelled box, or the filled
+   * disc and the ring the two pseudo-states are. Carried this far because
+   * layout has already sized the box differently for each and only this
+   * says which one was sized.
+   */
+  kind: StateKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * The text this box draws, top to bottom: the state's descriptions when
+   * it has any, and otherwise the one row its id makes. Empty for a
+   * pseudo-state, which draws a mark and no text at all.
+   *
+   * Which of the two the row came from is deliberately not recorded: by
+   * here it is simply the text the box holds, the same way a flowchart node
+   * arrives at the renderer carrying its label rather than the question of
+   * whether the author wrote one.
+   */
+  rows: PositionedStateRow[];
+  /**
+   * Where the divider under the first row goes, or `null` when this box
+   * draws none.
+   *
+   * Measured (mermaid 11.17.2): a state with **two or more** descriptions
+   * is drawn as a titled box — the first description above a divider and
+   * the rest below it — while one description, or none, gets a plain
+   * rounded rect with no divider at all. So this is `null` for every box
+   * with fewer than two rows, and the divider never separates the id from
+   * the descriptions: an id is not drawn once a description exists.
+   */
+  dividerY: number | null;
+}
+
+/** A transition with a layout-assigned path and, when it carries one, a label anchor. */
+export interface PositionedStateTransition {
+  id: string;
+  from: string;
+  to: string;
+  points: Point[];
+  label: string | null;
+  /**
+   * Where to draw `label`: the centre of the space layout kept clear for it,
+   * or `null` when the transition carries no label and asked for none — the
+   * shape `PositionedEdge.labelAnchor` already has, for the reason given
+   * there.
+   */
+  labelAnchor: Point | null;
+}
+
+/**
+ * The state diagram after layout: positioned states and transitions plus the
+ * resolved timeline, ready for `renderStateDiagramToSVG`.
+ */
+export interface PositionedStateDiagram {
+  states: PositionedState[];
+  transitions: PositionedStateTransition[];
   timeline: ResolvedTimeline;
   width: number;
   height: number;

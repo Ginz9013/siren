@@ -612,3 +612,19 @@ describe("a flowchart's accTitle/accDescr statements", () => {
     expect(document.accDescr).toBe("Second description");
   });
 });
+
+describe("the header a flowchart rejects", () => {
+  // Characterization: this message is assembled by `listAcceptedHeaders`
+  // rather than written here, and pinning its exact text is what keeps a
+  // change to that assembly from quietly rewording every diagnostic that
+  // teaches an author which headers exist.
+  it("names all eight flowchart spellings, in one list", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart SIDEWAYS\n  A[Start]\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics[0].message).toBe(
+      'Expected "flowchart TB", "flowchart BT", "flowchart LR", "flowchart RL",' +
+        ' "graph TB", "graph BT", "graph LR", or "graph RL", found "flowchart SIDEWAYS"',
+    );
+  });
+});

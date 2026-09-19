@@ -3,9 +3,11 @@ import { buildGraphModel } from "./graph-model/buildGraphModel";
 import { layoutGraph } from "./layout/layoutGraph";
 import { layoutSequence } from "./layout/layoutSequence";
 import { layoutClassDiagram } from "./layout/layoutClassDiagram";
+import { layoutStateDiagram } from "./layout/layoutStateDiagram";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
+import { renderStateDiagramToSVG } from "./renderer/renderStateDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import type {
   AnimationController,
@@ -133,9 +135,10 @@ function establishStepZero(controller: AnimationController): void {
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
  * createAnimationController; a class diagram runs layoutClassDiagram ->
  * renderClassDiagramToSVG -> createAnimationController; a sequence diagram
- * runs layoutSequence -> renderSequenceToSVG -> createAnimationController.
- * All three return a working controller — one with `totalSteps: 0` when the
- * document declares no `timeline:` block. Mounts the resulting SVG into
+ * runs layoutSequence -> renderSequenceToSVG -> createAnimationController;
+ * a state diagram runs layoutStateDiagram -> renderStateDiagramToSVG ->
+ * createAnimationController. All four return a working controller — one with
+ * `totalSteps: 0` when the document declares no `timeline:` block. Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
  * from every stage. A class diagram and a flowchart both have
  * `options.onClick`, if one was given, attached to whichever of their
@@ -163,6 +166,32 @@ export function render(
 
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
+
+  if (parseResult.document.kind === "state") {
+    if (graphResult.stateModel === null) {
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedStateDiagram = layoutStateDiagram(graphResult.stateModel, { measureText });
+    const stateSvg = renderStateDiagramToSVG(positionedStateDiagram);
+
+    container.replaceChildren(stateSvg);
+
+    // A state diagram animates on the same terms as every other kind: its
+    // states, its composite frames and its transitions all carry
+    // `data-siren-id`, so the one controller drives them unchanged. A
+    // document declaring no `timeline:` block still gets a controller, with
+    // `totalSteps: 0`, because `SirenRenderResult.controller` is null *only*
+    // when rendering failed, and a caller that has checked `svg` has already
+    // checked this.
+    const stateController = createAnimationController(
+      stateSvg,
+      positionedStateDiagram.timeline,
+    );
+    establishStepZero(stateController);
+
+    return { svg: stateSvg, controller: stateController, diagnostics };
+  }
 
   if (parseResult.document.kind === "class") {
     if (graphResult.classModel === null) {

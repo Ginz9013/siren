@@ -1,0 +1,25 @@
+stateDiagram-v2
+
+%% The same job runner, revealed a step at a time.
+%% All three of this kind's timeline targets are named below: a state, a
+%% transition, and a composite frame — the frame under the author's own
+%% name, because a composite state is named by its author.
+
+[*] --> Idle
+Idle --> Working : start
+
+state Working {
+  Fetching --> Saving
+}
+
+Working --> Done : finished
+Done --> [*]
+
+timeline:
+  step 1: enter Idle fade
+  step 2: enter Idle-Working fade, enter Working slide-top
+  step 3: enter Fetching fade, enter Saving fade, enter Fetching-Saving fade
+  step 4: highlight Working outline
+  step 5: enter Working-Done fade, enter Done slide-right, unhighlight Working
+  step 6: highlight Idle-Working glow, enter Done-end:1 fade
+  step 7: unhighlight Idle-Working, exit Idle slide-left, exit start:1-Idle slide-left, exit Idle-Working slide-left

@@ -18,7 +18,7 @@
 import type { SirenRenderResult } from "../contracts";
 
 /** Which Mermaid diagram kind a case is written in. */
-export type CompatKind = "flowchart" | "class" | "sequence";
+export type CompatKind = "flowchart" | "class" | "sequence" | "state";
 
 /**
  * Where Siren stands on one Mermaid construct.
@@ -768,6 +768,196 @@ function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
     (g) => `${g.getAttribute("data-siren-block-kind") ?? "<none>"}:${idOf(g)}`,
   );
+}
+
+/** Every state-diagram state as `id`, in draw order. */
+function states(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-state").map(idOf);
+}
+
+/**
+ * The figures a state diagram can draw one state as, in the order a reader
+ * of `stateFigures` sees them joined: the labelled box of an ordinary
+ * state, the filled disc of a start, and the ring-plus-dot of an end.
+ */
+const STATE_FIGURES: readonly [selector: string, figure: string][] = [
+  ["rect.siren-state-frame", "box"],
+  ["rect.siren-composite-frame", "frame"],
+  ["circle.siren-state-start", "disc"],
+  ["circle.siren-state-end", "ring"],
+  ["circle.siren-state-end-inner", "dot"],
+];
+
+/**
+ * Every state as `id: figure`, in draw order — read off what is *inside*
+ * each state's group.
+ *
+ * A pseudo-state's whole meaning is the mark it is drawn as: a row that
+ * checked only the ids would pass just as happily on a start drawn as an
+ * empty rectangle, which is the silent mis-render this corpus exists to
+ * catch.
+ */
+function stateFigures(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-state").map((g) => {
+    const drawn = STATE_FIGURES.filter(([selector]) => g.querySelector(selector) !== null)
+      .map(([, figure]) => figure)
+      .join("+");
+    return `${idOf(g)}: ${drawn === "" ? "<nothing>" : drawn}`;
+  });
+}
+
+/**
+ * Every state-diagram transition as `id: label`, in draw order — the label
+ * empty when the transition carries none, which is a picture a reader can
+ * tell from one that carries an empty label only because nothing is drawn.
+ */
+function transitions(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-transition").map(
+    (g) => `${idOf(g)}: ${g.querySelector("text.siren-transition-label")?.textContent ?? ""}`,
+  );
+}
+
+/**
+ * The text one state box actually draws, top to bottom.
+ *
+ * The reader a description row needs, because what a described state is
+ * *about* is that the id stops being drawn: a row asserting only that the
+ * description appears somewhere would pass on a box drawing its id and its
+ * description one above the other, which is a picture Mermaid never draws.
+ */
+function stateRows(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+  return Array.from(group.querySelectorAll("text")).map((text) => text.textContent ?? "");
+}
+
+/**
+ * The y each of one state box's rows is drawn at, in draw order, and — last
+ * — the y of the divider under its title row, or `null` where it draws
+ * none.
+ *
+ * Coordinates rather than presence, because "is there a divider?" is the
+ * weaker half of the question: a line drawn above the first row or below
+ * the last is still a `<line>` to find, and is the wrong picture.
+ */
+function stateRowGeometry(
+  result: SirenRenderResult,
+  id: string,
+): { rowYs: number[]; dividerY: number | null } {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+  const divider = group.querySelector("line.siren-state-divider");
+  return {
+    rowYs: Array.from(group.querySelectorAll("text")).map((text) =>
+      Number(text.getAttribute("y")),
+    ),
+    dividerY: divider === null ? null : Number(divider.getAttribute("y1")),
+  };
+}
+
+/**
+ * One state box's centre — how a state diagram's top-to-bottom direction is
+ * visible in the result rather than merely claimed.
+ */
+function stateCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const frame = svgOf(result).querySelector(
+    `g.siren-state[data-siren-id="${id}"] rect.siren-state-frame`,
+  );
+  if (frame === null) throw new Error(`no state "${id}" was drawn`);
+  const number = (name: string) => Number(frame.getAttribute(name));
+  return {
+    x: number("x") + number("width") / 2,
+    y: number("y") + number("height") / 2,
+  };
+}
+
+/**
+ * The rectangle one state is drawn in — a state's own box, or a composite's
+ * frame. Either way the one `<rect>` in that state's group, so a row asking
+ * "is this inside that?" does not have to know which figure it is asking
+ * about.
+ *
+ * In the same edges-of-the-box shape `subgraphBox` reads a flowchart frame
+ * in, so that one containment rule (`encloses`) serves both.
+ */
+function stateRect(
+  result: SirenRenderResult,
+  id: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const rect = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"] rect`);
+  if (rect === null) throw new Error(`no state "${id}" was drawn with a rectangle`);
+  const number = (name: string) => Number(rect.getAttribute(name));
+  return {
+    top: number("y"),
+    bottom: number("y") + number("height"),
+    left: number("x"),
+    right: number("x") + number("width"),
+  };
+}
+
+/** One state's centre, for a row reading a direction off the picture. */
+function stateRectCenter(
+  result: SirenRenderResult,
+  id: string,
+): { x: number; y: number } {
+  const box = stateRect(result, id);
+  return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+}
+
+/**
+ * Whether one end of a transition's drawn line sits on the boundary of the
+ * rectangle drawn for `id` — on it, neither inside nor short of it.
+ *
+ * The question an edge naming a composite raises. The layout engine cannot
+ * route to a frame, so the route is taken through a member of it and clipped
+ * back; a row asking only "was a path drawn?" would pass on an arrowhead
+ * buried inside the frame, pointing at that stand-in.
+ */
+function transitionTouches(
+  result: SirenRenderResult,
+  transitionId: string,
+  end: "start" | "end",
+  stateId: string,
+): boolean {
+  const path = svgOf(result).querySelector(
+    `g.siren-transition[data-siren-id="${transitionId}"] path.siren-transition-line`,
+  );
+  if (path === null) throw new Error(`no transition "${transitionId}" was drawn`);
+  const points = (path.getAttribute("d") ?? "")
+    .split(" ")
+    .map((step) => step.slice(1).split(","))
+    .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
+  const point = end === "start" ? points[0] : points[points.length - 1];
+
+  const box = stateRect(result, stateId);
+  const tolerance = 1e-6;
+  const within =
+    point.x >= box.left - tolerance &&
+    point.x <= box.right + tolerance &&
+    point.y >= box.top - tolerance &&
+    point.y <= box.bottom + tolerance;
+  const onAnEdge =
+    Math.abs(point.x - box.left) < tolerance ||
+    Math.abs(point.x - box.right) < tolerance ||
+    Math.abs(point.y - box.top) < tolerance ||
+    Math.abs(point.y - box.bottom) < tolerance;
+  return within && onAnEdge;
+}
+
+/**
+ * The distinct coordinates one transition's line is drawn through, read off
+ * the `<path>`'s own `d`.
+ *
+ * Distinct, because the question a self-loop raises is whether a *loop* was
+ * drawn: a route that collapsed onto a single point still leaves a `<path>`
+ * in the SVG to find, and draws nothing at all.
+ */
+function transitionPoints(result: SirenRenderResult, id: string): string[] {
+  const path = svgOf(result).querySelector(
+    `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
+  );
+  if (path === null) throw new Error(`no transition "${id}" was drawn`);
+  return [...new Set((path.getAttribute("d") ?? "").split(" "))];
 }
 
 /** Whether the diagram drew anything at all under `selector`. */
@@ -2384,6 +2574,694 @@ line2\`"]`,
       );
     },
   },
+  // -------------------------------------------------------------------------
+  // stateDiagram
+  // -------------------------------------------------------------------------
+  {
+    id: "st-header-v1",
+    kind: "state",
+    source: `stateDiagram
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`stateDiagram` opens a state diagram. Measured (mermaid 11.17.2): it " +
+      "and `stateDiagram-v2` report the same diagram type, so they are one " +
+      "kind written two ways.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+    },
+  },
+  {
+    id: "st-header-v2",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`stateDiagram-v2` is the modern spelling of the same header, and lays " +
+      "the diagram out top to bottom — the direction Mermaid reports for a " +
+      "state diagram that names none.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+      // The direction, read off the picture: asserting the two states alone
+      // would pass for a document laid out sideways.
+      expectSame(
+        "Running is drawn below Idle",
+        stateCenter(result, "Running").y > stateCenter(result, "Idle").y,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-state-bare",
+    kind: "state",
+    source: `stateDiagram-v2
+      Lonely`,
+    status: "supported",
+    meaning:
+      "A bare identifier on a line of its own declares a state. Measured: it " +
+      "enters Mermaid's state table with no transition needed, so a state " +
+      "nothing points at still draws.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Lonely"]);
+      expectSame("transitions", transitions(result), []);
+      expectSame(
+        "its name is drawn in the box",
+        texts(result, "g.siren-state text.siren-state-label"),
+        ["Lonely"],
+      );
+    },
+  },
+  {
+    id: "st-transition",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Running
+      Running --> Done`,
+    status: "supported",
+    meaning:
+      "`A --> B` is a transition from A to B, and declares both states. " +
+      "Written with no label, it draws no label — Mermaid reports the " +
+      "relation title as empty, and an empty label is not a label.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running", "Done"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: ", "Running-Done: "]);
+      expectSame("no transition drew a label", texts(result, "text.siren-transition-label"), []);
+    },
+  },
+  {
+    id: "st-transition-label",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Running : start the job`,
+    status: "supported",
+    meaning:
+      "`A --> B : text` labels the transition. Measured: the text rides on " +
+      "the relation itself (`relationTitle`), not on a statement of its own.",
+    assert: (result) => {
+      expectSame("transitions", transitions(result), ["Idle-Running: start the job"]);
+      // Drawn on the line rather than merely present somewhere: the label
+      // belongs to the transition's own group.
+      expectSame(
+        "the label is drawn inside the transition's group",
+        texts(result, 'g.siren-transition[data-siren-id="Idle-Running"] text'),
+        ["start the job"],
+      );
+    },
+  },
+  {
+    id: "st-self-transition",
+    kind: "state",
+    source: `stateDiagram-v2
+      Running --> Running : retry`,
+    status: "supported",
+    meaning:
+      "`A --> A` is the 'stays in this state' loop, and legitimate syntax " +
+      "rather than an error. Measured: one state, one relation onto itself.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Running"]);
+      expectSame("transitions", transitions(result), ["Running-Running: retry"]);
+      // A drawn loop and not a point: a route collapsed onto one coordinate
+      // leaves a `<path>` to find and draws nothing.
+      const drawn = transitionPoints(result, "Running-Running");
+      expectSame(
+        `the loop is drawn through more than one point (got ${JSON.stringify(drawn)})`,
+        drawn.length > 1,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-start-pseudo-state",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle`,
+    status: "supported",
+    meaning:
+      "`[*]` on the *from* side of an arrow is the level's start " +
+      "pseudo-state — where the machine begins. Measured: the relation " +
+      "comes back from `root_start`, a node of Mermaid's own making that " +
+      "the author never declared, and it is drawn as a filled disc rather " +
+      "than as a labelled box.",
+    assert: (result) => {
+      // The figure, not just the id: a start drawn as an empty rectangle
+      // would satisfy an id-only check and be the wrong picture.
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Idle: box",
+      ]);
+      expectSame("transitions", transitions(result), ["start:1-Idle: "]);
+      // Nothing is written on the disc. Its id is generated, so a label
+      // would print `start:1` at a reader who never wrote it.
+      expectSame(
+        "no text is drawn inside the start pseudo-state",
+        texts(result, 'g.siren-state[data-siren-id="start:1"] text'),
+        [],
+      );
+    },
+  },
+  {
+    id: "st-end-pseudo-state",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> [*]`,
+    status: "supported",
+    meaning:
+      "`[*]` on the *to* side is the level's end pseudo-state, and a " +
+      "different node from the start — measured, Mermaid reports this " +
+      "relation as reaching `root_end`, never `root_start`. UML draws it " +
+      "as a ring around a filled disc.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "Idle: box",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), ["Idle-end:1: "]);
+      // The arrow ends at the ring rather than starting from it: `[*]` read
+      // as one pseudo-state for both jobs would reverse this.
+      expectSame(
+        "the transition is drawn from the state to the end",
+        elements(result, "g.siren-transition").map((g) => idOf(g)),
+        ["Idle-end:1"],
+      );
+    },
+  },
+  {
+    id: "st-pseudo-state-one-per-level",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle
+      [*] --> Busy
+      Idle --> [*]
+      Busy --> [*]`,
+    status: "supported",
+    meaning:
+      "`[*]` is one start and one end *per level*, not one per occurrence. " +
+      "Measured: both `[*] -->` relations come back from the same " +
+      "`root_start` and both `--> [*]` relations reach the same " +
+      "`root_end`, so four lines draw four arrows between four states — " +
+      "not six.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Idle: box",
+        "Busy: box",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-Idle: ",
+        "start:1-Busy: ",
+        "Idle-end:1: ",
+        "Busy-end:1: ",
+      ]);
+      // Said again as a count, because this is the half of the construct
+      // most easily got wrong and the ids above would still read plausibly
+      // if a second disc had been drawn on top of the first.
+      expectSame(
+        "exactly one start disc and one end ring are drawn",
+        [
+          elements(result, "circle.siren-state-start").length,
+          elements(result, "circle.siren-state-end").length,
+        ],
+        [1, 1],
+      );
+    },
+  },
+  {
+    id: "st-start-to-end",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> [*]`,
+    status: "supported",
+    meaning:
+      "`[*] --> [*]` is legal, and it is one relation between two " +
+      "different nodes — measured: `root_start → root_end`. Which " +
+      "pseudo-state `[*]` names is decided by the side of the arrow it " +
+      "sits on, so this is not a self-loop.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), ["start:1-end:1: "]);
+      // Two distinct states, which is what makes this not a loop.
+      expectSame("two states were drawn", elements(result, "g.siren-state").length, 2);
+    },
+  },
+  {
+    id: "st-pseudo-state-authored-name",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> root_start
+      root_start --> B`,
+    status: "supported",
+    meaning:
+      "A state the author names `root_start` is an ordinary state, and the " +
+      "start pseudo-state is untouched by it: three nodes, two edges. " +
+      "**Siren diverges from Mermaid here, and the divergence removes a " +
+      "bug** — measured (11.17.2), Mermaid draws two nodes and the " +
+      "relations `root_start → root_start` and `root_start → B`: its start " +
+      "pseudo-state is spelled `root_start`, an ordinary `\\w+` name, so " +
+      "the author's own state swallows it and the start's edge becomes a " +
+      "self-loop nobody wrote, with no diagnostic. Siren's generated ids " +
+      "carry a colon (ADR-0010) and authored ids are `\\w+`, so the " +
+      "collision cannot be constructed. This is CONTEXT.md's one exception " +
+      "to the absolute condition: Mermaid's own silent mis-renders.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "root_start: box",
+        "B: box",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-root_start: ",
+        "root_start-B: ",
+      ]);
+      // The author's own name is drawn on the author's own box, and the
+      // self-loop Mermaid invents here is absent.
+      expectSame(
+        "the authored state keeps its name",
+        texts(result, 'g.siren-state[data-siren-id="root_start"] text.siren-state-label'),
+        ["root_start"],
+      );
+      expectSame(
+        "no self-loop was invented",
+        elements(result, "g.siren-transition").some((g) => idOf(g) === "root_start-root_start"),
+        false,
+      );
+    },
+  },
+  {
+    id: "st-description-colon",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle : waiting for work
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`s : text` describes the state `s`. Measured (mermaid 11.17.2): the " +
+      "text lands in `s`'s `descriptions` array, the id is unchanged, and " +
+      "the **id stops being drawn** — the description is what the box " +
+      "holds, the same split a flowchart's `A[label]` draws between the id " +
+      "that addresses a node and the text that is drawn in it. An " +
+      "undescribed state in the same diagram still draws its id.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("the described state's rows", stateRows(result, "Idle"), [
+        "waiting for work",
+      ]);
+      expectSame("the undescribed state's rows", stateRows(result, "Running"), ["Running"]);
+      // The id still addresses the state, which is what makes this a
+      // description and not a rename.
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+      // One description is a plain box: measured, Mermaid draws it with the
+      // same rounded rect an undescribed state gets and no divider at all.
+      expectSame(
+        "one description draws no divider",
+        stateRowGeometry(result, "Idle").dividerY,
+        null,
+      );
+    },
+  },
+  {
+    id: "st-description-quoted",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "waiting for work" as Idle
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "`state \"text\" as s` is the other spelling of the very same thing, " +
+      "and **not a rename** — the reading the keyword `as` invites. " +
+      "Measured: the text lands in the same `descriptions` array and the " +
+      "state is still `Idle`, so a transition still names it `Idle`. The " +
+      "picture is the one `Idle : waiting for work` draws, down to the " +
+      "undescribed state beside it keeping its id.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("the described state's rows", stateRows(result, "Idle"), [
+        "waiting for work",
+      ]);
+      expectSame("the undescribed state's rows", stateRows(result, "Running"), ["Running"]);
+      // The id survives the quoted spelling: a rename would leave nothing
+      // called `Idle` for this transition to join.
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+      expectSame(
+        "one description draws no divider",
+        stateRowGeometry(result, "Idle").dividerY,
+        null,
+      );
+    },
+  },
+  {
+    id: "st-description-accumulates",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle : waiting for work
+      state "nothing queued" as Idle
+      Idle --> Running`,
+    status: "supported",
+    meaning:
+      "Descriptions **accumulate**, and the two spellings share one list: " +
+      "measured, `Idle : waiting for work` followed by " +
+      "`state \"nothing queued\" as Idle` reports " +
+      "`descriptions=[\"waiting for work\",\"nothing queued\"]` on the one " +
+      "state. Two or more of them are drawn as a titled box — measured " +
+      "with `--markup`: `rect.outer.title-state` plus a `line.divider`, " +
+      "the **first** description titling the box above the line and the " +
+      "rest below it.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      // Both rows, in written order — a second description is another line
+      // of text rather than a correction of the first.
+      expectSame("the described state's rows", stateRows(result, "Idle"), [
+        "waiting for work",
+        "nothing queued",
+      ]);
+      // The first description is the row that titles the box.
+      expectSame(
+        "the title row",
+        texts(result, 'g.siren-state[data-siren-id="Idle"] text.siren-state-label'),
+        ["waiting for work"],
+      );
+      // And the divider is *between* them: a line drawn above the title row
+      // or below the last row is still a `<line>` to find, and is the wrong
+      // picture.
+      const { rowYs, dividerY } = stateRowGeometry(result, "Idle");
+      expectSame(
+        `the divider sits between the two rows (rows at ${JSON.stringify(rowYs)}, divider at ${dividerY})`,
+        dividerY !== null && dividerY > rowYs[0] && dividerY < rowYs[1],
+        true,
+      );
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+    },
+  },
+  {
+    id: "st-composite",
+    kind: "state",
+    source: `stateDiagram-v2
+      state Outer {
+        Idle --> Busy
+      }`,
+    status: "supported",
+    meaning:
+      "`state X { ... }` is a composite state: a state that holds a state " +
+      "machine of its own. Measured (mermaid 11.17.2, `--markup`): the " +
+      "block opens a level — the states inside it report `in=\"root/Outer\"` " +
+      "— and it is drawn as a `g.statediagram-cluster`, a titled frame " +
+      "around them rather than a box beside them.",
+    assert: (result) => {
+      // The frame is its own figure: a composite drawn as an ordinary box
+      // would satisfy an id-only check and be the wrong picture.
+      expectSame("states and their figures", stateFigures(result), [
+        "Outer: frame",
+        "Idle: box",
+        "Busy: box",
+      ]);
+      expectSame("transitions", transitions(result), ["Idle-Busy: "]);
+      // Titled with the author's own word — a composite's id is the name
+      // they wrote, unlike a flowchart subgraph's generated one.
+      expectSame(
+        "the frame's title",
+        texts(result, 'g.siren-state[data-siren-id="Outer"] text.siren-composite-label'),
+        ["Outer"],
+      );
+      // "Around", as geometry: a frame drawn beside what it holds is still
+      // a frame to find, and is the wrong picture.
+      for (const member of ["Idle", "Busy"]) {
+        expectSame(
+          `${member} is drawn inside the frame`,
+          encloses(stateRect(result, "Outer"), stateRect(result, member)),
+          true,
+        );
+      }
+    },
+  },
+  {
+    id: "st-composite-nested",
+    kind: "state",
+    source: `stateDiagram-v2
+      state Outer {
+        Beside --> Also
+        state Inner {
+          Deep --> Deeper
+        }
+      }`,
+    status: "supported",
+    meaning:
+      "Composite states nest: a block may open another. Measured: the " +
+      "innermost states report `in=\"root/Outer/Inner\"`, so this is a frame " +
+      "inside a frame and not two frames side by side.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "Outer: frame",
+        "Beside: box",
+        "Also: box",
+        "Inner: frame",
+        "Deep: box",
+        "Deeper: box",
+      ]);
+      expectSame(
+        "the inner frame is drawn inside the outer one",
+        encloses(stateRect(result, "Outer"), stateRect(result, "Inner")),
+        true,
+      );
+      expectSame("the inner frame holds its own", encloses(stateRect(result, "Inner"), stateRect(result, "Deep")), true);
+      expectSame(
+        "a state written beside the inner block is in the outer frame only",
+        [encloses(stateRect(result, "Outer"), stateRect(result, "Beside")), encloses(stateRect(result, "Inner"), stateRect(result, "Beside"))],
+        [true, false],
+      );
+    },
+  },
+  {
+    id: "st-composite-transition-endpoint",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Outer
+      state Outer {
+        Inner --> Other
+      }
+      Outer --> Done`,
+    status: "supported",
+    meaning:
+      "A transition may name a composite at either end. Measured: " +
+      "`[*] --> Outer` and `Outer --> Done` are recorded as relations " +
+      "`in=\"root\"` naming `Outer` itself, so the arrow joins the **frame**, " +
+      "not a state inside it.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Outer: frame",
+        "Inner: box",
+        "Other: box",
+        "Done: box",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-Outer: ",
+        "Inner-Other: ",
+        "Outer-Done: ",
+      ]);
+      // On the frame's own boundary, as geometry. The layout engine cannot
+      // route to a frame, so the route goes through a member and is clipped
+      // back — a row asking only "was a path drawn?" would pass on an
+      // arrowhead buried inside the frame, pointing at that stand-in.
+      expectSame(
+        "the arrow into the composite ends on the frame",
+        transitionTouches(result, "start:1-Outer", "end", "Outer"),
+        true,
+      );
+      expectSame(
+        "the arrow out of the composite starts on the frame",
+        transitionTouches(result, "Outer-Done", "start", "Outer"),
+        true,
+      );
+    },
+  },
+  {
+    id: "st-composite-direction",
+    kind: "state",
+    source: `stateDiagram-v2
+      Before --> Outer
+      state Outer {
+        direction LR
+        First --> Second
+      }`,
+    status: "supported",
+    meaning:
+      "`direction LR` inside a composite is that block's own rank " +
+      "direction. Measured: mermaid 11.17.2 records it on the composite and " +
+      "leaves the document's own direction `TB`, so the block alone lays " +
+      "out sideways.",
+    assert: (result) => {
+      const centre = (id: string) => stateRectCenter(result, id);
+      // Sideways inside the block, read off the picture: `Second` to the
+      // right of `First`, and on the same row.
+      expectSame(
+        `Second is drawn right of First (${JSON.stringify([centre("First"), centre("Second")])})`,
+        centre("Second").x > centre("First").x,
+        true,
+      );
+      expectSame(
+        "and on the same row",
+        Math.abs(centre("Second").y - centre("First").y) < 1,
+        true,
+      );
+      // Top to bottom outside it: a `direction` that leaked to the document
+      // would draw this pair side by side instead.
+      expectSame(
+        "the composite is still drawn below the state pointing at it",
+        centre("Outer").y > centre("Before").y,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-composite-pseudo-state",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Outer
+      state Outer {
+        [*] --> Inner
+        Inner --> [*]
+      }
+      Outer --> [*]`,
+    status: "supported",
+    meaning:
+      "A composite's `[*]` is **that composite's** start and end, not the " +
+      "document's. Measured: the inner relation comes back from " +
+      "`Outer_start in=\"root/Outer\"` while the outer one comes from " +
+      "`root_start` — two different start pseudo-states, one per level, and " +
+      "the same for the two ends.",
+    assert: (result) => {
+      // Four pseudo-states, two per level, each drawn as its own mark.
+      // Siren's generated ids number the levels (ADR-0010), the document's
+      // first.
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Outer: frame",
+        "start:2: disc",
+        "Inner: box",
+        "end:2: ring+dot",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-Outer: ",
+        "start:2-Inner: ",
+        "Inner-end:2: ",
+        "Outer-end:1: ",
+      ]);
+      // And the inner level really is inside the frame: a `[*]` read as the
+      // document's would draw its arrow from outside it.
+      expectSame("the inner state is inside the frame", encloses(stateRect(result, "Outer"), stateRect(result, "Inner")), true);
+    },
+  },
+  // The six constructs the State Diagram board deliberately left out. Each
+  // one is valid Mermaid, measured against 11.17.2 with
+  // `scripts/mermaid-probe.mjs`, and each is refused **by name** by
+  // `parseStateDiagram`'s `UNIMPLEMENTED` table rather than swallowed or
+  // reported as a malformed line. They are this file's first `rejected` rows
+  // since the flowchart backlog closed, and they are honest backlog: written
+  // down so the gap is measured rather than forgotten.
+  {
+    id: "st-stereotype-choice",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle
+      state Choice <<choice>>
+      Idle --> Choice
+      Choice --> Busy`,
+    status: "rejected",
+    meaning:
+      "`<<choice>>`, `<<fork>>` and `<<join>>` mark a state as a pseudo-state " +
+      "drawn as a diamond or a bar rather than as a box. Measured: a closed " +
+      "set of three, recorded as a `type` field on the state itself " +
+      "(`id=\"Choice\" type=\"choice\"`) — the state keeps its authored id and " +
+      "its place in the relations, so this is a change of figure, not a " +
+      "change of structure.",
+  },
+  {
+    id: "st-note",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      note right of Idle : waiting for work`,
+    status: "rejected",
+    meaning:
+      "A note attached to one state, on the left or the right of it. " +
+      "Measured: the note hangs off **the state itself** as " +
+      "`note={\"position\":\"right of\",\"text\":\"waiting for work\"}` — not a " +
+      "separate note collection the way a class diagram's is, so a state " +
+      "carries at most one and it is addressable only through that state.",
+  },
+  {
+    id: "st-concurrency-divider",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Active
+      state Active {
+        Reading --> Parsing
+        --
+        Logging --> Flushed
+      }`,
+    status: "rejected",
+    meaning:
+      "`--` inside a composite splits it into concurrent regions. Measured: " +
+      "Mermaid synthesises `divider`-typed states and re-parents each " +
+      "region's members under one of them (`in=\"root/Active/divider-id-1\"`), " +
+      "and **their ids carry a random component** — the second divider came " +
+      "back as `id-g8d8ncxe8va-1`, a different string on every run. So an " +
+      "implementation must mint its own ids through `generatedId` (ADR-0010) " +
+      "and must not copy Mermaid's, which are not reproducible.",
+  },
+  {
+    id: "st-author-style",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef urgent fill:#f96
+      Idle --> Busy
+      class Busy urgent`,
+    status: "rejected",
+    meaning:
+      "`classDef` defines a named set of declarations and the apply-directive " +
+      "`class Busy urgent` applies it. Measured: a state diagram supports " +
+      "both — the state carries a `classes` array (`classes=[\"urgent\"]`) and " +
+      "`getClasses()` returns the definitions, the same shape a flowchart's " +
+      "and a class diagram's already have.",
+  },
+  {
+    id: "st-direction-document",
+    kind: "state",
+    source: `stateDiagram-v2
+      direction LR
+      Idle --> Busy
+      Busy --> Done`,
+    status: "rejected",
+    meaning:
+      "`direction LR` written at the document's own level, outside any " +
+      "composite, sets the whole diagram's rank direction. Measured: the " +
+      "document reports `direction LR`. Siren reads this statement **inside** " +
+      "a composite (`st-composite-direction`) and only there, so the " +
+      "document-level spelling is the unimplemented half of one construct.",
+  },
+  {
+    id: "st-composite-quoted-description",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Outer
+      state "the outer block" as Outer {
+        First --> Second
+      }`,
+    status: "rejected",
+    meaning:
+      "The quoted-description spelling with a block on it. Measured: one " +
+      "composite `Outer` carrying `descriptions=[\"the outer block\"]` with " +
+      "`First` and `Second` nested `in=\"root/Outer\"` — both constructs at " +
+      "once. Siren implements each half separately (`st-description-quoted` " +
+      "and `st-composite`) and neither pattern matches this line, which is " +
+      "why it is refused by name rather than falling out of the two that " +
+      "nearly cover it.",
+  },
 ];
-
-

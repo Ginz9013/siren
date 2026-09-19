@@ -17,9 +17,15 @@ import type {
   SequenceStatement,
   SirenTimeline,
 } from "../contracts";
+import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
-const SEQUENCE_HEADER_RE = /^sequenceDiagram\s*$/;
+/**
+ * The header this parser accepts, asked for by kind rather than written out
+ * — the same list `parseSiren` dispatches on, so this message cannot name a
+ * spelling the dispatcher rejects or miss one it sends here.
+ */
+const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
 
 /**
  * The pseudo-terminator that ends a statement body at a `timeline:` header.
@@ -760,10 +766,10 @@ export function parseSequenceDiagram(source: string): ParseResult {
   const headerRawLine = lines[state.index];
   const headerLine = headerRawLine.trim();
   const headerColumn = headerRawLine.length - headerRawLine.trimStart().length + 1;
-  if (!SEQUENCE_HEADER_RE.test(headerLine)) {
+  if (matchDiagramHeader(headerLine) !== "sequence") {
     diagnostics.push({
       severity: "error",
-      message: `Expected "sequenceDiagram", found "${headerLine}"`,
+      message: `Expected ${SEQUENCE_HEADER_SPELLINGS}, found "${headerLine}"`,
       line: state.index + 1,
       column: headerColumn,
     });

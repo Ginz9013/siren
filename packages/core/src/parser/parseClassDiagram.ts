@@ -17,10 +17,16 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { matchClassDirection } from "./parseDirection";
+import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
-const CLASS_HEADER_RE = /^classDiagram(?:-v2)?\s*$/;
+/**
+ * The headers this parser accepts, asked for by kind rather than written out
+ * — both spellings, from the list the dispatcher routes by. Hand-writing
+ * them is what let `parseSiren` teach only `classDiagram` while this parser
+ * quietly took `classDiagram-v2` as well.
+ */
+const CLASS_HEADER_SPELLINGS = listAcceptedHeaders(["class"]);
 /**
  * A bare `class Animal` declaration, with an optional `~generic~`
  * parameter after the name (`class Square~Shape~`).
@@ -343,10 +349,10 @@ export function parseClassDiagram(source: string): ParseResult {
 
   const headerRawLine = lines[index];
   const headerLine = headerRawLine.trim();
-  if (!CLASS_HEADER_RE.test(headerLine)) {
+  if (matchDiagramHeader(headerLine) !== "class") {
     diagnostics.push({
       severity: "error",
-      message: `Expected "classDiagram" or "classDiagram-v2", found "${headerLine}"`,
+      message: `Expected ${CLASS_HEADER_SPELLINGS}, found "${headerLine}"`,
       line: index + 1,
       column: headerRawLine.length - headerRawLine.trimStart().length + 1,
     });

@@ -264,7 +264,9 @@
 .siren-class,
 .siren-relationship,
 .siren-namespace,
-.siren-note {
+.siren-note,
+.siren-state,
+.siren-transition {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -637,6 +639,140 @@
 }
 
 /*
+ * State diagram, per the frozen SVG conventions in
+ * renderStateDiagramToSVG.ts. The same bargain the class diagram's block
+ * strikes above: the flowchart's five color tokens are reused rather than
+ * extended with state-diagram-specific ones (a state *is* a node, a
+ * transition *is* an edge), and each is named at the point of use rather
+ * than aliased into a new `--siren-*` in `:root`, which would freeze its
+ * light value above the demos' `<body>`-scoped dark override.
+ */
+
+/*
+ * A state box is rounded, which a class box is not: UML draws a state as a
+ * rounded rectangle, and the radius is decoration of the box rather than the
+ * figure itself — so it is the token's, and `renderStateDiagramToSVG`
+ * deliberately writes no `rx` of its own for a consumer's redeclaration to
+ * lose to.
+ */
+.siren-state-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/*
+ * Same weight as a class name: this row titles its box — the state's id
+ * when the author described it not at all, and its first description when
+ * they did. Which of the two is standing here is settled long before the
+ * theme sees it.
+ */
+.siren-state-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The description rows below the divider, weighted like a class member for
+ * the same reason: they are what the box holds rather than what titles it,
+ * and a box whose every row is bold has no title.
+ */
+.siren-state-description {
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The line closing the title row of a state carrying two or more
+ * descriptions. Part of the frame rather than a connector, so it tracks the
+ * node stroke exactly as a class compartment's divider does — and it is
+ * drawn inside a *rounded* box, which is why it spans the frame's width and
+ * no more.
+ */
+.siren-state-divider {
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * A composite state's frame encloses state boxes that are drawn *over* it,
+ * so it is outlined and not filled — the same reason `.siren-subgraph-frame`
+ * and `.siren-namespace-frame` are, and the reason it cannot simply take
+ * `.siren-state-frame`'s rule: a fill here would sit behind the whole group
+ * and hide whatever the frame overlaps. Rounded like the state box it is a
+ * frame around, through the same token.
+ */
+.siren-composite-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/*
+ * The name on the strip along the frame's top, weighted like every other
+ * thing that titles a group — a subgraph's label and a namespace's.
+ *
+ * No `font-size`: `layoutStateDiagram` measures this text in the group font
+ * declared above and grows the strip from what it measured, so shrinking or
+ * growing it here would leave the drawn title disagreeing with the strip
+ * built to hold it.
+ */
+.siren-composite-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The two pseudo-states `[*]` spells, drawn the way UML draws them and
+ * Mermaid confirms (measured, 11.17.2): a start is a filled disc, an end a
+ * ring around a smaller filled one.
+ *
+ * They are painted in the node *stroke* colour rather than the node fill,
+ * because these are ink marks rather than boxes — a disc filled with the
+ * fill token would be a box-coloured smudge on the canvas, and neither
+ * figure has a label or a frame to fall back on when nothing paints it.
+ * Mermaid paints its start in the line colour instead of the node stroke;
+ * that is a colour choice, which ADR-0004 makes the theme's, and the figure
+ * — disc, ring, disc-in-ring — is what compatibility is owed.
+ */
+.siren-state-start,
+.siren-state-end-inner {
+  fill: var(--siren-node-stroke);
+}
+
+/*
+ * The ring: an outline with the node fill inside it, so the disc within
+ * reads as a separate mark rather than as the middle of one solid blob.
+ * Measured, this is Mermaid's own pairing for the end state too — the outer
+ * circle takes the node fill and the node stroke, the inner one the stroke
+ * colour alone.
+ */
+.siren-state-end {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * `fill` is absent because the renderer writes `fill="none"` onto the path
+ * itself: a transition's points make an open, multi-segment path that a
+ * default fill would paint as a polygon over the states it joins. A
+ * self-transition's loop is the same path drawn beside one box, and takes
+ * this same rule.
+ */
+.siren-transition-line {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/* Secondary type naming the transition, exactly as a relationship label is. */
+.siren-transition-label {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
  * Step-reveal states: elements with an `enter` action carry `siren-pending`
  * at step 0 (invisible). No renderer marks them — `createAnimationController`
  * does, from `computeClassStateAtStep(timeline, 0)`, which every kind's
@@ -908,6 +1044,42 @@
  */
 .siren-namespace.siren-highlight-outline .siren-namespace-frame,
 .siren-note.siren-highlight-outline .siren-note-frame {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * The state diagram's own `outline` rules, for the reason the class
+ * diagram's exist one block up: the highlight class lands on a
+ * `<g class="siren-state">` whose stroke lives on an inner
+ * `.siren-state-frame`, and on a `<g class="siren-transition">` whose stroke
+ * lives on an inner `.siren-transition-line`, and no rule above names
+ * either. Both are addressable by id in the rendered SVG, and this kind now
+ * reads a `timeline:` block, so these mean something.
+ *
+ * A pseudo-state's disc and ring are named here for the same reason, and it
+ * is the start that needs saying: it carries no stroke of its own, so
+ * `highlight start:1 outline` gives it one — the outline lands on the
+ * figure that is there rather than on a frame it does not have.
+ *
+ * `.siren-composite-frame` is named beside them because a composite is the
+ * third of this kind's timeline targets and is drawn with a frame of its
+ * own rather than with `.siren-state-frame` — a frame encloses the boxes
+ * drawn over it, so it cannot be the filled figure the first selector names.
+ * It was the one target the rule above missed while composites were landing
+ * with no timeline to name them, which made `highlight Outer outline` a step
+ * on which nothing visibly happened. A group's outer `<g>` still wears the
+ * same `siren-state` class whichever figure is inside it, so the highlight
+ * class lands in one place and only the inner selector differs.
+ */
+.siren-state.siren-highlight-outline .siren-state-frame,
+.siren-state.siren-highlight-outline .siren-composite-frame,
+.siren-state.siren-highlight-outline .siren-state-start,
+.siren-state.siren-highlight-outline .siren-state-end,
+.siren-transition.siren-highlight-outline .siren-transition-line {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);
   transition:

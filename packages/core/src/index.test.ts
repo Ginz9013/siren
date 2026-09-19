@@ -5612,3 +5612,624 @@ click C href "https://example.com/finish"
     expect(confirm.getAttribute("data-siren-click-arg")).toBe("42");
   });
 });
+
+describe("render() — a state diagram, end to end", () => {
+  /** Renders `source` into a fresh attached container and hands back the result. */
+  const renderState = (source: string) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    return { container, result: render(source, container) };
+  };
+
+  it("draws a state diagram written with either header spelling, identically", () => {
+    // Measured (mermaid 11.17.2): both spellings report the diagram type
+    // `stateDiagram`, so the two documents are the same document and must
+    // draw the same picture.
+    const pictureOf = (header: string) => {
+      const { result } = renderState(`${header}\n  Idle --> Running : start\n`);
+      expect(result.diagnostics, header).toEqual([]);
+      return result.svg!.innerHTML.replace(/__[A-Za-z0-9]{8}/g, "__scope");
+    };
+
+    expect(pictureOf("stateDiagram")).toBe(pictureOf("stateDiagram-v2"));
+  });
+
+  it("mounts one siren-state group per state and one siren-transition per transition, each carrying its id", () => {
+    const { container, result } = renderState(
+      "stateDiagram-v2\n  Idle --> Running : start\n  Running --> Idle\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Idle", "Running"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Idle-Running", "Running-Idle"]);
+    expect(
+      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] text')!.textContent,
+    ).toBe("start");
+  });
+
+  it("draws the self-loop `A --> A : retry` as one state with one transition onto itself", () => {
+    const { result } = renderState("stateDiagram-v2\n  Running --> Running : retry\n");
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(svg.querySelectorAll("g.siren-state")).toHaveLength(1);
+
+    const loop = svg.querySelector('g.siren-transition[data-siren-id="Running-Running"]')!;
+    const path = loop.querySelector("path.siren-transition-line")!;
+    // A drawn loop, not a point: a route that collapsed onto one coordinate
+    // would draw nothing at all and still have a `<path>` to find.
+    const points = (path.getAttribute("d") ?? "").split(" ");
+    expect(points.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(points).size).toBeGreaterThanOrEqual(2);
+    expect(loop.querySelector("text")!.textContent).toBe("retry");
+  });
+
+  it("returns a working controller for a state diagram, as every other kind does", () => {
+    // `SirenRenderResult.controller` is null *only* when rendering failed, so
+    // a kind that returned none would break that promise for its callers.
+    const { result } = renderState("stateDiagram-v2\n  Idle --> Running\n");
+
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+  });
+
+  it("draws a composite state as a titled frame around the states written inside it", () => {
+    // End to end: the construct that was refused by name until this ticket.
+    // Measured (mermaid 11.17.2, `--markup`): a composite is drawn as a
+    // `g.statediagram-cluster` — a frame with the composite's name on a
+    // strip along its top — and the states inside it as ordinary boxes
+    // within it.
+    const { result } = renderState(
+      "stateDiagram-v2\n  state Outer {\n    Idle --> Busy\n  }\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const frame = svg.querySelector(
+      'g.siren-state[data-siren-id="Outer"] rect.siren-composite-frame',
+    )!;
+    expect(frame).not.toBeNull();
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Outer"] text.siren-composite-label')!
+        .textContent,
+    ).toBe("Outer");
+
+    // "Around", verified as geometry rather than as document structure: both
+    // member boxes lie strictly inside the frame's own rectangle.
+    const box = (id: string) => {
+      const rect = svg.querySelector(
+        `g.siren-state[data-siren-id="${id}"] rect.siren-state-frame`,
+      )!;
+      const number = (name: string) => Number(rect.getAttribute(name));
+      return {
+        left: number("x"),
+        top: number("y"),
+        right: number("x") + number("width"),
+        bottom: number("y") + number("height"),
+      };
+    };
+    const frameNumber = (name: string) => Number(frame.getAttribute(name));
+    for (const id of ["Idle", "Busy"]) {
+      const member = box(id);
+      expect(member.left, id).toBeGreaterThan(frameNumber("x"));
+      expect(member.top, id).toBeGreaterThan(frameNumber("y"));
+      expect(member.right, id).toBeLessThan(frameNumber("x") + frameNumber("width"));
+      expect(member.bottom, id).toBeLessThan(frameNumber("y") + frameNumber("height"));
+    }
+  });
+
+  it("draws `[*]` as a start disc and an end ring, one of each however often it is written", () => {
+    // Measured (mermaid 11.17.2): two `[*] -->` lines at one level both come
+    // back from a single `root_start`, and two `--> [*]` lines both reach a
+    // single `root_end` — one per level, not one per occurrence. Start and
+    // end are two different pseudo-states.
+    const { result } = renderState(
+      "stateDiagram-v2\n  [*] --> Idle\n  [*] --> Busy\n  Idle --> [*]\n  Busy --> [*]\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "Idle", "Busy", "end:1"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1-Idle", "start:1-Busy", "Idle-end:1", "Busy-end:1"]);
+
+    // The figures, not just the ids: a disc for the start, a ring around a
+    // disc for the end, and no label on either.
+    expect(svg.querySelectorAll("circle.siren-state-start")).toHaveLength(1);
+    expect(svg.querySelectorAll("circle.siren-state-end")).toHaveLength(1);
+    expect(svg.querySelectorAll("circle.siren-state-end-inner")).toHaveLength(1);
+    expect(
+      Array.from(svg.querySelectorAll("text.siren-state-label")).map((t) => t.textContent),
+    ).toEqual(["Idle", "Busy"]);
+  });
+
+  it("joins `[*] --> [*]` from the start pseudo-state to the end one", () => {
+    const { result } = renderState("stateDiagram-v2\n  [*] --> [*]\n");
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "end:1"]);
+    expect(
+      svg.querySelector('g.siren-transition[data-siren-id="start:1-end:1"]'),
+    ).not.toBeNull();
+  });
+
+  it("draws a described state's description where its id would have gone, and draws the identical picture for either spelling", () => {
+    // Measured (mermaid 11.17.2): `Idle : waiting for work` and
+    // `state "waiting for work" as Idle` both land in the same
+    // `descriptions` array on a state whose id is still `Idle` — one
+    // construct written two ways, so nothing downstream, the picture
+    // included, may be able to tell which the author wrote. The transition
+    // below still names the state `Idle`, which is what makes the second
+    // spelling a description rather than the rename `as` suggests.
+    const pictureOf = (description: string) => {
+      const { result } = renderState(
+        `stateDiagram-v2\n  ${description}\n  Idle --> Running\n`,
+      );
+      expect(result.diagnostics, description).toEqual([]);
+      return result.svg!.innerHTML.replace(/__[A-Za-z0-9]{8}/g, "__scope");
+    };
+
+    expect(pictureOf('state "waiting for work" as Idle')).toBe(
+      pictureOf("Idle : waiting for work"),
+    );
+
+    const { result } = renderState(
+      "stateDiagram-v2\n  Idle : waiting for work\n  Idle --> Running\n",
+    );
+    const svg = result.svg!;
+
+    // The description stands where the id used to, and the id is left
+    // addressing the state — the split `A[label]` already draws in a
+    // flowchart.
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Idle"] text.siren-state-label')!
+        .textContent,
+    ).toBe("waiting for work");
+    expect(
+      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"]'),
+    ).not.toBeNull();
+    // An undescribed state in the same diagram still draws its id.
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Running"] text.siren-state-label')!
+        .textContent,
+    ).toBe("Running");
+  });
+
+  it("draws two descriptions as a titled box: the first above the divider, the rest below it", () => {
+    // Measured (11.17.2, `mermaid-probe.mjs --markup`): one description is
+    // a plain rounded rect, while two or more are drawn as
+    // `rect.outer.title-state` plus a `line.divider` — the first
+    // description titling the box and the rest sitting under the line.
+    const { result } = renderState(
+      "stateDiagram-v2\n  Idle : waiting for work\n  Idle : nothing queued\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+
+    expect(Array.from(group.querySelectorAll("text")).map((t) => t.textContent)).toEqual([
+      "waiting for work",
+      "nothing queued",
+    ]);
+    expect(group.querySelector("text.siren-state-label")!.textContent).toBe(
+      "waiting for work",
+    );
+
+    // The divider, between the two rows rather than merely present: a line
+    // drawn at the top or the bottom of the box would satisfy a
+    // "was a divider drawn?" check and be the wrong picture.
+    const divider = group.querySelector("line.siren-state-divider");
+    expect(divider).not.toBeNull();
+    const yOf = (element: Element) => Number(element.getAttribute("y"));
+    const rows = Array.from(group.querySelectorAll("text"));
+    const dividerY = Number(divider!.getAttribute("y1"));
+    expect(dividerY).toBeGreaterThan(yOf(rows[0]));
+    expect(dividerY).toBeLessThan(yOf(rows[1]));
+    // And the box grew to hold both rows rather than clipping the second.
+    const frame = group.querySelector("rect.siren-state-frame")!;
+    expect(yOf(rows[1])).toBeLessThan(
+      Number(frame.getAttribute("y")) + Number(frame.getAttribute("height")),
+    );
+  });
+
+  it("leaves the start pseudo-state alone when the author declares a state named `root_start`", () => {
+    // Siren diverging from Mermaid, and removing a bug by doing so.
+    // Measured, 11.17.2: this document means three nodes and two edges, and
+    // Mermaid draws two nodes with the relations `root_start → root_start`
+    // and `root_start → B` — the start pseudo-state swallowed by the
+    // author's own state, its edge turned into a self-loop nobody wrote,
+    // and no diagnostic. Siren's generated ids carry a colon that an
+    // authored `\w+` id cannot, so there is nothing to collide.
+    const { result } = renderState(
+      "stateDiagram-v2\n  [*] --> root_start\n  root_start --> B\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "root_start", "B"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1-root_start", "root_start-B"]);
+    // The author's state is a box with its own name in it, and the disc is
+    // still the disc.
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="root_start"] text.siren-state-label')!
+        .textContent,
+    ).toBe("root_start");
+    expect(svg.querySelectorAll("circle.siren-state-start")).toHaveLength(1);
+  });
+
+  it("returns a controller with totalSteps 0 — not null — for a stateDiagram with no timeline block", () => {
+    const { result } = renderState("stateDiagram-v2\n  Idle --> Running\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+    expect(result.controller!.currentStep).toBe(0);
+  });
+
+  it("drives a state diagram's timeline through all three target kinds — a state, a transition and a composite frame — with next(), prev() and reset()", () => {
+    const { result } = renderState(
+      "stateDiagram-v2\n" +
+        "  [*] --> Idle\n" +
+        "  Idle --> Outer : begin\n" +
+        "  state Outer {\n" +
+        "    Working --> Done\n" +
+        "  }\n" +
+        "timeline:\n" +
+        "  step 1: enter Idle fade\n" +
+        "  step 2: enter Idle-Outer fade, enter Outer slide-top\n" +
+        "  step 3: highlight Outer outline, highlight Idle-Outer glow\n" +
+        "  step 4: unhighlight Outer, exit Idle-Outer fade\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(4);
+
+    const svg = result.svg!;
+    const byId = (id: string) => svg.querySelector(`[data-siren-id="${id}"]`)!;
+    const idle = byId("Idle");
+    const outer = byId("Outer");
+    const transition = byId("Idle-Outer");
+
+    // Step 0 is the controller's, established by `reset()` in `render()` —
+    // the renderer stamps no `siren-pending` of its own. Exactly the three
+    // ids with an `enter` action start hidden; the start pseudo-state and
+    // the composite's members, which the block never names, are visible.
+    const pendingIds = () =>
+      Array.from(svg.querySelectorAll(".siren-pending"))
+        .map((el) => el.getAttribute("data-siren-id"))
+        .sort();
+    expect(pendingIds()).toEqual(["Idle", "Idle-Outer", "Outer"]);
+
+    controller.next();
+    expect(idle.classList.contains("siren-pending")).toBe(false);
+    expect(idle.classList.contains("siren-enter-fade")).toBe(true);
+    expect(outer.classList.contains("siren-pending")).toBe(true);
+
+    // Step 2: the composite frame — addressed under the author's own name,
+    // unlike a flowchart subgraph's generated `subgraph:1` — and the
+    // transition beside it.
+    controller.next();
+    expect(outer.classList.contains("siren-pending")).toBe(false);
+    expect(outer.classList.contains("siren-enter-slide-top")).toBe(true);
+    expect(transition.classList.contains("siren-enter-fade")).toBe(true);
+
+    controller.next();
+    expect(outer.classList.contains("siren-highlight-outline")).toBe(true);
+    expect(transition.classList.contains("siren-highlight-glow")).toBe(true);
+
+    controller.next();
+    expect(controller.currentStep).toBe(4);
+    expect(outer.classList.contains("siren-highlight-outline")).toBe(false);
+    expect(transition.classList.contains("siren-exit-fade")).toBe(true);
+
+    // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(transition.classList.contains("siren-exit-fade")).toBe(false);
+    expect(outer.classList.contains("siren-highlight-outline")).toBe(true);
+
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(pendingIds()).toEqual(["Idle", "Idle-Outer", "Outer"]);
+    expect(outer.classList.contains("siren-highlight-outline")).toBe(false);
+  });
+
+  it("animates a pseudo-state under the generated id it already carries", () => {
+    // Not a fourth target kind: `start:1` is an id like any other by the
+    // time the timeline is resolved, so it is addressable for free.
+    const { result } = renderState(
+      "stateDiagram-v2\n  [*] --> Idle\ntimeline:\n  step 1: enter start:1 fade\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const disc = result.svg!.querySelector('g.siren-state[data-siren-id="start:1"]')!;
+    expect(disc.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(disc.classList.contains("siren-enter-fade")).toBe(true);
+  });
+
+  it("warns — without dropping anything — when a transition stays visible after a state it joins exits", () => {
+    const { result } = renderState(
+      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  step 1: exit Running fade\n",
+    );
+
+    expect(result.diagnostics.map((d) => d.severity)).toEqual(["warning"]);
+    expect(result.diagnostics[0].message).toContain('transition "Idle-Running"');
+    expect(result.svg).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(1);
+  });
+
+  it("reports a timeline entry naming an id no state or transition carries, and renders nothing", () => {
+    const { result } = renderState(
+      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  step 1: enter Ghost fade\n",
+    );
+
+    // An unresolvable target is error-severity, and `render()` returns no
+    // SVG once any stage reports one — the same answer every other kind
+    // gives.
+    expect(result.diagnostics.map((d) => d.severity)).toEqual(["error"]);
+    expect(result.diagnostics[0].message).toContain("Ghost");
+  });
+
+  it("renders examples/state-core.srn end to end with zero diagnostics — both description spellings, an accumulating pair, a self-transition, both pseudo-states, a nested composite with its own direction and its own `[*]`, and a state nothing points at", () => {
+    // Zero diagnostics of *any* severity, which is the claim the `examples/`
+    // enumeration test above does not make: that one filters to error
+    // severity, so a warning — the connector-outliving-its-endpoint one this
+    // kind can now raise — would slip past it.
+    const { result } = renderState(readExample("state-core"));
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const idsOf = (selector: string) =>
+      Array.from(svg.querySelectorAll(selector)).map((g) => g.getAttribute("data-siren-id"));
+    const rowsOf = (id: string) =>
+      Array.from(
+        svg.querySelectorAll(
+          `g.siren-state[data-siren-id="${id}"] text.siren-state-label,` +
+            ` g.siren-state[data-siren-id="${id}"] text.siren-state-description`,
+        ),
+      ).map((text) => text.textContent);
+
+    // The example's own text, asserted — every state it writes, in the order
+    // it first names them, with both levels' pseudo-states numbered by the
+    // level that opened them.
+    expect(idsOf("g.siren-state")).toEqual([
+      "start:1",
+      "Idle",
+      "Dispatching",
+      "Running",
+      "start:2",
+      "Fetching",
+      "Transforming",
+      "Mapping",
+      "Reducing",
+      "Publishing",
+      "end:2",
+      "Failed",
+      "end:1",
+      "Cancelled",
+    ]);
+
+    expect(idsOf("g.siren-transition")).toEqual([
+      "start:1-Idle",
+      "Idle-Dispatching",
+      "Dispatching-Running",
+      "Running-Running",
+      "start:2-Fetching",
+      "Fetching-Transforming",
+      "Mapping-Reducing",
+      "Transforming-Publishing",
+      "Publishing-end:2",
+      "Running-Idle",
+      "Running-Failed",
+      "Failed-end:1",
+    ]);
+
+    // The labels the example writes on its transitions, and only those.
+    expect(
+      Array.from(svg.querySelectorAll("text.siren-transition-label")).map((t) => t.textContent),
+    ).toEqual(["job arrives", "heartbeat", "finished", "error"]);
+
+    // Both description spellings land in one list on one state, in written
+    // order — `Idle : waiting for work` then `state "nothing is queued" as
+    // Idle` — and neither renames it, which is why `Idle` is still what the
+    // transitions above name.
+    expect(rowsOf("Idle")).toEqual(["waiting for work", "nothing is queued"]);
+    // Two colon-spelled descriptions accumulate rather than replace.
+    expect(rowsOf("Failed")).toEqual(["the run stopped early", "nothing was published"]);
+    // An undescribed state draws its own id and no divider.
+    expect(rowsOf("Cancelled")).toEqual(["Cancelled"]);
+    expect(
+      svg.querySelectorAll('g.siren-state[data-siren-id="Cancelled"] line.siren-state-divider'),
+    ).toHaveLength(0);
+    // A described one gets the divider closing its title row.
+    expect(
+      svg.querySelectorAll('g.siren-state[data-siren-id="Idle"] line.siren-state-divider'),
+    ).toHaveLength(1);
+
+    // Two composite frames, the inner one drawn inside the outer.
+    expect(idsOf("g.siren-state:has(rect.siren-composite-frame)")).toEqual([
+      "Running",
+      "Transforming",
+    ]);
+    const box = (id: string) => {
+      const rect = svg.querySelector(`g.siren-state[data-siren-id="${id}"] rect`)!;
+      const read = (name: string) => Number(rect.getAttribute(name));
+      return { x: read("x"), y: read("y"), w: read("width"), h: read("height") };
+    };
+    const outer = box("Running");
+    const inner = box("Transforming");
+    expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y);
+    expect(inner.x + inner.w).toBeLessThanOrEqual(outer.x + outer.w);
+    expect(inner.y + inner.h).toBeLessThanOrEqual(outer.y + outer.h);
+
+    // `direction LR` inside `state Transforming { ... }` turns that block
+    // alone sideways — `Reducing` beside `Mapping`, on one row — while both
+    // the composite holding it and the document outside that still run top
+    // to bottom.
+    const centre = (id: string) => {
+      const b = box(id);
+      return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    };
+    expect(centre("Reducing").x).toBeGreaterThan(centre("Mapping").x);
+    expect(Math.abs(centre("Reducing").y - centre("Mapping").y)).toBeLessThan(1);
+    expect(centre("Publishing").y).toBeGreaterThan(centre("Fetching").y);
+    expect(centre("Running").y).toBeGreaterThan(centre("Idle").y);
+
+    // Exactly one start disc per level, and one end ring per level — the
+    // document's and the outer composite's.
+    expect(svg.querySelectorAll("circle.siren-state-start")).toHaveLength(2);
+    expect(svg.querySelectorAll("circle.siren-state-end")).toHaveLength(2);
+  });
+
+  it("drives examples/state-reveal.srn's timeline through all three target kinds — a state, a transition and a composite frame — with next(), prev() and reset()", () => {
+    const { result } = renderState(readExample("state-reveal"));
+
+    // Zero diagnostics of any severity: in particular no
+    // connector-outliving-its-endpoint warning, which the example avoids by
+    // exiting `start:1-Idle` and `Idle-Working` in the same step `Idle`
+    // leaves.
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(7);
+
+    const svg = result.svg!;
+    const byId = (id: string) => svg.querySelector(`[data-siren-id="${id}"]`)!;
+    const pendingIds = () =>
+      Array.from(svg.querySelectorAll(".siren-pending"))
+        .map((el) => el.getAttribute("data-siren-id"))
+        .sort();
+
+    // The example's own structure, asserted — the frame is addressed by the
+    // author's own name `Working`, unlike a flowchart subgraph's generated
+    // `subgraph:1`.
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["start:1", "Idle", "Working", "Fetching", "Saving", "Done", "end:1"]);
+    // And `Working` really is the frame, not a box that happens to share the
+    // name: it is drawn with `.siren-composite-frame` and the two members
+    // the block holds are inside it. Without this the example could lose its
+    // `state Working { ... }` block entirely and every assertion below would
+    // still pass — mutation found exactly that.
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state:has(rect.siren-composite-frame)")).map(
+        (g) => g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Working"]);
+    const frame = svg.querySelector('g.siren-state[data-siren-id="Working"] rect')!;
+    const span = (el: Element) => ({
+      x: Number(el.getAttribute("x")),
+      y: Number(el.getAttribute("y")),
+      w: Number(el.getAttribute("width")),
+      h: Number(el.getAttribute("height")),
+    });
+    const outer = span(frame);
+    for (const member of ["Fetching", "Saving"]) {
+      const inner = span(svg.querySelector(`g.siren-state[data-siren-id="${member}"] rect`)!);
+      expect(inner.x, member).toBeGreaterThanOrEqual(outer.x);
+      expect(inner.y, member).toBeGreaterThanOrEqual(outer.y);
+      expect(inner.x + inner.w, member).toBeLessThanOrEqual(outer.x + outer.w);
+      expect(inner.y + inner.h, member).toBeLessThanOrEqual(outer.y + outer.h);
+    }
+
+    // Step 0 is the controller's: exactly the ids the block gives an `enter`
+    // start hidden, and the start disc — which the example never enters —
+    // is visible from the first frame.
+    expect(pendingIds()).toEqual([
+      "Done",
+      "Done-end:1",
+      "Fetching",
+      "Fetching-Saving",
+      "Idle",
+      "Idle-Working",
+      "Saving",
+      "Working",
+      "Working-Done",
+    ]);
+    expect(byId("start:1").classList.contains("siren-pending")).toBe(false);
+
+    controller.next(); // step 1 — a state
+    expect(byId("Idle").classList.contains("siren-enter-fade")).toBe(true);
+
+    controller.next(); // step 2 — a transition and the composite frame
+    expect(byId("Idle-Working").classList.contains("siren-enter-fade")).toBe(true);
+    expect(byId("Working").classList.contains("siren-enter-slide-top")).toBe(true);
+
+    controller.next(); // step 3 — the frame's own members
+    expect(byId("Fetching-Saving").classList.contains("siren-enter-fade")).toBe(true);
+
+    controller.next(); // step 4 — the composite highlighted by name
+    expect(byId("Working").classList.contains("siren-highlight-outline")).toBe(true);
+
+    controller.next(); // step 5 — highlight lifted, the tail enters
+    expect(byId("Working").classList.contains("siren-highlight-outline")).toBe(false);
+    expect(byId("Done").classList.contains("siren-enter-slide-right")).toBe(true);
+
+    controller.next(); // step 6 — a transition highlighted
+    expect(byId("Idle-Working").classList.contains("siren-highlight-glow")).toBe(true);
+
+    controller.next(); // step 7 — the head of the diagram leaves
+    expect(controller.currentStep).toBe(7);
+    expect(byId("Idle").classList.contains("siren-exit-slide-left")).toBe(true);
+    expect(byId("start:1-Idle").classList.contains("siren-exit-slide-left")).toBe(true);
+    expect(byId("Idle-Working").classList.contains("siren-highlight-glow")).toBe(false);
+
+    // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(byId("Idle").classList.contains("siren-exit-slide-left")).toBe(false);
+    expect(byId("Idle-Working").classList.contains("siren-highlight-glow")).toBe(true);
+
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(pendingIds()).toEqual([
+      "Done",
+      "Done-end:1",
+      "Fetching",
+      "Fetching-Saving",
+      "Idle",
+      "Idle-Working",
+      "Saving",
+      "Working",
+      "Working-Done",
+    ]);
+    expect(byId("Working").classList.contains("siren-highlight-outline")).toBe(false);
+  });
+});

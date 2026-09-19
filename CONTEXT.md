@@ -73,7 +73,8 @@ the verb matters)
 **Timeline target**:
 Anything a timeline action can name by id: a flowchart node, edge or subgraph; a class,
 relationship, namespace or note in a class diagram; a participant, message, control-flow block,
-box grouping, activation bar or note in a sequence diagram. Every one of them carries `data-siren-id` in the rendered SVG,
+box grouping, activation bar or note in a sequence diagram; a **state**, **transition** or
+**composite state** in a state diagram. Every one of them carries `data-siren-id` in the rendered SVG,
 which is how the animation controller finds it — so a diagram kind gains animation by tagging its
 drawn elements with the ids the timeline uses, not by teaching the controller anything new.
 A target is the *authored thing*, not one drawn element: an id may be worn by several elements
@@ -83,6 +84,16 @@ side by side, both wearing the edge's id) and they all animate together — see
 [ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md). A destroy mark is
 therefore not a fifth sequence target: it animates when its participant does, and there is no id
 that names it alone.
+A state diagram's three are worth stating against the two kinds they most resemble, because the id
+a timeline names comes from a different place in each. A **state**'s is the author's own name, as a
+class's and a participant's are. A **transition**'s is `${from}-${to}` with `#2` for a repeat pair,
+the connector convention shared with an **edge** and a **relationship**. And a **composite state**'s
+is *also the author's own name* — which is what separates it from the **subgraph** it draws the same
+figure as, whose id has to be minted (`subgraph:1`) because Mermaid lets an author title one with
+text that gives no handle at all. A composite is named by `state Outer {`, so there is nothing to
+mint and `highlight Outer outline` names the frame the author wrote. A **pseudo-state** is not a
+fourth kind: `[*]` reaches the timeline under the generated id it already carries (`start:1`), which
+it needs for the renderer regardless, so it is addressable for free rather than by decision.
 _Avoid_: animated element, "nodes and edges" as a collective name for what a timeline can name
 (that is flowchart-only vocabulary, and this term is what replaced it — **node** and **edge**
 remain the right words for those two things themselves), timeline reference, animation target
@@ -194,7 +205,9 @@ state a corpus row declares)
 
 **Diagram kind**:
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
-`sequenceDiagram`, or `classDiagram`. Carried as `SirenDocument.kind` and dispatched on by
+`sequenceDiagram`, `classDiagram`, or `stateDiagram` (`stateDiagram-v2` is the same kind under a
+second spelling, measured: both report the diagram type `stateDiagram`, exactly as
+`classDiagram-v2` does). Carried as `SirenDocument.kind` and dispatched on by
 `parseSiren`, `buildGraphModel`, and `render()`, each of which routes to that kind's own
 parser/model/layout/renderer. `graph` is Mermaid's original spelling of `flowchart` and opens the
 same kind: like `TD`, it is normalized away in `parseDirection`, so no document, model or renderer
@@ -505,6 +518,104 @@ a dropped note does not renumber).
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing), label,
 callout
+
+**State**:
+One box in a state diagram — the state-diagram counterpart of a flowchart **node**, a class
+diagram's **class** and a sequence diagram's **participant**. Written bare (`Idle`), with Mermaid's
+optional keyword (`state Idle`), or created implicitly by being named in a **transition**, exactly
+as `A --> B` creates two flowchart nodes.
+
+**Repeat mentions fold in the parser, not in the model** — the opposite of a **class**, whose second
+declaration merges members there. A state carries no repeatable payload for a later stage to
+reconcile: it is a name and a position, so naming it five times is one declaration, positioned where
+it was first written, and the model is left with *identification* alone.
+
+What it does carry is **descriptions**, and that is an array rather than a string because they
+**accumulate**: measured (mermaid 11.17.2), `s : first` followed by `s : second` reports
+`descriptions=["first","second"]`, so a second description is a second line of text and not a
+correction of the first. The two spellings — `Idle : waiting` and `state "waiting" as Idle` — are
+**one construct written two ways**, and `as` is not the rename it looks like: measured, both land in
+the same `descriptions` array and neither touches the id, so `Idle` is still what a transition
+names. Which spelling was written is therefore recorded nowhere, the same call `graph` versus
+`flowchart` gets. A described state draws its descriptions *in place of* its id, with a
+`.siren-state-divider` closing the title row once there are two or more — the compartment line a
+class box already draws, and the one Mermaid draws as `line.divider`.
+_Avoid_: node (flowchart vocabulary), status, step (that is the timeline's word for a reveal
+position), box (say "frame" for the drawn `<rect>`)
+
+**Transition**:
+A directed connector between two states, written `A --> B` with an optional `: label`. Its id is
+`${from}-${to}`, then `#2` for a repeat pair — the flowchart **edge** convention used a third time
+rather than invented a third time, which is what lets one timeline vocabulary address every diagram
+kind. `label` is `null` and never `""`: Mermaid reports an unlabelled relation's `relationTitle` as
+the empty string (measured), and Siren spells the absence the way `Edge.label` already does.
+A self-transition (`A --> A`) needs no case of its own anywhere in the pipeline — it is an ordinary
+ordered pair whose halves coincide, so its id is `A-A` and the loop lives in the points layout
+returned. It is also a **connector** in the sense `warnOnConnectorsOutlivingTheirEndpoints` means:
+animate a state out and leave the transition in, and the warning that already covers an edge, a
+relationship and a message covers this too.
+_Avoid_: edge (flowchart vocabulary), relationship (class-diagram vocabulary), message (sequence
+vocabulary), arrow (say "arrow" for the drawn line and its head, never for the transition itself)
+
+**Composite state**:
+A `state Outer { ... }` block, drawn as a titled frame around the states written inside it and laid
+out as a dagre cluster. The **fifth** grouping construct here and the third spatial one, after a
+class diagram's **namespace** and a flowchart's **subgraph** — and it draws deliberately the same
+figure as those two, so a theme or a reader who has learned one need not learn a third. Three things
+are nevertheless not the same, and each is measured rather than chosen:
+
+- **Its id is the author's own name, not a generated one.** This is the single sharpest difference
+  from the **subgraph** it otherwise resembles: `subgraph:1` has to be minted because Mermaid
+  accepts `subgraph "Two Words"`, a title that gives no handle at all, while `state Outer {` names
+  the frame in the same `\w+` alphabet a transition names a state in. So a **transition may name a
+  composite at either end** and reach the frame rather than declaring a second state beside it, and
+  a `timeline:` block highlights it under the name the author wrote.
+- **It is a state.** `StateKind` is one closed type covering `state`, `composite`, `start` and
+  `end`, and a composite is drawn inside the same `<g class="siren-state">` wearing the same id —
+  only the inner figure differs (`.siren-composite-frame`, unfilled, because a frame encloses the
+  boxes drawn over it). So a state first named by a transition and *then* opened as a block has its
+  kind upgraded rather than a second declaration made.
+- **It opens a level of its own**, which is what makes its `[*]` its own rather than the document's
+  (see **Pseudo-state**), and it may carry its own `direction LR` — one `rankdir` per cluster, the
+  same per-level, non-cascading rule `SirenSubgraph.direction` follows.
+
+Membership lives on the member, as `StateDecl.parentId`, in one place — the split the **subgraph**
+entry already argues for, and here it is the only place it *could* live, because a pseudo-state has
+no id for a membership list to name. **The first block to name a state keeps it** against every
+later one, the rule a subgraph's members already follow. (Mermaid's own parse tree keeps a
+same-named state per level and lets its renderer draw one node for them; Siren's ids are global, so
+one rule decides which level that one node is drawn at.)
+_Avoid_: subgraph (flowchart vocabulary), namespace (class-diagram vocabulary), cluster (the
+dagre-side word), superstate, group, frame (that is the drawn `<rect>`, one of the two elements a
+composite is drawn with)
+
+**Pseudo-state**:
+What `[*]` spells — a **start**, drawn as a filled disc, or an **end**, drawn as a ring around one.
+Which of the two it means is decided by the side of the arrow it sits on and by nothing else, so
+`[*] --> Idle --> [*]` is two different marks and not one used twice.
+
+**One pair per level, not one per occurrence** — measured, mermaid 11.17.2: two `[*] -->` lines at
+one level both came back from a single `root_start`. And a **composite state** is a level of its
+own: `state Outer { [*] --> Inner }` reports `Outer_start in="root/Outer"`, with the document's own
+`root_start` nowhere in it.
+
+**Its id is generated, and that generation removes a bug of Mermaid's.** `generatedId`
+([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) spells these
+`start:1` / `end:1`, numbered by the level that opened them in declaration order with the document's
+own level first; a level with no `[*]` in it still takes its number, because the numbers are handles
+and a gap costs nothing while renumbering would change one composite's ids because an unrelated
+block lost its own. Mermaid instead names them `root_start` and `root_end` — ordinary `\w+` names an
+author may also write, and it does not guard the collision. Measured: `[*] --> root_start` followed
+by `root_start --> B` means three nodes and two edges, and Mermaid produces two nodes with the
+relations `root_start → root_start` and `root_start → B`, the start pseudo-state swallowed by the
+author's own state and its edge redirected into a self-loop nobody wrote, with no diagnostic. Every
+authored id here is `\w+`, which cannot contain a colon, so the collision is not guarded against —
+it is unconstructible, exactly as a **subgraph**'s generated id is.
+A pseudo-state draws no label, deliberately: the only text there could be is a string the author
+never wrote. It carries no descriptions and can carry none, since `[*]` is not an id and no
+description statement can name one.
+_Avoid_: initial/final state (they are not states — nothing can describe or style one), start node,
+terminator, `[*]` (that is the spelling, not the thing)
 
 **Author style**:
 A styling declaration written in the document, emitted as an inline `style` attribute on the
