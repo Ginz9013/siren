@@ -4,6 +4,7 @@ import { layoutGraph } from "./layout/layoutGraph";
 import { layoutSequence } from "./layout/layoutSequence";
 import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { layoutStateDiagram } from "./layout/layoutStateDiagram";
+import { UnplacedNodesError } from "./layout/layoutDirectedGraph";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
@@ -130,6 +131,39 @@ function establishStepZero(controller: AnimationController): void {
   controller.reset();
 }
 
+/** What one layout call produced: a positioned diagram, or the reason there is none. */
+type LayoutAttempt<T> =
+  | { placed: true; value: T }
+  | { placed: false; diagnostic: Diagnostic };
+
+/**
+ * Runs one layout stage, turning the one failure it is allowed to have —
+ * `UnplacedNodesError`, the engine not placing a node (see that type) — into
+ * the error-severity diagnostic an author sees.
+ *
+ * **Everything else is rethrown, deliberately.** A bare `catch` here would
+ * report this package's own bugs as if they were defects in the author's
+ * document, which is the same disguise CONTEXT.md's opening policy exists to
+ * remove, only pointed the other way: a `TypeError` in a renderer is not
+ * something an author can route around. Matching by type keeps the
+ * conversion to the one case that has a meaning for them.
+ *
+ * It wraps a thunk rather than living at each call site because there are
+ * three of them — flowchart, class and state all reach the same shared
+ * layout core — and three copies of a `catch` that must not be bare is three
+ * chances for one of them to become bare.
+ */
+function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
+  try {
+    return { placed: true, value: run() };
+  } catch (error) {
+    if (error instanceof UnplacedNodesError) {
+      return { placed: false, diagnostic: { severity: "error", message: error.message } };
+    }
+    throw error;
+  }
+}
+
 /**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
@@ -172,7 +206,14 @@ export function render(
       return { svg: null, controller: null, diagnostics };
     }
 
-    const positionedStateDiagram = layoutStateDiagram(graphResult.stateModel, { measureText });
+    const stateModel = graphResult.stateModel;
+    const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
+    if (!stateLayout.placed) {
+      diagnostics.push(stateLayout.diagnostic);
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedStateDiagram = stateLayout.value;
     const stateSvg = renderStateDiagramToSVG(positionedStateDiagram);
 
     container.replaceChildren(stateSvg);
@@ -198,7 +239,24 @@ export function render(
       return { svg: null, controller: null, diagnostics };
     }
 
-    const positionedClassDiagram = layoutClassDiagram(graphResult.classModel, { measureText });
+    // The third of the three layout stages that reach the shared core, held
+    // to the same terms as the other two. **No document reaches this branch's
+    // failure path today** — the construct that defeats the engine is a
+    // cluster carrying its own direction, and a class diagram's only cluster
+    // is a namespace, which Mermaid neither nests nor gives a direction to.
+    // It is written anyway because the guard it is catching is a check on the
+    // *shape of the engine's answer*, not on that one construct: leaving this
+    // site bare would mean a future source of a missing coordinate escapes
+    // `render()` as a thrown error here while the other two kinds report it,
+    // and `Diagnostic`'s contract is that it is returned and never thrown.
+    const classModel = graphResult.classModel;
+    const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
+    if (!classLayout.placed) {
+      diagnostics.push(classLayout.diagnostic);
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedClassDiagram = classLayout.value;
     const classSvg = renderClassDiagramToSVG(positionedClassDiagram);
 
     container.replaceChildren(classSvg);
@@ -247,7 +305,17 @@ export function render(
     return { svg: null, controller: null, diagnostics };
   }
 
-  const positioned = layoutGraph(graphResult.graph, { measureText });
+  // Bound to a local because the narrowing above does not survive into the
+  // closure below — a property's narrowing is discarded inside a function
+  // expression, and a `!` there would assert what the line above proved.
+  const graph = graphResult.graph;
+  const flowchartLayout = attemptLayout(() => layoutGraph(graph, { measureText }));
+  if (!flowchartLayout.placed) {
+    diagnostics.push(flowchartLayout.diagnostic);
+    return { svg: null, controller: null, diagnostics };
+  }
+
+  const positioned = flowchartLayout.value;
   const svg = renderToSVG(positioned);
 
   container.replaceChildren(svg);
