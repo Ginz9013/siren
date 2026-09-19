@@ -411,6 +411,74 @@ const LABEL_MECHANISMS = [
  * alone would report the declaration and not the outcome, which is the
  * distinction this mode exists to make.
  */
+/**
+ * **Which elements Mermaid draws each node and cluster with** — the question
+ * `--paint` cannot answer.
+ *
+ * `--paint` reports the paint landing on labels and edge paths, which
+ * settles "does this directive reach the picture". It says nothing about
+ * *figure*: whether a state's end marker is a ring around a disc or a plain
+ * circle, how many elements a shape is built from, what Mermaid's own
+ * stylesheet names them. A board needing that had to write a throwaway
+ * jsdom script, twice, before this mode existed.
+ *
+ * Attributes are printed rather than the subtree's text, and geometry is
+ * printed with them **knowing it is the layout stub's answer and not
+ * Mermaid's** (the header says why). What survives that stub is the part
+ * this mode is for: tag names, class names, nesting, and the shape of the
+ * `d` a path is built from.
+ */
+async function reportMarkup(mermaid, dom, source) {
+  mermaid.initialize({ startOnLoad: false, htmlLabels: false, flowchart: { htmlLabels: false } });
+  let svg;
+  try {
+    ({ svg } = await mermaid.render("siren-probe-markup", source));
+  } catch (error) {
+    section("markup", ["MERMAID FAILED TO RENDER THIS", String(error.message)]);
+    return;
+  }
+  const host = dom.window.document.createElement("div");
+  host.innerHTML = svg;
+  dom.window.document.body.appendChild(host);
+
+  // A shape's `d` is a bezier approximation running to thousands of
+  // characters, and none of it is readable as geometry — Mermaid draws a
+  // circle as 30-odd curve segments. Printing it whole buries the tag names
+  // and class names this mode exists to show, so a long value is cut and its
+  // true length reported instead: "it is a path, and it is this big" is the
+  // whole of what survives the layout stub anyway.
+  const VALUE_LIMIT = 60;
+  const describeValue = (value) =>
+    value.length <= VALUE_LIMIT
+      ? JSON.stringify(value)
+      : `${JSON.stringify(value.slice(0, VALUE_LIMIT))}… (${value.length} chars)`;
+
+  const describeElement = (element, depth) =>
+    `${"  ".repeat(depth)}<${element.tagName}` +
+    [...element.attributes]
+      .filter((attribute) => attribute.name !== "style" || attribute.value !== "")
+      .map((attribute) => ` ${attribute.name}=${describeValue(attribute.value)}`)
+      .join("") +
+    `>${element.children.length === 0 && element.textContent ? ` ${describeValue(element.textContent)}` : ""}`;
+
+  const walk = (element, depth) => [
+    describeElement(element, depth),
+    ...[...element.children].flatMap((child) => walk(child, depth + 1)),
+  ];
+
+  // Nodes and clusters only. The `<style>` block Mermaid inlines is its own
+  // theme rather than its figures, and printing it would bury them.
+  for (const selector of ["g.node", "g.cluster", "g.statediagram-cluster"]) {
+    const found = [...host.querySelectorAll(selector)];
+    if (found.length === 0) continue;
+    section(
+      `markup — ${selector}`,
+      found.flatMap((element) => [`--- id=${JSON.stringify(element.id)}`, ...walk(element, 1)]),
+    );
+  }
+  host.remove();
+}
+
 async function reportPaint(mermaid, dom, source) {
   for (const { htmlLabels, title, labels } of LABEL_MECHANISMS) {
     mermaid.initialize({ startOnLoad: false, htmlLabels, flowchart: { htmlLabels } });
@@ -439,20 +507,22 @@ async function reportPaint(mermaid, dom, source) {
 }
 
 const argv = process.argv.slice(2);
-// A flag rather than a positional, and taken out of the list wherever it
-// was written, so that `--paint` reads the same before a file path, after
+// Flags rather than positionals, and taken out of the list wherever they
+// were written, so that `--paint` reads the same before a file path, after
 // `pnpm run`'s own `--`, or at the end of a line someone is editing.
+const FLAGS = ["--paint", "--markup"];
 const wantsPaint = argv.includes("--paint");
-const source = readSource(argv.filter((argument) => argument !== "--paint"));
+const wantsMarkup = argv.includes("--markup");
+const source = readSource(argv.filter((argument) => !FLAGS.includes(argument)));
 if (source === null) {
   console.error(
-    "usage: mermaid-probe.mjs [--paint] <file> | --source <text> | -   (- reads stdin)",
+    "usage: mermaid-probe.mjs [--paint] [--markup] <file> | --source <text> | -   (- reads stdin)",
   );
   process.exit(2);
 }
 
 const dom = await installDomGlobals();
-if (wantsPaint) installLayoutStubs(dom);
+if (wantsPaint || wantsMarkup) installLayoutStubs(dom);
 const mermaid = (await import("mermaid")).default;
 mermaid.initialize({ startOnLoad: false });
 
@@ -478,3 +548,4 @@ report(diagram.type, diagram.db);
 // understood, and the paint says what it did with it. A directive present in
 // the first and absent from the second is the finding.
 if (wantsPaint) await reportPaint(mermaid, dom, source);
+if (wantsMarkup) await reportMarkup(mermaid, dom, source);
