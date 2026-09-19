@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — 全範例一覽</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./theme-dark-override.css" />
+    <style>
+      /*
+       * Deliberately does NOT link demo-chrome.css: that file is written for
+       * one full-bleed board per page, and this is a picker plus one large
+       * stage. The diagram theme (packages/core/src/theme/default.css) and the
+       * dark override are shared with every other demo, so the diagrams
+       * themselves look exactly as they do elsewhere.
+       */
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+        background: #f7f7fa;
+        color: #1a1a2e;
+      }
+      body[data-siren-theme="dark"] {
+        background: #14141c;
+        color: #e8e8f0;
+        color-scheme: dark;
+      }
+
+      header {
+        flex-shrink: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.75rem 1.5rem;
+        padding: 0.85rem 1.25rem;
+        border-bottom: 1px solid rgba(128, 128, 150, 0.35);
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.05rem;
+      }
+      #summary {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.85rem;
+        opacity: 0.8;
+      }
+      #summary.bad {
+        color: #c0392b;
+        font-weight: 600;
+        opacity: 1;
+      }
+      body[data-siren-theme="dark"] #summary.bad {
+        color: #ff8a7a;
+      }
+      button {
+        font: inherit;
+        padding: 0.3rem 0.75rem;
+        border: 1px solid rgba(128, 128, 150, 0.5);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+
+      nav {
+        flex-shrink: 0;
+        width: 270px;
+        overflow-y: auto;
+        padding: 0.75rem;
+        border-right: 1px solid rgba(128, 128, 150, 0.35);
+      }
+      nav h2 {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        opacity: 0.6;
+        margin: 1rem 0.25rem 0.4rem;
+      }
+      nav h2:first-child {
+        margin-top: 0;
+      }
+      .pick {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.25rem;
+        padding: 0.45rem 0.6rem;
+        text-align: left;
+        border-color: transparent;
+        font-size: 0.85rem;
+      }
+      .pick:hover {
+        background: rgba(128, 128, 150, 0.14);
+      }
+      .pick[aria-current="true"] {
+        background: rgba(90, 120, 255, 0.18);
+        border-color: rgba(90, 120, 255, 0.55);
+        font-weight: 600;
+      }
+      .pick .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pick .mark {
+        flex-shrink: 0;
+        font-size: 0.8rem;
+        width: 1.2em;
+        text-align: center;
+      }
+      .badge {
+        flex-shrink: 0;
+        font-size: 0.68rem;
+        font-weight: 500;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        line-height: 1.5;
+      }
+      .badge.static {
+        background: rgba(128, 128, 150, 0.2);
+        opacity: 0.75;
+      }
+      .badge.animated {
+        background: rgba(90, 120, 255, 0.22);
+        color: #2a3fa8;
+      }
+      body[data-siren-theme="dark"] .badge.animated {
+        color: #b9c4ff;
+      }
+      .mark.ok {
+        color: #2e9e5b;
+      }
+      .mark.warn {
+        color: #b8860b;
+      }
+      .mark.err {
+        color: #c0392b;
+      }
+
+      .stage {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .stage-head {
+        flex-shrink: 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 1rem;
+        padding: 0.6rem 1rem;
+        border-bottom: 1px solid rgba(128, 128, 150, 0.25);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .stage-head .steps {
+        font-family: system-ui, sans-serif;
+        opacity: 0.7;
+      }
+      #mount {
+        /* `.siren-board` is height:100%, so this slot is what sizes it. */
+        flex: 1;
+        min-height: 0;
+      }
+      #notes {
+        flex-shrink: 0;
+        max-height: 30%;
+        overflow: auto;
+        margin: 0;
+        padding: 0.5rem 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.78rem;
+        white-space: pre-wrap;
+        border-top: 1px solid rgba(128, 128, 150, 0.25);
+      }
+      #notes:empty {
+        display: none;
+      }
+      #notes.error {
+        background: rgba(192, 57, 43, 0.12);
+        color: #a02a1c;
+      }
+      #notes.warning {
+        background: rgba(214, 154, 20, 0.14);
+        color: #7a5500;
+      }
+      body[data-siren-theme="dark"] #notes.error {
+        color: #ff9b8d;
+      }
+      body[data-siren-theme="dark"] #notes.warning {
+        color: #f0c35a;
+      }
+      .source {
+        white-space: pre-wrap;
+        opacity: 0.75;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Siren — 全範例一覽</h1>
+      <span id="summary">檢查中…</span>
+      <button id="theme-btn" type="button">主題：淺色</button>
+    </header>
+
+    <div class="body">
+      <nav id="nav"></nav>
+      <div class="stage">
+        <div class="stage-head">
+          <span id="stage-title">選左邊任一項</span>
+          <span class="steps" id="stage-steps"></span>
+        </div>
+        <div id="mount"></div>
+        <pre id="notes"></pre>
+      </div>
+    </div>
+
+    <!--
+      Imports the real Vite library build of @siren/board, as every other demo
+      does — run `pnpm build` first, and serve over http(s) (file:// breaks the
+      fetch() of each .srn).
+
+      Two jobs in one page. On load every source is rendered once into a
+      detached container and thrown away, purely to mark each button with what
+      it reported — so "does all of it still draw" is answered without clicking
+      through nineteen diagrams. Clicking a button then mounts that one source
+      into the full-height stage, which is the part that needs room to be
+      looked at.
+    -->
+    <script type="module">
+      import { createBoard } from "../packages/board/dist/siren-board.js";
+
+      /**
+       * Every committed example. The list is flat on purpose — which group a
+       * file belongs in is read from its own header below, not from its
+       * filename, so a file that gets rewritten into another kind lands in
+       * the right group without this list being touched.
+       */
+      const EXAMPLES = [
+        "flowchart-syntax.srn",
+        "flowchart-shapes.srn",
+        "flowchart-edges.srn",
+        "flowchart-styling.srn",
+        "flowchart-interaction.srn",
+        "class-core.srn",
+        "class-structure.srn",
+        "class-full.srn",
+        "sequence-core.srn",
+        "sequence-blocks.srn",
+        "sequence-full.srn",
+        "state-core.srn",
+        "state-reveal.srn",
+        "step-reveal.srn",
+        "complex-showcase.srn",
+      ];
+
+      /**
+       * Which kind a document declares, read off its header the way
+       * `parseSiren` dispatches on it — the first line that is neither blank
+       * nor a `%%` comment.
+       */
+      const KIND_OF_HEADER = [
+        [/^(flowchart|graph)\b/, "flowchart"],
+        [/^classDiagram(-v2)?\s*$/, "classDiagram"],
+        [/^sequenceDiagram\s*$/, "sequenceDiagram"],
+        [/^stateDiagram(-v2)?\s*$/, "stateDiagram"],
+      ];
+      const KIND_ORDER = ["flowchart", "classDiagram", "sequenceDiagram", "stateDiagram", "其他"];
+
+      function kindOf(source) {
+        const header = source
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find((line) => line !== "" && !line.startsWith("%%"));
+        const match = KIND_OF_HEADER.find(([pattern]) => pattern.test(header ?? ""));
+        return match === undefined ? "其他" : match[1];
+      }
+
+      /*
+       * Constructs this branch landed that no committed example exercises —
+       * the nine flowchart leftover-gap tickets. Inlined rather than written
+       * to examples/*.srn because adding example files was a non-goal on every
+       * one of those tickets; this page is where they can still be looked at.
+       */
+      const RECENT = [
+        [
+          "markdown label（粗體／斜體／換行）",
+          'flowchart TB\n  A["`**bold** and *italic*`"] --> B["`line one\nline two`"]\n  B --> C[ordinary label]',
+        ],
+        [
+          "subgraph 內的 direction",
+          "flowchart TB\n  outside --> one\n  subgraph one\n    direction LR\n    A --> B --> C\n  end\n  one --> after",
+        ],
+        [
+          "邊接 subgraph 端點",
+          "flowchart TB\n  subgraph one\n    A --> B\n  end\n  subgraph two\n    C --> D\n  end\n  one --> two",
+        ],
+        [
+          "subgraph self-edge（已知畫錯）",
+          "flowchart TB\n  subgraph one\n    A --> B\n  end\n  one --> one",
+        ],
+        [
+          "node id 的 . 字元／裸 node／label 空白 trim",
+          'flowchart TB\n  a.b --> c.d\n  Orphan\n  D[  padded  ] --> E["  padded  "]',
+        ],
+        [
+          "click 四種拼法 + accTitle/accDescr",
+          'flowchart TB\n  accTitle: 四種 click 拼法\n  accDescr: href、call、裸 callback、裸 href\n  A[href _blank] --> B[call fn]\n  C[bare callback] --> D[bare href]\n  click A href "https://example.com" "開新分頁" _blank\n  click B call showDetails("x") "呼叫 host"\n  click C myFn\n  click D "https://example.com"',
+        ],
+      ];
+
+      const nav = document.getElementById("nav");
+      const summary = document.getElementById("summary");
+      const mount = document.getElementById("mount");
+      const notes = document.getElementById("notes");
+      const stageTitle = document.getElementById("stage-title");
+      const stageSteps = document.getElementById("stage-steps");
+
+      /** Every entry: { title, source, button, mark, verdict }. */
+      const entries = [];
+      let current = null;
+
+      function addGroup(label) {
+        const h2 = document.createElement("h2");
+        h2.textContent = label;
+        nav.appendChild(h2);
+      }
+
+      function addEntry(title, source) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "pick";
+        const mark = document.createElement("span");
+        mark.className = "mark";
+        mark.textContent = "…";
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = title;
+        button.append(mark, name);
+        nav.appendChild(button);
+
+        const entry = { title, source, button, mark };
+        entries.push(entry);
+        button.addEventListener("click", () => show(entry));
+        return entry;
+      }
+
+      /** Renders once into a throwaway container purely to learn what it reports. */
+      function precheck(entry) {
+        if (entry.source === null) {
+          entry.verdict = { severity: "err", errors: [entry.loadError], warnings: [] };
+          return;
+        }
+        // Attached and sized, just parked off-screen: a detached or zero-sized
+        // container would have the board fitting to nothing, and a verdict
+        // measured under conditions the real mount never sees is worth less
+        // than no verdict at all.
+        const scratch = document.createElement("div");
+        scratch.style.cssText =
+          "position:absolute;left:-99999px;top:0;width:900px;height:600px;";
+        document.body.appendChild(scratch);
+        try {
+          const board = createBoard(scratch, { source: entry.source });
+          const errors = board.diagnostics.filter((d) => d.severity === "error").map((d) => d.message);
+          const warnings = board.diagnostics
+            .filter((d) => d.severity === "warning")
+            .map((d) => d.message);
+          // A document with no `timeline:` block gets no controller at all —
+          // that is what "static" means here, and it is worth showing in the
+          // list rather than only after clicking: most of these examples are
+          // about what a construct *draws*, and only two animate.
+          entry.totalSteps = board.controller === null ? null : board.controller.totalSteps;
+          board.destroy();
+          entry.verdict = {
+            severity: errors.length ? "err" : warnings.length ? "warn" : "ok",
+            errors,
+            warnings,
+          };
+        } catch (error) {
+          entry.verdict = { severity: "err", errors: [`threw: ${error?.message ?? error}`], warnings: [] };
+        } finally {
+          scratch.remove();
+        }
+      }
+
+      function paintVerdict(entry) {
+        const { severity } = entry.verdict;
+        entry.mark.className = `mark ${severity}`;
+        entry.mark.textContent = severity === "ok" ? "✓" : severity === "warn" ? "!" : "✕";
+        entry.button.title =
+          [...entry.verdict.errors, ...entry.verdict.warnings].join("\n") || "沒有診斷";
+
+        const badge = document.createElement("span");
+        if (entry.totalSteps === null || entry.totalSteps === undefined) {
+          badge.className = "badge static";
+          badge.textContent = "靜態";
+        } else {
+          badge.className = "badge animated";
+          badge.textContent = `${entry.totalSteps} 步`;
+        }
+        entry.button.appendChild(badge);
+      }
+
+      /** Mounts one entry into the full-height stage, replacing whatever was there. */
+      function show(entry) {
+        if (current?.board) {
+          current.board.destroy();
+          current.board = null;
+        }
+        for (const other of entries) other.button.removeAttribute("aria-current");
+        entry.button.setAttribute("aria-current", "true");
+        current = entry;
+
+        mount.replaceChildren();
+        notes.className = "";
+        notes.textContent = "";
+        stageTitle.textContent = entry.title;
+        stageSteps.textContent = "";
+
+        if (entry.source === null) {
+          notes.className = "error";
+          notes.textContent = entry.loadError;
+          return;
+        }
+
+        try {
+          const board = createBoard(mount, {
+            source: entry.source,
+            onStepChange: (step, total) => {
+              stageSteps.textContent = `step ${step} / ${total}`;
+            },
+          });
+          entry.board = board;
+
+          const errors = board.diagnostics.filter((d) => d.severity === "error");
+          const warnings = board.diagnostics.filter((d) => d.severity === "warning");
+          if (errors.length || warnings.length) {
+            notes.className = errors.length ? "error" : "warning";
+            notes.textContent = [
+              ...errors.map((d) => `error: ${d.message}`),
+              ...warnings.map((d) => `warning: ${d.message}`),
+            ].join("\n");
+          }
+
+          stageSteps.textContent =
+            board.controller === null
+              ? "無 timeline"
+              : `step ${board.controller.currentStep} / ${board.controller.totalSteps}`;
+        } catch (error) {
+          notes.className = "error";
+          notes.textContent = `threw: ${error?.message ?? error}`;
+        }
+      }
+
+      // Every source is loaded before any button is built, because which
+      // group a button belongs in is read from the document's own header —
+      // so nothing can be listed under a kind it does not declare.
+      const loaded = await Promise.all(
+        EXAMPLES.map(async (file) => {
+          try {
+            const response = await fetch(`../examples/${file}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return { title: file, source: await response.text() };
+          } catch (error) {
+            return {
+              title: file,
+              source: null,
+              loadError: `讀不到檔案：${error?.message ?? error}`,
+            };
+          }
+        }),
+      );
+
+      // A file that would not load has no header to read, so it is grouped
+      // as 其他 rather than guessed at from its name — the button still
+      // appears, carrying its own load error.
+      const byKind = new Map(KIND_ORDER.map((kind) => [kind, []]));
+      for (const file of loaded) {
+        byKind.get(file.source === null ? "其他" : kindOf(file.source)).push(file);
+      }
+
+      for (const kind of KIND_ORDER) {
+        const files = byKind.get(kind);
+        if (files.length === 0) continue;
+        addGroup(kind);
+        for (const file of files) {
+          const entry = addEntry(file.title, file.source);
+          if (file.loadError !== undefined) entry.loadError = file.loadError;
+        }
+      }
+
+      addGroup("flowchart — 無範例檔的構造");
+      for (const [title, source] of RECENT) addEntry(title, source);
+
+      for (const entry of entries) {
+        precheck(entry);
+        paintVerdict(entry);
+      }
+
+      const bad = entries.filter((e) => e.verdict.severity === "err").length;
+      const warned = entries.filter((e) => e.verdict.severity === "warn").length;
+      summary.textContent = `${entries.length - bad} / ${entries.length} 畫得出　·　${bad} 失敗　·　${warned} 有 warning`;
+      summary.classList.toggle("bad", bad > 0);
+
+      show(entries[0]);
+
+      document.getElementById("theme-btn").addEventListener("click", () => {
+        const isDark = document.body.dataset.sirenTheme === "dark";
+        if (isDark) delete document.body.dataset.sirenTheme;
+        else document.body.dataset.sirenTheme = "dark";
+        document.getElementById("theme-btn").textContent = `主題：${isDark ? "淺色" : "深色"}`;
+      });
+    </script>
+  </body>
+</html>
