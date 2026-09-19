@@ -1482,8 +1482,8 @@ describe("buildGraphModel — a state document", () => {
   const stateDocument: SirenDocument = {
     kind: "state",
     states: [
-      { id: "Idle", line: 2, column: 1 },
-      { id: "Running", line: 2, column: 1 },
+      { id: "Idle", kind: "state", line: 2, column: 1 },
+      { id: "Running", kind: "state", line: 2, column: 1 },
     ],
     transitions: [
       { from: "Idle", to: "Running", label: "start", sourceLine: 2, sourceColumn: 1 },

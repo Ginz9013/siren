@@ -24,7 +24,7 @@ function model(
       .flatMap(({ from, to }) => [from, to])
       .filter((id, index, all) => all.indexOf(id) === index);
   return {
-    states: ids.map((id) => ({ id })),
+    states: ids.map((id) => ({ id, kind: "state" as const })),
     transitions: transitions.map(({ from, to, label }) => ({
       id: `${from}-${to}`,
       from,
@@ -123,6 +123,47 @@ describe("layoutStateDiagram", () => {
         expect(point.y, transition.id).toBeLessThanOrEqual(laid.height);
       }
     }
+  });
+
+  it("gives each pseudo-state a square box of its own size, not one measured around its generated id", () => {
+    // A pseudo-state draws a disc and a ring, neither of which holds text —
+    // so sizing it the way a state is sized would reserve room for
+    // `start:1`, a string nothing draws, and push the whole diagram apart
+    // around empty space. The box has to be square, too: an ellipse is not
+    // the figure UML draws here.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "start:1", kind: "start" },
+          { id: "Idle", kind: "state" },
+          { id: "end:1", kind: "end" },
+        ],
+        transitions: [
+          { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
+          { id: "Idle-end:1", from: "Idle", to: "end:1", label: null },
+        ],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const byId = new Map(laid.states.map((state) => [state.id, state]));
+    for (const id of ["start:1", "end:1"]) {
+      const disc = byId.get(id)!;
+      expect(disc.width, id).toBe(disc.height);
+      expect(disc.width, id).toBeLessThan(measuredWidth(id));
+    }
+    // Both discs are the same size as each other: a start and an end are
+    // the same figure differently filled.
+    expect(byId.get("start:1")!.width).toBe(byId.get("end:1")!.width);
+
+    // And the kind survives layout, because it is the only thing that says
+    // which of the three figures the renderer draws.
+    expect(laid.states.map((state) => state.kind)).toEqual(["start", "state", "end"]);
+
+    // Top to bottom, which is where the start belongs.
+    expect(byId.get("start:1")!.y).toBeLessThan(byId.get("Idle")!.y);
+    expect(byId.get("end:1")!.y).toBeGreaterThan(byId.get("Idle")!.y);
   });
 
   it("carries the resolved timeline through untouched", () => {

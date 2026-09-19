@@ -961,10 +961,12 @@ describe("default theme's design tokens", () => {
 
 /**
  * A state diagram exercising every class the state renderer emits: two
- * states, a labelled transition, an unlabelled one, and the self-loop —
+ * states, a labelled transition, an unlabelled one, the self-loop —
  * which is the one figure whose line is drawn beside a box rather than
  * between two, and so the one most likely to be left unpainted by a rule
- * written for the straight case.
+ * written for the straight case — and both pseudo-states, whose discs are
+ * the one figure here that has no stroke to fall back on: a `<circle>` the
+ * theme forgets to fill is not a faint shape, it is nothing at all.
  *
  * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`
  * and `EVERY_CLASS_FEATURE` are: exhaustive *class* coverage is a different
@@ -972,9 +974,11 @@ describe("default theme's design tokens", () => {
  * must not quietly narrow what the theme is checked against.
  */
 const EVERY_STATE_FEATURE = `stateDiagram-v2
+[*] --> Idle
 Idle --> Running : start
 Running --> Running : retry
 Running --> Idle
+Running --> [*]
 `;
 
 describe("default theme coverage of the state renderer", () => {
@@ -1000,8 +1004,14 @@ describe("default theme coverage of the state renderer", () => {
     // on which nothing visibly happens.
     const svg = renderThemedSVG(EVERY_STATE_FEATURE);
 
+    // Named by id rather than by "the first `.siren-state`": the three
+    // figures a state group can hold are highlighted through three
+    // different inner elements, and a pseudo-state has no frame for a rule
+    // written against one to land on.
     const cases: [string, string][] = [
-      [".siren-state", ".siren-state-frame"],
+      ['g.siren-state[data-siren-id="Idle"]', ".siren-state-frame"],
+      ['g.siren-state[data-siren-id="start:1"]', ".siren-state-start"],
+      ['g.siren-state[data-siren-id="end:1"]', ".siren-state-end"],
       [".siren-transition", ".siren-transition-line"],
     ];
 

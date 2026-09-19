@@ -669,6 +669,37 @@
 }
 
 /*
+ * The two pseudo-states `[*]` spells, drawn the way UML draws them and
+ * Mermaid confirms (measured, 11.17.2): a start is a filled disc, an end a
+ * ring around a smaller filled one.
+ *
+ * They are painted in the node *stroke* colour rather than the node fill,
+ * because these are ink marks rather than boxes — a disc filled with the
+ * fill token would be a box-coloured smudge on the canvas, and neither
+ * figure has a label or a frame to fall back on when nothing paints it.
+ * Mermaid paints its start in the line colour instead of the node stroke;
+ * that is a colour choice, which ADR-0004 makes the theme's, and the figure
+ * — disc, ring, disc-in-ring — is what compatibility is owed.
+ */
+.siren-state-start,
+.siren-state-end-inner {
+  fill: var(--siren-node-stroke);
+}
+
+/*
+ * The ring: an outline with the node fill inside it, so the disc within
+ * reads as a separate mark rather than as the middle of one solid blob.
+ * Measured, this is Mermaid's own pairing for the end state too — the outer
+ * circle takes the node fill and the node stroke, the inner one the stroke
+ * colour alone.
+ */
+.siren-state-end {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
  * `fill` is absent because the renderer writes `fill="none"` onto the path
  * itself: a transition's points make an open, multi-segment path that a
  * default fill would paint as a polygon over the states it joins. A
@@ -973,8 +1004,15 @@
  * lives on an inner `.siren-transition-line`, and no rule above names
  * either. Both are already addressable by id in the rendered SVG, so the
  * day this kind reads a `timeline:` block these have to mean something.
+ *
+ * A pseudo-state's disc and ring are named here for the same reason, and it
+ * is the start that needs saying: it carries no stroke of its own, so
+ * `highlight start:1 outline` gives it one — the outline lands on the
+ * figure that is there rather than on a frame it does not have.
  */
 .siren-state.siren-highlight-outline .siren-state-frame,
+.siren-state.siren-highlight-outline .siren-state-start,
+.siren-state.siren-highlight-outline .siren-state-end,
 .siren-transition.siren-highlight-outline .siren-transition-line {
   stroke: var(--siren-highlight-color);
   stroke-width: var(--siren-highlight-stroke-width);

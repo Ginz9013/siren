@@ -13,6 +13,17 @@ const STATE_PADDING_X = 14;
 const STATE_PADDING_Y = 8;
 
 /**
+ * The radius of the disc a start pseudo-state is drawn as, and of the ring
+ * around an end one — measured: mermaid 11.17.2 draws both at `r = 7`.
+ *
+ * A pseudo-state is sized from this rather than from its id, because its id
+ * is generated (`start:1`) and nothing draws it: measuring it would reserve
+ * the diagram room for a string no reader ever sees. The figure is a circle,
+ * so the box is square.
+ */
+const PSEUDO_STATE_RADIUS = 7;
+
+/**
  * The direction a state diagram is laid out in.
  *
  * Measured against mermaid 11.17.2: a state diagram with no `direction`
@@ -41,6 +52,10 @@ export function layoutStateDiagram(
   const laidOut = layoutDirectedGraph({
     rankdir: STATE_RANKDIR,
     nodes: model.states.map((state) => {
+      if (state.kind !== "state") {
+        const size = PSEUDO_STATE_RADIUS * 2;
+        return { id: state.id, width: size, height: size };
+      }
       const label = options.measureText.measure(state.id);
       return {
         id: state.id,
@@ -65,7 +80,14 @@ export function layoutStateDiagram(
 
   const states = model.states.map<PositionedState>((state) => {
     const box = boxById.get(state.id)!;
-    return { id: state.id, x: box.x, y: box.y, width: box.width, height: box.height };
+    return {
+      id: state.id,
+      kind: state.kind,
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+    };
   });
 
   const transitions = model.transitions.map<PositionedStateTransition>((transition) => {

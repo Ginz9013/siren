@@ -776,6 +776,36 @@ function states(result: SirenRenderResult): string[] {
 }
 
 /**
+ * The figures a state diagram can draw one state as, in the order a reader
+ * of `stateFigures` sees them joined: the labelled box of an ordinary
+ * state, the filled disc of a start, and the ring-plus-dot of an end.
+ */
+const STATE_FIGURES: readonly [selector: string, figure: string][] = [
+  ["rect.siren-state-frame", "box"],
+  ["circle.siren-state-start", "disc"],
+  ["circle.siren-state-end", "ring"],
+  ["circle.siren-state-end-inner", "dot"],
+];
+
+/**
+ * Every state as `id: figure`, in draw order — read off what is *inside*
+ * each state's group.
+ *
+ * A pseudo-state's whole meaning is the mark it is drawn as: a row that
+ * checked only the ids would pass just as happily on a start drawn as an
+ * empty rectangle, which is the silent mis-render this corpus exists to
+ * catch.
+ */
+function stateFigures(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-state").map((g) => {
+    const drawn = STATE_FIGURES.filter(([selector]) => g.querySelector(selector) !== null)
+      .map(([, figure]) => figure)
+      .join("+");
+    return `${idOf(g)}: ${drawn === "" ? "<nothing>" : drawn}`;
+  });
+}
+
+/**
  * Every state-diagram transition as `id: label`, in draw order — the label
  * empty when the transition carries none, which is a picture a reader can
  * tell from one that carries an empty label only because nothing is drawn.
@@ -2548,6 +2578,166 @@ line2\`"]`,
         `the loop is drawn through more than one point (got ${JSON.stringify(drawn)})`,
         drawn.length > 1,
         true,
+      );
+    },
+  },
+  {
+    id: "st-start-pseudo-state",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle`,
+    status: "supported",
+    meaning:
+      "`[*]` on the *from* side of an arrow is the level's start " +
+      "pseudo-state — where the machine begins. Measured: the relation " +
+      "comes back from `root_start`, a node of Mermaid's own making that " +
+      "the author never declared, and it is drawn as a filled disc rather " +
+      "than as a labelled box.",
+    assert: (result) => {
+      // The figure, not just the id: a start drawn as an empty rectangle
+      // would satisfy an id-only check and be the wrong picture.
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Idle: box",
+      ]);
+      expectSame("transitions", transitions(result), ["start:1-Idle: "]);
+      // Nothing is written on the disc. Its id is generated, so a label
+      // would print `start:1` at a reader who never wrote it.
+      expectSame(
+        "no text is drawn inside the start pseudo-state",
+        texts(result, 'g.siren-state[data-siren-id="start:1"] text'),
+        [],
+      );
+    },
+  },
+  {
+    id: "st-end-pseudo-state",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> [*]`,
+    status: "supported",
+    meaning:
+      "`[*]` on the *to* side is the level's end pseudo-state, and a " +
+      "different node from the start — measured, Mermaid reports this " +
+      "relation as reaching `root_end`, never `root_start`. UML draws it " +
+      "as a ring around a filled disc.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "Idle: box",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), ["Idle-end:1: "]);
+      // The arrow ends at the ring rather than starting from it: `[*]` read
+      // as one pseudo-state for both jobs would reverse this.
+      expectSame(
+        "the transition is drawn from the state to the end",
+        elements(result, "g.siren-transition").map((g) => idOf(g)),
+        ["Idle-end:1"],
+      );
+    },
+  },
+  {
+    id: "st-pseudo-state-one-per-level",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle
+      [*] --> Busy
+      Idle --> [*]
+      Busy --> [*]`,
+    status: "supported",
+    meaning:
+      "`[*]` is one start and one end *per level*, not one per occurrence. " +
+      "Measured: both `[*] -->` relations come back from the same " +
+      "`root_start` and both `--> [*]` relations reach the same " +
+      "`root_end`, so four lines draw four arrows between four states — " +
+      "not six.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Idle: box",
+        "Busy: box",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-Idle: ",
+        "start:1-Busy: ",
+        "Idle-end:1: ",
+        "Busy-end:1: ",
+      ]);
+      // Said again as a count, because this is the half of the construct
+      // most easily got wrong and the ids above would still read plausibly
+      // if a second disc had been drawn on top of the first.
+      expectSame(
+        "exactly one start disc and one end ring are drawn",
+        [
+          elements(result, "circle.siren-state-start").length,
+          elements(result, "circle.siren-state-end").length,
+        ],
+        [1, 1],
+      );
+    },
+  },
+  {
+    id: "st-start-to-end",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> [*]`,
+    status: "supported",
+    meaning:
+      "`[*] --> [*]` is legal, and it is one relation between two " +
+      "different nodes — measured: `root_start → root_end`. Which " +
+      "pseudo-state `[*]` names is decided by the side of the arrow it " +
+      "sits on, so this is not a self-loop.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "end:1: ring+dot",
+      ]);
+      expectSame("transitions", transitions(result), ["start:1-end:1: "]);
+      // Two distinct states, which is what makes this not a loop.
+      expectSame("two states were drawn", elements(result, "g.siren-state").length, 2);
+    },
+  },
+  {
+    id: "st-pseudo-state-authored-name",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> root_start
+      root_start --> B`,
+    status: "supported",
+    meaning:
+      "A state the author names `root_start` is an ordinary state, and the " +
+      "start pseudo-state is untouched by it: three nodes, two edges. " +
+      "**Siren diverges from Mermaid here, and the divergence removes a " +
+      "bug** — measured (11.17.2), Mermaid draws two nodes and the " +
+      "relations `root_start → root_start` and `root_start → B`: its start " +
+      "pseudo-state is spelled `root_start`, an ordinary `\\w+` name, so " +
+      "the author's own state swallows it and the start's edge becomes a " +
+      "self-loop nobody wrote, with no diagnostic. Siren's generated ids " +
+      "carry a colon (ADR-0010) and authored ids are `\\w+`, so the " +
+      "collision cannot be constructed. This is CONTEXT.md's one exception " +
+      "to the absolute condition: Mermaid's own silent mis-renders.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "root_start: box",
+        "B: box",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "start:1-root_start: ",
+        "root_start-B: ",
+      ]);
+      // The author's own name is drawn on the author's own box, and the
+      // self-loop Mermaid invents here is absent.
+      expectSame(
+        "the authored state keeps its name",
+        texts(result, 'g.siren-state[data-siren-id="root_start"] text.siren-state-label'),
+        ["root_start"],
+      );
+      expectSame(
+        "no self-loop was invented",
+        elements(result, "g.siren-transition").some((g) => idOf(g) === "root_start-root_start"),
+        false,
       );
     },
   },

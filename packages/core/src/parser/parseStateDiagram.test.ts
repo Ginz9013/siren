@@ -114,8 +114,58 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Idle\n  Idle --> Running\n");
 
     expect(document.states).toEqual([
-      { id: "Idle", line: 2, column: 3 },
-      { id: "Running", line: 3, column: 3 },
+      { id: "Idle", kind: "state", line: 2, column: 3 },
+      { id: "Running", kind: "state", line: 3, column: 3 },
+    ]);
+  });
+
+  it("reads `[*]` as the start pseudo-state on the from side and the end one on the to side", () => {
+    // Measured (mermaid 11.17.2): `[*] --> A` and `A --> [*]` report the
+    // relations `root_start → A` and `A → root_end` — two *different*
+    // pseudo-states, told apart by which side of the arrow `[*]` was
+    // written on, and not one node used twice.
+    //
+    // The parser names neither of them: an id the author never wrote is a
+    // generated id, and generated ids are `buildStateModel`'s to mint
+    // (ADR-0010), exactly as a subgraph's is `buildFlowchartModel`'s. So
+    // `id` is null here and the endpoint that named it is too.
+    const document = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n");
+
+    expect(document.states).toEqual([
+      { id: null, kind: "start", line: 2, column: 3 },
+      { id: "Idle", kind: "state", line: 2, column: 3 },
+      { id: null, kind: "end", line: 3, column: 3 },
+    ]);
+    expect(document.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
+      "null->Idle",
+      "Idle->null",
+    ]);
+  });
+
+  it("gives the level one start and one end however many times `[*]` is written", () => {
+    // The fact most likely to be got wrong, and the one that is measured:
+    // two `[*] -->` lines both came back from the same `root_start`, and
+    // two `--> [*]` lines both reached the same `root_end`. One per level,
+    // not one per occurrence.
+    const document = documentOf(
+      "stateDiagram-v2\n  [*] --> Idle\n  [*] --> Busy\n  Idle --> [*]\n  Busy --> [*]\n",
+    );
+
+    expect(document.states.map((state) => `${state.kind}:${state.id}`)).toEqual([
+      "start:null",
+      "state:Idle",
+      "state:Busy",
+      "end:null",
+    ]);
+  });
+
+  it("reads `[*] --> [*]` as the start pseudo-state pointing at the end one", () => {
+    // Measured: legal, and one relation — `root_start → root_end`.
+    const document = documentOf("stateDiagram-v2\n  [*] --> [*]\n");
+
+    expect(document.states.map((state) => state.kind)).toEqual(["start", "end"]);
+    expect(document.transitions).toEqual([
+      { from: null, to: null, label: null, sourceLine: 2, sourceColumn: 3 },
     ]);
   });
 
@@ -123,11 +173,9 @@ describe("parseStateDiagram", () => {
     // CONTEXT.md's opening policy: while a construct is unimplemented, Siren
     // rejects it rather than rendering it wrongly. Each of these is valid
     // Mermaid that a later ticket implements, and each would otherwise be
-    // read as something else — `[*] --> Still` as a state literally named
-    // `[*]`, `Idle : running` as a transition-shaped line with no arrow.
+    // read as something else — `Idle : running` as a transition-shaped line
+    // with no arrow.
     const refusals: [string, string][] = [
-      ["[*] --> Still", "start/end pseudo-state"],
-      ["Still --> [*]", "start/end pseudo-state"],
       ["Idle : waiting for work", "state description"],
       ['state "waiting for work" as Idle', "state description"],
       ["state Outer {", "composite state"],
