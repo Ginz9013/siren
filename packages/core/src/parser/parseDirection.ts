@@ -1,4 +1,4 @@
-import type { Direction } from "../contracts";
+import type { Direction, SirenDocument } from "../contracts";
 
 /**
  * Every direction spelling an author may write, mapped to the one the rest of
@@ -66,14 +66,111 @@ const FLOWCHART_HEADERS = FLOWCHART_KEYWORDS.flatMap((keyword) =>
 );
 
 /**
- * Formats the accepted headers the way every header diagnostic in this parser
- * lists them, optionally followed by the other diagram kinds' headers. Shared
- * so the dispatcher and the flowchart parser cannot drift into naming
- * different sets.
+ * Which diagram a header opens. Taken from `SirenDocument` rather than
+ * spelled again here, which is what makes a fifth kind a compile error in
+ * this file the moment `contracts.ts` learns about it: the record below has
+ * to gain a row, and gaining that row is the whole of teaching every
+ * diagnostic in the parser what the new header looks like.
  */
-export function listAcceptedHeaders(alsoAccepted: readonly string[] = []): string {
-  const quoted = [...FLOWCHART_HEADERS, ...alsoAccepted].map((header) => `"${header}"`);
+export type DiagramKind = SirenDocument["kind"];
+
+interface DiagramHeader {
+  /** The spellings a diagnostic names, in the order it names them. */
+  readonly spellings: readonly string[];
+  /** Whether an already-trimmed line is this kind's header. */
+  readonly matches: (line: string) => boolean;
+}
+
+/**
+ * A diagram kind whose header is a bare keyword, with no direction or other
+ * argument after it — every kind but flowchart, so far.
+ *
+ * The matcher is *derived from* the spellings rather than written beside
+ * them, so a spelling cannot be named by a diagnostic without also being
+ * accepted, nor accepted without being named. That is the same bargain
+ * `CANONICAL_DIRECTION` strikes above, and it is why the alternation is
+ * built here instead of each parser keeping its own literal regex: two
+ * regexes for one keyword is exactly how `parseSiren` came to dispatch
+ * `classDiagram-v2` while its diagnostic denied the spelling existed.
+ *
+ * Every Mermaid header keyword is letters, digits and `-`, none of which
+ * mean anything in an alternation, so the spellings go in unescaped.
+ */
+function keywordHeader(...spellings: readonly string[]): DiagramHeader {
+  const headerRe = new RegExp(`^(?:${spellings.join("|")})\\s*$`);
+  return { spellings, matches: (line) => headerRe.test(line) };
+}
+
+/**
+ * Every accepted header in the language, by kind — the one list, and the
+ * reason `listAcceptedHeaders` exists rather than each parser quoting its
+ * own keyword into its own message.
+ *
+ * Flowchart is the kind that cannot be a `keywordHeader`: its header carries
+ * a direction, so its matcher is `FLOWCHART_HEADER_RE` and accepts one
+ * spelling its `spellings` deliberately omit — `TD`, for the reason
+ * `TAUGHT_DIRECTIONS` gives. Every other kind's two halves are the same
+ * list, and adding a kind means adding one row here and nothing else.
+ */
+const DIAGRAM_HEADERS: Record<DiagramKind, DiagramHeader> = {
+  flowchart: {
+    spellings: FLOWCHART_HEADERS,
+    matches: (line) => FLOWCHART_HEADER_RE.test(line),
+  },
+  sequence: keywordHeader("sequenceDiagram"),
+  class: keywordHeader("classDiagram", "classDiagram-v2"),
+};
+
+const EVERY_KIND = Object.keys(DIAGRAM_HEADERS) as DiagramKind[];
+
+/**
+ * Quotes a list of spellings the way every diagnostic in this parser names a
+ * set the author could have written: `"a"`, `"a" or "b"`, `"a", "b", or "c"`.
+ *
+ * The two-item form drops the comma because a two-item list reads as a
+ * choice rather than an enumeration — which is what the class diagram's
+ * message said by hand before this function existed, and it stays true now
+ * that the same code prints the flowchart's eight.
+ */
+function quoteList(spellings: readonly string[]): string {
+  const quoted = spellings.map((spelling) => `"${spelling}"`);
+  if (quoted.length <= 1) {
+    return quoted.join("");
+  }
+  if (quoted.length === 2) {
+    return `${quoted[0]} or ${quoted[1]}`;
+  }
   return `${quoted.slice(0, -1).join(", ")}, or ${quoted[quoted.length - 1]}`;
+}
+
+/**
+ * Formats the headers a diagnostic teaches: the given kinds' spellings, or —
+ * with no argument — every kind the language has, which is what the
+ * dispatcher wants and what keeps its message correct on the day a kind is
+ * added without anyone remembering this call exists.
+ *
+ * Shared so that a kind's own parser and the dispatcher cannot drift into
+ * naming different sets, and so that neither can name a set the matcher
+ * above does not accept.
+ */
+export function listAcceptedHeaders(kinds: readonly DiagramKind[] = EVERY_KIND): string {
+  return quoteList(kinds.flatMap((kind) => DIAGRAM_HEADERS[kind].spellings));
+}
+
+/**
+ * Reads a header line — already trimmed — and answers which diagram it
+ * opens, or `null` when it opens none.
+ *
+ * This is the only way to ask, which is the point: the regexes and the
+ * spellings stay unexported, so a parser can neither match a header with a
+ * private copy of the pattern nor quote a spelling into a message without
+ * going through `listAcceptedHeaders`. A kind's own parser asks the same
+ * question the dispatcher does and compares the answer against itself, so
+ * `parseSequenceDiagram` rejects `classDiagram` by the same rule that sends
+ * it elsewhere.
+ */
+export function matchDiagramHeader(line: string): DiagramKind | null {
+  return EVERY_KIND.find((kind) => DIAGRAM_HEADERS[kind].matches(line)) ?? null;
 }
 
 /**

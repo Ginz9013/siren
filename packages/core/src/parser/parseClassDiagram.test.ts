@@ -935,3 +935,17 @@ step 1: wibble Animal fade
     ]);
   });
 });
+
+describe("the header a class diagram rejects", () => {
+  // Characterization: two accepted spellings joined by a bare `or`, with no
+  // comma — the shape a two-item list takes, as against the eight-item one
+  // a flowchart's rejection prints.
+  it("names both of its spellings", () => {
+    const { document, diagnostics } = parseClassDiagram("classDiagram-v3\n  class Animal\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics[0].message).toBe(
+      'Expected "classDiagram" or "classDiagram-v2", found "classDiagram-v3"',
+    );
+  });
+});

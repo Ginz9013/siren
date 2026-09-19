@@ -963,3 +963,15 @@ timeline:
   });
 
 });
+
+describe("the header a sequence diagram rejects", () => {
+  // Characterization: one accepted spelling, so the list has no conjunction
+  // in it at all. Pinned because the assembly is shared with the kinds that
+  // have two and eight.
+  it("names its one spelling", () => {
+    const { document, diagnostics } = parseSequenceDiagram("sequence\n  A->>B: hi\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics[0].message).toBe('Expected "sequenceDiagram", found "sequence"');
+  });
+});
