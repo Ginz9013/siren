@@ -1892,6 +1892,23 @@ export interface StateDecl {
    */
   id: string | null;
   kind: StateKind;
+  /**
+   * The descriptions the author wrote for this state, in written order —
+   * empty when they wrote none, which is the ordinary case and the one that
+   * keeps drawing the id.
+   *
+   * An array rather than a string because descriptions **accumulate**:
+   * measured (mermaid 11.17.2), `s : first` followed by `s : second`
+   * reports `descriptions=["first","second"]` on the one state.
+   *
+   * The two spellings — `s : text` and `state "text" as s` — write into
+   * this same list and are recorded nowhere else, because they are one
+   * construct written two ways: measured, both land in `descriptions` and
+   * **neither renames the state**, so `state "text" as s` is a description
+   * and not an alias. A field saying which spelling was read would be a
+   * difference downstream could act on where Mermaid has none.
+   */
+  descriptions: string[];
   /** 1-based line the state was first named on. */
   line: number;
   /** 1-based column the statement that first named it starts at. */
@@ -1963,6 +1980,18 @@ export interface StateDocument {
 export interface ResolvedState {
   id: string;
   kind: StateKind;
+  /**
+   * The descriptions the author wrote, in written order, exactly as
+   * `StateDecl.descriptions` carried them — authored text with nothing for
+   * this stage to resolve.
+   *
+   * Empty is the ordinary case, and it is what keeps the **id** on the
+   * drawn box: a state with descriptions draws them instead, and its id
+   * becomes addressing-only. That is the split a flowchart's `A[label]`
+   * already draws between the id and the text — measured for a state
+   * diagram too (mermaid 11.17.2 draws no `s` once `s : text` is written).
+   */
+  descriptions: string[];
 }
 
 /**
@@ -2000,6 +2029,19 @@ export interface StateModelResult {
 // ---------------------------------------------------------------------------
 
 /**
+ * One row of text drawn inside a state's box: what it says, and the y its
+ * text is centred on, in diagram coordinates.
+ *
+ * A row rather than a label, because a described state draws several of
+ * them stacked — `PositionedClass`'s member lines in the shape a state's
+ * box needs.
+ */
+export interface PositionedStateRow {
+  text: string;
+  y: number;
+}
+
+/**
  * A state with a layout-assigned box. `x`/`y` are the box's top-left corner,
  * matching `PositionedNode` and `PositionedClass`.
  */
@@ -2016,6 +2058,29 @@ export interface PositionedState {
   y: number;
   width: number;
   height: number;
+  /**
+   * The text this box draws, top to bottom: the state's descriptions when
+   * it has any, and otherwise the one row its id makes. Empty for a
+   * pseudo-state, which draws a mark and no text at all.
+   *
+   * Which of the two the row came from is deliberately not recorded: by
+   * here it is simply the text the box holds, the same way a flowchart node
+   * arrives at the renderer carrying its label rather than the question of
+   * whether the author wrote one.
+   */
+  rows: PositionedStateRow[];
+  /**
+   * Where the divider under the first row goes, or `null` when this box
+   * draws none.
+   *
+   * Measured (mermaid 11.17.2): a state with **two or more** descriptions
+   * is drawn as a titled box — the first description above a divider and
+   * the rest below it — while one description, or none, gets a plain
+   * rounded rect with no divider at all. So this is `null` for every box
+   * with fewer than two rows, and the divider never separates the id from
+   * the descriptions: an id is not drawn once a description exists.
+   */
+  dividerY: number | null;
 }
 
 /** A transition with a layout-assigned path and, when it carries one, a label anchor. */

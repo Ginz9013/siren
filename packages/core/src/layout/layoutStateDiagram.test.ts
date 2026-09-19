@@ -24,7 +24,7 @@ function model(
       .flatMap(({ from, to }) => [from, to])
       .filter((id, index, all) => all.indexOf(id) === index);
   return {
-    states: ids.map((id) => ({ id, kind: "state" as const })),
+    states: ids.map((id) => ({ id, kind: "state" as const, descriptions: [] })),
     transitions: transitions.map(({ from, to, label }) => ({
       id: `${from}-${to}`,
       from,
@@ -134,9 +134,9 @@ describe("layoutStateDiagram", () => {
     const laid = layoutStateDiagram(
       {
         states: [
-          { id: "start:1", kind: "start" },
-          { id: "Idle", kind: "state" },
-          { id: "end:1", kind: "end" },
+          { id: "start:1", kind: "start", descriptions: [] },
+          { id: "Idle", kind: "state", descriptions: [] },
+          { id: "end:1", kind: "end", descriptions: [] },
         ],
         transitions: [
           { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -164,6 +164,82 @@ describe("layoutStateDiagram", () => {
     // Top to bottom, which is where the start belongs.
     expect(byId.get("start:1")!.y).toBeLessThan(byId.get("Idle")!.y);
     expect(byId.get("end:1")!.y).toBeGreaterThan(byId.get("Idle")!.y);
+  });
+
+  it("sizes a described state's box around its description, and an undescribed one's around its id", () => {
+    // Measured (mermaid 11.17.2): once `s : text` is written, `s` is not
+    // drawn at all — the description is what the box holds, so it is what
+    // the box must be measured from, and the id becomes addressing-only.
+    // A one-character id under a long description is the case that tells a
+    // box measured from the right string from one measured from the wrong
+    // one.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "s", kind: "state", descriptions: ["waiting for work"] },
+          { id: "Undescribed", kind: "state", descriptions: [] },
+        ],
+        transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const [described, plain] = laid.states;
+    expect(described.width).toBeGreaterThan(measuredWidth("waiting for work"));
+    expect(described.rows.map((row) => row.text)).toEqual(["waiting for work"]);
+    expect(plain.rows.map((row) => row.text)).toEqual(["Undescribed"]);
+
+    // One description draws no divider: measured, Mermaid gives it the same
+    // plain rounded rect an undescribed state gets, the description simply
+    // standing where the id would have.
+    expect(described.dividerY).toBeNull();
+    expect(plain.dividerY).toBeNull();
+
+    // Every row is somewhere inside the box that was sized for it.
+    for (const state of laid.states) {
+      for (const row of state.rows) {
+        expect(row.y, `${state.id}: ${row.text}`).toBeGreaterThan(state.y);
+        expect(row.y, `${state.id}: ${row.text}`).toBeLessThan(state.y + state.height);
+      }
+    }
+  });
+
+  it("gives a state with two or more descriptions a divider under its title row, with the rest stacked below", () => {
+    // Measured (mermaid 11.17.2, `mermaid-probe.mjs --markup`): two
+    // descriptions are drawn as `rect.outer.title-state` *plus* a
+    // `line.divider`, the first description standing as the title row above
+    // the line and the rest sitting below it. The divider never separates
+    // the id from the descriptions — the id is not drawn at all once a
+    // description exists.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "s", kind: "state", descriptions: ["first", "second", "third"] },
+          { id: "t", kind: "state", descriptions: ["only"] },
+        ],
+        transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const [titled, plain] = laid.states;
+    expect(titled.rows.map((row) => row.text)).toEqual(["first", "second", "third"]);
+    expect(titled.dividerY).not.toBeNull();
+    // Inside its own box, which is what makes it a divider rather than a
+    // line drawn across the canvas.
+    expect(titled.dividerY!).toBeGreaterThan(titled.y);
+    expect(titled.dividerY!).toBeLessThan(titled.y + titled.height);
+    // The first description titles the box; every other one is below the
+    // line. This is the half most easily got backwards.
+    expect(titled.rows[0].y).toBeLessThan(titled.dividerY!);
+    for (const row of titled.rows.slice(1)) {
+      expect(row.y, row.text).toBeGreaterThan(titled.dividerY!);
+    }
+    // Three rows and a divider need more room than one row: a box sized
+    // for one line would draw the other two outside itself.
+    expect(titled.height).toBeGreaterThan(plain.height);
   });
 
   it("carries the resolved timeline through untouched", () => {

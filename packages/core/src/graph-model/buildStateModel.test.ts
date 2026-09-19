@@ -12,7 +12,7 @@ function document(
     transitions.flatMap(({ from, to }) => [from, to]).filter((id, index, all) => all.indexOf(id) === index);
   return {
     kind: "state",
-    states: ids.map((id) => ({ id, kind: "state" as const, line: 1, column: 1 })),
+    states: ids.map((id) => ({ id, kind: "state" as const, descriptions: [], line: 1, column: 1 })),
     transitions: transitions.map(({ from, to, label }, index) => ({
       from,
       to,
@@ -87,6 +87,39 @@ describe("buildStateModel", () => {
     expect(model!.states.map((s) => s.id)).toEqual(["Idle", "Running", "Lonely"]);
   });
 
+  it("carries a described state's descriptions through unchanged, and gives a pseudo-state none", () => {
+    // A description is authored text with nothing for this stage to resolve
+    // — unlike a transition, which arrives needing an id — so it comes
+    // through exactly as written, in written order. A pseudo-state has
+    // none and can have none: `[*]` is not an id, so no description
+    // statement can name one.
+    const { model, diagnostics } = buildStateModel({
+      kind: "state",
+      states: [
+        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+        {
+          id: "Idle",
+          kind: "state",
+          descriptions: ["waiting for work", "nothing queued"],
+          line: 2,
+          column: 3,
+        },
+        { id: "Busy", kind: "state", descriptions: [], line: 3, column: 3 },
+      ],
+      transitions: [
+        { from: null, to: "Idle", label: null, sourceLine: 2, sourceColumn: 3 },
+        { from: "Idle", to: "Busy", label: null, sourceLine: 3, sourceColumn: 3 },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.states).toEqual([
+      { id: "start:1", kind: "start", descriptions: [] },
+      { id: "Idle", kind: "state", descriptions: ["waiting for work", "nothing queued"] },
+      { id: "Busy", kind: "state", descriptions: [] },
+    ]);
+  });
+
   it("names the level's start and end pseudo-states with generated ids, and joins the transitions to them", () => {
     // `[*] --> Idle` / `Idle --> [*]`, as the parser hands it over: the
     // endpoints the author wrote `[*]` for arrive as `null`, and naming
@@ -95,9 +128,9 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", line: 2, column: 3 },
-        { id: "Idle", kind: "state", line: 2, column: 3 },
-        { id: null, kind: "end", line: 3, column: 3 },
+        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+        { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
+        { id: null, kind: "end", descriptions: [], line: 3, column: 3 },
       ],
       transitions: [
         { from: null, to: "Idle", label: null, sourceLine: 2, sourceColumn: 3 },
@@ -107,9 +140,9 @@ describe("buildStateModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model!.states).toEqual([
-      { id: "start:1", kind: "start" },
-      { id: "Idle", kind: "state" },
-      { id: "end:1", kind: "end" },
+      { id: "start:1", kind: "start", descriptions: [] },
+      { id: "Idle", kind: "state", descriptions: [] },
+      { id: "end:1", kind: "end", descriptions: [] },
     ]);
     expect(model!.transitions).toEqual([
       { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -125,10 +158,10 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", line: 2, column: 3 },
-        { id: "Idle", kind: "state", line: 2, column: 3 },
-        { id: "Busy", kind: "state", line: 3, column: 3 },
-        { id: null, kind: "end", line: 4, column: 3 },
+        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+        { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
+        { id: "Busy", kind: "state", descriptions: [], line: 3, column: 3 },
+        { id: null, kind: "end", descriptions: [], line: 4, column: 3 },
       ],
       transitions: [
         { from: null, to: "Idle", label: null, sourceLine: 2, sourceColumn: 3 },
@@ -153,8 +186,8 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", line: 2, column: 3 },
-        { id: null, kind: "end", line: 2, column: 3 },
+        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+        { id: null, kind: "end", descriptions: [], line: 2, column: 3 },
       ],
       transitions: [{ from: null, to: null, label: null, sourceLine: 2, sourceColumn: 3 }],
     });
@@ -178,9 +211,9 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", line: 2, column: 3 },
-        { id: "root_start", kind: "state", line: 2, column: 3 },
-        { id: "B", kind: "state", line: 3, column: 3 },
+        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+        { id: "root_start", kind: "state", descriptions: [], line: 2, column: 3 },
+        { id: "B", kind: "state", descriptions: [], line: 3, column: 3 },
       ],
       transitions: [
         { from: null, to: "root_start", label: null, sourceLine: 2, sourceColumn: 3 },

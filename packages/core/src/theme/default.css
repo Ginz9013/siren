@@ -662,10 +662,36 @@
   rx: var(--siren-node-border-radius);
 }
 
-/* Same weight as a class name: the state's name titles its box. */
+/*
+ * Same weight as a class name: this row titles its box — the state's id
+ * when the author described it not at all, and its first description when
+ * they did. Which of the two is standing here is settled long before the
+ * theme sees it.
+ */
 .siren-state-label {
   font-weight: 600;
   fill: var(--siren-node-text);
+}
+
+/*
+ * The description rows below the divider, weighted like a class member for
+ * the same reason: they are what the box holds rather than what titles it,
+ * and a box whose every row is bold has no title.
+ */
+.siren-state-description {
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The line closing the title row of a state carrying two or more
+ * descriptions. Part of the frame rather than a connector, so it tracks the
+ * node stroke exactly as a class compartment's divider does — and it is
+ * drawn inside a *rounded* box, which is why it spans the frame's width and
+ * no more.
+ */
+.siren-state-divider {
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
 }
 
 /*

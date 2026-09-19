@@ -34,9 +34,12 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     state.kind === "state"
       ? // Authored, so `StateDecl.id` is the name the author wrote —
         // non-null by that contract, where only a pseudo-state arrives
-        // unnamed.
-        { id: state.id!, kind: state.kind }
-      : { id: PSEUDO_STATE_IDS[state.kind], kind: state.kind },
+        // unnamed. Descriptions pass through as written: they are authored
+        // text, and there is nothing here to resolve about them.
+        { id: state.id!, kind: state.kind, descriptions: state.descriptions }
+      : // A pseudo-state carries none and can carry none — `[*]` is not an
+        // id, so no description statement can name one.
+        { id: PSEUDO_STATE_IDS[state.kind], kind: state.kind, descriptions: [] },
   );
   const transitions = assignTransitionIds(document, PSEUDO_STATE_IDS);
 

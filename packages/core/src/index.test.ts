@@ -5686,12 +5686,11 @@ describe("render() — a state diagram, end to end", () => {
   });
 
   it("draws nothing and says which construct is missing when the document uses one this renderer has not got", () => {
-    const { result } = renderState("stateDiagram-v2\n  Idle : waiting for work\n");
+    const { result } = renderState("stateDiagram-v2\n  state Outer {\n    Idle\n  }\n");
 
     expect(result.svg).toBeNull();
-    expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0].severity).toBe("error");
-    expect(result.diagnostics[0].message).toContain("state description");
+    expect(result.diagnostics[0].message).toContain("composite state");
   });
 
   it("draws `[*]` as a start disc and an end ring, one of each however often it is written", () => {
@@ -5740,6 +5739,85 @@ describe("render() — a state diagram, end to end", () => {
     expect(
       svg.querySelector('g.siren-transition[data-siren-id="start:1-end:1"]'),
     ).not.toBeNull();
+  });
+
+  it("draws a described state's description where its id would have gone, and draws the identical picture for either spelling", () => {
+    // Measured (mermaid 11.17.2): `Idle : waiting for work` and
+    // `state "waiting for work" as Idle` both land in the same
+    // `descriptions` array on a state whose id is still `Idle` — one
+    // construct written two ways, so nothing downstream, the picture
+    // included, may be able to tell which the author wrote. The transition
+    // below still names the state `Idle`, which is what makes the second
+    // spelling a description rather than the rename `as` suggests.
+    const pictureOf = (description: string) => {
+      const { result } = renderState(
+        `stateDiagram-v2\n  ${description}\n  Idle --> Running\n`,
+      );
+      expect(result.diagnostics, description).toEqual([]);
+      return result.svg!.innerHTML.replace(/__[A-Za-z0-9]{8}/g, "__scope");
+    };
+
+    expect(pictureOf('state "waiting for work" as Idle')).toBe(
+      pictureOf("Idle : waiting for work"),
+    );
+
+    const { result } = renderState(
+      "stateDiagram-v2\n  Idle : waiting for work\n  Idle --> Running\n",
+    );
+    const svg = result.svg!;
+
+    // The description stands where the id used to, and the id is left
+    // addressing the state — the split `A[label]` already draws in a
+    // flowchart.
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Idle"] text.siren-state-label')!
+        .textContent,
+    ).toBe("waiting for work");
+    expect(
+      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"]'),
+    ).not.toBeNull();
+    // An undescribed state in the same diagram still draws its id.
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Running"] text.siren-state-label')!
+        .textContent,
+    ).toBe("Running");
+  });
+
+  it("draws two descriptions as a titled box: the first above the divider, the rest below it", () => {
+    // Measured (11.17.2, `mermaid-probe.mjs --markup`): one description is
+    // a plain rounded rect, while two or more are drawn as
+    // `rect.outer.title-state` plus a `line.divider` — the first
+    // description titling the box and the rest sitting under the line.
+    const { result } = renderState(
+      "stateDiagram-v2\n  Idle : waiting for work\n  Idle : nothing queued\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+
+    expect(Array.from(group.querySelectorAll("text")).map((t) => t.textContent)).toEqual([
+      "waiting for work",
+      "nothing queued",
+    ]);
+    expect(group.querySelector("text.siren-state-label")!.textContent).toBe(
+      "waiting for work",
+    );
+
+    // The divider, between the two rows rather than merely present: a line
+    // drawn at the top or the bottom of the box would satisfy a
+    // "was a divider drawn?" check and be the wrong picture.
+    const divider = group.querySelector("line.siren-state-divider");
+    expect(divider).not.toBeNull();
+    const yOf = (element: Element) => Number(element.getAttribute("y"));
+    const rows = Array.from(group.querySelectorAll("text"));
+    const dividerY = Number(divider!.getAttribute("y1"));
+    expect(dividerY).toBeGreaterThan(yOf(rows[0]));
+    expect(dividerY).toBeLessThan(yOf(rows[1]));
+    // And the box grew to hold both rows rather than clipping the second.
+    const frame = group.querySelector("rect.siren-state-frame")!;
+    expect(yOf(rows[1])).toBeLessThan(
+      Number(frame.getAttribute("y")) + Number(frame.getAttribute("height")),
+    );
   });
 
   it("leaves the start pseudo-state alone when the author declares a state named `root_start`", () => {
