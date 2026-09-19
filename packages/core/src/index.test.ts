@@ -5685,12 +5685,50 @@ describe("render() — a state diagram, end to end", () => {
     expect(result.controller!.totalSteps).toBe(0);
   });
 
-  it("draws nothing and says which construct is missing when the document uses one this renderer has not got", () => {
-    const { result } = renderState("stateDiagram-v2\n  state Outer {\n    Idle\n  }\n");
+  it("draws a composite state as a titled frame around the states written inside it", () => {
+    // End to end: the construct that was refused by name until this ticket.
+    // Measured (mermaid 11.17.2, `--markup`): a composite is drawn as a
+    // `g.statediagram-cluster` — a frame with the composite's name on a
+    // strip along its top — and the states inside it as ordinary boxes
+    // within it.
+    const { result } = renderState(
+      "stateDiagram-v2\n  state Outer {\n    Idle --> Busy\n  }\n",
+    );
 
-    expect(result.svg).toBeNull();
-    expect(result.diagnostics[0].severity).toBe("error");
-    expect(result.diagnostics[0].message).toContain("composite state");
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    const frame = svg.querySelector(
+      'g.siren-state[data-siren-id="Outer"] rect.siren-composite-frame',
+    )!;
+    expect(frame).not.toBeNull();
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Outer"] text.siren-composite-label')!
+        .textContent,
+    ).toBe("Outer");
+
+    // "Around", verified as geometry rather than as document structure: both
+    // member boxes lie strictly inside the frame's own rectangle.
+    const box = (id: string) => {
+      const rect = svg.querySelector(
+        `g.siren-state[data-siren-id="${id}"] rect.siren-state-frame`,
+      )!;
+      const number = (name: string) => Number(rect.getAttribute(name));
+      return {
+        left: number("x"),
+        top: number("y"),
+        right: number("x") + number("width"),
+        bottom: number("y") + number("height"),
+      };
+    };
+    const frameNumber = (name: string) => Number(frame.getAttribute(name));
+    for (const id of ["Idle", "Busy"]) {
+      const member = box(id);
+      expect(member.left, id).toBeGreaterThan(frameNumber("x"));
+      expect(member.top, id).toBeGreaterThan(frameNumber("y"));
+      expect(member.right, id).toBeLessThan(frameNumber("x") + frameNumber("width"));
+      expect(member.bottom, id).toBeLessThan(frameNumber("y") + frameNumber("height"));
+    }
   });
 
   it("draws `[*]` as a start disc and an end ring, one of each however often it is written", () => {

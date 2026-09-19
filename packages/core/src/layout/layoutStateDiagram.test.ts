@@ -24,7 +24,13 @@ function model(
       .flatMap(({ from, to }) => [from, to])
       .filter((id, index, all) => all.indexOf(id) === index);
   return {
-    states: ids.map((id) => ({ id, kind: "state" as const, descriptions: [] })),
+    states: ids.map((id) => ({
+      id,
+      kind: "state" as const,
+      descriptions: [],
+      parentId: null,
+      direction: null,
+    })),
     transitions: transitions.map(({ from, to, label }) => ({
       id: `${from}-${to}`,
       from,
@@ -134,9 +140,9 @@ describe("layoutStateDiagram", () => {
     const laid = layoutStateDiagram(
       {
         states: [
-          { id: "start:1", kind: "start", descriptions: [] },
-          { id: "Idle", kind: "state", descriptions: [] },
-          { id: "end:1", kind: "end", descriptions: [] },
+          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
+          { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null },
+          { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null },
         ],
         transitions: [
           { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -176,8 +182,8 @@ describe("layoutStateDiagram", () => {
     const laid = layoutStateDiagram(
       {
         states: [
-          { id: "s", kind: "state", descriptions: ["waiting for work"] },
-          { id: "Undescribed", kind: "state", descriptions: [] },
+          { id: "s", kind: "state", descriptions: ["waiting for work"], parentId: null, direction: null },
+          { id: "Undescribed", kind: "state", descriptions: [], parentId: null, direction: null },
         ],
         transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
         timeline: { totalSteps: 0, entries: [] },
@@ -215,8 +221,8 @@ describe("layoutStateDiagram", () => {
     const laid = layoutStateDiagram(
       {
         states: [
-          { id: "s", kind: "state", descriptions: ["first", "second", "third"] },
-          { id: "t", kind: "state", descriptions: ["only"] },
+          { id: "s", kind: "state", descriptions: ["first", "second", "third"], parentId: null, direction: null },
+          { id: "t", kind: "state", descriptions: ["only"], parentId: null, direction: null },
         ],
         transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
         timeline: { totalSteps: 0, entries: [] },
@@ -246,5 +252,199 @@ describe("layoutStateDiagram", () => {
     const source = model([{ from: "Idle", to: "Running" }]);
 
     expect(layoutStateDiagram(source, options).timeline).toBe(source.timeline);
+  });
+  it("draws a composite as a frame around the states inside it, with a strip for its title", () => {
+    // The figure measured off mermaid 11.17.2 with `--markup`: a
+    // `g.statediagram-cluster` is a frame with a title strip along its top
+    // and its members inside it. Siren grows that frame from the cluster box
+    // the shared layout core placed, exactly as `layoutGraph` grows a
+    // subgraph's.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
+          { id: "Idle", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Busy", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+        ],
+        transitions: [{ id: "Idle-Busy", from: "Idle", to: "Busy", label: null }],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    const frame = placed("Outer");
+
+    // Around, as geometry: every member lies strictly inside the frame.
+    for (const id of ["Idle", "Busy"]) {
+      const member = placed(id);
+      expect(member.x, id).toBeGreaterThan(frame.x);
+      expect(member.y, id).toBeGreaterThan(frame.y);
+      expect(member.x + member.width, id).toBeLessThan(frame.x + frame.width);
+      expect(member.y + member.height, id).toBeLessThan(frame.y + frame.height);
+    }
+
+    // The title strip: the frame's own row is above everything it holds,
+    // which is what leaves room for the text rather than drawing it over a
+    // member's box.
+    expect(frame.rows.map((row) => row.text)).toEqual(["Outer"]);
+    expect(frame.rows[0].y).toBeLessThan(Math.min(placed("Idle").y, placed("Busy").y));
+    expect(frame.dividerY).toBeNull();
+
+    // A frame grows up and left of the corner the core laid the graph out
+    // from, so the whole diagram is shifted rather than drawn off-canvas.
+    expect(frame.x).toBeGreaterThanOrEqual(0);
+    expect(frame.y).toBeGreaterThanOrEqual(0);
+    expect(laid.width).toBeGreaterThanOrEqual(frame.x + frame.width);
+    expect(laid.height).toBeGreaterThanOrEqual(frame.y + frame.height);
+  });
+  it("nests a frame inside a frame, each clearing the one below it", () => {
+    // A composite's block may open another, and an outer frame must clear
+    // the whole of an inner one — title strip included, since that strip is
+    // the part that reaches highest.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
+          { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Deep", kind: "state", descriptions: [], parentId: "Inner", direction: null },
+          { id: "Beside", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+        ],
+        transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    const encloses = (outer: { x: number; y: number; width: number; height: number }, inner: typeof outer) =>
+      inner.x > outer.x &&
+      inner.y > outer.y &&
+      inner.x + inner.width < outer.x + outer.width &&
+      inner.y + inner.height < outer.y + outer.height;
+
+    expect(encloses(placed("Outer"), placed("Inner")), "Outer encloses Inner").toBe(true);
+    expect(encloses(placed("Inner"), placed("Deep")), "Inner encloses Deep").toBe(true);
+    expect(encloses(placed("Outer"), placed("Beside")), "Outer encloses Beside").toBe(true);
+    // And `Deep` is *not* a member of `Outer` directly — it is inside it by
+    // way of `Inner`, which is what nesting means.
+    expect(encloses(placed("Outer"), placed("Deep")), "Outer encloses Deep").toBe(true);
+
+    // The half that an enclosure check alone would let through: an outer
+    // frame must clear an inner one's **title strip**, which is the part
+    // that reaches highest. Said as the whole of the outer title row — not
+    // just its centre line — lying above what the frame holds, because a
+    // frame grown around an inner *cluster box* rather than an inner
+    // *frame* still encloses it, and draws its own title across it.
+    const rowHalf = fakeMeasurer.measure("Outer").height / 2;
+    expect(placed("Outer").rows[0].y + rowHalf).toBeLessThanOrEqual(placed("Inner").y);
+    expect(placed("Inner").rows[0].y + rowHalf).toBeLessThanOrEqual(placed("Deep").y);
+  });
+
+  it("lands a transition naming a composite on that frame's own boundary", () => {
+    // dagre throws on an edge whose endpoint is a cluster, so the shared
+    // core proxies a member and clips the route back to the frame. The frame
+    // this module draws is bigger than the cluster box the core placed — by
+    // the padding and the title strip — so the route is clipped a second
+    // time, against the frame that is actually drawn.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
+          { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Done", kind: "state", descriptions: [], parentId: null, direction: null },
+        ],
+        transitions: [
+          { id: "start:1-Outer", from: "start:1", to: "Outer", label: null },
+          { id: "Outer-Done", from: "Outer", to: "Done", label: null },
+        ],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    const frame = placed("Outer");
+    const onBoundary = (point: { x: number; y: number }) => {
+      const tolerance = 1e-6;
+      const withinX = point.x >= frame.x - tolerance && point.x <= frame.x + frame.width + tolerance;
+      const withinY = point.y >= frame.y - tolerance && point.y <= frame.y + frame.height + tolerance;
+      const onAnEdge =
+        Math.abs(point.x - frame.x) < tolerance ||
+        Math.abs(point.x - (frame.x + frame.width)) < tolerance ||
+        Math.abs(point.y - frame.y) < tolerance ||
+        Math.abs(point.y - (frame.y + frame.height)) < tolerance;
+      return withinX && withinY && onAnEdge;
+    };
+
+    const arriving = laid.transitions.find((t) => t.id === "start:1-Outer")!;
+    const leaving = laid.transitions.find((t) => t.id === "Outer-Done")!;
+
+    // The arrowhead lands on the frame, not on the member the core routed
+    // through and not short of the frame in the title strip.
+    const arrivesAt = arriving.points[arriving.points.length - 1];
+    expect(onBoundary(arrivesAt), `arrives at ${JSON.stringify(arrivesAt)} for frame ${JSON.stringify(frame)}`).toBe(true);
+    const leavesFrom = leaving.points[0];
+    expect(onBoundary(leavesFrom), `leaves from ${JSON.stringify(leavesFrom)} for frame ${JSON.stringify(frame)}`).toBe(true);
+
+    // And the member inside is untouched by either route: an edge that
+    // reached the member's own box would pass straight through the frame.
+    const inner = placed("Inner");
+    for (const point of [arrivesAt, leavesFrom]) {
+      const insideMember =
+        point.x > inner.x &&
+        point.x < inner.x + inner.width &&
+        point.y > inner.y &&
+        point.y < inner.y + inner.height;
+      expect(insideMember, JSON.stringify(point)).toBe(false);
+    }
+  });
+
+  it("lays a composite's own `direction LR` out sideways while the diagram stays top to bottom", () => {
+    // dagre's `recursiveClusterLayout`, reached through the one field it
+    // reads per cluster. Verified as coordinates: the members of the block
+    // are side by side, while the diagram's own two ranks stay stacked.
+    const laid = layoutStateDiagram(
+      {
+        states: [
+          { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null },
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR" },
+          { id: "First", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Second", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+        ],
+        transitions: [
+          { id: "Before-Outer", from: "Before", to: "Outer", label: null },
+          { id: "First-Second", from: "First", to: "Second", label: null },
+        ],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const centre = (id: string) => {
+      const state = laid.states.find((s) => s.id === id)!;
+      return { x: state.x + state.width / 2, y: state.y + state.height / 2 };
+    };
+
+    // Sideways inside the block: `Second` is to the right of `First` and on
+    // the same row, which is what `LR` means and `TB` does not.
+    expect(centre("Second").x).toBeGreaterThan(centre("First").x);
+    expect(Math.abs(centre("Second").y - centre("First").y)).toBeLessThan(1);
+    // Top to bottom outside it: the document's own direction is untouched.
+    expect(centre("Outer").y).toBeGreaterThan(centre("Before").y);
+
+    // dagre drops the *routing* for every edge touching a cluster that
+    // carries a `rankdir`; the shared core falls back to a boundary-clipped
+    // straight segment, and this is the assertion that the fallback reaches
+    // a state diagram's shapes too.
+    for (const transition of laid.transitions) {
+      expect(transition.points.length, transition.id).toBeGreaterThanOrEqual(2);
+      const [head, ...rest] = transition.points;
+      expect(
+        rest.some((point) => point.x !== head.x || point.y !== head.y),
+        transition.id,
+      ).toBe(true);
+    }
   });
 });

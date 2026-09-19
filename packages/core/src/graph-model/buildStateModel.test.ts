@@ -12,11 +12,20 @@ function document(
     transitions.flatMap(({ from, to }) => [from, to]).filter((id, index, all) => all.indexOf(id) === index);
   return {
     kind: "state",
-    states: ids.map((id) => ({ id, kind: "state" as const, descriptions: [], line: 1, column: 1 })),
+    states: ids.map((id) => ({
+      id,
+      kind: "state" as const,
+      descriptions: [],
+      parentId: null,
+      direction: null,
+      line: 1,
+      column: 1,
+    })),
     transitions: transitions.map(({ from, to, label }, index) => ({
       from,
       to,
       label: label ?? null,
+      parentId: null,
       sourceLine: index + 2,
       sourceColumn: 3,
     })),
@@ -96,27 +105,59 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
+        {
+          id: null,
+          kind: "start",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
         {
           id: "Idle",
           kind: "state",
           descriptions: ["waiting for work", "nothing queued"],
+          parentId: null,
+          direction: null,
           line: 2,
           column: 3,
         },
-        { id: "Busy", kind: "state", descriptions: [], line: 3, column: 3 },
+        {
+          id: "Busy",
+          kind: "state",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 3,
+          column: 3,
+        },
       ],
       transitions: [
-        { from: null, to: "Idle", label: null, sourceLine: 2, sourceColumn: 3 },
-        { from: "Idle", to: "Busy", label: null, sourceLine: 3, sourceColumn: 3 },
+        {
+          from: null,
+          to: "Idle",
+          label: null,
+          parentId: null,
+          sourceLine: 2,
+          sourceColumn: 3,
+        },
+        {
+          from: "Idle",
+          to: "Busy",
+          label: null,
+          parentId: null,
+          sourceLine: 3,
+          sourceColumn: 3,
+        },
       ],
     });
 
     expect(diagnostics).toEqual([]);
     expect(model!.states).toEqual([
-      { id: "start:1", kind: "start", descriptions: [] },
-      { id: "Idle", kind: "state", descriptions: ["waiting for work", "nothing queued"] },
-      { id: "Busy", kind: "state", descriptions: [] },
+      { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
+      { id: "Idle", kind: "state", descriptions: ["waiting for work", "nothing queued"], parentId: null, direction: null },
+      { id: "Busy", kind: "state", descriptions: [], parentId: null, direction: null },
     ]);
   });
 
@@ -128,21 +169,59 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
-        { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
-        { id: null, kind: "end", descriptions: [], line: 3, column: 3 },
+        {
+          id: null,
+          kind: "start",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: "Idle",
+          kind: "state",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: null,
+          kind: "end",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 3,
+          column: 3,
+        },
       ],
       transitions: [
-        { from: null, to: "Idle", label: null, sourceLine: 2, sourceColumn: 3 },
-        { from: "Idle", to: null, label: null, sourceLine: 3, sourceColumn: 3 },
+        {
+          from: null,
+          to: "Idle",
+          label: null,
+          parentId: null,
+          sourceLine: 2,
+          sourceColumn: 3,
+        },
+        {
+          from: "Idle",
+          to: null,
+          label: null,
+          parentId: null,
+          sourceLine: 3,
+          sourceColumn: 3,
+        },
       ],
     });
 
     expect(diagnostics).toEqual([]);
     expect(model!.states).toEqual([
-      { id: "start:1", kind: "start", descriptions: [] },
-      { id: "Idle", kind: "state", descriptions: [] },
-      { id: "end:1", kind: "end", descriptions: [] },
+      { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
+      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null },
+      { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null },
     ]);
     expect(model!.transitions).toEqual([
       { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -158,16 +237,76 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
-        { id: "Idle", kind: "state", descriptions: [], line: 2, column: 3 },
-        { id: "Busy", kind: "state", descriptions: [], line: 3, column: 3 },
-        { id: null, kind: "end", descriptions: [], line: 4, column: 3 },
+        {
+          id: null,
+          kind: "start",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: "Idle",
+          kind: "state",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: "Busy",
+          kind: "state",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 3,
+          column: 3,
+        },
+        {
+          id: null,
+          kind: "end",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 4,
+          column: 3,
+        },
       ],
       transitions: [
-        { from: null, to: "Idle", label: null, sourceLine: 2, sourceColumn: 3 },
-        { from: null, to: "Busy", label: null, sourceLine: 3, sourceColumn: 3 },
-        { from: "Idle", to: null, label: null, sourceLine: 4, sourceColumn: 3 },
-        { from: "Busy", to: null, label: null, sourceLine: 5, sourceColumn: 3 },
+        {
+          from: null,
+          to: "Idle",
+          label: null,
+          parentId: null,
+          sourceLine: 2,
+          sourceColumn: 3,
+        },
+        {
+          from: null,
+          to: "Busy",
+          label: null,
+          parentId: null,
+          sourceLine: 3,
+          sourceColumn: 3,
+        },
+        {
+          from: "Idle",
+          to: null,
+          label: null,
+          parentId: null,
+          sourceLine: 4,
+          sourceColumn: 3,
+        },
+        {
+          from: "Busy",
+          to: null,
+          label: null,
+          parentId: null,
+          sourceLine: 5,
+          sourceColumn: 3,
+        },
       ],
     });
 
@@ -186,10 +325,33 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
-        { id: null, kind: "end", descriptions: [], line: 2, column: 3 },
+        {
+          id: null,
+          kind: "start",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: null,
+          kind: "end",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
       ],
-      transitions: [{ from: null, to: null, label: null, sourceLine: 2, sourceColumn: 3 }],
+      transitions: [{
+          from: null,
+          to: null,
+          label: null,
+          parentId: null,
+          sourceLine: 2,
+          sourceColumn: 3,
+        }],
     });
 
     expect(model!.states.map((s) => s.id)).toEqual(["start:1", "end:1"]);
@@ -211,13 +373,51 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       states: [
-        { id: null, kind: "start", descriptions: [], line: 2, column: 3 },
-        { id: "root_start", kind: "state", descriptions: [], line: 2, column: 3 },
-        { id: "B", kind: "state", descriptions: [], line: 3, column: 3 },
+        {
+          id: null,
+          kind: "start",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: "root_start",
+          kind: "state",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 2,
+          column: 3,
+        },
+        {
+          id: "B",
+          kind: "state",
+          descriptions: [],
+          parentId: null,
+          direction: null,
+          line: 3,
+          column: 3,
+        },
       ],
       transitions: [
-        { from: null, to: "root_start", label: null, sourceLine: 2, sourceColumn: 3 },
-        { from: "root_start", to: "B", label: null, sourceLine: 3, sourceColumn: 3 },
+        {
+          from: null,
+          to: "root_start",
+          label: null,
+          parentId: null,
+          sourceLine: 2,
+          sourceColumn: 3,
+        },
+        {
+          from: "root_start",
+          to: "B",
+          label: null,
+          parentId: null,
+          sourceLine: 3,
+          sourceColumn: 3,
+        },
       ],
     });
 
@@ -228,5 +428,47 @@ describe("buildStateModel", () => {
     ]);
     // And no self-loop was invented: the thing Mermaid produces here.
     expect(model!.transitions.some((t) => t.from === t.to)).toBe(false);
+  });
+  it("gives each level its own start and end, and carries a composite through as a state", () => {
+    // Two things in one fixture, because they are one fact: a composite is a
+    // level, so `[*]` inside it is *that* level's start. Measured (mermaid
+    // 11.17.2): `state Outer { [*] --> Inner }` reports `Outer_start
+    // in="root/Outer"`, beside the document's own `root_start`.
+    //
+    // The ids stay ADR-0010's `${kind}:${n}`, with `n` counting levels in
+    // the order they are declared — the root first — rather than a second
+    // spelling being invented for a nested one.
+    const { model, diagnostics } = buildStateModel({
+      kind: "state",
+      states: [
+        { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
+        {
+          id: "Outer",
+          kind: "composite",
+          descriptions: [],
+          parentId: null,
+          direction: "LR",
+          line: 3,
+          column: 3,
+        },
+        { id: null, kind: "start", descriptions: [], parentId: "Outer", direction: null, line: 5, column: 5 },
+        { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, line: 5, column: 5 },
+      ],
+      transitions: [
+        { from: null, to: "Outer", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
+        { from: null, to: "Inner", label: null, parentId: "Outer", sourceLine: 5, sourceColumn: 5 },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.states).toEqual([
+      { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
+      { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR" },
+      { id: "start:2", kind: "start", descriptions: [], parentId: "Outer", direction: null },
+      { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+    ]);
+    // Each `[*]` endpoint resolves against the level the transition was
+    // written at — the only thing that tells the two starts apart.
+    expect(model!.transitions.map((t) => t.id)).toEqual(["start:1-Outer", "start:2-Inner"]);
   });
 });

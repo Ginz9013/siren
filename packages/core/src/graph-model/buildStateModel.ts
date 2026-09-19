@@ -30,18 +30,35 @@ import { resolveTimeline } from "./resolveTimeline";
 export function buildStateModel(document: StateDocument): StateModelResult {
   const diagnostics: Diagnostic[] = [];
 
+  const pseudoIdsByLevel = pseudoStateIds(document);
+
   const states = document.states.map<ResolvedState>((state) =>
-    state.kind === "state"
-      ? // Authored, so `StateDecl.id` is the name the author wrote —
-        // non-null by that contract, where only a pseudo-state arrives
-        // unnamed. Descriptions pass through as written: they are authored
-        // text, and there is nothing here to resolve about them.
-        { id: state.id!, kind: state.kind, descriptions: state.descriptions }
-      : // A pseudo-state carries none and can carry none — `[*]` is not an
-        // id, so no description statement can name one.
-        { id: PSEUDO_STATE_IDS[state.kind], kind: state.kind, descriptions: [] },
+    state.id !== null
+      ? // Authored — a state or a composite — so `StateDecl.id` is the name
+        // the author wrote, non-null by that contract, where only a
+        // pseudo-state arrives unnamed. Descriptions, membership and a
+        // composite's own direction pass through as written: they are
+        // authored, and there is nothing here to resolve about them.
+        {
+          id: state.id,
+          kind: state.kind,
+          descriptions: state.descriptions,
+          parentId: state.parentId,
+          direction: state.direction,
+        }
+      : // A pseudo-state carries no descriptions and can carry none — `[*]`
+        // is not an id, so no description statement can name one — and no
+        // direction, because only a composite has a block to write one in.
+        // What it does carry is its level, which is what chooses its id.
+        {
+          id: pseudoIdsByLevel.get(state.parentId)![state.kind as "start" | "end"],
+          kind: state.kind,
+          descriptions: [],
+          parentId: state.parentId,
+          direction: null,
+        },
   );
-  const transitions = assignTransitionIds(document, PSEUDO_STATE_IDS);
+  const transitions = assignTransitionIds(document, pseudoIdsByLevel);
 
   // No `timeline:` block reaches this kind yet — `parseStateDiagram` refuses
   // one, and teaching it the block is the animation ticket's. The call is
@@ -62,20 +79,31 @@ export function buildStateModel(document: StateDocument): StateModelResult {
 }
 
 /**
- * Which level the pseudo-states this stage names belong to.
- *
- * `[*]` is **one start and one end per level** — measured, mermaid 11.17.2:
- * two `[*] -->` lines at one level both came back from the same
- * `root_start`, so it is per level and not per occurrence. A document has
- * exactly one level until a composite state opens a second, and a
- * composite's own `[*]` belongs to *its* level; when that lands, these two
- * constants become a counter per level rather than a different mechanism,
- * which is what `generatedId`'s 1-based `n` is already shaped for.
+ * The level number the document's own level is given — the first, so that
+ * `[*]` written at the top of a diagram with no composite in it is
+ * `start:1` / `end:1`, exactly as before composites existed.
  */
 const ROOT_LEVEL = 1;
 
 /**
- * The ids the root level's two pseudo-states are drawn and addressed under.
+ * The ids each level's two pseudo-states are drawn and addressed under, by
+ * the composite that opens the level — `null` for the document's own.
+ *
+ * `[*]` is **one start and one end per level** — measured, mermaid 11.17.2:
+ * two `[*] -->` lines at one level both came back from the same
+ * `root_start`, so it is per level and not per occurrence, and a composite
+ * state opens a level of its own (`state Outer { [*] --> Inner }` reports
+ * `Outer_start`, not `root_start`).
+ *
+ * Levels are numbered in the order they are *declared* — the document's
+ * first, then each composite in the order `StateDocument.states` names it,
+ * which is the order an author reading down the page meets them. A level
+ * with no `[*]` in it still takes its number; the numbers are handles, and a
+ * gap in them costs nothing, while renumbering to close one would mean a
+ * composite's `[*]` changing its id because an unrelated block lost its own.
+ *
+ * `n` is `generatedId`'s 1-based counter, which is what this was always
+ * shaped for.
  *
  * **This is a deliberate divergence from Mermaid, and it removes a bug of
  * Mermaid's.** Mermaid names these `root_start` and `root_end` — ordinary
@@ -98,10 +126,30 @@ const ROOT_LEVEL = 1;
  * not guarded against here — it is unconstructible, exactly as it is for a
  * flowchart subgraph's id, and for the same reason.
  */
-const PSEUDO_STATE_IDS: Record<"start" | "end", string> = {
-  start: generatedId("start", ROOT_LEVEL),
-  end: generatedId("end", ROOT_LEVEL),
-};
+function pseudoStateIds(
+  document: StateDocument,
+): Map<string | null, Record<"start" | "end", string>> {
+  const byLevel = new Map<string | null, Record<"start" | "end", string>>();
+
+  const openLevel = (parentId: string | null): void => {
+    if (byLevel.has(parentId)) {
+      return;
+    }
+    const n = byLevel.size + ROOT_LEVEL;
+    byLevel.set(parentId, { start: generatedId("start", n), end: generatedId("end", n) });
+  };
+
+  // The document's own level first, so a diagram with no composite in it
+  // keeps the `start:1` / `end:1` it has always had.
+  openLevel(null);
+  for (const state of document.states) {
+    if (state.kind === "composite") {
+      openLevel(state.id);
+    }
+  }
+
+  return byLevel;
+}
 
 /**
  * Gives every transition the id the renderer addresses it by:
@@ -120,10 +168,14 @@ const PSEUDO_STATE_IDS: Record<"start" | "end", string> = {
  * colon inside those ids is what keeps them out of the connector space
  * (ADR-0010), so no such id can also be `${from}-${to}` for two states the
  * author named.
+ *
+ * *Which* level's is decided by `StateTransition.parentId` — the block the
+ * line was written in — and by nothing else, because that is the only thing
+ * that tells one level's `[*]` from another's.
  */
 function assignTransitionIds(
   document: StateDocument,
-  pseudo: Record<"start" | "end", string>,
+  pseudoIdsByLevel: ReadonlyMap<string | null, Record<"start" | "end", string>>,
 ): ResolvedStateTransition[] {
   const seenPairCounts = new Map<string, number>();
 
@@ -131,6 +183,7 @@ function assignTransitionIds(
     // A `null` endpoint is `[*]`, and which pseudo-state it means is the
     // side it was written on: from-side start, to-side end. Measured —
     // they are two different pseudo-states, not one node used twice.
+    const pseudo = pseudoIdsByLevel.get(transition.parentId)!;
     const from = transition.from ?? pseudo.start;
     const to = transition.to ?? pseudo.end;
 

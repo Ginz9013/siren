@@ -92,8 +92,12 @@ const END_STATE_INNER_RATIO = 0.5;
  * timeline addresses the group.
  */
 function buildState(state: PositionedState): SVGGElement {
-  if (state.kind !== "state") {
+  if (state.kind === "start" || state.kind === "end") {
     return buildPseudoState(state);
+  }
+
+  if (state.kind === "composite") {
+    return buildComposite(state);
   }
 
   const g = document.createElementNS(SVG_NS, "g");
@@ -134,6 +138,52 @@ function buildState(state: PositionedState): SVGGElement {
     const className = index === 0 ? "siren-state-label" : "siren-state-description";
     g.appendChild(buildCenteredText(className, row.text, { x: centerX, y: row.y }));
   });
+
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-state">` for a composite state: the
+ * `<rect class="siren-composite-frame">` at the frame layout grew around
+ * everything the block holds, and the
+ * `<text class="siren-composite-label">` titling it in the strip along its
+ * top.
+ *
+ * **Still a `siren-state` group, wearing the composite's own id.** A
+ * composite is a state — a transition may name one at either end, and
+ * everything that addresses a state by id addresses this the same way — so
+ * the group's class does not change for the figure inside it, exactly as a
+ * participant's `<g>` does not say whether it holds a box or an actor. What
+ * changes is the two parts, which carry classes of their own because a
+ * frame is painted differently from a box: `.siren-state-frame` is filled,
+ * and a composite drawn with one would hide everything inside it.
+ *
+ * The title's rows come from layout, which measured them and left room in
+ * the strip; a composite draws no divider, because the line under a
+ * described state's title row closes a compartment and what is under this
+ * strip is the members' own boxes.
+ */
+function buildComposite(state: PositionedState): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-state");
+  g.setAttribute("data-siren-id", state.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-composite-frame");
+  frame.setAttribute("x", String(state.x));
+  frame.setAttribute("y", String(state.y));
+  frame.setAttribute("width", String(state.width));
+  frame.setAttribute("height", String(state.height));
+  g.appendChild(frame);
+
+  // No `rx` here either — a frame's corner radius is the theme's, for the
+  // reason `buildState` gives for a state's box.
+  const centerX = state.x + state.width / 2;
+  for (const row of state.rows) {
+    g.appendChild(
+      buildCenteredText("siren-composite-label", row.text, { x: centerX, y: row.y }),
+    );
+  }
 
   return g;
 }

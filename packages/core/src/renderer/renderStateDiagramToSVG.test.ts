@@ -368,5 +368,66 @@ describe("renderStateDiagramToSVG, on the start and end pseudo-states", () => {
     expect(group.querySelector("rect.siren-state-frame")).not.toBeNull();
     expect(group.querySelector("text.siren-state-label")!.textContent).toBe("Idle");
     expect(group.querySelector("circle")).toBeNull();
+  });});
+
+describe("renderStateDiagramToSVG, on a composite state", () => {
+  it("draws it as an unfilled frame with its title in the strip along the top", () => {
+    // Measured with `--markup` (mermaid 11.17.2): a composite is a
+    // `g.statediagram-cluster` — a frame with the composite's own name
+    // drawn on a strip along its top, and its members inside it. Siren
+    // draws that as its own `siren-*` figure rather than copying Mermaid's
+    // two-rect construction; what is owed is the figure.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          rows: [{ text: "Outer", y: 30 }],
+          dividerY: null,
+        },
+        {
+          id: "Idle",
+          kind: "state",
+          x: 40,
+          y: 60,
+          width: 80,
+          height: 40,
+          rows: [{ text: "Idle", y: 80 }],
+          dividerY: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 180,
+    });
+
+    // One group, wearing the composite's own id — a composite is a state,
+    // addressed the way every other state is, and its id is the author's own
+    // word rather than a generated one.
+    const group = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(group).not.toBeNull();
+
+    const frame = group.querySelector("rect.siren-composite-frame")!;
+    expect(frame.getAttribute("x")).toBe("5");
+    expect(frame.getAttribute("y")).toBe("10");
+    expect(frame.getAttribute("width")).toBe("200");
+    expect(frame.getAttribute("height")).toBe("150");
+
+    // The title, at the row layout measured for it, centred across the
+    // frame.
+    const title = group.querySelector("text.siren-composite-label")!;
+    expect(title.textContent).toBe("Outer");
+    expect(title.getAttribute("x")).toBe("105");
+    expect(title.getAttribute("y")).toBe("30");
+
+    // And not a state's own box: `.siren-state-frame` is filled, so a
+    // composite drawn with one would hide everything inside it.
+    expect(group.querySelector("rect.siren-state-frame")).toBeNull();
+    expect(group.querySelector("text.siren-state-label")).toBeNull();
   });
 });
