@@ -2719,6 +2719,36 @@ line2\`"]`,
     },
   },
   {
+    id: "st-state-keyword-bare",
+    kind: "state",
+    source: `stateDiagram-v2
+      state
+      Lonely`,
+    status: "supported",
+    meaning:
+      "The `state` keyword **entirely alone** on a line declares nothing " +
+      "either. Measured (mermaid 11.17.2): it is not a parse error and puts " +
+      "no state into the state table — `state X` truncated one argument " +
+      "further, tolerated and ignored the same way. It is the one word of " +
+      "the seven Mermaid reserves that survives in this position: the other " +
+      "six (`note`, `classDef`, `class`, `style`, `click`, `scale`) are a " +
+      "parse error on a line of their own, and all seven are a parse error " +
+      "as a transition endpoint, so none of those is a construct with a row " +
+      "to own.",
+    assert: (result) => {
+      // `Lonely` is the control, for the reason `st-state-keyword-only` has
+      // one: the absence has to be read off a picture that was drawn, or a
+      // render that produced nothing at all would pass too.
+      expectSame("states", states(result), ["Lonely"]);
+      expectSame(
+        "no box is drawn for the lone keyword",
+        texts(result, "g.siren-state text.siren-state-label"),
+        ["Lonely"],
+      );
+      expectSame("transitions", transitions(result), []);
+    },
+  },
+  {
     id: "st-transition",
     kind: "state",
     source: `stateDiagram-v2
