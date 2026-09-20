@@ -88,11 +88,19 @@ export function layoutStateDiagram(
         id: state.id,
         width: plan.width,
         height: plan.height,
-        // A composite is a *frame*: the core sizes it from the states that
-        // name it as their parent and ignores the size above, which is
-        // therefore the smallest the frame could sensibly be — and what a
-        // composite holding nothing is drawn at, since the core lays a
-        // childless cluster out as an ordinary box.
+        // A composite is a *frame*: the states that name it as their parent
+        // are laid out inside it. What the core hands back for it is the box
+        // the core placed, which is *not* promised to have been sized from
+        // those states or to enclose them — a composite nested inside one
+        // carrying a `direction` comes back at exactly the size given above,
+        // never having been sized at all (see `isCluster` in
+        // `layoutDirectedGraph.ts` for the measured table). `compositeFrames`
+        // is where the frame the picture shows is actually computed, by
+        // union with the members, and that is why it cannot be skipped.
+        // The size above is still worth giving: it is the smallest the frame
+        // could sensibly be, and it is what a composite holding nothing is
+        // drawn at, since the core lays a childless cluster out as an
+        // ordinary box.
         ...(state.kind === "composite" ? { isCluster: true } : {}),
         // Membership, and the only thing about a composite the shared core
         // is told. `undefined` rather than `null` at the document's own
@@ -211,13 +219,26 @@ export function layoutStateDiagram(
  * Each composite's frame, in the shared core's own coordinate space, by the
  * composite's id.
  *
- * The core sizes a cluster to hold its children and knows nothing about the
- * title drawn on it, so a frame is grown from the cluster box the core
- * placed until it clears everything it holds by `COMPOSITE_PADDING` and has
- * a strip along its top for its own title. That is `layoutGraph`'s
- * `subgraphFrames`, ported — including its nesting: a frame must clear the
- * whole of each frame *beneath* it, title strip included, since that strip
- * is the part that reaches highest.
+ * A frame is grown from the cluster box the core placed until it clears
+ * everything it holds by `COMPOSITE_PADDING` and has a strip along its top
+ * for its own title. That is `layoutGraph`'s `subgraphFrames`, ported —
+ * including its nesting: a frame must clear the whole of each frame *beneath*
+ * it, title strip included, since that strip is the part that reaches
+ * highest.
+ *
+ * **Taking the union with what the frame holds is required, not merely
+ * conservative.** The core's cluster box is not promised to have been sized
+ * from the members or to enclose them: a composite nested inside one that
+ * declared a `direction` comes back at *exactly the size this module handed
+ * in* — its own title strip — with the states it holds at coordinates outside
+ * it (measured; the table is on `isCluster` in `layoutDirectedGraph.ts` and
+ * the test that pins it is in `layoutDirectedGraph.test.ts`). This diagram
+ * kind reaches that combination on ordinary input, since `state Outer {` may
+ * hold both a `direction` and another `state Inner {`. So the member boxes in
+ * the four `Math.min`/`Math.max` calls below are not padding-and-titles
+ * arithmetic that the core has already done — they are the only thing making
+ * the inner frame the right size at all, and deleting them as redundant
+ * draws a title bar with its whole contents spilled out of it.
  *
  * Grown by recursion rather than by walking the model backwards, which is
  * what `layoutGraph` can do because its subgraphs are listed in pre-order. A

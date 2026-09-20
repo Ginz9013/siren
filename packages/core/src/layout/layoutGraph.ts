@@ -458,11 +458,24 @@ export function layoutGraph(
 /**
  * Each subgraph's frame, in the shared core's own coordinate space.
  *
- * The core sizes a cluster to hold its children and knows nothing about the
- * title this module draws on it, so a frame is grown from the cluster box the
- * core placed until it clears every box it holds by `SUBGRAPH_PADDING` and
- * has a strip along its top for its own title. That is `layoutClassDiagram`'s
- * `namespaceFrame`, ported.
+ * A frame is grown from the cluster box the core placed until it clears every
+ * box it holds by `SUBGRAPH_PADDING` and has a strip along its top for its
+ * own title. That is `layoutClassDiagram`'s `namespaceFrame`, ported.
+ *
+ * **Taking the union with what the frame holds is required, not merely
+ * conservative, and it is the load-bearing half of this function.** The
+ * obvious reading — the core already sized the cluster to hold its children,
+ * so the members only ever widen the frame by the padding and the title strip
+ * — is false for a `subgraph` nested inside one that declared a `direction`.
+ * There the core hands the inner cluster back at *exactly the size it was
+ * given*, never having sized it at all, with its members at coordinates
+ * outside it (measured; see `isCluster` in `layoutDirectedGraph.ts` for the
+ * table and `layoutDirectedGraph.test.ts` for the test that pins it). Drop
+ * the member boxes out of the four `Math.min`/`Math.max` calls below as
+ * redundant and that document draws the inner `subgraph` at the size of its
+ * own title bar — the `label.width + SUBGRAPH_PADDING * 2` this module hands
+ * in — with every node it holds spilled outside it. The cluster box is a hint
+ * about where the frame goes, not a statement of what it encloses.
  *
  * **What is not ported is the nesting**, because a class diagram has none. A
  * frame must clear the whole of each frame *beneath* it — title strip

@@ -412,6 +412,150 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
 });
 
 /**
+ * What a cluster's returned box actually is, pinned against
+ * `@dagrejs/dagre@3.1.1` (`01M2YKWQP`).
+ *
+ * `isCluster` used to promise outright that the box handed back was "the
+ * frame enclosing those children", computed from them with the `width`/
+ * `height` given ignored. Measured here, that holds for a cluster nothing
+ * nests — with or without a direction of its own — and fails in *both* halves
+ * for a cluster nested inside one that carries a direction: the box comes
+ * back at exactly the size that was passed in, never having been sized, with
+ * its members at negative coordinates outside it.
+ *
+ * These are characterization tests. They pin what the engine does today, not
+ * what we would like it to do, and they were green the moment they were
+ * written — there was no defect to fix, because no picture is wrong: all
+ * three adapters already grow their own frame from the members. What was
+ * wrong was the sentence on the seam, and a corrected sentence with no test
+ * under it is just another comment.
+ *
+ * **If a future `@dagrejs/dagre` upgrade makes a nested cluster's box
+ * genuinely enclose its children, the two "does not enclose" tests below go
+ * red.** That red is the news, not a regression: it says the contract on
+ * `isCluster` can be tightened back toward the promise it used to make, and
+ * that the three adapters' union with their members could be re-examined.
+ * Read it as "re-read `isCluster`'s doc comment", never as "restore the old
+ * numbers".
+ */
+describe("the box layoutDirectedGraph returns for a cluster", () => {
+  const BOX = { width: 60, height: 40 };
+
+  /**
+   * The fixture the measurement was taken on: `O > I > {A, B}` with `C`
+   * beside `I` under `O`, every box 60x40, in a `TB` graph. The two edges are
+   * what give both frames something to be ranked by; without them `A` and `B`
+   * share a rank and the numbers below are a different table.
+   */
+  function nestedFrames(directions: {
+    outer?: Direction;
+    inner?: Direction;
+  }): DirectedGraphLayoutInput {
+    return {
+      rankdir: "TB",
+      nodes: [
+        {
+          id: "O",
+          ...BOX,
+          isCluster: true,
+          ...(directions.outer === undefined ? {} : { rankdir: directions.outer }),
+        },
+        {
+          id: "I",
+          ...BOX,
+          isCluster: true,
+          parentId: "O",
+          ...(directions.inner === undefined ? {} : { rankdir: directions.inner }),
+        },
+        { id: "A", ...BOX, parentId: "I" },
+        { id: "B", ...BOX, parentId: "I" },
+        { id: "C", ...BOX, parentId: "O" },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "A-C", from: "A", to: "C" },
+      ],
+    };
+  }
+
+  function encloses(
+    outer: DirectedGraphLayoutNodeBox,
+    inner: DirectedGraphLayoutNodeBox,
+  ): boolean {
+    return (
+      outer.x <= inner.x &&
+      outer.y <= inner.y &&
+      outer.x + outer.width >= inner.x + inner.width &&
+      outer.y + outer.height >= inner.y + inner.height
+    );
+  }
+
+  it("is grown from its members, and encloses them, when no cluster above it carries a direction", () => {
+    const boxes = boxesOf(nestedFrames({}));
+
+    expect(boxes.I).toEqual({ id: "I", x: 130, y: 25, width: 140, height: 180 });
+    expect(boxes.A).toEqual({ id: "A", x: 165, y: 50, width: 60, height: 40 });
+    expect(boxes.B).toEqual({ id: "B", x: 175, y: 140, width: 60, height: 40 });
+
+    // 140x180 is nothing like the 60x40 handed in, which is the visible half
+    // of the engine having sized this frame itself.
+    expect(encloses(boxes.I, boxes.A)).toBe(true);
+    expect(encloses(boxes.I, boxes.B)).toBe(true);
+  });
+
+  it("is grown from its members even carrying a direction of its own, as long as nothing nests it", () => {
+    // So a direction is not what breaks the promise — nesting under one is.
+    // Both of these are the same two members as above, in a cluster at the
+    // document's own level, and both come back sized and enclosing.
+    const alone = (rankdir: Direction) =>
+      boxesOf({
+        rankdir: "TB",
+        nodes: [
+          { id: "S", ...BOX, isCluster: true, rankdir },
+          { id: "A", ...BOX, parentId: "S" },
+          { id: "B", ...BOX, parentId: "S" },
+        ],
+        edges: [{ id: "A-B", from: "A", to: "B" }],
+      });
+
+    const lr = alone("LR");
+    expect(lr.S).toEqual({ id: "S", x: 0, y: 0, width: 170, height: 40 });
+    expect(encloses(lr.S, lr.A)).toBe(true);
+    expect(encloses(lr.S, lr.B)).toBe(true);
+
+    const tb = alone("TB");
+    expect(tb.S).toEqual({ id: "S", x: 0, y: 0, width: 60, height: 130 });
+    expect(encloses(tb.S, tb.A)).toBe(true);
+    expect(encloses(tb.S, tb.B)).toBe(true);
+  });
+
+  for (const inner of [undefined, "TB"] as const) {
+    const carrying =
+      inner === undefined ? "carrying no direction itself" : "carrying one of its own";
+
+    it(`comes back at exactly the size it was handed, and does not enclose its members, nested under a cluster with a direction while ${carrying}`, () => {
+      const boxes = boxesOf(nestedFrames({ outer: "LR", inner }));
+
+      // The 60x40 that comes back *is* the 60x40 that went in. Compared
+      // against `BOX` rather than against a literal, because that identity is
+      // the claim — the engine stopped one level of expansion short and left
+      // this frame at the size the caller supplied.
+      expect(boxes.I.width).toBe(BOX.width);
+      expect(boxes.I.height).toBe(BOX.height);
+      expect(boxes.I).toEqual({ id: "I", x: 0, y: 0, width: 60, height: 40 });
+
+      // Its members are placed — `01M2XJWM4`'s fix is what gives them
+      // coordinates at all — but above the frame rather than inside it.
+      expect(boxes.A).toEqual({ id: "A", x: 0, y: -45, width: 60, height: 40 });
+      expect(boxes.B).toEqual({ id: "B", x: 0, y: 45, width: 60, height: 40 });
+
+      expect(encloses(boxes.I, boxes.A)).toBe(false);
+      expect(encloses(boxes.I, boxes.B)).toBe(false);
+    });
+  }
+});
+
+/**
  * The coordinate guard (`01M2XJVPX`) stays, and this is what is left of its
  * coverage once the construct that used to reach it lays out.
  *
