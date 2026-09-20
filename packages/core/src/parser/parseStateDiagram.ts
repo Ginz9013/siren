@@ -36,15 +36,40 @@ const TRANSITION_RE = /^(\w+|\[\*\])\s*-->\s*(\w+|\[\*\])\s*(?::\s*(.*))?$/;
 const PSEUDO_STATE = "[*]";
 
 /**
- * A state written on a line of its own — `Idle`, or `state Idle` with
- * Mermaid's optional keyword in front of it. Measured: both put a state into
- * Mermaid's state table on their own, so a state nothing points at still
- * draws.
+ * A state written on a line of its own — `Idle`. Measured: a bare identifier
+ * puts a state into Mermaid's state table on its own, so a state nothing
+ * points at still draws.
+ *
+ * The `state` keyword is **not** an optional prefix on it — see
+ * `KEYWORD_ONLY_RE` below, which is the line this one used to swallow.
  *
  * Read *after* the transition pattern, so neither half of `A --> B` is ever
  * mistaken for one of these.
  */
-const STATE_DECL_RE = /^(?:state\s+)?(\w+)$/;
+const STATE_DECL_RE = /^(\w+)$/;
+
+/**
+ * `state Idle` — the `state` keyword with an id after it and nothing else on
+ * the line. **Read, and then ignored.**
+ *
+ * It is the statement that opens a composite state, `state Idle {`, with its
+ * brace missing. Measured (mermaid 11.17.2): Mermaid tolerates the mutilated
+ * form and ignores it — no state reaches the state table, at the document's
+ * level or inside a composite's block, and `Skipped`'s box is simply not
+ * drawn.
+ *
+ * So this parser must *accept* the line and report nothing, not refuse it:
+ * Mermaid draws the rest of such a document, and CONTEXT.md's compatibility
+ * condition forbids trading a document Mermaid renders for no picture at all.
+ * Matching here rather than falling through to the unrecognized-line
+ * diagnostic below is what buys that, and declaring nothing is what stops
+ * Siren drawing a box Mermaid does not.
+ *
+ * A state some *other* line declares is untouched by this: `state Skipped`
+ * followed by `A --> Skipped` still draws `Skipped`, declared by the
+ * transition (measured). Nothing is captured, because nothing is read.
+ */
+const KEYWORD_ONLY_RE = /^state\s+\w+$/;
 
 /**
  * A description written onto a state — `Idle : waiting for work`.
@@ -492,6 +517,14 @@ export function parseStateDiagram(source: string): ParseResult {
     const stateMatch = STATE_DECL_RE.exec(line);
     if (stateMatch !== null) {
       declareState(stateMatch[1], lineNumber, column);
+      continue;
+    }
+
+    // Accepted and dropped on the floor — the one construct here that is
+    // read without producing anything. See `KEYWORD_ONLY_RE`: Mermaid
+    // ignores it, so ignoring it is the compatible answer, and a diagnostic
+    // would be the incompatible one.
+    if (KEYWORD_ONLY_RE.test(line)) {
       continue;
     }
 

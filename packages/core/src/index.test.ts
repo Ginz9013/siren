@@ -5676,6 +5676,34 @@ describe("render() — a state diagram, end to end", () => {
     expect(loop.querySelector("text")!.textContent).toBe("retry");
   });
 
+  it("still draws a state a transition names, even when a `state X` line names it too", () => {
+    // Characterization, pinned before `state X` on a line of its own stopped
+    // declaring anything. Measured (mermaid 11.17.2): `state Skipped` plus
+    // `A --> Skipped` reports both states and the relation between them —
+    // the *transition* declares `Skipped`, so narrowing the `state` line
+    // must leave this picture exactly as it is.
+    const { result } = renderState("stateDiagram-v2\n  state Skipped\n  A --> Skipped\n");
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    // Membership rather than draw order: which line first mentions `Skipped`
+    // is what the narrowing moves, and pinning that would pin the defect.
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-state"))
+        .map((g) => g.getAttribute("data-siren-id"))
+        .sort(),
+    ).toEqual(["A", "Skipped"]);
+    expect(
+      svg.querySelector('g.siren-state[data-siren-id="Skipped"] text.siren-state-label')!
+        .textContent,
+    ).toBe("Skipped");
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-transition")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["A-Skipped"]);
+  });
+
   it("returns a working controller for a state diagram, as every other kind does", () => {
     // `SirenRenderResult.controller` is null *only* when rendering failed, so
     // a kind that returned none would break that promise for its callers.
