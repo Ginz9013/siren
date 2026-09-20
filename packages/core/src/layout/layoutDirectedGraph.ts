@@ -9,9 +9,62 @@ export interface DirectedGraphLayoutNode {
   /** Places this node inside the named cluster node. */
   parentId?: string;
   /**
-   * Declares this node a frame rather than a box: its size is computed from
-   * the children that name it as `parentId`, so the `width`/`height` given
-   * here are ignored. The returned box is the frame enclosing those children.
+   * Declares this node a frame rather than a box: the children that name it
+   * as `parentId` are laid out inside it, and it is placed as a cluster
+   * rather than as an ordinary node.
+   *
+   * **What comes back for it is the box the engine placed for that cluster,
+   * and nothing stronger than that.** It is *not* guaranteed to have been
+   * computed from the children, and it is *not* guaranteed to enclose them.
+   * Both halves of that were measured directly against `@dagrejs/dagre@3.1.1`
+   * at this seam (`01M2YKWQP`) — every box handed in 60x40, graph `TB`,
+   * `O > I > {A, B}` with `C` beside `I` under `O`, edges `A -> B` and
+   * `A -> C`:
+   *
+   * | directions | `I` comes back as | `A` | `B` | `I` holds them |
+   * | --- | --- | --- | --- | --- |
+   * | neither frame declares one | (130,25) 140x180 | (165,50) | (175,140) | yes |
+   * | `O` is `LR`, `I` declares none | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
+   * | `O` is `LR`, `I` is `TB` | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
+   *
+   * The first row is the promise this field used to make outright, and it is
+   * still what happens whenever no cluster *above* this one carries a
+   * direction: the `width`/`height` given here are discarded outright — a
+   * two-member cluster handed 0x0, 60x60 or 500x500 comes back 130x180 all
+   * three times — and the box is grown to hold the members. That is a
+   * discard, not a floor, which is the other reason this field's old wording
+   * was no guide: the number given here neither survives nor bounds anything
+   * the engine computes. Carrying a direction is not
+   * itself what breaks it: a cluster with nothing nesting it comes back
+   * 170x40 for `LR` and 60x130 for `TB`, computed from its children and
+   * enclosing them both times.
+   *
+   * In the other two rows the 60x40 that comes back **is the 60x40 that went
+   * in** — the engine never sized this cluster at all — and its members sit
+   * at negative coordinates outside it. The engine expands a cluster carrying
+   * a direction exactly one level (see `rankdirFor`, which is why those
+   * members have coordinates to be outside the box *with*), and the frame it
+   * stopped at keeps whatever size it was handed.
+   *
+   * **So a caller must grow its own frame from the contents; this box is one
+   * input to that, never the answer.** All three adapters already do exactly
+   * that, and none of them is being defensive: `subgraphFrames`
+   * (`layoutGraph.ts`), `compositeFrames` (`layoutStateDiagram.ts`) and
+   * `namespaceFrame` (`layoutClassDiagram.ts`) each take the union of this
+   * box with every box it holds before adding their own padding and title
+   * strip. **That union is required, not merely conservative.** Anyone
+   * reading one of them as redundant and deleting the members from it would
+   * draw a 60x40 frame with its whole contents outside, for exactly the
+   * documents in rows two and three — a flowchart `subgraph` inside a
+   * `subgraph` that declared a `direction`, which is ordinary Mermaid.
+   *
+   * Each adapter has to compute a frame of its own regardless, because
+   * padding and title strips are that diagram kind's visual decisions and a
+   * shared layout seam cannot know whether there is a title or how much room
+   * it wants. Taking the union while already there is what costs nothing and
+   * buys correctness. `layoutDirectedGraph.test.ts` pins the table above so
+   * that a future dagre upgrade making these boxes genuinely enclosing turns
+   * up as a red test rather than as silence.
    */
   isCluster?: boolean;
   /**

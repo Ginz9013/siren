@@ -386,9 +386,23 @@ function noteLinkEdgeId(id: string): string {
 /**
  * A namespace's frame: the cluster box the shared core placed, widened until
  * it clears every member box by `NAMESPACE_PADDING` and has a strip along its
- * top for its own label. The core sizes a cluster to hold its children, but
- * knows nothing about the label this module draws on it, so the frame is
- * taken as whichever is larger at each edge.
+ * top for its own label — whichever is larger at each edge.
+ *
+ * **Taking the union with the member boxes is required, not merely
+ * conservative**, which is worth saying here even though this is the one of
+ * the three frame builders whose diagram kind cannot currently reach the case
+ * that proves it. The core's cluster box is not promised to have been sized
+ * from the members or to enclose them: nested inside a cluster that carries a
+ * direction it comes back at exactly the size it was handed, with its members
+ * outside it (measured; the table is on `isCluster` in
+ * `layoutDirectedGraph.ts`). A class diagram neither nests namespaces nor
+ * gives one a direction of its own, so today only `layoutGraph`'s
+ * `subgraphFrames` and `layoutStateDiagram`'s `compositeFrames` are standing
+ * on the union for correctness rather than for the label strip. That is a
+ * property of this diagram kind, not of the seam — the day a namespace may
+ * sit inside a namespace, this function is already right, and nobody should
+ * arrive at that day having deleted the `memberBoxes` terms below as
+ * arithmetic the core had already done.
  *
  * The result can extend past the core's own top-left corner, which is why
  * `layoutClassDiagram` translates the diagram afterwards.
@@ -497,8 +511,16 @@ export function layoutClassDiagram(
         };
       }),
       ...groups.map((group) => {
-        // The core sizes a cluster from its children and ignores what it is
-        // given here; the label's own size is passed anyway, as the smallest
+        // What the core hands back for a cluster is the box it placed, which
+        // is *not* promised to have been computed from the children or to
+        // enclose them — see `isCluster` in `layoutDirectedGraph.ts` for the
+        // measured table. It does size a cluster from its children here,
+        // because a namespace is never nested inside another namespace and
+        // the divergence is confined to a cluster nested under one carrying a
+        // direction; but that is a property of this diagram kind rather than
+        // a promise the seam makes, so `namespaceFrame` unions the box with
+        // its members regardless and this comment must not be read as saying
+        // it needn't. The label's own size is passed anyway, as the smallest
         // the frame could sensibly be.
         const label = options.measureText.measure(group.ns.label);
         return {
