@@ -741,17 +741,18 @@ const SILENTLY_WRONG = 1;
  * intermediate step to make the arithmetic tidy would be recording a
  * measurement that was never taken.
  *
- * **This row is a temporary state, and its exit is implementation, not
- * refusal.** Mermaid 11.17.2 draws this document completely (measured, in the
- * row's own `meaning`), so the absolute compatibility condition forbids
- * leaving it refused; what this ticket did is stop the silence, by checking
- * that the layout engine returned finite coordinates before computing with
- * them. Ticket `01M2XJWM4`'s implementation — composing the nested cluster's
- * sub-layout ourselves, the level of expansion the engine does not do — is
- * what moves this row to `supported` and this number back to 6. Whoever
- * lands it should expect to delete this paragraph rather than add to it.
+ * **7 → 6, the row above leaving the way the rule says a row may leave: it
+ * started working.** `fc-subgraph-direction-nested` is `supported`, with an
+ * assert that pins the arrangement mermaid 11.17.2 draws rather than the
+ * absence of a diagnostic — a nested frame with no `direction` of its own
+ * lays out in the *document's* direction, so `A` and `B` share a column while
+ * the enclosing frame's `LR` puts `C` beside them (`01M2XJWM4`). Drawing it
+ * did not cost the guard that made it honest: that guard is a finiteness
+ * check on whatever the layout engine hands back, and it still stands — this
+ * construct simply no longer reaches it. `silently-wrong` does not move,
+ * because this row was never silent.
  */
-const REJECTED = 7;
+const REJECTED = 6;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
