@@ -2691,6 +2691,34 @@ line2\`"]`,
     },
   },
   {
+    id: "st-state-keyword-only",
+    kind: "state",
+    source: `stateDiagram-v2
+      state Skipped
+      Lonely`,
+    status: "supported",
+    meaning:
+      "`state X` on a line of its own declares **nothing**. Measured (mermaid " +
+      "11.17.2): it puts no state into the state table and is not a parse " +
+      "error either — it is the composite opener `state X {` with its brace " +
+      "missing, which Mermaid tolerates and ignores. The control is " +
+      "`st-state-bare` beside it: the *bare* identifier spelling of the same " +
+      "line does declare a state, and the keyword is not an optional prefix " +
+      "on it.",
+    assert: (result) => {
+      // `Lonely` is here so the absence is read off a picture that was
+      // actually drawn: a row asserting an empty diagram would pass just as
+      // happily on a render that produced nothing at all.
+      expectSame("states", states(result), ["Lonely"]);
+      expectSame(
+        "no box is drawn for the skipped state",
+        texts(result, "g.siren-state text.siren-state-label"),
+        ["Lonely"],
+      );
+      expectSame("transitions", transitions(result), []);
+    },
+  },
+  {
     id: "st-transition",
     kind: "state",
     source: `stateDiagram-v2

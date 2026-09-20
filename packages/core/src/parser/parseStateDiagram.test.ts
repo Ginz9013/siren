@@ -108,14 +108,65 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
-  it("declares a state written on a line of its own, in either of Mermaid's two spellings", () => {
-    // Measured: `Lonely` on its own line and `state Named` both put a state
-    // into Mermaid's own state table, and neither needs a transition to
-    // exist. A state nothing points at still draws.
-    const document = documentOf("stateDiagram-v2\n  Lonely\n  state Named\n");
+  it("declares a state written as a bare identifier on a line of its own", () => {
+    // Measured (mermaid 11.17.2): `Lonely` alone puts a state into Mermaid's
+    // own state table with no transition needed, so a state nothing points
+    // at still draws. The *keyword* spelling does not — see the test below.
+    const document = documentOf("stateDiagram-v2\n  Lonely\n");
 
-    expect(document.states.map((state) => state.id)).toEqual(["Lonely", "Named"]);
+    expect(document.states.map((state) => state.id)).toEqual(["Lonely"]);
     expect(document.transitions).toEqual([]);
+  });
+
+  it("declares nothing for `state X` on a line of its own, and says nothing about it either", () => {
+    // Measured (mermaid 11.17.2): `state Skipped` alone reports *no* state —
+    // it is `state Skipped {` with the brace missing, which Mermaid tolerates
+    // and ignores — and it is **not** a parse error, so there is nothing to
+    // report. Refusing it would leave a document Mermaid draws with no
+    // picture here, which is the trade CONTEXT.md's compatibility condition
+    // exists to forbid.
+    const { document, diagnostics } = parseStateDiagram("stateDiagram-v2\n  state Skipped\n");
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    expect((document as StateDocument).states).toEqual([]);
+    expect((document as StateDocument).transitions).toEqual([]);
+
+    // Ignored at a composite's level too, and without costing the composite
+    // its other members — measured: `state Outer { state Skipped / Inner }`
+    // reports `Outer` and `Inner in="root/Outer"`, and no `Skipped`.
+    const nested = documentOf(
+      "stateDiagram-v2\n  state Outer {\n    state Skipped\n    Inner\n  }\n",
+    );
+    expect(nested.states.map((state) => `${state.id}:${state.parentId}`)).toEqual([
+      "Outer:null",
+      "Inner:Outer",
+    ]);
+  });
+
+  it("leaves a state some other line declares alone when a `state X` line also names it", () => {
+    // Characterization, pinned before `state X` stopped declaring anything:
+    // measured (mermaid 11.17.2), `state Skipped` + `A --> Skipped` puts
+    // `Skipped` into the state table — declared by the *transition*, not by
+    // the `state` line — so narrowing that line must not cost this document
+    // its state. The same holds for the description spelling: `Skipped :
+    // waiting` declares it too (measured, descriptions=["waiting"]).
+    //
+    // Membership rather than draw order on purpose: which line first
+    // mentions `Skipped` is exactly what this narrowing moves, and a
+    // characterization test that pinned it would be pinning the defect.
+    const byTransition = documentOf("stateDiagram-v2\n  state Skipped\n  A --> Skipped\n");
+    expect([...byTransition.states.map((state) => state.id)].sort()).toEqual([
+      "A",
+      "Skipped",
+    ]);
+    expect(byTransition.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
+      "A->Skipped",
+    ]);
+
+    const byDescription = documentOf("stateDiagram-v2\n  state Skipped\n  Skipped : waiting\n");
+    expect(byDescription.states.map((state) => state.id)).toEqual(["Skipped"]);
+    expect(byDescription.states[0].descriptions).toEqual(["waiting"]);
   });
 
   it("keeps a state's first-mention position when a later transition names it again", () => {
