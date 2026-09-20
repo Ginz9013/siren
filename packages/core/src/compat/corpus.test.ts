@@ -726,6 +726,31 @@ const SILENTLY_WRONG = 1;
  * except that those arrived `supported` and these arrive as the honest
  * backlog they are. Each has a route out: implement the construct, move the
  * row to `supported` with an assert, and lower this number by one.
+ *
+ * **6 → 7, and this rise is the one the rule below does not describe: it is
+ * the same "measuring more" as 0 → 6, not a case trading `silently-wrong`
+ * for honesty.** `fc-subgraph-direction-nested` — a `subgraph` carrying its
+ * own `direction` with another `subgraph` inside it — was never written down
+ * here, so `silently-wrong` has nothing to give back. Before this ticket the
+ * document drew a picture with `NaN` in 29 of its attributes — 26 across the
+ * figures plus the `<svg>` root's own `width`, `height` and `viewBox`, the
+ * three that decide whether there is a picture at all — and reported no
+ * diagnostic at all: not a wrong figure, an absent one, and invisible to
+ * both ratchets because no row named it. `silently-wrong` is deliberately
+ * left at 1 rather than moved through — it was never 2, and inventing the
+ * intermediate step to make the arithmetic tidy would be recording a
+ * measurement that was never taken.
+ *
+ * **7 → 6, the row above leaving the way the rule says a row may leave: it
+ * started working.** `fc-subgraph-direction-nested` is `supported`, with an
+ * assert that pins the arrangement mermaid 11.17.2 draws rather than the
+ * absence of a diagnostic — a nested frame with no `direction` of its own
+ * lays out in the *document's* direction, so `A` and `B` share a column while
+ * the enclosing frame's `LR` puts `C` beside them (`01M2XJWM4`). Drawing it
+ * did not cost the guard that made it honest: that guard is a finiteness
+ * check on whatever the layout engine hands back, and it still stands — this
+ * construct simply no longer reaches it. `silently-wrong` does not move,
+ * because this row was never silent.
  */
 const REJECTED = 6;
 

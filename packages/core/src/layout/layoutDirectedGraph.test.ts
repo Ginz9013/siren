@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Direction } from "../contracts";
 import {
   layoutDirectedGraph,
+  UnplacedNodesError,
   type DirectedGraphLayoutInput,
+  type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
 
 /** The same three-node chain, laid out in whichever rank direction is asked for. */
@@ -308,5 +310,127 @@ describe("layoutDirectedGraph", () => {
       expect(point.y).toBeGreaterThanOrEqual(byId.one.y);
       expect(point.y).toBeLessThanOrEqual(byId.one.y + byId.one.height);
     }
+  });
+});
+
+/**
+ * Depth, driven through the *measured* matrix in `01M2WQV0` rather than
+ * through one repro document.
+ *
+ * Three levels of cluster — `L0 > L1 > L2 > {X, Y}`, with `Z` beside `L1`
+ * under `L0` — and the `rankdir` moved between them. The engine expands a
+ * cluster carrying a direction of its own exactly one level: a direct child
+ * that is itself a cluster is kept at the size it was handed, with everything
+ * below it never positioned at all. Which nodes that costs depends on where
+ * the direction was written, so a compensation that reaches only the
+ * direction's *own* children moves the damage one level down instead of
+ * removing it — these place the direction at each depth in turn to say that
+ * it does not.
+ */
+describe("layoutDirectedGraph through three levels of cluster", () => {
+  /** `L0 > L1 > L2 > {X, Y}`, `Z` under `L0`, with `rankdir` on whichever cluster is named. */
+  function threeLevels(rankdirOn: string): DirectedGraphLayoutInput {
+    const cluster = (id: string, parentId?: string) => ({
+      id,
+      width: 60,
+      height: 40,
+      isCluster: true,
+      ...(parentId === undefined ? {} : { parentId }),
+      ...(id === rankdirOn ? { rankdir: "LR" as const } : {}),
+    });
+    return {
+      rankdir: "TB",
+      nodes: [
+        cluster("L0"),
+        cluster("L1", "L0"),
+        cluster("L2", "L1"),
+        { id: "X", width: 40, height: 20, parentId: "L2" },
+        { id: "Y", width: 40, height: 20, parentId: "L2" },
+        { id: "Z", width: 40, height: 20, parentId: "L0" },
+      ],
+      edges: [
+        { id: "X-Y", from: "X", to: "Y" },
+        { id: "X-Z", from: "X", to: "Z" },
+      ],
+    };
+  }
+
+  /** Every box by id, having checked that all four of its numbers are real. */
+  function placed(input: DirectedGraphLayoutInput): Record<string, DirectedGraphLayoutNodeBox> {
+    const result = layoutDirectedGraph(input);
+    for (const box of result.nodes) {
+      for (const value of [box.x, box.y, box.width, box.height]) {
+        expect(Number.isFinite(value)).toBe(true);
+      }
+    }
+    return Object.fromEntries(result.nodes.map((box) => [box.id, box]));
+  }
+
+  it("places the two levels below the outermost cluster's own direction", () => {
+    // `L0` says `LR`; neither `L1` nor `L2` says anything. Both are expanded,
+    // so `X` and `Y` have coordinates two levels down — and both take the
+    // *graph's* `TB`, which is what puts them in one column rather than side
+    // by side the way `L0`'s `LR` would.
+    const boxes = placed(threeLevels("L0"));
+
+    expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+    expect(boxes.X.x).toBe(boxes.Y.x);
+    expect(boxes.Y.y).toBeGreaterThan(boxes.X.y);
+
+    // `L0`'s own `LR` still governs its own rank: `Z` sits to the right of the
+    // members of the frame beside it, not below them. Read off the members
+    // rather than off `L1`'s box, because a cluster carrying a direction comes
+    // back from the engine at the size it was handed — the frames the picture
+    // shows are the ones `layoutGraph` recomputes from what they enclose.
+    expect(boxes.Z.x).toBeGreaterThan(boxes.X.x);
+  });
+
+  it("places the level below a direction written one level in", () => {
+    // The same document with the direction moved to `L1`: `L2` is the cluster
+    // that would have been left unexpanded, and the leaves below it are the
+    // ones that would have been lost.
+    const boxes = placed(threeLevels("L1"));
+
+    expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+    expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+    expect(boxes.X.x).toBe(boxes.Y.x);
+    expect(boxes.Y.y).toBeGreaterThan(boxes.X.y);
+  });
+
+  it("places every node, and refuses nothing, when the direction is on the innermost cluster", () => {
+    // The measured-correct row of the same table: `L2`'s children are all
+    // leaves, so one level of expansion is all this document needs.
+    const result = layoutDirectedGraph(threeLevels("L2"));
+
+    for (const box of result.nodes) {
+      for (const value of [box.x, box.y, box.width, box.height]) {
+        expect(Number.isFinite(value)).toBe(true);
+      }
+    }
+    expect(result.nodes.map((n) => n.id)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+  });
+});
+
+/**
+ * The coordinate guard (`01M2XJVPX`) stays, and this is what is left of its
+ * coverage once the construct that used to reach it lays out.
+ *
+ * Every document that produced an unplaced node was a cluster with a direction
+ * holding a cluster without one, and there is now no such thing: the
+ * propagation above gives that inner cluster a direction before dagre sees it.
+ * The guard is not thereby redundant — it is a check on the *shape of the
+ * engine's answer*, not on that construct, so it is what stands between any
+ * future missing coordinate and the `NaN` the pipeline used to mint from it.
+ * What it reports is public (`render()` turns it into the author's
+ * diagnostic), so the contract is pinned here rather than left to a path no
+ * input currently walks.
+ */
+describe("UnplacedNodesError", () => {
+  it("names every node it lost, in the order it was given them", () => {
+    const error = new UnplacedNodesError(["L2", "X", "Y"]);
+
+    expect(error.nodeIds).toEqual(["L2", "X", "Y"]);
+    expect(error.name).toBe("UnplacedNodesError");
+    expect(error.message).toContain('"L2", "X", "Y"');
   });
 });

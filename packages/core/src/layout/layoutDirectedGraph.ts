@@ -222,9 +222,65 @@ function straightLineRoute(
 }
 
 /**
+ * Thrown by `layoutDirectedGraph` when the engine handed back something other
+ * than a finite box for a node it was given — no entry at all, or an entry
+ * whose `x`, `y`, `width` or `height` is `undefined`, `NaN` or infinite.
+ *
+ * **A thrown error rather than a diagnostic returned alongside a result,
+ * because there is no result.** Every other stage of this pipeline reports
+ * problems as `Diagnostic`s it accumulates and carries on with, which works
+ * because those problems are *local*: one unresolved timeline reference costs
+ * that reference and nothing else. A node with no coordinates is not local —
+ * the graph's own bounds are computed over it, so it takes the `<svg>`'s
+ * `width`, `height` and `viewBox` down with it, and every edge routed to it.
+ * There is no partial picture left to hand back, so this module has nothing
+ * to return and says so in the one way a function with no answer can.
+ *
+ * `render()` catches it at each of its three layout call sites and converts
+ * it to the error-severity diagnostic an author sees; `Diagnostic`'s contract
+ * — returned from `render()`, never thrown — is therefore unchanged. This
+ * type is exported for that conversion and for nothing else: a caller
+ * matching on it by name is matching on "this document cannot be laid out",
+ * which is the whole of its meaning.
+ */
+export class UnplacedNodesError extends Error {
+  /** The nodes the engine left without coordinates, in the caller's own order. */
+  readonly nodeIds: readonly string[];
+
+  constructor(nodeIds: readonly string[]) {
+    super(
+      `Layout produced no coordinates for ${nodeIds
+        .map((id) => `"${id}"`)
+        .join(", ")}. The known cause is a cluster carrying a direction of ` +
+        `its own that has another cluster as a direct child: the layout ` +
+        `engine expands such a cluster exactly one level, leaving the nested ` +
+        `frame unexpanded and everything inside it unplaced (01M2WQV0). ` +
+        `This document cannot be drawn.`,
+    );
+    this.name = "UnplacedNodesError";
+    this.nodeIds = nodeIds;
+  }
+}
+
+/** Whether the engine really placed this node: four finite numbers, not `undefined`. */
+function isPlaced(placed: { x?: number; y?: number; width?: number; height?: number } | undefined): boolean {
+  return (
+    placed !== undefined &&
+    Number.isFinite(placed.x) &&
+    Number.isFinite(placed.y) &&
+    Number.isFinite(placed.width) &&
+    Number.isFinite(placed.height)
+  );
+}
+
+/**
  * The single call site for `@dagrejs/dagre` in the pipeline. Takes sizes,
  * returns coordinates: it measures no text, knows no diagram kind, and sees
  * no labels, shapes or timelines. Pure and deterministic.
+ *
+ * Throws `UnplacedNodesError` when the engine did not place every node it was
+ * given. See that type for why this one failure is a throw rather than a
+ * value.
  *
  * Keeping every dagre interaction here is what ADR-0001 means by layout math
  * being an implementation detail behind our own seam.
@@ -248,11 +304,77 @@ export function layoutDirectedGraph(
   g.setGraph({ rankdir: input.rankdir });
   g.setDefaultEdgeLabel(() => ({}));
 
+  // Which nodes have children, and each node by its id. Both are needed
+  // *before* the nodes go in, because what direction a cluster is laid out in
+  // depends on what the clusters above it declared — see `rankdirFor`.
+  const childrenOf = new Map<string, DirectedGraphLayoutNode[]>();
   for (const node of input.nodes) {
+    if (node.parentId !== undefined) {
+      childrenOf.set(node.parentId, [...(childrenOf.get(node.parentId) ?? []), node]);
+    }
+  }
+  const nodeById = new Map(input.nodes.map((node) => [node.id, node]));
+
+  /**
+   * The direction this node's own children are laid out in: what the caller
+   * declared, or — for a cluster inside one that declared a direction — the
+   * **graph's own** `rankdir`.
+   *
+   * That second case is compensation for the engine, and both halves of it
+   * are measured. A cluster carrying a `rankdir` has its children expanded
+   * exactly one level: a child that is itself a cluster is kept at the size it
+   * was handed and everything below it is never positioned at all
+   * (`01M2WQV0`). Giving that child a `rankdir` of its own is what makes the
+   * engine expand it too — the single difference between the combination that
+   * fails and the three around it that do not.
+   *
+   * **The value is the graph's direction rather than the parent's**, and that
+   * is Mermaid's meaning rather than a convenient default: mermaid 11.17.2
+   * draws `Outer` with `direction LR` holding an `Inner` with none by putting
+   * `Inner`'s two members in one *column* (`A` and `B` at the same x) and
+   * `Inner` beside `C`. A frame that says nothing about its direction takes
+   * the document's, and the enclosing frame's `LR` governs only its own rank.
+   *
+   * Nothing is added where nothing is broken: a graph with no direction
+   * declared on any cluster keeps every `rankdir` absent and stays on the
+   * engine's ordinary compound path, placing exactly what it placed before.
+   */
+  const rankdirFor = (node: DirectedGraphLayoutNode): Direction | undefined => {
+    if (node.rankdir !== undefined) return node.rankdir;
+    if (!childrenOf.has(node.id)) return undefined;
+    return hasDirectedAncestor(node) ? input.rankdir : undefined;
+  };
+
+  /**
+   * Whether any cluster above `node` declared a direction of its own.
+   *
+   * **Any ancestor, not the parent**, because the engine's one level of
+   * expansion applies at every depth: a compensation that reached only the
+   * children of the cluster that declared the direction would hand *those*
+   * children a `rankdir`, which makes each of them a cluster-with-a-direction
+   * whose own cluster children are then the ones left unexpanded. The defect
+   * would move one level down per level of nesting rather than go away —
+   * measured, on three levels of cluster with the direction written at the
+   * top.
+   */
+  const hasDirectedAncestor = (node: DirectedGraphLayoutNode): boolean => {
+    for (
+      let ancestor = node.parentId === undefined ? undefined : nodeById.get(node.parentId);
+      ancestor !== undefined;
+      ancestor =
+        ancestor.parentId === undefined ? undefined : nodeById.get(ancestor.parentId)
+    ) {
+      if (ancestor.rankdir !== undefined) return true;
+    }
+    return false;
+  };
+
+  for (const node of input.nodes) {
+    const rankdir = rankdirFor(node);
     g.setNode(node.id, {
       width: node.width,
       height: node.height,
-      ...(node.rankdir === undefined ? {} : { rankdir: node.rankdir }),
+      ...(rankdir === undefined ? {} : { rankdir }),
     });
   }
 
@@ -272,12 +394,7 @@ export function layoutDirectedGraph(
   // the way out. That is Mermaid's own strategy for the same construct
   // (`findNonClusterChild` in its `mermaid-graphlib.js`), reached
   // independently here because dagre offers no flag to turn the behavior on.
-  const childrenOf = new Map<string, DirectedGraphLayoutNode[]>();
-  for (const node of input.nodes) {
-    if (node.parentId !== undefined) {
-      childrenOf.set(node.parentId, [...(childrenOf.get(node.parentId) ?? []), node]);
-    }
-  }
+  // The parentage it reads is `childrenOf`, built above for `rankdirFor`.
 
   /**
    * The node dagre is handed in `id`'s place: `id` itself unless it has
@@ -323,16 +440,30 @@ export function layoutDirectedGraph(
 
   dagre.layout(g);
 
-  const nodes = input.nodes.map((node) => {
-    const placed = g.node(node.id);
-    return {
-      id: node.id,
-      x: placed.x - placed.width / 2,
-      y: placed.y - placed.height / 2,
-      width: placed.width,
-      height: placed.height,
-    };
-  });
+  // Checked before a single subtraction, and checked for *finiteness* rather
+  // than for the construct that is known to produce it. `undefined - 30` is
+  // `NaN`, and `NaN` propagates silently through every arithmetic step below
+  // it — into the boxes, into the routes computed from them, and into the
+  // bounds computed from those — so the only place this can be caught while
+  // it still names something is here, at the boundary where the engine's
+  // answer arrives. Testing the *shape of the answer* also means any future
+  // source of a missing coordinate is caught by the same line, rather than by
+  // a second special case written after the next silent mis-render is found.
+  const placements = input.nodes.map((node) => ({ node, placed: g.node(node.id) }));
+  const unplaced = placements
+    .filter(({ placed }) => !isPlaced(placed))
+    .map(({ node }) => node.id);
+  if (unplaced.length > 0) {
+    throw new UnplacedNodesError(unplaced);
+  }
+
+  const nodes = placements.map(({ node, placed }) => ({
+    id: node.id,
+    x: placed.x - placed.width / 2,
+    y: placed.y - placed.height / 2,
+    width: placed.width,
+    height: placed.height,
+  }));
 
   // Keyed for the fallback below: an edge with either endpoint inside a
   // per-cluster `rankdir` never gets `points` back from
