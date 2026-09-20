@@ -516,14 +516,157 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
-  it("leaves a state the author simply named `note` or `class` alone", () => {
-    // The refusals key on the *statement*, not on a bare word: `note` and
-    // `class` on their own are ordinary `\w+` state ids, and Mermaid reads
-    // them as such.
-    const document = documentOf("stateDiagram-v2\n  note\n  class\n  note --> class\n");
+  it("leaves the keyword-shaped words Mermaid does *not* reserve as ordinary state ids", () => {
+    // Characterization, and the guard rail on the reserved-word rule below.
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs, each word on a
+    // line of its own and again as `A --> word`): every one of these eight
+    // declares an ordinary state in **both** positions. Mermaid recognizes
+    // `direction lr`, `hide empty description` and `accTitle:` as
+    // prefix-plus-argument statements rather than by reserving the bare
+    // word, so the bare word falls through to its ordinary id rule.
+    //
+    // `direction` and `end` are the two that look most like keywords and
+    // are the likeliest to be swept up by a reserved-word rule written from
+    // impression rather than from measurement — which is exactly what this
+    // test exists to catch.
+    const survivors = [
+      "hide",
+      "end",
+      "direction",
+      "fork",
+      "join",
+      "choice",
+      "accTitle",
+      "accDescr",
+    ];
 
-    expect(document.states.map((s) => s.id)).toEqual(["note", "class"]);
-    expect(document.transitions.map((t) => [t.from, t.to])).toEqual([["note", "class"]]);
+    for (const word of survivors) {
+      const alone = documentOf(`stateDiagram-v2\n  ${word}\n`);
+      expect(
+        alone.states.map((s) => s.id),
+        `for "${word}" on a line of its own`,
+      ).toEqual([word]);
+
+      const endpoint = documentOf(`stateDiagram-v2\n  A --> ${word}\n`);
+      expect(
+        endpoint.states.map((s) => s.id),
+        `for "A --> ${word}"`,
+      ).toEqual(["A", word]);
+      expect(
+        endpoint.transitions.map((t) => [t.from, t.to]),
+        `for "A --> ${word}"`,
+      ).toEqual([["A", word]]);
+    }
+  });
+
+  it("refuses a reserved word written on a line of its own, and says it is reserved", () => {
+    // Measured (mermaid 11.17.2): each of these six on a line of its own is
+    // a **parse error** — Mermaid's lexer takes the word for itself before
+    // its ordinary id rule can see it, and the whole document fails to
+    // render. Siren drew a box labelled with the word instead, with no
+    // diagnostic at all, which is the silently-wrong shape this refusal
+    // closes.
+    //
+    // `state` is the one exception and is tested separately: it alone is
+    // tolerated and ignored rather than refused.
+    //
+    // Case-insensitive, because Mermaid's lexer rules are: measured, `Note`,
+    // `NOTE`, `Class`, `Style`, `Click`, `Scale` and `ClassDef` are each
+    // refused exactly as their lowercase spelling is.
+    const reserved = ["note", "classDef", "class", "style", "click", "scale", "Note", "STYLE"];
+
+    for (const word of reserved) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${word}\n`,
+      );
+
+      expect(document, `for "${word}"`).toBeNull();
+      const refusal = diagnostics.find((d) => d.line === 3);
+      expect(refusal, `for "${word}"`).toBeDefined();
+      expect(refusal!.severity, `for "${word}"`).toBe("error");
+      // The author needs to learn that *renaming the state* fixes this, not
+      // that their line is malformed — so the word is named and the reason
+      // is given, and the generic unrecognized-line wording is excluded.
+      expect(refusal!.message, `for "${word}"`).toMatch(/reserved/i);
+      expect(refusal!.message, `for "${word}"`).toContain(`"${word}"`);
+      expect(refusal!.message, `for "${word}"`).not.toContain("Unrecognized");
+    }
+  });
+
+  it("declares nothing for a lone `state`, and says nothing about it either", () => {
+    // `state` is the one reserved word that is **not** refused here, and the
+    // only one of the seven Mermaid treats differently in the two positions.
+    // Measured (mermaid 11.17.2): `state` on a line of its own is not a
+    // parse error and puts no state into the state table — the same
+    // tolerate-and-ignore `state X` gets, one argument further truncated.
+    // Refusing it would cost a document Mermaid renders its picture.
+    //
+    // Case-insensitive with the rest of the rule: measured, `State` and
+    // `STATE` alone are ignored too.
+    for (const spelling of ["state", "State", "STATE"]) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${spelling}\n`,
+      );
+
+      expect(diagnostics, `for "${spelling}"`).toEqual([]);
+      expect(document, `for "${spelling}"`).not.toBeNull();
+      // `Idle` and `Busy` are here so the absence is read off a document
+      // that was actually parsed: asserting an empty state list would pass
+      // just as happily on a document that came back as nothing at all.
+      expect(
+        (document as StateDocument).states.map((s) => s.id),
+        `for "${spelling}"`,
+      ).toEqual(["Idle", "Busy"]);
+    }
+  });
+
+  it("refuses a reserved word at either end of a transition, `state` included", () => {
+    // The second position an id is read from Mermaid's INITIAL lexer
+    // condition, and the one where the rule has no exception: measured
+    // (mermaid 11.17.2), all **seven** are a parse error as a transition
+    // endpoint — `state` among them, unlike on a line of its own. So the
+    // reservation is a rule about the word, not about one line shape.
+    const reserved = ["state", "note", "classDef", "class", "style", "click", "scale"];
+
+    for (const word of reserved) {
+      for (const statement of [`Idle --> ${word}`, `${word} --> Idle`]) {
+        const { document, diagnostics } = parseStateDiagram(
+          `stateDiagram-v2\n  ${statement}\n`,
+        );
+
+        expect(document, `for "${statement}"`).toBeNull();
+        const refusal = diagnostics.find((d) => d.line === 2);
+        expect(refusal, `for "${statement}"`).toBeDefined();
+        expect(refusal!.severity, `for "${statement}"`).toBe("error");
+        expect(refusal!.message, `for "${statement}"`).toMatch(/reserved/i);
+        expect(refusal!.message, `for "${statement}"`).toContain(`"${word}"`);
+      }
+    }
+  });
+
+  it("still lets a reserved word name a state where Mermaid's own lexer lets it", () => {
+    // Characterization, and the second guard rail: the reservation is **not
+    // global**, however much it looks like one. Measured (mermaid 11.17.2):
+    // `state "x" as note` declares a state `note` with description `x`, and
+    // `state note { ... }` declares a composite named `note` holding its
+    // members — both render.
+    //
+    // The reason is lexical: after the `state ` keyword Mermaid's lexer
+    // leaves its INITIAL condition, and in the condition it enters these
+    // words carry no special meaning. So a rule that refused them
+    // everywhere would cost two documents Mermaid draws their picture,
+    // which is the trade CONTEXT.md's compatibility condition forbids.
+    const described = documentOf('stateDiagram-v2\n  state "waiting" as note\n');
+    expect(described.states.map((s) => [s.id, s.descriptions])).toEqual([
+      ["note", ["waiting"]],
+    ]);
+
+    const composite = documentOf("stateDiagram-v2\n  state class {\n    A --> B\n  }\n");
+    expect(composite.states.map((s) => [s.id, s.kind, s.parentId])).toEqual([
+      ["class", "composite", null],
+      ["A", "state", "class"],
+      ["B", "state", "class"],
+    ]);
   });
 
   it("names both spellings when the header is something else", () => {

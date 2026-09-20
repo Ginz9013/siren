@@ -49,14 +49,61 @@ const PSEUDO_STATE = "[*]";
 const STATE_DECL_RE = /^(\w+)$/;
 
 /**
+ * The words Mermaid's state-diagram lexer takes for itself, and which
+ * therefore **cannot name a state** where an id is read from the lexer's
+ * INITIAL condition — a line of its own, or either endpoint of a transition.
+ *
+ * Measured against mermaid 11.17.2 with `scripts/mermaid-probe.mjs`, sixteen
+ * keyword-shaped candidates in both of those positions. Exactly these seven
+ * are reserved; each is a **parse error** in both positions, with the single
+ * exception of `state` on a line of its own, which is tolerated and ignored
+ * (see `KEYWORD_ONLY_RE`). Siren accepted all seven as ordinary ids with no
+ * diagnostic, drawing a box Mermaid draws nothing for — while refusing the
+ * same words' *complete* statements (`note right of A : hi`, `class A foo`),
+ * so one word got opposite treatment depending on whether it was finished.
+ *
+ * **Derived from measurement, not from the parse error's token list.** That
+ * list names `HIDE_EMPTY`, `FORK`, `JOIN`, `CHOICE`, `acc_title` and the
+ * four `direction_*` tokens too, and none of those words is reserved:
+ * `hide`, `end`, `direction`, `fork`, `join`, `choice`, `accTitle` and
+ * `accDescr` each declare an ordinary state in both positions, because
+ * Mermaid matches `direction lr`, `hide empty description` and `accTitle:`
+ * as prefix-plus-argument statements rather than reserving the bare word.
+ * A blacklist read off that list would refuse eight documents Mermaid draws.
+ *
+ * **Not global**, for the same lexical reason it exists: after the `state `
+ * keyword the lexer leaves its INITIAL condition, so `state "x" as note` and
+ * `state class { ... }` both render, and both are still read here. The rule
+ * is applied at the two read sites rather than inside `declareState`, which
+ * is what keeps those two working.
+ *
+ * Case-insensitive, because every one of Mermaid's lexer rules is: measured,
+ * `Note`, `NOTE`, `Class`, `Style`, `Click`, `Scale` and `ClassDef` are each
+ * refused exactly as their lowercase spellings are.
+ */
+const RESERVED_WORD_RE = /^(?:state|note|classDef|class|style|click|scale)$/i;
+
+/**
+ * The refusal for an id the author may not use, quoting their own line back
+ * at them — and saying the word is *reserved*, because "unrecognized line"
+ * would send them looking for a typo when what they need to do is rename the
+ * state.
+ */
+const reservedWordRefusal = (word: string, line: string): string =>
+  `Reserved stateDiagram word "${word}" cannot name a state — rename it, in "${line}"`;
+
+/**
  * `state Idle` — the `state` keyword with an id after it and nothing else on
- * the line. **Read, and then ignored.**
+ * the line — **or the keyword entirely alone**. Either way: read, and then
+ * ignored.
  *
  * It is the statement that opens a composite state, `state Idle {`, with its
  * brace missing. Measured (mermaid 11.17.2): Mermaid tolerates the mutilated
  * form and ignores it — no state reaches the state table, at the document's
  * level or inside a composite's block, and `Skipped`'s box is simply not
- * drawn.
+ * drawn. Measured again with the id gone too: a lone `state` is likewise no
+ * parse error and likewise declares nothing, so the id is optional here
+ * rather than a second rule beside this one.
  *
  * So this parser must *accept* the line and report nothing, not refuse it:
  * Mermaid draws the rest of such a document, and CONTEXT.md's compatibility
@@ -65,11 +112,21 @@ const STATE_DECL_RE = /^(\w+)$/;
  * diagnostic below is what buys that, and declaring nothing is what stops
  * Siren drawing a box Mermaid does not.
  *
+ * That lone spelling is why this is read *before* `STATE_DECL_RE`: `state`
+ * is a perfectly good `\w+`, and the bare-identifier rule would otherwise
+ * claim it — which is how Siren came to draw a box labelled `state`. It is
+ * also the one exception to `RESERVED_WORD_RE`: `state` is reserved like the
+ * other six, but tolerated in this one position where they are refused.
+ *
+ * Case-insensitive, as Mermaid's own lexer rule for the keyword is:
+ * measured, `State Skipped`, `STATE Skipped` and a lone `State` are all
+ * ignored exactly as the lowercase spellings are.
+ *
  * A state some *other* line declares is untouched by this: `state Skipped`
  * followed by `A --> Skipped` still draws `Skipped`, declared by the
  * transition (measured). Nothing is captured, because nothing is read.
  */
-const KEYWORD_ONLY_RE = /^state\s+\w+$/;
+const KEYWORD_ONLY_RE = /^state(?:\s+\w+)?$/i;
 
 /**
  * A description written onto a state — `Idle : waiting for work`.
@@ -453,6 +510,31 @@ export function parseStateDiagram(source: string): ParseResult {
     const transitionMatch = TRANSITION_RE.exec(line);
     if (transitionMatch !== null) {
       const [, fromSpelling, toSpelling, label] = transitionMatch;
+      // A word of Mermaid's own on either side. Refused before either
+      // endpoint is read, so a transition with one bad end declares
+      // *neither* state and leaves no half-built line behind — Mermaid
+      // rejects the whole document, and there is no picture to be partly
+      // faithful to. Both ends are reported, so a line that names two
+      // reserved words says so twice rather than sending the author back
+      // for a second run.
+      //
+      // Unlike a line of its own, this position has no exception for
+      // `state`: measured, all seven are a parse error here.
+      const reservedEnds = [fromSpelling, toSpelling].filter((spelling) =>
+        RESERVED_WORD_RE.test(spelling),
+      );
+      if (reservedEnds.length > 0) {
+        for (const word of reservedEnds) {
+          diagnostics.push({
+            severity: "error",
+            message: reservedWordRefusal(word, line),
+            line: lineNumber,
+            column,
+          });
+        }
+        sawError = true;
+        continue;
+      }
       // Read in written order, so that `[*] --> Idle` declares the start
       // pseudo-state before `Idle` — first-mention order, which is the
       // order Mermaid's own state table reports and the order the diagram
@@ -514,17 +596,34 @@ export function parseStateDiagram(source: string): ParseResult {
       }
     }
 
-    const stateMatch = STATE_DECL_RE.exec(line);
-    if (stateMatch !== null) {
-      declareState(stateMatch[1], lineNumber, column);
-      continue;
-    }
-
     // Accepted and dropped on the floor — the one construct here that is
     // read without producing anything. See `KEYWORD_ONLY_RE`: Mermaid
     // ignores it, so ignoring it is the compatible answer, and a diagnostic
     // would be the incompatible one.
+    //
+    // Read *before* the bare-state pattern, because a lone `state` matches
+    // both and only this answer is Mermaid's.
     if (KEYWORD_ONLY_RE.test(line)) {
+      continue;
+    }
+
+    const stateMatch = STATE_DECL_RE.exec(line);
+    if (stateMatch !== null) {
+      // A word of Mermaid's own, written where a state id belongs. Refused
+      // rather than declared: Mermaid does not draw this document at all,
+      // and drawing a box for it is the silently-wrong answer this replaces.
+      // `state` never reaches here — `KEYWORD_ONLY_RE` above took it.
+      if (RESERVED_WORD_RE.test(stateMatch[1])) {
+        diagnostics.push({
+          severity: "error",
+          message: reservedWordRefusal(stateMatch[1], line),
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
+      declareState(stateMatch[1], lineNumber, column);
       continue;
     }
 
