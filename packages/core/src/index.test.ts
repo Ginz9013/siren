@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, type InteractionTarget } from "./index";
-import type { SirenRenderResult } from "./contracts";
+import type { SirenRenderResult, TextMeasurer } from "./contracts";
 import { readdirSync, readFileSync } from "node:fs";
 
 /**
@@ -6586,4 +6586,194 @@ describe("render() — a cluster with its own direction holding a cluster with n
     expect(B.y).toBeGreaterThan(A.y);
     expect(C.x).toBeGreaterThan(A.x);
   });
+});
+
+/**
+ * One valid document of each kind, used below to hand the *same* source to a
+ * working measurer and a broken one.
+ *
+ * Each of these is asserted to render cleanly first, in every test that uses
+ * it. That is not ceremony: a sequence document whose participants are never
+ * declared is rejected in the graph-model stage and never reaches layout at
+ * all, so a measurement guard tested with one would look like it worked
+ * without the measurer having been called once.
+ */
+const measurableSources = {
+  flowchart: `flowchart TD
+  A[Start] --> B[End]
+`,
+  class: `classDiagram
+  Animal <|-- Duck
+`,
+  state: `stateDiagram-v2
+  state "Waiting for input" as Idle
+  [*] --> Idle
+  Idle --> Running
+  Running --> [*]
+`,
+  sequence: `sequenceDiagram
+  participant C as Client
+  participant S as Server
+  C->>S: Fetch
+`,
+} as const;
+
+/**
+ * Three of these four name their drawn text differently from the id that text
+ * belongs to — `A[Start]`, `state "Waiting for input" as Idle`, `participant C
+ * as Client` — and that separation is load-bearing rather than decorative.
+ *
+ * The assertion these sources feed is "the diagnostic names the text that
+ * could not be measured". Where a label happens to *be* an id, that assertion
+ * also passes for a diagnostic naming ids instead of text — and this pipeline
+ * has one of those: `UnplacedNodesError` lists node ids. A source whose label
+ * and id are the same string cannot tell the two messages apart, so it would
+ * pass whichever one arrived. Only `class` still has that shape, because
+ * Mermaid's class syntax has no alias form to separate them with; the other
+ * three discriminate, on the same code path.
+ */
+
+/**
+ * A consumer measurer that answers every string with the same given size, and
+ * keeps the strings it was asked about. The answer is `unknown` because the
+ * measurers being stood in for here are the ones that break the contract.
+ *
+ * The asked-for list is what makes "the diagnostic names the offending text"
+ * checkable without copying the answer out of the implementation: the text
+ * that broke is the first one this was asked to measure, which is a fact about
+ * the *document and the measurer*, decided before `render()` chose any wording.
+ */
+function measurerAnswering(answer: unknown): TextMeasurer & { asked: string[] } {
+  const asked: string[] = [];
+  return {
+    asked,
+    measure(text: string) {
+      asked.push(text);
+      return answer as { width: number; height: number };
+    },
+  };
+}
+
+/** The reported fault itself: every string measured as `NaN` by `NaN`. */
+const unmeasurable = (): TextMeasurer & { asked: string[] } =>
+  measurerAnswering({ width: NaN, height: NaN });
+
+/**
+ * `measureText` is the consumer's code, and a real one can fail: `@siren/board`
+ * measures with a live `<canvas>` 2D context, which answers `NaN` when the
+ * context could not be obtained or the font is not loaded yet. Whatever that
+ * answer is, it arrives here as a size, and `Diagnostic`'s contract — returned
+ * from `render()`, never thrown — has to survive it.
+ */
+describe("render() — a consumer measurer that cannot measure text", () => {
+  for (const kind of ["flowchart", "class", "state"] as const) {
+    it(`reports an unmeasurable label as a diagnostic rather than throwing: ${kind}`, () => {
+      const source = measurableSources[kind];
+
+      // The document itself is sound: everything below is the measurer's doing.
+      const measured = render(source, document.createElement("div"));
+      expect(measured.diagnostics).toEqual([]);
+      expect(measured.svg).not.toBeNull();
+
+      const measurer = unmeasurable();
+      const result = render(source, document.createElement("div"), {
+        measureText: measurer,
+      });
+
+      expect(result.svg).toBeNull();
+      const errors = result.diagnostics.filter((d) => d.severity === "error");
+      expect(errors).not.toEqual([]);
+
+      // The fault is in measuring *that string*, so that string is what the
+      // author and the consumer need read back to them.
+      expect(measurer.asked).not.toEqual([]);
+      expect(errors.some((d) => d.message.includes(measurer.asked[0]))).toBe(true);
+    });
+  }
+
+  /**
+   * The kind that did not throw. `layoutSequence` reaches no shared layout
+   * core, so neither dagre's own collapse nor the coordinate guard
+   * `layoutDirectedGraph` grew (`01M2XJVPX`) ever fired for it: a `NaN` size
+   * flowed all the way through to the markup and came back as a finished
+   * `<svg>` full of `NaN` attributes with nothing said about it — a completely
+   * broken picture reported as a success, which is the failure `01M2WQV0` was
+   * filed for, in a fourth kind.
+   */
+  it("draws no sequence diagram at all rather than one full of NaN, and says why", () => {
+    const source = measurableSources.sequence;
+
+    const measured = render(source, document.createElement("div"));
+    expect(measured.diagnostics).toEqual([]);
+    expect(measured.svg).not.toBeNull();
+    expect(nanAttributes(measured.svg!)).toEqual([]);
+
+    const measurer = unmeasurable();
+    const container = document.createElement("div");
+    const result = render(source, container, { measureText: measurer });
+
+    // Stated as "no NaN reached the markup" rather than left implied by the
+    // null below, because drawing NaN is the specific harm here.
+    expect(result.svg === null ? [] : nanAttributes(result.svg)).toEqual([]);
+    expect(result.svg).toBeNull();
+    expect(container.children.length).toBe(0);
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors).not.toEqual([]);
+    expect(measurer.asked).not.toEqual([]);
+    expect(errors.some((d) => d.message.includes(measurer.asked[0]))).toBe(true);
+  });
+
+  it("lets nothing escape render() for any of the four kinds", () => {
+    // `Diagnostic`'s contract, stated directly: a consumer calling `render()`
+    // handles a returned diagnostic, and `@siren/board`'s `setSource` has no
+    // `try` around this call at all — a throw here bypasses its own error
+    // banner entirely and reaches the page as an unhandled exception.
+    for (const source of Object.values(measurableSources)) {
+      expect(() =>
+        render(source, document.createElement("div"), { measureText: unmeasurable() }),
+      ).not.toThrow();
+    }
+  });
+});
+
+/**
+ * `NaN` is the answer that was reported, but it is not the question. What
+ * layout needs from a measurer is **two finite numbers**, and every other way
+ * of not being that is just as fatal: an infinity propagates into bounds and a
+ * `viewBox` exactly as `NaN` does, a missing dimension becomes `NaN` at the
+ * first subtraction, and a numeric string survives arithmetic just long enough
+ * to be wrong. A guard written as "not `NaN`" would pass all four of these
+ * through, so the predicate is stated positively and checked that way here.
+ */
+describe("render() — a measurer whose answer is not two finite numbers", () => {
+  const answers: Array<[string, unknown]> = [
+    ["an infinite width", { width: Infinity, height: 32 }],
+    ["a negatively infinite height", { width: 120, height: -Infinity }],
+    ["a dimension it left out", { width: 120 }],
+    ["dimensions written as strings", { width: "120", height: "32" }],
+  ];
+
+  for (const [description, answer] of answers) {
+    for (const kind of ["flowchart", "class", "state", "sequence"] as const) {
+      it(`refuses ${description}, naming the text: ${kind}`, () => {
+        const source = measurableSources[kind];
+
+        const measured = render(source, document.createElement("div"));
+        expect(measured.diagnostics).toEqual([]);
+        expect(measured.svg).not.toBeNull();
+
+        const measurer = measurerAnswering(answer);
+        let result!: SirenRenderResult;
+        expect(() => {
+          result = render(source, document.createElement("div"), { measureText: measurer });
+        }).not.toThrow();
+
+        expect(result.svg).toBeNull();
+        const errors = result.diagnostics.filter((d) => d.severity === "error");
+        expect(measurer.asked).not.toEqual([]);
+        expect(errors.some((d) => d.message.includes(measurer.asked[0]))).toBe(true);
+      });
+    }
+  }
 });
