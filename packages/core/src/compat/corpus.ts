@@ -1625,6 +1625,62 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-direction-nested",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph Outer
+        direction LR
+        subgraph Inner
+          A --> B
+        end
+        Inner --> C
+      end`,
+    status: "supported",
+    meaning:
+      "The row above's construct with a subgraph nested inside the one " +
+      "carrying the `direction`. **A frame that declares no `direction` is " +
+      "laid out in the document's, not in the enclosing frame's.** Measured " +
+      "against mermaid 11.17.2 with `scripts/mermaid-probe.mjs --markup`: `A` " +
+      "at `translate(63, 68)`, `B` at `translate(63, 208)`, `C` at " +
+      "`translate(220.5, 53)` — `A` and `B` on one x exactly, `B` below `A`, " +
+      "so `Inner` uses the header's `TB`, while `Outer`'s own `LR` is what " +
+      "puts `C` beside it. Measured against `@dagrejs/dagre@3.1.1` directly: " +
+      "a cluster given a `rankdir` of its own has its children expanded " +
+      "exactly one level, so until `01M2XJWM4` `Inner` came back at the size " +
+      "it was handed and `A` and `B` came back with `x`/`y` of `undefined` — " +
+      "which this pipeline subtracted from until it had `NaN` in 29 " +
+      "attributes and said nothing (`01M2WQV0`), and then refused outright " +
+      "(`01M2XJVPX`). What draws it is giving a cluster with no direction of " +
+      "its own but a directed ancestor the document's own `rankdir`, which " +
+      "is both the value Mermaid's meaning asks for and the thing that makes " +
+      "the engine expand it.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
+
+      const a = nodeCenter(result, "A");
+      const b = nodeCenter(result, "B");
+      const c = nodeCenter(result, "C");
+
+      // The measurement above, as the picture rather than as "it rendered".
+      // `Inner` inheriting `Outer`'s `LR` would draw every figure this row
+      // names, report nothing, and put `B` to the *right* of `A`; the
+      // equality of these two x's is the only thing that tells the correct
+      // picture from that one.
+      expectSame("A and B are drawn in one column", a.x, b.x);
+      expectSame("B below A — `Inner` lays out in the document's `TB`", b.y > a.y, true);
+      expectSame("C beside them — `Outer`'s own `LR`", c.x > a.x, true);
+
+      // And the frames still hold what they group, which is what `NaN`
+      // coordinates took away from this document for as long as it drew one.
+      const inner = subgraphBox(result, "Inner");
+      const outer = subgraphBox(result, "Outer");
+      expectSame("Inner encloses A", encloses(inner, nodeBox(result, "A")), true);
+      expectSame("Inner encloses B", encloses(inner, nodeBox(result, "B")), true);
+      expectSame("Outer encloses Inner", encloses(outer, inner), true);
+      expectSame("Outer encloses C", encloses(outer, nodeBox(result, "C")), true);
+    },
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB
