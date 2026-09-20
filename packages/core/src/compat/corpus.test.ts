@@ -781,10 +781,20 @@ describe("the ratchet", () => {
       expect.fail(
         `rejected is ${measured}; the literal above says ${REJECTED}. This number ` +
           `is the backlog, and its direction is down: it falls when a construct ` +
-          `starts working. It may RISE in exactly one case — a case leaving ` +
-          `"silently-wrong" for an honest rejection — and then silently-wrong falls ` +
-          `by the same amount, so rejected + silently-wrong never grows. If that ` +
-          `sum grew, you regressed a construct that used to render: fix the code, ` +
+          `starts working. It may RISE in two cases, and the difference between ` +
+          `them is whether a row was already here. (1) A row LEAVING ` +
+          `"silently-wrong" for an honest rejection — silently-wrong falls by the ` +
+          `same amount, and the sum of the two is unchanged. (2) A construct ` +
+          `written down here for the FIRST time, as the honest backlog it already ` +
+          `was: nothing falls to compensate, the sum grows, and it grew by ` +
+          `measuring more rather than by breaking anything. Both have happened ` +
+          `(0 → 6 when the State board wrote down what it excluded; 6 → 7 when a ` +
+          `construct that drew NaN with no diagnostic was finally named). What is ` +
+          `NOT allowed is a row moving from "supported" to "rejected": that is a ` +
+          `construct that used to render and no longer does. So ask which it is — ` +
+          `if the rise came with an id that was not in this file before, say in ` +
+          `the comment above why the construct was never measured until now and ` +
+          `raise the literal; if an existing "supported" row moved, fix the code, ` +
           `not the number.`,
       );
     }
