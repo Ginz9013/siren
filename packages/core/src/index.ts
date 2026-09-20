@@ -83,6 +83,71 @@ const defaultMeasurer: TextMeasurer = {
 };
 
 /**
+ * Thrown when the `TextMeasurer` a consumer supplied answered a string with
+ * something other than a usable size.
+ *
+ * **It names the text, not the node that holds it.** The measurement of that
+ * string is what went wrong — the same string measured from a different node
+ * fails identically, and a consumer whose measurer is a `<canvas>` context
+ * debugs it by asking what that context returns for *that text*. A node id
+ * would point at the one place the fault is not.
+ *
+ * A thrown error rather than a diagnostic for the reason `UnplacedNodesError`
+ * is: a size that is not a number is not a local problem. It propagates
+ * through every box, bound and route computed from it and takes the whole
+ * picture with it, so the layout module it is raised inside has no partial
+ * answer left to hand back. `render()` converts it to the error-severity
+ * diagnostic an author sees at each of its four layout call sites, which is
+ * what keeps `Diagnostic`'s contract — returned from `render()`, never thrown
+ * — true of a measurer that misbehaves as well as of an engine that does.
+ */
+class UnmeasurableTextError extends Error {
+  /** The string whose measurement failed. */
+  readonly text: string;
+
+  constructor(text: string, size: { width: unknown; height: unknown }) {
+    super(
+      `Measuring the text ${JSON.stringify(text)} produced no usable size ` +
+        `(width ${String(size.width)}, height ${String(size.height)}). ` +
+        `\`measureText\` is supplied by the caller and must answer every ` +
+        `string with two finite numbers. This document cannot be drawn.`,
+    );
+    this.name = "UnmeasurableTextError";
+    this.text = text;
+  }
+}
+
+/**
+ * Wraps the measurer `render()` is going to hand to layout so that a bad
+ * answer is refused at the moment it is given, by the one party that knows it
+ * is bad.
+ *
+ * **One decorator here rather than a check in each layout module.**
+ * `measureText` is called only inside the four layout modules and nowhere else
+ * in the pipeline, and all four receive it from this one resolution — so
+ * wrapping it once covers every call any of them will ever make, including
+ * calls in modules written later, and there is no fourth copy of the predicate
+ * to drift. It is the input-side twin of the check `layoutDirectedGraph` makes
+ * on the engine's answer: one guards what we are told, the other what we are
+ * given back.
+ */
+function refusingBadMeasurements(measureText: TextMeasurer): TextMeasurer {
+  return {
+    measure(text: string) {
+      const size = measureText.measure(text);
+      // "Two finite numbers", stated positively — not "not `NaN`". `NaN` is
+      // the answer that was reported, but an infinity, a dimension left out
+      // and a number written as a string are all equally unusable, and a
+      // negation written the other way round lets every one of them past.
+      if (!Number.isFinite(size.width) || !Number.isFinite(size.height)) {
+        throw new UnmeasurableTextError(text, size);
+      }
+      return size;
+    },
+  };
+}
+
+/**
  * Attaches `onClick` to every element the class renderer marked with a click
  * hook, reading the target's identity back off the attributes it put there.
  *
@@ -137,27 +202,31 @@ type LayoutAttempt<T> =
   | { placed: false; diagnostic: Diagnostic };
 
 /**
- * Runs one layout stage, turning the one failure it is allowed to have —
- * `UnplacedNodesError`, the engine not placing a node (see that type) — into
- * the error-severity diagnostic an author sees.
+ * Runs one layout stage, turning the two failures it is allowed to have into
+ * the error-severity diagnostic an author sees: `UnplacedNodesError`, the
+ * engine not placing a node, and `UnmeasurableTextError`, the caller's
+ * measurer not sizing a string (see both types). They are the two ends of the
+ * same stage — what layout was told, and what layout was told back — and
+ * neither leaves a partial picture behind, so both convert here.
  *
  * **Everything else is rethrown, deliberately.** A bare `catch` here would
  * report this package's own bugs as if they were defects in the author's
  * document, which is the same disguise CONTEXT.md's opening policy exists to
  * remove, only pointed the other way: a `TypeError` in a renderer is not
  * something an author can route around. Matching by type keeps the
- * conversion to the one case that has a meaning for them.
+ * conversion to the two cases that have a meaning for them, and adding a
+ * second type to match is not the same as ceasing to match.
  *
  * It wraps a thunk rather than living at each call site because there are
- * three of them — flowchart, class and state all reach the same shared
- * layout core — and three copies of a `catch` that must not be bare is three
- * chances for one of them to become bare.
+ * four of them — flowchart, class and state reach the same shared layout
+ * core, and sequence has its own — and four copies of a `catch` that must not
+ * be bare is four chances for one of them to become bare.
  */
 function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
   try {
     return { placed: true, value: run() };
   } catch (error) {
-    if (error instanceof UnplacedNodesError) {
+    if (error instanceof UnplacedNodesError || error instanceof UnmeasurableTextError) {
       return { placed: false, diagnostic: { severity: "error", message: error.message } };
     }
     throw error;
@@ -188,7 +257,7 @@ export function render(
   container: HTMLElement,
   options: RenderOptions = {},
 ): SirenRenderResult {
-  const measureText = options.measureText ?? defaultMeasurer;
+  const measureText = refusingBadMeasurements(options.measureText ?? defaultMeasurer);
   const diagnostics: Diagnostic[] = [];
 
   const parseResult = parseSiren(source);
@@ -282,7 +351,22 @@ export function render(
       return { svg: null, controller: null, diagnostics };
     }
 
-    const positionedSequence = layoutSequence(graphResult.model, { measureText });
+    // The fourth layout call site, and the last one to be held to these
+    // terms. It reaches no shared layout core — a sequence diagram is placed
+    // by columns and rows, not by the graph engine — so nothing upstream of
+    // here ever refused a size on its behalf: an unusable measurement used to
+    // travel the whole way into the markup and come back as a finished `<svg>`
+    // whose width, height and viewBox were all `NaN`, with nothing said. That
+    // is the failure `01M2WQV0` named, and the reason a bare call site is not
+    // a smaller version of a wrapped one.
+    const model = graphResult.model;
+    const sequenceLayout = attemptLayout(() => layoutSequence(model, { measureText }));
+    if (!sequenceLayout.placed) {
+      diagnostics.push(sequenceLayout.diagnostic);
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedSequence = sequenceLayout.value;
     const sequenceSvg = renderSequenceToSVG(positionedSequence);
 
     container.replaceChildren(sequenceSvg);
