@@ -6266,6 +6266,143 @@ function renderInto(source: string) {
 }
 
 /**
+ * Every node's drawn centre, keyed by the id the author wrote — the arrangement
+ * of a picture, read off the picture.
+ *
+ * Centres rather than corners because two nodes of different widths share a
+ * *column* only by their centres, and "these two are in one column" is exactly
+ * what distinguishes a `TB` sub-layout from an `LR` one.
+ */
+function nodeCentres(result: SirenRenderResult): Record<string, { x: number; y: number }> {
+  const entries = Array.from(
+    result.svg!.querySelectorAll("g.siren-node[data-siren-id]"),
+  ).map((group) => {
+    const frame = group.querySelector("rect.siren-node-frame")!;
+    const x = Number(frame.getAttribute("x"));
+    const y = Number(frame.getAttribute("y"));
+    return [
+      group.getAttribute("data-siren-id")!,
+      {
+        x: x + Number(frame.getAttribute("width")) / 2,
+        y: y + Number(frame.getAttribute("height")) / 2,
+      },
+    ] as const;
+  });
+  return Object.fromEntries(entries);
+}
+
+/** Every state box's drawn centre, the state diagram's spelling of `nodeCentres`. */
+function stateCentres(result: SirenRenderResult): Record<string, { x: number; y: number }> {
+  const entries = Array.from(
+    result.svg!.querySelectorAll("g.siren-state[data-siren-id]"),
+  ).flatMap((group) => {
+    const frame = group.querySelector("rect.siren-state-frame");
+    if (frame === null) return [];
+    const x = Number(frame.getAttribute("x"));
+    const y = Number(frame.getAttribute("y"));
+    return [
+      [
+        group.getAttribute("data-siren-id")!,
+        {
+          x: x + Number(frame.getAttribute("width")) / 2,
+          y: y + Number(frame.getAttribute("height")) / 2,
+        },
+      ] as const,
+    ];
+  });
+  return Object.fromEntries(entries);
+}
+
+/** One subgraph frame's four sides, found by the title the author wrote on it. */
+function subgraphFrame(
+  result: SirenRenderResult,
+  title: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const group = Array.from(result.svg!.querySelectorAll("g.siren-subgraph")).find(
+    (g) => g.querySelector("text.siren-subgraph-label")?.textContent === title,
+  );
+  const frame = group?.querySelector("rect.siren-subgraph-frame");
+  if (frame === undefined || frame === null) {
+    throw new Error(`no subgraph titled "${title}" was drawn`);
+  }
+  const x = Number(frame.getAttribute("x"));
+  const y = Number(frame.getAttribute("y"));
+  return {
+    top: y,
+    bottom: y + Number(frame.getAttribute("height")),
+    left: x,
+    right: x + Number(frame.getAttribute("width")),
+  };
+}
+
+/** Whether `frame` contains `point` — "this node is drawn inside that frame". */
+function holds(
+  frame: { top: number; bottom: number; left: number; right: number },
+  point: { x: number; y: number },
+): boolean {
+  return (
+    point.x >= frame.left &&
+    point.x <= frame.right &&
+    point.y >= frame.top &&
+    point.y <= frame.bottom
+  );
+}
+
+/**
+ * The three rows of `01M2XJWM4`'s matrix that already draw the right picture,
+ * pinned as **coordinates** rather than as "no diagnostic" — characterization,
+ * written before the rankdir-propagation step exists and expected green on
+ * arrival.
+ *
+ * "It still renders" is not the guarantee these need. Giving every cluster a
+ * direction unconditionally would keep all three rendering while moving the
+ * last one off dagre's ordinary compound path onto the per-cluster one, which
+ * is a different placement of the same document. Only exact centres can say
+ * that did not happen.
+ */
+describe("render() — the nested-subgraph rows that already lay out correctly", () => {
+  const nested = (outer: string, inner: string): string =>
+    `flowchart TB
+  subgraph Outer
+${outer}
+    subgraph Inner
+${inner}
+      A --> B
+    end
+    Inner --> C
+  end`;
+
+  it("places the same boxes for `direction LR` on both frames", () => {
+    // Both frames left-to-right: `A`, `B` and `C` in one row, on one baseline.
+    expect(nodeCentres(renderInto(nested("    direction LR", "      direction LR")))).toEqual({
+      A: { x: 36, y: 128 },
+      B: { x: 110, y: 128 },
+      C: { x: 175, y: 128 },
+    });
+  });
+
+  it("places the same boxes for `direction LR` outside and `direction TB` inside", () => {
+    // Each frame keeps its own direction: `A` over `B` in one column, `C`
+    // beside the frame holding them.
+    expect(nodeCentres(renderInto(nested("    direction LR", "      direction TB")))).toEqual({
+      A: { x: 52, y: 128 },
+      B: { x: 52, y: 210 },
+      C: { x: 154, y: 169 },
+    });
+  });
+
+  it("places the same boxes for no direction anywhere", () => {
+    // No frame carries a direction, so this document goes through the layout
+    // engine's ordinary compound path and must keep doing so.
+    expect(nodeCentres(renderInto(nested("", "")))).toEqual({
+      A: { x: 141, y: 128 },
+      B: { x: 151, y: 210 },
+      C: { x: 47, y: 210 },
+    });
+  });
+});
+
+/**
  * The three combinations around the one that breaks, pinned before the
  * coordinate guard exists so that the guard cannot quietly take them with it.
  *
@@ -6356,18 +6493,23 @@ describe("render() — the layout combinations around per-cluster direction that
 });
 
 /**
- * The combination dagre cannot place, in both kinds that share the layout
- * core — a cluster carrying its own direction with another cluster as a
- * direct child (`01M2WQV0`).
+ * A cluster carrying its own direction with another cluster as a direct child
+ * — the construct that drew `NaN` into 29 attributes (`01M2WQV0`), was made to
+ * refuse honestly (`01M2XJVPX`), and now draws (`01M2XJWM4`).
  *
- * Measured against `@dagrejs/dagre@3.1.1` directly: it does not return `NaN`
- * for the states below the unexpanded frame, it returns `undefined`, and
- * subtracting from `undefined` is where the `NaN` in the markup was minted.
- * A document this pipeline cannot place is a document it must refuse, which
- * is CONTEXT.md's opening policy: an author gets an error-severity
- * diagnostic naming what went wrong, not a picture with holes in it.
+ * **Which direction the inner frame uses is the whole of this group, and it is
+ * measured, not reasoned.** `scripts/mermaid-probe.mjs --markup` on this exact
+ * document under mermaid 11.17.2 places `A` at `translate(63, 68)`, `B` at
+ * `translate(63, 208)` and `C` at `translate(220.5, 53)`: `A` and `B` share an
+ * x **exactly**, with `B` below `A`, and `C` is off to their right. So the
+ * inner frame — the one with no `direction` of its own — lays out in the
+ * *document's* `TB`, and it is the outer frame's `LR` that puts `C` beside it.
+ * An inner frame that inherited its parent's `LR` would put `B` to the right
+ * of `A` instead, render just as cleanly, and be the wrong picture; the
+ * equality of those two x's is the only thing that tells the two apart, so it
+ * is asserted rather than a "no diagnostic" check.
  */
-describe("render() — a cluster whose own direction leaves its nested cluster unplaced", () => {
+describe("render() — a cluster with its own direction holding a cluster with none", () => {
   const flowchart = `flowchart TB
   subgraph Outer
     direction LR
@@ -6387,25 +6529,61 @@ describe("render() — a cluster whose own direction leaves its nested cluster u
     Inner --> C
   }`;
 
-  it("refuses the flowchart spelling rather than drawing NaN coordinates", () => {
+  it("draws the flowchart spelling with the inner frame in the document's direction", () => {
     const result = renderInto(flowchart);
 
-    const errors = result.diagnostics.filter((d) => d.severity === "error");
-    expect(errors.length).toBeGreaterThanOrEqual(1);
-    // Named to the node, so an author can find the part of their document
-    // that did not survive layout without reading dagre's source.
-    expect(errors.some((d) => d.message.includes(`"A"`))).toBe(true);
-    expect(result.svg).toBeNull();
-    expect(result.controller).toBeNull();
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(nanAttributes(result.svg!)).toEqual([]);
+
+    const { A, B, C } = nodeCentres(result);
+    expect(A.x).toBe(B.x);
+    expect(B.y).toBeGreaterThan(A.y);
+    expect(C.x).toBeGreaterThan(A.x);
   });
 
-  it("refuses the state-diagram spelling on the same terms", () => {
+  it("draws it exactly as writing the document's own direction inside that frame does", () => {
+    // The same claim as above, stated as the equivalence it is: an inner frame
+    // with no `direction` is the inner frame that wrote down the document's.
+    // `direction LR` inside `Inner` instead produces a different picture, which
+    // the row above pins as its own characterization.
+    const written = `flowchart TB
+  subgraph Outer
+    direction LR
+    subgraph Inner
+      direction TB
+      A --> B
+    end
+    Inner --> C
+  end`;
+
+    expect(nodeCentres(renderInto(flowchart))).toEqual(nodeCentres(renderInto(written)));
+  });
+
+  it("keeps every node inside the frame that holds it", () => {
+    const result = renderInto(flowchart);
+    const centres = nodeCentres(result);
+    const inner = subgraphFrame(result, "Inner");
+    const outer = subgraphFrame(result, "Outer");
+
+    for (const id of ["A", "B"]) {
+      expect(holds(inner, centres[id])).toBe(true);
+    }
+    expect(holds(outer, centres.C)).toBe(true);
+    expect(holds(outer, { x: inner.left, y: inner.top })).toBe(true);
+    expect(holds(outer, { x: inner.right, y: inner.bottom })).toBe(true);
+  });
+
+  it("draws the state-diagram spelling on the same terms", () => {
     const result = renderInto(stateDiagram);
 
-    const errors = result.diagnostics.filter((d) => d.severity === "error");
-    expect(errors.length).toBeGreaterThanOrEqual(1);
-    expect(errors.some((d) => d.message.includes(`"A"`))).toBe(true);
-    expect(result.svg).toBeNull();
-    expect(result.controller).toBeNull();
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(nanAttributes(result.svg!)).toEqual([]);
+
+    const { A, B, C } = stateCentres(result);
+    expect(A.x).toBe(B.x);
+    expect(B.y).toBeGreaterThan(A.y);
+    expect(C.x).toBeGreaterThan(A.x);
   });
 });

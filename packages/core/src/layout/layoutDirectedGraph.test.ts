@@ -4,6 +4,7 @@ import {
   layoutDirectedGraph,
   UnplacedNodesError,
   type DirectedGraphLayoutInput,
+  type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
 
 /** The same three-node chain, laid out in whichever rank direction is asked for. */
@@ -313,23 +314,20 @@ describe("layoutDirectedGraph", () => {
 });
 
 /**
- * The coordinate invariant, driven through the *measured* matrix in
- * `01M2WQV0` rather than through one repro document.
+ * Depth, driven through the *measured* matrix in `01M2WQV0` rather than
+ * through one repro document.
  *
  * Three levels of cluster — `L0 > L1 > L2 > {X, Y}`, with `Z` beside `L1`
  * under `L0` — and the `rankdir` moved between them. The engine expands a
- * cluster carrying a direction of its own exactly one level: its direct
- * children are laid out, and any of them that is itself a cluster is kept at
- * the size it was handed, with everything below that child never positioned
- * at all. So *which* nodes come back without coordinates depends on where
- * the direction was written, and both answers below are read off that table,
- * not off this code.
- *
- * What these pin beyond the repro is that the guard is a check on the
- * engine's *answer*, not a check for one document shape: it reports whatever
- * came back unplaced, at whatever depth, and it reports all of it.
+ * cluster carrying a direction of its own exactly one level: a direct child
+ * that is itself a cluster is kept at the size it was handed, with everything
+ * below it never positioned at all. Which nodes that costs depends on where
+ * the direction was written, so a compensation that reaches only the
+ * direction's *own* children moves the damage one level down instead of
+ * removing it — these place the direction at each depth in turn to say that
+ * it does not.
  */
-describe("layoutDirectedGraph's coordinate invariant", () => {
+describe("layoutDirectedGraph through three levels of cluster", () => {
   /** `L0 > L1 > L2 > {X, Y}`, `Z` under `L0`, with `rankdir` on whichever cluster is named. */
   function threeLevels(rankdirOn: string): DirectedGraphLayoutInput {
     const cluster = (id: string, parentId?: string) => ({
@@ -357,34 +355,46 @@ describe("layoutDirectedGraph's coordinate invariant", () => {
     };
   }
 
-  /** The `UnplacedNodesError` `run` threw, or a failure naming what it did instead. */
-  function refusalOf(run: () => unknown): UnplacedNodesError {
-    try {
-      run();
-    } catch (error) {
-      if (error instanceof UnplacedNodesError) return error;
-      throw error;
+  /** Every box by id, having checked that all four of its numbers are real. */
+  function placed(input: DirectedGraphLayoutInput): Record<string, DirectedGraphLayoutNodeBox> {
+    const result = layoutDirectedGraph(input);
+    for (const box of result.nodes) {
+      for (const value of [box.x, box.y, box.width, box.height]) {
+        expect(Number.isFinite(value)).toBe(true);
+      }
     }
-    throw new Error("expected layoutDirectedGraph to refuse this graph, and it returned");
+    return Object.fromEntries(result.nodes.map((box) => [box.id, box]));
   }
 
-  it("names every node left unplaced under the outermost cluster's own direction", () => {
-    // `L1` is the direct child kept unexpanded, so it has a box; `L2` and the
-    // two leaves under it are never positioned.
-    expect(refusalOf(() => layoutDirectedGraph(threeLevels("L0"))).nodeIds).toEqual([
-      "L2",
-      "X",
-      "Y",
-    ]);
+  it("places the two levels below the outermost cluster's own direction", () => {
+    // `L0` says `LR`; neither `L1` nor `L2` says anything. Both are expanded,
+    // so `X` and `Y` have coordinates two levels down — and both take the
+    // *graph's* `TB`, which is what puts them in one column rather than side
+    // by side the way `L0`'s `LR` would.
+    const boxes = placed(threeLevels("L0"));
+
+    expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+    expect(boxes.X.x).toBe(boxes.Y.x);
+    expect(boxes.Y.y).toBeGreaterThan(boxes.X.y);
+
+    // `L0`'s own `LR` still governs its own rank: `Z` sits to the right of the
+    // members of the frame beside it, not below them. Read off the members
+    // rather than off `L1`'s box, because a cluster carrying a direction comes
+    // back from the engine at the size it was handed — the frames the picture
+    // shows are the ones `layoutGraph` recomputes from what they enclose.
+    expect(boxes.Z.x).toBeGreaterThan(boxes.X.x);
   });
 
-  it("names a different set when the direction is written one level in", () => {
-    // Same document, direction moved: now `L2` is the unexpanded direct child
-    // and only the leaves below it are lost. A guard keyed on "nested cluster
-    // plus direction" could not tell these two apart.
-    const refusal = refusalOf(() => layoutDirectedGraph(threeLevels("L1")));
-    expect(refusal.nodeIds).toEqual(["X", "Y"]);
-    expect(refusal.message).toContain('"X", "Y"');
+  it("places the level below a direction written one level in", () => {
+    // The same document with the direction moved to `L1`: `L2` is the cluster
+    // that would have been left unexpanded, and the leaves below it are the
+    // ones that would have been lost.
+    const boxes = placed(threeLevels("L1"));
+
+    expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+    expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+    expect(boxes.X.x).toBe(boxes.Y.x);
+    expect(boxes.Y.y).toBeGreaterThan(boxes.X.y);
   });
 
   it("places every node, and refuses nothing, when the direction is on the innermost cluster", () => {
@@ -398,5 +408,29 @@ describe("layoutDirectedGraph's coordinate invariant", () => {
       }
     }
     expect(result.nodes.map((n) => n.id)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
+  });
+});
+
+/**
+ * The coordinate guard (`01M2XJVPX`) stays, and this is what is left of its
+ * coverage once the construct that used to reach it lays out.
+ *
+ * Every document that produced an unplaced node was a cluster with a direction
+ * holding a cluster without one, and there is now no such thing: the
+ * propagation above gives that inner cluster a direction before dagre sees it.
+ * The guard is not thereby redundant — it is a check on the *shape of the
+ * engine's answer*, not on that construct, so it is what stands between any
+ * future missing coordinate and the `NaN` the pipeline used to mint from it.
+ * What it reports is public (`render()` turns it into the author's
+ * diagnostic), so the contract is pinned here rather than left to a path no
+ * input currently walks.
+ */
+describe("UnplacedNodesError", () => {
+  it("names every node it lost, in the order it was given them", () => {
+    const error = new UnplacedNodesError(["L2", "X", "Y"]);
+
+    expect(error.nodeIds).toEqual(["L2", "X", "Y"]);
+    expect(error.name).toBe("UnplacedNodesError");
+    expect(error.message).toContain('"L2", "X", "Y"');
   });
 });
