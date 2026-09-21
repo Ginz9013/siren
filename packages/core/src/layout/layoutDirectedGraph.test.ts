@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Direction } from "../contracts";
+import type { Direction, Point } from "../contracts";
 import {
   layoutDirectedGraph,
   UnplacedNodesError,
@@ -282,14 +282,15 @@ describe("layoutDirectedGraph", () => {
     expect(end.y).toBeGreaterThan(byId.A.y);
   });
 
-  it("routes a cluster's self-edge as the loop dagre drew around the member standing in for it", () => {
-    // `one --> one` is the one construct where the clip has nothing to do:
-    // dagre's self-loop never leaves the frame, so there is no point outside
-    // the box to clip to and the loop is returned as drawn — inside the
-    // frame, beside the member it was routed around, rather than around the
-    // frame as Mermaid draws it. A simplification of the same connection,
-    // confined to a construct that did not lay out at all before this, and
-    // it is *not* an unrouted edge left at the origin.
+  it("draws a cluster's self-edge around the outside of the cluster's own box", () => {
+    // `one --> one` is the one construct the clip has nothing to do for: a
+    // self-loop never leaves its box, so there is no point outside to aim at
+    // (`clipRouteEndToBox` says the same in its own words). It used to be
+    // returned as dagre drew it — around the *member* standing in for the
+    // frame, so the loop landed inside the frame beside `A`. It is
+    // synthesised around the frame's own box instead, which is the figure
+    // mermaid 11.17.2 draws (`L_one_one_0` alongside the `one` cluster,
+    // measured) and the only one that reads as "this frame loops on itself".
     const result = layoutDirectedGraph({
       rankdir: "TB",
       nodes: [
@@ -304,11 +305,22 @@ describe("layoutDirectedGraph", () => {
 
     expect(route.id).toBe("one-one");
     expect(route.points.length).toBeGreaterThan(1);
+
+    // Outside, and joined on: the two halves are one claim. A loop that only
+    // touched the frame could still be drawn across its inside, and a loop
+    // that only stayed outside it could float anywhere on the page.
     for (const point of route.points) {
-      expect(point.x).toBeGreaterThanOrEqual(byId.one.x);
-      expect(point.x).toBeLessThanOrEqual(byId.one.x + byId.one.width);
-      expect(point.y).toBeGreaterThanOrEqual(byId.one.y);
-      expect(point.y).toBeLessThanOrEqual(byId.one.y + byId.one.height);
+      expect(
+        inside(byId.one, point),
+        `${JSON.stringify(point)} is inside frame ${JSON.stringify(byId.one)}`,
+      ).toBe(false);
+    }
+    expect(onBoundary(byId.one, route.points[0])).toBe(true);
+    expect(onBoundary(byId.one, route.points[route.points.length - 1])).toBe(true);
+
+    // And nowhere near the member it used to be drawn around.
+    for (const point of route.points) {
+      expect(inside(byId.A, point)).toBe(false);
     }
   });
 });
@@ -556,6 +568,44 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
 });
 
 /**
+ * Whether `point` sits on `box`'s own outline — within its extent on both
+ * axes and level with one of its four sides.
+ *
+ * The tolerance is the corpus's own (`transitionTouches` in `corpus.ts`,
+ * `layoutStateDiagram.test.ts`'s frame reader): 1e-6, because a boundary
+ * point is arithmetic on the box's own coordinates rather than a measured
+ * quantity, and anything looser would accept a loop that misses its node by
+ * a visible hair.
+ */
+function onBoundary(box: DirectedGraphLayoutNodeBox, point: Point): boolean {
+  const tolerance = 1e-6;
+  const right = box.x + box.width;
+  const bottom = box.y + box.height;
+  const within =
+    point.x >= box.x - tolerance &&
+    point.x <= right + tolerance &&
+    point.y >= box.y - tolerance &&
+    point.y <= bottom + tolerance;
+  const level =
+    Math.abs(point.x - box.x) < tolerance ||
+    Math.abs(point.x - right) < tolerance ||
+    Math.abs(point.y - box.y) < tolerance ||
+    Math.abs(point.y - bottom) < tolerance;
+  return within && level;
+}
+
+/** Whether `point` is strictly within `box` — on the outline is not inside. */
+function inside(box: DirectedGraphLayoutNodeBox, point: Point): boolean {
+  const tolerance = 1e-6;
+  return (
+    point.x > box.x + tolerance &&
+    point.x < box.x + box.width - tolerance &&
+    point.y > box.y + tolerance &&
+    point.y < box.y + box.height - tolerance
+  );
+}
+
+/**
  * The coordinate guard (`01M2XJVPX`) stays, and this is what is left of its
  * coverage once the construct that used to reach it lays out.
  *
@@ -710,6 +760,157 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
       { x: 20, y: 80 },
     ]);
     expect(route.labelAnchor).toEqual({ x: 45, y: 50 });
+  });
+});
+
+/**
+ * The loop an edge onto its own endpoint is drawn as.
+ *
+ * Not dagre's: measured directly against `@dagrejs/dagre@3.1.1`, one node
+ * 24x32 at box x 0..24 / y 0..32 with `A --> A` on it comes back with edge
+ * points at x 52..76 — a loop entirely clear of the node it belongs to, and
+ * a graph width (74) smaller than its own largest x (76). Identical with
+ * `compound` on and off. So the question these ask is the first thing a
+ * self-loop has to answer and the one dagre gets wrong: does it touch the
+ * box it loops on.
+ */
+describe("the loop an edge onto its own endpoint is drawn as", () => {
+  for (const rankdir of ["TB", "LR"] as const) {
+    it(`joins the node it loops on, at both ends, laid out ${rankdir}`, () => {
+      const result = layoutDirectedGraph({
+        rankdir,
+        nodes: [
+          { id: "X", width: 40, height: 20 },
+          { id: "Y", width: 40, height: 20 },
+        ],
+        edges: [
+          { id: "X-Y", from: "X", to: "Y" },
+          { id: "Y-Y", from: "Y", to: "Y" },
+        ],
+      });
+
+      const box = result.nodes.find((node) => node.id === "Y")!;
+      const loop = result.edges.find((edge) => edge.id === "Y-Y")!.points;
+
+      // A loop and not a point: a route collapsed onto one coordinate still
+      // leaves something to read here and draws nothing at all.
+      expect(loop.length).toBeGreaterThan(1);
+      expect(
+        onBoundary(box, loop[0]),
+        `starts at ${JSON.stringify(loop[0])} for box ${JSON.stringify(box)}`,
+      ).toBe(true);
+      expect(
+        onBoundary(box, loop[loop.length - 1]),
+        `ends at ${JSON.stringify(loop[loop.length - 1])} for box ${JSON.stringify(box)}`,
+      ).toBe(true);
+    });
+  }
+});
+
+/**
+ * A loop is a figure beside the box, not a second outline of it.
+ *
+ * The case that makes the difference visible is a frame: `examples/
+ * state-core.srn`'s `Running` is 361 wide and **542 tall**, so a loop that
+ * took the whole of the side it hangs from would be drawn as a 542-long
+ * crescent bulging 30 — a line down the frame's edge, read as a border
+ * rather than as an arrow returning to where it started. What a loop is
+ * does not depend on how big the thing it loops on is.
+ */
+describe("how far along its box a self-loop runs", () => {
+  /** The same one-frame document, with the frame's member however tall is asked for. */
+  const frameHolding = (memberHeight: number) =>
+    layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "one", width: 0, height: 0, isCluster: true },
+        { id: "A", width: 40, height: memberHeight, parentId: "one" },
+      ],
+      edges: [{ id: "one-one", from: "one", to: "one" }],
+    });
+
+  const loopSpan = (result: ReturnType<typeof frameHolding>) => {
+    const ys = result.edges[0].points.map((point) => point.y);
+    return Math.max(...ys) - Math.min(...ys);
+  };
+
+  it("does not stretch with the box: a frame ten times as tall loops the same", () => {
+    const short = frameHolding(20);
+    const tall = frameHolding(400);
+
+    // The premise — the two frames really are different sizes, so the
+    // equality below is a fact about the loop and not about the document.
+    const heightOf = (result: ReturnType<typeof frameHolding>) =>
+      result.nodes.find((node) => node.id === "one")!.height;
+    expect(heightOf(tall)).toBeGreaterThan(heightOf(short) * 5);
+
+    expect(loopSpan(tall)).toBe(loopSpan(short));
+  });
+
+  it("still runs the whole side of a box small enough to loop around", () => {
+    // Nothing is clamped that did not need clamping: an ordinary node is
+    // shorter than the loop, so the loop takes its whole side — dagre's own
+    // figure, which is level with the node's top and bottom.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [{ id: "A", width: 40, height: 20 }],
+      edges: [{ id: "A-A", from: "A", to: "A" }],
+    });
+
+    const box = result.nodes[0];
+    const ys = result.edges[0].points.map((point) => point.y);
+    expect(Math.min(...ys)).toBe(box.y);
+    expect(Math.max(...ys)).toBe(box.y + box.height);
+  });
+});
+
+/**
+ * The bounds a synthesised loop has to fit inside, which are the difference
+ * between a loop drawn and a loop seen: everything downstream turns this
+ * module's `width`/`height` into the `<svg>`'s own `viewBox`, and an SVG
+ * clips to its viewport. A loop outside it is not a wrong picture, it is no
+ * picture — the same silence this ticket exists to end.
+ */
+describe("the bounds a self-loop is reported inside", () => {
+  it("hold the loop on a plain node, where the engine reserved a lane for it", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "X", width: 40, height: 20 },
+        { id: "Y", width: 40, height: 20 },
+      ],
+      edges: [
+        { id: "X-Y", from: "X", to: "Y" },
+        { id: "Y-Y", from: "Y", to: "Y" },
+      ],
+    });
+
+    for (const point of result.edges.find((edge) => edge.id === "Y-Y")!.points) {
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+      expect(point.x).toBeLessThanOrEqual(result.width);
+      expect(point.y).toBeLessThanOrEqual(result.height);
+    }
+  });
+
+  it("hold the loop on a frame, where it reserved none", () => {
+    // The lane is reserved beside the *proxy member*, inside the cluster, so
+    // a frame's loop is the case the engine's own bounds say nothing about.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "one", width: 0, height: 0, isCluster: true },
+        { id: "A", width: 40, height: 20, parentId: "one" },
+      ],
+      edges: [{ id: "one-one", from: "one", to: "one" }],
+    });
+
+    for (const point of result.edges[0].points) {
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+      expect(point.x).toBeLessThanOrEqual(result.width);
+      expect(point.y).toBeLessThanOrEqual(result.height);
+    }
   });
 });
 

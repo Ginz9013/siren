@@ -310,8 +310,27 @@ describe("the corpus, case by case", () => {
  * this document and refusing it would cost the whole picture. Until then it
  * is a wrong figure with the right edge on it, and this number is the thing
  * that will not let it be forgotten.
+ *
+ * **1 → 0, by implementation, which is the only exit that paragraph left
+ * open.** `fc-subgraph-self-edge` is `supported`: a frame's self-loop is
+ * drawn outside the frame with both ends on its own outline, and the row's
+ * assert spells out that picture instead of the wrong one it used to
+ * record. The fix was not frame-shaped, though, and that is the part worth
+ * keeping. The cause was the layout engine's self-edge route, which is
+ * detached from its box for *every* self-loop — measured against
+ * `@dagrejs/dagre@3.1.1`, a 24x32 box at x 0..24 gets its loop routed at
+ * x 52..76, clear of the node and past the graph width the engine itself
+ * reports — so a plain `A --> A` drew an arrow floating beside its node, in
+ * a flowchart and in a state diagram, in silence, and no row said so. This
+ * number was reading 1 for a class of four (`01M2SVA30`). It is at 0
+ * because the geometry is synthesised now (`selfLoopAroundBox`), and the
+ * cases that were never written down are written down: `fc-self-edge`,
+ * `fc-self-edge-lr` and `st-composite-self-transition`, with
+ * `st-self-transition` strengthened from "a loop was drawn" to where it is
+ * drawn. A ratchet only counts what someone measured, which is the argument
+ * for measuring the whole class the moment one member of it is found.
  */
-const SILENTLY_WRONG = 1;
+const SILENTLY_WRONG = 0;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
