@@ -569,6 +569,150 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
  * diagnostic), so the contract is pinned here rather than left to a path no
  * input currently walks.
  */
+/**
+ * Characterization, written before self-loop synthesis existed and green on
+ * arrival: **the coordinates of every edge that is not a self-loop**, exact,
+ * in the four shapes a self-loop lives among.
+ *
+ * Synthesising a self-loop means ignoring what dagre routed for that one
+ * edge — and the danger in that is not the loop, it is everything beside it.
+ * Dagre positions a self-edge before it routes one: it reserves a lane in
+ * the order axis (measured: the same three-node chain reports a graph width
+ * of 40 with no self-edge on `Y` and 90 with one), and every other node and
+ * route in the document is placed around that lane. A synthesis that quietly
+ * stopped handing the self-edge to dagre would keep the picture of the loop
+ * and move everything else, which is exactly the kind of change no assertion
+ * about a loop can see.
+ *
+ * So these numbers are dagre's own, copied from a run of this module before
+ * the change, and they are asserted whole rather than as inequalities: what
+ * is being pinned is "not one of these moved", and an inequality that held
+ * either side of a shift would not pin it.
+ */
+describe("the coordinates an edge that is not a self-loop is drawn at", () => {
+  it("are what they were, for a chain with a self-loop in the middle of it", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "X", width: 40, height: 20 },
+        { id: "Y", width: 40, height: 20 },
+        { id: "Z", width: 40, height: 20 },
+      ],
+      edges: [
+        { id: "X-Y", from: "X", to: "Y" },
+        { id: "Y-Y", from: "Y", to: "Y" },
+        { id: "Y-Z", from: "Y", to: "Z" },
+      ],
+    });
+
+    const byId = Object.fromEntries(result.edges.map((e) => [e.id, e.points]));
+    expect(byId["X-Y"]).toEqual([
+      { x: 20, y: 20 },
+      { x: 20, y: 45 },
+      { x: 20, y: 70 },
+    ]);
+    expect(byId["Y-Z"]).toEqual([
+      { x: 20, y: 90 },
+      { x: 20, y: 115 },
+      { x: 20, y: 140 },
+    ]);
+    // The boxes those routes run between, and the reserved lane the graph
+    // width is the evidence of: 90 wide for three 40-wide boxes in one
+    // column.
+    expect(result.nodes).toEqual([
+      { id: "X", x: 0, y: 0, width: 40, height: 20 },
+      { id: "Y", x: 0, y: 70, width: 40, height: 20 },
+      { id: "Z", x: 0, y: 140, width: 40, height: 20 },
+    ]);
+    expect([result.width, result.height]).toEqual([90, 160]);
+  });
+
+  it("are what they were, for the same chain laid out LR", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "LR",
+      nodes: [
+        { id: "X", width: 40, height: 20 },
+        { id: "Y", width: 40, height: 20 },
+        { id: "Z", width: 40, height: 20 },
+      ],
+      edges: [
+        { id: "X-Y", from: "X", to: "Y" },
+        { id: "Y-Y", from: "Y", to: "Y" },
+        { id: "Y-Z", from: "Y", to: "Z" },
+      ],
+    });
+
+    const byId = Object.fromEntries(result.edges.map((e) => [e.id, e.points]));
+    expect(byId["X-Y"]).toEqual([
+      { x: 40, y: 10 },
+      { x: 65, y: 10 },
+      { x: 90, y: 10 },
+    ]);
+    expect(byId["Y-Z"]).toEqual([
+      { x: 130, y: 10 },
+      { x: 155, y: 10 },
+      { x: 180, y: 10 },
+    ]);
+    // The lane is reserved on the other axis under `LR` — 60 tall for one
+    // row of 20-tall boxes — which is why the two directions are pinned
+    // separately.
+    expect(result.nodes).toEqual([
+      { id: "X", x: 0, y: 0, width: 40, height: 20 },
+      { id: "Y", x: 90, y: 0, width: 40, height: 20 },
+      { id: "Z", x: 180, y: 0, width: 40, height: 20 },
+    ]);
+    expect([result.width, result.height]).toEqual([220, 60]);
+  });
+
+  it("are what they were, for an edge between two frames", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "one", width: 0, height: 0, isCluster: true },
+        { id: "A", width: 40, height: 20, parentId: "one" },
+        { id: "two", width: 0, height: 0, isCluster: true },
+        { id: "B", width: 40, height: 20, parentId: "two" },
+      ],
+      edges: [{ id: "one-two", from: "one", to: "two" }],
+    });
+
+    // The proxy-and-clip route, whose ends sit on the two cluster boxes.
+    expect(result.edges[0].points).toEqual([
+      { x: 55, y: 70 },
+      { x: 55, y: 95 },
+      { x: 55, y: 120 },
+    ]);
+    expect(result.nodes).toEqual([
+      { id: "one", x: 0, y: 0, width: 110, height: 70 },
+      { id: "A", x: 35, y: 25, width: 40, height: 20 },
+      { id: "two", x: 0, y: 120, width: 110, height: 70 },
+      { id: "B", x: 35, y: 145, width: 40, height: 20 },
+    ]);
+  });
+
+  it("are what they were, label anchor included, beside a labelled self-loop", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "X", width: 40, height: 20 },
+        { id: "Y", width: 40, height: 20 },
+      ],
+      edges: [
+        { id: "X-Y", from: "X", to: "Y", label: { width: 30, height: 10 } },
+        { id: "Y-Y", from: "Y", to: "Y", label: { width: 30, height: 10 } },
+      ],
+    });
+
+    const route = result.edges.find((e) => e.id === "X-Y")!;
+    expect(route.points).toEqual([
+      { x: 20, y: 20 },
+      { x: 20, y: 50 },
+      { x: 20, y: 80 },
+    ]);
+    expect(route.labelAnchor).toEqual({ x: 45, y: 50 });
+  });
+});
+
 describe("UnplacedNodesError", () => {
   it("names every node it lost, in the order it was given them", () => {
     const error = new UnplacedNodesError(["L2", "X", "Y"]);
