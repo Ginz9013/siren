@@ -275,6 +275,141 @@ function straightLineRoute(
 }
 
 /**
+ * How far a self-loop reaches past the box it loops on, in the direction it
+ * bulges — the one number the synthesised geometry needs that the caller's
+ * sizes do not supply.
+ *
+ * **Sized to the lane the engine already reserved for that loop**, rather
+ * than chosen. Dagre positions a self-edge even though it routes one
+ * uselessly: it inserts a dummy node beside the looping node, in the same
+ * rank, and spreads the graph to make room for it. That reservation is
+ * measured and already pinned by the characterization tests in this module's
+ * suite — the same three-node chain of 40x20 boxes reports a graph 90 wide
+ * instead of 40 under `TB` (50 of lane to the right of the column) and 60
+ * tall instead of 20 under `LR` (40 of lane below the row). 30 fits inside
+ * both, so the loop occupies space the layout already paid for instead of
+ * overlapping the neighbour the engine placed next.
+ *
+ * It is also the band dagre's own loop sits in. Probed directly against
+ * `@dagrejs/dagre@3.1.1`, a 24x32 box at x 0..24 with a self-edge comes back
+ * with points spanning x 52..76 — a loop reaching from 28 to 52 past the
+ * node's right edge, and touching nothing.
+ */
+const SELF_LOOP_REACH = 30;
+
+/**
+ * The loop an edge onto its own endpoint is drawn as: five points around
+ * `box`, **both ends on `box`'s own boundary and every point between them
+ * outside it**.
+ *
+ * Synthesised here because dagre's answer for a self-edge is unusable. It
+ * returns points that touch nothing: for a 24x32 box at x 0..24 / y 0..32 it
+ * routes the loop at x 52..76, and reports a graph width (74) smaller than
+ * its own largest x (76) — identical with `compound` on and off, measured
+ * directly against `@dagrejs/dagre@3.1.1`. Every self-loop in this pipeline
+ * drew a detached arrow floating beside its node until this existed, and a
+ * frame's drew one *inside* the frame, because the proxy member handed the
+ * frame dagre's points (`01M2SVA30`).
+ *
+ * The shape is dagre's own, re-anchored. Its `positionSelfEdges` builds the
+ * loop from five points at `2dx/3`, `5dx/6`, `dx`, `5dx/6`, `2dx/3` past the
+ * node's right edge, the outer two level with the node's top and bottom and
+ * the middle one level with its centre. Those offsets normalised so the near
+ * pair lands *on* the box — subtract `2dx/3`, scale by three — are `0`,
+ * `reach/2`, `reach`, which is what is drawn here. The same five-point
+ * figure, moved back onto the box it belongs to.
+ *
+ * **Which side it bulges toward is the caller's**, because the room for it
+ * is reserved on the engine's order axis and that axis follows `rankdir`
+ * (see `SELF_LOOP_REACH`): to the right of the column under `TB`/`BT`, below
+ * the row under `LR`/`RL`.
+ *
+ * **How far it runs *along* that side is clamped**, which dagre's own is not
+ * — the one departure from the figure above, and the box it was written for
+ * is why. Dagre only ever draws this around a node, where the side is a few
+ * tens of pixels; here the same routine has to serve a frame. Measured,
+ * `examples/state-core.srn`'s `Running` frame is 542 tall, so a loop taking
+ * the whole of its side would be a 542-long crescent bulging 30 — a line
+ * down the frame's edge, read as a border rather than as an arrow returning
+ * where it started. So the run is capped at twice the reach and centred on
+ * the side, which leaves every ordinary node unchanged (a box shorter than
+ * that still gets a loop level with its own top and bottom, exactly as
+ * dagre draws it) and keeps a frame's loop the same figure at any size.
+ *
+ * ## What Mermaid draws, measured
+ *
+ * Not measured by rendering — the only instrument here
+ * (`scripts/mermaid-probe.mjs`) drives Mermaid under jsdom, which performs
+ * no layout, so every coordinate downstream of its `getBBox` stub is the
+ * stub's and several arrive `NaN`. Measured by *reading* mermaid 11.17.2,
+ * which computes this geometry in closed form rather than routing it
+ * (`dist/chunks/mermaid.esm/dagre-VDPKY7UI.mjs`, `getSelfLoopPoints` /
+ * `getSelfLoopSide` / `getSelfLoopLabelPosition`, reached from
+ * `prepareLayoutForDagre`'s `edge.start === edge.end` branch). It does not
+ * use dagre's self-edge route either, for the same reason this does not.
+ *
+ * Four numbers come out of that, and this routine agrees with three:
+ *
+ * - **Both ends on the box's own side**, at `x = right`, the two middle
+ *   points `depth` past it. Mermaid draws four points (a bracket) where this
+ *   draws five (a point at the apex); same topology, different corner.
+ * - **The side is chosen from `rankdir`** (`getDefaultSelfLoopSide`), then
+ *   nudged by where the node's neighbours are. This takes the `rankdir` half
+ *   and not the nudge.
+ * - **`depth` is `clamp(min(width, height) * 0.45, 24, 48)`** — bounded,
+ *   never the box's own size. `SELF_LOOP_REACH`'s 30 is inside that band.
+ * - **The run along the side is clamped too**: `span` is
+ *   `clamp(max(labelWidth, width * 0.35), 36, max(36, min(100, width *
+ *   0.8)))`, so it never grows with the box either. The cap here (twice the
+ *   reach, 60) is inside Mermaid's 36..100.
+ *
+ * The one place they disagree is deliberate: Mermaid's `span` has a **floor**
+ * of 36, so on a box shorter than that its loop's two ends sit *past* the
+ * node's top and bottom rather than on the side — a 24x32 node gets ends at
+ * `y = ±18` from centre, 2px outside a box that only reaches 16. This clamps
+ * downward only, so an end always lands on the box. "The loop touches its
+ * node" is the acceptance this exists for (`01M2SVA30`), and a picture that
+ * is Mermaid's within two pixels but fails it would be the wrong trade.
+ *
+ * Mermaid also leaves a 4px gap between the loop's furthest point and the
+ * label box; the anchor below is flush with it. Noted rather than copied:
+ * nothing here asks where the label goes, and an unmotivated constant is
+ * worse than a measured difference written down.
+ */
+export function selfLoopAroundBox(
+  box: DirectedGraphLayoutNodeBox,
+  side: "right" | "bottom",
+): Point[] {
+  const right = box.x + box.width;
+  const bottom = box.y + box.height;
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  if (side === "right") {
+    const half = Math.min(box.height, SELF_LOOP_REACH * 2) / 2;
+    return [
+      { x: right, y: centerY - half },
+      { x: right + SELF_LOOP_REACH / 2, y: centerY - half },
+      { x: right + SELF_LOOP_REACH, y: centerY },
+      { x: right + SELF_LOOP_REACH / 2, y: centerY + half },
+      { x: right, y: centerY + half },
+    ];
+  }
+  const half = Math.min(box.width, SELF_LOOP_REACH * 2) / 2;
+  return [
+    { x: centerX - half, y: bottom },
+    { x: centerX - half, y: bottom + SELF_LOOP_REACH / 2 },
+    { x: centerX, y: bottom + SELF_LOOP_REACH },
+    { x: centerX + half, y: bottom + SELF_LOOP_REACH / 2 },
+    { x: centerX + half, y: bottom },
+  ];
+}
+
+/** Which side of a box a self-loop drawn under `rankdir` bulges toward. */
+function selfLoopSide(rankdir: Direction): "right" | "bottom" {
+  return rankdir === "TB" || rankdir === "BT" ? "right" : "bottom";
+}
+
+/**
  * Thrown by `layoutDirectedGraph` when the engine handed back something other
  * than a finite box for a node it was given — no entry at all, or an entry
  * whose `x`, `y`, `width` or `height` is `undefined`, `NaN` or infinite.
@@ -527,8 +662,66 @@ export function layoutDirectedGraph(
   // undocumented gap, not this module's; the fallback below is what keeps a
   // subgraph's own `direction` from taking its members' edges down with it.
   const boxById = new Map(nodes.map((node) => [node.id, node]));
+  const loopSide = selfLoopSide(input.rankdir);
+  /** How far right and how far down the synthesised loops reach; see the bounds below. */
+  const loopExtent = { x: 0, y: 0 };
 
   const edges = proxied.map<DirectedGraphLayoutEdgeRoute>(({ edge, from, to }) => {
+    // A self-loop is drawn rather than read back. The engine's own answer for
+    // one is detached from the box it loops on — see `selfLoopAroundBox`,
+    // which is also why the *proxy* is not consulted here: a frame's loop
+    // belongs to the frame, and dagre would have drawn it around whichever
+    // member stood in for it, inside the frame.
+    //
+    // The edge still goes *in* to dagre, and that is deliberate: the engine
+    // reserves a lane for a self-edge while positioning, and every other node
+    // and route in the document is placed around that lane. Withholding the
+    // edge would keep this loop and move everything else.
+    //
+    // **A frame's loop is drawn twice over, and the second pass is the
+    // caller's.** A caller that grows its own frame outward from this box —
+    // `layoutGraph`'s `subgraphFrames`, `layoutStateDiagram`'s
+    // `compositeFrames`, both by 12 all round plus a title strip — re-clips
+    // every route touching that frame with `clipRouteEndToBox`. On this loop
+    // that clip does the right thing: it drops the two points still inside
+    // the drawn frame and puts the ends back on its outline. But it does so
+    // only while the loop's own near points clear the padding the caller
+    // added — half the reach, 15, against 12 today. A caller that padded a
+    // frame by more than half of `SELF_LOOP_REACH` would have its whole loop
+    // inside the frame, where the clip has nothing outside to aim at and
+    // returns it untouched: the defect this ticket closed, back again. The
+    // corpus holds the line (`fc-subgraph-self-edge`,
+    // `st-composite-self-transition` both assert no point inside the frame),
+    // which is where a change to either padding will hear about it.
+    if (edge.from === edge.to) {
+      const points = selfLoopAroundBox(boxById.get(edge.from)!, loopSide);
+      const route: DirectedGraphLayoutEdgeRoute = { id: edge.id, points };
+      for (const point of points) {
+        loopExtent.x = Math.max(loopExtent.x, point.x);
+        loopExtent.y = Math.max(loopExtent.y, point.y);
+      }
+      if (edge.label) {
+        // Clear of the loop's own tip rather than centred on it: the anchor
+        // is the middle of the space the label occupies, so half the label
+        // past the furthest point is where the text stops overlapping the
+        // line it belongs to.
+        const apex = points[2];
+        route.labelAnchor =
+          loopSide === "right"
+            ? { x: apex.x + edge.label.width / 2, y: apex.y }
+            : { x: apex.x, y: apex.y + edge.label.height / 2 };
+        loopExtent.x = Math.max(
+          loopExtent.x,
+          route.labelAnchor.x + edge.label.width / 2,
+        );
+        loopExtent.y = Math.max(
+          loopExtent.y,
+          route.labelAnchor.y + edge.label.height / 2,
+        );
+      }
+      return route;
+    }
+
     const routed = g.edge(from, to, edge.id);
     // The fallback is drawn between the boxes the *caller* named, not
     // between the proxies: a cluster endpoint's own box is what the edge is
@@ -562,10 +755,29 @@ export function layoutDirectedGraph(
 
   const graphLabel = g.graph();
 
+  // The bounds are the engine's, **grown to hold whatever was synthesised
+  // above**, and the growing is not tidiness: every caller turns these two
+  // numbers into the `<svg>`'s own `viewBox`, and an SVG clips to its
+  // viewport. A loop outside these bounds is not a wrong picture, it is no
+  // picture at all.
+  //
+  // The engine's own numbers already hold a *node's* loop, because it
+  // reserves a lane for a self-edge while positioning even though it routes
+  // one uselessly (measured, and pinned by this module's characterization
+  // tests: the same three-node chain reports 90 wide instead of 40 under
+  // `TB`). What they do not hold is a *frame's*: the lane is reserved beside
+  // the proxy member, inside the cluster, so nothing was ever set aside
+  // outside the frame. Measured, `subgraph one { A }` with `one --> one`
+  // reported 140 wide for a loop reaching 155.
+  //
+  // Only the synthesised routes are measured (`loopExtent`, filled in as
+  // each loop is drawn). Dagre's own routes lie inside the bounds it reports
+  // by construction, so folding them in would let any future engine quirk
+  // quietly resize every document instead of showing up as a failure.
   return {
     nodes,
     edges,
-    width: graphLabel.width ?? 0,
-    height: graphLabel.height ?? 0,
+    width: Math.max(graphLabel.width ?? 0, loopExtent.x),
+    height: Math.max(graphLabel.height ?? 0, loopExtent.y),
   };
 }

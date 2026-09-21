@@ -252,6 +252,127 @@ function edgeEnds(
 }
 
 /**
+ * **Every** point one line is drawn through, read off a `<path>`'s own `d`.
+ *
+ * The reader a *self-loop* needs, and the reason it is not `edgeEnds`. A
+ * loop's two ends say whether it is joined to the right figure; they say
+ * nothing about which side of that figure it was drawn on, and a loop around
+ * a frame and a loop buried inside one can share both ends. Only the points
+ * between them tell those two pictures apart, so a row asking "is this drawn
+ * outside the frame" has to see all of them.
+ *
+ * Takes the selector rather than assuming one, because a flowchart edge and
+ * a state transition are two elements with two class names and one question.
+ */
+function pathPoints(
+  result: SirenRenderResult,
+  selector: string,
+): { x: number; y: number }[] {
+  const path = svgOf(result).querySelector(selector);
+  if (path === null) throw new Error(`nothing matched "${selector}"`);
+  return (path.getAttribute("d") ?? "")
+    .split(/\s+/)
+    .map((command) => command.slice(1).split(","))
+    .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
+}
+
+/** Every point one flowchart edge's line is drawn through. */
+function edgePoints(
+  result: SirenRenderResult,
+  id: string,
+): { x: number; y: number }[] {
+  return pathPoints(result, `path.siren-edge[data-siren-id="${id}"]`);
+}
+
+/** Every point one state transition's line is drawn through. */
+function transitionPath(
+  result: SirenRenderResult,
+  id: string,
+): { x: number; y: number }[] {
+  return pathPoints(
+    result,
+    `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
+  );
+}
+
+/**
+ * The picture's own four sides, read off the `<svg>`'s `viewBox`.
+ *
+ * What "it is drawn" means for anything a layout synthesises rather than
+ * places: an SVG clips to its viewport, so a figure outside these four
+ * numbers is not a wrong picture, it is no picture — and every reader below
+ * would still find its `<path>` and report it present. A self-loop is
+ * exactly that risk, because the room for one is reserved by the layout
+ * engine around a node and never around a frame.
+ */
+function pictureBox(result: SirenRenderResult): {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+} {
+  const [x, y, width, height] = (svgOf(result).getAttribute("viewBox") ?? "")
+    .split(/\s+/)
+    .map(Number);
+  return { top: y, bottom: y + height, left: x, right: x + width };
+}
+
+/** Whether `box` holds `point`, boundary included — `insideBox`'s question, less strictly. */
+function holds(
+  box: { top: number; bottom: number; left: number; right: number },
+  point: { x: number; y: number },
+): boolean {
+  const tolerance = 1e-6;
+  return (
+    point.x >= box.left - tolerance &&
+    point.x <= box.right + tolerance &&
+    point.y >= box.top - tolerance &&
+    point.y <= box.bottom + tolerance
+  );
+}
+
+/**
+ * Whether `point` lies strictly within `box` — on the outline is not inside,
+ * to the same tolerance `transitionTouches` calls a point "on" a boundary
+ * with, so that the two never disagree about a point on the line.
+ */
+function insideBox(
+  box: { top: number; bottom: number; left: number; right: number },
+  point: { x: number; y: number },
+): boolean {
+  const tolerance = 1e-6;
+  return (
+    point.x > box.left + tolerance &&
+    point.x < box.right - tolerance &&
+    point.y > box.top + tolerance &&
+    point.y < box.bottom - tolerance
+  );
+}
+
+/**
+ * Whether `point` sits on `box`'s own outline — within it on both axes and
+ * level with one of its four sides. `transitionTouches`'s rule, over a box a
+ * row already has in hand rather than over a state it names.
+ */
+function onBoxBoundary(
+  box: { top: number; bottom: number; left: number; right: number },
+  point: { x: number; y: number },
+): boolean {
+  const tolerance = 1e-6;
+  const within =
+    point.x >= box.left - tolerance &&
+    point.x <= box.right + tolerance &&
+    point.y >= box.top - tolerance &&
+    point.y <= box.bottom + tolerance;
+  const level =
+    Math.abs(point.x - box.left) < tolerance ||
+    Math.abs(point.x - box.right) < tolerance ||
+    Math.abs(point.y - box.top) < tolerance ||
+    Math.abs(point.y - box.bottom) < tolerance;
+  return within && level;
+}
+
+/**
  * How far apart, along the layout's own axis, the two ends of one edge are
  * drawn — the only thing a *rank* is visible as in a rendered SVG.
  *
@@ -1516,6 +1637,103 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       expectSame("edges", edges(result), ["A-B", "B-C"]);
     },
   },
+  {
+    id: "fc-self-edge",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> A`,
+    status: "supported",
+    meaning:
+      "A node may name itself at both ends of an edge: `A --> A` is one " +
+      "node with a loop returning to it. The loop is drawn **joined to that " +
+      "node** — an arrow onto itself that does not touch itself is not the " +
+      "construct. Siren synthesises the geometry (`selfLoopAroundBox`) " +
+      "because the layout engine's own answer for a self-edge touches " +
+      "nothing: measured against `@dagrejs/dagre@3.1.1`, a 24x32 box at " +
+      "x 0..24 comes back with its loop routed at x 52..76, clear of the " +
+      "node and past the graph width it reports (74). Mermaid does not use " +
+      "that route either — mermaid 11.17.2 computes the loop in closed form " +
+      "from the node's own box instead (`getSelfLoopPoints`, reached from " +
+      "`prepareLayoutForDagre`'s `edge.start === edge.end` branch), with " +
+      "both ends on the side of the box and a bounded bulge past it.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("edges", edges(result), ["A-A"]);
+
+      const box = nodeBox(result, "A");
+      const loop = edgePoints(result, "A-A");
+      expectSame(
+        `the loop is drawn through more than one point (got ${JSON.stringify(loop)})`,
+        loop.length > 1,
+        true,
+      );
+      expectSame(
+        `the loop starts on the node's own outline (at ${JSON.stringify(loop[0])}, node ${JSON.stringify(box)})`,
+        onBoxBoundary(box, loop[0]),
+        true,
+      );
+      expectSame(
+        `and ends on it (at ${JSON.stringify(loop[loop.length - 1])})`,
+        onBoxBoundary(box, loop[loop.length - 1]),
+        true,
+      );
+      // Beside the node rather than across it, and inside the picture: an
+      // SVG clips to its viewport, so a loop drawn outside the `viewBox`
+      // leaves a `<path>` here and nothing on screen.
+      expectSame(
+        "no point of the loop is inside the node's own box",
+        loop.filter((point) => insideBox(box, point)),
+        [],
+      );
+      expectSame(
+        `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
+        loop.filter((point) => !holds(pictureBox(result), point)),
+        [],
+      );
+    },
+  },
+  {
+    id: "fc-self-edge-lr",
+    kind: "flowchart",
+    source: `flowchart LR
+      A --> A`,
+    status: "supported",
+    meaning:
+      "The same loop under `LR`. Its own row because the engine reserves " +
+      "the room for a self-edge on its *order* axis, which turns with the " +
+      "rank direction — measured through this module's layout seam, a " +
+      "three-node chain carrying one self-edge reports 90 wide instead of " +
+      "40 under `TB` and 60 tall instead of 20 under `LR` — so a loop that " +
+      "is attached and inside the picture in one direction proves nothing " +
+      "about the other.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("edges", edges(result), ["A-A"]);
+
+      const box = nodeBox(result, "A");
+      const loop = edgePoints(result, "A-A");
+      expectSame(
+        `the loop starts on the node's own outline (at ${JSON.stringify(loop[0])}, node ${JSON.stringify(box)})`,
+        onBoxBoundary(box, loop[0]),
+        true,
+      );
+      expectSame(
+        `and ends on it (at ${JSON.stringify(loop[loop.length - 1])})`,
+        onBoxBoundary(box, loop[loop.length - 1]),
+        true,
+      );
+      expectSame(
+        "no point of the loop is inside the node's own box",
+        loop.filter((point) => insideBox(box, point)),
+        [],
+      );
+      expectSame(
+        `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
+        loop.filter((point) => !holds(pictureBox(result), point)),
+        [],
+      );
+    },
+  },
 
   // -------------------------------------------------------------------------
   // flowchart — statement composition
@@ -1738,37 +1956,48 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         A
       end
       one --> one`,
-    status: "silently-wrong",
+    status: "supported",
     meaning:
       "A subgraph may name itself at both ends of an edge, drawing a loop " +
       "around its own **frame** — mermaid 11.17.2 renders it as the edge " +
-      "`L_one_one_0` alongside the `one` cluster, measured. Siren draws the " +
-      "loop dagre gave the member standing in for the frame, so it lands " +
-      "*inside* the frame beside `A` rather than encircling the frame — the " +
-      "right edge, attached to the wrong figure, with no diagnostic saying " +
-      "so. **Its exit is implementing frame-level self-loop geometry, not " +
-      "refusing it**: refusing would cost the whole document a picture " +
-      "Mermaid draws, which is the trade the compatibility condition exists " +
-      "to refuse. The clip that puts an ordinary frame-to-frame edge on the " +
-      "frame boundary cannot help here — a self-loop never leaves the box, " +
-      "so there is no point outside it to aim at (`clipRouteEndToBox` says " +
-      "the same in its own words).",
+      "`L_one_one_0` alongside the `one` cluster, measured. Siren draws it " +
+      "outside the frame with both ends on the frame's own boundary. It used " +
+      "to draw the loop dagre gave the member standing in for the frame, " +
+      "which landed *inside* the frame beside `A`: the right edge attached " +
+      "to the wrong figure, with no diagnostic saying so. The clip that puts " +
+      "an ordinary frame-to-frame edge on the frame boundary could never " +
+      "have fixed it — a self-loop never leaves the box, so there is no " +
+      "point outside it to aim at — so the geometry is synthesised instead " +
+      "(`selfLoopAroundBox`), for a frame and a plain node alike.",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]"]);
       expectSame("edges", edges(result), ["one-one"]);
 
-      // The wrong picture, spelled out: every point of the loop lies inside
-      // the frame, which is precisely what encircling the frame would not do.
+      // Outside the frame, and joined to it. Both halves are needed: a loop
+      // asserted only to touch the frame is satisfied by one drawn across
+      // the inside of it, which is exactly the picture this row used to
+      // record.
       const frame = subgraphBox(result, "one");
-      const { start, end } = edgeEnds(result, "one-one");
+      const loop = edgePoints(result, "one-one");
       expectSame(
-        "the loop starts inside the frame rather than on its boundary",
-        start.x > frame.left && start.x < frame.right,
+        `the loop is drawn through more than one point (got ${JSON.stringify(loop)})`,
+        loop.length > 1,
         true,
       );
       expectSame(
-        "and ends inside it too",
-        end.x > frame.left && end.x < frame.right,
+        `no point of the loop is inside the frame ${JSON.stringify(frame)}`,
+        loop.filter((point) => insideBox(frame, point)),
+        [],
+      );
+      const { start, end } = edgeEnds(result, "one-one");
+      expectSame(
+        `the loop starts on the frame's own boundary (at ${JSON.stringify(start)})`,
+        onBoxBoundary(frame, start),
+        true,
+      );
+      expectSame(
+        `and ends on it (at ${JSON.stringify(end)})`,
+        onBoxBoundary(frame, end),
         true,
       );
     },
@@ -2793,7 +3022,9 @@ line2\`"]`,
     status: "supported",
     meaning:
       "`A --> A` is the 'stays in this state' loop, and legitimate syntax " +
-      "rather than an error. Measured: one state, one relation onto itself.",
+      "rather than an error. Measured: one state, one relation onto itself, " +
+      "drawn as a loop **joined to that state's own box** — an arrow onto " +
+      "itself that does not touch itself is not the construct.",
     assert: (result) => {
       expectSame("states", states(result), ["Running"]);
       expectSame("transitions", transitions(result), ["Running-Running: retry"]);
@@ -2804,6 +3035,33 @@ line2\`"]`,
         `the loop is drawn through more than one point (got ${JSON.stringify(drawn)})`,
         drawn.length > 1,
         true,
+      );
+
+      // Joined to the box, outside it, and inside the picture. The layout
+      // engine's own self-edge route is none of the three: measured against
+      // `@dagrejs/dagre@3.1.1`, a 24x32 box at x 0..24 has its loop routed
+      // at x 52..76, clear of the box and past the graph width it reports.
+      const box = stateRect(result, "Running");
+      const loop = transitionPath(result, "Running-Running");
+      expectSame(
+        `the loop starts on the state's own outline (at ${JSON.stringify(loop[0])}, box ${JSON.stringify(box)})`,
+        onBoxBoundary(box, loop[0]),
+        true,
+      );
+      expectSame(
+        `and ends on it (at ${JSON.stringify(loop[loop.length - 1])})`,
+        onBoxBoundary(box, loop[loop.length - 1]),
+        true,
+      );
+      expectSame(
+        "no point of the loop is inside the state's own box",
+        loop.filter((point) => insideBox(box, point)),
+        [],
+      );
+      expectSame(
+        `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
+        loop.filter((point) => !holds(pictureBox(result), point)),
+        [],
       );
     },
   },
@@ -3191,6 +3449,76 @@ line2\`"]`,
         "the arrow out of the composite starts on the frame",
         transitionTouches(result, "Outer-Done", "start", "Outer"),
         true,
+      );
+    },
+  },
+  {
+    id: "st-composite-self-transition",
+    kind: "state",
+    source: `stateDiagram-v2
+      Running --> Running : heartbeat
+      state Running {
+        Fetching --> Publishing
+      }`,
+    status: "supported",
+    meaning:
+      "A composite may name itself at both ends of a transition, and the " +
+      "loop belongs to the **frame**: drawn outside it, with both ends on " +
+      "the frame's own outline. Not inside it beside a member, which is " +
+      "what the layout engine's own self-edge route gives — a frame's " +
+      "transition is routed through a member standing in for it, so that " +
+      "member's loop lands in the middle of the frame and reads as the " +
+      "member's. `examples/state-core.srn` ships this construct on the " +
+      "gallery page (`Running --> Running : heartbeat`, `Running` " +
+      "composite), which is why it is measured here rather than left to " +
+      "the flowchart row that found it.",
+    assert: (result) => {
+      expectSame("states and their figures", stateFigures(result), [
+        "Running: frame",
+        "Fetching: box",
+        "Publishing: box",
+      ]);
+      expectSame("transitions", transitions(result), [
+        "Running-Running: heartbeat",
+        "Fetching-Publishing: ",
+      ]);
+
+      const frame = stateRect(result, "Running");
+      const loop = transitionPath(result, "Running-Running");
+      expectSame(
+        `the loop is drawn through more than one point (got ${JSON.stringify(loop)})`,
+        loop.length > 1,
+        true,
+      );
+      // The half that separates "a loop was drawn" from "drawn on the right
+      // side of the frame": every point outside, not merely the two ends on
+      // the outline. A loop drawn across the inside of the frame can have
+      // both ends on it too.
+      expectSame(
+        `no point of the loop is inside the frame ${JSON.stringify(frame)}`,
+        loop.filter((point) => insideBox(frame, point)),
+        [],
+      );
+      expectSame(
+        `the loop starts on the frame's own outline (at ${JSON.stringify(loop[0])})`,
+        onBoxBoundary(frame, loop[0]),
+        true,
+      );
+      expectSame(
+        `and ends on it (at ${JSON.stringify(loop[loop.length - 1])})`,
+        onBoxBoundary(frame, loop[loop.length - 1]),
+        true,
+      );
+      // And nowhere near the member it used to be drawn around.
+      expectSame(
+        "no point of the loop is inside a member of the frame",
+        loop.filter((point) => insideBox(stateRect(result, "Fetching"), point)),
+        [],
+      );
+      expectSame(
+        `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
+        loop.filter((point) => !holds(pictureBox(result), point)),
+        [],
       );
     },
   },

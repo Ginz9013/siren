@@ -6144,6 +6144,44 @@ describe("render() — a state diagram, end to end", () => {
     // document's and the outer composite's.
     expect(svg.querySelectorAll("circle.siren-state-start")).toHaveLength(2);
     expect(svg.querySelectorAll("circle.siren-state-end")).toHaveLength(2);
+
+    // `Running --> Running` loops a *composite*, and this file is the only
+    // shipped document that does. The corpus pins the same construct from an
+    // inline source; this pins it on the real one, where the frame is 542
+    // tall — large enough that the run along the side is clamped, which the
+    // small inline sources never exercise. Both ends land on the frame's own
+    // outline, nothing lies inside it, and the whole loop is inside the
+    // `viewBox`: a loop drawn correctly but off the canvas is invisible, and
+    // that is how this construct shipped before `01M2SVA30`.
+    const running = box("Running");
+    const loop = svg.querySelector(
+      'g.siren-transition[data-siren-id="Running-Running"] path.siren-transition-line',
+    );
+    expect(loop).not.toBeNull();
+    const loopPoints = [
+      ...new Set((loop!.getAttribute("d") ?? "").split(" ")),
+    ]
+      .map((step) => step.replace(/^[ML]/, "").split(",").map(Number))
+      .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+    expect(loopPoints.length).toBeGreaterThan(1);
+
+    const insideFrame = loopPoints.filter(
+      ([x, y]) =>
+        x > running.x && x < running.x + running.w && y > running.y && y < running.y + running.h,
+    );
+    expect(insideFrame).toEqual([]);
+
+    const onFrameOutline = ([x, y]: number[]) =>
+      Math.abs(x - running.x) < 0.5 ||
+      Math.abs(x - (running.x + running.w)) < 0.5 ||
+      Math.abs(y - running.y) < 0.5 ||
+      Math.abs(y - (running.y + running.h)) < 0.5;
+    expect(loopPoints.filter(onFrameOutline).length).toBeGreaterThanOrEqual(2);
+
+    const [vx, vy, vw, vh] = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
+    expect(
+      loopPoints.filter(([x, y]) => x < vx || x > vx + vw || y < vy || y > vy + vh),
+    ).toEqual([]);
   });
 
   it("drives examples/state-reveal.srn's timeline through all three target kinds — a state, a transition and a composite frame — with next(), prev() and reset()", () => {
