@@ -11,32 +11,30 @@ import { buildStateModel } from "./buildStateModel";
  * `"class"` one and `buildStateModel` for a `"state"` one.
  *
  * The document's kind travels out on the result as its tag, so a caller that
- * narrows on it is holding that kind's model and not a field that may still
- * be null — see `GraphModelResult`. The one thing this function decides that
- * the document did not already say is `"failed"`: a sub-builder answering
- * with no model becomes that tag, which is where the error-severity
- * diagnostic explaining why is carried.
+ * narrows on it is holding that kind's model — see `GraphModelResult`. This
+ * function decides nothing the document did not already say: every
+ * sub-builder's result type promises a model, so there is no failure to fold
+ * here and no check written for a state the types say cannot happen.
  *
- * `buildFlowchartModel` is the one sub-builder whose result type promises a
- * model, so the flowchart arm has no failure to fold — and no check is
- * written for a state the type says cannot happen.
+ * `diagnostics` is orthogonal to that promise. A sub-builder that took
+ * exception to part of its document reports it here — at error severity when
+ * it dropped something — and still hands back the model it built from the
+ * rest.
  */
 export function buildGraphModel(document: SirenDocument): GraphModelResult {
   if (document.kind === "state") {
     const { model, diagnostics } = buildStateModel(document);
-    return model === null ? { kind: "failed", diagnostics } : { kind: "state", model, diagnostics };
+    return { kind: "state", model, diagnostics };
   }
 
   if (document.kind === "class") {
     const { model, diagnostics } = buildClassModel(document);
-    return model === null ? { kind: "failed", diagnostics } : { kind: "class", model, diagnostics };
+    return { kind: "class", model, diagnostics };
   }
 
   if (document.kind === "sequence") {
     const { model, diagnostics } = buildSequenceModel(document);
-    return model === null
-      ? { kind: "failed", diagnostics }
-      : { kind: "sequence", model, diagnostics };
+    return { kind: "sequence", model, diagnostics };
   }
 
   const { graph, diagnostics } = buildFlowchartModel(document);
