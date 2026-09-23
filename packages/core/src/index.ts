@@ -4,11 +4,13 @@ import { layoutGraph } from "./layout/layoutGraph";
 import { layoutSequence } from "./layout/layoutSequence";
 import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { layoutStateDiagram } from "./layout/layoutStateDiagram";
+import { layoutErDiagram } from "./layout/layoutErDiagram";
 import { UnplacedNodesError } from "./layout/layoutDirectedGraph";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
 import { renderStateDiagramToSVG } from "./renderer/renderStateDiagramToSVG";
+import { renderErDiagramToSVG } from "./renderer/renderErDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import type {
   AnimationController,
@@ -97,7 +99,7 @@ const defaultMeasurer: TextMeasurer = {
  * through every box, bound and route computed from it and takes the whole
  * picture with it, so the layout module it is raised inside has no partial
  * answer left to hand back. `render()` converts it to the error-severity
- * diagnostic an author sees at each of its four layout call sites, which is
+ * diagnostic an author sees at each of its five layout call sites, which is
  * what keeps `Diagnostic`'s contract — returned from `render()`, never thrown
  * — true of a measurer that misbehaves as well as of an engine that does.
  */
@@ -123,10 +125,10 @@ class UnmeasurableTextError extends Error {
  * is bad.
  *
  * **One decorator here rather than a check in each layout module.**
- * `measureText` is called only inside the four layout modules and nowhere else
- * in the pipeline, and all four receive it from this one resolution — so
+ * `measureText` is called only inside the five layout modules and nowhere else
+ * in the pipeline, and all five receive it from this one resolution — so
  * wrapping it once covers every call any of them will ever make, including
- * calls in modules written later, and there is no fourth copy of the predicate
+ * calls in modules written later, and there is no fifth copy of the predicate
  * to drift. It is the input-side twin of the check `layoutDirectedGraph` makes
  * on the engine's answer: one guards what we are told, the other what we are
  * given back.
@@ -218,9 +220,9 @@ type LayoutAttempt<T> =
  * second type to match is not the same as ceasing to match.
  *
  * It wraps a thunk rather than living at each call site because there are
- * four of them — flowchart, class and state reach the same shared layout
- * core, and sequence has its own — and four copies of a `catch` that must not
- * be bare is four chances for one of them to become bare.
+ * five of them — flowchart, class, state and ER reach the same shared layout
+ * core, and sequence has its own — and five copies of a `catch` that must not
+ * be bare is five chances for one of them to become bare.
  */
 function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
   try {
@@ -240,7 +242,8 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
  * renderClassDiagramToSVG -> createAnimationController; a sequence diagram
  * runs layoutSequence -> renderSequenceToSVG -> createAnimationController;
  * a state diagram runs layoutStateDiagram -> renderStateDiagramToSVG ->
- * createAnimationController. All four return a working controller — one with
+ * createAnimationController; an ER diagram runs layoutErDiagram ->
+ * renderErDiagramToSVG -> createAnimationController. All five return a working controller — one with
  * `totalSteps: 0` when the document declares no `timeline:` block. Mounts the resulting SVG into
  * `container` on success, and always returns the aggregated diagnostics
  * from every stage. A class diagram and a flowchart both have
@@ -274,6 +277,33 @@ export function render(
   // the same word — `buildGraphModel` carries the document's kind out
   // unchanged — but only the result's tag is what narrows `model` to the type
   // this branch is about to lay out.
+  if (graphResult.kind === "er") {
+    // The fifth layout call site, held to the same terms as the four below
+    // it: it reaches the shared core, so `UnplacedNodesError` is possible in
+    // principle, and a consumer's measurer can refuse a name here exactly as
+    // it can refuse a label anywhere else.
+    const erModel = graphResult.model;
+    const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
+    if (!erLayout.placed) {
+      diagnostics.push(erLayout.diagnostic);
+      return { svg: null, controller: null, diagnostics };
+    }
+
+    const positionedErDiagram = erLayout.value;
+    const erSvg = renderErDiagramToSVG(positionedErDiagram);
+
+    container.replaceChildren(erSvg);
+
+    // A controller for this kind too, with `totalSteps: 0` — an ER document
+    // reads no `timeline:` block yet, and `SirenRenderResult.controller` is
+    // null *only* when rendering failed, so a caller that has checked `svg`
+    // has already checked this.
+    const erController = createAnimationController(erSvg, positionedErDiagram.timeline);
+    establishStepZero(erController);
+
+    return { svg: erSvg, controller: erController, diagnostics };
+  }
+
   if (graphResult.kind === "state") {
     const stateModel = graphResult.model;
     const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
@@ -343,8 +373,8 @@ export function render(
   }
 
   if (graphResult.kind === "sequence") {
-    // The fourth layout call site, and the last one to be held to these
-    // terms. It reaches no shared layout core — a sequence diagram is placed
+    // The one layout call site that is unlike the rest, and the reason these
+    // terms are held to at every one of them. It reaches no shared layout core — a sequence diagram is placed
     // by columns and rows, not by the graph engine — so nothing upstream of
     // here ever refused a size on its behalf: an unusable measurement used to
     // travel the whole way into the markup and come back as a finished `<svg>`

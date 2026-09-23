@@ -1096,3 +1096,81 @@ describe("default theme coverage of the state renderer", () => {
     expect(untyped.map(describeElement)).toEqual([]);
   });
 });
+
+/**
+ * An ER diagram exercising every class the ER renderer emits: entity boxes,
+ * their frames, and their names. Three of them rather than one, and one of
+ * them hyphenated, so a rule written against a single box or against a `\w+`
+ * name would still be seen here.
+ *
+ * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`,
+ * `EVERY_CLASS_FEATURE` and `EVERY_STATE_FEATURE` are: exhaustive *class*
+ * coverage is a different goal from a demo example's, and an example
+ * narrowed for the demo's sake must not quietly narrow what the theme is
+ * checked against. It is deliberately the whole of what this kind draws
+ * today — the tickets that land relationships, attributes and aliases add a
+ * figure apiece here and then have to theme what they added.
+ */
+const EVERY_ER_FEATURE = `erDiagram
+CUSTOMER
+ORDER
+LINE-ITEM
+`;
+
+describe("default theme coverage of the ER renderer", () => {
+  it("has a rule selecting every class the ER renderer emits", () => {
+    const emitted = emittedSirenClasses(renderThemedSVG(EVERY_ER_FEATURE));
+    expect(emitted.length).toBeGreaterThan(0);
+
+    const unthemed = emitted.filter(
+      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
+    );
+    expect(unthemed).toEqual([]);
+  });
+
+  it("gives every drawn element a paint, including the ones carrying no class", () => {
+    expect(paintlessElements(renderThemedSVG(EVERY_ER_FEATURE))).toEqual([]);
+  });
+
+  it("gives a highlighted entity the outline effect, not just the glow one", () => {
+    // An entity is addressable by id in the rendered SVG (ADR-0009), so it is
+    // this kind's timeline target the moment the kind reads a `timeline:`
+    // block. Every other kind's outline rule names its own classes, so
+    // without one of its own `highlight CUSTOMER outline` would be a step on
+    // which nothing visibly happens — the defect this check exists to catch,
+    // one kind over.
+    const svg = renderThemedSVG(EVERY_ER_FEATURE);
+
+    const group = svg.querySelector("g.siren-er-entity");
+    const shape = group?.querySelector(".siren-er-entity-frame");
+    if (group === null || group === undefined || shape === null || shape === undefined) {
+      throw new Error("no .siren-er-entity-frame inside .siren-er-entity");
+    }
+
+    const before = getComputedStyle(shape).stroke;
+    group.classList.add("siren-highlight-outline");
+    const after = getComputedStyle(shape).stroke;
+    group.classList.remove("siren-highlight-outline");
+
+    expect(after).not.toBe(before);
+    expect(after).toContain("--siren-highlight-color");
+  });
+
+  it("sets the theme's type on the ER-diagram groups", () => {
+    // The `<text>` children carry no font of their own and inherit the
+    // group's, exactly as a state diagram's do — so a group left out of the
+    // shared font rule renders its names in the browser's default serif at
+    // the browser's default size, while `layoutErDiagram` sized every box
+    // from the theme's font. The box and its name would disagree.
+    const svg = renderThemedSVG(EVERY_ER_FEATURE);
+
+    const groups = Array.from(svg.querySelectorAll(".siren-er-entity"));
+    expect(groups.length).toBeGreaterThan(0);
+
+    const untyped = groups.filter((group) => {
+      const style = getComputedStyle(group);
+      return style.fontFamily === "" || style.fontSize === "";
+    });
+    expect(untyped.map(describeElement)).toEqual([]);
+  });
+});

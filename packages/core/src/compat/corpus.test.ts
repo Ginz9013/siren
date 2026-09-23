@@ -945,8 +945,40 @@ const SILENTLY_WRONG = 0;
  *
  * `silently-wrong` does not move: this row was a named refusal, never a
  * wrong picture.
+ *
+ * **0 → 4, and it is the State board's 0 → 6 again, one diagram kind later.**
+ * The ER Diagram board added Siren's fifth kind, and the ticket that stood
+ * the pipeline up wrote down the four Mermaid constructs it deliberately left
+ * out of scope: `er-relationship` (`CUSTOMER ||--o{ ORDER : places`, and the
+ * `one to zero or more` word spelling that is measured to be the *same*
+ * construct), `er-attributes` (the brace block of `type name` pairs),
+ * `er-alias` (`CUSTOMER["Customer Account"]`) and `er-direction`
+ * (`direction LR` at the document's own level).
+ *
+ * **This rise is writing down deliberately excluded constructs — honest
+ * backlog, not a regression.** Case (2) in the failure message below, exactly:
+ * nothing that used to render stopped, because none of these four has ever
+ * rendered here. Before this ticket they were not written down at all, which
+ * is the blindness this file exists to remove — the flowchart gap reached
+ * 34/39 because unmeasured meant unnoticed. `silently-wrong` does not move
+ * and has nothing to give back: none of the four ever drew a wrong picture,
+ * so the sum of the two counts grows, and it grew by **measuring more**.
+ *
+ * Each is valid Mermaid, measured against 11.17.2 with
+ * `scripts/mermaid-probe.mjs`, and each is now refused **by name** by
+ * `parseErDiagram` rather than reported as a malformed line — CONTEXT.md's
+ * opening policy carried out rather than merely restated. The attribute block
+ * is named *once*, at the line that opens it, with its body swallowed: its
+ * body is good ER, so three messages where one is true would make two untrue
+ * claims.
+ *
+ * Each has a route out, and each has a ticket on the same board: implement
+ * the construct, move the row to `supported` with an assert that reads the
+ * drawn SVG, and lower this number by one. The `supported` row that landed
+ * beside them — `er-entities` — is not in this count and never was: a
+ * construct that arrives already working cannot make a backlog fall.
  */
-const REJECTED = 0;
+const REJECTED = 4;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

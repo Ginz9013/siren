@@ -18,7 +18,7 @@
 import type { SirenRenderResult } from "../contracts";
 
 /** Which Mermaid diagram kind a case is written in. */
-export type CompatKind = "flowchart" | "class" | "sequence" | "state";
+export type CompatKind = "flowchart" | "class" | "sequence" | "state" | "er";
 
 /**
  * Where Siren stands on one Mermaid construct.
@@ -903,6 +903,50 @@ function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
     (g) => `${g.getAttribute("data-siren-block-kind") ?? "<none>"}:${idOf(g)}`,
   );
+}
+
+/**
+ * Every ER entity as `id[label]` — the two halves an alias will one day pull
+ * apart, read off the picture rather than off the model. `nodes` above reads
+ * a flowchart's in exactly this shape, and for the same reason: a failure
+ * that says `expected ["CUSTOMER[CUSTOMER]"], got ["CUSTOMER[]"]` names the
+ * bug on the spot.
+ */
+function erEntities(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-er-entity").map(
+    (g) => `${idOf(g)}[${textOf(g)}]`,
+  );
+}
+
+/**
+ * The rectangle one ER entity is drawn in, in the edges-of-the-box shape
+ * `stateRect` and `subgraphBox` already use, so the shared containment and
+ * overlap rules serve this kind too.
+ */
+function erEntityRect(
+  result: SirenRenderResult,
+  id: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const rect = svgOf(result).querySelector(
+    `g.siren-er-entity[data-siren-id="${id}"] rect.siren-er-entity-frame`,
+  );
+  if (rect === null) throw new Error(`no entity "${id}" was drawn with a rectangle`);
+  const number = (name: string) => Number(rect.getAttribute(name));
+  return {
+    top: number("y"),
+    bottom: number("y") + number("height"),
+    left: number("x"),
+    right: number("x") + number("width"),
+  };
+}
+
+/** Where one ER entity's drawn name sits, so a row can ask whether it is inside its own box. */
+function erLabelAnchor(result: SirenRenderResult, id: string): { x: number; y: number } {
+  const text = svgOf(result).querySelector(
+    `g.siren-er-entity[data-siren-id="${id}"] text.siren-er-entity-label`,
+  );
+  if (text === null) throw new Error(`no entity "${id}" drew a name`);
+  return { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
 }
 
 /** Every state-diagram state as `id`, in draw order. */
@@ -4242,5 +4286,132 @@ line2\`"]`,
         "First-Second: ",
       ]);
     },
+  },
+  // -------------------------------------------------------------------------
+  // erDiagram
+  // -------------------------------------------------------------------------
+  {
+    id: "er-entities",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER
+      ORDER
+      LINE-ITEM`,
+    status: "supported",
+    meaning:
+      "`erDiagram` opens an entity-relationship diagram, and a bare name on " +
+      "a line of its own declares an entity. Measured (mermaid 11.17.2, " +
+      "`scripts/mermaid-probe.mjs`): an entity with **no relationship at " +
+      "all** enters the entity table and is drawn — three names report " +
+      "three entities, `shape=\"erBox\"` each, and no relationships — so a " +
+      "relationship is not what declares an entity. `LINE-ITEM` is one " +
+      "entity and not two: Mermaid's ER lexer reads a name as " +
+      "`([^\\x00-\\x7F]|\\w|-|\\*|\\.)+`, a **different alphabet** from a " +
+      "flowchart id's, where a hyphen is still an open gap. There is one " +
+      "header spelling and no `-v2` alias: the detector's `/^\\s*erDiagram/` " +
+      "fires on `erDiagram-v2` but the lexer's keyword token stops at the " +
+      "`\\b`, so that document is this header plus an entity called `-v2`.",
+    assert: (result) => {
+      expectSame("entities and their drawn names", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+        "LINE-ITEM[LINE-ITEM]",
+      ]);
+      // Each name inside the box that names it. A row reading only the text
+      // would pass on three names drawn in a heap at the origin with three
+      // empty boxes elsewhere.
+      for (const id of ["CUSTOMER", "ORDER", "LINE-ITEM"]) {
+        const box = erEntityRect(result, id);
+        const anchor = erLabelAnchor(result, id);
+        expectSame(
+          `${id}'s name is drawn inside ${id}'s own box`,
+          anchor.x > box.left &&
+            anchor.x < box.right &&
+            anchor.y > box.top &&
+            anchor.y < box.bottom,
+          true,
+        );
+      }
+      // And three boxes, not one drawn three times: measured with
+      // `--markup`, Mermaid places unrelated entities side by side at the
+      // same y (`translate(28, 18)` and `translate(208, 18)`), which is what
+      // a shared rank produces. Asserting they do not overlap is the part a
+      // count of `<rect>`s cannot see.
+      expectSame(
+        "the three boxes are drawn clear of one another",
+        [
+          overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+          overlaps(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
+        ],
+        [false, false],
+      );
+    },
+  },
+  {
+    id: "er-relationship",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places`,
+    status: "rejected",
+    meaning:
+      "A relationship joins two entities, with a cardinality at each end and " +
+      "a label after the colon. Measured: this reports " +
+      "`leftCard=\"ONLY_ONE\" relType=\"IDENTIFYING\" " +
+      "rightCard=\"ZERO_OR_MORE\"` and declares both entities along the way. " +
+      "The word spelling `CUSTOMER one to zero or more ORDER : places` " +
+      "reports the *same* relationship, so the two are one construct. The " +
+      "`: label` is **required** — `CUSTOMER ||--|| ORDER` is a parse error " +
+      "in Mermaid. Refused by name here rather than read and dropped: an ER " +
+      "diagram whose arrows were silently discarded would be two boxes and " +
+      "no diagram.",
+  },
+  {
+    id: "er-attributes",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER {
+        string name
+        int age
+      }`,
+    status: "rejected",
+    meaning:
+      "A brace block after an entity lists its attributes as `type name` " +
+      "pairs. Measured: the two attributes are recorded *under* an entity " +
+      "that still enters the table as `CUSTOMER`, so the block is one " +
+      "construct rather than a run of statements — which is why Siren names " +
+      "it once, at the line that opens it, and swallows the body rather " +
+      "than calling `string name` malformed.",
+  },
+  {
+    id: "er-alias",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER["Customer Account"]`,
+    status: "rejected",
+    meaning:
+      "A bracketed quoted string after an entity's name is its alias — the " +
+      "text drawn in place of the name. Measured: one entity comes back " +
+      "`label=\"CUSTOMER\" alias=\"Customer Account\"`, so the alias sits " +
+      "*beside* the name rather than replacing it, and the name stays what " +
+      "addresses the entity. Read and dropped, the box would be titled with " +
+      "the very name the author took care to replace.",
+  },
+  {
+    id: "er-direction",
+    kind: "er",
+    source: `erDiagram
+      direction LR
+      CUSTOMER
+      ORDER`,
+    status: "rejected",
+    meaning:
+      "`direction LR` sets the whole diagram's rank direction. Measured: " +
+      "this document reports `LR` where one naming no direction reports " +
+      "`TB`, so it genuinely governs the layout. Four spellings and **no " +
+      "`TD`** — the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally, so " +
+      "`direction TD` is measured to be two ordinary entities. Refused by " +
+      "name rather than read and dropped: a diagram the author asked to run " +
+      "left to right, drawn top to bottom with nothing said, is exactly the " +
+      "silent mis-render the other ratchet in `corpus.test.ts` counts.",
   },
 ];

@@ -1,5 +1,6 @@
 import type { GraphModelResult, SirenDocument } from "../contracts";
 import { buildClassModel } from "./buildClassModel";
+import { buildErModel } from "./buildErModel";
 import { buildFlowchartModel } from "./buildFlowchartModel";
 import { buildSequenceModel } from "./buildSequenceModel";
 import { buildStateModel } from "./buildStateModel";
@@ -8,7 +9,8 @@ import { buildStateModel } from "./buildStateModel";
  * Resolves a parsed `SirenDocument` into a validated model, dispatching on
  * `document.kind`: `buildFlowchartModel` for a `"flowchart"` document,
  * `buildSequenceModel` for a `"sequence"` one, `buildClassModel` for a
- * `"class"` one and `buildStateModel` for a `"state"` one.
+ * `"class"` one, `buildStateModel` for a `"state"` one and `buildErModel`
+ * for an `"er"` one.
  *
  * The document's kind travels out on the result as its tag, so a caller that
  * narrows on it is holding that kind's model — see `GraphModelResult`. This
@@ -22,6 +24,11 @@ import { buildStateModel } from "./buildStateModel";
  * rest.
  */
 export function buildGraphModel(document: SirenDocument): GraphModelResult {
+  if (document.kind === "er") {
+    const { model, diagnostics } = buildErModel(document);
+    return { kind: "er", model, diagnostics };
+  }
+
   if (document.kind === "state") {
     const { model, diagnostics } = buildStateModel(document);
     return { kind: "state", model, diagnostics };

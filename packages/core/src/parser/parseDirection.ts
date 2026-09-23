@@ -124,6 +124,17 @@ const DIAGRAM_HEADERS: Record<DiagramKind, DiagramHeader> = {
   // the diagram type `stateDiagram`. Collapsing them here is what keeps that
   // fact in one place rather than in a parser and a diagnostic separately.
   state: keywordHeader("stateDiagram", "stateDiagram-v2"),
+  // **One spelling, and that is measured rather than assumed.** The two rows
+  // above collapse a `-v2` alias onto one kind, and the obvious guess is that
+  // an ER diagram has one too. It does not: mermaid 11.17.2 detects this kind
+  // with `/^\s*erDiagram/` and its lexer's keyword rule is `erDiagram\b`, so
+  // `erDiagram-v2` does not spell the header at all — the prefix detector
+  // fires, the keyword token stops at the `\b`, and the trailing `-v2` is read
+  // as an **entity named `-v2`**. Registering it as a second spelling would
+  // therefore accept that document while silently losing the entity it
+  // declares. `erdiagram` and `ERDiagram` are not detected at all (the
+  // detector is case-sensitive where the lexer is not), so neither is here.
+  er: keywordHeader("erDiagram"),
 };
 
 const EVERY_KIND = Object.keys(DIAGRAM_HEADERS) as DiagramKind[];

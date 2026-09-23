@@ -1,5 +1,6 @@
 import type { Diagnostic, ParseResult } from "../contracts";
 import { parseClassDiagram } from "./parseClassDiagram";
+import { parseErDiagram } from "./parseErDiagram";
 import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
@@ -23,6 +24,7 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
   sequence: parseSequenceDiagram,
   class: parseClassDiagram,
   state: parseStateDiagram,
+  er: parseErDiagram,
 };
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   Diagnostic,
+  ErModel,
   FlowchartDocument,
   GraphModel,
   LinkStyleDecl,
@@ -48,7 +49,34 @@ const PLAIN_ARROW = {
   label: null,
 } as const;
 
+/**
+ * Asserts a `buildGraphModel` call resolved an ER diagram and hands back
+ * that arm's model — the same narrowing-in-the-return-type shape
+ * `buildFlowchart` above has, so the tests below need no `model!` and no
+ * vacuous `not.toBeNull()`.
+ */
+function buildEr(document: SirenDocument): { model: ErModel; diagnostics: Diagnostic[] } {
+  const result = buildGraphModel(document);
+  if (result.kind !== "er") {
+    throw new Error(
+      `expected an ER result, got a ${result.kind} one` +
+        ` (diagnostics: ${JSON.stringify(result.diagnostics)})`,
+    );
+  }
+  return { model: result.model, diagnostics: result.diagnostics };
+}
+
 describe("buildGraphModel", () => {
+  it("resolves an ER document through buildErModel, tagged kind: \"er\"", () => {
+    const { model, diagnostics } = buildEr({
+      kind: "er",
+      entities: [{ name: "CUSTOMER" }, { name: "ORDER" }],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.entities.map((entity) => entity.id)).toEqual(["CUSTOMER", "ORDER"]);
+  });
+
   it("assigns edge ids of the form fromId-toId for distinct pairs", () => {
     const document: SirenDocument = {
       kind: "flowchart",

@@ -390,13 +390,15 @@ export interface FlowchartDocument {
 /**
  * The parsed document, tagged by diagram kind. Produced by `parseSiren`
  * (which dispatches on the source's header line to `parseFlowchart`,
- * `parseSequenceDiagram`, `parseClassDiagram` or `parseStateDiagram`).
+ * `parseSequenceDiagram`, `parseClassDiagram`, `parseStateDiagram` or
+ * `parseErDiagram`).
  */
 export type SirenDocument =
   | FlowchartDocument
   | SequenceDocument
   | ClassDocument
-  | StateDocument;
+  | StateDocument
+  | ErDocument;
 
 /** Result of `parseSiren` (and, independently, `parseSequenceDiagram`). */
 export interface ParseResult {
@@ -1210,7 +1212,8 @@ export type GraphModelResult =
   | { kind: "flowchart"; model: GraphModel; diagnostics: Diagnostic[] }
   | { kind: "sequence"; model: SequenceModel; diagnostics: Diagnostic[] }
   | { kind: "class"; model: ClassModel; diagnostics: Diagnostic[] }
-  | { kind: "state"; model: StateModel; diagnostics: Diagnostic[] };
+  | { kind: "state"; model: StateModel; diagnostics: Diagnostic[] }
+  | { kind: "er"; model: ErModel; diagnostics: Diagnostic[] };
 
 /** A 2D point used for edge path routing. */
 export interface Point {
@@ -2589,6 +2592,161 @@ export interface PositionedStateTransition {
 export interface PositionedStateDiagram {
   states: PositionedState[];
   transitions: PositionedStateTransition[];
+  timeline: ResolvedTimeline;
+  width: number;
+  height: number;
+}
+
+// ---------------------------------------------------------------------------
+// ER diagram — parser-level (pre graph-model) types
+// ---------------------------------------------------------------------------
+
+/**
+ * One entity as the author declared it: a name on a line of its own.
+ *
+ * **A relationship is not what declares an entity.** Measured (mermaid
+ * 11.17.2, `scripts/mermaid-probe.mjs`): `erDiagram` followed by nothing but
+ * `CUSTOMER` and `ORDER` reports two entities, `shape="erBox"` each, with no
+ * relationships — so a standalone entity is legal ER and draws a box, rather
+ * than being an empty diagram waiting for an arrow.
+ *
+ * One field today, and it is the field an entity is *addressed* by: Mermaid
+ * keys its entity table on the name the author wrote, so it is both the id
+ * downstream and the text drawn in the box. The alias and the attribute list
+ * a later ticket reads join it here rather than replacing it — measured, both
+ * are recorded *beside* the name (`label="CUSTOMER" alias="Customer
+ * Account"`), not instead of it.
+ */
+export interface ErEntityDecl {
+  /**
+   * The name exactly as written. Its alphabet is measured rather than
+   * borrowed from another kind: Mermaid's ER lexer reads an entity name as
+   * `([^\x00-\x7F]|\w|-|\*|\.)+`, so `LINE-ITEM`, `P.Q` and `中文實體` are
+   * each one entity — a **different language** from a flowchart, whose ids
+   * carry no hyphen.
+   */
+  name: string;
+}
+
+/**
+ * The parsed ER document: an `erDiagram` header and the entities under it.
+ * One arm of the `SirenDocument` union.
+ *
+ * `erDiagram` is its **only** header spelling, measured rather than assumed
+ * by analogy with `classDiagram-v2`: mermaid 11.17.2 detects an ER document
+ * with `/^\s*erDiagram/` and its lexer's keyword rule is `erDiagram\b`, so
+ * there is no `-v2` alias to collapse. `erDiagram-v2` *is* accepted, and not
+ * as a spelling of the header — the prefix detector fires, the keyword token
+ * ends at the `\b`, and the trailing `-v2` is read as an **entity named
+ * `-v2`** beside whatever else the document declares.
+ *
+ * No `direction` field: `direction LR` is valid ER (measured — it reports
+ * `LR` where a document naming none reports `TB`) and is deliberately
+ * refused by name until the ticket that draws it, rather than read and
+ * dropped. It joins here then, the way `StateDocument.direction` sits beside
+ * its states.
+ */
+export interface ErDocument {
+  kind: "er";
+  /** The entities declared, in source order. */
+  entities: ErEntityDecl[];
+}
+
+// ---------------------------------------------------------------------------
+// ER diagram — graph-model (post `buildErModel`) types
+// ---------------------------------------------------------------------------
+
+/**
+ * An entity after model resolution: what addresses it, and what is drawn in
+ * its box.
+ *
+ * **Two fields where the parser had one, and the split is not cosmetic.**
+ * Today both hold the name the author wrote — measured, Mermaid keys its
+ * entity table on that name and reports `label="CUSTOMER"` for it. An
+ * **alias** is what pulls them apart: `CUSTOMER["Customer Account"]` records
+ * `label="CUSTOMER" alias="Customer Account"` on one entity (measured), so
+ * the ticket that implements it changes what is drawn and must not change
+ * what a transition or a `timeline:` entry names. ADR-0009 makes a timeline
+ * target an *id*, and this is the field that keeps it stable across a
+ * rename.
+ */
+export interface ResolvedErEntity {
+  /** The authored name: `data-siren-id`, and the handle everything addresses. */
+  id: string;
+  /** The text the box draws. */
+  label: string;
+}
+
+/**
+ * The normalized in-memory ER diagram produced by `buildErModel`: the
+ * entities, de-duplicated, and the resolved timeline.
+ */
+export interface ErModel {
+  /**
+   * The entities, in the order they were first named and **once each**.
+   * Measured: `CUSTOMER / ORDER / CUSTOMER` reports two entities with
+   * `CUSTOMER` still first, because Mermaid's table is keyed on the name and
+   * a second mention finds the entry already there. Two boxes sharing a
+   * `data-siren-id` would make a timeline entry naming it ambiguous, so this
+   * is a rule the model owes rather than a tidy-up.
+   */
+  entities: ResolvedErEntity[];
+  /**
+   * Always empty today: this kind reads no `timeline:` block yet, so no
+   * document can put a step in it.
+   *
+   * Carried anyway, and not as speculation — `render()` builds an
+   * `AnimationController` for **every** kind (`SirenRenderResult.controller`
+   * is null only when rendering failed), so something has to be handed to
+   * it. A field here rather than an empty literal at that call site is what
+   * keeps the one answer in the one place, the way every other kind's model
+   * already carries this.
+   */
+  timeline: ResolvedTimeline;
+}
+
+/**
+ * Result of `buildErModel` — `model` non-nullable, exactly as the other four
+ * builders' results are and for the reason `GraphModelResult` gives: there
+ * is no failure path here, so a nullable payload would be a state no caller
+ * can reach.
+ */
+export interface ErModelResult {
+  model: ErModel;
+  diagnostics: Diagnostic[];
+}
+
+// ---------------------------------------------------------------------------
+// ER diagram — layout (post `layoutErDiagram`) types
+// ---------------------------------------------------------------------------
+
+/**
+ * An entity with a layout-assigned box. `x`/`y` are the box's top-left
+ * corner, matching `PositionedNode`, `PositionedClass` and `PositionedState`.
+ *
+ * The box is a plain rectangle and there is no field saying so, because
+ * there is nothing else it could be: measured with `--markup`, mermaid
+ * 11.17.2 draws an entity as a `rect.basic.label-container` carrying no `rx`
+ * at all, with the name in a `<text>` inside it. The corner radius that
+ * *is* a decoration stays the theme's, exactly as a flowchart rectangle's
+ * does.
+ */
+export interface PositionedErEntity {
+  id: string;
+  /** The text the box draws, carried through from `ResolvedErEntity.label`. */
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The ER diagram after layout: positioned entities plus the resolved
+ * timeline, ready for `renderErDiagramToSVG`.
+ */
+export interface PositionedErDiagram {
+  entities: PositionedErEntity[];
   timeline: ResolvedTimeline;
   width: number;
   height: number;
