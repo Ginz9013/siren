@@ -50,8 +50,7 @@ describe("buildFlowchartModel's interactions", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
-    const byId = Object.fromEntries(graph!.nodes.map((n) => [n.id, n]));
+    const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
     expect(byId.A.interaction).toEqual({
       targetId: "A",
       interactionKind: "href",
@@ -82,7 +81,7 @@ describe("buildFlowchartModel's interactions", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.nodes[0].interaction).toEqual({
+    expect(graph.nodes[0].interaction).toEqual({
       targetId: "A",
       interactionKind: "call",
       action: "showDetails",
@@ -110,8 +109,7 @@ describe("buildFlowchartModel's interactions", () => {
       }),
     );
 
-    expect(graph).not.toBeNull();
-    expect(graph!.nodes[0].interaction).toBeNull();
+    expect(graph.nodes[0].interaction).toBeNull();
     expect(diagnostics).toEqual([
       {
         severity: "error",
@@ -140,7 +138,7 @@ describe("buildFlowchartModel's interactions", () => {
       }),
     );
 
-    expect(graph!.nodes[0].interaction).toBeNull();
+    expect(graph.nodes[0].interaction).toBeNull();
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("error");
     expect(diagnostics[0].message).toMatch(/disallowed URL scheme/);
@@ -151,7 +149,7 @@ describe("buildFlowchartModel's interactions", () => {
       flowchartDocument({ nodes: [sirenNode({ id: "A" })] }),
     );
 
-    expect(graph!.nodes[0].interaction).toBeNull();
+    expect(graph.nodes[0].interaction).toBeNull();
   });
 });
 
@@ -164,7 +162,7 @@ describe("buildFlowchartModel's labelRuns", () => {
       }),
     );
 
-    expect(graph!.nodes[0].labelRuns).toEqual(labelRuns);
+    expect(graph.nodes[0].labelRuns).toEqual(labelRuns);
   });
 
   it("leaves an ordinary node's labelRuns null", () => {
@@ -172,7 +170,7 @@ describe("buildFlowchartModel's labelRuns", () => {
       flowchartDocument({ nodes: [sirenNode({ id: "A" })] }),
     );
 
-    expect(graph!.nodes[0].labelRuns).toBeNull();
+    expect(graph.nodes[0].labelRuns).toBeNull();
   });
 });
 
@@ -188,7 +186,7 @@ describe("buildFlowchartModel's subgraph direction", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.subgraphs).toEqual([
+    expect(graph.subgraphs).toEqual([
       { id: "subgraph:1", label: "one", parentId: null, direction: "LR" },
     ]);
   });
@@ -203,7 +201,7 @@ describe("buildFlowchartModel's subgraph direction", () => {
       }),
     );
 
-    expect(graph!.subgraphs).toEqual([
+    expect(graph.subgraphs).toEqual([
       { id: "subgraph:1", label: "one", parentId: null, direction: null },
     ]);
   });
@@ -238,7 +236,7 @@ describe("buildFlowchartModel's subgraph edge endpoints", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.edges.map((edge) => [edge.from, edge.to])).toEqual([
+    expect(graph.edges.map((edge) => [edge.from, edge.to])).toEqual([
       ["subgraph:1", "subgraph:2"],
     ]);
   });
@@ -270,7 +268,7 @@ describe("buildFlowchartModel's subgraph edge endpoints", () => {
       }),
     );
 
-    expect(graph!.edges.map((edge) => edge.id)).toEqual(["A-one"]);
+    expect(graph.edges.map((edge) => edge.id)).toEqual(["A-one"]);
   });
 
   it("leaves an endpoint that names no subgraph as the node id it is", () => {
@@ -295,7 +293,7 @@ describe("buildFlowchartModel's subgraph edge endpoints", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.edges.map((edge) => [edge.id, edge.from, edge.to])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.from, edge.to])).toEqual([
       ["A-B", "A", "B"],
     ]);
   });
@@ -307,14 +305,14 @@ describe("buildFlowchartModel's accTitle/accDescr", () => {
       flowchartDocument({ accTitle: "A short title", accDescr: "A longer description" }),
     );
 
-    expect(graph!.accTitle).toBe("A short title");
-    expect(graph!.accDescr).toBe("A longer description");
+    expect(graph.accTitle).toBe("A short title");
+    expect(graph.accDescr).toBe("A longer description");
   });
 
   it("leaves accTitle and accDescr null when the document carries neither", () => {
     const { graph } = buildFlowchartModel(flowchartDocument());
 
-    expect(graph!.accTitle).toBeNull();
-    expect(graph!.accDescr).toBeNull();
+    expect(graph.accTitle).toBeNull();
+    expect(graph.accDescr).toBeNull();
   });
 });

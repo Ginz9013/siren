@@ -74,8 +74,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
-    expect(graph!.edges.map((e) => e.id)).toEqual(["A-B", "B-C"]);
+    expect(graph.edges.map((e) => e.id)).toEqual(["A-B", "B-C"]);
   });
 
   it("suffixes the id of a second edge between the same pair with #2", () => {
@@ -102,8 +101,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
-    expect(graph!.edges.map((e) => e.id)).toEqual(["A-B", "A-B#2"]);
+    expect(graph.edges.map((e) => e.id)).toEqual(["A-B", "A-B#2"]);
   });
 
   it("resolves timeline entries against node/edge ids, grouping by step, and leaves elements never mentioned immediately visible", () => {
@@ -137,10 +135,9 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
 
     const byStep = new Map<number, string[]>();
-    for (const entry of graph!.timeline.entries) {
+    for (const entry of graph.timeline.entries) {
       const targets = byStep.get(entry.step) ?? [];
       targets.push(entry.targetId);
       byStep.set(entry.step, targets);
@@ -148,7 +145,7 @@ describe("buildGraphModel", () => {
     expect(byStep.get(1)).toEqual(["B"]);
     expect(byStep.get(2)).toEqual(["C", "A-B"]);
 
-    const mentionedIds = new Set(graph!.timeline.entries.map((e) => e.targetId));
+    const mentionedIds = new Set(graph.timeline.entries.map((e) => e.targetId));
     expect(mentionedIds.has("A")).toBe(false);
     expect(mentionedIds.has("B")).toBe(true);
     expect(mentionedIds.has("C")).toBe(true);
@@ -181,8 +178,7 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries.map((e) => e.targetId)).toEqual(["B"]);
+    expect(graph.timeline.entries.map((e) => e.targetId)).toEqual(["B"]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("error");
   });
@@ -213,7 +209,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.nodes).toEqual([
+    expect(graph.nodes).toEqual([
       { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
       { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ]);
@@ -239,8 +235,7 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([
+    expect(graph.nodes).toEqual([
       { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ]);
     expect(diagnostics).toHaveLength(1);
@@ -268,9 +263,8 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.totalSteps).toBe(0);
-    expect(graph!.timeline.entries).toEqual([]);
+    expect(graph.timeline.totalSteps).toBe(0);
+    expect(graph.timeline.entries).toEqual([]);
   });
 
   it("keeps the first occurrence of a duplicate enter or exit action on the same target and warns", () => {
@@ -301,8 +295,7 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "enter", step: 1, targetId: "A", effect: "fade" },
       { kind: "enter", step: 1, targetId: "B", effect: "fade" },
       { kind: "exit", step: 2, targetId: "B", effect: "fade" },
@@ -338,8 +331,7 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "enter", step: 1, targetId: "A", effect: "fade" },
     ]);
     expect(diagnostics).toHaveLength(1);
@@ -373,8 +365,7 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "enter", step: 2, targetId: "B", effect: "fade" },
     ]);
     expect(diagnostics).toHaveLength(1);
@@ -401,8 +392,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "exit", step: 3, targetId: "A", effect: "fade" },
     ]);
   });
@@ -430,8 +420,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "enter", step: 2, targetId: "B", effect: "fade" },
       { kind: "highlight", step: 2, targetId: "B", effect: "outline" },
     ]);
@@ -464,8 +453,7 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "highlight", step: 1, targetId: "A-B", effect: "outline" },
     ]);
     expect(diagnostics).toHaveLength(3);
@@ -497,9 +485,8 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph).not.toBeNull();
 
-    const byStep = new Map(graph!.timeline.entries.map((e) => [e.step, e]));
+    const byStep = new Map(graph.timeline.entries.map((e) => [e.step, e]));
     expect(byStep.get(1)).toEqual({ kind: "enter", step: 1, targetId: "A", effect: "slide-top" });
     expect(byStep.get(2)).toEqual({ kind: "highlight", step: 2, targetId: "A", effect: "glow" });
     expect(byStep.get(3)).toEqual({ kind: "unhighlight", step: 3, targetId: "A", effect: undefined });
@@ -509,7 +496,7 @@ describe("buildGraphModel", () => {
       targetId: "A",
       effect: "slide-bottom",
     });
-    expect(graph!.timeline.totalSteps).toBe(4);
+    expect(graph.timeline.totalSteps).toBe(4);
   });
 
   it("warns when a node exits while an edge connected to it never exits, since the edge would render with a missing endpoint", () => {
@@ -534,11 +521,10 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(graph).not.toBeNull();
     // The warning does not drop the exit action itself — it's advisory,
     // not a structural error; the author's content still renders as
     // authored, just with a diagnostic pointing at the gap.
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "exit", step: 5, targetId: "A", effect: "fade" },
     ]);
     expect(diagnostics).toHaveLength(1);
@@ -742,7 +728,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    const byId = Object.fromEntries(graph!.nodes.map((n) => [n.id, n]));
+    const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
     expect(byId.A.style).toEqual({
       frame: [
         { property: "fill", value: "#fdd" },
@@ -787,7 +773,7 @@ describe("buildGraphModel", () => {
     // a word. The node it did not name is left with no declarations — an
     // empty pair rather than a missing one, as the case above.
     expect(diagnostics).toEqual([]);
-    expect(graph!.nodes[0].style).toEqual({ frame: [], text: [] });
+    expect(graph.nodes[0].style).toEqual({ frame: [], text: [] });
   });
 
   it("puts a flowchart's style values through the one shared gate: a refused value is dropped and diagnosed, its sibling survives", () => {
@@ -829,7 +815,7 @@ describe("buildGraphModel", () => {
         column: 1,
       },
     ]);
-    expect(graph!.nodes[0].style).toEqual({ frame: [{ property: "stroke", value: "#c00" }], text: [] });
+    expect(graph.nodes[0].style).toEqual({ frame: [{ property: "stroke", value: "#c00" }], text: [] });
   });
 
   it("resolves a flowchart `linkStyle` index to the edge declared at that position, and carries its declarations on that edge's own id", () => {
@@ -870,7 +856,7 @@ describe("buildGraphModel", () => {
     // different id and fails here. And what comes out is keyed by the edge
     // id `timeline:` and `data-siren-id` already use — the index is spent
     // at this seam and travels no further.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       ["A-B", []],
       ["B-C", [{ property: "stroke", value: "#f00" }]],
       ["C-D", []],
@@ -919,7 +905,7 @@ describe("buildGraphModel", () => {
     ]);
     // One bad address is not a reason to throw away the rest of the
     // statement, exactly as one unknown id is not in `resolveStyles`.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       ["A-B", [{ property: "stroke", value: "#f00" }]],
       ["B-C", []],
     ]);
@@ -966,7 +952,7 @@ describe("buildGraphModel", () => {
         column: 1,
       },
     ]);
-    expect(two.graph!.edges.every((edge) => edge.style.frame.length === 0)).toBe(true);
+    expect(two.graph.edges.every((edge) => edge.style.frame.length === 0)).toBe(true);
 
     const one = buildFlowchart(documentWith(1));
     expect(one.diagnostics[0].message).toBe(
@@ -1007,7 +993,7 @@ describe("buildGraphModel", () => {
     expect(diagnostics).toEqual([]);
     // Including the `#2` repeat, which has no index of its own that an
     // author would guess.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       ["A-B", [{ property: "stroke", value: "#0f0" }]],
       ["A-B#2", [{ property: "stroke", value: "#0f0" }]],
     ]);
@@ -1055,7 +1041,7 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.edges.map((edge) => edge.style)).toEqual([
+    expect(graph.edges.map((edge) => edge.style)).toEqual([
       {
         frame: [{ property: "stroke", value: "#f00" }],
         text: [{ property: "fill", value: "#fff" }],
@@ -1107,7 +1093,7 @@ describe("buildGraphModel", () => {
     const styled = (document: SirenDocument) => {
       const { graph, diagnostics } = buildFlowchart(document);
       expect(diagnostics).toEqual([]);
-      return graph!.edges.map((edge) => [edge.id, edge.style.frame]);
+      return graph.edges.map((edge) => [edge.id, edge.style.frame]);
     };
 
     // The edge no specific `linkStyle` names keeps the fallback in both
@@ -1170,7 +1156,7 @@ describe("buildGraphModel", () => {
     // a tier is what the edge falls back *to*, not a set the specific
     // statement replaces. The width the author only ever wrote once is the
     // thing a wholesale replacement drops.
-    expect(graph!.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.style.frame])).toEqual([
       [
         "A-B",
         [
@@ -1229,7 +1215,7 @@ describe("buildGraphModel", () => {
     // decided by the tier: ADR-0008 settles them exactly as it settles two
     // `style` statements on one node — the second takes the property it
     // repeats and leaves the one it does not mention alone.
-    expect(graph!.edges[0].style).toEqual({
+    expect(graph.edges[0].style).toEqual({
       frame: [
         { property: "stroke", value: "#00f" },
         { property: "stroke-width", value: "4px" },
@@ -1272,7 +1258,7 @@ describe("buildGraphModel", () => {
     // second way to name an edge and would be free to disagree with the
     // first — which is exactly what `timeline:` and `data-siren-id` already
     // rely on not happening.
-    expect(Object.keys(graph!.edges[0]).sort()).toEqual([
+    expect(Object.keys(graph.edges[0]).sort()).toEqual([
       "fromEnd",
       "from",
       "id",
@@ -1283,7 +1269,7 @@ describe("buildGraphModel", () => {
       "toEnd",
       "to",
     ].sort());
-    expect(Object.keys(graph!).sort()).toEqual([
+    expect(Object.keys(graph).sort()).toEqual([
       // The document's screen-reader-only title/description, carried
       // through unchanged — same reasoning as `subgraphs` below.
       "accDescr",
@@ -1334,7 +1320,7 @@ describe("an edge's arrow through the model", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.edges).toEqual([
+    expect(graph.edges).toEqual([
       {
         id: "A-B",
         from: "A",
@@ -1361,7 +1347,7 @@ describe("an edge's arrow through the model", () => {
       ]),
     );
 
-    expect(graph!.edges.map((edge) => [edge.id, edge.label])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.label])).toEqual([
       ["A-B", "yes"],
       ["B-A", null],
     ]);
@@ -1378,7 +1364,7 @@ describe("an edge's arrow through the model", () => {
       ]),
     );
 
-    expect(graph!.edges.map((edge) => [edge.id, edge.line, edge.toEnd, edge.minLength])).toEqual([
+    expect(graph.edges.map((edge) => [edge.id, edge.line, edge.toEnd, edge.minLength])).toEqual([
       ["A-B", "solid", "arrow", 1],
       ["A-B#2", "thick", "cross", 2],
     ]);
@@ -1426,10 +1412,10 @@ describe("a subgraph in the graph model", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.subgraphs).toEqual([
+    expect(graph.subgraphs).toEqual([
       { id: "subgraph:1", label: "Ingest", parentId: null, direction: null },
     ]);
-    expect(graph!.nodes.map((node) => [node.id, node.parentId])).toEqual([
+    expect(graph.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ["A", "subgraph:1"],
       ["B", "subgraph:1"],
       // Outside every block, and `null` rather than absent — the
@@ -1461,11 +1447,11 @@ describe("a subgraph in the graph model", () => {
 
     // Pre-order, which is the order the author wrote the `subgraph` keywords
     // in and therefore the order they would count them in.
-    expect(graph!.subgraphs).toEqual([
+    expect(graph.subgraphs).toEqual([
       { id: "subgraph:1", label: "Outer", parentId: null, direction: null },
       { id: "subgraph:2", label: "Inner", parentId: "subgraph:1", direction: null },
     ]);
-    expect(graph!.nodes.map((node) => [node.id, node.parentId])).toEqual([
+    expect(graph.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ["A", "subgraph:2"],
       ["B", "subgraph:2"],
       ["C", "subgraph:1"],
@@ -1481,9 +1467,9 @@ describe("a subgraph in the graph model", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.subgraphs.map((sub) => sub.id)).toEqual(["subgraph:1"]);
-    expect(graph!.nodes.map((node) => node.id)).toContain("A");
-    expect(graph!.nodes.find((node) => node.id === "A")!.parentId).toBeNull();
+    expect(graph.subgraphs.map((sub) => sub.id)).toEqual(["subgraph:1"]);
+    expect(graph.nodes.map((node) => node.id)).toContain("A");
+    expect(graph.nodes.find((node) => node.id === "A")!.parentId).toBeNull();
   });
 
   it("makes a subgraph a timeline target under its generated id", () => {
@@ -1503,7 +1489,7 @@ describe("a subgraph in the graph model", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(graph!.timeline.entries).toEqual([
+    expect(graph.timeline.entries).toEqual([
       { kind: "enter", step: 1, targetId: "subgraph:1", effect: "fade" },
     ]);
   });

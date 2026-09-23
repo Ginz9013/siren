@@ -59,8 +59,7 @@ describe("buildStateModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.transitions.map((t) => t.id)).toEqual(["Idle-Running", "Running-Done"]);
+    expect(model.transitions.map((t) => t.id)).toEqual(["Idle-Running", "Running-Done"]);
   });
 
   it("suffixes a repeated pair with #2, and the one after it with #3", () => {
@@ -72,7 +71,7 @@ describe("buildStateModel", () => {
       ]),
     );
 
-    expect(model!.transitions.map((t) => t.id)).toEqual([
+    expect(model.transitions.map((t) => t.id)).toEqual([
       "Idle-Running",
       "Idle-Running#2",
       "Idle-Running#3",
@@ -85,8 +84,8 @@ describe("buildStateModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states.map((s) => s.id)).toEqual(["Running"]);
-    expect(model!.transitions).toEqual([
+    expect(model.states.map((s) => s.id)).toEqual(["Running"]);
+    expect(model.transitions).toEqual([
       { id: "Running-Running", from: "Running", to: "Running", label: "retry" },
     ]);
   });
@@ -99,7 +98,7 @@ describe("buildStateModel", () => {
       ]),
     );
 
-    expect(model!.transitions.map((t) => t.label)).toEqual(["start", null]);
+    expect(model.transitions.map((t) => t.label)).toEqual(["start", null]);
   });
 
   it("keeps every declared state, including one no transition names", () => {
@@ -107,7 +106,7 @@ describe("buildStateModel", () => {
       document([{ from: "Idle", to: "Running" }], ["Idle", "Running", "Lonely"]),
     );
 
-    expect(model!.states.map((s) => s.id)).toEqual(["Idle", "Running", "Lonely"]);
+    expect(model.states.map((s) => s.id)).toEqual(["Idle", "Running", "Lonely"]);
   });
 
   it("carries a state's note through unchanged, and gives a state without one null", () => {
@@ -125,7 +124,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel(parsed);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states.map((state) => [state.id, state.note])).toEqual([
+    expect(model.states.map((state) => [state.id, state.note])).toEqual([
       ["Idle", { position: "right of", text: "waiting for work" }],
       ["Busy", null],
     ]);
@@ -145,7 +144,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel(parsed);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states.map((state) => [state.id, state.stereotype])).toEqual([
+    expect(model.states.map((state) => [state.id, state.stereotype])).toEqual([
       ["Idle", "choice"],
       ["Busy", null],
     ]);
@@ -157,8 +156,8 @@ describe("buildStateModel", () => {
     // already does. It is carried at all because the model is what layout
     // reads: a direction that stopped at the document would leave the
     // picture top-to-bottom whatever the author wrote.
-    expect(buildStateModel(document([{ from: "Idle", to: "Busy" }], undefined, "LR")).model!.direction).toBe("LR");
-    expect(buildStateModel(document([{ from: "Idle", to: "Busy" }])).model!.direction).toBe("TB");
+    expect(buildStateModel(document([{ from: "Idle", to: "Busy" }], undefined, "LR")).model.direction).toBe("LR");
+    expect(buildStateModel(document([{ from: "Idle", to: "Busy" }])).model.direction).toBe("TB");
   });
 
   it("carries a described state's descriptions through unchanged, and gives a pseudo-state none", () => {
@@ -234,7 +233,7 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states).toEqual([
+    expect(model.states).toEqual([
       { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
       { id: "Idle", kind: "state", stereotype: null, descriptions: ["waiting for work", "nothing queued"], parentId: null, direction: null, note: null },
       { id: "Busy", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -313,12 +312,12 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states).toEqual([
+    expect(model.states).toEqual([
       { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
       { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
       { id: "end:1", kind: "end", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
     ]);
-    expect(model!.transitions).toEqual([
+    expect(model.transitions).toEqual([
       { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
       { id: "Idle-end:1", from: "Idle", to: "end:1", label: null },
     ]);
@@ -425,15 +424,15 @@ describe("buildStateModel", () => {
       ],
     });
 
-    expect(model!.states.filter((s) => s.kind === "start")).toHaveLength(1);
-    expect(model!.states.filter((s) => s.kind === "end")).toHaveLength(1);
-    expect(model!.transitions.map((t) => t.from)).toEqual([
+    expect(model.states.filter((s) => s.kind === "start")).toHaveLength(1);
+    expect(model.states.filter((s) => s.kind === "end")).toHaveLength(1);
+    expect(model.transitions.map((t) => t.from)).toEqual([
       "start:1",
       "start:1",
       "Idle",
       "Busy",
     ]);
-    expect(model!.transitions.map((t) => t.to)).toEqual(["Idle", "Busy", "end:1", "end:1"]);
+    expect(model.transitions.map((t) => t.to)).toEqual(["Idle", "Busy", "end:1", "end:1"]);
   });
 
   it("joins `[*] --> [*]` from the start pseudo-state to the end one, which are two different states", () => {
@@ -480,8 +479,8 @@ describe("buildStateModel", () => {
         }],
     });
 
-    expect(model!.states.map((s) => s.id)).toEqual(["start:1", "end:1"]);
-    expect(model!.transitions).toEqual([
+    expect(model.states.map((s) => s.id)).toEqual(["start:1", "end:1"]);
+    expect(model.transitions).toEqual([
       { id: "start:1-end:1", from: "start:1", to: "end:1", label: null },
     ]);
   });
@@ -562,13 +561,13 @@ describe("buildStateModel", () => {
       ],
     });
 
-    expect(model!.states.map((s) => s.id)).toEqual(["start:1", "root_start", "B"]);
-    expect(model!.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
+    expect(model.states.map((s) => s.id)).toEqual(["start:1", "root_start", "B"]);
+    expect(model.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
       "start:1->root_start",
       "root_start->B",
     ]);
     // And no self-loop was invented: the thing Mermaid produces here.
-    expect(model!.transitions.some((t) => t.from === t.to)).toBe(false);
+    expect(model.transitions.some((t) => t.from === t.to)).toBe(false);
   });
   it("gives each level its own start and end, and carries a composite through as a state", () => {
     // Two things in one fixture, because they are one fact: a composite is a
@@ -609,7 +608,7 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states).toEqual([
+    expect(model.states).toEqual([
       { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
       { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
       { id: "start:2", kind: "start", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
@@ -617,7 +616,7 @@ describe("buildStateModel", () => {
     ]);
     // Each `[*]` endpoint resolves against the level the transition was
     // written at — the only thing that tells the two starts apart.
-    expect(model!.transitions.map((t) => t.id)).toEqual(["start:1-Outer", "start:2-Inner"]);
+    expect(model.transitions.map((t) => t.id)).toEqual(["start:1-Outer", "start:2-Inner"]);
   });
 
   it("mints an id for each concurrent region and re-parents that region's members under it", () => {
@@ -656,7 +655,7 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states.map((state) => [state.id, state.kind, state.parentId])).toEqual([
+    expect(model.states.map((state) => [state.id, state.kind, state.parentId])).toEqual([
       ["Active", "composite", null],
       // The regions sit beside their composite, between it and the members
       // they hold, so the list reads in the order the picture nests.
@@ -669,7 +668,7 @@ describe("buildStateModel", () => {
     ]);
     // The `direction` statement written inside a region is that region's
     // (measured), so it arrives on the region and not on the block.
-    expect(model!.states.map((state) => [state.id, state.direction])).toEqual([
+    expect(model.states.map((state) => [state.id, state.direction])).toEqual([
       ["Active", null],
       ["region:1", null],
       ["region:2", "LR"],
@@ -717,7 +716,7 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.states.map((state) => [state.id, state.parentId])).toEqual([
+    expect(model.states.map((state) => [state.id, state.parentId])).toEqual([
       ["Active", null],
       ["region:1", "Active"],
       ["region:2", "Active"],
@@ -727,7 +726,7 @@ describe("buildStateModel", () => {
       ["C", "region:2"],
       ["end:4", "region:2"],
     ]);
-    expect(model!.transitions.map((t) => t.id)).toEqual([
+    expect(model.transitions.map((t) => t.id)).toEqual([
       "start:3-A",
       "start:4-C",
       "C-end:4",
@@ -765,8 +764,8 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.timeline.totalSteps).toBe(4);
-    expect(model!.timeline.entries.map((e) => [e.step, e.targetId])).toEqual([
+    expect(model.timeline.totalSteps).toBe(4);
+    expect(model.timeline.entries.map((e) => [e.step, e.targetId])).toEqual([
       [1, "start:1"],
       [2, "Outer"],
       [3, "Inner"],
@@ -786,8 +785,7 @@ describe("buildStateModel", () => {
       },
     });
 
-    expect(model).not.toBeNull();
-    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["Idle"]);
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual(["Idle"]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("error");
     expect(diagnostics[0].message).toContain("Ghost");
@@ -825,7 +823,7 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model!.styles).toEqual([
+    expect(model.styles).toEqual([
       { targetId: "Busy", style: { frame: [{ property: "fill", value: "#f96" }], text: [] } },
     ]);
   });
@@ -883,7 +881,7 @@ describe("buildStateModel", () => {
       styles: [...classDefs, apply("alpha", 5), apply("beta", 6)],
     });
     expect(alphaThenBeta.diagnostics).toEqual([]);
-    expect(alphaThenBeta.model!.styles).toEqual([
+    expect(alphaThenBeta.model.styles).toEqual([
       {
         targetId: "Busy",
         style: {
@@ -901,7 +899,7 @@ describe("buildStateModel", () => {
       styles: [...classDefs, apply("beta", 5), apply("alpha", 6)],
     });
     expect(betaThenAlpha.diagnostics).toEqual([]);
-    expect(betaThenAlpha.model!.styles).toEqual([
+    expect(betaThenAlpha.model.styles).toEqual([
       {
         targetId: "Busy",
         style: {
@@ -930,7 +928,7 @@ describe("buildStateModel", () => {
       },
     });
 
-    expect(model!.timeline.entries).toHaveLength(1);
+    expect(model.timeline.entries).toHaveLength(1);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
     expect(diagnostics[0].message).toContain('transition "Idle-Busy"');
@@ -953,7 +951,7 @@ describe("buildStateModel, on the ids it mints for concurrent regions", () => {
     expect(diagnostics).toEqual([]);
     const built = buildStateModel(document as StateDocument);
     expect(built.diagnostics).toEqual([]);
-    return built.model!;
+    return built.model;
   };
 
   const SOURCE = `stateDiagram-v2
