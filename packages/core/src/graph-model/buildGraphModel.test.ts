@@ -755,7 +755,7 @@ describe("buildGraphModel", () => {
     expect(byId.B.style).toEqual({ frame: [], text: [] });
   });
 
-  it("reports a flowchart `style` on an id no node declares, in the shared resolver's own words", () => {
+  it("drops a flowchart `style` on an id no node declares without reporting, leaving the node unstyled", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       interactions: [],
@@ -782,14 +782,11 @@ describe("buildGraphModel", () => {
 
     const { graph, diagnostics } = buildFlowchart(document);
 
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
-        line: 3,
-        column: 1,
-      },
-    ]);
+    // Mermaid accepts the same statement in silence and makes no vertex for
+    // the name (measured, 11.17.2), so the shared resolver drops it without
+    // a word. The node it did not name is left with no declarations — an
+    // empty pair rather than a missing one, as the case above.
+    expect(diagnostics).toEqual([]);
     expect(graph!.nodes[0].style).toEqual({ frame: [], text: [] });
   });
 

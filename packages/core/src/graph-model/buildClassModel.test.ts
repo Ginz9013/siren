@@ -1103,7 +1103,7 @@ describe("buildClassModel", () => {
     ]);
   });
 
-  it("drops a style statement on a class that does not exist with an error diagnostic, keeping the rest", () => {
+  it("drops a style statement on a class that does not exist silently, keeping the rest", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Shape" })],
@@ -1128,14 +1128,10 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
-        line: 4,
-        column: 1,
-      },
-    ]);
+    // Silently: Mermaid accepts a class diagram naming a class that does not
+    // exist and reports nothing (measured, 11.17.2: `cssClass "Ghost" urgent`
+    // adds no class and no error), so `resolveStyles` says nothing either.
+    expect(diagnostics).toEqual([]);
     expect(model).not.toBeNull();
     expect(model!.styles).toEqual([
       { targetId: "Shape", style: { frame: [{ property: "fill", value: "#00f" }], text: [] } },
@@ -1168,15 +1164,7 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message:
-          'cssClass "Ghost" references an id that does not exist; dropping the declaration.',
-        line: 6,
-        column: 1,
-      },
-    ]);
+    expect(diagnostics).toEqual([]);
     expect(model!.styles).toEqual([
       { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
     ]);

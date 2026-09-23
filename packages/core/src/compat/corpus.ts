@@ -2330,6 +2330,50 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-style-class-unknown-target",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start] --> B[End]
+      classDef emphasis fill:#fdd
+      class Ghost,A emphasis`,
+    status: "supported",
+    meaning:
+      "Applying a class to an id the document never declares is **accepted " +
+      "and silent**: the unknown target drops itself, the targets that do " +
+      "exist are still styled, and nothing is reported. Measured (mermaid " +
+      "11.17.2, `scripts/mermaid-probe.mjs`): this source reports `A` with " +
+      "`classes=[\"emphasis\"]`, `B` with `classes=[]`, and **no vertex named " +
+      "`Ghost` at all** — the name is neither styled nor declared, and no " +
+      "error is raised. The unknown target is written **first** on purpose: " +
+      "it is the order that tells \"drop this target\" apart from \"stop " +
+      "reading this statement\", and both orders were measured (`class " +
+      "A,Ghost emphasis` and `class Ghost,A emphasis` both give `A` " +
+      "`classes=[\"emphasis\"]`). The same measurement in the other two kinds that " +
+      "share `resolveStyles`: a class diagram's `cssClass \"Ghost\" urgent` " +
+      "likewise adds no class and says nothing. A state diagram agrees " +
+      "about the silence but **not** about the drawing — there `class " +
+      "Ghost urgent` *declares* `Ghost` as a state carrying the class, a " +
+      "gap in that kind's own statement set which is why this row is " +
+      "written for a flowchart: it is a kind where Siren now matches " +
+      "Mermaid's picture exactly, so the row can claim support honestly. " +
+      "Siren used to raise an error-severity diagnostic here in all three " +
+      "kinds — a divergence it invented, and the reason this construct " +
+      "could not be recorded as supported until now.",
+    assert: (result) => {
+      // The half that says the statement was not sunk: the target that does
+      // exist still gets the declaration, so "drop the unknown target" did
+      // not quietly become "drop the statement".
+      expectSame("the target that exists is still styled", nodeStyle(result, "A"), "fill:#fdd");
+      expectSame("and the node no statement named carries none", nodeStyle(result, "B"), "");
+      // The half that says the unknown target was not *declared* into
+      // existence: naming an id in a styling statement is not a way to
+      // create it, so the picture holds exactly the two nodes the author
+      // drew. Read off the drawn elements, because a `Ghost` that reached
+      // the model but drew nothing would pass the two asserts above.
+      expectSame("no third node was conjured by naming it", nodes(result), ["A[Start]", "B[End]"]);
+    },
+  },
+  {
     id: "fc-style-linkstyle",
     kind: "flowchart",
     source: `flowchart TB
