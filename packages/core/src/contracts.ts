@@ -824,7 +824,7 @@ export interface SequenceModel {
 
 /** Result of `buildSequenceModel`. */
 export interface SequenceModelResult {
-  model: SequenceModel | null;
+  model: SequenceModel;
   diagnostics: Diagnostic[];
 }
 
@@ -1181,8 +1181,7 @@ export interface GraphModel {
 /**
  * Result of `buildGraphModel`, tagged by the kind of document it resolved —
  * the same four words `SirenDocument.kind` uses, so a caller that knows what
- * it parsed reads the same vocabulary back, plus `"failed"` for a document
- * that did not resolve.
+ * it parsed reads the same vocabulary back.
  *
  * **A tag, not four nullable fields.** This used to be `{ graph, model,
  * classModel, stateModel, diagnostics }` with the rule "at most one is
@@ -1191,13 +1190,14 @@ export interface GraphModel {
  * diagram kind the roadmap adds. The union says the same thing in a form the
  * compiler enforces: narrow on `kind` and the payload is *there*.
  *
- * **`"failed"` is not "unknown kind".** The kind was always known — it came
- * from the parsed document. What `"failed"` names is the state the old shape
- * spelled "every field null": the sub-builder for a known kind produced no
- * model, and the error-severity diagnostic saying why is in `diagnostics`.
- * Splitting it off is what removes the intermediate state where a caller
- * holds the right kind and a null model, which is the state each of
- * `render()`'s branches used to have to check for by hand.
+ * **Every arm carries a model, and there is no failure arm.** No sub-builder
+ * has a failure path: one that takes exception to part of its document says
+ * so in `diagnostics` — at error severity when it dropped something — and
+ * still returns the model it built from the rest. So `diagnostics` being
+ * non-empty says nothing about whether `model` is there; it always is. A
+ * fifth diagram kind should declare its own `ModelResult.model` non-nullable
+ * for the same reason, rather than reintroducing a state no caller can
+ * reach.
  *
  * **One payload name, `model`, on every arm** rather than a per-kind name.
  * After narrowing, `result.model` is already the right type, so the per-kind
@@ -1210,8 +1210,7 @@ export type GraphModelResult =
   | { kind: "flowchart"; model: GraphModel; diagnostics: Diagnostic[] }
   | { kind: "sequence"; model: SequenceModel; diagnostics: Diagnostic[] }
   | { kind: "class"; model: ClassModel; diagnostics: Diagnostic[] }
-  | { kind: "state"; model: StateModel; diagnostics: Diagnostic[] }
-  | { kind: "failed"; diagnostics: Diagnostic[] };
+  | { kind: "state"; model: StateModel; diagnostics: Diagnostic[] };
 
 /** A 2D point used for edge path routing. */
 export interface Point {
@@ -1739,7 +1738,7 @@ export interface ClassModel {
 
 /** Result of `buildClassModel`. */
 export interface ClassModelResult {
-  model: ClassModel | null;
+  model: ClassModel;
   diagnostics: Diagnostic[];
 }
 
@@ -2432,7 +2431,7 @@ export interface StateModel {
 
 /** Result of `buildStateModel`. */
 export interface StateModelResult {
-  model: StateModel | null;
+  model: StateModel;
   diagnostics: Diagnostic[];
 }
 

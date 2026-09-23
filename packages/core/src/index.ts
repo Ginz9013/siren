@@ -270,14 +270,6 @@ export function render(
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
 
-  // The one failure check the four branches below used to make four times
-  // over, each on its own nullable field. `buildGraphModel` tags a document
-  // it could not resolve `"failed"` whatever kind it was, so asking once here
-  // leaves every branch past this line holding a model rather than a maybe.
-  if (graphResult.kind === "failed") {
-    return { svg: null, controller: null, diagnostics };
-  }
-
   // Dispatch on the *result's* tag rather than on the document's. They are
   // the same word — `buildGraphModel` carries the document's kind out
   // unchanged — but only the result's tag is what narrows `model` to the type
