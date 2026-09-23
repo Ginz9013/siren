@@ -1482,6 +1482,7 @@ describe("buildGraphModel — a state document", () => {
   const stateDocument: SirenDocument = {
     kind: "state",
     direction: "TB",
+    styles: [],
     timeline: null,
     states: [
       { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, line: 2, column: 1 },

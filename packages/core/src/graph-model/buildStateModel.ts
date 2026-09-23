@@ -7,6 +7,7 @@ import type {
   StateModelResult,
 } from "../contracts";
 import { generatedId } from "./generatedId";
+import { resolveStyles } from "./resolveStyles";
 import {
   resolveTimeline,
   warnOnConnectorsOutlivingTheirEndpoints,
@@ -63,6 +64,26 @@ export function buildStateModel(document: StateDocument): StateModelResult {
   );
   const transitions = assignTransitionIds(document, pseudoIdsByLevel);
 
+  // Author styling, through the very call `buildClassModel` and
+  // `buildFlowchartModel` make. Nothing here is this kind's: a `classDef` is
+  // paired with the directive applying it, a property declared twice keeps
+  // its first position and its last value, and the value gate that refuses
+  // `url(`, `expression(`, `;` and `\` is the board's security boundary —
+  // all of it decided once, in `resolveStyles`, so three diagram kinds
+  // cannot end up with three opinions about what an author's `color` means.
+  //
+  // The valid-target set is every state, composites and pseudo-states
+  // included. A composite is a state and measured, mermaid applies a class
+  // to its frame; a pseudo-state's id is *generated* and carries a `:`, so
+  // no `class` statement can spell one (ADR-0010) and listing it costs
+  // nothing. Transitions are deliberately absent: no styling statement in
+  // this kind can name one.
+  const styles = resolveStyles(
+    document.styles,
+    new Set(states.map((state) => state.id)),
+    diagnostics,
+  );
+
   // States and transitions share one id space, exactly as a flowchart's
   // nodes and edges do, so an author animates any element of the diagram the
   // same way and the shared resolver never has to learn which kind of element
@@ -95,6 +116,7 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     direction: document.direction,
     states,
     transitions,
+    styles,
     timeline,
   };
 

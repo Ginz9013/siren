@@ -3,6 +3,7 @@ import type {
   PositionedState,
   PositionedStateDiagram,
   PositionedStateTransition,
+  StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
 
@@ -110,6 +111,7 @@ function buildState(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
+  applyAuthorStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here: a state's corner radius is a decoration of the box rather
@@ -133,10 +135,18 @@ function buildState(state: PositionedState): SVGGElement {
   // first of several — and every row below the divider is a description
   // row, the split `.siren-class-name` and `.siren-member` already draw so
   // that a theme can weight the title differently from what follows it.
+  //
+  // Every row wears the author's text declarations, not just the title: a
+  // `class` names the state and not one of its lines, so an author who
+  // recolors a box meant its title and its descriptions alike — the same
+  // reading `renderClassDiagramToSVG` gives a class's name, annotation and
+  // members.
   const centerX = state.x + state.width / 2;
   state.rows.forEach((row, index) => {
     const className = index === 0 ? "siren-state-label" : "siren-state-description";
-    g.appendChild(buildCenteredText(className, row.text, { x: centerX, y: row.y }));
+    const label = buildCenteredText(className, row.text, { x: centerX, y: row.y });
+    applyAuthorStyle(label, state.style.text);
+    g.appendChild(label);
   });
 
   return g;
@@ -174,18 +184,59 @@ function buildComposite(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
+  // A class applied to a composite reaches its **frame**, measured (mermaid
+  // 11.17.2): `class Outer urgent` puts the class on the cluster's own `<g>`
+  // and its generated rule paints the rects inside it. So a composite is
+  // styled exactly as a state is, on the one rect it is drawn as.
+  applyAuthorStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here either — a frame's corner radius is the theme's, for the
   // reason `buildState` gives for a state's box.
   const centerX = state.x + state.width / 2;
   for (const row of state.rows) {
-    g.appendChild(
-      buildCenteredText("siren-composite-label", row.text, { x: centerX, y: row.y }),
-    );
+    const label = buildCenteredText("siren-composite-label", row.text, {
+      x: centerX,
+      y: row.y,
+    });
+    applyAuthorStyle(label, state.style.text);
+    g.appendChild(label);
   }
 
   return g;
+}
+
+/**
+ * Writes the author's resolved `classDef`/`class` declarations onto
+ * `element` as an inline `style` attribute, in declaration order, or leaves
+ * the element without one when the author styled nothing.
+ *
+ * The same function `renderClassDiagramToSVG` has, for the same reasons,
+ * spelled the same way: inline rather than a generated class rule, and on
+ * the drawn shape rather than its enclosing `<g>`, both for the cascade
+ * reason ADR-0008 records. The theme styles `.siren-state-frame` and
+ * `.siren-state-label` directly, so an inline declaration on those elements
+ * outranks it without `!important`, while the same declaration on the `<g>`
+ * would only ever be *inherited* by them and so would lose.
+ *
+ * The values are written verbatim. They are author input, but they arrive
+ * here having already passed `resolveStyles`' gate in `buildStateModel` (no
+ * `url(`, no `expression(`, no `;`, no backslash), and re-checking here
+ * would fork that single source of truth. This attribute is a CSS sink,
+ * never an HTML one: nothing is parsed as markup, so the hard
+ * `textContent`-never-`innerHTML` invariant is untouched.
+ *
+ * A pseudo-state is deliberately not reached by this: `[*]` is not an id, so
+ * no `class` statement can name one.
+ */
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
+  if (style.length === 0) {
+    return;
+  }
+  element.setAttribute(
+    "style",
+    style.map(({ property, value }) => `${property}:${value}`).join(";"),
+  );
 }
 
 /**

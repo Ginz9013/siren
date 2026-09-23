@@ -2045,6 +2045,23 @@ export interface StateDocument {
   states: StateDecl[];
   transitions: StateTransition[];
   /**
+   * The `classDef` and `class` statements the author wrote, in written
+   * order, as the same kind-agnostic `StyleDecl` a flowchart and a class
+   * diagram parse to — so `resolveStyles` pairs a definition with the
+   * directive applying it here exactly as it does there.
+   *
+   * `class` is this kind's spelling of the apply-directive (a class diagram
+   * writes `cssClass`, a flowchart writes `class`), normalized to the
+   * `apply` kind by the parser with the author's own spelling kept in
+   * `StyleDecl.authoredAs`.
+   *
+   * There is no `style` statement here, deliberately: measured, mermaid
+   * 11.17.2 *does* accept `style Busy fill:#f00` in a state diagram and
+   * paints it, but no compatibility-corpus row covers that construct yet,
+   * so it stays refused rather than half-implemented from one measurement.
+   */
+  styles: StyleDecl[];
+  /**
    * The `timeline:` block the author wrote, or `null` when they wrote none —
    * the same distinction `ClassDocument.timeline` draws, where `null` means
    * "declares no animation at all" rather than "declares an empty block".
@@ -2142,6 +2159,16 @@ export interface StateModel {
   direction: Direction;
   states: ResolvedState[];
   transitions: ResolvedStateTransition[];
+  /**
+   * Each styled state's accepted declarations, already flattened by the
+   * shared `resolveStyles` — one entry per state that ended up with at
+   * least one, and none for a state the author styled with nothing.
+   *
+   * Only a **state** can be a target: measured, mermaid 11.17.2 records a
+   * `classes` array on a state and nowhere else, so no `class` statement
+   * can name a transition.
+   */
+  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
 }
 
@@ -2196,6 +2223,16 @@ export interface PositionedState {
    * whether the author wrote one.
    */
   rows: PositionedStateRow[];
+  /**
+   * Author declarations to emit as this state's inline `style` attributes:
+   * the frame's on the box (or, for a composite, on the frame rect), the
+   * text's on every row it draws. `PositionedClass.style` carries a class
+   * diagram's the same way.
+   *
+   * Both halves are empty rather than absent for a state the author styled
+   * with nothing, so the renderer asks one question instead of two.
+   */
+  style: AuthorStyle;
   /**
    * Where the divider under the first row goes, or `null` when this box
    * draws none.

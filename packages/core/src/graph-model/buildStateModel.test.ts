@@ -18,6 +18,7 @@ function document(
   return {
     kind: "state",
     direction,
+    styles: [],
     timeline: null,
     states: ids.map((id) => ({
       id,
@@ -122,6 +123,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       timeline: null,
       states: [
         {
@@ -188,6 +190,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       timeline: null,
       states: [
         {
@@ -258,6 +261,7 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       timeline: null,
       states: [
         {
@@ -348,6 +352,7 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       timeline: null,
       states: [
         {
@@ -398,6 +403,7 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       timeline: null,
       states: [
         {
@@ -468,6 +474,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       timeline: null,
       states: [
         { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
@@ -510,6 +517,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      styles: [],
       states: [
         { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
         { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, line: 3, column: 3 },
@@ -556,6 +564,128 @@ describe("buildStateModel", () => {
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("error");
     expect(diagnostics[0].message).toContain("Ghost");
+  });
+
+  it("pairs a `classDef` with the `class` directive applying it, onto the state named", () => {
+    // The shared `resolveStyles` does the pairing — the same call
+    // `buildClassModel` and `buildFlowchartModel` make — so a state diagram
+    // gets the identical rules rather than a fourth copy of them. Measured
+    // (mermaid 11.17.2): `classDef urgent fill:#f96` plus `class Busy urgent`
+    // reports `classes=["urgent"]` on `Busy` and paints its rect `#f96`.
+    const source = document([{ from: "Idle", to: "Busy" }]);
+    const { model, diagnostics } = buildStateModel({
+      ...source,
+      styles: [
+        {
+          styleKind: "classDef",
+          authoredAs: "classDef",
+          targetIds: [],
+          name: "urgent",
+          properties: [{ property: "fill", value: "#f96" }],
+          line: 2,
+          column: 3,
+        },
+        {
+          styleKind: "apply",
+          authoredAs: "class",
+          targetIds: ["Busy"],
+          name: "urgent",
+          properties: [],
+          line: 4,
+          column: 3,
+        },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.styles).toEqual([
+      { targetId: "Busy", style: { frame: [{ property: "fill", value: "#f96" }], text: [] } },
+    ]);
+  });
+
+  it("stacks two classes on one state in application order, last value winning", () => {
+    // Measured (mermaid 11.17.2) — the stacking order this pins. A state
+    // wearing two classes takes them from two `class` statements, not from a
+    // comma list (`class Busy a,b` reads `a,b` as one class name), and the
+    // drawn rect comes back
+    //
+    //   class Busy alpha / class Busy beta  →  fill:#0f0 stroke:#00f
+    //   class Busy beta  / class Busy alpha →  fill:#f00 stroke:#00f
+    //
+    // with `classDef alpha fill:#f00,stroke:#00f` and `classDef beta
+    // fill:#0f0`. So the properties **merge** — `stroke` survives from the
+    // class that is not last — and only a property both classes declare is
+    // decided, by the one applied **last**. That is the CSS cascade's answer
+    // for one element, which is the answer `resolveStyles` already gives.
+    const classDefs = [
+      {
+        styleKind: "classDef" as const,
+        authoredAs: "classDef",
+        targetIds: [],
+        name: "alpha",
+        properties: [
+          { property: "fill", value: "#f00" },
+          { property: "stroke", value: "#00f" },
+        ],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "classDef" as const,
+        authoredAs: "classDef",
+        targetIds: [],
+        name: "beta",
+        properties: [{ property: "fill", value: "#0f0" }],
+        line: 3,
+        column: 3,
+      },
+    ];
+    const apply = (name: string, line: number) => ({
+      styleKind: "apply" as const,
+      authoredAs: "class",
+      targetIds: ["Busy"],
+      name,
+      properties: [],
+      line,
+      column: 3,
+    });
+    const source = document([{ from: "Idle", to: "Busy" }]);
+
+    const alphaThenBeta = buildStateModel({
+      ...source,
+      styles: [...classDefs, apply("alpha", 5), apply("beta", 6)],
+    });
+    expect(alphaThenBeta.diagnostics).toEqual([]);
+    expect(alphaThenBeta.model!.styles).toEqual([
+      {
+        targetId: "Busy",
+        style: {
+          frame: [
+            { property: "fill", value: "#0f0" },
+            { property: "stroke", value: "#00f" },
+          ],
+          text: [],
+        },
+      },
+    ]);
+
+    const betaThenAlpha = buildStateModel({
+      ...source,
+      styles: [...classDefs, apply("beta", 5), apply("alpha", 6)],
+    });
+    expect(betaThenAlpha.diagnostics).toEqual([]);
+    expect(betaThenAlpha.model!.styles).toEqual([
+      {
+        targetId: "Busy",
+        style: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#00f" },
+          ],
+          text: [],
+        },
+      },
+    ]);
   });
 
   it("warns when a transition stays visible after a state it joins has exited", () => {

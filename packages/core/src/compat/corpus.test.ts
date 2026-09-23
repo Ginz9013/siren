@@ -798,8 +798,42 @@ const SILENTLY_WRONG = 0;
  * *above* every member, so a description drawn level with what it encloses
  * would not pass for one drawn over it. `silently-wrong` does not move: this
  * row, too, was a named refusal.
+ *
+ * **4 → 3, and this one fell almost entirely by reuse.**
+ * `st-author-style` is `supported`: `classDef urgent fill:#f96` plus
+ * `class Busy urgent` now paints the state's own rect (`01M368GZR`). The
+ * construct needed no new resolution rules at all — `resolveStyles` already
+ * pairs a definition with the directive applying it, already settles a
+ * property declared twice, already runs the value gate that refuses `url(`,
+ * `expression(`, `;` and `\`, and already translates the author's `color`
+ * into the `fill` SVG paints text with — so `buildStateModel` makes the same
+ * call `buildClassModel` and `buildFlowchartModel` make and a third copy of
+ * those rules was never written. What this ticket did add is the renderer
+ * half the two spellings needed: `PositionedState.style` and an inline
+ * `style` attribute on the drawn rect and on every row of text, which is why
+ * **the row's assert reads an attribute value off the rendered SVG** rather
+ * than a `classes` array. The reservation `01M2ZPJKH` made — `class` and
+ * `classDef` cannot name a state — is what let both words become statement
+ * keywords without ambiguity, and it is still in force: a bare `class` or
+ * `classDef` on a line of its own is a whole-document parse error in mermaid
+ * 11.17.2 (measured) and stays an error here.
+ *
+ * **What was measured and deliberately not implemented**, because no row
+ * covers it: mermaid 11.17.2 *does* accept `style Busy fill:#f00` in a state
+ * diagram and paints the rect with it (`--markup`: the drawn
+ * `rect.basic.label-container` comes back `fill:#f00 !important`). That is a
+ * seventh construct, not part of this one — it reaches the picture through a
+ * different statement and appears in no `classes` array — so it stays
+ * refused and is reported rather than quietly added. Two smaller divergences
+ * were measured in the same pass and left alone for the same reason: `class`
+ * with a single operand (`class Busy`) and a class name mermaid reads as one
+ * word but no `classDef` defines (`class Busy a,b`) both render in mermaid,
+ * unstyled, while Siren refuses them — the second through the shared
+ * `resolveStyles` rule that a flowchart and a class diagram already have.
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
  */
-const REJECTED = 4;
+const REJECTED = 3;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

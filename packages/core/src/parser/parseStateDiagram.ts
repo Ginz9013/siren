@@ -6,7 +6,10 @@ import type {
   StateDecl,
   StateDocument,
   StateTransition,
+  StyleDecl,
+  StyleProperty,
 } from "../contracts";
+import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
   matchClassDirection,
@@ -200,6 +203,42 @@ const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/;
 const COMPOSITE_CLOSE = "}";
 
 /**
+ * `classDef urgent fill:#f96` — a named set of declarations, applied to
+ * nothing on its own, spelled exactly as a flowchart and a class diagram
+ * spell it.
+ */
+const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+
+/**
+ * `class Busy urgent` — the apply-directive, in this kind's spelling of it.
+ *
+ * The **target list** is comma-separated and the **class name** is not, and
+ * that asymmetry is measured rather than assumed (mermaid 11.17.2):
+ *
+ *     class Busy,Done urgent    →  classes=["urgent"] on *both* states
+ *     class Busy, Done urgent   →  the same, so a space after the comma is spare
+ *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name,
+ *                                  matching no `classDef`, painting nothing
+ *
+ * So the second capture is a single `\w+`: a state wearing two classes is
+ * written as two `class` statements, and measured, those *do* stack
+ * (`classes=["alpha","beta"]`).
+ *
+ * The target list is greedy and backtracks, the way `parseFlowchart`'s
+ * `CLASS_APPLY_RE` does — `[\w\s,]` cannot cross the space before the class
+ * name and gives it back — which is what reads `class A,B x` and
+ * `class A, B x` with one pattern instead of two. The alphabet is `\w`
+ * alone, without the flowchart's `.`, because a state id is read in `\w+`
+ * everywhere else in this file.
+ *
+ * **Two operands, both required.** A lone `class` is a whole-document parse
+ * error in Mermaid (measured), and this pattern declining it is what leaves
+ * it to `RESERVED_WORD_RE` — the reservation that exists for exactly this
+ * statement.
+ */
+const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
+
+/**
  * The constructs this parser reads well enough to *recognize* and does not
  * implement — each refused **by name**, in the author's own words.
  *
@@ -221,7 +260,8 @@ const COMPOSITE_CLOSE = "}";
  *
  * The table shrinks as constructs land: a composite opened with a quoted
  * description used to sit here, and left by being implemented rather than by
- * having its message reworded (`COMPOSITE_OPEN_RE` reads both spellings now).
+ * having its message reworded (`COMPOSITE_OPEN_RE` reads both spellings now),
+ * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`).
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
   {
@@ -244,18 +284,6 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) 
     // its own through `generatedId` rather than copy Mermaid's.
     pattern: /^-{2,}$/,
     name: () => 'the "--" concurrency divider',
-  },
-  {
-    // Measured: a state diagram supports author styling too — the state
-    // carries a `classes` array and `getClasses()` returns the definitions.
-    pattern: /^classDef\s+\S/,
-    name: () => 'the "classDef" author-style directive',
-  },
-  {
-    // The apply-directive, `class Busy urgent`. Two arguments, so a lone
-    // `class` stays the ordinary state id it is.
-    pattern: /^class\s+\S+\s+\S/,
-    name: () => 'the "class" author-style directive',
   },
 ];
 
@@ -330,6 +358,13 @@ export function parseStateDiagram(source: string): ParseResult {
   const states: StateDecl[] = [];
   const transitions: StateTransition[] = [];
   /**
+   * The author's styling statements in written order, definitions and
+   * apply-directives alike. Left unpaired here on purpose: an
+   * apply-directive may name a `classDef` written below it, and pairing
+   * them is `resolveStyles`' job.
+   */
+  const styles: StyleDecl[] = [];
+  /**
    * Whether any error-severity problem was found. Like every other Siren
    * parser, a document with one comes back as `null`: the diagnostics say
    * what is wrong, and no half-parsed document reaches the next stage.
@@ -370,6 +405,31 @@ export function parseStateDiagram(source: string): ParseResult {
    */
   const openBlocks: { state: StateDecl; statement: string; line: number; column: number }[] =
     [];
+
+  /**
+   * Reads the declaration list of a `classDef` statement, turning each
+   * segment that is not a `property:value` pair into an error diagnostic on
+   * that statement's line — the answer `parseClassDiagram` and
+   * `parseFlowchart` already give, reached through the same shared splitter
+   * so that `fill:rgb(255, 0, 0)` stays one declaration in all three.
+   */
+  const readStyleProperties = (
+    text: string,
+    lineNumber: number,
+    column: number,
+  ): StyleProperty[] => {
+    const { properties, malformed } = parseStyleProperties(text);
+    for (const segment of malformed) {
+      diagnostics.push({
+        severity: "error",
+        message: `Unrecognized style declaration: "${segment}"`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+    }
+    return properties;
+  };
 
   /** The level a statement read right now belongs to: the innermost open block, or the document's own. */
   const currentParentId = (): string | null =>
@@ -639,6 +699,49 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
+    // The two author-styling statements. Recorded, never paired: a `classDef`
+    // defines and applies to nothing, an apply-directive names its targets,
+    // and `resolveStyles` matches them up in either source order.
+    //
+    // Read *before* the bare-state and description patterns, so neither can
+    // claim a statement that opens with one of these two reserved words —
+    // and read *after* them in the file's reading order only in the sense
+    // that they are still behind every transition and composite pattern
+    // above, which no `classDef`/`class` line can match.
+    const classDefMatch = CLASS_DEF_RE.exec(line);
+    if (classDefMatch !== null) {
+      styles.push({
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: classDefMatch[1],
+        properties: readStyleProperties(classDefMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    const classApplyMatch = CLASS_APPLY_RE.exec(line);
+    if (classApplyMatch !== null) {
+      styles.push({
+        styleKind: "apply",
+        authoredAs: "class",
+        // The comma list is the *target* half, measured: `class Busy,Done
+        // urgent` styles both states. Empty segments are dropped so a
+        // trailing comma costs nothing.
+        targetIds: classApplyMatch[1]
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+        name: classApplyMatch[2],
+        properties: [],
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
     const stateMatch = STATE_DECL_RE.exec(line);
     if (stateMatch !== null) {
       // A word of Mermaid's own, written where a state id belongs. Refused
@@ -713,6 +816,7 @@ export function parseStateDiagram(source: string): ParseResult {
     direction: documentDirection ?? "TB",
     states,
     transitions,
+    styles,
     timeline,
   };
 
