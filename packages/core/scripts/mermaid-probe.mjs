@@ -50,8 +50,9 @@
  *
  * ## What it prints
  *
- * Mermaid's *own* parse result — the vertices, edges, messages and classes its
- * database recorded — because that is the picture it will draw, and comparing
+ * Mermaid's *own* parse result — the vertices, edges, messages, classes and
+ * entities its database recorded — because that is the picture it will draw,
+ * and comparing
  * pictures is the whole point. A parse error is printed too: "Mermaid rejects
  * this" is as much a measurement as any other, and it is the answer that tells
  * you a construct does not belong in the corpus.
@@ -321,6 +322,85 @@ function report(type, db) {
       ),
     ]);
     console.log(`\n## direction\n  ${db.getDirection?.() ?? "(none recorded)"}`);
+    return;
+  }
+
+  // Asked before the class-diagram branch for the same reason the state
+  // branch is: an ER database *also* answers `getClasses` (it returns an
+  // empty collection), so with the order reversed an ER document is reported
+  // as a class diagram with no classes and then crashes on `getRelations`,
+  // which ER does not have. The empty `## classes` table printed on the way
+  // out is the dangerous part — it reads as a measurement. The state board
+  // found this exact failure for state diagrams (commit `e545fbf`) after a
+  // board had already read its empty table as a fact.
+  //
+  // The criterion is `getEntities` + `getRelationships`, which of the five
+  // kinds this file reads only ER answers (measured: flowchart has
+  // getVertices/getClasses/getSubGraphs, sequence only getMessages, state has
+  // getStates/getClasses/getRelations, class has getClasses/getRelations).
+  // So this branch cannot be reached by a class document, and moving it would
+  // not make a class document reachable from here — but it would put ER back
+  // in the class branch, so leave it above.
+  if (typeof db.getEntities === "function" && typeof db.getRelationships === "function") {
+    // `getEntities()` is a `Map` keyed by **the name the author wrote**, and
+    // that key is not carried inside the value: the value's `id` is Mermaid's
+    // own minted `entity-CUSTOMER-0`, and `label`/`alias` are the display
+    // text. Relationships name entities by that minted `id`, so the key is
+    // read off the entries here and the ids are translated back to it below —
+    // printing the ids raw would make every relationship line unmatchable
+    // against the source.
+    const entities = [...db.getEntities().entries()];
+    const authored = new Map(entities.map(([name, entity]) => [entity.id, name]));
+    section(
+      "entities (by the name the author wrote, attributes indented under each)",
+      entities.flatMap(([name, entity]) => [
+        `${name} ${describe(entity, ["id", "label", "alias", "shape", "cssClasses"])}`,
+        ...records(entity.attributes).map(
+          (attribute) =>
+            `  attribute ${describe(
+              { ...attribute, keys: records(attribute.keys).join(",") },
+              ["type", "name", "keys", "comment"],
+            )}`,
+        ),
+      ]),
+    );
+
+    // **Mermaid records a relationship's two cardinalities crossed over, and
+    // this was measured here rather than remembered.** Three asymmetric
+    // sources, each read back out of `getRelationships()`:
+    //
+    //     CUSTOMER ||--o{ ORDER      cardA=ZERO_OR_MORE  cardB=ONLY_ONE
+    //     ORDER    }o--|| SHIPPER    cardA=ONLY_ONE      cardB=ZERO_OR_MORE
+    //     ORDER    |o..|{ LINE_ITEM  cardA=ONE_OR_MORE   cardB=ZERO_OR_ONE
+    //
+    // In every one of them `cardA` is the marker written next to `entityB`
+    // and `cardB` the marker written next to `entityA`. A symmetric source
+    // (`||--||`, `}|--|{`) cannot tell the two apart, which is exactly how
+    // this gets written backwards.
+    //
+    // So the crossing is undone here rather than passed on: the line below is
+    // printed left-to-right in the source's own order — left entity, left
+    // marker, relationship type, right marker, right entity — and the field
+    // names `cardA`/`cardB` deliberately do not appear in the output. A
+    // reader lining a line up against their source should never have to work
+    // out which of A and B is which.
+    section(
+      "relationships (in Mermaid's own order; left and right are the source's, not Mermaid's A and B)",
+      records(db.getRelationships()).map((relationship) =>
+        describe(
+          {
+            leftEntity: authored.get(relationship.entityA) ?? relationship.entityA,
+            leftCard: relationship.relSpec?.cardB,
+            relType: relationship.relSpec?.relType,
+            rightCard: relationship.relSpec?.cardA,
+            rightEntity: authored.get(relationship.entityB) ?? relationship.entityB,
+            label: relationship.roleA,
+          },
+          ["leftEntity", "leftCard", "relType", "rightCard", "rightEntity", "label"],
+        ),
+      ),
+    );
+    section("direction", [String(db.getDirection?.() ?? "(unset)")]);
     return;
   }
 
