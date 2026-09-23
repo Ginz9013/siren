@@ -1030,6 +1030,66 @@ function stateRect(
   };
 }
 
+/**
+ * The text of the note drawn on one state, or an empty list where the state
+ * carries none.
+ *
+ * Scoped to that state's own group on purpose: a state diagram's note has no
+ * id of its own (measured — mermaid names the drawn note after its state),
+ * so it is drawn *inside* the annotated state's `<g>`, and "which state is
+ * this note on?" is answered by where the element lives rather than by an
+ * attribute on it. A reader that searched the whole SVG would pass on a note
+ * hung off the wrong state.
+ */
+function stateNoteText(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+  return Array.from(group.querySelectorAll("text.siren-note-text")).map(
+    (text) => text.textContent ?? "",
+  );
+}
+
+/** The rectangle one state's note is drawn in, in `stateRect`'s shape. */
+function stateNoteRect(
+  result: SirenRenderResult,
+  id: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const rect = svgOf(result).querySelector(
+    `g.siren-state[data-siren-id="${id}"] rect.siren-note-frame`,
+  );
+  if (rect === null) throw new Error(`no note was drawn on state "${id}"`);
+  const number = (name: string) => Number(rect.getAttribute(name));
+  return {
+    top: number("y"),
+    bottom: number("y") + number("height"),
+    left: number("x"),
+    right: number("x") + number("width"),
+  };
+}
+
+/**
+ * What the connector from a state to its note ends in — `null` when it ends
+ * in nothing, which is the answer mermaid gives (`arrowhead: "none"`).
+ *
+ * Asked as "which marker", not "is there one", so the failure names what was
+ * drawn instead of saying only that something was.
+ */
+function stateNoteConnectorMarker(result: SirenRenderResult, id: string): string | null {
+  const path = svgOf(result).querySelector(
+    `g.siren-state[data-siren-id="${id}"] path.siren-note-link`,
+  );
+  if (path === null) throw new Error(`no note connector was drawn on state "${id}"`);
+  return path.getAttribute("marker-end");
+}
+
+/** Whether two rectangles share any area — "these are two figures, not one". */
+function overlaps(
+  a: { top: number; bottom: number; left: number; right: number },
+  b: { top: number; bottom: number; left: number; right: number },
+): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
 /** One state's centre, for a row reading a direction off the picture. */
 function stateRectCenter(
   result: SirenRenderResult,
@@ -3622,10 +3682,10 @@ line2\`"]`,
   // `rejected` rows since the flowchart backlog closed, and they are honest
   // backlog: written down so the gap is measured rather than forgotten.
   //
-  // A row leaves by *starting to work*, and three have: `st-direction-document`,
-  // `st-composite-quoted-description` and `st-author-style` are `supported`
-  // now, each with an assert reading the rendered SVG. The ones still marked
-  // `rejected` below are what is left of the six.
+  // A row leaves by *starting to work*, and four have: `st-direction-document`,
+  // `st-composite-quoted-description`, `st-author-style` and `st-note` are
+  // `supported` now, each with an assert reading the rendered SVG. The two
+  // still marked `rejected` below are what is left of the six.
   {
     id: "st-stereotype-choice",
     kind: "state",
@@ -3649,13 +3709,68 @@ line2\`"]`,
     source: `stateDiagram-v2
       Idle --> Busy
       note right of Idle : waiting for work`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "A note attached to one state, on the left or the right of it. " +
       "Measured: the note hangs off **the state itself** as " +
       "`note={\"position\":\"right of\",\"text\":\"waiting for work\"}` — not a " +
       "separate note collection the way a class diagram's is, so a state " +
-      "carries at most one and it is addressable only through that state.",
+      "carries at most one and it is addressable only through that state. " +
+      "Measured again, and this is what decided the field is singular rather " +
+      "than a list: a second `note ... of Idle` **replaces** the first, " +
+      "whichever sides the two were written on. Measured with `--markup` and " +
+      "against mermaid's own graph construction: the note is a **node of the " +
+      "layout graph**, drawn as its own `g.node.statediagram-note` and joined " +
+      "to its state by an edge built with `arrowhead: \"none\"` and the class " +
+      "`note-edge`, which mermaid's stylesheet dashes " +
+      "(`stroke-dasharray: 5`). The position is spent entirely as that " +
+      "edge's **direction** — `right of` builds `state → note`, `left of` " +
+      "builds `note → state` — so the two words are rank-relative: left and " +
+      "right under `direction LR`, above and below under the default `TB`. " +
+      "Siren draws it the same way, through the same shared layout core, " +
+      "because it is the same mechanism. The note has **no id**: mermaid " +
+      "names the drawn one after its state (`state-Idle----note-1`) and the " +
+      "author writes none, so it is not a timeline target (ADR-0009) and is " +
+      "drawn inside the annotated state's own group, animating with it.",
+    assert: (result) => {
+      // The note itself, read off the picture: its text, drawn inside the
+      // group of the state it annotates. A row checking only that the words
+      // appear somewhere would pass on a note drawn beside the wrong state.
+      expectSame("the note's text is drawn on Idle", stateNoteText(result, "Idle"), [
+        "waiting for work",
+      ]);
+      expectSame("and on no other state", stateNoteText(result, "Busy"), []);
+      // A figure of its own, not a row inside the box: the note's rect and
+      // the state's rect do not overlap.
+      expectSame(
+        `the note is a separate box (${JSON.stringify([stateRect(result, "Idle"), stateNoteRect(result, "Idle")])})`,
+        overlaps(stateRect(result, "Idle"), stateNoteRect(result, "Idle")),
+        false,
+      );
+      // Placed as the author's `right of` asks under this document's own
+      // direction, which is `TB` — so after the state, exactly as mermaid's
+      // `state → note` edge ranks it.
+      expectSame(
+        "the note is drawn after Idle along the diagram's direction",
+        stateNoteRect(result, "Idle").top >= stateRect(result, "Idle").bottom,
+        true,
+      );
+      // The connector mermaid draws too, tying the two figures together —
+      // and with no arrowhead, which is what keeps it from reading as a
+      // transition into the note.
+      expectSame(
+        "a connector joins them",
+        drew(result, 'g.siren-state[data-siren-id="Idle"] path.siren-note-link'),
+        true,
+      );
+      expectSame("with no arrowhead", stateNoteConnectorMarker(result, "Idle"), null);
+      // And no fourth timeline target was invented for it: the ids in the
+      // picture are the two states and the one transition, and nothing else.
+      expectSame("no id is minted for the note", states(result), ["Idle", "Busy"]);
+      expectSame("and the transition is still the only connector id", transitions(result), [
+        "Idle-Busy: ",
+      ]);
+    },
   },
   {
     id: "st-concurrency-divider",

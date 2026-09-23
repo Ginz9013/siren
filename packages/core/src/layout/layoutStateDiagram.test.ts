@@ -32,6 +32,7 @@ function model(
       descriptions: [],
       parentId: null,
       direction: null,
+      note: null,
     })),
     transitions: transitions.map(({ from, to, label }) => ({
       id: `${from}-${to}`,
@@ -42,6 +43,23 @@ function model(
     styles: [],
     timeline: { totalSteps: 0, entries: [] },
   };
+}
+
+/**
+ * Whether `point` sits on the outline of `box` — the check a routed
+ * connector's ends are held to, since which of the four edges it leaves by
+ * is the layout engine's business and being *on the figure* is not.
+ */
+function onBoundaryOf(
+  box: { x: number; y: number; width: number; height: number },
+  point: { x: number; y: number },
+): boolean {
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const withinX = point.x >= box.x - 0.5 && point.x <= box.x + box.width + 0.5;
+  const withinY = point.y >= box.y - 0.5 && point.y <= box.y + box.height + 0.5;
+  const onVerticalEdge = (near(point.x, box.x) || near(point.x, box.x + box.width)) && withinY;
+  const onHorizontalEdge = (near(point.y, box.y) || near(point.y, box.y + box.height)) && withinX;
+  return onVerticalEdge || onHorizontalEdge;
 }
 
 describe("layoutStateDiagram", () => {
@@ -154,6 +172,228 @@ describe("layoutStateDiagram", () => {
     }
   });
 
+  it("gives a noted state a note box of its own, sized around the note's measured text", () => {
+    // The note is a *figure*, not a second row inside the state's box —
+    // measured (mermaid 11.17.2, `--markup`): it comes back as its own
+    // `g.node.statediagram-note` with its own outline, beside the
+    // `g.node.statediagram-state` it annotates, whose rect is untouched.
+    // So the state keeps the box its own label earned, and the note gets
+    // one measured around its own text.
+    const noted = model([{ from: "Idle", to: "Busy" }]);
+    noted.states[0].note = { position: "right of", text: "waiting for work" };
+
+    const laid = layoutStateDiagram(noted, options);
+
+    const [idle, busy] = laid.states;
+    expect(busy.note).toBeNull();
+    expect(idle.note).not.toBeNull();
+    expect(idle.note!.text).toBe("waiting for work");
+    expect(idle.note!.width).toBeGreaterThan(measuredWidth("waiting for work"));
+    expect(idle.note!.height).toBeGreaterThan(
+      fakeMeasurer.measure("waiting for work").height,
+    );
+    // The annotated state is sized from its own label and nothing else: a
+    // note that widened the box it hangs off would be a row of the box
+    // rather than a figure beside it.
+    expect(idle.width).toBe(busy.width - (measuredWidth("Busy") - measuredWidth("Idle")));
+  });
+
+  it("puts a `right of` note after its state along the diagram's direction, and a `left of` one before", () => {
+    // **What `left of` and `right of` actually decide**, measured from
+    // mermaid 11.17.2's own construction: the note is a node of the layout
+    // graph, and the position picks the *direction of the edge joining it to
+    // its state* — `right of` builds `state → note`, `left of` builds
+    // `note → state`. Everything else is the layout engine's rank order. So
+    // under `direction LR` the two words are literally left and right, and
+    // under the default `TB` they are above and below — which is Mermaid's
+    // behaviour because it is Mermaid's mechanism, not a rule of Siren's.
+    const sideways = (position: "left of" | "right of") => {
+      const noted = model([{ from: "Idle", to: "Busy" }], undefined, "LR");
+      noted.states[0].note = { position, text: "why" };
+      const laid = layoutStateDiagram(noted, options);
+      return laid.states[0];
+    };
+
+    const right = sideways("right of");
+    expect(right.note!.x).toBeGreaterThan(right.x + right.width);
+
+    const left = sideways("left of");
+    expect(left.note!.x + left.note!.width).toBeLessThan(left.x);
+
+    // Top to bottom, the same two words rank the note below and above.
+    const downward = model([{ from: "Idle", to: "Busy" }]);
+    downward.states[0].note = { position: "right of", text: "why" };
+    const below = layoutStateDiagram(downward, options).states[0];
+    expect(below.note!.y).toBeGreaterThan(below.y + below.height);
+  });
+
+  it("joins a note to its state with a connector, reported from the state to the note", () => {
+    // Measured: Mermaid draws this connector as an edge of its own with
+    // `arrowhead: "none"` (`path.note-edge`), so it is a real routed line
+    // between the two figures rather than an implied adjacency.
+    //
+    // Always ordered state → note, whichever side the author wrote, so
+    // nothing downstream has to re-read the position to know which end is
+    // which: the edge itself runs the other way for `left of`.
+    for (const position of ["left of", "right of"] as const) {
+      const noted = model([{ from: "Idle", to: "Busy" }], undefined, "LR");
+      noted.states[0].note = { position, text: "why" };
+
+      const idle = layoutStateDiagram(noted, options).states[0];
+      const connector = idle.note!.connector;
+
+      expect(connector.length, position).toBeGreaterThanOrEqual(2);
+      // The first point is on the state's own boundary and the last on the
+      // note's — a connector reported the other way round fails here without
+      // any coordinate changing, which is what makes the promised order a
+      // fact rather than a comment.
+      expect(onBoundaryOf(idle, connector[0]), `${position}: first point`).toBe(true);
+      expect(
+        onBoundaryOf(idle.note!, connector[connector.length - 1]),
+        `${position}: last point`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps a note inside the frame of the composite whose state it annotates, and inside the canvas", () => {
+    // A note is drawn at the level of the state it hangs off — so a note on
+    // a state written inside `state Outer { }` belongs inside that frame,
+    // and one that spilled out of it would read as annotating the block from
+    // outside. The frame is grown here rather than by the shared core (see
+    // `compositeFrames`), so the note box has to be grown into as well.
+    const nested: StateModel = {
+      direction: "TB",
+      states: [
+        { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
+        {
+          id: "Inner",
+          kind: "state",
+          descriptions: [],
+          parentId: "Outer",
+          direction: null,
+          note: { position: "right of", text: "a long note about the inner state" },
+        },
+        { id: "Done", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+      ],
+      transitions: [{ id: "Inner-Done", from: "Inner", to: "Done", label: null }],
+      styles: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const laid = layoutStateDiagram(nested, options);
+    const [outer, inner] = laid.states;
+    const note = inner.note!;
+
+    expect(note.x).toBeGreaterThanOrEqual(outer.x);
+    expect(note.y).toBeGreaterThanOrEqual(outer.y);
+    expect(note.x + note.width).toBeLessThanOrEqual(outer.x + outer.width);
+    expect(note.y + note.height).toBeLessThanOrEqual(outer.y + outer.height);
+
+    // And the canvas covers it: a note placed outside the reported
+    // width/height is clipped away by the `viewBox`, which is the same
+    // invisible failure a loop routed off-canvas would be.
+    expect(note.x + note.width).toBeLessThanOrEqual(laid.width);
+    expect(note.y + note.height).toBeLessThanOrEqual(laid.height);
+    for (const point of note.connector) {
+      expect(point.x).toBeLessThanOrEqual(laid.width);
+      expect(point.y).toBeLessThanOrEqual(laid.height);
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("grows a frame around a note even where the shared core does not size the cluster from its members", () => {
+    // The case `compositeFrames` documents and the one the test above is too
+    // easy to catch it: a composite **nested inside one that carries a
+    // `direction`** comes back from the shared core at exactly the size
+    // handed in, with its members at coordinates outside it. A note is a
+    // member like any other, so a frame grown from the states alone leaves
+    // the note hanging out of the block — and, since the canvas is grown the
+    // same way, off the edge of the picture entirely.
+    const nested: StateModel = {
+      direction: "TB",
+      states: [
+        { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR", note: null },
+        { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: "LR", note: null },
+        {
+          id: "Deep",
+          kind: "state",
+          descriptions: [],
+          parentId: "Inner",
+          direction: null,
+          note: { position: "right of", text: "a very long note about the deep state" },
+        },
+        { id: "Beside", kind: "state", descriptions: [], parentId: "Inner", direction: null, note: null },
+      ],
+      transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
+      styles: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const laid = layoutStateDiagram(nested, options);
+    const [outer, inner, deep] = laid.states;
+    const note = deep.note!;
+
+    for (const frame of [inner, outer]) {
+      expect(note.x, frame.id).toBeGreaterThanOrEqual(frame.x);
+      expect(note.y, frame.id).toBeGreaterThanOrEqual(frame.y);
+      expect(note.x + note.width, frame.id).toBeLessThanOrEqual(frame.x + frame.width);
+      expect(note.y + note.height, frame.id).toBeLessThanOrEqual(frame.y + frame.height);
+    }
+    expect(note.x + note.width).toBeLessThanOrEqual(laid.width);
+    expect(note.y + note.height).toBeLessThanOrEqual(laid.height);
+  });
+
+  it("lands a composite's own note on the frame's boundary, not inside it", () => {
+    // A composite carries a note exactly as a state does — measured: mermaid
+    // records it on the composite's own record. What differs is where the
+    // connector has to stop: the shared core clipped the route to the
+    // *cluster box* it placed, and a frame is grown outward from that box,
+    // so a connector left where the core put it starts inside the frame by
+    // exactly the padding and title strip this module added.
+    const withNote: StateModel = {
+      direction: "TB",
+      states: [
+        { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+        {
+          id: "Outer",
+          // A title of its own, which is what grows the frame upward past
+          // the cluster box the core placed — the growth the clip pays for.
+          kind: "composite",
+          descriptions: ["a very long composite title"],
+          parentId: null,
+          direction: null,
+          note: { position: "left of", text: "about the block" },
+        },
+        { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+        { id: "Done", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+      ],
+      transitions: [
+        { id: "Before-Outer", from: "Before", to: "Outer", label: null },
+        { id: "Inner-Done", from: "Inner", to: "Done", label: null },
+      ],
+      styles: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const laid = layoutStateDiagram(withNote, options);
+    const outer = laid.states[1];
+    const note = outer.note!;
+
+    expect(onBoundaryOf(outer, note.connector[0])).toBe(true);
+    // And the note is a figure beside the block rather than one of the boxes
+    // inside it: it does not overlap the frame at all, so it is never drawn
+    // over the states the block holds. (Which *side* of the frame it lands on
+    // is the layout engine's, as it is for every other figure here — this
+    // fixture happens to put it to the left.)
+    const overlaps =
+      note.x < outer.x + outer.width &&
+      outer.x < note.x + note.width &&
+      note.y < outer.y + outer.height &&
+      outer.y < note.y + note.height;
+    expect(overlaps).toBe(false);
+  });
+
   it("gives each pseudo-state a square box of its own size, not one measured around its generated id", () => {
     // A pseudo-state draws a disc and a ring, neither of which holds text —
     // so sizing it the way a state is sized would reserve room for
@@ -164,9 +404,9 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
-          { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null },
-          { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null },
+          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [
           { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -208,8 +448,8 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "s", kind: "state", descriptions: ["waiting for work"], parentId: null, direction: null },
-          { id: "Undescribed", kind: "state", descriptions: [], parentId: null, direction: null },
+          { id: "s", kind: "state", descriptions: ["waiting for work"], parentId: null, direction: null, note: null },
+          { id: "Undescribed", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
         styles: [],
@@ -249,8 +489,8 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "s", kind: "state", descriptions: ["first", "second", "third"], parentId: null, direction: null },
-          { id: "t", kind: "state", descriptions: ["only"], parentId: null, direction: null },
+          { id: "s", kind: "state", descriptions: ["first", "second", "third"], parentId: null, direction: null, note: null },
+          { id: "t", kind: "state", descriptions: ["only"], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
         styles: [],
@@ -292,9 +532,9 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
-          { id: "Idle", kind: "state", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Busy", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Idle", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Busy", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Idle-Busy", from: "Idle", to: "Busy", label: null }],
         styles: [],
@@ -337,10 +577,10 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
-          { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Deep", kind: "state", descriptions: [], parentId: "Inner", direction: null },
-          { id: "Beside", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Deep", kind: "state", descriptions: [], parentId: "Inner", direction: null, note: null },
+          { id: "Beside", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
         styles: [],
@@ -384,10 +624,10 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
-          { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Done", kind: "state", descriptions: [], parentId: null, direction: null },
+          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Done", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [
           { id: "start:1-Outer", from: "start:1", to: "Outer", label: null },
@@ -444,10 +684,10 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null },
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR" },
-          { id: "First", kind: "state", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Second", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR", note: null },
+          { id: "First", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Second", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [
           { id: "Before-Outer", from: "Before", to: "Outer", label: null },

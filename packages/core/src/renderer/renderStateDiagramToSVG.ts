@@ -34,6 +34,12 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * in an arrowhead, plus a `<text class="siren-transition-label">` when the
  * author wrote one).
  *
+ * A state the author wrote a `note` on carries that note **inside its own
+ * group** — the class diagram's three note parts (`.siren-note-link`,
+ * `.siren-note-frame`, `.siren-note-text`), reused because it is the same
+ * figure, and put there rather than in a group of their own because a state
+ * diagram's note has no id (see `appendNote`).
+ *
  * A self-transition needs no case of its own: it is a route like any other,
  * drawn along whatever points the layout returned, and the loop is in those
  * points rather than in this file.
@@ -149,7 +155,67 @@ function buildState(state: PositionedState): SVGGElement {
     g.appendChild(label);
   });
 
+  appendNote(g, state);
+
   return g;
+}
+
+/**
+ * Adds the note hanging off `state` to its group — the
+ * `<path class="siren-note-link">` tying it to the state, the
+ * `<rect class="siren-note-frame">` at the box layout placed, and the
+ * `<text class="siren-note-text">` centred in it — or adds nothing at all
+ * when the author wrote no note.
+ *
+ * **The class diagram's three note classes, reused rather than doubled.** It
+ * is the same figure drawn for the same reason, and `renderClassDiagramToSVG`
+ * already draws it from exactly these three parts; a second set of names
+ * would give the theme two notes to paint identically and forever. What
+ * differs is the *group* they live in: a class note is a `siren-note` group
+ * of its own wearing its own id, and a state note has no id at all
+ * (measured — Mermaid names the drawn note after its state), so it is drawn
+ * **inside the annotated state's own `<g>`**. That is also what animates it:
+ * the timeline's classes land on that group, so a note fades and slides with
+ * the state it belongs to, which is the only animation it can have.
+ *
+ * The connector goes in first, so the note's own box paints over the end of
+ * it: document order is paint order. It carries no `marker-end` — measured,
+ * Mermaid builds this edge with `arrowhead: "none"`, and an arrowhead would
+ * read as a transition into the note.
+ *
+ * The author's `style` declarations are deliberately not written onto any of
+ * this: measured (mermaid 11.17.2), a `class` applied to a state paints the
+ * state's own rect, and the note keeps the note colours whatever the state
+ * is painted.
+ */
+function appendNote(g: SVGGElement, state: PositionedState): void {
+  const note = state.note;
+  if (note === null) {
+    return;
+  }
+
+  const link = document.createElementNS(SVG_NS, "path");
+  link.setAttribute("class", "siren-note-link");
+  link.setAttribute("d", pointsToPathData(note.connector));
+  // Explicit, for the same reason a transition line carries it: an open,
+  // multi-segment path would otherwise be painted as a filled polygon.
+  link.setAttribute("fill", "none");
+  g.appendChild(link);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-note-frame");
+  frame.setAttribute("x", String(note.x));
+  frame.setAttribute("y", String(note.y));
+  frame.setAttribute("width", String(note.width));
+  frame.setAttribute("height", String(note.height));
+  g.appendChild(frame);
+
+  g.appendChild(
+    buildCenteredText("siren-note-text", note.text, {
+      x: note.x + note.width / 2,
+      y: note.y + note.height / 2,
+    }),
+  );
 }
 
 /**
@@ -202,6 +268,11 @@ function buildComposite(state: PositionedState): SVGGElement {
     applyAuthorStyle(label, state.style.text);
     g.appendChild(label);
   }
+
+  // A composite carries a note exactly as a state does — measured: mermaid
+  // 11.17.2 records the note on the composite's own record, and the same
+  // statement writes it.
+  appendNote(g, state);
 
   return g;
 }

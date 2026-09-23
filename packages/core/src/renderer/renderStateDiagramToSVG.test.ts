@@ -14,6 +14,7 @@ const DIAGRAM: PositionedStateDiagram = {
       rows: [{ text: "Idle", y: 40 }],
       style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
     {
       id: "Running",
@@ -25,6 +26,7 @@ const DIAGRAM: PositionedStateDiagram = {
       rows: [{ text: "Running", y: 140 }],
       style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
   ],
   transitions: [
@@ -84,6 +86,79 @@ describe("renderStateDiagramToSVG", () => {
     expect(label.textContent).toBe("Idle");
     expect(label.getAttribute("x")).toBe("50");
     expect(label.getAttribute("y")).toBe("40");
+  });
+
+  it("draws a state's note as a box of text joined by a connector, inside the state's own group", () => {
+    // Three parts, the same three a class diagram's note is drawn from and
+    // through the same classes, because it is the same figure: a frame at
+    // the box the layout placed, the text centred in it, and the dashed
+    // connector the theme paints `.siren-note-link`.
+    //
+    // **Inside the annotated state's `<g>`, wearing no id of its own.**
+    // Measured: Mermaid's note carries a name derived from its state
+    // (`state-Idle----note-1`) and the author never writes one, so there is
+    // no id for a `timeline:` block to name (ADR-0009) — and minting one
+    // here would invent an author-facing handle Mermaid has no spelling for.
+    // Living in the state's group is what makes it animate with the state
+    // it hangs off, which is the only animation it can have.
+    const noted: PositionedStateDiagram = {
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          note: {
+            text: "waiting for work",
+            x: 120,
+            y: 10,
+            width: 60,
+            height: 30,
+            connector: [
+              { x: 90, y: 40 },
+              { x: 120, y: 25 },
+            ],
+          },
+        },
+        DIAGRAM.states[1],
+      ],
+    };
+
+    const svg = renderStateDiagramToSVG(noted);
+
+    const group = svg.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+    const frame = group.querySelector("rect.siren-note-frame")!;
+    expect(frame.getAttribute("x")).toBe("120");
+    expect(frame.getAttribute("y")).toBe("10");
+    expect(frame.getAttribute("width")).toBe("60");
+    expect(frame.getAttribute("height")).toBe("30");
+
+    const text = group.querySelector("text.siren-note-text")!;
+    expect(text.textContent).toBe("waiting for work");
+    expect(text.getAttribute("x")).toBe("150");
+    expect(text.getAttribute("y")).toBe("25");
+
+    const link = group.querySelector("path.siren-note-link")!;
+    expect(link.getAttribute("d")).toBe("M90,40 L120,25");
+    // An open multi-segment path would otherwise be painted as a filled
+    // polygon, the reason every other connector here carries this too.
+    expect(link.getAttribute("fill")).toBe("none");
+    // No arrowhead: measured, Mermaid builds this edge with
+    // `arrowhead: "none"`, and a head would read as a transition into the
+    // note rather than a line tying it to its state.
+    expect(link.getAttribute("marker-end")).toBeNull();
+
+    // Nothing inside the note wears an id, and no second group appeared for
+    // it: the note is part of its state, not a figure beside it.
+    expect(
+      Array.from(svg.querySelectorAll("[data-siren-id]")).map((e) =>
+        e.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Idle", "Running", "Idle-Running", "Running-Running"]);
+
+    // A state the author wrote no note on draws none of the three.
+    const plain = svg.querySelector('g.siren-state[data-siren-id="Running"]')!;
+    expect(plain.querySelector(".siren-note-frame")).toBeNull();
+    expect(plain.querySelector(".siren-note-text")).toBeNull();
+    expect(plain.querySelector(".siren-note-link")).toBeNull();
   });
 
   it("draws one siren-transition group per transition, wearing its id, following the routed points", () => {
@@ -172,7 +247,7 @@ describe("renderStateDiagramToSVG", () => {
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null },
+    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
     {
       id: "Idle",
       kind: "state",
@@ -183,8 +258,9 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
       rows: [{ text: "Idle", y: 80 }],
       style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
-    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null },
+    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
   ],
   transitions: [
     {
@@ -222,6 +298,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       rows: [{ text: "waiting for work", y: 40 }],
       style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
     {
       id: "Plain",
@@ -233,6 +310,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       rows: [{ text: "Plain", y: 140 }],
       style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
     {
       id: "t",
@@ -248,6 +326,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       ],
       style: { frame: [], text: [] },
       dividerY: 260,
+      note: null,
     },
   ],
   transitions: [],
@@ -395,6 +474,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           rows: [{ text: "Outer", y: 30 }],
           style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
         {
           id: "Idle",
@@ -406,6 +486,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           rows: [{ text: "Idle", y: 80 }],
           style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
       ],
       transitions: [],
@@ -439,6 +520,49 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     expect(group.querySelector("text.siren-state-label")).toBeNull();
   });
 
+  it("draws a note written on the composite itself, inside the composite's own group", () => {
+    // Measured (mermaid 11.17.2): `note right of Outer : about the composite`
+    // records the note on the composite's own record, exactly as it does on
+    // an ordinary state — one statement, one field — so the frame carries
+    // the same three note parts a box does, in the group wearing the
+    // composite's id.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          rows: [{ text: "Outer", y: 30 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: {
+            text: "about the block",
+            x: 230,
+            y: 60,
+            width: 90,
+            height: 30,
+            connector: [
+              { x: 205, y: 75 },
+              { x: 230, y: 75 },
+            ],
+          },
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 340,
+      height: 180,
+    });
+
+    const group = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(group.querySelector("rect.siren-note-frame")!.getAttribute("x")).toBe("230");
+    expect(group.querySelector("text.siren-note-text")!.textContent).toBe("about the block");
+    expect(group.querySelector("path.siren-note-link")!.getAttribute("d")).toBe("M205,75 L230,75");
+  });
+
   it("leaves step-0 pending state to the controller, stamping siren-pending on none of the three addressable kinds", () => {
     // The guard `renderToSVG` and `renderClassDiagramToSVG` already carry,
     // written here the moment this kind started reading a `timeline:` block.
@@ -459,6 +583,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           rows: [{ text: "Outer", y: 30 }],
           style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
         {
           id: "Idle",
@@ -470,6 +595,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           rows: [{ text: "Idle", y: 80 }],
           style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
       ],
       transitions: [
@@ -534,6 +660,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
             text: [{ property: "fill", value: "#fff" }],
           },
           dividerY: 50,
+          note: null,
         },
         {
           id: "Idle",
@@ -545,6 +672,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           rows: [{ text: "Idle", y: 140 }],
           style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
       ],
       transitions: [],
@@ -591,6 +719,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
             text: [{ property: "fill", value: "#fff" }],
           },
           dividerY: null,
+          note: null,
         },
       ],
       transitions: [],

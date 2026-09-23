@@ -41,25 +41,30 @@ export function buildStateModel(document: StateDocument): StateModelResult {
       ? // Authored — a state or a composite — so `StateDecl.id` is the name
         // the author wrote, non-null by that contract, where only a
         // pseudo-state arrives unnamed. Descriptions, membership and a
-        // composite's own direction pass through as written: they are
-        // authored, and there is nothing here to resolve about them.
+        // composite's own direction pass through as written, and so does a
+        // note: they are authored, and there is nothing here to resolve
+        // about them.
         {
           id: state.id,
           kind: state.kind,
           descriptions: state.descriptions,
           parentId: state.parentId,
           direction: state.direction,
+          note: state.note,
         }
       : // A pseudo-state carries no descriptions and can carry none — `[*]`
         // is not an id, so no description statement can name one — and no
-        // direction, because only a composite has a block to write one in.
-        // What it does carry is its level, which is what chooses its id.
+        // direction, because only a composite has a block to write one in,
+        // and no note, because `note right of [*]` is refused by name in
+        // the parser. What it does carry is its level, which is what chooses
+        // its id.
         {
           id: pseudoIdsByLevel.get(state.parentId)![state.kind as "start" | "end"],
           kind: state.kind,
           descriptions: [],
           parentId: state.parentId,
           direction: null,
+          note: null,
         },
   );
   const transitions = assignTransitionIds(document, pseudoIdsByLevel);

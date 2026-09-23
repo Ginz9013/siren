@@ -173,13 +173,14 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Idle\n  Idle --> Running\n");
 
     expect(document.states).toEqual([
-      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
       {
         id: "Running",
         kind: "state",
         descriptions: [],
         parentId: null,
         direction: null,
+        note: null,
         line: 3,
         column: 3,
       },
@@ -199,9 +200,9 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n");
 
     expect(document.states).toEqual([
-      { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
-      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
-      { id: null, kind: "end", descriptions: [], parentId: null, direction: null, line: 3, column: 3 },
+      { id: null, kind: "start", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+      { id: null, kind: "end", descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
     ]);
     expect(document.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
       "null->Idle",
@@ -251,6 +252,7 @@ describe("parseStateDiagram", () => {
         descriptions: ["waits here"],
         parentId: null,
         direction: null,
+        note: null,
         line: 2,
         column: 3,
       },
@@ -280,6 +282,7 @@ describe("parseStateDiagram", () => {
         descriptions: ["one", "two", "three"],
         parentId: null,
         direction: null,
+        note: null,
         line: 2,
         column: 3,
       },
@@ -535,8 +538,14 @@ describe("parseStateDiagram", () => {
       ["state Choice <<choice>>", 'the "<<choice>>" stereotype'],
       ["state Split <<fork>>", 'the "<<fork>>" stereotype'],
       ["state Merge <<join>>", 'the "<<join>>" stereotype'],
-      ["note right of Idle : waiting", 'a "note" annotation'],
-      ["note left of Idle : waiting", 'a "note" annotation'],
+      // The note construct itself is implemented now; these are the two of
+      // its spellings that are not, each still valid Mermaid. Measured:
+      // `note right of [*] : x` attaches the note to the level's *start*
+      // pseudo-state, and a `note ... of X` line with no colon opens the
+      // multi-line form that runs to `end note`.
+      ["note right of [*] : the beginning", 'a note on a "[*]" pseudo-state'],
+      ["note left of [*] : the beginning", 'a note on a "[*]" pseudo-state'],
+      ["note right of Idle", 'a multi-line "note ... end note"'],
       ["--", 'the "--" concurrency divider'],
     ];
 
@@ -555,6 +564,127 @@ describe("parseStateDiagram", () => {
       expect(refusal!.message, `for "${statement}"`).toContain(`"${statement}"`);
       expect(refusal!.message, `for "${statement}"`).not.toContain("Unrecognized");
     }
+  });
+
+  it("hangs a note off the state it names, carrying the side the author wrote", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): the note is
+    // recorded **on the state itself** —
+    // `id="Idle" note={"position":"right of","text":"waiting for work"}` —
+    // not in a separate note collection the way a class diagram's is.
+    const document = documentOf(
+      "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle : waiting for work\n",
+    );
+
+    expect(document.states.map((state) => [state.id, state.note])).toEqual([
+      ["Idle", { position: "right of", text: "waiting for work" }],
+      ["Busy", null],
+    ]);
+  });
+
+  it("lets a second note on one state replace the first, whichever sides they were written on", () => {
+    // **The measurement that decided the field is singular.** Mermaid
+    // 11.17.2, measured twice: `note right of Idle : first` followed by
+    // `note left of Idle : second` reports the one note
+    // `{"position":"left of","text":"second"}`, and the same pair written on
+    // the same side reports `{"position":"right of","text":"second"}`. Two
+    // notes on one state is not a document Mermaid has — which is why this is
+    // a `StateNote | null` field on the state and not the `ClassNote[]`
+    // collection a class diagram carries.
+    const crossed = documentOf(
+      "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle : first\n  note left of Idle : second\n",
+    );
+    expect(crossed.states[0].note).toEqual({ position: "left of", text: "second" });
+
+    const sameSide = documentOf(
+      "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle : first\n  note right of Idle : second\n",
+    );
+    expect(sameSide.states[0].note).toEqual({ position: "right of", text: "second" });
+
+    // One state, not two: the second statement annotates the state again
+    // rather than declaring anything new.
+    expect(sameSide.states.map((state) => state.id)).toEqual(["Idle", "Busy"]);
+  });
+
+  it("declares the state a note names when no other line has", () => {
+    // Measured (mermaid 11.17.2): `note right of Ghost : who?` puts `Ghost`
+    // into the state table carrying the note, with nothing pointing at it —
+    // so the note declares its state exactly as a description does
+    // (`Lonely : waits`), and the state is drawn.
+    const document = documentOf(
+      "stateDiagram-v2\n  Idle --> Busy\n  note right of Ghost : who?\n",
+    );
+
+    expect(document.states.map((state) => state.id)).toEqual(["Idle", "Busy", "Ghost"]);
+    expect(document.states[2].note).toEqual({ position: "right of", text: "who?" });
+
+    // And inside a composite it joins that block, the way every other
+    // first mention of a state does — measured: mermaid reports
+    // `id="Ghost" in="root/Outer"` for a note written inside `state Outer {`.
+    const nested = documentOf(
+      "stateDiagram-v2\n  state Outer {\n    Inner --> Done\n    note right of Ghost : who?\n  }\n",
+    );
+    expect(nested.states.map((state) => `${state.id}:${state.parentId}`)).toEqual([
+      "Outer:null",
+      "Inner:Outer",
+      "Done:Outer",
+      "Ghost:Outer",
+    ]);
+  });
+
+  it("refuses the note spellings Mermaid itself refuses, rather than reading them as text", () => {
+    // The other half of implementing a construct: the pattern must not reach
+    // past what Mermaid accepts, or Siren draws a picture for a document that
+    // does not render. Each line below is a **parse or lexical error in
+    // mermaid 11.17.2** (measured, scripts/mermaid-probe.mjs), so the whole
+    // document is refused here too — and refused as *malformed*, which is
+    // what it is, rather than named as an unimplemented construct.
+    const refused = [
+      // `over` is a sequence diagram's word: "Lexical error on line 3."
+      "note over Idle : hovering",
+      // A second colon is not note text: "Expecting ... got 'DESCR'".
+      "note right of Idle : a : b : c",
+      // Nothing after the colon is not an empty note: "Lexical error".
+      "note right of Idle :",
+    ];
+
+    for (const statement of refused) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${statement}\n`,
+      );
+
+      expect(document, `for "${statement}"`).toBeNull();
+      expect(
+        diagnostics.map((d) => [d.severity, d.line]),
+        `for "${statement}"`,
+      ).toEqual([["error", 3]]);
+    }
+
+    // And the state keeps no note from any of them — the refusal is not a
+    // half-read statement that left something behind.
+    const { document } = parseStateDiagram(
+      "stateDiagram-v2\n  Idle --> Busy\n  note over Idle : hovering\n",
+    );
+    expect(document).toBeNull();
+  });
+
+  it("ignores `note \"text\" as N`, the floating spelling Mermaid records nothing for", () => {
+    // Measured (mermaid 11.17.2): this line parses — it is not an error —
+    // and reaches **no** state table and no drawn figure: `--markup` shows
+    // only `Idle` and `Busy`. So Mermaid renders this document, and refusing
+    // it here would trade a document that renders for no picture at all,
+    // which is the one thing CONTEXT.md's compatibility condition forbids.
+    // Accepted and dropped on the floor, exactly as `state Skipped` is.
+    const { document, diagnostics } = parseStateDiagram(
+      'stateDiagram-v2\n  Idle --> Busy\n  note "floating" as N\n',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document).not.toBeNull();
+    // No state `N`, and no note on anything: Mermaid records neither.
+    expect((document as StateDocument).states.map((state) => [state.id, state.note])).toEqual([
+      ["Idle", null],
+      ["Busy", null],
+    ]);
   });
 
   it("reads `classDef` and the `class` apply-directive into the document's styles", () => {

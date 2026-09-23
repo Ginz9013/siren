@@ -1880,6 +1880,55 @@ export interface PositionedClassDiagram {
 export type StateKind = "state" | "composite" | "start" | "end";
 
 /**
+ * Which side of its state a note was written on: the two spellings, and the
+ * only two — measured (mermaid 11.17.2), `note over Idle : text` is a
+ * **lexical error**, so `over` is not a third position here the way it is in
+ * a sequence diagram.
+ *
+ * Kept as the author's own two-word spelling rather than folded to
+ * `"left"`/`"right"`, because that is the whole of what Mermaid records
+ * (`note={"position":"right of",...}`) and a renamed value would be a
+ * vocabulary of Siren's own for a construct it is copying.
+ */
+export type StateNotePosition = "left of" | "right of";
+
+/**
+ * A note written onto one state — `note right of Idle : waiting for work`.
+ *
+ * **It hangs off the state**, which is why this is a field on `StateDecl`
+ * rather than an entry in a list beside the states. Measured (mermaid
+ * 11.17.2): the note is reported *on the state's own record* as
+ * `note={"position":"right of","text":"waiting for work"}` — emphatically
+ * not the shape `ClassDocument.notes` has, where a note is an element of its
+ * own that may float free or attach to a class. Copying that shape here
+ * would build a data model Mermaid does not have.
+ *
+ * **Singular, not a list**, and that too is measured rather than assumed: a
+ * second `note ... of Idle` **replaces** the first, whichever side either
+ * was written on (`note right of Idle : first` then
+ * `note left of Idle : second` reports one note,
+ * `{"position":"left of","text":"second"}`). So a state carries at most one,
+ * last statement wins, and there is no document in which two notes annotate
+ * one state.
+ *
+ * **It has no id of its own.** Mermaid's drawn note is addressed by a name
+ * derived from its state (`state-Idle----note-1`), never by anything the
+ * author wrote, so a note is reachable only *through* the state it annotates
+ * and is **not** a timeline target — ADR-0009's targets are ids, and there is
+ * no id here to be one. Minting one would invent an author-facing handle
+ * Mermaid has no spelling for, so nothing does.
+ */
+export interface StateNote {
+  position: StateNotePosition;
+  /**
+   * The note's text, trimmed — never empty, because `note right of Idle :`
+   * with nothing after the colon is a lexical error in Mermaid (measured),
+   * not a note carrying a blank line.
+   */
+  text: string;
+}
+
+/**
  * A state as the parser read it — one declaration per state, in the order
  * the document first named it.
  *
@@ -1954,6 +2003,16 @@ export interface StateDecl {
    * out along the document's own direction rather than its parent's.
    */
   direction: Direction | null;
+  /**
+   * The note written onto this state, or `null` when the author wrote none —
+   * which is the ordinary case and the one every other statement leaves
+   * alone.
+   *
+   * One field rather than a list, and a field here rather than a collection
+   * beside the states: both are measured, and `StateNote` records what was
+   * measured and why.
+   */
+  note: StateNote | null;
   /** 1-based line the state was first named on. */
   line: number;
   /** 1-based column the statement that first named it starts at. */
@@ -2125,6 +2184,20 @@ export interface ResolvedState {
    * diagram too (mermaid 11.17.2 draws no `s` once `s : text` is written).
    */
   descriptions: string[];
+  /**
+   * The note written onto this state, or `null` when the author wrote none —
+   * carried straight through from `StateDecl.note`, authored text and an
+   * authored side with nothing for this stage to resolve.
+   *
+   * Always `null` on a pseudo-state, and not by a rule of this stage's:
+   * `note right of [*]` is refused by name in the parser, so no note ever
+   * reaches a state whose id was generated.
+   *
+   * It stays a field on the state rather than becoming an element beside
+   * them, because it has no id — see `StateNote`, and ADR-0009 on why that
+   * makes it unaddressable from a `timeline:` block.
+   */
+  note: StateNote | null;
 }
 
 /**
@@ -2196,6 +2269,43 @@ export interface PositionedStateRow {
 }
 
 /**
+ * A state's note with a layout-assigned box and the connector joining it to
+ * that state. `x`/`y` are the box's top-left corner, as everywhere else here.
+ *
+ * **Placed, not merely sized.** Measured (mermaid 11.17.2): the note is a
+ * node of the layout graph in its own right — Mermaid inserts it as one,
+ * joined to its state by an edge with `arrowhead: "none"` — which is what
+ * keeps it clear of the states around it instead of drawn over them. Siren
+ * hands it to the same shared layout core for the same reason, exactly as
+ * `layoutClassDiagram` already does with a class note.
+ *
+ * `position` does not survive to here, and that is the point of laying it out
+ * this way: the side the author named has already been spent, as the
+ * *direction* of that joining edge — `right of` runs state → note and
+ * `left of` runs note → state (measured, from Mermaid's own construction) —
+ * so which side the note ended up on is now a fact about `x`/`y`, not a flag
+ * for the renderer to act on a second time.
+ */
+export interface PositionedStateNote {
+  /** The note's text, exactly as the author wrote it. */
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * The connector between the state and the note, **always ordered from the
+   * state to the note** whichever side the author put it on — so a reader of
+   * these points never has to ask which spelling produced them.
+   *
+   * Drawn with no arrowhead, measured: Mermaid builds this edge with
+   * `arrowhead: "none"`, which is what keeps a note's connector from reading
+   * as a transition into the note.
+   */
+  connector: Point[];
+}
+
+/**
  * A state with a layout-assigned box. `x`/`y` are the box's top-left corner,
  * matching `PositionedNode` and `PositionedClass`.
  */
@@ -2245,6 +2355,17 @@ export interface PositionedState {
    * the descriptions: an id is not drawn once a description exists.
    */
   dividerY: number | null;
+  /**
+   * The note hanging off this state, placed and connected, or `null` when
+   * the author wrote none.
+   *
+   * Carried **on the state** rather than in a list beside them, all the way
+   * to the renderer, for the reason `StateNote` gives: it has no id, so
+   * there is nothing else it could be addressed as, and the elements drawn
+   * for it wear the state's own `data-siren-id` rather than one of their own
+   * (ADR-0009 — a timeline target is an id, and a note has none).
+   */
+  note: PositionedStateNote | null;
 }
 
 /** A transition with a layout-assigned path and, when it carries one, a label anchor. */
