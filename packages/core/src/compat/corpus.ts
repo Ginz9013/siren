@@ -3680,13 +3680,43 @@ line2\`"]`,
       direction LR
       Idle --> Busy
       Busy --> Done`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`direction LR` written at the document's own level, outside any " +
       "composite, sets the whole diagram's rank direction. Measured: the " +
-      "document reports `direction LR`. Siren reads this statement **inside** " +
-      "a composite (`st-composite-direction`) and only there, so the " +
-      "document-level spelling is the unimplemented half of one construct.",
+      "document reports `direction LR`, and mermaid 11.17.2 draws these " +
+      "three states at x = 28, 158 and 288 with every one of them at y = 18 " +
+      "— sideways, on one row. The **first** such statement wins and a " +
+      "later one at the same level is inert (measured: `direction LR` then " +
+      "`direction RL` still reports `LR`), which is where this kind parts " +
+      "company with a class diagram's last-wins rule. A composite's own " +
+      "`direction` (`st-composite-direction`) is the other half of the " +
+      "construct and governs that block alone.",
+    assert: (result) => {
+      const centre = (id: string) => stateRectCenter(result, id);
+      // Sideways, read off the picture: each successor to the right of the
+      // state pointing at it. Under the `TB` a document naming no direction
+      // gets, these three are stacked instead.
+      expectSame(
+        `Busy is drawn right of Idle (${JSON.stringify([centre("Idle"), centre("Busy")])})`,
+        centre("Busy").x > centre("Idle").x,
+        true,
+      );
+      expectSame(
+        `and Done right of Busy (${JSON.stringify(centre("Done"))})`,
+        centre("Done").x > centre("Busy").x,
+        true,
+      );
+      // And on one row, which is what says the rank direction reached the
+      // layout rather than the boxes merely differing in width.
+      expectSame(
+        "all three are drawn on one row",
+        [centre("Busy").y - centre("Idle").y, centre("Done").y - centre("Idle").y].filter(
+          (gap) => Math.abs(gap) >= 1,
+        ),
+        [],
+      );
+    },
   },
   {
     id: "st-composite-quoted-description",

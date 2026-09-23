@@ -770,8 +770,18 @@ const SILENTLY_WRONG = 0;
  * check on whatever the layout engine hands back, and it still stands — this
  * construct simply no longer reaches it. `silently-wrong` does not move,
  * because this row was never silent.
+ *
+ * **6 → 5, a row leaving the same way: it started working.**
+ * `st-direction-document` is `supported` — `direction LR` at a state
+ * diagram's own level now reaches dagre as the whole graph's rank direction,
+ * with an assert that reads the successor's coordinates off the rendered SVG
+ * rather than the absence of a diagnostic (`01M368FXB`). The document-level
+ * and composite-level spellings of `direction` are now both implemented and
+ * stay independent, so `st-composite-direction` is untouched.
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
  */
-const REJECTED = 6;
+const REJECTED = 5;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

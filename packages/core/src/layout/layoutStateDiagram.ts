@@ -49,20 +49,6 @@ const PSEUDO_STATE_RADIUS = 7;
 const COMPOSITE_PADDING = 12;
 
 /**
- * The direction a state diagram is laid out in.
- *
- * Measured against mermaid 11.17.2: a state diagram with no `direction`
- * statement reports `TB`. A `direction` statement at the document's own
- * level is not read by `parseStateDiagram` — it stays an unrecognized line —
- * so there is nothing on the model for this to come from, and pretending
- * otherwise with a field that is always `"TB"` would be a contract saying
- * something the parser cannot say. A *composite's* own `direction` is read,
- * and reaches dagre per cluster as `ResolvedState.direction`; it changes the
- * rank direction inside that block alone and leaves this one where it is.
- */
-const STATE_RANKDIR = "TB";
-
-/**
  * Computes state boxes and transition paths for a resolved `StateModel`.
  *
  * This is the state-diagram adapter over `layoutDirectedGraph`: it measures
@@ -81,7 +67,12 @@ export function layoutStateDiagram(
   );
 
   const laidOut = layoutDirectedGraph({
-    rankdir: STATE_RANKDIR,
+    // The document's own rank direction — `TB` unless the author wrote a
+    // `direction` outside every composite, which is the default measured
+    // against mermaid 11.17.2. A *composite's* own direction is a separate
+    // thing and reaches dagre per cluster below; measured, the two are
+    // independent, so neither overrides the other.
+    rankdir: model.direction,
     nodes: model.states.map((state) => {
       const plan = planById.get(state.id)!;
       return {

@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type { StateDocument } from "../contracts";
+import type { Direction, StateDocument } from "../contracts";
 import { buildStateModel } from "./buildStateModel";
 
-/** A parsed state document, with the source positions every fixture ignores filled in. */
+/**
+ * A parsed state document, with the source positions every fixture ignores
+ * filled in — and `TB`, the direction a document naming none carries, unless
+ * a test is about the direction.
+ */
 function document(
   transitions: { from: string; to: string; label?: string | null }[],
   stateIds?: string[],
+  direction: Direction = "TB",
 ): StateDocument {
   const ids =
     stateIds ??
     transitions.flatMap(({ from, to }) => [from, to]).filter((id, index, all) => all.indexOf(id) === index);
   return {
     kind: "state",
+    direction,
     timeline: null,
     states: ids.map((id) => ({
       id,
@@ -97,6 +103,16 @@ describe("buildStateModel", () => {
     expect(model!.states.map((s) => s.id)).toEqual(["Idle", "Running", "Lonely"]);
   });
 
+  it("carries the document's own direction through to the model, `TB` included", () => {
+    // Authored, resolved by the parser, and with nothing for this stage to
+    // decide — so it passes through exactly as a composite's own direction
+    // already does. It is carried at all because the model is what layout
+    // reads: a direction that stopped at the document would leave the
+    // picture top-to-bottom whatever the author wrote.
+    expect(buildStateModel(document([{ from: "Idle", to: "Busy" }], undefined, "LR")).model!.direction).toBe("LR");
+    expect(buildStateModel(document([{ from: "Idle", to: "Busy" }])).model!.direction).toBe("TB");
+  });
+
   it("carries a described state's descriptions through unchanged, and gives a pseudo-state none", () => {
     // A description is authored text with nothing for this stage to resolve
     // — unlike a transition, which arrives needing an id — so it comes
@@ -105,6 +121,7 @@ describe("buildStateModel", () => {
     // statement can name one.
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      direction: "TB",
       timeline: null,
       states: [
         {
@@ -170,6 +187,7 @@ describe("buildStateModel", () => {
     // no authored `\w+` id can spell).
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      direction: "TB",
       timeline: null,
       states: [
         {
@@ -239,6 +257,7 @@ describe("buildStateModel", () => {
     // and never `start:1` beside `start:2`.
     const { model } = buildStateModel({
       kind: "state",
+      direction: "TB",
       timeline: null,
       states: [
         {
@@ -328,6 +347,7 @@ describe("buildStateModel", () => {
   it("joins `[*] --> [*]` from the start pseudo-state to the end one, which are two different states", () => {
     const { model } = buildStateModel({
       kind: "state",
+      direction: "TB",
       timeline: null,
       states: [
         {
@@ -377,6 +397,7 @@ describe("buildStateModel", () => {
     // collision is unconstructible rather than merely unlikely.
     const { model } = buildStateModel({
       kind: "state",
+      direction: "TB",
       timeline: null,
       states: [
         {
@@ -446,6 +467,7 @@ describe("buildStateModel", () => {
     // spelling being invented for a nested one.
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      direction: "TB",
       timeline: null,
       states: [
         { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
@@ -487,6 +509,7 @@ describe("buildStateModel", () => {
     // it a generated id, and an id is all `resolveTimeline` asks for.
     const { model, diagnostics } = buildStateModel({
       kind: "state",
+      direction: "TB",
       states: [
         { id: null, kind: "start", descriptions: [], parentId: null, direction: null, line: 2, column: 3 },
         { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, line: 3, column: 3 },

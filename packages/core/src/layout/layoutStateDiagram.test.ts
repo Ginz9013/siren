@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StateModel, TextMeasurer } from "../contracts";
+import type { Direction, StateModel, TextMeasurer } from "../contracts";
 import { layoutStateDiagram } from "./layoutStateDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -17,6 +17,7 @@ const measuredWidth = (text: string) => fakeMeasurer.measure(text).width;
 function model(
   transitions: { from: string; to: string; label?: string | null }[],
   stateIds?: string[],
+  direction: Direction = "TB",
 ): StateModel {
   const ids =
     stateIds ??
@@ -24,6 +25,7 @@ function model(
       .flatMap(({ from, to }) => [from, to])
       .filter((id, index, all) => all.indexOf(id) === index);
   return {
+    direction,
     states: ids.map((id) => ({
       id,
       kind: "state" as const,
@@ -61,6 +63,26 @@ describe("layoutStateDiagram", () => {
 
     const [idle, running] = laid.states;
     expect(running.y).toBeGreaterThan(idle.y);
+  });
+
+  it("lays the diagram out along the direction the document named", () => {
+    // Measured (mermaid 11.17.2, `--markup`): with `direction LR` at the
+    // document's own level, the three states of `Idle --> Busy --> Done` are
+    // drawn at x = 28, 158, 288, every one of them at y = 18 — sideways, on
+    // one row. The same document with no `direction` is the test above.
+    const laid = layoutStateDiagram(
+      model([{ from: "Idle", to: "Busy" }, { from: "Busy", to: "Done" }], undefined, "LR"),
+      options,
+    );
+
+    const [idle, busy, done] = laid.states;
+    expect(busy.x).toBeGreaterThan(idle.x);
+    expect(done.x).toBeGreaterThan(busy.x);
+    // On one row: a rank direction that had not reached dagre would leave
+    // these three stacked, which is what the `x` comparisons alone could
+    // still be satisfied by if the boxes merely differed in width.
+    expect(busy.y).toBe(idle.y);
+    expect(done.y).toBe(idle.y);
   });
 
   it("routes every transition between its two states, and reports where a label goes", () => {
@@ -139,6 +161,7 @@ describe("layoutStateDiagram", () => {
     // the figure UML draws here.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
           { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null },
@@ -181,6 +204,7 @@ describe("layoutStateDiagram", () => {
     // one.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "s", kind: "state", descriptions: ["waiting for work"], parentId: null, direction: null },
           { id: "Undescribed", kind: "state", descriptions: [], parentId: null, direction: null },
@@ -220,6 +244,7 @@ describe("layoutStateDiagram", () => {
     // description exists.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "s", kind: "state", descriptions: ["first", "second", "third"], parentId: null, direction: null },
           { id: "t", kind: "state", descriptions: ["only"], parentId: null, direction: null },
@@ -261,6 +286,7 @@ describe("layoutStateDiagram", () => {
     // subgraph's.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
           { id: "Idle", kind: "state", descriptions: [], parentId: "Outer", direction: null },
@@ -304,6 +330,7 @@ describe("layoutStateDiagram", () => {
     // the part that reaches highest.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
           { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: null },
@@ -349,6 +376,7 @@ describe("layoutStateDiagram", () => {
     // time, against the frame that is actually drawn.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
           { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
@@ -407,6 +435,7 @@ describe("layoutStateDiagram", () => {
     // are side by side, while the diagram's own two ranks stay stacked.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
           { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null },
           { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR" },
