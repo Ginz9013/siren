@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StateModel, TextMeasurer } from "../contracts";
+import type { Direction, StateModel, TextMeasurer } from "../contracts";
 import { layoutStateDiagram } from "./layoutStateDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -17,6 +17,7 @@ const measuredWidth = (text: string) => fakeMeasurer.measure(text).width;
 function model(
   transitions: { from: string; to: string; label?: string | null }[],
   stateIds?: string[],
+  direction: Direction = "TB",
 ): StateModel {
   const ids =
     stateIds ??
@@ -24,12 +25,15 @@ function model(
       .flatMap(({ from, to }) => [from, to])
       .filter((id, index, all) => all.indexOf(id) === index);
   return {
+    direction,
     states: ids.map((id) => ({
       id,
       kind: "state" as const,
+      stereotype: null,
       descriptions: [],
       parentId: null,
       direction: null,
+      note: null,
     })),
     transitions: transitions.map(({ from, to, label }) => ({
       id: `${from}-${to}`,
@@ -37,8 +41,26 @@ function model(
       to,
       label: label ?? null,
     })),
+    styles: [],
     timeline: { totalSteps: 0, entries: [] },
   };
+}
+
+/**
+ * Whether `point` sits on the outline of `box` — the check a routed
+ * connector's ends are held to, since which of the four edges it leaves by
+ * is the layout engine's business and being *on the figure* is not.
+ */
+function onBoundaryOf(
+  box: { x: number; y: number; width: number; height: number },
+  point: { x: number; y: number },
+): boolean {
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const withinX = point.x >= box.x - 0.5 && point.x <= box.x + box.width + 0.5;
+  const withinY = point.y >= box.y - 0.5 && point.y <= box.y + box.height + 0.5;
+  const onVerticalEdge = (near(point.x, box.x) || near(point.x, box.x + box.width)) && withinY;
+  const onHorizontalEdge = (near(point.y, box.y) || near(point.y, box.y + box.height)) && withinX;
+  return onVerticalEdge || onHorizontalEdge;
 }
 
 describe("layoutStateDiagram", () => {
@@ -61,6 +83,26 @@ describe("layoutStateDiagram", () => {
 
     const [idle, running] = laid.states;
     expect(running.y).toBeGreaterThan(idle.y);
+  });
+
+  it("lays the diagram out along the direction the document named", () => {
+    // Measured (mermaid 11.17.2, `--markup`): with `direction LR` at the
+    // document's own level, the three states of `Idle --> Busy --> Done` are
+    // drawn at x = 28, 158, 288, every one of them at y = 18 — sideways, on
+    // one row. The same document with no `direction` is the test above.
+    const laid = layoutStateDiagram(
+      model([{ from: "Idle", to: "Busy" }, { from: "Busy", to: "Done" }], undefined, "LR"),
+      options,
+    );
+
+    const [idle, busy, done] = laid.states;
+    expect(busy.x).toBeGreaterThan(idle.x);
+    expect(done.x).toBeGreaterThan(busy.x);
+    // On one row: a rank direction that had not reached dagre would leave
+    // these three stacked, which is what the `x` comparisons alone could
+    // still be satisfied by if the boxes merely differed in width.
+    expect(busy.y).toBe(idle.y);
+    expect(done.y).toBe(idle.y);
   });
 
   it("routes every transition between its two states, and reports where a label goes", () => {
@@ -131,6 +173,231 @@ describe("layoutStateDiagram", () => {
     }
   });
 
+  it("gives a noted state a note box of its own, sized around the note's measured text", () => {
+    // The note is a *figure*, not a second row inside the state's box —
+    // measured (mermaid 11.17.2, `--markup`): it comes back as its own
+    // `g.node.statediagram-note` with its own outline, beside the
+    // `g.node.statediagram-state` it annotates, whose rect is untouched.
+    // So the state keeps the box its own label earned, and the note gets
+    // one measured around its own text.
+    const noted = model([{ from: "Idle", to: "Busy" }]);
+    noted.states[0].note = { position: "right of", text: "waiting for work" };
+
+    const laid = layoutStateDiagram(noted, options);
+
+    const [idle, busy] = laid.states;
+    expect(busy.note).toBeNull();
+    expect(idle.note).not.toBeNull();
+    expect(idle.note!.text).toBe("waiting for work");
+    expect(idle.note!.width).toBeGreaterThan(measuredWidth("waiting for work"));
+    expect(idle.note!.height).toBeGreaterThan(
+      fakeMeasurer.measure("waiting for work").height,
+    );
+    // The annotated state is sized from its own label and nothing else: a
+    // note that widened the box it hangs off would be a row of the box
+    // rather than a figure beside it.
+    expect(idle.width).toBe(busy.width - (measuredWidth("Busy") - measuredWidth("Idle")));
+  });
+
+  it("puts a `right of` note after its state along the diagram's direction, and a `left of` one before", () => {
+    // **What `left of` and `right of` actually decide**, measured from
+    // mermaid 11.17.2's own construction: the note is a node of the layout
+    // graph, and the position picks the *direction of the edge joining it to
+    // its state* — `right of` builds `state → note`, `left of` builds
+    // `note → state`. Everything else is the layout engine's rank order. So
+    // under `direction LR` the two words are literally left and right, and
+    // under the default `TB` they are above and below — which is Mermaid's
+    // behaviour because it is Mermaid's mechanism, not a rule of Siren's.
+    const sideways = (position: "left of" | "right of") => {
+      const noted = model([{ from: "Idle", to: "Busy" }], undefined, "LR");
+      noted.states[0].note = { position, text: "why" };
+      const laid = layoutStateDiagram(noted, options);
+      return laid.states[0];
+    };
+
+    const right = sideways("right of");
+    expect(right.note!.x).toBeGreaterThan(right.x + right.width);
+
+    const left = sideways("left of");
+    expect(left.note!.x + left.note!.width).toBeLessThan(left.x);
+
+    // Top to bottom, the same two words rank the note below and above.
+    const downward = model([{ from: "Idle", to: "Busy" }]);
+    downward.states[0].note = { position: "right of", text: "why" };
+    const below = layoutStateDiagram(downward, options).states[0];
+    expect(below.note!.y).toBeGreaterThan(below.y + below.height);
+  });
+
+  it("joins a note to its state with a connector, reported from the state to the note", () => {
+    // Measured: Mermaid draws this connector as an edge of its own with
+    // `arrowhead: "none"` (`path.note-edge`), so it is a real routed line
+    // between the two figures rather than an implied adjacency.
+    //
+    // Always ordered state → note, whichever side the author wrote, so
+    // nothing downstream has to re-read the position to know which end is
+    // which: the edge itself runs the other way for `left of`.
+    for (const position of ["left of", "right of"] as const) {
+      const noted = model([{ from: "Idle", to: "Busy" }], undefined, "LR");
+      noted.states[0].note = { position, text: "why" };
+
+      const idle = layoutStateDiagram(noted, options).states[0];
+      const connector = idle.note!.connector;
+
+      expect(connector.length, position).toBeGreaterThanOrEqual(2);
+      // The first point is on the state's own boundary and the last on the
+      // note's — a connector reported the other way round fails here without
+      // any coordinate changing, which is what makes the promised order a
+      // fact rather than a comment.
+      expect(onBoundaryOf(idle, connector[0]), `${position}: first point`).toBe(true);
+      expect(
+        onBoundaryOf(idle.note!, connector[connector.length - 1]),
+        `${position}: last point`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps a note inside the frame of the composite whose state it annotates, and inside the canvas", () => {
+    // A note is drawn at the level of the state it hangs off — so a note on
+    // a state written inside `state Outer { }` belongs inside that frame,
+    // and one that spilled out of it would read as annotating the block from
+    // outside. The frame is grown here rather than by the shared core (see
+    // `compositeFrames`), so the note box has to be grown into as well.
+    const nested: StateModel = {
+      direction: "TB",
+      states: [
+        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+        {
+          id: "Inner",
+          kind: "state",
+          stereotype: null,
+          descriptions: [],
+          parentId: "Outer",
+          direction: null,
+          note: { position: "right of", text: "a long note about the inner state" },
+        },
+        { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+      ],
+      transitions: [{ id: "Inner-Done", from: "Inner", to: "Done", label: null }],
+      styles: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const laid = layoutStateDiagram(nested, options);
+    const [outer, inner] = laid.states;
+    const note = inner.note!;
+
+    expect(note.x).toBeGreaterThanOrEqual(outer.x);
+    expect(note.y).toBeGreaterThanOrEqual(outer.y);
+    expect(note.x + note.width).toBeLessThanOrEqual(outer.x + outer.width);
+    expect(note.y + note.height).toBeLessThanOrEqual(outer.y + outer.height);
+
+    // And the canvas covers it: a note placed outside the reported
+    // width/height is clipped away by the `viewBox`, which is the same
+    // invisible failure a loop routed off-canvas would be.
+    expect(note.x + note.width).toBeLessThanOrEqual(laid.width);
+    expect(note.y + note.height).toBeLessThanOrEqual(laid.height);
+    for (const point of note.connector) {
+      expect(point.x).toBeLessThanOrEqual(laid.width);
+      expect(point.y).toBeLessThanOrEqual(laid.height);
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("grows a frame around a note even where the shared core does not size the cluster from its members", () => {
+    // The case `compositeFrames` documents and the one the test above is too
+    // easy to catch it: a composite **nested inside one that carries a
+    // `direction`** comes back from the shared core at exactly the size
+    // handed in, with its members at coordinates outside it. A note is a
+    // member like any other, so a frame grown from the states alone leaves
+    // the note hanging out of the block — and, since the canvas is grown the
+    // same way, off the edge of the picture entirely.
+    const nested: StateModel = {
+      direction: "TB",
+      states: [
+        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+        { id: "Inner", kind: "composite", stereotype: null, descriptions: [], parentId: "Outer", direction: "LR", note: null },
+        {
+          id: "Deep",
+          kind: "state",
+          stereotype: null,
+          descriptions: [],
+          parentId: "Inner",
+          direction: null,
+          note: { position: "right of", text: "a very long note about the deep state" },
+        },
+        { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+      ],
+      transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
+      styles: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const laid = layoutStateDiagram(nested, options);
+    const [outer, inner, deep] = laid.states;
+    const note = deep.note!;
+
+    for (const frame of [inner, outer]) {
+      expect(note.x, frame.id).toBeGreaterThanOrEqual(frame.x);
+      expect(note.y, frame.id).toBeGreaterThanOrEqual(frame.y);
+      expect(note.x + note.width, frame.id).toBeLessThanOrEqual(frame.x + frame.width);
+      expect(note.y + note.height, frame.id).toBeLessThanOrEqual(frame.y + frame.height);
+    }
+    expect(note.x + note.width).toBeLessThanOrEqual(laid.width);
+    expect(note.y + note.height).toBeLessThanOrEqual(laid.height);
+  });
+
+  it("lands a composite's own note on the frame's boundary, not inside it", () => {
+    // A composite carries a note exactly as a state does — measured: mermaid
+    // records it on the composite's own record. What differs is where the
+    // connector has to stop: the shared core clipped the route to the
+    // *cluster box* it placed, and a frame is grown outward from that box,
+    // so a connector left where the core put it starts inside the frame by
+    // exactly the padding and title strip this module added.
+    const withNote: StateModel = {
+      direction: "TB",
+      states: [
+        { id: "Before", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+        {
+          id: "Outer",
+          // A title of its own, which is what grows the frame upward past
+          // the cluster box the core placed — the growth the clip pays for.
+          kind: "composite",
+          stereotype: null,
+          descriptions: ["a very long composite title"],
+          parentId: null,
+          direction: null,
+          note: { position: "left of", text: "about the block" },
+        },
+        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+        { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+      ],
+      transitions: [
+        { id: "Before-Outer", from: "Before", to: "Outer", label: null },
+        { id: "Inner-Done", from: "Inner", to: "Done", label: null },
+      ],
+      styles: [],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+
+    const laid = layoutStateDiagram(withNote, options);
+    const outer = laid.states[1];
+    const note = outer.note!;
+
+    expect(onBoundaryOf(outer, note.connector[0])).toBe(true);
+    // And the note is a figure beside the block rather than one of the boxes
+    // inside it: it does not overlap the frame at all, so it is never drawn
+    // over the states the block holds. (Which *side* of the frame it lands on
+    // is the layout engine's, as it is for every other figure here — this
+    // fixture happens to put it to the left.)
+    const overlaps =
+      note.x < outer.x + outer.width &&
+      outer.x < note.x + note.width &&
+      note.y < outer.y + outer.height &&
+      outer.y < note.y + note.height;
+    expect(overlaps).toBe(false);
+  });
+
   it("gives each pseudo-state a square box of its own size, not one measured around its generated id", () => {
     // A pseudo-state draws a disc and a ring, neither of which holds text —
     // so sizing it the way a state is sized would reserve room for
@@ -139,15 +406,17 @@ describe("layoutStateDiagram", () => {
     // the figure UML draws here.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
-          { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null },
-          { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null },
+          { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "end:1", kind: "end", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [
           { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
           { id: "Idle-end:1", from: "Idle", to: "end:1", label: null },
         ],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -172,6 +441,145 @@ describe("layoutStateDiagram", () => {
     expect(byId.get("end:1")!.y).toBeGreaterThan(byId.get("Idle")!.y);
   });
 
+  it("sizes a stereotyped state from its figure rather than its label, and gives it no rows to draw", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs --markup, and
+    // again with a script reading each path's extent): under the default
+    // `TB`,
+    //
+    //   <<choice>>  a diamond spanning x[-14,14] y[-14,14] — 28 × 28
+    //   <<fork>>    a bar spanning x[-35,35] y[-5,5]       — 70 × 10
+    //   <<join>>    the same bar, path for path
+    //
+    // and none of the three is drawn with a label: Mermaid's `forkJoin`
+    // shape sets `node.label = ""`, and the `<g>` for each comes back with
+    // no `g.label` child at all, while `Idle`'s beside it has one. So the
+    // box is sized from the figure, and the id — which stays the author's
+    // and stays what a transition names — is addressing-only here, exactly
+    // as it is for a described state.
+    const laid = layoutStateDiagram(
+      {
+        direction: "TB",
+        states: [
+          { id: "Choice", kind: "state", stereotype: "choice", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Merge", kind: "state", stereotype: "join", descriptions: [], parentId: null, direction: null, note: null },
+        ],
+        transitions: [
+          { id: "Choice-Split", from: "Choice", to: "Split", label: null },
+          { id: "Split-Merge", from: "Split", to: "Merge", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const byId = new Map(laid.states.map((state) => [state.id, state]));
+    expect([byId.get("Choice")!.width, byId.get("Choice")!.height]).toEqual([28, 28]);
+    expect([byId.get("Split")!.width, byId.get("Split")!.height]).toEqual([70, 10]);
+    expect([byId.get("Merge")!.width, byId.get("Merge")!.height]).toEqual([70, 10]);
+
+    // No text, so nothing for the renderer to draw — and nothing measured
+    // from the id, which is why `Merge` and `Split` are the same size
+    // despite being different lengths.
+    expect(laid.states.map((state) => state.rows)).toEqual([[], [], []]);
+    expect(laid.states.map((state) => state.dividerY)).toEqual([null, null, null]);
+
+    // The stereotype survives layout, because it is the only thing left that
+    // says which figure the renderer draws — `kind` says `state` for all
+    // three.
+    expect(laid.states.map((state) => [state.kind, state.stereotype])).toEqual([
+      ["state", "choice"],
+      ["state", "fork"],
+      ["state", "join"],
+    ]);
+  });
+
+  it("turns a fork's bar through a right angle when its own level runs left to right", () => {
+    // Measured (mermaid 11.17.2): the bar is 70 × 10 under `TB`, `BT`, `RL`
+    // and `TD`, and 10 × 70 under `LR` alone — Mermaid's `forkJoin` shape
+    // tests `dir === "LR"` exactly, so `RL` gets the horizontal bar despite
+    // also being a left-right direction. That is Mermaid's drawing and Siren
+    // follows it: the document says nothing about which way the bar points,
+    // so there is nothing here for it to contradict.
+    //
+    // **Its own level's direction, and no other's.** Measured four ways: a
+    // fork inside `state Outer { direction LR }` is vertical while the
+    // document is `TB`; one inside `{ direction TB }` is horizontal while
+    // the document is `LR`; and one inside a composite naming *no*
+    // direction is horizontal even under a document-level `direction LR` —
+    // Mermaid lays that composite out top-to-bottom too, so the level's own
+    // statement is the whole of the answer and nothing cascades.
+    const forkIn = (documentDirection: Direction, compositeDirection: Direction | null) =>
+      layoutStateDiagram(
+        {
+          direction: documentDirection,
+          states: [
+            { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: compositeDirection, note: null },
+            { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: "Outer", direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          ],
+          transitions: [{ id: "A-Split", from: "A", to: "Split", label: null }],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      ).states.find((state) => state.id === "Split")!;
+
+    // The level's own `LR`, wherever it came from.
+    expect([forkIn("TB", "LR").width, forkIn("TB", "LR").height]).toEqual([10, 70]);
+    // And the level's own anything-else, including a document `LR` the
+    // composite never repeated.
+    expect([forkIn("TB", "TB").width, forkIn("TB", "TB").height]).toEqual([70, 10]);
+    expect([forkIn("LR", "TB").width, forkIn("LR", "TB").height]).toEqual([70, 10]);
+    expect([forkIn("LR", null).width, forkIn("LR", null).height]).toEqual([70, 10]);
+
+    // At the document's own level there is no composite to ask, so the
+    // document's direction is that level's.
+    const atRoot = (direction: Direction) =>
+      layoutStateDiagram(
+        {
+          direction,
+          states: [
+            { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: null, direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          ],
+          transitions: [{ id: "A-Split", from: "A", to: "Split", label: null }],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      ).states.find((state) => state.id === "Split")!;
+
+    expect([atRoot("LR").width, atRoot("LR").height]).toEqual([10, 70]);
+    for (const direction of ["TB", "BT", "RL"] as const) {
+      expect(
+        [atRoot(direction).width, atRoot(direction).height],
+        `under direction ${direction}`,
+      ).toEqual([70, 10]);
+    }
+
+    // A choice is a diamond whichever way the level runs — measured: the
+    // path's extent is x[-14,14] y[-14,14] under `TB` and under `LR` alike.
+    const choiceAt = (direction: Direction) =>
+      layoutStateDiagram(
+        {
+          direction,
+          states: [
+            { id: "Choice", kind: "state", stereotype: "choice", descriptions: [], parentId: null, direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          ],
+          transitions: [{ id: "A-Choice", from: "A", to: "Choice", label: null }],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      ).states.find((state) => state.id === "Choice")!;
+
+    expect([choiceAt("TB").width, choiceAt("TB").height]).toEqual([28, 28]);
+    expect([choiceAt("LR").width, choiceAt("LR").height]).toEqual([28, 28]);
+  });
+
   it("sizes a described state's box around its description, and an undescribed one's around its id", () => {
     // Measured (mermaid 11.17.2): once `s : text` is written, `s` is not
     // drawn at all — the description is what the box holds, so it is what
@@ -181,11 +589,13 @@ describe("layoutStateDiagram", () => {
     // one.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "s", kind: "state", descriptions: ["waiting for work"], parentId: null, direction: null },
-          { id: "Undescribed", kind: "state", descriptions: [], parentId: null, direction: null },
+          { id: "s", kind: "state", stereotype: null, descriptions: ["waiting for work"], parentId: null, direction: null, note: null },
+          { id: "Undescribed", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -220,11 +630,13 @@ describe("layoutStateDiagram", () => {
     // description exists.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "s", kind: "state", descriptions: ["first", "second", "third"], parentId: null, direction: null },
-          { id: "t", kind: "state", descriptions: ["only"], parentId: null, direction: null },
+          { id: "s", kind: "state", stereotype: null, descriptions: ["first", "second", "third"], parentId: null, direction: null, note: null },
+          { id: "t", kind: "state", stereotype: null, descriptions: ["only"], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -261,12 +673,14 @@ describe("layoutStateDiagram", () => {
     // subgraph's.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
-          { id: "Idle", kind: "state", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Busy", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Busy", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Idle-Busy", from: "Idle", to: "Busy", label: null }],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -304,13 +718,15 @@ describe("layoutStateDiagram", () => {
     // the part that reaches highest.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
-          { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Deep", kind: "state", descriptions: [], parentId: "Inner", direction: null },
-          { id: "Beside", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "composite", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Deep", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+          { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -341,6 +757,268 @@ describe("layoutStateDiagram", () => {
     expect(placed("Inner").rows[0].y + rowHalf).toBeLessThanOrEqual(placed("Deep").y);
   });
 
+  it("draws each concurrent region as a frame of its own, side by side inside the block", () => {
+    // `state Active { A --> B  --  C --> D }` after the model has minted the
+    // region ids. Two facts, both measured off mermaid 11.17.2 by rendering
+    // the document and reading the node transforms out of the SVG:
+    //
+    // - each region holds its own members and nothing else, inside the
+    //   block's frame;
+    // - the two regions sit **side by side** under the default `TB` — their
+    //   group transforms came back `translate(35, 37.5)` and
+    //   `translate(125, 37.5)`, one y and two x — while each region's own
+    //   members stack in a column (A at y 68, B at y 208).
+    //
+    // The second is what falls out of the graph rather than being arranged
+    // here: two clusters with no edge between them share a rank, and a rank
+    // runs across the flow.
+    const laid = layoutStateDiagram(
+      {
+        direction: "TB",
+        states: [
+          { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+        ],
+        transitions: [
+          { id: "A-B", from: "A", to: "B", label: null },
+          { id: "C-D", from: "C", to: "D", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    const encloses = (outer: { x: number; y: number; width: number; height: number }, inner: typeof outer) =>
+      inner.x > outer.x &&
+      inner.y > outer.y &&
+      inner.x + inner.width < outer.x + outer.width &&
+      inner.y + inner.height < outer.y + outer.height;
+
+    for (const [regionId, memberIds] of [
+      ["region:1", ["A", "B"]],
+      ["region:2", ["C", "D"]],
+    ] as const) {
+      expect(encloses(placed("Active"), placed(regionId)), `Active encloses ${regionId}`).toBe(true);
+      for (const memberId of memberIds) {
+        expect(encloses(placed(regionId), placed(memberId)), `${regionId} encloses ${memberId}`).toBe(true);
+      }
+    }
+
+    // And each region holds *only* its own: the other region's members lie
+    // outside it, which is the half an enclosure check on the right pairs
+    // alone would let through.
+    expect(encloses(placed("region:1"), placed("C")), "region:1 encloses C").toBe(false);
+    expect(encloses(placed("region:2"), placed("A")), "region:2 encloses A").toBe(false);
+
+    // Side by side, not stacked: the two frames overlap in y and are
+    // disjoint in x, which is what "concurrent" looks like under `TB`.
+    const [one, two] = [placed("region:1"), placed("region:2")];
+    const disjointInX =
+      one.x + one.width <= two.x || two.x + two.width <= one.x;
+    expect(disjointInX, "the two regions are side by side").toBe(true);
+    expect(one.y).toBe(two.y);
+
+    // A region draws no title: it has no name to draw, and mermaid's own
+    // divider group comes back with no label element in it at all.
+    expect(placed("region:1").rows).toEqual([]);
+    expect(placed("region:1").dividerY).toBeNull();
+  });
+
+  it("places every node of a region carrying a direction that holds a nested composite", () => {
+    // **The shape that produced `01M2WQV0`**: a cluster carrying a
+    // `rankdir` whose direct child is another cluster. The layout engine
+    // expands such a cluster exactly one level, leaving the nested frame
+    // unexpanded and everything inside it without coordinates — which used
+    // to be a whole board of NaN with no diagnostic and is now
+    // `UnplacedNodesError`.
+    //
+    // A concurrent region reaches that shape on ordinary input, because a
+    // region may both declare a `direction` of its own (measured — the
+    // statement belongs to the region it sits in) and hold a `state Inner {`
+    // block. The compensation in the shared core (`rankdirFor`) gives a
+    // cluster with a *directed ancestor* the graph's own rankdir, at any
+    // depth, so the nested frame is expanded too; this is what says that
+    // compensation reaches a region and that nothing here has to change it.
+    //
+    // Both directions of nesting, because they fail differently: a region
+    // that declares the direction and holds a frame, and a composite that
+    // declares one and holds the divided block.
+    const regionHoldingAFrame = () =>
+      layoutStateDiagram(
+        {
+          direction: "TB",
+          states: [
+            { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+            { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: "LR", note: null },
+            { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+            { id: "Inner", kind: "composite", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+            { id: "X", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+            { id: "Y", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+            { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+            { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          ],
+          transitions: [
+            { id: "X-Y", from: "X", to: "Y", label: null },
+            { id: "C-D", from: "C", to: "D", label: null },
+          ],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      );
+
+    const compositeHoldingADividedBlock = () =>
+      layoutStateDiagram(
+        {
+          direction: "TB",
+          states: [
+            { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+            { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+            { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+            { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+            { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+            { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+            { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          ],
+          transitions: [
+            { id: "A-B", from: "A", to: "B", label: null },
+            { id: "C-D", from: "C", to: "D", label: null },
+          ],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      );
+
+    for (const [name, run] of [
+      ["a region carrying the direction", regionHoldingAFrame],
+      ["a composite carrying it above the regions", compositeHoldingADividedBlock],
+    ] as const) {
+      expect(run, name).not.toThrow();
+      const laid = run();
+      // Not merely "it did not throw": every box has four finite numbers,
+      // which is what `UnplacedNodesError` is a guard against, and the
+      // canvas covers them.
+      for (const state of laid.states) {
+        for (const value of [state.x, state.y, state.width, state.height]) {
+          expect(Number.isFinite(value), `${name}: ${state.id}`).toBe(true);
+        }
+        expect(state.x, `${name}: ${state.id}`).toBeGreaterThanOrEqual(0);
+        expect(state.y, `${name}: ${state.id}`).toBeGreaterThanOrEqual(0);
+        expect(state.x + state.width, `${name}: ${state.id}`).toBeLessThanOrEqual(laid.width);
+        expect(state.y + state.height, `${name}: ${state.id}`).toBeLessThanOrEqual(laid.height);
+      }
+    }
+
+    // And the direction a region declares governs **its own** members and
+    // stops there — the rule `rankdirFor` already states for a cluster
+    // inside a directed one, and a prediction this test overturned on the
+    // way in: `Inner` names no direction of its own, so `X` and `Y` stack
+    // down the column even though the region holding `Inner` runs `LR`.
+    // That is the core's documented meaning and Mermaid's (a frame that
+    // says nothing takes the document's direction, not its parent's).
+    const nested = regionHoldingAFrame();
+    const inNested = (id: string) => nested.states.find((state) => state.id === id)!;
+    expect(inNested("X").x).toBe(inNested("Y").x);
+
+    // Said directly, on a region whose own members are ordinary states:
+    // `LR` puts them in a row, where the undirected region beside it keeps
+    // its column.
+    const laid = layoutStateDiagram(
+      {
+        direction: "TB",
+        states: [
+          { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: "LR", note: null },
+          { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+        ],
+        transitions: [
+          { id: "A-B", from: "A", to: "B", label: null },
+          { id: "C-D", from: "C", to: "D", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    expect(placed("A").y, "the LR region lays its members out in a row").toBe(placed("B").y);
+    expect(placed("A").x).toBeLessThan(placed("B").x);
+    expect(placed("C").x, "the undirected region keeps its column").toBe(placed("D").x);
+    expect(placed("C").y).toBeLessThan(placed("D").y);
+  });
+
+  it("lays an undirected region out along the document's direction, inheriting 01M36SJDN", () => {
+    // **A divergence recorded, not introduced.** `01M36SJDN` says that
+    // under a document-level `LR` a composite naming no direction of its
+    // own lays out left-to-right here and top-to-bottom in mermaid, with no
+    // diagnostic. A concurrent region is exactly such an undirected nested
+    // frame, so it sits on top of that divergence and inherits it whole.
+    //
+    // Measured (mermaid 11.17.2, rendering `direction LR` above
+    // `state Active { A --> B -- C --> D }` and reading the transforms): the
+    // region groups came back `translate(35, 37.5)` and
+    // `translate(125, 37.5)` and their members at y 68 and y 208 —
+    // **identical, coordinate for coordinate, to the same document with no
+    // `direction` at all.** Mermaid's document-level `LR` reaches neither
+    // the regions' arrangement nor their contents.
+    //
+    // Siren's shared core gives an undirected cluster the graph's own
+    // `rankdir` (see `rankdirFor`), so here `LR` reaches both. This pins
+    // that difference so it is a measured fact rather than a surprise, and
+    // so that a fix to `01M36SJDN` — which lives in the shared core and is
+    // not this construct's to make — turns up here as a red test rather
+    // than as silence.
+    const laid = layoutStateDiagram(
+      {
+        direction: "LR",
+        states: [
+          { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+        ],
+        transitions: [
+          { id: "A-B", from: "A", to: "B", label: null },
+          { id: "C-D", from: "C", to: "D", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+
+    // A region's members run along the document's `LR` here; mermaid keeps
+    // them in a column.
+    expect(placed("A").y, "Siren turns an undirected region with the document").toBe(
+      placed("B").y,
+    );
+    expect(placed("A").x).toBeLessThan(placed("B").x);
+
+    // And the regions themselves are stacked rather than side by side,
+    // because a rank runs across the flow and the flow is now horizontal —
+    // where mermaid keeps them side by side whatever the document says.
+    const [one, two] = [placed("region:1"), placed("region:2")];
+    expect(one.x, "the regions stack once the flow turns").toBe(two.x);
+    expect(one.y + one.height).toBeLessThanOrEqual(two.y);
+  });
+
   it("lands a transition naming a composite on that frame's own boundary", () => {
     // dagre throws on an edge whose endpoint is a cluster, so the shared
     // core proxies a member and clips the route back to the frame. The frame
@@ -349,16 +1027,18 @@ describe("layoutStateDiagram", () => {
     // time, against the frame that is actually drawn.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null },
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null },
-          { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Done", kind: "state", descriptions: [], parentId: null, direction: null },
+          { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [
           { id: "start:1-Outer", from: "start:1", to: "Outer", label: null },
           { id: "Outer-Done", from: "Outer", to: "Done", label: null },
         ],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -407,16 +1087,18 @@ describe("layoutStateDiagram", () => {
     // are side by side, while the diagram's own two ranks stay stacked.
     const laid = layoutStateDiagram(
       {
+        direction: "TB",
         states: [
-          { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null },
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR" },
-          { id: "First", kind: "state", descriptions: [], parentId: "Outer", direction: null },
-          { id: "Second", kind: "state", descriptions: [], parentId: "Outer", direction: null },
+          { id: "Before", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+          { id: "First", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Second", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [
           { id: "Before-Outer", from: "Before", to: "Outer", label: null },
           { id: "First-Second", from: "First", to: "Second", label: null },
         ],
+        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -446,5 +1128,35 @@ describe("layoutStateDiagram", () => {
         transition.id,
       ).toBe(true);
     }
+  });
+
+  it("carries each state's resolved author style onto the box, and leaves an unstyled one empty", () => {
+    // Layout carries the model's answer rather than reconciling anything:
+    // `resolveStyles` has already merged everything one state was styled by
+    // and dropped the rejected values, and a state absent from `styles` is
+    // one the renderer must give no `style` attribute at all. The empty
+    // halves are what let it ask without testing for `undefined`.
+    const base = model([{ from: "Idle", to: "Busy" }]);
+    const laid = layoutStateDiagram(
+      {
+        ...base,
+        styles: [
+          {
+            targetId: "Busy",
+            style: {
+              frame: [{ property: "fill", value: "#f96" }],
+              text: [{ property: "fill", value: "#fff" }],
+            },
+          },
+        ],
+      },
+      options,
+    );
+
+    expect(laid.states.find((s) => s.id === "Busy")!.style).toEqual({
+      frame: [{ property: "fill", value: "#f96" }],
+      text: [{ property: "fill", value: "#fff" }],
+    });
+    expect(laid.states.find((s) => s.id === "Idle")!.style).toEqual({ frame: [], text: [] });
   });
 });

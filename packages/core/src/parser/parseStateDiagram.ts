@@ -1,11 +1,18 @@
 import type {
   Diagnostic,
+  Direction,
   ParseResult,
   SirenTimeline,
   StateDecl,
   StateDocument,
+  StateNotePosition,
+  StateRegion,
+  StateStereotype,
   StateTransition,
+  StyleDecl,
+  StyleProperty,
 } from "../contracts";
+import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
   matchClassDirection,
@@ -163,22 +170,201 @@ const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/;
 const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
 
 /**
- * The statement that opens a composite state: `state Outer {`.
+ * The statement that opens a composite state: `state Outer {`, or the same
+ * thing written with a description on it — `state "the outer block" as Outer {`.
+ *
+ * **One pattern, because they open the same construct.** Measured (mermaid
+ * 11.17.2, `scripts/mermaid-probe.mjs`): the quoted spelling reports one
+ * composite `Outer in="root" descriptions=["the outer block"]` with its
+ * members `in="root/Outer"` — the description lands in the same array
+ * `Idle : text` and `state "text" as Idle` write to, and the block is the
+ * same block. Measured again against the spelling that writes the two apart
+ * (`state "the outer block" as Outer` above a separate `state Outer { ... }`):
+ * the dumps are identical, state for state and relation for relation. So
+ * this is a *second spelling of one statement* and not a construct of its
+ * own, which is why the description is an optional group here rather than a
+ * pattern beside this one — and why nothing new is recorded for it.
  *
  * The id is read in the same `\w+` alphabet every other endpoint here is, so
  * a composite is named by exactly the spellings a transition can name, which
  * is what makes `Start --> Outer` reach the frame rather than declare a
  * second state beside it.
  *
+ * The description's own capture is `QUOTED_DESCRIPTION_RE`'s, down to the
+ * `\S` that makes an empty one unmatchable: `state "" as X` is a parse error
+ * in Mermaid rather than a blank description, with or without a block on it.
+ *
  * Anchored on `{` at the end of the line: Mermaid's own grammar puts the
  * block's body on the lines that follow, and reading a one-line spelling
  * that Mermaid does not accept would be drawing a picture for a document
- * that does not render.
+ * that does not render. That anchor is also what keeps the two spellings
+ * apart from the two description patterns below, which end at the id.
  */
-const COMPOSITE_OPEN_RE = /^state\s+(\w+)\s*\{$/;
+const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/;
+
+/**
+ * `state Choice <<choice>>` — the marker that changes which figure a state
+ * is drawn as, without changing anything about where it sits.
+ *
+ * Every part of this pattern is measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`:
+ *
+ * - **Three words and no fourth.** `<<end>>`, `<<start>>` and `<<foo>>` are
+ *   each *accepted and ignored* — the statement declares nothing at all, so
+ *   `state X <<foo>>` above `A --> X` reports `A` before `X` and `X` with
+ *   `type="default"`. They are outside this pattern deliberately: no corpus
+ *   row covers them, and implementing one on the way would be inventing
+ *   rather than measuring.
+ * - **Case-insensitive**, as Mermaid's own lexer rule is
+ *   (`/^(?:.*<<fork>>)/i`): `<<CHOICE>>`, `<<FORK>>` and `<<Join>>` each
+ *   report the lowercase `type`. Unlike a note's position (see
+ *   `isNotePosition`), the casing changes nothing about what Mermaid then
+ *   *records*, so there is no wrong picture to decline here.
+ * - **No spaces inside the angle brackets.** `state X << choice >>` is *not*
+ *   a stereotype: measured, it declares nothing and `X` comes back
+ *   `type="default"`, because Mermaid's rule spells the brackets literally.
+ *   (The `UNIMPLEMENTED` entry this replaces allowed `\s*` there and was
+ *   refusing a line Mermaid quietly ignores; the working pattern must not
+ *   inherit that.)
+ * - **Nothing after the marker.** `state X <<choice>> trailing` parses in
+ *   Mermaid and declares a *second, phantom* state called `trailing`
+ *   alongside the choice — the `.*<<choice>>` token takes the prefix as the
+ *   id and the rest becomes an id of its own. Anchored on `$` here, so that
+ *   line is refused rather than drawn with a box nobody wrote.
+ * - **The id is read in `\w+`**, the alphabet every other state id in this
+ *   file is read in. Mermaid is looser and pays for it: `state Foo Bar
+ *   <<choice>>` reports a state whose id is literally `Foo Bar`, and
+ *   `state "desc" as X <<choice>>` one whose id is `"desc" as X` — names no
+ *   transition can ever reach, beside the `X` the author meant. Neither is
+ *   covered by a corpus row, and both are refused here.
+ * - **A block may not open on it**: `state X <<choice>> {` is a parse error
+ *   in Mermaid, which is why there is no brace arm in this pattern.
+ */
+const STEREOTYPE_RE = /^state\s+(\w+)\s*<<(choice|fork|join)>>$/i;
 
 /** The statement that closes a composite state's block. */
 const COMPOSITE_CLOSE = "}";
+
+/**
+ * The concurrency divider: a line of **nothing but `--`, one or more times
+ * over**, which splits the composite block it sits in into concurrent
+ * regions.
+ *
+ * The repetition is not generosity, it is the lexer: measured (mermaid
+ * 11.17.2), `--` is one token and a line of `----` is therefore *two*
+ * dividers — it reports three regions with an empty one in the middle,
+ * exactly as two `--` lines on their own do, and `------` reports four. An
+ * **odd** run is not a longer divider but a lexical error: both `-` and
+ * `---` are rejected outright ("Unrecognized text"), which is why this is
+ * `(?:--)+` and not `-{2,}` — the latter, which the unimplemented table
+ * used while the construct was refused, would now read `---` as a divider
+ * where Mermaid reads it as nothing at all.
+ *
+ * Anchored on the whole trimmed line, so a `--` inside a label
+ * (`A --> B : go -- now`) or a description is untouched: measured, neither
+ * produces a divider.
+ */
+const DIVIDER_RE = /^(?:--)+$/;
+
+/**
+ * `note right of Idle : waiting for work` — a note written onto one state,
+ * on the side the author named.
+ *
+ * Every part of this pattern is measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`:
+ *
+ * - **Two positions and no third.** `note over Idle : hovering` is a
+ *   *lexical* error, not a note drawn over the box, so `over` is a sequence
+ *   diagram's word and not this kind's.
+ * - **The target is read in `\w+`**, the alphabet every other state id in
+ *   this file is read in — so `note right of [*] : text`, which Mermaid does
+ *   accept (it attaches the note to the level's *start* pseudo-state,
+ *   measured), is deliberately not matched here and is refused by name in
+ *   `UNIMPLEMENTED` instead.
+ * - **The text may not contain a colon.** `note right of Idle : a : b : c`
+ *   is a parse error in Mermaid, so a second colon is not text — it is a
+ *   malformed line, and letting `.*` swallow it would draw a picture for a
+ *   document that does not render.
+ * - **The text may not be empty.** `note right of Idle :` is a lexical error
+ *   too, which is what the leading `\S` here refuses — the same guard
+ *   `STATE_DESCRIPTION_RE` carries for `Empty :`, and for the same measured
+ *   reason.
+ */
+const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/i;
+
+/**
+ * The two positions, as `StateNotePosition` spells them — and the gate that
+ * keeps `NOTE_RE`'s case-insensitivity off them.
+ *
+ * The `note` keyword itself is case-insensitive in Mermaid's lexer, measured:
+ * `Note right of Idle : cased` reads exactly as the lowercase spelling does,
+ * so refusing it would cost a document Mermaid draws correctly. **The
+ * position is a different matter.** Measured, `note RIGHT OF Idle : shouty`
+ * also parses — and Mermaid records the position *verbatim*
+ * (`"RIGHT OF"`), then decides which side to draw on with an exact
+ * `position === "left of"` comparison. So `note LEFT OF X : t` renders in
+ * Mermaid as a **right-of** note: a wrong picture with no diagnostic, from
+ * Mermaid's own case sensitivity. Siren will neither copy that nor silently
+ * pick the other side, so an uncanonical spelling is declined here and
+ * refused as an unrecognized line — CONTEXT.md's one exception to the
+ * compatibility condition, applied where it was written for.
+ */
+const isNotePosition = (spelling: string): spelling is StateNotePosition =>
+  spelling === "left of" || spelling === "right of";
+
+/**
+ * `note "floating" as N` — the note spelling that belongs to no state.
+ *
+ * Read, and then ignored, exactly as `KEYWORD_ONLY_RE`'s `state Skipped` is,
+ * and for the same measured reason: mermaid 11.17.2 **parses this line and
+ * records nothing for it**. No state `N` reaches the state table, no note
+ * reaches any state, and `--markup` shows the diagram drawn with only the
+ * states its other lines declare. So Mermaid renders such a document, and
+ * refusing it here would trade a document that renders for no picture at
+ * all — the trade CONTEXT.md's compatibility condition forbids. Reporting
+ * nothing is what stops Siren drawing a box Mermaid does not.
+ *
+ * Case-insensitive, as every one of Mermaid's lexer rules is: measured,
+ * `NOTE "floating" as N` and `note "floating" AS N` are ignored exactly as
+ * the lowercase spelling is.
+ */
+const FLOATING_NOTE_RE = /^note\s+"[^"]*"\s+as\s+\w+$/i;
+
+/**
+ * `classDef urgent fill:#f96` — a named set of declarations, applied to
+ * nothing on its own, spelled exactly as a flowchart and a class diagram
+ * spell it.
+ */
+const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+
+/**
+ * `class Busy urgent` — the apply-directive, in this kind's spelling of it.
+ *
+ * The **target list** is comma-separated and the **class name** is not, and
+ * that asymmetry is measured rather than assumed (mermaid 11.17.2):
+ *
+ *     class Busy,Done urgent    →  classes=["urgent"] on *both* states
+ *     class Busy, Done urgent   →  the same, so a space after the comma is spare
+ *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name,
+ *                                  matching no `classDef`, painting nothing
+ *
+ * So the second capture is a single `\w+`: a state wearing two classes is
+ * written as two `class` statements, and measured, those *do* stack
+ * (`classes=["alpha","beta"]`).
+ *
+ * The target list is greedy and backtracks, the way `parseFlowchart`'s
+ * `CLASS_APPLY_RE` does — `[\w\s,]` cannot cross the space before the class
+ * name and gives it back — which is what reads `class A,B x` and
+ * `class A, B x` with one pattern instead of two. The alphabet is `\w`
+ * alone, without the flowchart's `.`, because a state id is read in `\w+`
+ * everywhere else in this file.
+ *
+ * **Two operands, both required.** A lone `class` is a whole-document parse
+ * error in Mermaid (measured), and this pattern declining it is what leaves
+ * it to `RESERVED_WORD_RE` — the reservation that exists for exactly this
+ * statement.
+ */
+const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
 
 /**
  * The constructs this parser reads well enough to *recognize* and does not
@@ -194,62 +380,38 @@ const COMPOSITE_CLOSE = "}";
  * their document is malformed — a different claim, and an untrue one.
  *
  * Read **last**, after every construct this parser does implement, so a
- * pattern here can never shadow a working one: `direction LR` inside a
- * composite is read above and only a document-level one reaches this, and
- * `state Outer {` likewise, so only the quoted spelling arrives. Each
- * pattern is anchored on the *statement* rather than on a bare word, which
- * is what leaves a state the author simply named `note` or `class` alone.
+ * pattern here can never shadow a working one. Each pattern is anchored on
+ * the *statement* rather than on a bare word, which is what leaves a state
+ * the author simply named `note` or `class` alone.
+ *
+ * The table shrinks as constructs land: a composite opened with a quoted
+ * description used to sit here, and left by being implemented rather than by
+ * having its message reworded (`COMPOSITE_OPEN_RE` reads both spellings now),
+ * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`).
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
   {
-    // Measured: a closed set of three, recorded as a `type` on the state
-    // itself (`type="choice"`) rather than as a state of its own.
-    pattern: /<<\s*(choice|fork|join)\s*>>/,
-    name: (match) => `the "<<${match[1]}>>" stereotype`,
+    // The note construct itself is implemented (`NOTE_RE`); these are the
+    // two spellings of it that are not, each measured to be valid Mermaid
+    // and each left here so it is refused by name rather than as a
+    // malformed line.
+    //
+    // Measured: `note right of [*] : the beginning` attaches the note to the
+    // level's **start** pseudo-state — `root_start` — whichever side of an
+    // arrow the author's `[*]` lines put it on (a document whose only `[*]`
+    // is an *end* still reports the note on `root_start`, with the end left
+    // bare). Siren's pseudo-states carry generated ids and no note, so this
+    // is a gap and says so.
+    pattern: /^note\s+(?:left|right)\s+of\s+\[\*\]/,
+    name: () => 'a note on a "[*]" pseudo-state',
   },
   {
-    // Measured: the note hangs off the state it names, as
-    // `note={"position":"right of","text":"..."}` — **not** a separate note
-    // collection the way a class diagram's is.
-    pattern: /^note\s+\S/,
-    name: () => 'a "note" annotation',
-  },
-  {
-    // Measured: synthesises `divider`-typed states and re-parents the
-    // members under them — and Mermaid's own ids for those dividers carry a
-    // random component (`id-g8d8ncxe8va-1`), so an implementation must mint
-    // its own through `generatedId` rather than copy Mermaid's.
-    pattern: /^-{2,}$/,
-    name: () => 'the "--" concurrency divider',
-  },
-  {
-    // Measured: a state diagram supports author styling too — the state
-    // carries a `classes` array and `getClasses()` returns the definitions.
-    pattern: /^classDef\s+\S/,
-    name: () => 'the "classDef" author-style directive',
-  },
-  {
-    // The apply-directive, `class Busy urgent`. Two arguments, so a lone
-    // `class` stays the ordinary state id it is.
-    pattern: /^class\s+\S+\s+\S/,
-    name: () => 'the "class" author-style directive',
-  },
-  {
-    // Measured: legal at the document's own level, where it sets the whole
-    // diagram's rank direction. Inside a composite it is implemented and is
-    // read before this table.
-    pattern: /^direction\s+\S+$/,
-    name: () => 'a document-level "direction" statement',
-  },
-  {
-    // `state "Label" as Outer { ... }` — the quoted-description spelling
-    // *with a block*. Measured: a composite `Outer` whose `descriptions`
-    // hold the quoted text and whose members nest under it, so it is both
-    // constructs at once. `COMPOSITE_OPEN_RE` matches only `state \w+ {`,
-    // and the description spelling above matches only a line with no block
-    // on it, so this falls between them.
-    pattern: /^state\s+"[^"]*"\s+as\s+\w+\s*\{$/,
-    name: () => "a composite state opened with a quoted description",
+    // Measured: `note right of Idle` with no colon opens the multi-line
+    // form, whose text runs to a closing `end note` and reaches the state as
+    // one string with newlines in it. A single-line note is `NOTE_RE`'s;
+    // this spelling needs a drawn box of several rows and has none.
+    pattern: /^note\s+(?:left|right)\s+of\s+\w+\s*$/,
+    name: () => 'a multi-line "note ... end note"',
   },
 ];
 
@@ -324,11 +486,35 @@ export function parseStateDiagram(source: string): ParseResult {
   const states: StateDecl[] = [];
   const transitions: StateTransition[] = [];
   /**
+   * The author's styling statements in written order, definitions and
+   * apply-directives alike. Left unpaired here on purpose: an
+   * apply-directive may name a `classDef` written below it, and pairing
+   * them is `resolveStyles`' job.
+   */
+  const styles: StyleDecl[] = [];
+  /**
    * Whether any error-severity problem was found. Like every other Siren
    * parser, a document with one comes back as `null`: the diagnostics say
    * what is wrong, and no half-parsed document reaches the next stage.
    */
   let sawError = false;
+
+  /**
+   * The document's own rank direction, once a statement at the document's
+   * level has named one — `null` until then, which is both "the author has
+   * named none, so `TB`" and "the next one to arrive is the one that
+   * counts".
+   *
+   * **First wins**, which is where this kind parts company with
+   * `parseClassDiagram`'s last-wins assignment. Measured against mermaid
+   * 11.17.2: `direction LR` then `direction RL` reports `LR`, and the
+   * reverse pair reports `RL`, because its database answers `getDirection()`
+   * with `rootDoc.find((doc) => doc.stmt === "dir")` — the first such
+   * statement, with every later one left inert rather than overwriting it.
+   * Assigning here the way the class diagram does would draw the second
+   * document sideways where Mermaid draws it bottom-up.
+   */
+  let documentDirection: Direction | null = null;
 
   /**
    * The `timeline:` block, once one has been opened. `null` until then, which
@@ -348,9 +534,77 @@ export function parseStateDiagram(source: string): ParseResult {
   const openBlocks: { state: StateDecl; statement: string; line: number; column: number }[] =
     [];
 
+  /**
+   * How many `--` lines each composite's block has carried so far, by that
+   * composite's id — so the region a statement is written in is that count,
+   * and the number of regions the block ends up with is that count plus one.
+   *
+   * Keyed by the composite rather than held on the `openBlocks` entry so
+   * that a block reopened under the same name (`state Outer { }` written
+   * twice) goes on counting where it left off, the way every other thing a
+   * composite accumulates does.
+   */
+  const dividersByComposite = new Map<string, number>();
+
+  /**
+   * The `direction` statement written in each region, keyed by the region it
+   * was written in. Kept here rather than assigned to the composite as it is
+   * read, because whether that block *has* regions is not known until the
+   * whole block has been read: a `--` may come after the `direction`.
+   *
+   * Resolved once the document is complete — onto the region for a divided
+   * block, and onto the composite itself for an undivided one, whose whole
+   * block is its only region.
+   */
+  const directionByRegion = new Map<string, Direction>();
+
+  /** The key `directionByRegion` and the region list agree on. `\u0000` cannot occur in a `\w+` id. */
+  const regionKey = (parentId: string, index: number): string => `${parentId}\u0000${index}`;
+
+  /**
+   * Reads the declaration list of a `classDef` statement, turning each
+   * segment that is not a `property:value` pair into an error diagnostic on
+   * that statement's line — the answer `parseClassDiagram` and
+   * `parseFlowchart` already give, reached through the same shared splitter
+   * so that `fill:rgb(255, 0, 0)` stays one declaration in all three.
+   */
+  const readStyleProperties = (
+    text: string,
+    lineNumber: number,
+    column: number,
+  ): StyleProperty[] => {
+    const { properties, malformed } = parseStyleProperties(text);
+    for (const segment of malformed) {
+      diagnostics.push({
+        severity: "error",
+        message: `Unrecognized style declaration: "${segment}"`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+    }
+    return properties;
+  };
+
   /** The level a statement read right now belongs to: the innermost open block, or the document's own. */
   const currentParentId = (): string | null =>
     openBlocks.length === 0 ? null : openBlocks[openBlocks.length - 1].state.id;
+
+  /**
+   * Which region of that level a statement read right now belongs to: how
+   * many `--` lines the innermost open block has carried, and `null` at the
+   * document's own level, where a `--` is a parse error and there are no
+   * regions to be in.
+   *
+   * Recorded on every statement inside every block, and *unrecorded* at the
+   * end for the blocks that turned out to carry no `--` at all — see the
+   * pass below, and `StateDecl.regionIndex`, which is `null` for exactly
+   * those.
+   */
+  const currentRegionIndex = (): number | null => {
+    const parentId = currentParentId();
+    return parentId === null ? null : (dividersByComposite.get(parentId) ?? 0);
+  };
 
   /**
    * Records a state the given statement named, and hands back its one
@@ -375,17 +629,32 @@ export function parseStateDiagram(source: string): ParseResult {
       // transition out of the frame rather than a membership statement.
       if (already.parentId === null && !openBlocks.some((block) => block.state.id === id)) {
         already.parentId = currentParentId();
+        // The region travels with the level: a state claimed by a block
+        // joins the region that claimed it, not the region-less document
+        // level it was first written at.
+        already.regionIndex = currentRegionIndex();
       }
       return already;
     }
     const declaration: StateDecl = {
       id,
       kind: "state",
+      // Filled in by the stereotype statement when *this* line is that
+      // statement; a `<<choice>>` written after the state was first named
+      // is inert, measured (see `STEREOTYPE_RE`).
+      stereotype: null,
       descriptions: [],
       parentId: currentParentId(),
+      // Which concurrent region of that level. Provisional until the
+      // document is complete: a level that turns out to carry no `--` has
+      // no regions, and every member of it is reset to `null` below.
+      regionIndex: currentRegionIndex(),
       // Filled in below if this state turns out to be a composite whose
       // block writes a `direction` of its own.
       direction: null,
+      // Filled in by `annotateState` if a `note ... of` statement names this
+      // state — at most one, whatever the author writes.
+      note: null,
       line,
       column,
     };
@@ -414,6 +683,30 @@ export function parseStateDiagram(source: string): ParseResult {
   };
 
   /**
+   * Records the note written onto a state, declaring that state if this is
+   * the first line to name it — `note right of Ghost : who?` is a
+   * declaration as well as a note, measured (mermaid 11.17.2 reports a state
+   * `Ghost` carrying the note and nothing pointing at it).
+   *
+   * **Replaces rather than accumulates**, which is where this parts company
+   * with `describeState` one function up, and the difference is measured
+   * rather than assumed: two descriptions on one state stack into a list,
+   * while a second note on one state **overwrites** the first — whichever
+   * sides they were written on (`note right of Idle : first` then
+   * `note left of Idle : second` reports the one note
+   * `{"position":"left of","text":"second"}`). A state carries at most one.
+   */
+  const annotateState = (
+    id: string,
+    position: StateNotePosition,
+    text: string,
+    line: number,
+    column: number,
+  ): void => {
+    declareState(id, line, column).note = { position, text };
+  };
+
+  /**
    * Records the level's start or end pseudo-state, at the first `[*]` that
    * asked for it.
    *
@@ -432,15 +725,22 @@ export function parseStateDiagram(source: string): ParseResult {
    * was written at, which is the innermost open block or the document
    * itself.
    */
-  const declaredPseudoKinds = new Map<string | null, Set<"start" | "end">>();
+  const declaredPseudoKinds = new Map<string, Set<"start" | "end">>();
   const declarePseudoState = (
     kind: "start" | "end",
     line: number,
     column: number,
   ): void => {
     const parentId = currentParentId();
-    const atThisLevel = declaredPseudoKinds.get(parentId) ?? new Set<"start" | "end">();
-    declaredPseudoKinds.set(parentId, atThisLevel);
+    const regionIndex = currentRegionIndex();
+    // Keyed by the **region** as well as the block, because a `--` makes
+    // one block several levels: measured (mermaid 11.17.2), a `[*]` in each
+    // of two regions comes back as two different starts,
+    // `divider-id-1_start` and the second divider's own.
+    const atThisLevel =
+      declaredPseudoKinds.get(`${parentId}\u0000${regionIndex}`) ??
+      new Set<"start" | "end">();
+    declaredPseudoKinds.set(`${parentId}\u0000${regionIndex}`, atThisLevel);
     if (atThisLevel.has(kind)) {
       return;
     }
@@ -450,7 +750,22 @@ export function parseStateDiagram(source: string): ParseResult {
     // No descriptions either, and never any: `[*]` is not an id, so there
     // is no spelling of either description form that names a pseudo-state.
     // And never a direction: only a composite has a block to write one in.
-    states.push({ id: null, kind, descriptions: [], parentId, direction: null, line, column });
+    // No note either: `note right of [*]` is refused by name (see
+    // `UNIMPLEMENTED`), so nothing can reach a pseudo-state to write one.
+    states.push({
+      id: null,
+      kind,
+      // And never a stereotype: `state <<choice>>` names no state, and
+      // `[*]` is not an id, so no statement can mark a pseudo-state.
+      stereotype: null,
+      descriptions: [],
+      parentId,
+      regionIndex,
+      direction: null,
+      note: null,
+      line,
+      column,
+    });
   };
 
   /**
@@ -551,6 +866,10 @@ export function parseStateDiagram(source: string): ParseResult {
         // says which start or end pseudo-state a `null` endpoint means, now
         // that there is one pair per level rather than one per document.
         parentId: currentParentId(),
+        // And which region of it, for the same reason: a `--` makes one
+        // block several levels, each with a `[*]` pair of its own
+        // (measured — each divider comes back with its own `_start`).
+        regionIndex: currentRegionIndex(),
         sourceLine: lineNumber,
         sourceColumn: column,
       });
@@ -561,13 +880,21 @@ export function parseStateDiagram(source: string): ParseResult {
     // transition is: `state Outer {` must never be mistaken for one of them.
     const compositeOpenMatch = COMPOSITE_OPEN_RE.exec(line);
     if (compositeOpenMatch !== null) {
+      const [, quotedDescription, compositeId] = compositeOpenMatch;
       // Declared first, at the level that *holds* it, and only then pushed:
       // a composite is a state of the enclosing level, not of its own.
-      const composite = declareState(compositeOpenMatch[1], lineNumber, column);
+      const composite = declareState(compositeId, lineNumber, column);
       // A state a transition already named is the same state, now known to
       // be a frame — so the kind is upgraded rather than a second
       // declaration made.
       composite.kind = "composite";
+      // The quoted spelling's description, through the very call the two
+      // description statements use: a composite's descriptions are the same
+      // accumulating list an ordinary state's are, so `Outer : text` written
+      // elsewhere adds a row to this one rather than contradicting it.
+      if (quotedDescription !== undefined) {
+        describeState(compositeId, quotedDescription, lineNumber, column);
+      }
       openBlocks.push({ state: composite, statement: line, line: lineNumber, column });
       continue;
     }
@@ -577,23 +904,100 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
-    // `direction` is read *inside* a block only, and onto that block alone —
-    // measured: mermaid 11.17.2 records it on the composite and leaves the
-    // document's own direction where the header put it. Read with
-    // `matchClassDirection` rather than a pattern of this file's own, so the
-    // five spellings and the `TD` alias cannot drift between two regexes;
-    // the name is the class diagram's only because that is where the
-    // statement was first read.
+    // The concurrency divider, read right after the two statements that open
+    // and close a block because it is the third statement about a block's
+    // own shape — and before every pattern that reads a *state*, none of
+    // which can match a line of dashes anyway.
     //
-    // At the document's own level this parser does not read one yet, so
-    // `direction` there stays an unrecognized line rather than being
-    // silently accepted and ignored.
-    if (openBlocks.length > 0) {
-      const blockDirection = matchClassDirection(line);
-      if (blockDirection !== null) {
-        openBlocks[openBlocks.length - 1].state.direction = blockDirection;
+    // A `--` at the document's own level is **refused**, measured rather
+    // than chosen: mermaid 11.17.2 rejects such a document outright
+    // ("Expecting ... got 'INVALID'"), so there is no picture to be
+    // compatible with and accepting it would be Siren drawing something
+    // Mermaid will not.
+    const dividerMatch = DIVIDER_RE.exec(line);
+    if (dividerMatch !== null) {
+      const blockId = currentParentId();
+      if (blockId === null) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `A "--" concurrency divider belongs inside a composite state's ` +
+            `block, in "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
         continue;
       }
+      // One region per `--` token, not per line: `----` is two of them and
+      // opens two regions, leaving an empty one between (measured — see
+      // `DIVIDER_RE`).
+      dividersByComposite.set(
+        blockId,
+        (dividersByComposite.get(blockId) ?? 0) + line.length / 2,
+      );
+      continue;
+    }
+
+    // The stereotype marker. Read before the bare-state and description
+    // patterns for the reason `state Outer {` is — a statement opening with
+    // the `state` keyword must never be claimed by one of them — and before
+    // `KEYWORD_ONLY_RE`, which would otherwise have to be careful not to.
+    const stereotypeMatch = STEREOTYPE_RE.exec(line);
+    if (stereotypeMatch !== null) {
+      const [, stereotypeId, spelling] = stereotypeMatch;
+      // **Only the line that first names the state takes the marker.**
+      // Measured (mermaid 11.17.2): `A --> X` followed by
+      // `state X <<choice>>` reports `id="X" type="default"` — `addState`
+      // guards the field with `if (!state.type)` and an existing state
+      // always has one, so a stereotype written below its state is inert.
+      // Assigning unconditionally would draw a diamond where Mermaid draws
+      // a box. (The opposite of the way a later `state X { }` upgrades
+      // `kind` to `composite`, which Mermaid *does* do — `if (!state.doc)`,
+      // and a state without a block has none.)
+      const alreadyNamed = declaredById.has(stereotypeId);
+      // Declared here when nothing has named it yet, and mentioned at this
+      // level when something has — the same call every other statement makes.
+      const stereotyped = declareState(stereotypeId, lineNumber, column);
+      if (!alreadyNamed) {
+        // Lowercased, not kept as written: Mermaid's lexer rule is
+        // case-insensitive and its record is not, so `<<CHOICE>>` and
+        // `<<choice>>` are one value and the casing is recorded nowhere.
+        stereotyped.stereotype = spelling.toLowerCase() as StateStereotype;
+      }
+      continue;
+    }
+
+    // One statement, two levels. Inside a block it is that block's own rank
+    // direction and touches nothing else — measured: mermaid 11.17.2 keeps
+    // it in the composite's own doc and leaves the document's direction
+    // where the header put it. At the document's own level it is the whole
+    // diagram's, and there the *first* one wins (see `documentDirection`).
+    //
+    // Read with `matchClassDirection` rather than a pattern of this file's
+    // own, so the five spellings and the `TD` alias cannot drift between two
+    // regexes; the name is the class diagram's only because that is where
+    // the statement was first read.
+    const statementDirection = matchClassDirection(line);
+    if (statementDirection !== null) {
+      if (openBlocks.length > 0) {
+        // Onto the **region** it was written in, which for an undivided
+        // block is the whole block and lands on the composite below.
+        // Measured (mermaid 11.17.2): in a divided block the statement turns
+        // its own region and leaves the others alone — `direction LR` above
+        // the `--` lays region one out left-to-right and region two
+        // top-to-bottom, and moving it below the `--` swaps which one turns.
+        // Both `!`s are the same fact: a block is open, so there is a
+        // current level, and a composite is authored so its id is never
+        // `null`.
+        directionByRegion.set(
+          regionKey(currentParentId()!, currentRegionIndex()!),
+          statementDirection,
+        );
+      } else if (documentDirection === null) {
+        documentDirection = statementDirection;
+      }
+      continue;
     }
 
     // Accepted and dropped on the floor — the one construct here that is
@@ -604,6 +1008,66 @@ export function parseStateDiagram(source: string): ParseResult {
     // Read *before* the bare-state pattern, because a lone `state` matches
     // both and only this answer is Mermaid's.
     if (KEYWORD_ONLY_RE.test(line)) {
+      continue;
+    }
+
+    // The two author-styling statements. Recorded, never paired: a `classDef`
+    // defines and applies to nothing, an apply-directive names its targets,
+    // and `resolveStyles` matches them up in either source order.
+    //
+    // Read *before* the bare-state and description patterns, so neither can
+    // claim a statement that opens with one of these two reserved words —
+    // and read *after* them in the file's reading order only in the sense
+    // that they are still behind every transition and composite pattern
+    // above, which no `classDef`/`class` line can match.
+    const classDefMatch = CLASS_DEF_RE.exec(line);
+    if (classDefMatch !== null) {
+      styles.push({
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: classDefMatch[1],
+        properties: readStyleProperties(classDefMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    const classApplyMatch = CLASS_APPLY_RE.exec(line);
+    if (classApplyMatch !== null) {
+      styles.push({
+        styleKind: "apply",
+        authoredAs: "class",
+        // The comma list is the *target* half, measured: `class Busy,Done
+        // urgent` styles both states. Empty segments are dropped so a
+        // trailing comma costs nothing.
+        targetIds: classApplyMatch[1]
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+        name: classApplyMatch[2],
+        properties: [],
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    // A note, written onto the state it names. Read before the bare-state
+    // and description patterns for the reason `classDef` is: neither may
+    // claim a statement opening with one of the words this parser reserves.
+    const noteMatch = NOTE_RE.exec(line);
+    if (noteMatch !== null && isNotePosition(noteMatch[1])) {
+      const [, position, targetId, text] = noteMatch;
+      annotateState(targetId, position, text, lineNumber, column);
+      continue;
+    }
+
+    // Accepted and dropped on the floor, the second construct here read
+    // without producing anything — see `FLOATING_NOTE_RE`: Mermaid parses it
+    // and records nothing, so recording nothing is the compatible answer.
+    if (FLOATING_NOTE_RE.test(line)) {
       continue;
     }
 
@@ -674,7 +1138,68 @@ export function parseStateDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: StateDocument = { kind: "state", states, transitions, timeline };
+  /**
+   * The regions every divided block ended up with, and the two things that
+   * can only be settled once the whole document has been read.
+   *
+   * A block's `--` count is not known while it is being read, so every
+   * statement inside every block has recorded a region index and every
+   * `direction` statement has been filed under the region it sat in. Here
+   * the blocks that carried no `--` give both back: their members' indices
+   * return to `null`, and the `direction` filed under their one notional
+   * region lands on the composite itself, which is where an undivided
+   * block's direction has always lived.
+   *
+   * `n` dividers make `n + 1` regions, including any that hold nothing —
+   * measured: two `--` in a row report three dividers with the middle one
+   * empty, so an empty region is a region and not a line to be collapsed.
+   */
+  const dividers = (parentId: string | null): number =>
+    parentId === null ? 0 : (dividersByComposite.get(parentId) ?? 0);
+
+  const regions: StateRegion[] = [];
+  for (const state of states) {
+    // A composite is authored, so its id is never `null` — the narrowing is
+    // for the type, which allows one for the pseudo-states this skips.
+    if (state.kind !== "composite" || state.id === null) {
+      continue;
+    }
+    const compositeId = state.id;
+    const count = dividers(compositeId);
+    if (count === 0) {
+      state.direction = directionByRegion.get(regionKey(compositeId, 0)) ?? null;
+      continue;
+    }
+    for (let index = 0; index <= count; index++) {
+      regions.push({
+        parentId: compositeId,
+        index,
+        direction: directionByRegion.get(regionKey(compositeId, index)) ?? null,
+      });
+    }
+  }
+  for (const state of states) {
+    if (dividers(state.parentId) === 0) {
+      state.regionIndex = null;
+    }
+  }
+  for (const transition of transitions) {
+    if (dividers(transition.parentId) === 0) {
+      transition.regionIndex = null;
+    }
+  }
+
+  const document: StateDocument = {
+    kind: "state",
+    // `TB` is Mermaid's own default for a document that names no direction,
+    // measured: the header alone reports `TB`.
+    direction: documentDirection ?? "TB",
+    states,
+    transitions,
+    regions,
+    styles,
+    timeline,
+  };
 
   return { document, diagnostics };
 }

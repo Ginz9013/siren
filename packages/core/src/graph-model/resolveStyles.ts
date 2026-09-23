@@ -99,20 +99,30 @@ export function resolveStyles(
       // already exists. One unknown target drops itself, not the statement,
       // so the other targets of an `apply` naming "A,Ghost" still get styled.
       //
-      // "an id", not "a class": this module is shared, and a flowchart author
-      // told that their node is not a class is being taught a vocabulary
-      // their document does not use. `class` is still the right word in
-      // `buildClassModel`'s own `note for`/`click` diagnostics, which only a
-      // class diagram can ever produce.
-      if (!validTargetIds.has(targetId)) {
-        diagnostics.push({
-          severity: "error",
-          message: `${declaration.authoredAs} "${targetId}" references an id that does not exist; dropping the declaration.`,
-          line: declaration.line,
-          column: declaration.column,
-        });
-        continue;
-      }
+      // And it drops **silently**, which is the one place this module is
+      // deliberately quieter than the rest of its validation. Mermaid
+      // accepts the same statement and says nothing — measured in all three
+      // kinds that share this module (mermaid 11.17.2, via
+      // `scripts/mermaid-probe.mjs`): a flowchart's `class A,Ghost urgent`
+      // gives `A` `classes=["urgent"]` and never makes a vertex called
+      // `Ghost`; a class diagram's `cssClass "Ghost" urgent` adds no class;
+      // a state diagram's `class Ghost urgent` does declare `Ghost`, which
+      // is a gap in *that kind's* statement set rather than anything this
+      // function can see. So an error here was a divergence Siren invented,
+      // and the author who deleted a node but left its `class` line behind
+      // was being told their legal document is broken.
+      //
+      // Not a warning either, and that is a deliberate trade rather than an
+      // oversight. `compat/corpus.ts` fails a `supported` row on *any*
+      // diagnostic, because "parsed quietly" is what a silent mis-render
+      // looks like — so a warning would leave this construct with no row
+      // able to record it, unmeasured, which costs more than the hint it
+      // buys. `CONTEXT.md`'s licence to out-diagnose Mermaid is bounded by
+      // Mermaid drawing a picture that *contradicts* the document, and
+      // there is no contradiction here: the author asked for a class on
+      // something that does not exist, and nothing was drawn wrong because
+      // nothing was drawn.
+      if (!validTargetIds.has(targetId)) continue;
 
       let halves = byTargetId.get(targetId);
       if (halves === undefined) {

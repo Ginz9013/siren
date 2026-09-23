@@ -3384,10 +3384,13 @@ style A fill:#fdd,stroke:#c00
     expect(frame("B").getAttribute("style")).toBeNull();
   });
 
-  it("reports the identical diagnostic for a `style` on an id that does not exist, whichever diagram kind wrote it", () => {
-    // One resolver, one gate, one wording. The two kinds put the statement on
-    // the same line and column so the diagnostics must be equal objects — a
-    // future divergence fails here rather than being found by an author.
+  it("says nothing about a `style` on an id that does not exist, whichever diagram kind wrote it", () => {
+    // One resolver, one rule, one silence. Mermaid accepts this statement in
+    // both kinds and reports nothing (measured, 11.17.2): a flowchart makes
+    // no vertex called `Ghost` and a class diagram no class. The two kinds
+    // are compared as whole diagnostics lists so that a future divergence —
+    // one kind starting to speak again — fails here rather than being found
+    // by an author.
     const flowchart = render(
       `flowchart TD
 A[Start]
@@ -3403,15 +3406,21 @@ style Ghost fill:#fdd
       document.createElement("div"),
     );
 
-    expect(flowchart.diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
-        line: 3,
-        column: 1,
-      },
-    ]);
+    expect(flowchart.diagnostics).toEqual([]);
     expect(flowchart.diagnostics).toEqual(classDiagram.diagnostics);
+    // And the silence is a rendered document, not a swallowed one: each kind
+    // still draws the element the author did declare, and neither conjures
+    // one for the name it did not.
+    expect(
+      Array.from(flowchart.svg!.querySelectorAll("g.siren-node"), (g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["A"]);
+    expect(
+      Array.from(classDiagram.svg!.querySelectorAll("g.siren-class"), (g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Shape"]);
   });
 
   it("holds the style-value gate identically for a flowchart: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the class diagram's", () => {
@@ -3564,7 +3573,7 @@ classDef emphasis fill:#fdd
     expect(frameStyle("B")).toBe("fill:#fdd");
   });
 
-  it("drops only the unknown target of a flowchart `class A,Ghost name`, and names the keyword the author actually typed when no classDef defines the name", () => {
+  it("drops only the unknown target of a flowchart `class A,Ghost name` and says nothing about it, while still naming the keyword the author actually typed when no classDef defines the name", () => {
     const result = render(
       `flowchart TD
 A[Start] --> B[End]
@@ -3583,12 +3592,10 @@ class A missing
         line: 3,
         column: 1,
       },
-      {
-        severity: "error",
-        message: 'class "Ghost" references an id that does not exist; dropping the declaration.',
-        line: 5,
-        column: 1,
-      },
+      // Nothing between these two for `Ghost` on line 5: a *target* that does
+      // not exist is dropped in silence, exactly as Mermaid drops it. An
+      // undefined classDef *name* still speaks — the two are different
+      // mistakes, and only the first is one Mermaid also tolerates.
       {
         severity: "error",
         message: 'class applies "missing", which no classDef defines; dropping the declaration.',
