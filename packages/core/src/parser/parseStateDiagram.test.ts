@@ -324,6 +324,65 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
+  it("opens a composite with the quoted-description spelling, carrying that description onto the frame", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs):
+    // `state "the outer block" as Outer { First --> Second }` reports one
+    // composite `Outer in="root" descriptions=["the outer block"]` with
+    // `First` and `Second` both `in="root/Outer"` — two constructs on one
+    // line, and neither half lost. Measured again against the spelling that
+    // writes them apart (`state "the outer block" as Outer` above a separate
+    // `state Outer { ... }`): the two dumps are identical, state for state
+    // and relation for relation, so this is the same document written
+    // shorter rather than a construct of its own.
+    const document = documentOf(
+      'stateDiagram-v2\n  state "the outer block" as Outer {\n    First --> Second\n  }\n',
+    );
+
+    expect(
+      document.states.map((state) => [
+        state.id,
+        state.kind,
+        state.parentId,
+        state.descriptions,
+      ]),
+    ).toEqual([
+      ["Outer", "composite", null, ["the outer block"]],
+      ["First", "state", "Outer", []],
+      ["Second", "state", "Outer", []],
+    ]);
+  });
+
+  it("nests the quoted spelling inside itself, each frame keeping its own description", () => {
+    // Measured (mermaid 11.17.2): `state "a" as A { state "b" as B { Deep -->
+    // Deeper } }` renders — `B in="root/A"`, `Deep` and `Deeper`
+    // `in="root/A/B"` — and with `--markup`, each frame's `g.cluster-label`
+    // carries its own quoted text ("a" on the outer, "b" on the inner). So
+    // the description travels with whichever block it was written on, and
+    // the inner one does not overwrite or join the outer's.
+    const document = documentOf(
+      'stateDiagram-v2\n' +
+        '  state "a" as A {\n' +
+        '    state "b" as B {\n' +
+        '      Deep --> Deeper\n' +
+        '    }\n' +
+        '  }\n',
+    );
+
+    expect(
+      document.states.map((state) => [
+        state.id,
+        state.kind,
+        state.parentId,
+        state.descriptions,
+      ]),
+    ).toEqual([
+      ["A", "composite", null, ["a"]],
+      ["B", "composite", "A", ["b"]],
+      ["Deep", "state", "B", []],
+      ["Deeper", "state", "B", []],
+    ]);
+  });
+
   it("gives a composite's block its own start and end, apart from the document's", () => {
     // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): `state Outer {
     // [*] --> Inner }` reports `Outer_start in="root/Outer"` — the
@@ -481,7 +540,6 @@ describe("parseStateDiagram", () => {
       ["--", 'the "--" concurrency divider'],
       ["classDef urgent fill:#f96", 'the "classDef" author-style directive'],
       ["class Idle urgent", 'the "class" author-style directive'],
-      ['state "the outer block" as Outer {', "a composite state opened with a quoted description"],
     ];
 
     for (const [statement, named] of cases) {
