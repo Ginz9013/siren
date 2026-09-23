@@ -1,5 +1,6 @@
 import type {
   Diagnostic,
+  Direction,
   ParseResult,
   SirenTimeline,
   StateDecl,
@@ -194,11 +195,10 @@ const COMPOSITE_CLOSE = "}";
  * their document is malformed — a different claim, and an untrue one.
  *
  * Read **last**, after every construct this parser does implement, so a
- * pattern here can never shadow a working one: `direction LR` inside a
- * composite is read above and only a document-level one reaches this, and
- * `state Outer {` likewise, so only the quoted spelling arrives. Each
- * pattern is anchored on the *statement* rather than on a bare word, which
- * is what leaves a state the author simply named `note` or `class` alone.
+ * pattern here can never shadow a working one: `state Outer {` is read
+ * above, so only the quoted spelling of it arrives here. Each pattern is
+ * anchored on the *statement* rather than on a bare word, which is what
+ * leaves a state the author simply named `note` or `class` alone.
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
   {
@@ -233,13 +233,6 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) 
     // `class` stays the ordinary state id it is.
     pattern: /^class\s+\S+\s+\S/,
     name: () => 'the "class" author-style directive',
-  },
-  {
-    // Measured: legal at the document's own level, where it sets the whole
-    // diagram's rank direction. Inside a composite it is implemented and is
-    // read before this table.
-    pattern: /^direction\s+\S+$/,
-    name: () => 'a document-level "direction" statement',
   },
   {
     // `state "Label" as Outer { ... }` — the quoted-description spelling
@@ -329,6 +322,23 @@ export function parseStateDiagram(source: string): ParseResult {
    * what is wrong, and no half-parsed document reaches the next stage.
    */
   let sawError = false;
+
+  /**
+   * The document's own rank direction, once a statement at the document's
+   * level has named one — `null` until then, which is both "the author has
+   * named none, so `TB`" and "the next one to arrive is the one that
+   * counts".
+   *
+   * **First wins**, which is where this kind parts company with
+   * `parseClassDiagram`'s last-wins assignment. Measured against mermaid
+   * 11.17.2: `direction LR` then `direction RL` reports `LR`, and the
+   * reverse pair reports `RL`, because its database answers `getDirection()`
+   * with `rootDoc.find((doc) => doc.stmt === "dir")` — the first such
+   * statement, with every later one left inert rather than overwriting it.
+   * Assigning here the way the class diagram does would draw the second
+   * document sideways where Mermaid draws it bottom-up.
+   */
+  let documentDirection: Direction | null = null;
 
   /**
    * The `timeline:` block, once one has been opened. `null` until then, which
@@ -577,23 +587,24 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
-    // `direction` is read *inside* a block only, and onto that block alone —
-    // measured: mermaid 11.17.2 records it on the composite and leaves the
-    // document's own direction where the header put it. Read with
-    // `matchClassDirection` rather than a pattern of this file's own, so the
-    // five spellings and the `TD` alias cannot drift between two regexes;
-    // the name is the class diagram's only because that is where the
-    // statement was first read.
+    // One statement, two levels. Inside a block it is that block's own rank
+    // direction and touches nothing else — measured: mermaid 11.17.2 keeps
+    // it in the composite's own doc and leaves the document's direction
+    // where the header put it. At the document's own level it is the whole
+    // diagram's, and there the *first* one wins (see `documentDirection`).
     //
-    // At the document's own level this parser does not read one yet, so
-    // `direction` there stays an unrecognized line rather than being
-    // silently accepted and ignored.
-    if (openBlocks.length > 0) {
-      const blockDirection = matchClassDirection(line);
-      if (blockDirection !== null) {
-        openBlocks[openBlocks.length - 1].state.direction = blockDirection;
-        continue;
+    // Read with `matchClassDirection` rather than a pattern of this file's
+    // own, so the five spellings and the `TD` alias cannot drift between two
+    // regexes; the name is the class diagram's only because that is where
+    // the statement was first read.
+    const statementDirection = matchClassDirection(line);
+    if (statementDirection !== null) {
+      if (openBlocks.length > 0) {
+        openBlocks[openBlocks.length - 1].state.direction = statementDirection;
+      } else if (documentDirection === null) {
+        documentDirection = statementDirection;
       }
+      continue;
     }
 
     // Accepted and dropped on the floor — the one construct here that is
@@ -674,7 +685,15 @@ export function parseStateDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: StateDocument = { kind: "state", states, transitions, timeline };
+  const document: StateDocument = {
+    kind: "state",
+    // `TB` is Mermaid's own default for a document that names no direction,
+    // measured: the header alone reports `TB`.
+    direction: documentDirection ?? "TB",
+    states,
+    transitions,
+    timeline,
+  };
 
   return { document, diagnostics };
 }

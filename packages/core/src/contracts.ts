@@ -2016,6 +2016,32 @@ export interface StateTransition {
  */
 export interface StateDocument {
   kind: "state";
+  /**
+   * The whole diagram's rank direction: the `direction LR` (or `TB`/`BT`/
+   * `RL`) the author wrote at the document's own level, outside every
+   * composite, and `TB` when they wrote none.
+   *
+   * Non-null, the way `ClassDocument.direction` is: every document lays out
+   * in *some* direction, and "the author named none" is not a third answer
+   * downstream could do anything with. A composite's own direction is the
+   * nullable one (`StateDecl.direction`), because there "none" genuinely
+   * means "lay this block out along the document's direction".
+   *
+   * **The first statement wins, not the last** — measured against mermaid
+   * 11.17.2, which is the one place this diagram kind disagrees with
+   * `ClassDocument.direction`'s last-wins rule. `direction LR` followed by
+   * `direction RL` reports `LR`, and `direction RL` followed by
+   * `direction LR` reports `RL`: mermaid's state database answers
+   * `getDirection()` from `rootDoc.find(stmt === "dir")`, so a later
+   * statement at the same level is inert rather than an overwrite.
+   *
+   * Position on the page does not matter otherwise: a `direction` written
+   * after the first transition governs the document just as one written
+   * first does. And a composite's own `direction` never reaches here —
+   * measured: it lives in that block's own doc, so a document whose only
+   * `direction` is inside a composite reports `TB`.
+   */
+  direction: Direction;
   states: StateDecl[];
   transitions: StateTransition[];
   /**
@@ -2103,6 +2129,17 @@ export interface ResolvedStateTransition {
  * states, identified transitions, and the resolved timeline.
  */
 export interface StateModel {
+  /**
+   * The whole diagram's rank direction, carried through from
+   * `StateDocument.direction` — authored, already resolved to one of the
+   * four canonical spellings, and with nothing for the model stage to
+   * decide. `ClassModel.direction` carries a class diagram's the same way.
+   *
+   * Beside it, and not instead of it, `ResolvedState.direction` carries a
+   * composite's own: measured, the two are independent, so this one governs
+   * the document's own level and each composite's governs its block.
+   */
+  direction: Direction;
   states: ResolvedState[];
   transitions: ResolvedStateTransition[];
   timeline: ResolvedTimeline;

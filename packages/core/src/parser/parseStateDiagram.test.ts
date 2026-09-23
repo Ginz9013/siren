@@ -481,7 +481,6 @@ describe("parseStateDiagram", () => {
       ["--", 'the "--" concurrency divider'],
       ["classDef urgent fill:#f96", 'the "classDef" author-style directive'],
       ["class Idle urgent", 'the "class" author-style directive'],
-      ["direction LR", 'a document-level "direction" statement'],
       ['state "the outer block" as Outer {', "a composite state opened with a quoted description"],
     ];
 
@@ -514,6 +513,74 @@ describe("parseStateDiagram", () => {
       ["A", "state", null],
       ["B", "state", null],
     ]);
+  });
+
+  it("reads a `direction` written at the document's own level onto the document", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): this document
+    // reports `direction LR`, and its three states are drawn left to right
+    // on one row (`--markup`: x = 28, 158, 288, all at y = 18).
+    const document = documentOf("stateDiagram-v2\n  direction LR\n  Idle --> Busy\n");
+
+    expect(document.direction).toBe("LR");
+  });
+
+  it("keeps the *first* document-level `direction`, wherever on the page it was written", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs), and the one
+    // place this kind parts company with `parseClassDiagram`, where a later
+    // statement overwrites an earlier one:
+    //
+    //   direction LR / Idle --> Busy / direction RL   reports LR
+    //   direction RL / Idle --> Busy / direction LR   reports RL
+    //   direction BT / ... / direction LR / direction RL   reports BT
+    //   Idle --> Busy / direction LR                  reports LR
+    //
+    // Its database answers `getDirection()` from the *first* `dir` statement
+    // in the root document, so a second one at the same level is inert.
+    const directionOf = (source: string) => documentOf(source).direction;
+
+    expect(directionOf("stateDiagram-v2\n  Idle --> Busy\n")).toBe("TB");
+    expect(directionOf("stateDiagram-v2\n  Idle --> Busy\n  direction LR\n")).toBe("LR");
+    expect(
+      directionOf("stateDiagram-v2\n  direction LR\n  Idle --> Busy\n  direction RL\n"),
+    ).toBe("LR");
+    expect(
+      directionOf("stateDiagram-v2\n  direction RL\n  Idle --> Busy\n  direction LR\n"),
+    ).toBe("RL");
+    expect(
+      directionOf("stateDiagram-v2\n  direction BT\n  Idle --> Busy\n  direction LR\n  direction RL\n"),
+    ).toBe("BT");
+  });
+
+  it("keeps a composite's `direction` and the document's own apart, each governing its own level", () => {
+    // Measured: with `direction LR` at the document's level and
+    // `direction TB` inside `Outer`, the document reports `LR` and the
+    // composite's block carries its own `{"stmt":"dir","value":"TB"}`.
+    // Neither overrides the other.
+    const both = documentOf(
+      "stateDiagram-v2\n  direction LR\n  Before --> Outer\n  state Outer {\n    direction TB\n    First --> Second\n  }\n",
+    );
+
+    expect(both.direction).toBe("LR");
+    expect(both.states.find((s) => s.id === "Outer")!.direction).toBe("TB");
+
+    // And the other way round: measured, a document whose only `direction`
+    // is inside a composite reports `TB` — the composite's statement lives
+    // in that block's own doc and never reaches the root.
+    const insideOnly = documentOf(
+      "stateDiagram-v2\n  Before --> Outer\n  state Outer {\n    direction LR\n    First --> Second\n  }\n",
+    );
+
+    expect(insideOnly.direction).toBe("TB");
+    expect(insideOnly.states.find((s) => s.id === "Outer")!.direction).toBe("LR");
+
+    // Measured: a document-level `direction` written *after* the block still
+    // governs the document, and the composite keeps its own.
+    const afterTheBlock = documentOf(
+      "stateDiagram-v2\n  Before --> Outer\n  state Outer {\n    direction LR\n    First --> Second\n  }\n  direction BT\n",
+    );
+
+    expect(afterTheBlock.direction).toBe("BT");
+    expect(afterTheBlock.states.find((s) => s.id === "Outer")!.direction).toBe("LR");
   });
 
   it("leaves the keyword-shaped words Mermaid does *not* reserve as ordinary state ids", () => {

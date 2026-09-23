@@ -89,7 +89,14 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     diagnostics,
   );
 
-  const model: StateModel = { states, transitions, timeline };
+  const model: StateModel = {
+    // Authored and already resolved by the parser, so it passes through the
+    // way a composite's own direction does a few lines above.
+    direction: document.direction,
+    states,
+    transitions,
+    timeline,
+  };
 
   return { model, diagnostics };
 }
