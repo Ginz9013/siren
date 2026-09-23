@@ -3726,14 +3726,70 @@ line2\`"]`,
       state "the outer block" as Outer {
         First --> Second
       }`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "The quoted-description spelling with a block on it. Measured: one " +
       "composite `Outer` carrying `descriptions=[\"the outer block\"]` with " +
       "`First` and `Second` nested `in=\"root/Outer\"` — both constructs at " +
-      "once. Siren implements each half separately (`st-description-quoted` " +
-      "and `st-composite`) and neither pattern matches this line, which is " +
-      "why it is refused by name rather than falling out of the two that " +
-      "nearly cover it.",
+      "once, and the *same* document the two written apart produce " +
+      "(`state \"the outer block\" as Outer` above a separate " +
+      "`state Outer { ... }` dumps state for state and relation for " +
+      "relation identically). **Where the description is drawn** is the " +
+      "half a `descriptions` check cannot see, so it was measured too, with " +
+      "`--markup`: it is the frame's `g.cluster-label`, in the strip along " +
+      "the top — the text that would have read `Outer` had no description " +
+      "been written, with the members below it inside `rect.inner`. So the " +
+      "description **replaces the frame's title**; it is not a second row " +
+      "beside it and not a box of its own.",
+    assert: (result) => {
+      // A frame, not a box: the block half of the line survived. A row that
+      // read only the text would pass on a description drawn in an ordinary
+      // state box with `First` and `Second` stranded beside it.
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Outer: frame",
+        "First: box",
+        "Second: box",
+      ]);
+      // And the description half survived, drawn — read out of the picture,
+      // not off the model. `Outer` appears nowhere in this group, which is
+      // the part that says the description *replaced* the title rather than
+      // joining it.
+      expectSame("the frame's text", stateRows(result, "Outer"), ["the outer block"]);
+      expectSame(
+        "and it is the frame's title, not a state box's label",
+        texts(result, 'g.siren-state[data-siren-id="Outer"] text.siren-composite-label'),
+        ["the outer block"],
+      );
+      // In the strip along the top, as geometry: a title drawn level with
+      // the members it encloses, or below them, is still a title to find and
+      // is the wrong picture.
+      const { rowYs, dividerY } = stateRowGeometry(result, "Outer");
+      expectSame(
+        `the title sits above every member (title at ${rowYs[0]}, first member's top at ${stateRect(result, "First").top})`,
+        rowYs[0] < stateRect(result, "First").top &&
+          rowYs[0] < stateRect(result, "Second").top,
+        true,
+      );
+      // No divider under it: the line under a described *state*'s title row
+      // closes a compartment, and what is under this strip is the members'
+      // own boxes.
+      expectSame("a frame's title strip closes no compartment", dividerY, null);
+      // "Under it", as containment — the members are the block's, not the
+      // document's.
+      for (const member of ["First", "Second"]) {
+        expectSame(
+          `${member} is drawn inside the frame`,
+          encloses(stateRect(result, "Outer"), stateRect(result, member)),
+          true,
+        );
+      }
+      // The id survives the description, exactly as it does without a block:
+      // `[*] --> Outer` still reaches the frame.
+      expectSame("transitions", transitions(result), [
+        "start:1-Outer: ",
+        "First-Second: ",
+      ]);
+    },
   },
 ];

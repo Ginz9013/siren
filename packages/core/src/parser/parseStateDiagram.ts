@@ -164,19 +164,37 @@ const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/;
 const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
 
 /**
- * The statement that opens a composite state: `state Outer {`.
+ * The statement that opens a composite state: `state Outer {`, or the same
+ * thing written with a description on it — `state "the outer block" as Outer {`.
+ *
+ * **One pattern, because they open the same construct.** Measured (mermaid
+ * 11.17.2, `scripts/mermaid-probe.mjs`): the quoted spelling reports one
+ * composite `Outer in="root" descriptions=["the outer block"]` with its
+ * members `in="root/Outer"` — the description lands in the same array
+ * `Idle : text` and `state "text" as Idle` write to, and the block is the
+ * same block. Measured again against the spelling that writes the two apart
+ * (`state "the outer block" as Outer` above a separate `state Outer { ... }`):
+ * the dumps are identical, state for state and relation for relation. So
+ * this is a *second spelling of one statement* and not a construct of its
+ * own, which is why the description is an optional group here rather than a
+ * pattern beside this one — and why nothing new is recorded for it.
  *
  * The id is read in the same `\w+` alphabet every other endpoint here is, so
  * a composite is named by exactly the spellings a transition can name, which
  * is what makes `Start --> Outer` reach the frame rather than declare a
  * second state beside it.
  *
+ * The description's own capture is `QUOTED_DESCRIPTION_RE`'s, down to the
+ * `\S` that makes an empty one unmatchable: `state "" as X` is a parse error
+ * in Mermaid rather than a blank description, with or without a block on it.
+ *
  * Anchored on `{` at the end of the line: Mermaid's own grammar puts the
  * block's body on the lines that follow, and reading a one-line spelling
  * that Mermaid does not accept would be drawing a picture for a document
- * that does not render.
+ * that does not render. That anchor is also what keeps the two spellings
+ * apart from the two description patterns below, which end at the id.
  */
-const COMPOSITE_OPEN_RE = /^state\s+(\w+)\s*\{$/;
+const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/;
 
 /** The statement that closes a composite state's block. */
 const COMPOSITE_CLOSE = "}";
@@ -195,10 +213,15 @@ const COMPOSITE_CLOSE = "}";
  * their document is malformed — a different claim, and an untrue one.
  *
  * Read **last**, after every construct this parser does implement, so a
- * pattern here can never shadow a working one: `state Outer {` is read
- * above, so only the quoted spelling of it arrives here. Each pattern is
- * anchored on the *statement* rather than on a bare word, which is what
- * leaves a state the author simply named `note` or `class` alone.
+ * pattern here can never shadow a working one — the `<<choice>>` pattern is
+ * unanchored and would otherwise claim `state Choice <<choice>>` before the
+ * statements above got to look at it. Each pattern is anchored on the
+ * *statement* rather than on a bare word, which is what leaves a state the
+ * author simply named `note` or `class` alone.
+ *
+ * The table shrinks as constructs land: a composite opened with a quoted
+ * description used to sit here, and left by being implemented rather than by
+ * having its message reworded (`COMPOSITE_OPEN_RE` reads both spellings now).
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
   {
@@ -233,16 +256,6 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) 
     // `class` stays the ordinary state id it is.
     pattern: /^class\s+\S+\s+\S/,
     name: () => 'the "class" author-style directive',
-  },
-  {
-    // `state "Label" as Outer { ... }` — the quoted-description spelling
-    // *with a block*. Measured: a composite `Outer` whose `descriptions`
-    // hold the quoted text and whose members nest under it, so it is both
-    // constructs at once. `COMPOSITE_OPEN_RE` matches only `state \w+ {`,
-    // and the description spelling above matches only a line with no block
-    // on it, so this falls between them.
-    pattern: /^state\s+"[^"]*"\s+as\s+\w+\s*\{$/,
-    name: () => "a composite state opened with a quoted description",
   },
 ];
 
@@ -571,13 +584,21 @@ export function parseStateDiagram(source: string): ParseResult {
     // transition is: `state Outer {` must never be mistaken for one of them.
     const compositeOpenMatch = COMPOSITE_OPEN_RE.exec(line);
     if (compositeOpenMatch !== null) {
+      const [, quotedDescription, compositeId] = compositeOpenMatch;
       // Declared first, at the level that *holds* it, and only then pushed:
       // a composite is a state of the enclosing level, not of its own.
-      const composite = declareState(compositeOpenMatch[1], lineNumber, column);
+      const composite = declareState(compositeId, lineNumber, column);
       // A state a transition already named is the same state, now known to
       // be a frame — so the kind is upgraded rather than a second
       // declaration made.
       composite.kind = "composite";
+      // The quoted spelling's description, through the very call the two
+      // description statements use: a composite's descriptions are the same
+      // accumulating list an ordinary state's are, so `Outer : text` written
+      // elsewhere adds a row to this one rather than contradicting it.
+      if (quotedDescription !== undefined) {
+        describeState(compositeId, quotedDescription, lineNumber, column);
+      }
       openBlocks.push({ state: composite, statement: line, line: lineNumber, column });
       continue;
     }

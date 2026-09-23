@@ -780,8 +780,26 @@ const SILENTLY_WRONG = 0;
  * stay independent, so `st-composite-direction` is untouched.
  * `silently-wrong` does not move: this row was a named refusal, never a
  * wrong picture.
+ *
+ * **5 → 4, and this one fell without a line of drawing code being written.**
+ * `st-composite-quoted-description` is `supported`: `state "the outer block"
+ * as Outer { ... }` is read as the composite it is, carrying the quoted text
+ * in the same `descriptions` list both description statements write to
+ * (`01M368GZJ`). The gap was a *parser* one and nothing else — each half was
+ * implemented already and no pattern spanned them — so the exit was an
+ * optional group on `COMPOSITE_OPEN_RE`, with no new contract field and no
+ * new figure. **Where the description is drawn was measured before that was
+ * relied on**, with `--markup`: mermaid 11.17.2 puts it in the frame's
+ * `g.cluster-label`, the strip along the top, in place of the title that
+ * would have read `Outer` — which is where Siren's layout already draws a
+ * composite's rows, because it plans that strip from a composite's
+ * descriptions when it has any and from its id when it has none. The row's
+ * assert reads the drawn text and its y out of the SVG and pins the title
+ * *above* every member, so a description drawn level with what it encloses
+ * would not pass for one drawn over it. `silently-wrong` does not move: this
+ * row, too, was a named refusal.
  */
-const REJECTED = 5;
+const REJECTED = 4;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
