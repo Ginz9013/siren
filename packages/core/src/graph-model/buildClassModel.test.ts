@@ -82,9 +82,8 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.direction).toBe("TB");
-    expect(model!.classes).toEqual([
+    expect(model.direction).toBe("TB");
+    expect(model.classes).toEqual([
       {
         id: "Animal",
         generic: null,
@@ -121,10 +120,9 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
-    expect(model!.classes[0].members).toEqual([age, swim]);
-    expect(model!.classes[1].members).toEqual([]);
+    expect(model.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
+    expect(model.classes[0].members).toEqual([age, swim]);
+    expect(model.classes[1].members).toEqual([]);
   });
 
   it("unions rather than concatenates, so a member written twice appears once", () => {
@@ -147,9 +145,8 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes).toHaveLength(1);
-    expect(model!.classes[0].members).toEqual([firstAge]);
+    expect(model.classes).toHaveLength(1);
+    expect(model.classes[0].members).toEqual([firstAge]);
   });
 
   it("treats members differing in any rendered part as distinct when unioning", () => {
@@ -175,8 +172,7 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
-    expect(model!.classes[0].members).toEqual([
+    expect(model.classes[0].members).toEqual([
       publicAge,
       privateAge,
       stringAge,
@@ -202,10 +198,9 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes).toHaveLength(1);
-    expect(model!.classes[0].annotation).toBe("interface");
-    expect(model!.classes[0].generic).toBe("T");
+    expect(model.classes).toHaveLength(1);
+    expect(model.classes[0].annotation).toBe("interface");
+    expect(model.classes[0].generic).toBe("T");
   });
 
   it("warns and keeps the first annotation when two declarations of one class annotate it differently", () => {
@@ -218,9 +213,8 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
-    expect(model!.classes).toHaveLength(1);
-    expect(model!.classes[0].annotation).toBe("interface");
+    expect(model.classes).toHaveLength(1);
+    expect(model.classes[0].annotation).toBe("interface");
     expect(diagnostics).toEqual([
       {
         severity: "warning",
@@ -258,12 +252,11 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.namespaces).toEqual([
+    expect(model.namespaces).toEqual([
       { id: "namespace:1", label: "BaseShapes", classIds: ["Triangle", "Square"] },
       { id: "namespace:2", label: "Widgets", classIds: ["Button"] },
     ]);
-    expect(model!.classes.map((c) => [c.id, c.namespaceId])).toEqual([
+    expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
       ["Triangle", "namespace:1"],
       ["Square", "namespace:1"],
       ["Button", "namespace:2"],
@@ -293,12 +286,11 @@ describe("buildClassModel", () => {
         column: 1,
       },
     ]);
-    expect(model).not.toBeNull();
-    expect(model!.namespaces).toEqual([
+    expect(model.namespaces).toEqual([
       { id: "namespace:1", label: "BaseShapes", classIds: ["Triangle", "Square"] },
       { id: "namespace:2", label: "Widgets", classIds: [] },
     ]);
-    expect(model!.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", "namespace:1"]);
+    expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", "namespace:1"]);
   });
 
   it("leaves a class outside every namespace with a null namespaceId", () => {
@@ -309,8 +301,7 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
-    expect(model!.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", null]);
+    expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", null]);
   });
 
   it("creates a class a namespace names but nothing else declares, as a relationship endpoint does", () => {
@@ -322,12 +313,11 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes).toEqual([
+    expect(model.classes).toEqual([
       { id: "Triangle", generic: null, annotation: null, members: [], namespaceId: "namespace:1" },
       { id: "Square", generic: null, annotation: null, members: [], namespaceId: "namespace:1" },
     ]);
-    expect(model!.namespaces[0].classIds).toEqual(["Triangle", "Square"]);
+    expect(model.namespaces[0].classIds).toEqual(["Triangle", "Square"]);
   });
 
   it("resolves a relationship into an id of the form fromId-toId, passing its type, label and multiplicity through unchanged", () => {
@@ -352,8 +342,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.relationships).toEqual([
+    expect(model.relationships).toEqual([
       {
         id: "Customer-Ticket",
         from: "Customer",
@@ -383,8 +372,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.relationships.map((r) => r.id)).toEqual(["A-B", "A-B#2", "B-A"]);
+    expect(model.relationships.map((r) => r.id)).toEqual(["A-B", "A-B#2", "B-A"]);
   });
 
   it("resolves a relationship whose endpoint has no declaration at all, creating that class", () => {
@@ -400,16 +388,15 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes.map((c) => c.id)).toEqual(["Duck", "Animal"]);
-    expect(model!.classes[1]).toEqual({
+    expect(model.classes.map((c) => c.id)).toEqual(["Duck", "Animal"]);
+    expect(model.classes[1]).toEqual({
       id: "Animal",
       generic: null,
       annotation: null,
       members: [],
       namespaceId: null,
     });
-    expect(model!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+    expect(model.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
   });
 
   it("resolves a lollipop end into a synthetic node id and its interface label, without creating a class for it", () => {
@@ -421,13 +408,12 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
     // Mermaid measured (mermaid-probe.mjs): the `()` side never becomes a
     // class — only "Quacks" does, and the defensive endpoint-declares-a-
     // class fallback (the case above) must not resurrect it either.
-    expect(model!.classes.map((c) => c.id)).toEqual(["Quacks"]);
-    expect(model!.relationships).toHaveLength(1);
-    const [rel] = model!.relationships;
+    expect(model.classes.map((c) => c.id)).toEqual(["Quacks"]);
+    expect(model.relationships).toHaveLength(1);
+    const [rel] = model.relationships;
     expect(rel.to).toBe("Quacks");
     expect(rel.fromInterfaceLabel).toBe("Duck");
     expect(rel.toInterfaceLabel).toBeNull();
@@ -446,9 +432,8 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes.map((c) => c.id)).toEqual(["Quacks"]);
-    const [rel] = model!.relationships;
+    expect(model.classes.map((c) => c.id)).toEqual(["Quacks"]);
+    const [rel] = model.relationships;
     expect(rel.from).toBe("Quacks");
     expect(rel.toInterfaceLabel).toBe("Duck");
     expect(rel.fromInterfaceLabel).toBeNull();
@@ -467,9 +452,8 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.classes.map((c) => c.id)).toEqual(["Quacks", "Flies"]);
-    const [first, second] = model!.relationships;
+    expect(model.classes.map((c) => c.id)).toEqual(["Quacks", "Flies"]);
+    const [first, second] = model.relationships;
     expect(first.fromInterfaceLabel).toBe("Duck");
     expect(second.fromInterfaceLabel).toBe("Duck");
     expect(first.from).not.toBe(second.from);
@@ -487,8 +471,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.notes).toEqual([
+    expect(model.notes).toEqual([
       { id: "note:1", text: "free standing", targetId: null },
       { id: "note:2", text: "can fly", targetId: "Duck" },
     ]);
@@ -517,14 +500,13 @@ describe("buildClassModel", () => {
         column: 1,
       },
     ]);
-    expect(model).not.toBeNull();
     // The surviving notes keep the ids their own position gives them: a
     // broken note does not renumber the ones after it.
-    expect(model!.notes).toEqual([
+    expect(model.notes).toEqual([
       { id: "note:1", text: "first", targetId: "Duck" },
       { id: "note:3", text: "third", targetId: null },
     ]);
-    expect(model!.classes.map((c) => c.id)).toEqual(["Duck"]);
+    expect(model.classes.map((c) => c.id)).toEqual(["Duck"]);
   });
 
   it("resolves timeline entries against class ids and relationship ids", () => {
@@ -543,8 +525,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.timeline).toEqual({
+    expect(model.timeline).toEqual({
       totalSteps: 3,
       entries: [
         { kind: "enter", step: 1, targetId: "Animal", effect: "fade" },
@@ -570,9 +551,8 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["namespace:1", "note:1"]);
-    expect(model!.timeline.totalSteps).toBe(2);
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual(["namespace:1", "note:1"]);
+    expect(model.timeline.totalSteps).toBe(2);
   });
 
   it("keeps only the earliest-step enter for one target, warning about the later one", () => {
@@ -593,11 +573,10 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
-    expect(model!.timeline.entries).toEqual([
+    expect(model.timeline.entries).toEqual([
       { kind: "enter", step: 1, targetId: "Animal", effect: "slide-left" },
     ]);
-    expect(model!.timeline.totalSteps).toBe(1);
+    expect(model.timeline.totalSteps).toBe(1);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
     expect(diagnostics[0].line).toBe(5);
@@ -621,8 +600,7 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
-    expect(model!.timeline.entries).toEqual([
+    expect(model.timeline.entries).toEqual([
       { kind: "enter", step: 3, targetId: "Animal", effect: "fade" },
     ]);
     expect(diagnostics).toHaveLength(1);
@@ -648,8 +626,7 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
-    expect(model!.timeline.entries).toHaveLength(1);
+    expect(model.timeline.entries).toHaveLength(1);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].severity).toBe("warning");
     expect(diagnostics[0].message).toContain("Animal-Duck");
@@ -671,7 +648,6 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
     expect(diagnostics).toEqual([]);
   });
 
@@ -688,9 +664,8 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(model).not.toBeNull();
     expect(diagnostics.map((d) => d.line)).toEqual([4, 8]);
-    expect(model!.timeline.entries).toEqual([]);
+    expect(model.timeline.entries).toEqual([]);
   });
 
   it("resolves an interaction on a declared class, passing its action, argument and tooltip through", () => {
@@ -721,8 +696,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.interactions).toEqual([
+    expect(model.interactions).toEqual([
       {
         targetId: "Shape",
         interactionKind: "href",
@@ -777,9 +751,8 @@ describe("buildClassModel", () => {
         column: 3,
       },
     ]);
-    expect(model).not.toBeNull();
-    expect(model!.interactions.map((i) => i.targetId)).toEqual(["Shape"]);
-    expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+    expect(model.interactions.map((i) => i.targetId)).toEqual(["Shape"]);
+    expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
   });
 
   /**
@@ -815,7 +788,7 @@ describe("buildClassModel", () => {
       const { model, diagnostics } = buildClassModel(hrefDocument(url));
 
       expect(diagnostics).toEqual([]);
-      expect(model!.interactions.map((i) => i.action)).toEqual([url]);
+      expect(model.interactions.map((i) => i.action)).toEqual([url]);
     });
 
     it.each([
@@ -827,7 +800,7 @@ describe("buildClassModel", () => {
       const { model, diagnostics } = buildClassModel(hrefDocument(url));
 
       expect(diagnostics).toEqual([]);
-      expect(model!.interactions.map((i) => i.action)).toEqual([url]);
+      expect(model.interactions.map((i) => i.action)).toEqual([url]);
     });
 
     it("drops a javascript: URL with an error diagnostic naming the scheme", () => {
@@ -844,9 +817,8 @@ describe("buildClassModel", () => {
         },
       ]);
       // The class still renders, just without a link.
-      expect(model).not.toBeNull();
-      expect(model!.interactions).toEqual([]);
-      expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+      expect(model.interactions).toEqual([]);
+      expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
     });
 
     it("drops a data: URL with an error diagnostic naming the scheme", () => {
@@ -858,8 +830,8 @@ describe("buildClassModel", () => {
         'click "Shape" uses the disallowed URL scheme "data:"; only http:, https: ' +
           "and mailto: are allowed; dropping the interaction.",
       ]);
-      expect(model!.interactions).toEqual([]);
-      expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+      expect(model.interactions).toEqual([]);
+      expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
     });
 
     it("drops a vbscript: URL with an error diagnostic naming the scheme", () => {
@@ -869,7 +841,7 @@ describe("buildClassModel", () => {
         'click "Shape" uses the disallowed URL scheme "vbscript:"; only http:, https: ' +
           "and mailto: are allowed; dropping the interaction.",
       ]);
-      expect(model!.interactions).toEqual([]);
+      expect(model.interactions).toEqual([]);
     });
 
     it("drops a scheme-relative URL, which would adopt whatever scheme the page was served over", () => {
@@ -879,15 +851,15 @@ describe("buildClassModel", () => {
         'click "Shape" uses a scheme-relative URL ("//evil.example/shape"), which adopts the ' +
           "page's scheme; only http:, https: and mailto: are allowed; dropping the interaction.",
       ]);
-      expect(model!.interactions).toEqual([]);
-      expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+      expect(model.interactions).toEqual([]);
+      expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
     });
 
     it("drops a backslash-spelled scheme-relative URL, which browsers read as //", () => {
       const { model, diagnostics } = buildClassModel(hrefDocument("\\\\evil.example/shape"));
 
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
-      expect(model!.interactions).toEqual([]);
+      expect(model.interactions).toEqual([]);
     });
 
     it.each([
@@ -902,7 +874,7 @@ describe("buildClassModel", () => {
 
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
       expect(diagnostics[0].message).toContain('"javascript:"');
-      expect(model!.interactions).toEqual([]);
+      expect(model.interactions).toEqual([]);
     });
 
     it.each([
@@ -918,9 +890,9 @@ describe("buildClassModel", () => {
 
         expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
         expect(diagnostics[0].message).toContain("scheme-relative");
-        expect(model!.interactions).toEqual([]);
+        expect(model.interactions).toEqual([]);
         // The class still renders, just without a link.
-        expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+        expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
       },
     );
 
@@ -941,7 +913,7 @@ describe("buildClassModel", () => {
       );
 
       expect(diagnostics).toEqual([]);
-      expect(model!.interactions.map((i) => i.action)).toEqual(["data"]);
+      expect(model.interactions.map((i) => i.action)).toEqual(["data"]);
     });
   });
 
@@ -967,8 +939,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.styles).toEqual([
+    expect(model.styles).toEqual([
       {
         targetId: "Shape",
         style: {
@@ -1023,8 +994,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.styles).toEqual([
+    expect(model.styles).toEqual([
       {
         targetId: "Shape",
         style: {
@@ -1089,7 +1059,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model!.styles).toEqual([
+    expect(model.styles).toEqual([
       {
         targetId: "Shape",
         style: {
@@ -1132,11 +1102,10 @@ describe("buildClassModel", () => {
     // exist and reports nothing (measured, 11.17.2: `cssClass "Ghost" urgent`
     // adds no class and no error), so `resolveStyles` says nothing either.
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.styles).toEqual([
+    expect(model.styles).toEqual([
       { targetId: "Shape", style: { frame: [{ property: "fill", value: "#00f" }], text: [] } },
     ]);
-    expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+    expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
   });
 
   it("drops only the unknown targets of a cssClass, still applying it to the ones that exist", () => {
@@ -1165,7 +1134,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model!.styles).toEqual([
+    expect(model.styles).toEqual([
       { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
     ]);
   });
@@ -1204,9 +1173,8 @@ describe("buildClassModel", () => {
         column: 1,
       },
     ]);
-    expect(model).not.toBeNull();
-    expect(model!.styles).toEqual([]);
-    expect(model!.classes.map((c) => c.id)).toEqual(["Shape"]);
+    expect(model.styles).toEqual([]);
+    expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
   });
 
   /**
@@ -1253,7 +1221,7 @@ describe("buildClassModel", () => {
           column: 1,
         },
       ]);
-      expect(model!.styles).toEqual([
+      expect(model.styles).toEqual([
         {
           targetId: "Shape",
           style: {
@@ -1276,7 +1244,7 @@ describe("buildClassModel", () => {
         'Style value for "width" uses "expression(", which can execute script; ' +
           "dropping the declaration.",
       ]);
-      expect(model!.styles).toEqual([]);
+      expect(model.styles).toEqual([]);
     });
 
     it.each([
@@ -1290,7 +1258,7 @@ describe("buildClassModel", () => {
       );
 
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
-      expect(model!.styles).toEqual([]);
+      expect(model.styles).toEqual([]);
     });
 
     it.each([
@@ -1311,7 +1279,7 @@ describe("buildClassModel", () => {
       expect(diagnostics.map((d) => d.message)).toEqual([
         `Style property "${property}" is not a plain CSS identifier; dropping the declaration.`,
       ]);
-      expect(model!.styles).toEqual([
+      expect(model.styles).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
     });
@@ -1324,7 +1292,7 @@ describe("buildClassModel", () => {
         );
 
         expect(diagnostics).toEqual([]);
-        expect(model!.styles[0].style.frame).toEqual([{ property, value: "#fdd" }]);
+        expect(model.styles[0].style.frame).toEqual([{ property, value: "#fdd" }]);
       },
     );
 
@@ -1341,7 +1309,7 @@ describe("buildClassModel", () => {
         'Style value for "fill" contains ";", which would smuggle in a second declaration; ' +
           "dropping the declaration.",
       ]);
-      expect(model!.styles).toEqual([]);
+      expect(model.styles).toEqual([]);
     });
 
     it.each([
@@ -1359,7 +1327,7 @@ describe("buildClassModel", () => {
 
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
       // The declaration beside it is untouched, as for any other rejection.
-      expect(model!.styles).toEqual([
+      expect(model.styles).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
     });
@@ -1372,7 +1340,7 @@ describe("buildClassModel", () => {
       const { model, diagnostics } = buildClassModel(styleDocument([{ property, value }]));
 
       expect(diagnostics).toEqual([]);
-      expect(model!.styles).toEqual([{ targetId: "Shape", style: { frame: [{ property, value }], text: [] } }]);
+      expect(model.styles).toEqual([{ targetId: "Shape", style: { frame: [{ property, value }], text: [] } }]);
     });
 
     it("reports a rejected classDef declaration once, at the classDef, however many classes apply it", () => {
@@ -1418,7 +1386,7 @@ describe("buildClassModel", () => {
           4,
         ],
       ]);
-      expect(model!.styles).toEqual([
+      expect(model.styles).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
         { targetId: "Duck", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
       ]);
@@ -1453,12 +1421,11 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.relationships.map((r) => r.id)).toEqual(["namespace-1"]);
-    expect(model!.namespaces.map((n) => n.id)).toEqual(["namespace:1"]);
-    expect(model!.notes.map((n) => n.id)).toEqual(["note:1"]);
+    expect(model.relationships.map((r) => r.id)).toEqual(["namespace-1"]);
+    expect(model.namespaces.map((n) => n.id)).toEqual(["namespace:1"]);
+    expect(model.notes.map((n) => n.id)).toEqual(["note:1"]);
     // All three ids address a different element, so nothing is ambiguous.
-    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual([
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual([
       "namespace-1",
       "namespace:1",
       "note:1",
@@ -1488,10 +1455,9 @@ describe("buildClassModel", () => {
         column: 3,
       },
     ]);
-    expect(model).not.toBeNull();
-    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["Animal", "Duck"]);
-    expect(model!.timeline.totalSteps).toBe(3);
-    expect(model!.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
-    expect(model!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual(["Animal", "Duck"]);
+    expect(model.timeline.totalSteps).toBe(3);
+    expect(model.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
+    expect(model.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
   });
 });
