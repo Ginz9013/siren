@@ -811,6 +811,20 @@ function nodeStyle(result: SirenRenderResult, id: string): string {
   return frame?.getAttribute("style") ?? "";
 }
 
+/**
+ * The inline author style on one state's drawn rectangle — its own box, or a
+ * composite's frame — or `""` when the author styled it with nothing.
+ *
+ * `nodeStyle`'s answer for the other kind, and read the same way: the
+ * attribute the browser will paint from, rather than anything upstream of
+ * it. Equality rather than `endsWith` here, because a state's rect carries
+ * no theme-owned inline declaration in front of the author's.
+ */
+function stateStyle(result: SirenRenderResult, id: string): string {
+  const frame = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"] rect`);
+  return frame?.getAttribute("style") ?? "";
+}
+
 /** The inline author style on one edge, or `""` when it carries none. */
 function edgeStyle(result: SirenRenderResult, id: string): string {
   return svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`)?.getAttribute("style") ?? "";
@@ -3602,11 +3616,16 @@ line2\`"]`,
   },
   // The six constructs the State Diagram board deliberately left out. Each
   // one is valid Mermaid, measured against 11.17.2 with
-  // `scripts/mermaid-probe.mjs`, and each is refused **by name** by
-  // `parseStateDiagram`'s `UNIMPLEMENTED` table rather than swallowed or
-  // reported as a malformed line. They are this file's first `rejected` rows
-  // since the flowchart backlog closed, and they are honest backlog: written
-  // down so the gap is measured rather than forgotten.
+  // `scripts/mermaid-probe.mjs`, and each arrived here `rejected` — refused
+  // **by name** by `parseStateDiagram`'s `UNIMPLEMENTED` table rather than
+  // swallowed or reported as a malformed line. They were this file's first
+  // `rejected` rows since the flowchart backlog closed, and they are honest
+  // backlog: written down so the gap is measured rather than forgotten.
+  //
+  // A row leaves by *starting to work*, and three have: `st-direction-document`,
+  // `st-composite-quoted-description` and `st-author-style` are `supported`
+  // now, each with an assert reading the rendered SVG. The ones still marked
+  // `rejected` below are what is left of the six.
   {
     id: "st-stereotype-choice",
     kind: "state",
@@ -3665,13 +3684,42 @@ line2\`"]`,
       classDef urgent fill:#f96
       Idle --> Busy
       class Busy urgent`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`classDef` defines a named set of declarations and the apply-directive " +
       "`class Busy urgent` applies it. Measured: a state diagram supports " +
       "both — the state carries a `classes` array (`classes=[\"urgent\"]`) and " +
       "`getClasses()` returns the definitions, the same shape a flowchart's " +
-      "and a class diagram's already have.",
+      "and a class diagram's already have. Measured again with `--markup`: " +
+      "mermaid 11.17.2 puts the class on the state's own `<g>` and emits " +
+      "`#id .urgent rect { fill:#f96 !important }` beside it, and the drawn " +
+      "`rect.basic.label-container` comes back carrying `fill:#f96` — so the " +
+      "author's declaration reaches the **figure**, not only the database. " +
+      "Two more halves of the construct, measured the same way: a state " +
+      "wearing two classes takes them from two `class` statements (a comma " +
+      "list in the *class-name* position is read as one name — " +
+      "`class Busy a,b` reports `classes=[\"a,b\"]`), and they stack in " +
+      "**application order**, the later value winning a property both declare " +
+      "while the properties themselves merge; a comma list in the *target* " +
+      "position does split (`class Busy,Done urgent` styles both). Siren " +
+      "resolves all of that in the shared `resolveStyles`, which already gave " +
+      "a flowchart and a class diagram the identical rules.",
+    assert: (result) => {
+      // Read off the picture, not off the model: the declaration has to be
+      // on the element the browser paints, or the row would pass on a
+      // `classes` array nothing draws — which is exactly the shape of
+      // "parses with no diagnostic and renders wrong" this file exists to
+      // catch.
+      expectSame(
+        "the author's `fill` is on the styled state's own rect",
+        stateStyle(result, "Busy"),
+        "fill:#f96",
+      );
+      // And the contrast that says it was *applied* rather than painted on
+      // everything: the state no `class` statement named carries no inline
+      // declaration at all.
+      expectSame("and the unstyled state carries none", stateStyle(result, "Idle"), "");
+    },
   },
   {
     id: "st-direction-document",

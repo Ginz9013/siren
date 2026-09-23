@@ -538,8 +538,6 @@ describe("parseStateDiagram", () => {
       ["note right of Idle : waiting", 'a "note" annotation'],
       ["note left of Idle : waiting", 'a "note" annotation'],
       ["--", 'the "--" concurrency divider'],
-      ["classDef urgent fill:#f96", 'the "classDef" author-style directive'],
-      ["class Idle urgent", 'the "class" author-style directive'],
     ];
 
     for (const [statement, named] of cases) {
@@ -557,6 +555,96 @@ describe("parseStateDiagram", () => {
       expect(refusal!.message, `for "${statement}"`).toContain(`"${statement}"`);
       expect(refusal!.message, `for "${statement}"`).not.toContain("Unrecognized");
     }
+  });
+
+  it("reads `classDef` and the `class` apply-directive into the document's styles", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): this document
+    // reports `id="Busy" classes=["urgent"]`, and `--markup` shows the
+    // author's `fill` reaching the drawn state's rect.
+    //
+    // Two statements, two roles, exactly as a class diagram's `classDef` and
+    // `cssClass` are: the `classDef` defines and applies to nothing, and the
+    // apply-directive names the targets. They are kept apart here and paired
+    // by `resolveStyles`, which is what lets an apply-directive name a
+    // `classDef` written below it.
+    const document = documentOf(
+      "stateDiagram-v2\n  classDef urgent fill:#f96\n  Idle --> Busy\n  class Busy urgent\n",
+    );
+
+    expect(document.styles).toEqual([
+      {
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: "urgent",
+        properties: [{ property: "fill", value: "#f96" }],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: "class",
+        targetIds: ["Busy"],
+        name: "urgent",
+        properties: [],
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("splits the apply-directive's comma-separated target list", () => {
+    // Measured (mermaid 11.17.2): `class Busy,Done urgent` reports
+    // `classes=["urgent"]` on **both** states — the comma list sits in the
+    // *id* position, and a space after the comma reads the same.
+    //
+    // Deliberately not the other position: measured, `class Busy a,b` takes
+    // the whole tail as one class name (`classes=["a,b"]`), so the class
+    // name is a single `\w+` here and a state carrying two of them is
+    // written as two `class` statements.
+    for (const list of ["Busy,Done", "Busy, Done"]) {
+      const document = documentOf(
+        `stateDiagram-v2\n  classDef urgent fill:#f96\n  Idle --> Busy\n  Idle --> Done\n  class ${list} urgent\n`,
+      );
+
+      expect(
+        document.styles.filter((s) => s.styleKind === "apply").map((s) => s.targetIds),
+        `for "class ${list} urgent"`,
+      ).toEqual([["Busy", "Done"]]);
+    }
+  });
+
+  it("keeps the reserved-word guard the two styling statements were reserved for", () => {
+    // The boundary the new patterns must not cross. `classDef` and `class`
+    // became statement keywords above; a bare one, with no operands, is
+    // still a **whole-document parse error in Mermaid** (measured, 11.17.2:
+    // "Expecting 'CLASSDEF_ID', 'DEFAULT'" and "Expecting
+    // 'CLASSENTITY_IDS'"), so it must stay an error here rather than being
+    // swallowed by the statement patterns or declaring a state of that name.
+    //
+    // `CLASS_APPLY_RE` requires two operands and `CLASS_DEF_RE` requires a
+    // declaration list, which is what leaves both of these to
+    // `RESERVED_WORD_RE` — the reservation `01M2ZPJKH` made for exactly
+    // this ticket.
+    for (const word of ["class", "classDef", "Class", "CLASSDEF"]) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${word}\n`,
+      );
+
+      expect(document, `for "${word}"`).toBeNull();
+      const refusal = diagnostics.find((d) => d.line === 3);
+      expect(refusal, `for "${word}"`).toBeDefined();
+      expect(refusal!.severity, `for "${word}"`).toBe("error");
+      expect(refusal!.message, `for "${word}"`).toMatch(/reserved/i);
+    }
+
+    // And the reservation is still not global: after the `state ` keyword
+    // Mermaid's lexer leaves its INITIAL condition, so these words still
+    // name a state there (measured), and the new patterns must not have
+    // started claiming those lines either.
+    expect(documentOf('stateDiagram-v2\n  state "x" as class\n').states.map((s) => s.id)).toEqual(
+      ["class"],
+    );
   });
 
   it("still reads the two `direction` and `state ... {` spellings it does implement", () => {

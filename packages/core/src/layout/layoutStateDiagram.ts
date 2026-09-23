@@ -138,6 +138,19 @@ export function layoutStateDiagram(
   };
   const shifted = (point: Point): Point => ({ x: point.x + shift.x, y: point.y + shift.y });
 
+  /**
+   * Each styled state's declarations, keyed for lookup below.
+   *
+   * `buildStateModel` has already merged everything one state was styled by
+   * and dropped the values its gate refused, and omits a state that ended up
+   * with none — so there is nothing to reconcile here. A state absent from
+   * this map gets the empty pair, which is what says "no `style` attribute"
+   * to the renderer without it having to test for a missing field.
+   */
+  const styleByStateId = new Map(
+    model.styles.map(({ targetId, style }) => [targetId, style]),
+  );
+
   const states = model.states.map<PositionedState>((state) => {
     // A composite is drawn at its *frame*, which is grown from the cluster
     // box the core placed; everything else is drawn at the box itself.
@@ -155,6 +168,7 @@ export function layoutStateDiagram(
       // the core knew where the box would go; this is where that box
       // landed.
       rows: plan.rows.map((row) => ({ text: row.text, y: placed.y + row.y })),
+      style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
       dividerY: plan.dividerY === null ? null : placed.y + plan.dividerY,
     };
   });

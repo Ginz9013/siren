@@ -12,6 +12,7 @@ const DIAGRAM: PositionedStateDiagram = {
       width: 80,
       height: 40,
       rows: [{ text: "Idle", y: 40 }],
+      style: { frame: [], text: [] },
       dividerY: null,
     },
     {
@@ -22,6 +23,7 @@ const DIAGRAM: PositionedStateDiagram = {
       width: 100,
       height: 40,
       rows: [{ text: "Running", y: 140 }],
+      style: { frame: [], text: [] },
       dividerY: null,
     },
   ],
@@ -170,7 +172,7 @@ describe("renderStateDiagramToSVG", () => {
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], dividerY: null },
+    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null },
     {
       id: "Idle",
       kind: "state",
@@ -179,9 +181,10 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
       width: 80,
       height: 40,
       rows: [{ text: "Idle", y: 80 }],
+      style: { frame: [], text: [] },
       dividerY: null,
     },
-    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], dividerY: null },
+    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null },
   ],
   transitions: [
     {
@@ -217,6 +220,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       width: 160,
       height: 40,
       rows: [{ text: "waiting for work", y: 40 }],
+      style: { frame: [], text: [] },
       dividerY: null,
     },
     {
@@ -227,6 +231,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       width: 100,
       height: 40,
       rows: [{ text: "Plain", y: 140 }],
+      style: { frame: [], text: [] },
       dividerY: null,
     },
     {
@@ -241,6 +246,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
         { text: "second", y: 290 },
         { text: "third", y: 320 },
       ],
+      style: { frame: [], text: [] },
       dividerY: 260,
     },
   ],
@@ -387,6 +393,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           width: 200,
           height: 150,
           rows: [{ text: "Outer", y: 30 }],
+          style: { frame: [], text: [] },
           dividerY: null,
         },
         {
@@ -397,6 +404,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           width: 80,
           height: 40,
           rows: [{ text: "Idle", y: 80 }],
+          style: { frame: [], text: [] },
           dividerY: null,
         },
       ],
@@ -449,6 +457,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           width: 200,
           height: 150,
           rows: [{ text: "Outer", y: 30 }],
+          style: { frame: [], text: [] },
           dividerY: null,
         },
         {
@@ -459,6 +468,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           width: 80,
           height: 40,
           rows: [{ text: "Idle", y: 80 }],
+          style: { frame: [], text: [] },
           dividerY: null,
         },
       ],
@@ -490,5 +500,111 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     });
 
     expect(svg.querySelectorAll(".siren-pending")).toHaveLength(0);
+  });
+
+  it("writes the author's resolved declarations onto the drawn shape and every row of text", () => {
+    // Inline, and on the drawn shape rather than the enclosing `<g>` —
+    // ADR-0008's cascade reason, the same one `renderClassDiagramToSVG`
+    // gives: the theme styles `.siren-state-frame` and `.siren-state-label`
+    // directly, so an inline declaration on those elements outranks it
+    // without `!important`, while the same one on the `<g>` would only be
+    // *inherited* and lose.
+    //
+    // Every row, not only the title: measured (mermaid 11.17.2), a `class`
+    // names the state and not one of its lines, and Mermaid's generated rule
+    // is scoped to the whole node.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Busy",
+          kind: "state",
+          x: 10,
+          y: 20,
+          width: 80,
+          height: 60,
+          rows: [
+            { text: "Busy", y: 35 },
+            { text: "working", y: 65 },
+          ],
+          style: {
+            frame: [
+              { property: "fill", value: "#f96" },
+              { property: "stroke", value: "#00f" },
+            ],
+            text: [{ property: "fill", value: "#fff" }],
+          },
+          dividerY: 50,
+        },
+        {
+          id: "Idle",
+          kind: "state",
+          x: 10,
+          y: 120,
+          width: 80,
+          height: 40,
+          rows: [{ text: "Idle", y: 140 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 200,
+      height: 200,
+    });
+
+    const busy = svg.querySelector('g.siren-state[data-siren-id="Busy"]')!;
+    expect(busy.querySelector("rect.siren-state-frame")!.getAttribute("style")).toBe(
+      "fill:#f96;stroke:#00f",
+    );
+    expect(
+      Array.from(busy.querySelectorAll("text")).map((t) => t.getAttribute("style")),
+    ).toEqual(["fill:#fff", "fill:#fff"]);
+
+    // An unstyled state gets **no** `style` attribute at all, rather than an
+    // empty one: an empty attribute is still a declaration block the cascade
+    // has to consider, and it would read as "this state was styled".
+    const idle = svg.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+    expect(idle.querySelector("rect.siren-state-frame")!.hasAttribute("style")).toBe(false);
+    expect(idle.querySelector("text")!.hasAttribute("style")).toBe(false);
+  });
+
+  it("reaches a composite's frame and its title, which is where Mermaid puts it too", () => {
+    // Measured (mermaid 11.17.2): `class Outer urgent` on a composite lands
+    // the class on the cluster's own `<g>` —
+    // `class="urgent statediagram-state statediagram-cluster"` — and its
+    // generated rule (`#id .urgent rect { ... }`) paints the frame's rects.
+    // So a class applied to a composite reaches its frame, and this is the
+    // assertion that Siren's does too.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          rows: [{ text: "Outer", y: 30 }],
+          style: {
+            frame: [{ property: "stroke", value: "#00f" }],
+            text: [{ property: "fill", value: "#fff" }],
+          },
+          dividerY: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 180,
+    });
+
+    const outer = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(outer.querySelector("rect.siren-composite-frame")!.getAttribute("style")).toBe(
+      "stroke:#00f",
+    );
+    expect(outer.querySelector("text.siren-composite-label")!.getAttribute("style")).toBe(
+      "fill:#fff",
+    );
   });
 });
