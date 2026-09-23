@@ -24,6 +24,79 @@ function styleDecl(
 }
 
 describe("resolveStyles", () => {
+  /**
+   * Characterization, written before the "unknown target" rule changed and
+   * expected to pass unchanged after it.
+   *
+   * This module is shared by the flowchart, the class diagram and the state
+   * diagram, and the only trace of which kind is asking is `authoredAs` —
+   * the keyword the author actually typed. So "a target that *does* exist
+   * is styled" is pinned once per spelling: a change aimed at the unknown
+   * target must leave all three of these alone, and if it does not, the
+   * failure names the kind that broke rather than a shared helper.
+   *
+   * Measured at the render seam too, before touching anything: `class A
+   * urgent` over a flowchart, `cssClass "Animal" urgent` over a class
+   * diagram and `class B urgent` over a state diagram each paint
+   * `fill:#f96` onto that one element's rect, leave the other element's
+   * `style` empty, and report no diagnostic.
+   */
+  describe("a target that exists (characterization)", () => {
+    it.each([
+      ["class", "flowchart"],
+      ["cssClass", "classDiagram"],
+      ["class", "stateDiagram"],
+    ])("applies a definition through `%s`, as %s spells it, reporting nothing", (authoredAs) => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "classDef",
+            name: "urgent",
+            properties: [{ property: "fill", value: "#f96" }],
+          }),
+          styleDecl({ styleKind: "apply", authoredAs, targetIds: ["Busy"], name: "urgent" }),
+        ],
+        new Set(["Idle", "Busy"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        { targetId: "Busy", style: { frame: [{ property: "fill", value: "#f96" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([]);
+    });
+
+    it("styles every target of a list when every one of them exists", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "classDef",
+            name: "urgent",
+            properties: [{ property: "fill", value: "#f96" }],
+          }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "class",
+            targetIds: ["Idle", "Busy"],
+            name: "urgent",
+          }),
+        ],
+        new Set(["Idle", "Busy"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        { targetId: "Idle", style: { frame: [{ property: "fill", value: "#f96" }], text: [] } },
+        { targetId: "Busy", style: { frame: [{ property: "fill", value: "#f96" }], text: [] } },
+      ]);
+      expect(diagnostics).toEqual([]);
+    });
+  });
+
   describe("resolution rules", () => {
     it("drops a target nothing declares, still applying the statement to the targets that exist", () => {
       const diagnostics: Diagnostic[] = [];
@@ -45,14 +118,74 @@ describe("resolveStyles", () => {
       expect(styles).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
-      expect(diagnostics).toEqual([
-        {
-          severity: "error",
-          message: 'style "Ghost" references an id that does not exist; dropping the declaration.',
-          line: 4,
-          column: 1,
-        },
+      // Silently: Mermaid accepts the same statement and says nothing, so a
+      // diagnostic here is one this repo invented. Measured across all three
+      // kinds that share this module (mermaid 11.17.2, `scripts/mermaid-probe.mjs`):
+      // `class A,Ghost urgent` in a flowchart reports `A` with
+      // `classes=["urgent"]` and no vertex named `Ghost`; `cssClass "Ghost"`
+      // in a class diagram adds no class; `class Ghost urgent` in a state
+      // diagram does declare `Ghost` — a state-diagram construct gap filed
+      // separately, and not a reason for this module to speak.
+      expect(diagnostics).toEqual([]);
+    });
+
+    it("drops an apply-directive whose only target does not exist, silently and entirely", () => {
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "classDef",
+            name: "urgent",
+            properties: [{ property: "fill", value: "#f96" }],
+          }),
+          styleDecl({
+            styleKind: "apply",
+            authoredAs: "class",
+            targetIds: ["Ghost"],
+            name: "urgent",
+            line: 4,
+            column: 3,
+          }),
+        ],
+        new Set(["Idle", "Busy"]),
+        diagnostics,
+      );
+
+      // Not "present and empty", and not present carrying the declarations
+      // either: an id nothing declares must leave no entry at all, or a
+      // renderer is handed a style for an element it will never draw.
+      expect(styles).toEqual([]);
+      expect(diagnostics).toEqual([]);
+    });
+
+    it("lets a nonexistent target drop itself without stopping the targets written after it", () => {
+      // The order that tells "drop this target" apart from "stop reading
+      // this statement". With the unknown name written last, both rules
+      // draw the same picture; written first, only one of them still
+      // styles `Shape`. Mermaid measured both orders (11.17.2): `class
+      // A,Ghost emphasis` and `class Ghost,A emphasis` each report `A`
+      // with `classes=["emphasis"]`.
+      const diagnostics: Diagnostic[] = [];
+
+      const styles = resolveStyles(
+        [
+          styleDecl({
+            styleKind: "style",
+            targetIds: ["Ghost", "Shape"],
+            properties: [{ property: "fill", value: "#fdd" }],
+            line: 4,
+            column: 1,
+          }),
+        ],
+        new Set(["Shape"]),
+        diagnostics,
+      );
+
+      expect(styles).toEqual([
+        { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
+      expect(diagnostics).toEqual([]);
     });
 
     it("pairs an apply-directive with a definition written below it", () => {
@@ -122,6 +255,12 @@ describe("resolveStyles", () => {
       // spells it `cssClass`. Both parse to one kind, so the kind cannot be
       // what a diagnostic quotes: an author who wrote `class` and is told
       // about `cssClass` is being pointed at a line they did not write.
+      //
+      // The undefined *name* is the one remaining diagnostic this module
+      // raises against an apply-directive, so it is also the only one left
+      // that can get the spelling wrong. The unknown *target* used to be a
+      // second; it is now silent, and a statement naming both an undefined
+      // name and a nonexistent target must still report exactly the first.
       const diagnostics: Diagnostic[] = [];
 
       resolveStyles(
@@ -154,7 +293,6 @@ describe("resolveStyles", () => {
 
       expect(diagnostics.map((d) => d.message)).toEqual([
         'class applies "nope", which no classDef defines; dropping the declaration.',
-        'class "Ghost" references an id that does not exist; dropping the declaration.',
       ]);
     });
 
