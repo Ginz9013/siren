@@ -968,7 +968,10 @@ describe("default theme's design tokens", () => {
  * the one figure here that has no stroke to fall back on: a `<circle>` the
  * theme forgets to fill is not a faint shape, it is nothing at all — and a
  * composite, whose frame and title are painted by rules of their own
- * because a frame encloses boxes drawn over it and so must not be filled.
+ * because a frame encloses boxes drawn over it and so must not be filled —
+ * and a **note**, whose box, text and connector are drawn inside the state's
+ * own group through the three classes a class diagram's note already uses,
+ * so this is what says those rules reach a note drawn here too.
  *
  * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`
  * and `EVERY_CLASS_FEATURE` are: exhaustive *class* coverage is a different
@@ -983,6 +986,7 @@ Running --> Idle
 Running --> [*]
 Running : working
 state "on the current job" as Running
+note right of Idle : waiting for work
 state Grouped {
 direction LR
 Held --> Beside

@@ -3,6 +3,7 @@ import type {
   Point,
   PositionedState,
   PositionedStateDiagram,
+  PositionedStateNote,
   PositionedStateRow,
   PositionedStateTransition,
   ResolvedState,
@@ -48,6 +49,25 @@ const PSEUDO_STATE_RADIUS = 7;
  */
 const COMPOSITE_PADDING = 12;
 
+/** Horizontal padding between a note box's edge and its text. */
+const NOTE_PADDING_X = 10;
+/** Vertical padding between a note box's edge and its text. */
+const NOTE_PADDING_Y = 8;
+
+/**
+ * The id a state's note is known by inside the shared layout core, and the
+ * id of the edge joining the two.
+ *
+ * Prefixed away from everything a document can spell, the way
+ * `layoutClassDiagram`'s `note:`/`note-link:` ids are: an authored state id
+ * is `\w+` and cannot contain a colon, and a generated pseudo-state id is
+ * `start:1`, so neither can collide with these. A state carries **at most
+ * one** note (measured — a second one replaces the first), so the state's own
+ * id is enough to name both without a counter.
+ */
+const noteNodeId = (stateId: string): string => `note:${stateId}`;
+const noteLinkEdgeId = (stateId: string): string => `note-link:${stateId}`;
+
 /**
  * Computes state boxes and transition paths for a resolved `StateModel`.
  *
@@ -66,6 +86,15 @@ export function layoutStateDiagram(
     model.states.map((state) => [state.id, planStateBox(state, options)] as const),
   );
 
+  /**
+   * The states carrying a note, each with the note itself — narrowed here
+   * once so that the three places below that add a node, add an edge and
+   * read the result back all work from the same list.
+   */
+  const notedStates = model.states.flatMap((state) =>
+    state.note === null ? [] : [{ state, note: state.note }],
+  );
+
   const laidOut = layoutDirectedGraph({
     // The document's own rank direction — `TB` unless the author wrote a
     // `direction` outside every composite, which is the default measured
@@ -73,47 +102,89 @@ export function layoutStateDiagram(
     // thing and reaches dagre per cluster below; measured, the two are
     // independent, so neither overrides the other.
     rankdir: model.direction,
-    nodes: model.states.map((state) => {
-      const plan = planById.get(state.id)!;
-      return {
-        id: state.id,
-        width: plan.width,
-        height: plan.height,
-        // A composite is a *frame*: the states that name it as their parent
-        // are laid out inside it. What the core hands back for it is the box
-        // the core placed, which is *not* promised to have been sized from
-        // those states or to enclose them — a composite nested inside one
-        // carrying a `direction` comes back at exactly the size given above,
-        // never having been sized at all (see `isCluster` in
-        // `layoutDirectedGraph.ts` for the measured table). `compositeFrames`
-        // is where the frame the picture shows is actually computed, by
-        // union with the members, and that is why it cannot be skipped.
-        // The size above is still worth giving: it is the smallest the frame
-        // could sensibly be, and it is what a composite holding nothing is
-        // drawn at, since the core lays a childless cluster out as an
-        // ordinary box.
-        ...(state.kind === "composite" ? { isCluster: true } : {}),
-        // Membership, and the only thing about a composite the shared core
-        // is told. `undefined` rather than `null` at the document's own
-        // level, because the core switches dagre's compound mode on by the
-        // *presence* of parentage — a field written as `null` would count.
-        ...(state.parentId === null ? {} : { parentId: state.parentId }),
-        // The composite's own `direction`, reaching dagre's
-        // `recursiveClusterLayout` through the one field it reads per
-        // cluster — the same port `layoutGraph` makes for a subgraph's.
-        ...(state.direction === null ? {} : { rankdir: state.direction }),
-      };
-    }),
-    edges: model.transitions.map((transition) => ({
-      id: transition.id,
-      from: transition.from,
-      to: transition.to,
-      // A labelled transition asks the core to keep its ranks far enough
-      // apart for the text, and reports back where that space ended up.
-      ...(transition.label === null
-        ? {}
-        : { label: options.measureText.measure(transition.label) }),
-    })),
+    nodes: [
+      ...model.states.map((state) => {
+        const plan = planById.get(state.id)!;
+        return {
+          id: state.id,
+          width: plan.width,
+          height: plan.height,
+          // A composite is a *frame*: the states that name it as their parent
+          // are laid out inside it. What the core hands back for it is the box
+          // the core placed, which is *not* promised to have been sized from
+          // those states or to enclose them — a composite nested inside one
+          // carrying a `direction` comes back at exactly the size given above,
+          // never having been sized at all (see `isCluster` in
+          // `layoutDirectedGraph.ts` for the measured table). `compositeFrames`
+          // is where the frame the picture shows is actually computed, by
+          // union with the members, and that is why it cannot be skipped.
+          // The size above is still worth giving: it is the smallest the frame
+          // could sensibly be, and it is what a composite holding nothing is
+          // drawn at, since the core lays a childless cluster out as an
+          // ordinary box.
+          ...(state.kind === "composite" ? { isCluster: true } : {}),
+          // Membership, and the only thing about a composite the shared core
+          // is told. `undefined` rather than `null` at the document's own
+          // level, because the core switches dagre's compound mode on by the
+          // *presence* of parentage — a field written as `null` would count.
+          ...(state.parentId === null ? {} : { parentId: state.parentId }),
+          // The composite's own `direction`, reaching dagre's
+          // `recursiveClusterLayout` through the one field it reads per
+          // cluster — the same port `layoutGraph` makes for a subgraph's.
+          ...(state.direction === null ? {} : { rankdir: state.direction }),
+        };
+      }),
+      // A note is a box the layout places like any other, which is what
+      // keeps it from landing on top of a state — the same answer
+      // `layoutClassDiagram` gives a class note, and the same one Mermaid
+      // gives this note (measured: it inserts the note into its own graph as
+      // a node and lets the layout engine place it).
+      //
+      // It joins the **level its state is written at**, so a note on a state
+      // inside a composite is laid out inside that composite's cluster and
+      // ends up inside the frame drawn for it, rather than floating outside
+      // the block whose state it annotates.
+      ...notedStates.map(({ state, note }) => {
+        const text = options.measureText.measure(note.text);
+        return {
+          id: noteNodeId(state.id),
+          width: text.width + NOTE_PADDING_X * 2,
+          height: text.height + NOTE_PADDING_Y * 2,
+          ...(state.parentId === null ? {} : { parentId: state.parentId }),
+        };
+      }),
+    ],
+    edges: [
+      ...model.transitions.map((transition) => ({
+        id: transition.id,
+        from: transition.from,
+        to: transition.to,
+        // A labelled transition asks the core to keep its ranks far enough
+        // apart for the text, and reports back where that space ended up.
+        ...(transition.label === null
+          ? {}
+          : { label: options.measureText.measure(transition.label) }),
+      })),
+      // The edge that puts the note beside the state it annotates, and whose
+      // route is the note's connector. It is never drawn as a transition:
+      // measured, Mermaid builds this one with `arrowhead: "none"`, which is
+      // what keeps it from reading as a transition into the note.
+      //
+      // **The side the author named is spent here, as this edge's
+      // direction** — measured from Mermaid's own construction, which is the
+      // only place the two spellings differ: `right of` runs state → note and
+      // `left of` runs note → state, and the rank order that falls out of
+      // that is the whole of what `left`/`right` mean. So a `left of` note
+      // lands *before* its state along the diagram's direction and a
+      // `right of` one *after* it, which is left and right under `direction
+      // LR` and above and below under the default `TB` — Mermaid's behaviour
+      // exactly, because it is Mermaid's mechanism.
+      ...notedStates.map(({ state, note }) => ({
+        id: noteLinkEdgeId(state.id),
+        from: note.position === "left of" ? noteNodeId(state.id) : state.id,
+        to: note.position === "left of" ? state.id : noteNodeId(state.id),
+      })),
+    ],
   });
 
   // Boxes as the shared core placed them, in *core* coordinates. The frames
@@ -170,6 +241,7 @@ export function layoutStateDiagram(
       rows: plan.rows.map((row) => ({ text: row.text, y: placed.y + row.y })),
       style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
       dividerY: plan.dividerY === null ? null : placed.y + plan.dividerY,
+      note: placeNote(state, boxById, routeById, frameById, shifted),
     };
   });
 
@@ -217,6 +289,52 @@ export function layoutStateDiagram(
     // that reaches for room beside its box — is clipped by the `viewBox`.
     width: Math.max(laidOut.width + shift.x, bounds.width),
     height: Math.max(laidOut.height + shift.y, bounds.height),
+  };
+}
+
+/**
+ * One state's note where the shared core put it, or `null` when the state
+ * carries none.
+ *
+ * Both the box and the connector come straight back out of the core: the
+ * note was a node of the laid-out graph and the connector was an edge, so
+ * neither is computed here — what is done here is the two things the core
+ * cannot know about. The route is **reordered to run from the state to the
+ * note**, since the edge's own direction is the author's `left of`/`right of`
+ * and a reader of `connector` should not have to ask which spelling produced
+ * it; and a route ending on a *composite* is re-clipped to that composite's
+ * grown frame, exactly as a transition naming one is, because the frame is
+ * this module's own growth and the core clipped to the cluster box inside it.
+ */
+function placeNote(
+  state: ResolvedState,
+  boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
+  routeById: ReadonlyMap<string, { points: Point[] }>,
+  frameById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
+  shifted: (point: Point) => Point,
+): PositionedStateNote | null {
+  if (state.note === null) {
+    return null;
+  }
+
+  const box = boxById.get(noteNodeId(state.id))!;
+  const placed = shifted(box);
+
+  // The edge runs state → note for `right of` and note → state for
+  // `left of`; the connector is always reported the first way round.
+  const routed = routeById.get(noteLinkEdgeId(state.id))!.points;
+  const stateEnd = state.note.position === "left of" ? "end" : "start";
+  const frame = frameById.get(state.id);
+  const clipped = frame === undefined ? routed : clipRouteEndToBox(routed, frame, stateEnd);
+  const fromState = state.note.position === "left of" ? [...clipped].reverse() : clipped;
+
+  return {
+    text: state.note.text,
+    x: placed.x,
+    y: placed.y,
+    width: box.width,
+    height: box.height,
+    connector: fromState.map(shifted),
   };
 }
 
@@ -283,11 +401,17 @@ function compositeFrames(
     // padding again before whatever the frame holds starts.
     const strip = plan.height;
 
-    const held = (memberIdsByParent.get(id) ?? []).map((memberId) =>
-      stateById.get(memberId)!.kind === "composite"
-        ? frameOf(memberId)
-        : boxById.get(memberId)!,
-    );
+    const held = (memberIdsByParent.get(id) ?? []).flatMap((memberId) => {
+      const member = stateById.get(memberId)!;
+      return [
+        member.kind === "composite" ? frameOf(memberId) : boxById.get(memberId)!,
+        // A member's **note** is held by this frame too: it was laid out at
+        // the same level and is drawn inside the block, so a frame grown
+        // from the state boxes alone leaves it hanging outside the figure
+        // that holds the state it annotates.
+        ...(member.note === null ? [] : [boxById.get(noteNodeId(memberId))!]),
+      ];
+    });
 
     const left = Math.min(cluster.x, ...held.map((box) => box.x - COMPOSITE_PADDING));
     const top = Math.min(cluster.y, ...held.map((box) => box.y - strip));
@@ -441,6 +565,12 @@ function diagramBounds(
 
   for (const state of states) {
     cover(state.x + state.width, state.y + state.height);
+    // A note is a figure of its own, and its connector a routed line of its
+    // own: neither is inside the state's box, so neither is covered by it.
+    if (state.note !== null) {
+      cover(state.note.x + state.note.width, state.note.y + state.note.height);
+      for (const point of state.note.connector) cover(point.x, point.y);
+    }
   }
 
   for (const transition of transitions) {

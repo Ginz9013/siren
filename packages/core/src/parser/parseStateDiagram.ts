@@ -5,6 +5,7 @@ import type {
   SirenTimeline,
   StateDecl,
   StateDocument,
+  StateNotePosition,
   StateTransition,
   StyleDecl,
   StyleProperty,
@@ -203,6 +204,70 @@ const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/;
 const COMPOSITE_CLOSE = "}";
 
 /**
+ * `note right of Idle : waiting for work` — a note written onto one state,
+ * on the side the author named.
+ *
+ * Every part of this pattern is measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`:
+ *
+ * - **Two positions and no third.** `note over Idle : hovering` is a
+ *   *lexical* error, not a note drawn over the box, so `over` is a sequence
+ *   diagram's word and not this kind's.
+ * - **The target is read in `\w+`**, the alphabet every other state id in
+ *   this file is read in — so `note right of [*] : text`, which Mermaid does
+ *   accept (it attaches the note to the level's *start* pseudo-state,
+ *   measured), is deliberately not matched here and is refused by name in
+ *   `UNIMPLEMENTED` instead.
+ * - **The text may not contain a colon.** `note right of Idle : a : b : c`
+ *   is a parse error in Mermaid, so a second colon is not text — it is a
+ *   malformed line, and letting `.*` swallow it would draw a picture for a
+ *   document that does not render.
+ * - **The text may not be empty.** `note right of Idle :` is a lexical error
+ *   too, which is what the leading `\S` here refuses — the same guard
+ *   `STATE_DESCRIPTION_RE` carries for `Empty :`, and for the same measured
+ *   reason.
+ */
+const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/i;
+
+/**
+ * The two positions, as `StateNotePosition` spells them — and the gate that
+ * keeps `NOTE_RE`'s case-insensitivity off them.
+ *
+ * The `note` keyword itself is case-insensitive in Mermaid's lexer, measured:
+ * `Note right of Idle : cased` reads exactly as the lowercase spelling does,
+ * so refusing it would cost a document Mermaid draws correctly. **The
+ * position is a different matter.** Measured, `note RIGHT OF Idle : shouty`
+ * also parses — and Mermaid records the position *verbatim*
+ * (`"RIGHT OF"`), then decides which side to draw on with an exact
+ * `position === "left of"` comparison. So `note LEFT OF X : t` renders in
+ * Mermaid as a **right-of** note: a wrong picture with no diagnostic, from
+ * Mermaid's own case sensitivity. Siren will neither copy that nor silently
+ * pick the other side, so an uncanonical spelling is declined here and
+ * refused as an unrecognized line — CONTEXT.md's one exception to the
+ * compatibility condition, applied where it was written for.
+ */
+const isNotePosition = (spelling: string): spelling is StateNotePosition =>
+  spelling === "left of" || spelling === "right of";
+
+/**
+ * `note "floating" as N` — the note spelling that belongs to no state.
+ *
+ * Read, and then ignored, exactly as `KEYWORD_ONLY_RE`'s `state Skipped` is,
+ * and for the same measured reason: mermaid 11.17.2 **parses this line and
+ * records nothing for it**. No state `N` reaches the state table, no note
+ * reaches any state, and `--markup` shows the diagram drawn with only the
+ * states its other lines declare. So Mermaid renders such a document, and
+ * refusing it here would trade a document that renders for no picture at
+ * all — the trade CONTEXT.md's compatibility condition forbids. Reporting
+ * nothing is what stops Siren drawing a box Mermaid does not.
+ *
+ * Case-insensitive, as every one of Mermaid's lexer rules is: measured,
+ * `NOTE "floating" as N` and `note "floating" AS N` are ignored exactly as
+ * the lowercase spelling is.
+ */
+const FLOATING_NOTE_RE = /^note\s+"[^"]*"\s+as\s+\w+$/i;
+
+/**
  * `classDef urgent fill:#f96` — a named set of declarations, applied to
  * nothing on its own, spelled exactly as a flowchart and a class diagram
  * spell it.
@@ -271,11 +336,27 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) 
     name: (match) => `the "<<${match[1]}>>" stereotype`,
   },
   {
-    // Measured: the note hangs off the state it names, as
-    // `note={"position":"right of","text":"..."}` — **not** a separate note
-    // collection the way a class diagram's is.
-    pattern: /^note\s+\S/,
-    name: () => 'a "note" annotation',
+    // The note construct itself is implemented (`NOTE_RE`); these are the
+    // two spellings of it that are not, each measured to be valid Mermaid
+    // and each left here so it is refused by name rather than as a
+    // malformed line.
+    //
+    // Measured: `note right of [*] : the beginning` attaches the note to the
+    // level's **start** pseudo-state — `root_start` — whichever side of an
+    // arrow the author's `[*]` lines put it on (a document whose only `[*]`
+    // is an *end* still reports the note on `root_start`, with the end left
+    // bare). Siren's pseudo-states carry generated ids and no note, so this
+    // is a gap and says so.
+    pattern: /^note\s+(?:left|right)\s+of\s+\[\*\]/,
+    name: () => 'a note on a "[*]" pseudo-state',
+  },
+  {
+    // Measured: `note right of Idle` with no colon opens the multi-line
+    // form, whose text runs to a closing `end note` and reaches the state as
+    // one string with newlines in it. A single-line note is `NOTE_RE`'s;
+    // this spelling needs a drawn box of several rows and has none.
+    pattern: /^note\s+(?:left|right)\s+of\s+\w+\s*$/,
+    name: () => 'a multi-line "note ... end note"',
   },
   {
     // Measured: synthesises `divider`-typed states and re-parents the
@@ -469,6 +550,9 @@ export function parseStateDiagram(source: string): ParseResult {
       // Filled in below if this state turns out to be a composite whose
       // block writes a `direction` of its own.
       direction: null,
+      // Filled in by `annotateState` if a `note ... of` statement names this
+      // state — at most one, whatever the author writes.
+      note: null,
       line,
       column,
     };
@@ -494,6 +578,30 @@ export function parseStateDiagram(source: string): ParseResult {
     column: number,
   ): void => {
     declareState(id, line, column).descriptions.push(description);
+  };
+
+  /**
+   * Records the note written onto a state, declaring that state if this is
+   * the first line to name it — `note right of Ghost : who?` is a
+   * declaration as well as a note, measured (mermaid 11.17.2 reports a state
+   * `Ghost` carrying the note and nothing pointing at it).
+   *
+   * **Replaces rather than accumulates**, which is where this parts company
+   * with `describeState` one function up, and the difference is measured
+   * rather than assumed: two descriptions on one state stack into a list,
+   * while a second note on one state **overwrites** the first — whichever
+   * sides they were written on (`note right of Idle : first` then
+   * `note left of Idle : second` reports the one note
+   * `{"position":"left of","text":"second"}`). A state carries at most one.
+   */
+  const annotateState = (
+    id: string,
+    position: StateNotePosition,
+    text: string,
+    line: number,
+    column: number,
+  ): void => {
+    declareState(id, line, column).note = { position, text };
   };
 
   /**
@@ -533,7 +641,18 @@ export function parseStateDiagram(source: string): ParseResult {
     // No descriptions either, and never any: `[*]` is not an id, so there
     // is no spelling of either description form that names a pseudo-state.
     // And never a direction: only a composite has a block to write one in.
-    states.push({ id: null, kind, descriptions: [], parentId, direction: null, line, column });
+    // No note either: `note right of [*]` is refused by name (see
+    // `UNIMPLEMENTED`), so nothing can reach a pseudo-state to write one.
+    states.push({
+      id: null,
+      kind,
+      descriptions: [],
+      parentId,
+      direction: null,
+      note: null,
+      line,
+      column,
+    });
   };
 
   /**
@@ -739,6 +858,23 @@ export function parseStateDiagram(source: string): ParseResult {
         line: lineNumber,
         column,
       });
+      continue;
+    }
+
+    // A note, written onto the state it names. Read before the bare-state
+    // and description patterns for the reason `classDef` is: neither may
+    // claim a statement opening with one of the words this parser reserves.
+    const noteMatch = NOTE_RE.exec(line);
+    if (noteMatch !== null && isNotePosition(noteMatch[1])) {
+      const [, position, targetId, text] = noteMatch;
+      annotateState(targetId, position, text, lineNumber, column);
+      continue;
+    }
+
+    // Accepted and dropped on the floor, the second construct here read
+    // without producing anything — see `FLOATING_NOTE_RE`: Mermaid parses it
+    // and records nothing, so recording nothing is the compatible answer.
+    if (FLOATING_NOTE_RE.test(line)) {
       continue;
     }
 

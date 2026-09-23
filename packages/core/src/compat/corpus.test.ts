@@ -832,8 +832,52 @@ const SILENTLY_WRONG = 0;
  * `resolveStyles` rule that a flowchart and a class diagram already have.
  * `silently-wrong` does not move: this row was a named refusal, never a
  * wrong picture.
+ *
+ * **3 → 2, and this one turned entirely on measuring the *shape* before
+ * choosing it.** `st-note` is `supported`: `note right of Idle : waiting for
+ * work` is drawn as a box of text joined to its state by a dashed,
+ * arrowhead-less connector (`01M368J2Y`). The obvious template was
+ * `ClassDocument.notes: ClassNote[]`, a separate collection whose entries may
+ * float free or attach — and it is the wrong shape. Measured (mermaid
+ * 11.17.2): the note hangs off the state's own record, and a second
+ * `note ... of` on one state **replaces** the first whichever sides the two
+ * were written on, so the field is `StateNote | null` on the state and there
+ * is no document in which one state carries two notes. Copying the class
+ * diagram's collection would have built a model Mermaid does not have and
+ * then diverged on exactly that document.
+ *
+ * Two more things were measured rather than assumed, and both changed what
+ * was built. **`left of`/`right of` are rank-relative, not literal sides**:
+ * mermaid makes the note a node of its layout graph and spends the position
+ * as the *direction of the edge* joining the two (`right of` → state → note,
+ * `left of` → note → state), so the words mean left and right under
+ * `direction LR` and above and below under the default `TB`. Siren gets the
+ * same behaviour for free by doing the same thing — the note is a node handed
+ * to the shared layout core and the connector is its edge — rather than by
+ * placing the box beside the state itself, which is what a reading of the two
+ * keywords alone would have produced. And **the note has no id**: mermaid
+ * names the drawn one after its state (`state-Idle----note-1`), the author
+ * writes none, so it is *not* a timeline target (ADR-0009 — a target is an
+ * id) and none was minted for it. It is drawn inside the annotated state's
+ * own group instead, which is also what animates it: the timeline's classes
+ * land on that group, so a note enters and exits with the state it belongs
+ * to.
+ *
+ * **What was measured and deliberately left refused**, each still valid
+ * Mermaid and each now refused *by name* rather than as the whole construct:
+ * `note right of [*] : x` (mermaid attaches it to the level's start
+ * pseudo-state, whose id here is generated) and the multi-line
+ * `note ... end note` (mermaid reads the body as one string with newlines
+ * in it, which needs a box of several rows). Three spellings mermaid itself
+ * refuses stay refused and are pinned as such — `note over X : t`, a second
+ * colon in the text, and an empty text. One was measured and made to *work*
+ * that no row covers: `note "floating" as N` parses in mermaid and records
+ * nothing at all, so it is accepted and ignored here exactly as `state X` is,
+ * rather than costing a document that renders its picture.
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
  */
-const REJECTED = 3;
+const REJECTED = 2;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
