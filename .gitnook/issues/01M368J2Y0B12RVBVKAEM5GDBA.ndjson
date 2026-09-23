@@ -3,3 +3,4 @@
 {"id":"01M368J2YABS8HG69H32ZDS5NF","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M368J2YAFPDE5K0NADGG3N0Y","t":4,"a":"83a1","op":"label.add","v":"state"}
 {"id":"01M368KK0Z4N8R36AZ580JGW8N","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M36B1TE3FSDSPBQ60DHMMPZ0","t":6,"a":"83a1","op":"comment","body":"**更正基準（2026-09-23）**：票裡共通規則寫的 `1167/1167` 是規劃當下的數字，board 每張票落地後都會變。動工時以派工包給的基準為準，或自己先跑一次 `pnpm --filter @siren/core test` 記下來。票 1、2 落地後目前是 **1174/1174**。"}
