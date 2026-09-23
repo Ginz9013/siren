@@ -1,4 +1,5 @@
 import type {
+  Direction,
   LayoutOptions,
   Point,
   PositionedState,
@@ -35,6 +36,47 @@ const STATE_PADDING_Y = 8;
  * so the box is square.
  */
 const PSEUDO_STATE_RADIUS = 7;
+
+/**
+ * Half the diagonal of the diamond a `<<choice>>` state is drawn as —
+ * measured (mermaid 11.17.2, `--markup` plus a reading of the path's own
+ * extent): the shape spans `x[-14,14] y[-14,14]`, a 28 × 28 square box, and
+ * it is that size whichever direction the level runs in.
+ *
+ * Sized from the figure and not from the id, for the reason a pseudo-state
+ * is: the id stays the author's and stays what a transition names, but
+ * nothing draws it, so measuring it would reserve room for a string no
+ * reader ever sees.
+ */
+const CHOICE_RADIUS = 14;
+
+/**
+ * The bar a `<<fork>>` or a `<<join>>` is drawn as — measured: both come
+ * back as the *same* path, `M-35 -5 L35 -5 L35 5 L-35 5`, so they are one
+ * figure and this is one pair of numbers rather than two.
+ *
+ * `LENGTH` runs across the level's flow and `THICKNESS` along it; which axis
+ * each lands on is `forkJoinBox` below.
+ */
+const FORK_BAR_LENGTH = 70;
+const FORK_BAR_THICKNESS = 10;
+
+/**
+ * The box a fork or join's bar occupies at a level running `direction`.
+ *
+ * **Turned by `LR` and by nothing else**, which is measured rather than
+ * reasoned: mermaid 11.17.2's `forkJoin` shape tests `dir === "LR"`
+ * exactly, so the bar is 70 × 10 under `TB`, `BT`, `RL` *and* `TD` and only
+ * 10 × 70 under `LR`. `RL` getting the horizontal bar looks like an
+ * oversight and may well be one, but the document says nothing about which
+ * way a bar points — so there is no statement of the author's for Mermaid's
+ * picture to contradict, and CONTEXT.md's divergence rule does not reach
+ * it. Siren follows the drawing.
+ */
+const forkBarBox = (direction: Direction): { width: number; height: number } =>
+  direction === "LR"
+    ? { width: FORK_BAR_THICKNESS, height: FORK_BAR_LENGTH }
+    : { width: FORK_BAR_LENGTH, height: FORK_BAR_THICKNESS };
 
 /**
  * Gap between a composite state's frame and the boxes and frames it
@@ -82,8 +124,12 @@ export function layoutStateDiagram(
   model: StateModel,
   options: LayoutOptions,
 ): PositionedStateDiagram {
+  const levelDirectionOf = levelDirections(model);
   const planById = new Map(
-    model.states.map((state) => [state.id, planStateBox(state, options)] as const),
+    model.states.map(
+      (state) =>
+        [state.id, planStateBox(state, levelDirectionOf(state), options)] as const,
+    ),
   );
 
   /**
@@ -231,6 +277,7 @@ export function layoutStateDiagram(
     return {
       id: state.id,
       kind: state.kind,
+      stereotype: state.stereotype,
       x: placed.x,
       y: placed.y,
       width: box.width,
@@ -290,6 +337,43 @@ export function layoutStateDiagram(
     width: Math.max(laidOut.width + shift.x, bounds.width),
     height: Math.max(laidOut.height + shift.y, bounds.height),
   };
+}
+
+/**
+ * The direction the **level each state sits at** runs in — the one thing a
+ * fork or join's bar is turned by.
+ *
+ * A level's direction is the `direction` statement written *at that level*
+ * and nothing else: a composite that names none runs `TB` even under a
+ * document-level `direction LR`. Measured (mermaid 11.17.2): a fork inside
+ * such a composite comes back as the horizontal 70 × 10 bar, and the
+ * composite's own members come back stacked in a column, so the level really
+ * is top-to-bottom rather than merely drawn as if it were. Nothing cascades,
+ * which is the rule `SirenSubgraph.direction` already follows for a
+ * flowchart.
+ *
+ * **Mermaid lays that one level out differently from Siren's shared core**,
+ * which gives a cluster carrying no `rankdir` the graph's own (see
+ * `rankdirFor` in `layoutDirectedGraph.ts`). This function answers what
+ * *Mermaid* means, because it is choosing a figure and the figure is what
+ * compatibility is owed; the ranks around it are the core's business and
+ * that disagreement is the core's to settle.
+ */
+function levelDirections(model: StateModel): (state: ResolvedState) => Direction {
+  const compositeDirections = new Map(
+    model.states
+      .filter((state) => state.kind === "composite")
+      .map((state) => [state.id, state.direction] as const),
+  );
+  return (state) =>
+    state.parentId === null
+      ? // The document's own level, whose direction is the document's — `TB`
+        // when the author named none, resolved in the parser.
+        model.direction
+      : // A composite's level, whose direction is that block's own statement.
+        // `??` covers both "the block named none" and — defensively — a
+        // parent no composite declares.
+        (compositeDirections.get(state.parentId) ?? "TB");
 }
 
 /**
@@ -468,7 +552,11 @@ interface StateBoxPlan {
  * the diagram room for a string no reader ever sees. The figure is a
  * circle, so the box is square and holds no rows.
  */
-function planStateBox(state: ResolvedState, options: LayoutOptions): StateBoxPlan {
+function planStateBox(
+  state: ResolvedState,
+  levelDirection: Direction,
+  options: LayoutOptions,
+): StateBoxPlan {
   if (state.kind === "start" || state.kind === "end") {
     const size = PSEUDO_STATE_RADIUS * 2;
     return { width: size, height: size, rows: [], dividerY: null };
@@ -476,8 +564,25 @@ function planStateBox(state: ResolvedState, options: LayoutOptions): StateBoxPla
 
   const texts = state.descriptions.length === 0 ? [state.id] : state.descriptions;
 
+  // Asked *before* the stereotype, because a state can carry both and
+  // Mermaid draws the frame: measured, `state X <<choice>>` followed by
+  // `state X { A --> B }` comes back as a cluster holding `A` and `B`, not
+  // as a diamond.
   if (state.kind === "composite") {
     return planTitleStrip(texts, options);
+  }
+
+  // A stereotyped state is sized from its figure and draws no text at all —
+  // measured: Mermaid's `forkJoin` shape blanks the label outright, and none
+  // of the three `<g>`s comes back with a label child. The id stays the
+  // author's and stays what a transition names; it is simply not drawn, the
+  // way a described state's id is not.
+  if (state.stereotype !== null) {
+    const box =
+      state.stereotype === "choice"
+        ? { width: CHOICE_RADIUS * 2, height: CHOICE_RADIUS * 2 }
+        : forkBarBox(levelDirection);
+    return { ...box, rows: [], dividerY: null };
   }
 
   const widths: number[] = [];

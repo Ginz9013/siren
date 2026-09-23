@@ -1880,6 +1880,39 @@ export interface PositionedClassDiagram {
 export type StateKind = "state" | "composite" | "start" | "end";
 
 /**
+ * The stereotype marker a state was declared with — `state Choice <<choice>>`
+ * — and the closed set of three Mermaid recognizes.
+ *
+ * **A second axis, not three more `StateKind` values**, and that is measured
+ * rather than chosen (mermaid 11.17.2, `scripts/mermaid-probe.mjs`):
+ *
+ * - Mermaid records this as a `type` field on the state's own record
+ *   (`id="Choice" type="choice"`), and the *same* field reads `"default"` on
+ *   the start and end pseudo-states `[*]` spells (`id="root_start"
+ *   type="default"`). So Mermaid's `type` does not encode start/end at all,
+ *   and folding these three into `StateKind` would merge two questions its
+ *   own model keeps apart.
+ * - A stereotyped state can also be a **composite**: `state X <<choice>>`
+ *   followed by `state X { A --> B }` reports one state, `type="choice"`,
+ *   with `A` and `B` `in="root/X"`. Two values of one union could not both
+ *   be true, so they cannot be one union. (Mermaid draws that document as
+ *   the frame, measured with `--markup` — X comes back as a cluster and not
+ *   as a node — which is why the renderer asks `kind` first.)
+ *
+ * `null` is the ordinary case: the author wrote no stereotype. The word is
+ * read case-insensitively, as every one of Mermaid's lexer rules is
+ * (`/^(?:.*<<fork>>)/i` — measured: `<<CHOICE>>`, `<<FORK>>` and `<<Join>>`
+ * each land on the lowercase value here), so which casing was written is
+ * recorded nowhere.
+ *
+ * The state **keeps its authored id and its place in the relations**: this
+ * is a change of figure, not of structure, so nothing else on `StateDecl`
+ * moves and a transition names a stereotyped state exactly as it names any
+ * other.
+ */
+export type StateStereotype = "choice" | "fork" | "join";
+
+/**
  * Which side of its state a note was written on: the two spellings, and the
  * only two — measured (mermaid 11.17.2), `note over Idle : text` is a
  * **lexical error**, so `over` is not a third position here the way it is in
@@ -1949,6 +1982,23 @@ export interface StateDecl {
    */
   id: string | null;
   kind: StateKind;
+  /**
+   * The `<<choice>>`/`<<fork>>`/`<<join>>` marker written on this state's
+   * declaration, or `null` when the author wrote none — a second axis
+   * beside `kind`, for the measured reasons `StateStereotype` records.
+   *
+   * **Only the line that first names the state can set it.** Measured
+   * (mermaid 11.17.2): `A --> X` followed by `state X <<choice>>` reports
+   * `id="X" type="default"` — Mermaid's `addState` upgrades an existing
+   * state's `doc` but guards its `type` behind `if (!state.type)`, and an
+   * existing state always already has one. So a stereotype written below
+   * the first mention of its state is inert, which is the opposite of the
+   * way a later `state X { }` block upgrades `kind` to `composite`.
+   *
+   * Always `null` on a pseudo-state: `[*]` is not an id and there is no
+   * spelling of this statement that names one.
+   */
+  stereotype: StateStereotype | null;
   /**
    * The descriptions the author wrote for this state, in written order —
    * empty when they wrote none, which is the ordinary case and the one that
@@ -2160,6 +2210,20 @@ export interface ResolvedState {
   id: string;
   kind: StateKind;
   /**
+   * The `<<choice>>`/`<<fork>>`/`<<join>>` marker the author wrote on this
+   * state, carried straight through from `StateDecl.stereotype` — authored,
+   * and with nothing for this stage to resolve.
+   *
+   * A second axis beside `kind` rather than three more of its values, for
+   * the measured reasons `StateStereotype` records; `kind` is asked first
+   * downstream, because a state that is both a composite and stereotyped is
+   * drawn as the frame (measured).
+   *
+   * Always `null` on a pseudo-state: `[*]` is not an id, so no statement
+   * can mark one.
+   */
+  stereotype: StateStereotype | null;
+  /**
    * The composite state that holds this one, or `null` at the document's
    * own level — carried through from `StateDecl.parentId`, which is where
    * the "first block to name it claims it" rule was already applied.
@@ -2318,6 +2382,19 @@ export interface PositionedState {
    * says which one was sized.
    */
   kind: StateKind;
+  /**
+   * The stereotype marker this state was declared with, or `null` — which
+   * figure to draw inside the box, once `kind` has said it is an ordinary
+   * state rather than a frame or a pseudo-state.
+   *
+   * Carried this far for the same reason `kind` is: layout has already
+   * sized the box for the figure (28 × 28 for a choice's diamond, 70 × 10
+   * for a fork or join's bar, turned through a right angle where the
+   * level runs `LR`), and only this says which one it sized. The
+   * *orientation* is not carried, because it is already in the box: a bar
+   * wider than it is tall is the horizontal one.
+   */
+  stereotype: StateStereotype | null;
   x: number;
   y: number;
   width: number;

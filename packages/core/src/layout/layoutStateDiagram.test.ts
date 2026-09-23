@@ -29,6 +29,7 @@ function model(
     states: ids.map((id) => ({
       id,
       kind: "state" as const,
+      stereotype: null,
       descriptions: [],
       parentId: null,
       direction: null,
@@ -264,16 +265,17 @@ describe("layoutStateDiagram", () => {
     const nested: StateModel = {
       direction: "TB",
       states: [
-        { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
+        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         {
           id: "Inner",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: "Outer",
           direction: null,
           note: { position: "right of", text: "a long note about the inner state" },
         },
-        { id: "Done", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+        { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
       ],
       transitions: [{ id: "Inner-Done", from: "Inner", to: "Done", label: null }],
       styles: [],
@@ -313,17 +315,18 @@ describe("layoutStateDiagram", () => {
     const nested: StateModel = {
       direction: "TB",
       states: [
-        { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR", note: null },
-        { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: "LR", note: null },
+        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+        { id: "Inner", kind: "composite", stereotype: null, descriptions: [], parentId: "Outer", direction: "LR", note: null },
         {
           id: "Deep",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: "Inner",
           direction: null,
           note: { position: "right of", text: "a very long note about the deep state" },
         },
-        { id: "Beside", kind: "state", descriptions: [], parentId: "Inner", direction: null, note: null },
+        { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
       ],
       transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
       styles: [],
@@ -354,19 +357,20 @@ describe("layoutStateDiagram", () => {
     const withNote: StateModel = {
       direction: "TB",
       states: [
-        { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+        { id: "Before", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         {
           id: "Outer",
           // A title of its own, which is what grows the frame upward past
           // the cluster box the core placed — the growth the clip pays for.
           kind: "composite",
+          stereotype: null,
           descriptions: ["a very long composite title"],
           parentId: null,
           direction: null,
           note: { position: "left of", text: "about the block" },
         },
-        { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
-        { id: "Done", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+        { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
       ],
       transitions: [
         { id: "Before-Outer", from: "Before", to: "Outer", label: null },
@@ -404,9 +408,9 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "end:1", kind: "end", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [
           { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -437,6 +441,145 @@ describe("layoutStateDiagram", () => {
     expect(byId.get("end:1")!.y).toBeGreaterThan(byId.get("Idle")!.y);
   });
 
+  it("sizes a stereotyped state from its figure rather than its label, and gives it no rows to draw", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs --markup, and
+    // again with a script reading each path's extent): under the default
+    // `TB`,
+    //
+    //   <<choice>>  a diamond spanning x[-14,14] y[-14,14] — 28 × 28
+    //   <<fork>>    a bar spanning x[-35,35] y[-5,5]       — 70 × 10
+    //   <<join>>    the same bar, path for path
+    //
+    // and none of the three is drawn with a label: Mermaid's `forkJoin`
+    // shape sets `node.label = ""`, and the `<g>` for each comes back with
+    // no `g.label` child at all, while `Idle`'s beside it has one. So the
+    // box is sized from the figure, and the id — which stays the author's
+    // and stays what a transition names — is addressing-only here, exactly
+    // as it is for a described state.
+    const laid = layoutStateDiagram(
+      {
+        direction: "TB",
+        states: [
+          { id: "Choice", kind: "state", stereotype: "choice", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Merge", kind: "state", stereotype: "join", descriptions: [], parentId: null, direction: null, note: null },
+        ],
+        transitions: [
+          { id: "Choice-Split", from: "Choice", to: "Split", label: null },
+          { id: "Split-Merge", from: "Split", to: "Merge", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const byId = new Map(laid.states.map((state) => [state.id, state]));
+    expect([byId.get("Choice")!.width, byId.get("Choice")!.height]).toEqual([28, 28]);
+    expect([byId.get("Split")!.width, byId.get("Split")!.height]).toEqual([70, 10]);
+    expect([byId.get("Merge")!.width, byId.get("Merge")!.height]).toEqual([70, 10]);
+
+    // No text, so nothing for the renderer to draw — and nothing measured
+    // from the id, which is why `Merge` and `Split` are the same size
+    // despite being different lengths.
+    expect(laid.states.map((state) => state.rows)).toEqual([[], [], []]);
+    expect(laid.states.map((state) => state.dividerY)).toEqual([null, null, null]);
+
+    // The stereotype survives layout, because it is the only thing left that
+    // says which figure the renderer draws — `kind` says `state` for all
+    // three.
+    expect(laid.states.map((state) => [state.kind, state.stereotype])).toEqual([
+      ["state", "choice"],
+      ["state", "fork"],
+      ["state", "join"],
+    ]);
+  });
+
+  it("turns a fork's bar through a right angle when its own level runs left to right", () => {
+    // Measured (mermaid 11.17.2): the bar is 70 × 10 under `TB`, `BT`, `RL`
+    // and `TD`, and 10 × 70 under `LR` alone — Mermaid's `forkJoin` shape
+    // tests `dir === "LR"` exactly, so `RL` gets the horizontal bar despite
+    // also being a left-right direction. That is Mermaid's drawing and Siren
+    // follows it: the document says nothing about which way the bar points,
+    // so there is nothing here for it to contradict.
+    //
+    // **Its own level's direction, and no other's.** Measured four ways: a
+    // fork inside `state Outer { direction LR }` is vertical while the
+    // document is `TB`; one inside `{ direction TB }` is horizontal while
+    // the document is `LR`; and one inside a composite naming *no*
+    // direction is horizontal even under a document-level `direction LR` —
+    // Mermaid lays that composite out top-to-bottom too, so the level's own
+    // statement is the whole of the answer and nothing cascades.
+    const forkIn = (documentDirection: Direction, compositeDirection: Direction | null) =>
+      layoutStateDiagram(
+        {
+          direction: documentDirection,
+          states: [
+            { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: compositeDirection, note: null },
+            { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: "Outer", direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          ],
+          transitions: [{ id: "A-Split", from: "A", to: "Split", label: null }],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      ).states.find((state) => state.id === "Split")!;
+
+    // The level's own `LR`, wherever it came from.
+    expect([forkIn("TB", "LR").width, forkIn("TB", "LR").height]).toEqual([10, 70]);
+    // And the level's own anything-else, including a document `LR` the
+    // composite never repeated.
+    expect([forkIn("TB", "TB").width, forkIn("TB", "TB").height]).toEqual([70, 10]);
+    expect([forkIn("LR", "TB").width, forkIn("LR", "TB").height]).toEqual([70, 10]);
+    expect([forkIn("LR", null).width, forkIn("LR", null).height]).toEqual([70, 10]);
+
+    // At the document's own level there is no composite to ask, so the
+    // document's direction is that level's.
+    const atRoot = (direction: Direction) =>
+      layoutStateDiagram(
+        {
+          direction,
+          states: [
+            { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: null, direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          ],
+          transitions: [{ id: "A-Split", from: "A", to: "Split", label: null }],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      ).states.find((state) => state.id === "Split")!;
+
+    expect([atRoot("LR").width, atRoot("LR").height]).toEqual([10, 70]);
+    for (const direction of ["TB", "BT", "RL"] as const) {
+      expect(
+        [atRoot(direction).width, atRoot(direction).height],
+        `under direction ${direction}`,
+      ).toEqual([70, 10]);
+    }
+
+    // A choice is a diamond whichever way the level runs — measured: the
+    // path's extent is x[-14,14] y[-14,14] under `TB` and under `LR` alike.
+    const choiceAt = (direction: Direction) =>
+      layoutStateDiagram(
+        {
+          direction,
+          states: [
+            { id: "Choice", kind: "state", stereotype: "choice", descriptions: [], parentId: null, direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          ],
+          transitions: [{ id: "A-Choice", from: "A", to: "Choice", label: null }],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      ).states.find((state) => state.id === "Choice")!;
+
+    expect([choiceAt("TB").width, choiceAt("TB").height]).toEqual([28, 28]);
+    expect([choiceAt("LR").width, choiceAt("LR").height]).toEqual([28, 28]);
+  });
+
   it("sizes a described state's box around its description, and an undescribed one's around its id", () => {
     // Measured (mermaid 11.17.2): once `s : text` is written, `s` is not
     // drawn at all — the description is what the box holds, so it is what
@@ -448,8 +591,8 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "s", kind: "state", descriptions: ["waiting for work"], parentId: null, direction: null, note: null },
-          { id: "Undescribed", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "s", kind: "state", stereotype: null, descriptions: ["waiting for work"], parentId: null, direction: null, note: null },
+          { id: "Undescribed", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
         styles: [],
@@ -489,8 +632,8 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "s", kind: "state", descriptions: ["first", "second", "third"], parentId: null, direction: null, note: null },
-          { id: "t", kind: "state", descriptions: ["only"], parentId: null, direction: null, note: null },
+          { id: "s", kind: "state", stereotype: null, descriptions: ["first", "second", "third"], parentId: null, direction: null, note: null },
+          { id: "t", kind: "state", stereotype: null, descriptions: ["only"], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
         styles: [],
@@ -532,9 +675,9 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "Idle", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
-          { id: "Busy", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Busy", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Idle-Busy", from: "Idle", to: "Busy", label: null }],
         styles: [],
@@ -577,10 +720,10 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "Inner", kind: "composite", descriptions: [], parentId: "Outer", direction: null, note: null },
-          { id: "Deep", kind: "state", descriptions: [], parentId: "Inner", direction: null, note: null },
-          { id: "Beside", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "composite", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Deep", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+          { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
         styles: [],
@@ -624,10 +767,10 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
-          { id: "Done", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+          { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [
           { id: "start:1-Outer", from: "start:1", to: "Outer", label: null },
@@ -684,10 +827,10 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "Before", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
-          { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR", note: null },
-          { id: "First", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
-          { id: "Second", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Before", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+          { id: "First", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+          { id: "Second", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [
           { id: "Before-Outer", from: "Before", to: "Outer", label: null },

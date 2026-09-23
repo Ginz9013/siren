@@ -750,6 +750,31 @@
 }
 
 /*
+ * The bar a `<<fork>>` and a `<<join>>` are both drawn as — one rule,
+ * because they are one figure: measured (mermaid 11.17.2, `--markup`), the
+ * two come back as the *same* path, `M-35 -5 L35 -5 L35 5 L-35 5`, and only
+ * the keyword differs. Which way it lies is not this rule's business either;
+ * `layoutStateDiagram` turned the box by the level's own direction, and the
+ * rect fills whatever box it was given.
+ *
+ * Solid, in the stroke colour, for the reason `.siren-state-start`'s disc is:
+ * this is an ink mark rather than a box, with no text inside it and no
+ * outline to fall back on, so `.siren-state-frame`'s pale fill would leave a
+ * slab the reader cannot tell from the canvas. Mermaid paints it in its
+ * `lineColor`; which colour token stands here is the theme's (ADR-0004) and
+ * the figure — a solid bar — is what compatibility is owed.
+ *
+ * Deliberately **not** `.siren-state-frame`, which the `<<choice>>` diamond
+ * *does* take: measured, Mermaid paints the diamond in the very pair a state
+ * box gets (`mainBkg` inside, `primaryBorderColor` around) and the bar in
+ * neither, so the two figures are one shared rule and one of its own rather
+ * than two names for one paint.
+ */
+.siren-state-bar {
+  fill: var(--siren-node-stroke);
+}
+
+/*
  * The ring: an outline with the node fill inside it, so the disc within
  * reads as a separate mark rather than as the middle of one solid blob.
  * Measured, this is Mermaid's own pairing for the end state too — the outer
@@ -1082,10 +1107,17 @@
  * on which nothing visibly happened. A group's outer `<g>` still wears the
  * same `siren-state` class whichever figure is inside it, so the highlight
  * class lands in one place and only the inner selector differs.
+ *
+ * `.siren-state-bar` joins them for the start's own reason: a fork's and a
+ * join's bar is solid and carries no stroke, so without this
+ * `highlight Split outline` is a step on which nothing happens. The
+ * `<<choice>>` diamond needs no selector of its own — it wears
+ * `.siren-state-frame`, which the first one already names.
  */
 .siren-state.siren-highlight-outline .siren-state-frame,
 .siren-state.siren-highlight-outline .siren-composite-frame,
 .siren-state.siren-highlight-outline .siren-state-start,
+.siren-state.siren-highlight-outline .siren-state-bar,
 .siren-state.siren-highlight-outline .siren-state-end,
 .siren-transition.siren-highlight-outline .siren-transition-line {
   stroke: var(--siren-highlight-color);

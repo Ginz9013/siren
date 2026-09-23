@@ -913,15 +913,97 @@ function states(result: SirenRenderResult): string[] {
 /**
  * The figures a state diagram can draw one state as, in the order a reader
  * of `stateFigures` sees them joined: the labelled box of an ordinary
- * state, the filled disc of a start, and the ring-plus-dot of an end.
+ * state, the diamond of a `<<choice>>`, the solid bar a `<<fork>>` and a
+ * `<<join>>` share, the filled disc of a start, and the ring-plus-dot of an
+ * end.
+ *
+ * The diamond is told from the box by its *element* rather than by its
+ * class, deliberately: both wear `.siren-state-frame`, because a diamond is
+ * this state's frame drawn as a different shape (the rule a flowchart's
+ * `.siren-node-frame` already follows), so `rect` versus `polygon` is what
+ * separates them and a reader that asked only about the class would call a
+ * diamond a box.
  */
 const STATE_FIGURES: readonly [selector: string, figure: string][] = [
   ["rect.siren-state-frame", "box"],
+  ["polygon.siren-state-frame", "diamond"],
+  ["rect.siren-state-bar", "bar"],
   ["rect.siren-composite-frame", "frame"],
   ["circle.siren-state-start", "disc"],
   ["circle.siren-state-end", "ring"],
   ["circle.siren-state-end-inner", "dot"],
 ];
+
+/**
+ * The box one state's drawn figure occupies, as `width×height` — read off
+ * the `<rect>` a box or a bar is drawn as, or off the corner points of the
+ * `<polygon>` a diamond is.
+ *
+ * Sizes as text rather than numbers, so a failure reads
+ * `expected ["Choice: 28×28"], got ["Choice: 70×10"]` and names the figure
+ * that came out the wrong shape on the spot. A row that asked only "is a
+ * polygon there?" would pass on a diamond drawn at a box's size, which is a
+ * picture Mermaid never draws.
+ */
+function stateFigureSize(result: SirenRenderResult, id: string): string {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+
+  const polygon = group.querySelector("polygon");
+  if (polygon !== null) {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const pair of (polygon.getAttribute("points") ?? "").trim().split(/\s+/)) {
+      const [x, y] = pair.split(",").map(Number);
+      xs.push(x);
+      ys.push(y);
+    }
+    return `${Math.max(...xs) - Math.min(...xs)}×${Math.max(...ys) - Math.min(...ys)}`;
+  }
+
+  const rect = group.querySelector("rect");
+  if (rect === null) throw new Error(`state "${id}" was drawn with neither a rect nor a polygon`);
+  return `${rect.getAttribute("width")}×${rect.getAttribute("height")}`;
+}
+
+/**
+ * The corner points of the `<polygon>` one state is drawn as, relative to
+ * the middle of its own box — `top`, `right`, `bottom` and `left` when the
+ * four sit at the edge midpoints, which is what makes the figure a diamond
+ * rather than some other quadrilateral of the same size.
+ *
+ * Named rather than numeric because the numbers move with the layout while
+ * the *shape* does not: this is the assertion that a choice is drawn as a
+ * diamond, and it survives every repositioning that is none of its business.
+ */
+function polygonCorners(result: SirenRenderResult, id: string): string[] {
+  const polygon = svgOf(result).querySelector(
+    `g.siren-state[data-siren-id="${id}"] polygon`,
+  );
+  if (polygon === null) throw new Error(`no polygon was drawn for state "${id}"`);
+  const points = (polygon.getAttribute("points") ?? "")
+    .trim()
+    .split(/\s+/)
+    .map((pair) => pair.split(",").map(Number));
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+  return points.map(([x, y]) => {
+    if (x === midX && y === Math.min(...ys)) return "top";
+    if (x === Math.max(...xs) && y === midY) return "right";
+    if (x === midX && y === Math.max(...ys)) return "bottom";
+    if (x === Math.min(...xs) && y === midY) return "left";
+    return `${x},${y}`;
+  });
+}
+
+/** The text drawn inside one state's own group — empty where it draws none. */
+function stateTexts(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no state "${id}" was drawn`);
+  return Array.from(group.querySelectorAll("text")).map((text) => text.textContent ?? "");
+}
 
 /**
  * Every state as `id: figure`, in draw order — read off what is *inside*
@@ -3682,26 +3764,94 @@ line2\`"]`,
   // `rejected` rows since the flowchart backlog closed, and they are honest
   // backlog: written down so the gap is measured rather than forgotten.
   //
-  // A row leaves by *starting to work*, and four have: `st-direction-document`,
-  // `st-composite-quoted-description`, `st-author-style` and `st-note` are
-  // `supported` now, each with an assert reading the rendered SVG. The two
-  // still marked `rejected` below are what is left of the six.
+  // A row leaves by *starting to work*, and five have:
+  // `st-direction-document`, `st-composite-quoted-description`,
+  // `st-author-style`, `st-note` and `st-stereotype-choice` are `supported`
+  // now, each with an assert reading the rendered SVG. The one still marked
+  // `rejected` below is what is left of the six.
   {
     id: "st-stereotype-choice",
     kind: "state",
     source: `stateDiagram-v2
       [*] --> Idle
       state Choice <<choice>>
+      state Split <<fork>>
+      state Merge <<join>>
       Idle --> Choice
-      Choice --> Busy`,
-    status: "rejected",
+      Choice --> Split
+      Split --> Merge
+      Merge --> Busy`,
+    status: "supported",
     meaning:
       "`<<choice>>`, `<<fork>>` and `<<join>>` mark a state as a pseudo-state " +
       "drawn as a diamond or a bar rather than as a box. Measured: a closed " +
       "set of three, recorded as a `type` field on the state itself " +
       "(`id=\"Choice\" type=\"choice\"`) — the state keeps its authored id and " +
       "its place in the relations, so this is a change of figure, not a " +
-      "change of structure.",
+      "change of structure. Measured with `--markup` and with a reading of " +
+      "each drawn path's own extent, on this very document: `Choice` is a " +
+      "diamond spanning `x[-14,14] y[-14,14]` about its centre — 28 × 28 — " +
+      "and `Split` and `Merge` come back as **the same path**, " +
+      "`M-35 -5 L35 -5 L35 5 L-35 5`, a 70 × 10 bar, so fork and join are " +
+      "one figure with two spellings. **None of the three is drawn with a " +
+      "label**: mermaid's `forkJoin` shape sets `node.label = \"\"` and none " +
+      "of the three `<g>`s comes back with a label child, where `Idle`'s " +
+      "beside them does. The bar turns with the direction of **its own " +
+      "level**: 10 × 70 under `direction LR` and 70 × 10 under `TB`, `BT`, " +
+      "`RL` and `TD` alike (mermaid tests `dir === \"LR\"` exactly), and a " +
+      "composite naming no direction runs `TB` even inside a document that " +
+      "says `LR`. Three more things measured and deliberately not built, " +
+      "each refused by name rather than half-drawn: a stereotype written " +
+      "*below* its state's first mention is inert in mermaid too " +
+      "(`addState` guards the field with `if (!state.type)`), which Siren " +
+      "copies; `<<end>>`, `<<start>>` and any other word is accepted and " +
+      "**ignored** by mermaid, declaring nothing at all; and `[[fork]]` is a " +
+      "second spelling of the marker that no row here covers.",
+    assert: (result) => {
+      // The figures, read off the picture. A row checking only that nothing
+      // was rejected would pass on all five states drawn as boxes, which is
+      // exactly the silent mis-render this corpus exists to catch.
+      expectSame("each state draws the figure mermaid draws", stateFigures(result), [
+        "start:1: disc",
+        "Idle: box",
+        "Choice: diamond",
+        "Split: bar",
+        "Merge: bar",
+        "Busy: box",
+      ]);
+      // And at the size mermaid draws it: a diamond at a box's size, or a
+      // bar as tall as it is wide, is a different picture from mermaid's
+      // and one no reader would recognize.
+      expectSame("the choice is 28 × 28", stateFigureSize(result, "Choice"), "28×28");
+      expectSame("the fork's bar is 70 × 10", stateFigureSize(result, "Split"), "70×10");
+      expectSame("the join's is the same bar", stateFigureSize(result, "Merge"), "70×10");
+      // A diamond and not merely a quadrilateral of the right extent: the
+      // four corners sit at the midpoints of its box's edges.
+      expectSame("the choice's corners make a diamond", polygonCorners(result, "Choice"), [
+        "top",
+        "right",
+        "bottom",
+        "left",
+      ]);
+      // No label on any of the three, and the ordinary states beside them
+      // still carry theirs — so "draws nothing" is this figure's rule and
+      // not a label that went missing everywhere.
+      for (const id of ["Choice", "Split", "Merge"]) {
+        expectSame(`${id} draws no text`, stateTexts(result, id), []);
+      }
+      expectSame("Idle still draws its own", stateTexts(result, "Idle"), ["Idle"]);
+      // **It kept its place in the relations.** The whole claim of the
+      // construct: the state carries the author's own id and a transition
+      // reaches it at either end, so the three sit in the chain rather than
+      // beside it.
+      expectSame("every transition still joins the states it names", transitions(result), [
+        "start:1-Idle: ",
+        "Idle-Choice: ",
+        "Choice-Split: ",
+        "Split-Merge: ",
+        "Merge-Busy: ",
+      ]);
+    },
   },
   {
     id: "st-note",

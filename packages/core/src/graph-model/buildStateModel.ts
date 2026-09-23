@@ -47,6 +47,7 @@ export function buildStateModel(document: StateDocument): StateModelResult {
         {
           id: state.id,
           kind: state.kind,
+          stereotype: state.stereotype,
           descriptions: state.descriptions,
           parentId: state.parentId,
           direction: state.direction,
@@ -61,6 +62,9 @@ export function buildStateModel(document: StateDocument): StateModelResult {
         {
           id: pseudoIdsByLevel.get(state.parentId)![state.kind as "start" | "end"],
           kind: state.kind,
+          // And no stereotype, ever: `[*]` is not an id, so no
+          // `state ... <<choice>>` statement can name a pseudo-state.
+          stereotype: null,
           descriptions: [],
           parentId: state.parentId,
           direction: null,

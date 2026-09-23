@@ -103,8 +103,16 @@ function buildState(state: PositionedState): SVGGElement {
     return buildPseudoState(state);
   }
 
+  // Asked before the stereotype, because a state can carry both and Mermaid
+  // draws the frame — measured (11.17.2, `--markup`): `state X <<choice>>`
+  // followed by `state X { A --> B }` comes back as a cluster holding `A`
+  // and `B`, with no diamond anywhere in the picture.
   if (state.kind === "composite") {
     return buildComposite(state);
+  }
+
+  if (state.stereotype !== null) {
+    return buildStereotypedState(state);
   }
 
   const g = document.createElementNS(SVG_NS, "g");
@@ -308,6 +316,75 @@ function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
     "style",
     style.map(({ property, value }) => `${property}:${value}`).join(";"),
   );
+}
+
+/**
+ * Builds the `<g class="siren-state">` for a state carrying a
+ * `<<choice>>`, `<<fork>>` or `<<join>>` marker: the diamond one is drawn as,
+ * or the solid bar the other two share.
+ *
+ * **Still a `siren-state` group wearing the author's own id**, for the reason
+ * a composite's is: the state keeps its place in the relations and everything
+ * that addresses a state by id addresses this the same way. All that changes
+ * is the figure inside — measured (mermaid 11.17.2, `--markup`): the state's
+ * record keeps its id and its relations, and only the drawn shape differs.
+ *
+ * **No label, for all three.** Measured: Mermaid's `forkJoin` shape sets
+ * `node.label = ""` outright, and none of the three groups comes back with a
+ * label child where an ordinary state's does. `layoutStateDiagram` has
+ * already said so by handing over no rows; this draws none either way, so a
+ * row arriving here could not put text on a figure with no room for it.
+ *
+ * **One figure for fork and join, not two.** Measured: both come back as the
+ * same path, `M-35 -5 L35 -5 L35 5 L-35 5`, so the two spellings name one
+ * drawing and there is nothing here to tell them apart. Which way the bar
+ * lies is not asked either: layout turned the box, and the bar fills it.
+ */
+function buildStereotypedState(state: PositionedState): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-state");
+  g.setAttribute("data-siren-id", state.id);
+
+  if (state.stereotype === "choice") {
+    const diamond = document.createElementNS(SVG_NS, "polygon");
+    // **`.siren-state-frame`, not a name of its own.** A diamond is this
+    // state's frame drawn as a different element, exactly as a flowchart's
+    // diamond wears `.siren-node-frame` while a rectangle does — and
+    // measured, Mermaid paints it in the same pair a state box takes (fill
+    // `mainBkg`, stroke `primaryBorderColor`), so a second class would give
+    // the theme two names to paint identically forever. It is also what
+    // keeps `class Choice urgent` landing on the figure (ADR-0008).
+    diamond.setAttribute("class", "siren-state-frame");
+    const midX = state.x + state.width / 2;
+    const midY = state.y + state.height / 2;
+    diamond.setAttribute(
+      "points",
+      [
+        `${midX},${state.y}`,
+        `${state.x + state.width},${midY}`,
+        `${midX},${state.y + state.height}`,
+        `${state.x},${midY}`,
+      ].join(" "),
+    );
+    applyAuthorStyle(diamond, state.style.frame);
+    g.appendChild(diamond);
+    return g;
+  }
+
+  const bar = document.createElementNS(SVG_NS, "rect");
+  // A class of its own, unlike the diamond: measured, Mermaid fills this one
+  // with `lineColor` rather than the node fill — it is an ink mark rather
+  // than a box, the way `.siren-state-start`'s disc is, and painting it with
+  // `.siren-state-frame`'s rule would draw a pale, outlined slab where UML
+  // draws a solid bar.
+  bar.setAttribute("class", "siren-state-bar");
+  bar.setAttribute("x", String(state.x));
+  bar.setAttribute("y", String(state.y));
+  bar.setAttribute("width", String(state.width));
+  bar.setAttribute("height", String(state.height));
+  applyAuthorStyle(bar, state.style.frame);
+  g.appendChild(bar);
+  return g;
 }
 
 /**

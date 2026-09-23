@@ -6,6 +6,7 @@ import type {
   StateDecl,
   StateDocument,
   StateNotePosition,
+  StateStereotype,
   StateTransition,
   StyleDecl,
   StyleProperty,
@@ -200,6 +201,46 @@ const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
  */
 const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/;
 
+/**
+ * `state Choice <<choice>>` — the marker that changes which figure a state
+ * is drawn as, without changing anything about where it sits.
+ *
+ * Every part of this pattern is measured against mermaid 11.17.2 with
+ * `scripts/mermaid-probe.mjs`:
+ *
+ * - **Three words and no fourth.** `<<end>>`, `<<start>>` and `<<foo>>` are
+ *   each *accepted and ignored* — the statement declares nothing at all, so
+ *   `state X <<foo>>` above `A --> X` reports `A` before `X` and `X` with
+ *   `type="default"`. They are outside this pattern deliberately: no corpus
+ *   row covers them, and implementing one on the way would be inventing
+ *   rather than measuring.
+ * - **Case-insensitive**, as Mermaid's own lexer rule is
+ *   (`/^(?:.*<<fork>>)/i`): `<<CHOICE>>`, `<<FORK>>` and `<<Join>>` each
+ *   report the lowercase `type`. Unlike a note's position (see
+ *   `isNotePosition`), the casing changes nothing about what Mermaid then
+ *   *records*, so there is no wrong picture to decline here.
+ * - **No spaces inside the angle brackets.** `state X << choice >>` is *not*
+ *   a stereotype: measured, it declares nothing and `X` comes back
+ *   `type="default"`, because Mermaid's rule spells the brackets literally.
+ *   (The `UNIMPLEMENTED` entry this replaces allowed `\s*` there and was
+ *   refusing a line Mermaid quietly ignores; the working pattern must not
+ *   inherit that.)
+ * - **Nothing after the marker.** `state X <<choice>> trailing` parses in
+ *   Mermaid and declares a *second, phantom* state called `trailing`
+ *   alongside the choice — the `.*<<choice>>` token takes the prefix as the
+ *   id and the rest becomes an id of its own. Anchored on `$` here, so that
+ *   line is refused rather than drawn with a box nobody wrote.
+ * - **The id is read in `\w+`**, the alphabet every other state id in this
+ *   file is read in. Mermaid is looser and pays for it: `state Foo Bar
+ *   <<choice>>` reports a state whose id is literally `Foo Bar`, and
+ *   `state "desc" as X <<choice>>` one whose id is `"desc" as X` — names no
+ *   transition can ever reach, beside the `X` the author meant. Neither is
+ *   covered by a corpus row, and both are refused here.
+ * - **A block may not open on it**: `state X <<choice>> {` is a parse error
+ *   in Mermaid, which is why there is no brace arm in this pattern.
+ */
+const STEREOTYPE_RE = /^state\s+(\w+)\s*<<(choice|fork|join)>>$/i;
+
 /** The statement that closes a composite state's block. */
 const COMPOSITE_CLOSE = "}";
 
@@ -317,11 +358,9 @@ const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
  * their document is malformed — a different claim, and an untrue one.
  *
  * Read **last**, after every construct this parser does implement, so a
- * pattern here can never shadow a working one — the `<<choice>>` pattern is
- * unanchored and would otherwise claim `state Choice <<choice>>` before the
- * statements above got to look at it. Each pattern is anchored on the
- * *statement* rather than on a bare word, which is what leaves a state the
- * author simply named `note` or `class` alone.
+ * pattern here can never shadow a working one. Each pattern is anchored on
+ * the *statement* rather than on a bare word, which is what leaves a state
+ * the author simply named `note` or `class` alone.
  *
  * The table shrinks as constructs land: a composite opened with a quoted
  * description used to sit here, and left by being implemented rather than by
@@ -329,12 +368,6 @@ const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
  * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`).
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
-  {
-    // Measured: a closed set of three, recorded as a `type` on the state
-    // itself (`type="choice"`) rather than as a state of its own.
-    pattern: /<<\s*(choice|fork|join)\s*>>/,
-    name: (match) => `the "<<${match[1]}>>" stereotype`,
-  },
   {
     // The note construct itself is implemented (`NOTE_RE`); these are the
     // two spellings of it that are not, each measured to be valid Mermaid
@@ -545,6 +578,10 @@ export function parseStateDiagram(source: string): ParseResult {
     const declaration: StateDecl = {
       id,
       kind: "state",
+      // Filled in by the stereotype statement when *this* line is that
+      // statement; a `<<choice>>` written after the state was first named
+      // is inert, measured (see `STEREOTYPE_RE`).
+      stereotype: null,
       descriptions: [],
       parentId: currentParentId(),
       // Filled in below if this state turns out to be a composite whose
@@ -646,6 +683,9 @@ export function parseStateDiagram(source: string): ParseResult {
     states.push({
       id: null,
       kind,
+      // And never a stereotype: `state <<choice>>` names no state, and
+      // `[*]` is not an id, so no statement can mark a pseudo-state.
+      stereotype: null,
       descriptions: [],
       parentId,
       direction: null,
@@ -784,6 +824,35 @@ export function parseStateDiagram(source: string): ParseResult {
 
     if (line === COMPOSITE_CLOSE && openBlocks.length > 0) {
       openBlocks.pop();
+      continue;
+    }
+
+    // The stereotype marker. Read before the bare-state and description
+    // patterns for the reason `state Outer {` is — a statement opening with
+    // the `state` keyword must never be claimed by one of them — and before
+    // `KEYWORD_ONLY_RE`, which would otherwise have to be careful not to.
+    const stereotypeMatch = STEREOTYPE_RE.exec(line);
+    if (stereotypeMatch !== null) {
+      const [, stereotypeId, spelling] = stereotypeMatch;
+      // **Only the line that first names the state takes the marker.**
+      // Measured (mermaid 11.17.2): `A --> X` followed by
+      // `state X <<choice>>` reports `id="X" type="default"` — `addState`
+      // guards the field with `if (!state.type)` and an existing state
+      // always has one, so a stereotype written below its state is inert.
+      // Assigning unconditionally would draw a diamond where Mermaid draws
+      // a box. (The opposite of the way a later `state X { }` upgrades
+      // `kind` to `composite`, which Mermaid *does* do — `if (!state.doc)`,
+      // and a state without a block has none.)
+      const alreadyNamed = declaredById.has(stereotypeId);
+      // Declared here when nothing has named it yet, and mentioned at this
+      // level when something has — the same call every other statement makes.
+      const stereotyped = declareState(stereotypeId, lineNumber, column);
+      if (!alreadyNamed) {
+        // Lowercased, not kept as written: Mermaid's lexer rule is
+        // case-insensitive and its record is not, so `<<CHOICE>>` and
+        // `<<choice>>` are one value and the casing is recorded nowhere.
+        stereotyped.stereotype = spelling.toLowerCase() as StateStereotype;
+      }
       continue;
     }
 

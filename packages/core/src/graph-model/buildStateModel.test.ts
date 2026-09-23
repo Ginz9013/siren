@@ -23,6 +23,7 @@ function document(
     states: ids.map((id) => ({
       id,
       kind: "state" as const,
+      stereotype: null,
       descriptions: [],
       parentId: null,
       direction: null,
@@ -126,6 +127,26 @@ describe("buildStateModel", () => {
     ]);
   });
 
+  it("carries a state's stereotype through unchanged, and gives a pseudo-state none", () => {
+    // Authored, and with nothing for this stage to resolve — the way a note
+    // and a description already are. It is carried at all because the model
+    // is what layout reads, and a stereotype that stopped at the parser
+    // would be a marker the author wrote and the picture never showed.
+    //
+    // A pseudo-state can never carry one: `[*]` is not an id, so no
+    // `state ... <<choice>>` statement can name one.
+    const parsed = document([{ from: "Idle", to: "Busy" }]);
+    parsed.states[0].stereotype = "choice";
+
+    const { model, diagnostics } = buildStateModel(parsed);
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.states.map((state) => [state.id, state.stereotype])).toEqual([
+      ["Idle", "choice"],
+      ["Busy", null],
+    ]);
+  });
+
   it("carries the document's own direction through to the model, `TB` included", () => {
     // Authored, resolved by the parser, and with nothing for this stage to
     // decide — so it passes through exactly as a composite's own direction
@@ -151,6 +172,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "start",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -161,6 +183,7 @@ describe("buildStateModel", () => {
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           descriptions: ["waiting for work", "nothing queued"],
           parentId: null,
           direction: null,
@@ -171,6 +194,7 @@ describe("buildStateModel", () => {
         {
           id: "Busy",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -201,9 +225,9 @@ describe("buildStateModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model!.states).toEqual([
-      { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
-      { id: "Idle", kind: "state", descriptions: ["waiting for work", "nothing queued"], parentId: null, direction: null, note: null },
-      { id: "Busy", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
+      { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: ["waiting for work", "nothing queued"], parentId: null, direction: null, note: null },
+      { id: "Busy", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
     ]);
   });
 
@@ -221,6 +245,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "start",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -231,6 +256,7 @@ describe("buildStateModel", () => {
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -241,6 +267,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "end",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -271,9 +298,9 @@ describe("buildStateModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model!.states).toEqual([
-      { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
-      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null },
-      { id: "end:1", kind: "end", descriptions: [], parentId: null, direction: null, note: null },
+      { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+      { id: "end:1", kind: "end", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
     ]);
     expect(model!.transitions).toEqual([
       { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
@@ -295,6 +322,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "start",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -305,6 +333,7 @@ describe("buildStateModel", () => {
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -315,6 +344,7 @@ describe("buildStateModel", () => {
         {
           id: "Busy",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -325,6 +355,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "end",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -390,6 +421,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "start",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -400,6 +432,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "end",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -443,6 +476,7 @@ describe("buildStateModel", () => {
         {
           id: null,
           kind: "start",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -453,6 +487,7 @@ describe("buildStateModel", () => {
         {
           id: "root_start",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -463,6 +498,7 @@ describe("buildStateModel", () => {
         {
           id: "B",
           kind: "state",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: null,
@@ -514,10 +550,11 @@ describe("buildStateModel", () => {
       styles: [],
       timeline: null,
       states: [
-        { id: null, kind: "start", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           descriptions: [],
           parentId: null,
           direction: "LR",
@@ -525,8 +562,8 @@ describe("buildStateModel", () => {
           line: 3,
           column: 3,
         },
-        { id: null, kind: "start", descriptions: [], parentId: "Outer", direction: null, note: null, line: 5, column: 5 },
-        { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null, line: 5, column: 5 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null, line: 5, column: 5 },
+        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null, line: 5, column: 5 },
       ],
       transitions: [
         { from: null, to: "Outer", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
@@ -536,10 +573,10 @@ describe("buildStateModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model!.states).toEqual([
-      { id: "start:1", kind: "start", descriptions: [], parentId: null, direction: null, note: null },
-      { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: "LR", note: null },
-      { id: "start:2", kind: "start", descriptions: [], parentId: "Outer", direction: null, note: null },
-      { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null },
+      { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+      { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+      { id: "start:2", kind: "start", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+      { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
     ]);
     // Each `[*]` endpoint resolves against the level the transition was
     // written at — the only thing that tells the two starts apart.
@@ -557,9 +594,9 @@ describe("buildStateModel", () => {
       direction: "TB",
       styles: [],
       states: [
-        { id: null, kind: "start", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
-        { id: "Outer", kind: "composite", descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
-        { id: "Inner", kind: "state", descriptions: [], parentId: "Outer", direction: null, note: null, line: 4, column: 5 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
+        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null, line: 4, column: 5 },
       ],
       transitions: [
         { from: null, to: "Outer", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },

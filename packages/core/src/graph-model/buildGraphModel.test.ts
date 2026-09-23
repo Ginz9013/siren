@@ -1485,10 +1485,11 @@ describe("buildGraphModel — a state document", () => {
     styles: [],
     timeline: null,
     states: [
-      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 1 },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 1 },
       {
         id: "Running",
         kind: "state",
+        stereotype: null,
         descriptions: [],
         parentId: null,
         direction: null,

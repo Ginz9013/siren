@@ -7,6 +7,7 @@ const DIAGRAM: PositionedStateDiagram = {
     {
       id: "Idle",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 20,
       width: 80,
@@ -19,6 +20,7 @@ const DIAGRAM: PositionedStateDiagram = {
     {
       id: "Running",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 120,
       width: 100,
@@ -247,10 +249,11 @@ describe("renderStateDiagramToSVG", () => {
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
+    { id: "start:1", kind: "start", stereotype: null, x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
     {
       id: "Idle",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 60,
       width: 80,
@@ -260,7 +263,7 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
       dividerY: null,
       note: null,
     },
-    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
+    { id: "end:1", kind: "end", stereotype: null, x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
   ],
   transitions: [
     {
@@ -291,6 +294,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
     {
       id: "s",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 20,
       width: 160,
@@ -303,6 +307,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
     {
       id: "Plain",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 120,
       width: 100,
@@ -315,6 +320,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
     {
       id: "t",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 220,
       width: 160,
@@ -455,6 +461,114 @@ describe("renderStateDiagramToSVG, on the start and end pseudo-states", () => {
     expect(group.querySelector("circle")).toBeNull();
   });});
 
+/**
+ * One state per stereotype, each at the box `layoutStateDiagram` sizes for
+ * its figure — a 28 × 28 square for the diamond, a 70 × 10 bar for a fork
+ * under `TB`, and the same bar turned through a right angle for a join at a
+ * level running `LR`.
+ */
+const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
+  states: [
+    {
+      id: "Choice",
+      kind: "state",
+      stereotype: "choice",
+      x: 40,
+      y: 10,
+      width: 28,
+      height: 28,
+      rows: [],
+      style: { frame: [], text: [] },
+      dividerY: null,
+      note: null,
+    },
+    {
+      id: "Split",
+      kind: "state",
+      stereotype: "fork",
+      x: 20,
+      y: 100,
+      width: 70,
+      height: 10,
+      rows: [],
+      style: { frame: [], text: [] },
+      dividerY: null,
+      note: null,
+    },
+    {
+      id: "Merge",
+      kind: "state",
+      stereotype: "join",
+      x: 50,
+      y: 160,
+      width: 10,
+      height: 70,
+      rows: [],
+      style: { frame: [], text: [] },
+      dividerY: null,
+      note: null,
+    },
+  ],
+  transitions: [],
+  timeline: { totalSteps: 0, entries: [] },
+  width: 200,
+  height: 260,
+};
+
+describe("renderStateDiagramToSVG, on a stereotyped state", () => {
+  it("draws a `<<choice>>` as a diamond filling its box, with no rectangle and no label", () => {
+    // Measured (mermaid 11.17.2, `--markup` and a reading of the path's own
+    // extent): the choice's `<g>` holds a diamond spanning `x[-14,14]
+    // y[-14,14]` about the node's centre and **no label child at all**,
+    // where the `Idle` beside it has one. So the four corners are the box's
+    // edge midpoints, and there is nothing to write.
+    const svg = renderStateDiagramToSVG(STEREOTYPE_DIAGRAM);
+
+    const group = svg.querySelector('g.siren-state[data-siren-id="Choice"]')!;
+    expect(group).not.toBeNull();
+    expect(group.querySelector("text")).toBeNull();
+    expect(group.querySelector("rect")).toBeNull();
+
+    // The diamond wears the frame class whatever element draws it — the rule
+    // `renderToSVG` already applies to a flowchart's diamond, so an author's
+    // `class Choice urgent` lands on the figure rather than on an anonymous
+    // descendant.
+    const diamond = group.querySelector("polygon.siren-state-frame")!;
+    expect(diamond).not.toBeNull();
+    // Top, right, bottom, left of the 28 × 28 box at (40, 10).
+    expect(diamond.getAttribute("points")).toBe("54,10 68,24 54,38 40,24");
+  });
+
+  it("draws a `<<fork>>` and a `<<join>>` as the same solid bar, at whatever box layout gave it", () => {
+    // Measured: fork and join come back from Mermaid as the *same* path,
+    // `M-35 -5 L35 -5 L35 5 L-35 5` — one figure with two spellings, so one
+    // class draws both and nothing here asks which of the two it is. Which
+    // way the bar lies is already in the box: layout turned it, measuring
+    // the level's own direction.
+    const svg = renderStateDiagramToSVG(STEREOTYPE_DIAGRAM);
+
+    const bars = Array.from(svg.querySelectorAll("rect.siren-state-bar")).map((bar) => [
+      bar.parentElement!.getAttribute("data-siren-id"),
+      bar.getAttribute("x"),
+      bar.getAttribute("y"),
+      bar.getAttribute("width"),
+      bar.getAttribute("height"),
+    ]);
+    expect(bars).toEqual([
+      ["Split", "20", "100", "70", "10"],
+      ["Merge", "50", "160", "10", "70"],
+    ]);
+
+    // Neither draws a label, for the reason the choice draws none: Mermaid's
+    // `forkJoin` shape blanks it outright.
+    for (const id of ["Split", "Merge"]) {
+      const group = svg.querySelector(`g.siren-state[data-siren-id="${id}"]`)!;
+      expect(group.querySelector("text"), id).toBeNull();
+      expect(group.querySelector("rect.siren-state-frame"), id).toBeNull();
+    }
+  });
+});
+
 describe("renderStateDiagramToSVG, on a composite state", () => {
   it("draws it as an unfilled frame with its title in the strip along the top", () => {
     // Measured with `--markup` (mermaid 11.17.2): a composite is a
@@ -467,6 +581,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           x: 5,
           y: 10,
           width: 200,
@@ -479,6 +594,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           x: 40,
           y: 60,
           width: 80,
@@ -531,6 +647,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           x: 5,
           y: 10,
           width: 200,
@@ -576,6 +693,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           x: 5,
           y: 10,
           width: 200,
@@ -588,6 +706,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           x: 40,
           y: 60,
           width: 80,
@@ -644,6 +763,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Busy",
           kind: "state",
+          stereotype: null,
           x: 10,
           y: 20,
           width: 80,
@@ -665,6 +785,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           x: 10,
           y: 120,
           width: 80,
@@ -709,6 +830,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           x: 5,
           y: 10,
           width: 200,
