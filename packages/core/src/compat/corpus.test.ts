@@ -770,8 +770,183 @@ const SILENTLY_WRONG = 0;
  * check on whatever the layout engine hands back, and it still stands — this
  * construct simply no longer reaches it. `silently-wrong` does not move,
  * because this row was never silent.
+ *
+ * **6 → 5, a row leaving the same way: it started working.**
+ * `st-direction-document` is `supported` — `direction LR` at a state
+ * diagram's own level now reaches dagre as the whole graph's rank direction,
+ * with an assert that reads the successor's coordinates off the rendered SVG
+ * rather than the absence of a diagnostic (`01M368FXB`). The document-level
+ * and composite-level spellings of `direction` are now both implemented and
+ * stay independent, so `st-composite-direction` is untouched.
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
+ *
+ * **5 → 4, and this one fell without a line of drawing code being written.**
+ * `st-composite-quoted-description` is `supported`: `state "the outer block"
+ * as Outer { ... }` is read as the composite it is, carrying the quoted text
+ * in the same `descriptions` list both description statements write to
+ * (`01M368GZJ`). The gap was a *parser* one and nothing else — each half was
+ * implemented already and no pattern spanned them — so the exit was an
+ * optional group on `COMPOSITE_OPEN_RE`, with no new contract field and no
+ * new figure. **Where the description is drawn was measured before that was
+ * relied on**, with `--markup`: mermaid 11.17.2 puts it in the frame's
+ * `g.cluster-label`, the strip along the top, in place of the title that
+ * would have read `Outer` — which is where Siren's layout already draws a
+ * composite's rows, because it plans that strip from a composite's
+ * descriptions when it has any and from its id when it has none. The row's
+ * assert reads the drawn text and its y out of the SVG and pins the title
+ * *above* every member, so a description drawn level with what it encloses
+ * would not pass for one drawn over it. `silently-wrong` does not move: this
+ * row, too, was a named refusal.
+ *
+ * **4 → 3, and this one fell almost entirely by reuse.**
+ * `st-author-style` is `supported`: `classDef urgent fill:#f96` plus
+ * `class Busy urgent` now paints the state's own rect (`01M368GZR`). The
+ * construct needed no new resolution rules at all — `resolveStyles` already
+ * pairs a definition with the directive applying it, already settles a
+ * property declared twice, already runs the value gate that refuses `url(`,
+ * `expression(`, `;` and `\`, and already translates the author's `color`
+ * into the `fill` SVG paints text with — so `buildStateModel` makes the same
+ * call `buildClassModel` and `buildFlowchartModel` make and a third copy of
+ * those rules was never written. What this ticket did add is the renderer
+ * half the two spellings needed: `PositionedState.style` and an inline
+ * `style` attribute on the drawn rect and on every row of text, which is why
+ * **the row's assert reads an attribute value off the rendered SVG** rather
+ * than a `classes` array. The reservation `01M2ZPJKH` made — `class` and
+ * `classDef` cannot name a state — is what let both words become statement
+ * keywords without ambiguity, and it is still in force: a bare `class` or
+ * `classDef` on a line of its own is a whole-document parse error in mermaid
+ * 11.17.2 (measured) and stays an error here.
+ *
+ * **What was measured and deliberately not implemented**, because no row
+ * covers it: mermaid 11.17.2 *does* accept `style Busy fill:#f00` in a state
+ * diagram and paints the rect with it (`--markup`: the drawn
+ * `rect.basic.label-container` comes back `fill:#f00 !important`). That is a
+ * seventh construct, not part of this one — it reaches the picture through a
+ * different statement and appears in no `classes` array — so it stays
+ * refused and is reported rather than quietly added. Two smaller divergences
+ * were measured in the same pass and left alone for the same reason: `class`
+ * with a single operand (`class Busy`) and a class name mermaid reads as one
+ * word but no `classDef` defines (`class Busy a,b`) both render in mermaid,
+ * unstyled, while Siren refuses them — the second through the shared
+ * `resolveStyles` rule that a flowchart and a class diagram already have.
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
+ *
+ * **3 → 2, and this one turned entirely on measuring the *shape* before
+ * choosing it.** `st-note` is `supported`: `note right of Idle : waiting for
+ * work` is drawn as a box of text joined to its state by a dashed,
+ * arrowhead-less connector (`01M368J2Y`). The obvious template was
+ * `ClassDocument.notes: ClassNote[]`, a separate collection whose entries may
+ * float free or attach — and it is the wrong shape. Measured (mermaid
+ * 11.17.2): the note hangs off the state's own record, and a second
+ * `note ... of` on one state **replaces** the first whichever sides the two
+ * were written on, so the field is `StateNote | null` on the state and there
+ * is no document in which one state carries two notes. Copying the class
+ * diagram's collection would have built a model Mermaid does not have and
+ * then diverged on exactly that document.
+ *
+ * Two more things were measured rather than assumed, and both changed what
+ * was built. **`left of`/`right of` are rank-relative, not literal sides**:
+ * mermaid makes the note a node of its layout graph and spends the position
+ * as the *direction of the edge* joining the two (`right of` → state → note,
+ * `left of` → note → state), so the words mean left and right under
+ * `direction LR` and above and below under the default `TB`. Siren gets the
+ * same behaviour for free by doing the same thing — the note is a node handed
+ * to the shared layout core and the connector is its edge — rather than by
+ * placing the box beside the state itself, which is what a reading of the two
+ * keywords alone would have produced. And **the note has no id**: mermaid
+ * names the drawn one after its state (`state-Idle----note-1`), the author
+ * writes none, so it is *not* a timeline target (ADR-0009 — a target is an
+ * id) and none was minted for it. It is drawn inside the annotated state's
+ * own group instead, which is also what animates it: the timeline's classes
+ * land on that group, so a note enters and exits with the state it belongs
+ * to.
+ *
+ * **What was measured and deliberately left refused**, each still valid
+ * Mermaid and each now refused *by name* rather than as the whole construct:
+ * `note right of [*] : x` (mermaid attaches it to the level's start
+ * pseudo-state, whose id here is generated) and the multi-line
+ * `note ... end note` (mermaid reads the body as one string with newlines
+ * in it, which needs a box of several rows). Three spellings mermaid itself
+ * refuses stay refused and are pinned as such — `note over X : t`, a second
+ * colon in the text, and an empty text. One was measured and made to *work*
+ * that no row covers: `note "floating" as N` parses in mermaid and records
+ * nothing at all, so it is accepted and ignored here exactly as `state X` is,
+ * rather than costing a document that renders its picture.
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
+ *
+ * **2 → 1, and this one was a change of figure rather than of structure.**
+ * `st-stereotype-choice` is `supported`: `state Choice <<choice>>`,
+ * `<<fork>>` and `<<join>>` now draw the diamond and the bar mermaid draws
+ * (`01M368J34`). The measurement that shaped it is that mermaid records this
+ * as a `type` field on the state's own record while the *same* field reads
+ * `"default"` on the start and end pseudo-states — so it is a second axis
+ * and not three more `StateKind` values, and a state can be both stereotyped
+ * and a composite (measured: `state X <<choice>>` then `state X { A --> B }`
+ * is one state, `type="choice"`, holding two members, drawn as the frame).
+ * The state keeps its authored id and its place in the relations, so the
+ * parser and the model gained one carried field each and the work was in
+ * layout and the renderer: a 28 × 28 diamond, a 70 × 10 bar turned to
+ * 10 × 70 where its **own level** runs `LR`, and no label on any of the
+ * three.
+ *
+ * **What was measured and deliberately not implemented**, because no row
+ * covers it, and each still refused by name rather than half-drawn:
+ * `[[fork]]`/`[[join]]`/`[[choice]]` is a **second authored spelling** of
+ * the same marker (measured: `state X [[fork]]` reports `type="fork"`);
+ * `<<end>>`, `<<start>>` and any other word are **accepted and ignored** by
+ * mermaid, the statement declaring nothing at all, where Siren refuses the
+ * line; and mermaid's own looseness about the id — `state Foo Bar
+ * <<choice>>` reports a state whose id is literally `Foo Bar`, and
+ * `state "desc" as X <<choice>>` one called `"desc" as X` beside a separate
+ * `X` — is not copied, since ids here are `\w+`. One measured behaviour
+ * *was* copied rather than diverged from, and it is the one worth flagging:
+ * a stereotype written **below** its state's first mention is inert
+ * (`addState` guards the field with `if (!state.type)`), so
+ * `A --> X` then `state X <<choice>>` draws a box in mermaid and draws a box
+ * here. `silently-wrong` does not move: this row was a named refusal, never
+ * a wrong picture.
+ *
+ * **1 → 0, and the state diagram's backlog is empty.**
+ * `st-concurrency-divider` is `supported`: `--` inside a composite now
+ * draws the concurrent regions mermaid draws (`01M368K24`). The only
+ * *structural* one of the six — the previous five added a field or a
+ * figure, this one changed what members are parented to. Measured:
+ * mermaid synthesises a `divider`-typed state **per region** and re-parents
+ * that region's members under it, so `n` dividers make `n + 1` levels, each
+ * with a `[*]` pair of its own; an empty region is a region; `--` is one
+ * lexer token, so `----` is two dividers while an odd run (`-`, `---`) is a
+ * lexical error; and a `--` outside every composite is a parse error, which
+ * Siren refuses by name.
+ *
+ * The trap this row carried, and the reason it was worth writing down: the
+ * ids mermaid gives those dividers are **not reproducible** — the second
+ * came back `id-wjxqkl6axch-1`, `id-g8d8ncxe8va-1` and `id-kql3sfhyxu-1` on
+ * three runs of one document. Copying them would have made `data-siren-id`
+ * different every render. Siren mints `region:1` through `generatedId`
+ * (ADR-0010) instead, which is the same on every run and, carrying a colon,
+ * cannot collide with an authored `\w+` id.
+ *
+ * **What was measured and deliberately not implemented**, neither covered
+ * by a row: a transition **crossing** two regions is legal in both, and
+ * mermaid answers it by flattening the block into one column with the
+ * region frames drawn empty, where Siren keeps each state in the region
+ * that first named it (the rule `StateDecl.parentId` already states) and
+ * routes the transition between the two frames — a different arrangement of
+ * the same two states and the same arrow, recorded rather than matched.
+ * And one divergence is **inherited rather than introduced**: under a
+ * document-level `LR`, mermaid lays an undirected nested frame's members
+ * out top-to-bottom while Siren follows the document — already filed as
+ * `01M36SJDN` for an undirected composite, and a region is exactly such a
+ * frame. Nothing here made it worse and nothing here fixes it; the fix
+ * lives in the shared layout core.
+ *
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
  */
-const REJECTED = 6;
+const REJECTED = 0;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

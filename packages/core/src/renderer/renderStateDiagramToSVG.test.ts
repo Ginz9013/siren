@@ -7,22 +7,28 @@ const DIAGRAM: PositionedStateDiagram = {
     {
       id: "Idle",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 20,
       width: 80,
       height: 40,
       rows: [{ text: "Idle", y: 40 }],
+      style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
     {
       id: "Running",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 120,
       width: 100,
       height: 40,
       rows: [{ text: "Running", y: 140 }],
+      style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
   ],
   transitions: [
@@ -82,6 +88,79 @@ describe("renderStateDiagramToSVG", () => {
     expect(label.textContent).toBe("Idle");
     expect(label.getAttribute("x")).toBe("50");
     expect(label.getAttribute("y")).toBe("40");
+  });
+
+  it("draws a state's note as a box of text joined by a connector, inside the state's own group", () => {
+    // Three parts, the same three a class diagram's note is drawn from and
+    // through the same classes, because it is the same figure: a frame at
+    // the box the layout placed, the text centred in it, and the dashed
+    // connector the theme paints `.siren-note-link`.
+    //
+    // **Inside the annotated state's `<g>`, wearing no id of its own.**
+    // Measured: Mermaid's note carries a name derived from its state
+    // (`state-Idle----note-1`) and the author never writes one, so there is
+    // no id for a `timeline:` block to name (ADR-0009) — and minting one
+    // here would invent an author-facing handle Mermaid has no spelling for.
+    // Living in the state's group is what makes it animate with the state
+    // it hangs off, which is the only animation it can have.
+    const noted: PositionedStateDiagram = {
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          note: {
+            text: "waiting for work",
+            x: 120,
+            y: 10,
+            width: 60,
+            height: 30,
+            connector: [
+              { x: 90, y: 40 },
+              { x: 120, y: 25 },
+            ],
+          },
+        },
+        DIAGRAM.states[1],
+      ],
+    };
+
+    const svg = renderStateDiagramToSVG(noted);
+
+    const group = svg.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+    const frame = group.querySelector("rect.siren-note-frame")!;
+    expect(frame.getAttribute("x")).toBe("120");
+    expect(frame.getAttribute("y")).toBe("10");
+    expect(frame.getAttribute("width")).toBe("60");
+    expect(frame.getAttribute("height")).toBe("30");
+
+    const text = group.querySelector("text.siren-note-text")!;
+    expect(text.textContent).toBe("waiting for work");
+    expect(text.getAttribute("x")).toBe("150");
+    expect(text.getAttribute("y")).toBe("25");
+
+    const link = group.querySelector("path.siren-note-link")!;
+    expect(link.getAttribute("d")).toBe("M90,40 L120,25");
+    // An open multi-segment path would otherwise be painted as a filled
+    // polygon, the reason every other connector here carries this too.
+    expect(link.getAttribute("fill")).toBe("none");
+    // No arrowhead: measured, Mermaid builds this edge with
+    // `arrowhead: "none"`, and a head would read as a transition into the
+    // note rather than a line tying it to its state.
+    expect(link.getAttribute("marker-end")).toBeNull();
+
+    // Nothing inside the note wears an id, and no second group appeared for
+    // it: the note is part of its state, not a figure beside it.
+    expect(
+      Array.from(svg.querySelectorAll("[data-siren-id]")).map((e) =>
+        e.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["Idle", "Running", "Idle-Running", "Running-Running"]);
+
+    // A state the author wrote no note on draws none of the three.
+    const plain = svg.querySelector('g.siren-state[data-siren-id="Running"]')!;
+    expect(plain.querySelector(".siren-note-frame")).toBeNull();
+    expect(plain.querySelector(".siren-note-text")).toBeNull();
+    expect(plain.querySelector(".siren-note-link")).toBeNull();
   });
 
   it("draws one siren-transition group per transition, wearing its id, following the routed points", () => {
@@ -170,18 +249,21 @@ describe("renderStateDiagramToSVG", () => {
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "start:1", kind: "start", x: 40, y: 10, width: 14, height: 14, rows: [], dividerY: null },
+    { id: "start:1", kind: "start", stereotype: null, x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
     {
       id: "Idle",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 60,
       width: 80,
       height: 40,
       rows: [{ text: "Idle", y: 80 }],
+      style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
-    { id: "end:1", kind: "end", x: 40, y: 140, width: 14, height: 14, rows: [], dividerY: null },
+    { id: "end:1", kind: "end", stereotype: null, x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
   ],
   transitions: [
     {
@@ -212,26 +294,33 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
     {
       id: "s",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 20,
       width: 160,
       height: 40,
       rows: [{ text: "waiting for work", y: 40 }],
+      style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
     {
       id: "Plain",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 120,
       width: 100,
       height: 40,
       rows: [{ text: "Plain", y: 140 }],
+      style: { frame: [], text: [] },
       dividerY: null,
+      note: null,
     },
     {
       id: "t",
       kind: "state",
+      stereotype: null,
       x: 10,
       y: 220,
       width: 160,
@@ -241,7 +330,9 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
         { text: "second", y: 290 },
         { text: "third", y: 320 },
       ],
+      style: { frame: [], text: [] },
       dividerY: 260,
+      note: null,
     },
   ],
   transitions: [],
@@ -370,6 +461,114 @@ describe("renderStateDiagramToSVG, on the start and end pseudo-states", () => {
     expect(group.querySelector("circle")).toBeNull();
   });});
 
+/**
+ * One state per stereotype, each at the box `layoutStateDiagram` sizes for
+ * its figure — a 28 × 28 square for the diamond, a 70 × 10 bar for a fork
+ * under `TB`, and the same bar turned through a right angle for a join at a
+ * level running `LR`.
+ */
+const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
+  states: [
+    {
+      id: "Choice",
+      kind: "state",
+      stereotype: "choice",
+      x: 40,
+      y: 10,
+      width: 28,
+      height: 28,
+      rows: [],
+      style: { frame: [], text: [] },
+      dividerY: null,
+      note: null,
+    },
+    {
+      id: "Split",
+      kind: "state",
+      stereotype: "fork",
+      x: 20,
+      y: 100,
+      width: 70,
+      height: 10,
+      rows: [],
+      style: { frame: [], text: [] },
+      dividerY: null,
+      note: null,
+    },
+    {
+      id: "Merge",
+      kind: "state",
+      stereotype: "join",
+      x: 50,
+      y: 160,
+      width: 10,
+      height: 70,
+      rows: [],
+      style: { frame: [], text: [] },
+      dividerY: null,
+      note: null,
+    },
+  ],
+  transitions: [],
+  timeline: { totalSteps: 0, entries: [] },
+  width: 200,
+  height: 260,
+};
+
+describe("renderStateDiagramToSVG, on a stereotyped state", () => {
+  it("draws a `<<choice>>` as a diamond filling its box, with no rectangle and no label", () => {
+    // Measured (mermaid 11.17.2, `--markup` and a reading of the path's own
+    // extent): the choice's `<g>` holds a diamond spanning `x[-14,14]
+    // y[-14,14]` about the node's centre and **no label child at all**,
+    // where the `Idle` beside it has one. So the four corners are the box's
+    // edge midpoints, and there is nothing to write.
+    const svg = renderStateDiagramToSVG(STEREOTYPE_DIAGRAM);
+
+    const group = svg.querySelector('g.siren-state[data-siren-id="Choice"]')!;
+    expect(group).not.toBeNull();
+    expect(group.querySelector("text")).toBeNull();
+    expect(group.querySelector("rect")).toBeNull();
+
+    // The diamond wears the frame class whatever element draws it — the rule
+    // `renderToSVG` already applies to a flowchart's diamond, so an author's
+    // `class Choice urgent` lands on the figure rather than on an anonymous
+    // descendant.
+    const diamond = group.querySelector("polygon.siren-state-frame")!;
+    expect(diamond).not.toBeNull();
+    // Top, right, bottom, left of the 28 × 28 box at (40, 10).
+    expect(diamond.getAttribute("points")).toBe("54,10 68,24 54,38 40,24");
+  });
+
+  it("draws a `<<fork>>` and a `<<join>>` as the same solid bar, at whatever box layout gave it", () => {
+    // Measured: fork and join come back from Mermaid as the *same* path,
+    // `M-35 -5 L35 -5 L35 5 L-35 5` — one figure with two spellings, so one
+    // class draws both and nothing here asks which of the two it is. Which
+    // way the bar lies is already in the box: layout turned it, measuring
+    // the level's own direction.
+    const svg = renderStateDiagramToSVG(STEREOTYPE_DIAGRAM);
+
+    const bars = Array.from(svg.querySelectorAll("rect.siren-state-bar")).map((bar) => [
+      bar.parentElement!.getAttribute("data-siren-id"),
+      bar.getAttribute("x"),
+      bar.getAttribute("y"),
+      bar.getAttribute("width"),
+      bar.getAttribute("height"),
+    ]);
+    expect(bars).toEqual([
+      ["Split", "20", "100", "70", "10"],
+      ["Merge", "50", "160", "10", "70"],
+    ]);
+
+    // Neither draws a label, for the reason the choice draws none: Mermaid's
+    // `forkJoin` shape blanks it outright.
+    for (const id of ["Split", "Merge"]) {
+      const group = svg.querySelector(`g.siren-state[data-siren-id="${id}"]`)!;
+      expect(group.querySelector("text"), id).toBeNull();
+      expect(group.querySelector("rect.siren-state-frame"), id).toBeNull();
+    }
+  });
+});
+
 describe("renderStateDiagramToSVG, on a composite state", () => {
   it("draws it as an unfilled frame with its title in the strip along the top", () => {
     // Measured with `--markup` (mermaid 11.17.2): a composite is a
@@ -382,22 +581,28 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           x: 5,
           y: 10,
           width: 200,
           height: 150,
           rows: [{ text: "Outer", y: 30 }],
+          style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           x: 40,
           y: 60,
           width: 80,
           height: 40,
           rows: [{ text: "Idle", y: 80 }],
+          style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
       ],
       transitions: [],
@@ -431,6 +636,50 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     expect(group.querySelector("text.siren-state-label")).toBeNull();
   });
 
+  it("draws a note written on the composite itself, inside the composite's own group", () => {
+    // Measured (mermaid 11.17.2): `note right of Outer : about the composite`
+    // records the note on the composite's own record, exactly as it does on
+    // an ordinary state — one statement, one field — so the frame carries
+    // the same three note parts a box does, in the group wearing the
+    // composite's id.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          stereotype: null,
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          rows: [{ text: "Outer", y: 30 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: {
+            text: "about the block",
+            x: 230,
+            y: 60,
+            width: 90,
+            height: 30,
+            connector: [
+              { x: 205, y: 75 },
+              { x: 230, y: 75 },
+            ],
+          },
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 340,
+      height: 180,
+    });
+
+    const group = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(group.querySelector("rect.siren-note-frame")!.getAttribute("x")).toBe("230");
+    expect(group.querySelector("text.siren-note-text")!.textContent).toBe("about the block");
+    expect(group.querySelector("path.siren-note-link")!.getAttribute("d")).toBe("M205,75 L230,75");
+  });
+
   it("leaves step-0 pending state to the controller, stamping siren-pending on none of the three addressable kinds", () => {
     // The guard `renderToSVG` and `renderClassDiagramToSVG` already carry,
     // written here the moment this kind started reading a `timeline:` block.
@@ -444,22 +693,28 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         {
           id: "Outer",
           kind: "composite",
+          stereotype: null,
           x: 5,
           y: 10,
           width: 200,
           height: 150,
           rows: [{ text: "Outer", y: 30 }],
+          style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
         {
           id: "Idle",
           kind: "state",
+          stereotype: null,
           x: 40,
           y: 60,
           width: 80,
           height: 40,
           rows: [{ text: "Idle", y: 80 }],
+          style: { frame: [], text: [] },
           dividerY: null,
+          note: null,
         },
       ],
       transitions: [
@@ -490,5 +745,190 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     });
 
     expect(svg.querySelectorAll(".siren-pending")).toHaveLength(0);
+  });
+
+  it("writes the author's resolved declarations onto the drawn shape and every row of text", () => {
+    // Inline, and on the drawn shape rather than the enclosing `<g>` —
+    // ADR-0008's cascade reason, the same one `renderClassDiagramToSVG`
+    // gives: the theme styles `.siren-state-frame` and `.siren-state-label`
+    // directly, so an inline declaration on those elements outranks it
+    // without `!important`, while the same one on the `<g>` would only be
+    // *inherited* and lose.
+    //
+    // Every row, not only the title: measured (mermaid 11.17.2), a `class`
+    // names the state and not one of its lines, and Mermaid's generated rule
+    // is scoped to the whole node.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Busy",
+          kind: "state",
+          stereotype: null,
+          x: 10,
+          y: 20,
+          width: 80,
+          height: 60,
+          rows: [
+            { text: "Busy", y: 35 },
+            { text: "working", y: 65 },
+          ],
+          style: {
+            frame: [
+              { property: "fill", value: "#f96" },
+              { property: "stroke", value: "#00f" },
+            ],
+            text: [{ property: "fill", value: "#fff" }],
+          },
+          dividerY: 50,
+          note: null,
+        },
+        {
+          id: "Idle",
+          kind: "state",
+          stereotype: null,
+          x: 10,
+          y: 120,
+          width: 80,
+          height: 40,
+          rows: [{ text: "Idle", y: 140 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 200,
+      height: 200,
+    });
+
+    const busy = svg.querySelector('g.siren-state[data-siren-id="Busy"]')!;
+    expect(busy.querySelector("rect.siren-state-frame")!.getAttribute("style")).toBe(
+      "fill:#f96;stroke:#00f",
+    );
+    expect(
+      Array.from(busy.querySelectorAll("text")).map((t) => t.getAttribute("style")),
+    ).toEqual(["fill:#fff", "fill:#fff"]);
+
+    // An unstyled state gets **no** `style` attribute at all, rather than an
+    // empty one: an empty attribute is still a declaration block the cascade
+    // has to consider, and it would read as "this state was styled".
+    const idle = svg.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+    expect(idle.querySelector("rect.siren-state-frame")!.hasAttribute("style")).toBe(false);
+    expect(idle.querySelector("text")!.hasAttribute("style")).toBe(false);
+  });
+
+  it("reaches a composite's frame and its title, which is where Mermaid puts it too", () => {
+    // Measured (mermaid 11.17.2): `class Outer urgent` on a composite lands
+    // the class on the cluster's own `<g>` —
+    // `class="urgent statediagram-state statediagram-cluster"` — and its
+    // generated rule (`#id .urgent rect { ... }`) paints the frame's rects.
+    // So a class applied to a composite reaches its frame, and this is the
+    // assertion that Siren's does too.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          stereotype: null,
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          rows: [{ text: "Outer", y: 30 }],
+          style: {
+            frame: [{ property: "stroke", value: "#00f" }],
+            text: [{ property: "fill", value: "#fff" }],
+          },
+          dividerY: null,
+          note: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 220,
+      height: 180,
+    });
+
+    const outer = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(outer.querySelector("rect.siren-composite-frame")!.getAttribute("style")).toBe(
+      "stroke:#00f",
+    );
+    expect(outer.querySelector("text.siren-composite-label")!.getAttribute("style")).toBe(
+      "fill:#fff",
+    );
+  });
+});
+
+describe("renderStateDiagramToSVG, on a concurrent region", () => {
+  it("draws it as an untitled frame wearing its generated id, and nothing else", () => {
+    // Measured with `--markup` (mermaid 11.17.2): a concurrent region comes
+    // back as a `g.statediagram-cluster` holding exactly one element — a
+    // `rect.divider` — with **no label** anywhere inside it, and mermaid's
+    // own stylesheet gives that rect `stroke-dasharray: 10,10`. So the
+    // figure is a dashed frame around the region's members, and there is
+    // nothing to write on it: the id is generated, so drawing it would put
+    // a string the author never wrote on the picture.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Active",
+          kind: "composite",
+          stereotype: null,
+          x: 5,
+          y: 10,
+          width: 300,
+          height: 200,
+          rows: [{ text: "Active", y: 30 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: null,
+        },
+        {
+          id: "region:1",
+          kind: "region",
+          stereotype: null,
+          x: 20,
+          y: 50,
+          width: 130,
+          height: 140,
+          rows: [],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 320,
+      height: 220,
+    });
+
+    // A `siren-state` group like every other frame, so a `timeline:` entry
+    // and the theme's highlight rules reach it through the one selector
+    // they already use — wearing the id `buildStateModel` minted.
+    const group = svg.querySelector('g.siren-state[data-siren-id="region:1"]')!;
+    expect(group).not.toBeNull();
+
+    const frame = group.querySelector("rect.siren-state-region")!;
+    expect([
+      frame.getAttribute("x"),
+      frame.getAttribute("y"),
+      frame.getAttribute("width"),
+      frame.getAttribute("height"),
+    ]).toEqual(["20", "50", "130", "140"]);
+
+    // No title, and not the composite's figure either: a region is
+    // untitled, and `.siren-composite-frame` is the rounded, solid-outlined
+    // one the block around it takes.
+    expect(group.querySelector("text")).toBeNull();
+    expect(group.querySelector("rect.siren-composite-frame")).toBeNull();
+    expect(group.querySelector("rect.siren-state-frame")).toBeNull();
+
+    // And the composite beside it is untouched — the two frames are two
+    // figures, not one drawn twice.
+    const block = svg.querySelector('g.siren-state[data-siren-id="Active"]')!;
+    expect(block.querySelector("rect.siren-composite-frame")).not.toBeNull();
+    expect(block.querySelector("rect.siren-state-region")).toBeNull();
   });
 });

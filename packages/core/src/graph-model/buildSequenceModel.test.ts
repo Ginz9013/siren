@@ -38,9 +38,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const messageIds = model!.statements
+    const messageIds = model.statements
       .filter((s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message")
       .map((s) => s.message.id);
 
@@ -68,8 +67,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.participants).toEqual([
+    expect(model.participants).toEqual([
       {
         id: "A",
         label: "Alice",
@@ -123,8 +121,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    const messages = model!.statements.filter(
+    const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
     expect(messages.map((s) => s.message.id)).toEqual(["A-B"]);
@@ -160,8 +157,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    const messages = model!.statements.filter(
+    const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
     expect(messages).toHaveLength(0);
@@ -187,8 +183,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.statements.some((s) => s.kind === "destroy")).toBe(false);
+    expect(model.statements.some((s) => s.kind === "destroy")).toBe(false);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
     expect(diagnostics[0]!.message).toContain("does-not-exist");
@@ -213,8 +208,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.statements).toEqual([
+    expect(model.statements).toEqual([
       { kind: "participant", participant: expect.objectContaining({ id: "A" }) },
       { kind: "activate", participantId: "A", activationId: "activation:1" },
       { kind: "deactivate", participantId: "A" },
@@ -241,7 +235,7 @@ describe("buildSequenceModel", () => {
 
     const { model } = buildSequenceModel(document);
 
-    const activationIds = model!.statements
+    const activationIds = model.statements
       .filter((s): s is Extract<typeof s, { kind: "activate" }> => s.kind === "activate")
       .map((s) => s.activationId);
     expect(activationIds).toEqual(["activation:1", "activation:2"]);
@@ -268,7 +262,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.statements.filter((s) => s.kind === "deactivate")).toHaveLength(2);
+    expect(model.statements.filter((s) => s.kind === "deactivate")).toHaveLength(2);
   });
 
   it("drops a deactivate with nothing open on that participant, reporting an error diagnostic (matches Mermaid's own rejection)", () => {
@@ -288,8 +282,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.statements.some((s) => s.kind === "deactivate")).toBe(false);
+    expect(model.statements.some((s) => s.kind === "deactivate")).toBe(false);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
     expect(diagnostics[0]!.message).toContain("A");
@@ -310,8 +303,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.statements).toEqual([]);
+    expect(model.statements).toEqual([]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
     expect(diagnostics[0]!.message).toContain("does-not-exist");
@@ -339,7 +331,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.statements.at(-1)).toEqual({
+    expect(model.statements.at(-1)).toEqual({
       kind: "note",
       note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
     });
@@ -363,7 +355,7 @@ describe("buildSequenceModel", () => {
 
     const { model } = buildSequenceModel(document);
 
-    const noteIds = model!.statements
+    const noteIds = model.statements
       .filter((s): s is Extract<typeof s, { kind: "note" }> => s.kind === "note")
       .map((s) => s.note.id);
     expect(noteIds).toEqual(["note:1", "note:2"]);
@@ -386,8 +378,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.statements.some((s) => s.kind === "note")).toBe(false);
+    expect(model.statements.some((s) => s.kind === "note")).toBe(false);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
     expect(diagnostics[0]!.message).toContain("does-not-exist");
@@ -420,10 +411,9 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.title).toBe("Order confirmation flow");
+    expect(model.title).toBe("Order confirmation flow");
 
-    const messages = model!.statements.filter(
+    const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
     expect(messages.map((s) => s.message.autonumber)).toEqual([null, 1, 2, null]);
@@ -460,9 +450,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const blocks = model!.statements.filter(
+    const blocks = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     );
     expect(blocks.map((s) => s.block.id)).toEqual(["loop:1", "loop:2"]);
@@ -504,9 +493,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const blocks = model!.statements.filter(
+    const blocks = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     );
     expect(blocks.map((s) => s.block.id)).toEqual([
@@ -555,9 +543,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const block = model!.statements.find(
+    const block = model.statements.find(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!;
 
@@ -649,9 +636,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const loopBlock = model!.statements.find(
+    const loopBlock = model.statements.find(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!.block;
     expect(new Set(loopBlock.touchedParticipantIds)).toEqual(new Set(["A", "B", "C", "D"]));
@@ -696,8 +682,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    const loopBlock = model!.statements.find(
+    const loopBlock = model.statements.find(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!.block;
     expect(loopBlock.branches[0]!.statements).toEqual([]);
@@ -732,9 +717,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const block = model!.statements.find(
+    const block = model.statements.find(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!.block;
     expect(block.kind).toBe("rect");
@@ -766,8 +750,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.participants).toEqual([
+    expect(model.participants).toEqual([
       {
         id: "A",
         label: "A",
@@ -819,12 +802,11 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.participants.map((p) => [p.id, p.createdAt, p.destroyedAt])).toEqual([
+    expect(model.participants.map((p) => [p.id, p.createdAt, p.destroyedAt])).toEqual([
       ["A", 0, null],
       ["B", 0, 5],
     ]);
-    expect(model!.statements.at(-1)).toEqual({ kind: "destroy", id: "B" });
+    expect(model.statements.at(-1)).toEqual({ kind: "destroy", id: "B" });
   });
 
   it("rejects a second destroy of an already-destroyed participant, keeping the first destroy's position", () => {
@@ -847,9 +829,8 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.participants[0]!.destroyedAt).toBe(2);
-    expect(model!.statements.filter((s) => s.kind === "destroy")).toHaveLength(1);
+    expect(model.participants[0]!.destroyedAt).toBe(2);
+    expect(model.statements.filter((s) => s.kind === "destroy")).toHaveLength(1);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
     expect(diagnostics[0]!.message).toContain("A");
@@ -887,8 +868,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    const messages = model!.statements.filter(
+    const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
     expect(messages.map((s) => s.message.id)).toEqual(["A-B", "A-B#2"]);
@@ -925,8 +905,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
-    expect(model!.boxes).toEqual([
+    expect(model.boxes).toEqual([
       { id: "box:1", color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
       { id: "box:2", color: null, label: null, participantIds: ["C"] },
     ]);
@@ -956,8 +935,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.boxes).toEqual([
+    expect(model.boxes).toEqual([
       { id: "box:1", color: null, label: "Services", participantIds: ["A"] },
     ]);
     expect(diagnostics).toHaveLength(1);
@@ -989,9 +967,8 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model).not.toBeNull();
-    expect(model!.statements.map((s) => s.kind)).toEqual(["participant", "participant"]);
-    expect(model!.participants[1]).toEqual({
+    expect(model.statements.map((s) => s.kind)).toEqual(["participant", "participant"]);
+    expect(model.participants[1]).toEqual({
       id: "B",
       label: "B",
       participantKind: "participant",
@@ -1036,9 +1013,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model).not.toBeNull();
 
-    const messages = model!.statements.filter(
+    const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
     expect(messages.map((s) => s.message.id)).toEqual(["A-B"]);
@@ -1076,7 +1052,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.timeline).toEqual({
+    expect(model.timeline).toEqual({
       totalSteps: 3,
       entries: [
         { kind: "enter", step: 1, targetId: "A", effect: "fade" },
@@ -1102,7 +1078,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.timeline).toEqual({ totalSteps: 0, entries: [] });
+    expect(model.timeline).toEqual({ totalSteps: 0, entries: [] });
   });
 
   it("resolves a timeline entry naming a message, a control-flow block or a box grouping — every id the renderer tags is addressable", () => {
@@ -1152,7 +1128,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.timeline).toEqual({
+    expect(model.timeline).toEqual({
       totalSteps: 3,
       entries: [
         { kind: "highlight", step: 1, targetId: "A-B", effect: "glow" },
@@ -1224,7 +1200,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["A-B", "B-A", "alt:1"]);
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual(["A-B", "B-A", "alt:1"]);
   });
 
   it("addresses a repeat message pair by its #2 id, and still rejects an id no element holds", () => {
@@ -1257,7 +1233,7 @@ describe("buildSequenceModel", () => {
 
     // The second message between the same pair is addressable under the id
     // it actually holds, not under the pair's base id.
-    expect(model!.timeline.entries.map((e) => e.targetId)).toEqual(["A-B#2"]);
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual(["A-B#2"]);
     // Widening the set widened it to real ids only: a third A-B message and
     // a loop block were never written, so naming them is the same
     // unknown-id error it was before.
@@ -1313,10 +1289,10 @@ describe("buildSequenceModel", () => {
       },
     ]);
     // Advisory only: the exit still applies and the message still resolves.
-    expect(model!.timeline.entries).toEqual([
+    expect(model.timeline.entries).toEqual([
       { kind: "exit", step: 2, targetId: "A", effect: "fade" },
     ]);
-    expect(model!.statements).toContainEqual({
+    expect(model.statements).toContainEqual({
       kind: "message",
       message: {
         id: "A-B",
@@ -1412,7 +1388,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(diagnostics).toEqual([]);
-    expect(model!.timeline.entries).toEqual([
+    expect(model.timeline.entries).toEqual([
       { kind: "exit", step: 2, targetId: "A-B", effect: "fade" },
       { kind: "exit", step: 2, targetId: "A", effect: "fade" },
     ]);

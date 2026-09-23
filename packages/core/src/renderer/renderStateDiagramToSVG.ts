@@ -3,6 +3,7 @@ import type {
   PositionedState,
   PositionedStateDiagram,
   PositionedStateTransition,
+  StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
 
@@ -32,6 +33,12 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * `<path class="siren-transition-line">` along the layout's points, ending
  * in an arrowhead, plus a `<text class="siren-transition-label">` when the
  * author wrote one).
+ *
+ * A state the author wrote a `note` on carries that note **inside its own
+ * group** — the class diagram's three note parts (`.siren-note-link`,
+ * `.siren-note-frame`, `.siren-note-text`), reused because it is the same
+ * figure, and put there rather than in a group of their own because a state
+ * diagram's note has no id (see `appendNote`).
  *
  * A self-transition needs no case of its own: it is a route like any other,
  * drawn along whatever points the layout returned, and the loop is in those
@@ -96,8 +103,20 @@ function buildState(state: PositionedState): SVGGElement {
     return buildPseudoState(state);
   }
 
+  // Asked before the stereotype, because a state can carry both and Mermaid
+  // draws the frame — measured (11.17.2, `--markup`): `state X <<choice>>`
+  // followed by `state X { A --> B }` comes back as a cluster holding `A`
+  // and `B`, with no diamond anywhere in the picture.
   if (state.kind === "composite") {
     return buildComposite(state);
+  }
+
+  if (state.kind === "region") {
+    return buildRegion(state);
+  }
+
+  if (state.stereotype !== null) {
+    return buildStereotypedState(state);
   }
 
   const g = document.createElementNS(SVG_NS, "g");
@@ -110,6 +129,7 @@ function buildState(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
+  applyAuthorStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here: a state's corner radius is a decoration of the box rather
@@ -133,13 +153,81 @@ function buildState(state: PositionedState): SVGGElement {
   // first of several — and every row below the divider is a description
   // row, the split `.siren-class-name` and `.siren-member` already draw so
   // that a theme can weight the title differently from what follows it.
+  //
+  // Every row wears the author's text declarations, not just the title: a
+  // `class` names the state and not one of its lines, so an author who
+  // recolors a box meant its title and its descriptions alike — the same
+  // reading `renderClassDiagramToSVG` gives a class's name, annotation and
+  // members.
   const centerX = state.x + state.width / 2;
   state.rows.forEach((row, index) => {
     const className = index === 0 ? "siren-state-label" : "siren-state-description";
-    g.appendChild(buildCenteredText(className, row.text, { x: centerX, y: row.y }));
+    const label = buildCenteredText(className, row.text, { x: centerX, y: row.y });
+    applyAuthorStyle(label, state.style.text);
+    g.appendChild(label);
   });
 
+  appendNote(g, state);
+
   return g;
+}
+
+/**
+ * Adds the note hanging off `state` to its group — the
+ * `<path class="siren-note-link">` tying it to the state, the
+ * `<rect class="siren-note-frame">` at the box layout placed, and the
+ * `<text class="siren-note-text">` centred in it — or adds nothing at all
+ * when the author wrote no note.
+ *
+ * **The class diagram's three note classes, reused rather than doubled.** It
+ * is the same figure drawn for the same reason, and `renderClassDiagramToSVG`
+ * already draws it from exactly these three parts; a second set of names
+ * would give the theme two notes to paint identically and forever. What
+ * differs is the *group* they live in: a class note is a `siren-note` group
+ * of its own wearing its own id, and a state note has no id at all
+ * (measured — Mermaid names the drawn note after its state), so it is drawn
+ * **inside the annotated state's own `<g>`**. That is also what animates it:
+ * the timeline's classes land on that group, so a note fades and slides with
+ * the state it belongs to, which is the only animation it can have.
+ *
+ * The connector goes in first, so the note's own box paints over the end of
+ * it: document order is paint order. It carries no `marker-end` — measured,
+ * Mermaid builds this edge with `arrowhead: "none"`, and an arrowhead would
+ * read as a transition into the note.
+ *
+ * The author's `style` declarations are deliberately not written onto any of
+ * this: measured (mermaid 11.17.2), a `class` applied to a state paints the
+ * state's own rect, and the note keeps the note colours whatever the state
+ * is painted.
+ */
+function appendNote(g: SVGGElement, state: PositionedState): void {
+  const note = state.note;
+  if (note === null) {
+    return;
+  }
+
+  const link = document.createElementNS(SVG_NS, "path");
+  link.setAttribute("class", "siren-note-link");
+  link.setAttribute("d", pointsToPathData(note.connector));
+  // Explicit, for the same reason a transition line carries it: an open,
+  // multi-segment path would otherwise be painted as a filled polygon.
+  link.setAttribute("fill", "none");
+  g.appendChild(link);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-note-frame");
+  frame.setAttribute("x", String(note.x));
+  frame.setAttribute("y", String(note.y));
+  frame.setAttribute("width", String(note.width));
+  frame.setAttribute("height", String(note.height));
+  g.appendChild(frame);
+
+  g.appendChild(
+    buildCenteredText("siren-note-text", note.text, {
+      x: note.x + note.width / 2,
+      y: note.y + note.height / 2,
+    }),
+  );
 }
 
 /**
@@ -174,17 +262,176 @@ function buildComposite(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
+  // A class applied to a composite reaches its **frame**, measured (mermaid
+  // 11.17.2): `class Outer urgent` puts the class on the cluster's own `<g>`
+  // and its generated rule paints the rects inside it. So a composite is
+  // styled exactly as a state is, on the one rect it is drawn as.
+  applyAuthorStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here either — a frame's corner radius is the theme's, for the
   // reason `buildState` gives for a state's box.
   const centerX = state.x + state.width / 2;
   for (const row of state.rows) {
-    g.appendChild(
-      buildCenteredText("siren-composite-label", row.text, { x: centerX, y: row.y }),
-    );
+    const label = buildCenteredText("siren-composite-label", row.text, {
+      x: centerX,
+      y: row.y,
+    });
+    applyAuthorStyle(label, state.style.text);
+    g.appendChild(label);
   }
 
+  // A composite carries a note exactly as a state does — measured: mermaid
+  // 11.17.2 records the note on the composite's own record, and the same
+  // statement writes it.
+  appendNote(g, state);
+
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-state">` for one concurrent region — the
+ * `<rect class="siren-state-region">` at the frame layout grew around that
+ * region's members, and nothing else.
+ *
+ * **Untitled, and that is measured rather than a simplification.** With
+ * `--markup` (mermaid 11.17.2) a divider's group comes back holding exactly
+ * one element, a `rect.divider`, with no label child anywhere in it — and
+ * mermaid's own stylesheet gives that rect `stroke-dasharray: 10,10`, so
+ * the figure is a *dashed frame* around the region rather than a single
+ * line between two of them. The dashes are the theme's
+ * (`.siren-state-region`), the figure is this.
+ *
+ * There is also nothing it *could* be titled with: a region's id is
+ * generated (`region:1`), so drawing it would put a string the author never
+ * wrote onto the picture — the reason a pseudo-state draws no label either.
+ *
+ * **Still a `siren-state` group wearing that generated id**, for the reason
+ * a composite's is: everything that addresses a state by id addresses this
+ * the same way, so the theme's highlight rules and a `timeline:` entry both
+ * reach it through the selector they already use. That the id is generated
+ * rather than authored changes nothing about the lookup — a pseudo-state's
+ * `start:1` is addressable on exactly these terms (ADR-0009: a target is an
+ * id, and this one has one because the renderer needed it anyway).
+ *
+ * No author style: a region carries none and can carry none, because a
+ * `class` statement names a `\w+` id and `region:1` has a colon in it.
+ */
+function buildRegion(state: PositionedState): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-state");
+  g.setAttribute("data-siren-id", state.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-state-region");
+  frame.setAttribute("x", String(state.x));
+  frame.setAttribute("y", String(state.y));
+  frame.setAttribute("width", String(state.width));
+  frame.setAttribute("height", String(state.height));
+  g.appendChild(frame);
+
+  return g;
+}
+
+/**
+ * Writes the author's resolved `classDef`/`class` declarations onto
+ * `element` as an inline `style` attribute, in declaration order, or leaves
+ * the element without one when the author styled nothing.
+ *
+ * The same function `renderClassDiagramToSVG` has, for the same reasons,
+ * spelled the same way: inline rather than a generated class rule, and on
+ * the drawn shape rather than its enclosing `<g>`, both for the cascade
+ * reason ADR-0008 records. The theme styles `.siren-state-frame` and
+ * `.siren-state-label` directly, so an inline declaration on those elements
+ * outranks it without `!important`, while the same declaration on the `<g>`
+ * would only ever be *inherited* by them and so would lose.
+ *
+ * The values are written verbatim. They are author input, but they arrive
+ * here having already passed `resolveStyles`' gate in `buildStateModel` (no
+ * `url(`, no `expression(`, no `;`, no backslash), and re-checking here
+ * would fork that single source of truth. This attribute is a CSS sink,
+ * never an HTML one: nothing is parsed as markup, so the hard
+ * `textContent`-never-`innerHTML` invariant is untouched.
+ *
+ * A pseudo-state is deliberately not reached by this: `[*]` is not an id, so
+ * no `class` statement can name one.
+ */
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
+  if (style.length === 0) {
+    return;
+  }
+  element.setAttribute(
+    "style",
+    style.map(({ property, value }) => `${property}:${value}`).join(";"),
+  );
+}
+
+/**
+ * Builds the `<g class="siren-state">` for a state carrying a
+ * `<<choice>>`, `<<fork>>` or `<<join>>` marker: the diamond one is drawn as,
+ * or the solid bar the other two share.
+ *
+ * **Still a `siren-state` group wearing the author's own id**, for the reason
+ * a composite's is: the state keeps its place in the relations and everything
+ * that addresses a state by id addresses this the same way. All that changes
+ * is the figure inside — measured (mermaid 11.17.2, `--markup`): the state's
+ * record keeps its id and its relations, and only the drawn shape differs.
+ *
+ * **No label, for all three.** Measured: Mermaid's `forkJoin` shape sets
+ * `node.label = ""` outright, and none of the three groups comes back with a
+ * label child where an ordinary state's does. `layoutStateDiagram` has
+ * already said so by handing over no rows; this draws none either way, so a
+ * row arriving here could not put text on a figure with no room for it.
+ *
+ * **One figure for fork and join, not two.** Measured: both come back as the
+ * same path, `M-35 -5 L35 -5 L35 5 L-35 5`, so the two spellings name one
+ * drawing and there is nothing here to tell them apart. Which way the bar
+ * lies is not asked either: layout turned the box, and the bar fills it.
+ */
+function buildStereotypedState(state: PositionedState): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-state");
+  g.setAttribute("data-siren-id", state.id);
+
+  if (state.stereotype === "choice") {
+    const diamond = document.createElementNS(SVG_NS, "polygon");
+    // **`.siren-state-frame`, not a name of its own.** A diamond is this
+    // state's frame drawn as a different element, exactly as a flowchart's
+    // diamond wears `.siren-node-frame` while a rectangle does — and
+    // measured, Mermaid paints it in the same pair a state box takes (fill
+    // `mainBkg`, stroke `primaryBorderColor`), so a second class would give
+    // the theme two names to paint identically forever. It is also what
+    // keeps `class Choice urgent` landing on the figure (ADR-0008).
+    diamond.setAttribute("class", "siren-state-frame");
+    const midX = state.x + state.width / 2;
+    const midY = state.y + state.height / 2;
+    diamond.setAttribute(
+      "points",
+      [
+        `${midX},${state.y}`,
+        `${state.x + state.width},${midY}`,
+        `${midX},${state.y + state.height}`,
+        `${state.x},${midY}`,
+      ].join(" "),
+    );
+    applyAuthorStyle(diamond, state.style.frame);
+    g.appendChild(diamond);
+    return g;
+  }
+
+  const bar = document.createElementNS(SVG_NS, "rect");
+  // A class of its own, unlike the diamond: measured, Mermaid fills this one
+  // with `lineColor` rather than the node fill — it is an ink mark rather
+  // than a box, the way `.siren-state-start`'s disc is, and painting it with
+  // `.siren-state-frame`'s rule would draw a pale, outlined slab where UML
+  // draws a solid bar.
+  bar.setAttribute("class", "siren-state-bar");
+  bar.setAttribute("x", String(state.x));
+  bar.setAttribute("y", String(state.y));
+  bar.setAttribute("width", String(state.width));
+  bar.setAttribute("height", String(state.height));
+  applyAuthorStyle(bar, state.style.frame);
+  g.appendChild(bar);
   return g;
 }
 

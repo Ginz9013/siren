@@ -598,7 +598,12 @@
   fill: var(--siren-node-text);
 }
 
-/* A note is a box of text like a class box, so it takes the same surface. */
+/* A note is a box of text like a class box, so it takes the same surface.
+   These three rules paint **both** kinds' notes: a class diagram's, which is
+   a `siren-note` group of its own wearing its own id, and a state diagram's,
+   which is drawn inside the annotated state's group because it has no id to
+   be addressed by. One figure, one set of rules — a second set would have to
+   be kept identical to this one by hand. */
 .siren-note-frame {
   fill: var(--siren-node-fill);
   stroke: var(--siren-node-stroke);
@@ -624,8 +629,11 @@
 }
 
 /*
- * The connector from a note to the class it annotates. Dashed — UML's own
- * convention, and what keeps it from reading as a ninth relationship type.
+ * The connector from a note to the class — or the state — it annotates.
+ * Dashed — UML's own convention, and what keeps it from reading as a ninth
+ * relationship type or as a transition. Mermaid draws the state diagram's
+ * one dashed too (measured: `.note-edge { stroke-dasharray: 5 }`) and gives
+ * it no arrowhead, which the renderer matches by writing no `marker-end`.
  * The dash is the theme's to set here, unlike on `.siren-relationship-line`:
  * the renderer sets none on a connector, and every connector is dashed, so
  * nothing per-element is being overridden. `fill` is absent because the
@@ -724,6 +732,31 @@
 }
 
 /*
+ * A concurrent region — one of the frames a `--` divides a composite's
+ * block into. Unfilled and outlined for the same reason
+ * `.siren-composite-frame` is: it encloses state boxes drawn over it, and a
+ * fill here would hide whatever it overlaps.
+ *
+ * **Dashed, and that is the figure rather than a decoration of it.**
+ * Measured (mermaid 11.17.2): the region comes back as a
+ * `rect.divider`, and mermaid's own stylesheet gives that rect
+ * `stroke-dasharray: 10,10` — a dashed frame is what tells a reader these
+ * two blocks run at the same time instead of one after the other, which is
+ * the whole of what the construct says. The dash lengths are Siren's
+ * (ADR-0004 makes the numbers the theme's), the dashing is not.
+ *
+ * Square-cornered, unlike a composite's frame: this is a region boundary
+ * rather than a state's own rounded box, and mermaid draws no `rx` on it
+ * (its `rx: 5px` rule names `rect.outer`, which a divider is not).
+ */
+.siren-state-region {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  stroke-dasharray: 6 4;
+}
+
+/*
  * The two pseudo-states `[*]` spells, drawn the way UML draws them and
  * Mermaid confirms (measured, 11.17.2): a start is a filled disc, an end a
  * ring around a smaller filled one.
@@ -738,6 +771,31 @@
  */
 .siren-state-start,
 .siren-state-end-inner {
+  fill: var(--siren-node-stroke);
+}
+
+/*
+ * The bar a `<<fork>>` and a `<<join>>` are both drawn as — one rule,
+ * because they are one figure: measured (mermaid 11.17.2, `--markup`), the
+ * two come back as the *same* path, `M-35 -5 L35 -5 L35 5 L-35 5`, and only
+ * the keyword differs. Which way it lies is not this rule's business either;
+ * `layoutStateDiagram` turned the box by the level's own direction, and the
+ * rect fills whatever box it was given.
+ *
+ * Solid, in the stroke colour, for the reason `.siren-state-start`'s disc is:
+ * this is an ink mark rather than a box, with no text inside it and no
+ * outline to fall back on, so `.siren-state-frame`'s pale fill would leave a
+ * slab the reader cannot tell from the canvas. Mermaid paints it in its
+ * `lineColor`; which colour token stands here is the theme's (ADR-0004) and
+ * the figure — a solid bar — is what compatibility is owed.
+ *
+ * Deliberately **not** `.siren-state-frame`, which the `<<choice>>` diamond
+ * *does* take: measured, Mermaid paints the diamond in the very pair a state
+ * box gets (`mainBkg` inside, `primaryBorderColor` around) and the bar in
+ * neither, so the two figures are one shared rule and one of its own rather
+ * than two names for one paint.
+ */
+.siren-state-bar {
   fill: var(--siren-node-stroke);
 }
 
@@ -1074,10 +1132,25 @@
  * on which nothing visibly happened. A group's outer `<g>` still wears the
  * same `siren-state` class whichever figure is inside it, so the highlight
  * class lands in one place and only the inner selector differs.
+ *
+ * `.siren-state-bar` joins them for the start's own reason: a fork's and a
+ * join's bar is solid and carries no stroke, so without this
+ * `highlight Split outline` is a step on which nothing happens. The
+ * `<<choice>>` diamond needs no selector of its own — it wears
+ * `.siren-state-frame`, which the first one already names.
+ *
+ * `.siren-state-region` is here on the composite's own terms: a concurrent
+ * region is drawn with a frame of its own again, and it is addressable —
+ * under the generated id `region:1`, the way a pseudo-state is addressable
+ * under `start:1` (ADR-0009 — a target is an id, and this one has one
+ * because the renderer needed it regardless). Without this selector
+ * `highlight region:1 outline` would be a step on which nothing happens.
  */
 .siren-state.siren-highlight-outline .siren-state-frame,
 .siren-state.siren-highlight-outline .siren-composite-frame,
+.siren-state.siren-highlight-outline .siren-state-region,
 .siren-state.siren-highlight-outline .siren-state-start,
+.siren-state.siren-highlight-outline .siren-state-bar,
 .siren-state.siren-highlight-outline .siren-state-end,
 .siren-transition.siren-highlight-outline .siren-transition-line {
   stroke: var(--siren-highlight-color);

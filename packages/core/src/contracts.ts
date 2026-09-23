@@ -824,7 +824,7 @@ export interface SequenceModel {
 
 /** Result of `buildSequenceModel`. */
 export interface SequenceModelResult {
-  model: SequenceModel | null;
+  model: SequenceModel;
   diagnostics: Diagnostic[];
 }
 
@@ -1179,29 +1179,38 @@ export interface GraphModel {
 }
 
 /**
- * Result of `buildGraphModel`. Carries `graph` (flowchart), `model`
- * (sequence), `classModel` (class) and `stateModel` (state) so the one
- * dispatcher function can return any of the four shapes.
+ * Result of `buildGraphModel`, tagged by the kind of document it resolved —
+ * the same four words `SirenDocument.kind` uses, so a caller that knows what
+ * it parsed reads the same vocabulary back.
  *
- * At most one is non-null, matching the `SirenDocument.kind` of the document
- * it resolved — not exactly one, because a stage that fails resolution
- * returns all four null alongside an error-severity diagnostic explaining
- * why. A caller must therefore branch on the field it expects being non-null,
- * never assume the other three being null means its own is populated.
+ * **A tag, not four nullable fields.** This used to be `{ graph, model,
+ * classModel, stateModel, diagnostics }` with the rule "at most one is
+ * non-null", which a caller could only act on by picking a field and
+ * null-checking it — and which grew a fifth nullable field with every
+ * diagram kind the roadmap adds. The union says the same thing in a form the
+ * compiler enforces: narrow on `kind` and the payload is *there*.
  *
- * "Four nullable fields, at most one non-null" is a shape a discriminated
- * union would say better, and that is known, recorded debt rather than an
- * oversight: turning it into one touches every caller of every stage and is
- * tracked as its own refactor rather than smuggled into the ticket that
- * added a fourth kind.
+ * **Every arm carries a model, and there is no failure arm.** No sub-builder
+ * has a failure path: one that takes exception to part of its document says
+ * so in `diagnostics` — at error severity when it dropped something — and
+ * still returns the model it built from the rest. So `diagnostics` being
+ * non-empty says nothing about whether `model` is there; it always is. A
+ * fifth diagram kind should declare its own `ModelResult.model` non-nullable
+ * for the same reason, rather than reintroducing a state no caller can
+ * reach.
+ *
+ * **One payload name, `model`, on every arm** rather than a per-kind name.
+ * After narrowing, `result.model` is already the right type, so the per-kind
+ * names bought nothing a reader needed — while costing a fresh naming
+ * decision on every kind added, which is the cost this shape exists to
+ * remove. Nothing can read `model` without narrowing first, so a mis-narrowed
+ * caller is a type error and not a wrong field.
  */
-export interface GraphModelResult {
-  graph: GraphModel | null;
-  model: SequenceModel | null;
-  classModel: ClassModel | null;
-  stateModel: StateModel | null;
-  diagnostics: Diagnostic[];
-}
+export type GraphModelResult =
+  | { kind: "flowchart"; model: GraphModel; diagnostics: Diagnostic[] }
+  | { kind: "sequence"; model: SequenceModel; diagnostics: Diagnostic[] }
+  | { kind: "class"; model: ClassModel; diagnostics: Diagnostic[] }
+  | { kind: "state"; model: StateModel; diagnostics: Diagnostic[] };
 
 /** A 2D point used for edge path routing. */
 export interface Point {
@@ -1729,7 +1738,7 @@ export interface ClassModel {
 
 /** Result of `buildClassModel`. */
 export interface ClassModelResult {
-  model: ClassModel | null;
+  model: ClassModel;
   diagnostics: Diagnostic[];
 }
 
@@ -1876,8 +1885,100 @@ export interface PositionedClassDiagram {
  * `StateDocument.kind` discriminates the whole diagram by; they are
  * different questions asked at different levels, and nothing reads one for
  * the other.
+ *
+ * `"region"` is the one value **no `StateDecl` ever carries**: a concurrent
+ * region has no authored spelling, so the parser cannot declare one and it
+ * appears first on `ResolvedState`, where `buildStateModel` mints it beside
+ * the composite it divides (`StateRegion`). It is a frame like a composite
+ * — a cluster holding its own members — and it is a separate value because
+ * the two are drawn differently: a composite is a titled, solid-outlined
+ * frame, a region an untitled dashed one (measured, mermaid 11.17.2: a
+ * divider's `rect.divider` takes `stroke-dasharray: 10,10` and carries no
+ * label element at all).
  */
-export type StateKind = "state" | "composite" | "start" | "end";
+export type StateKind = "state" | "composite" | "start" | "end" | "region";
+
+/**
+ * The stereotype marker a state was declared with — `state Choice <<choice>>`
+ * — and the closed set of three Mermaid recognizes.
+ *
+ * **A second axis, not three more `StateKind` values**, and that is measured
+ * rather than chosen (mermaid 11.17.2, `scripts/mermaid-probe.mjs`):
+ *
+ * - Mermaid records this as a `type` field on the state's own record
+ *   (`id="Choice" type="choice"`), and the *same* field reads `"default"` on
+ *   the start and end pseudo-states `[*]` spells (`id="root_start"
+ *   type="default"`). So Mermaid's `type` does not encode start/end at all,
+ *   and folding these three into `StateKind` would merge two questions its
+ *   own model keeps apart.
+ * - A stereotyped state can also be a **composite**: `state X <<choice>>`
+ *   followed by `state X { A --> B }` reports one state, `type="choice"`,
+ *   with `A` and `B` `in="root/X"`. Two values of one union could not both
+ *   be true, so they cannot be one union. (Mermaid draws that document as
+ *   the frame, measured with `--markup` — X comes back as a cluster and not
+ *   as a node — which is why the renderer asks `kind` first.)
+ *
+ * `null` is the ordinary case: the author wrote no stereotype. The word is
+ * read case-insensitively, as every one of Mermaid's lexer rules is
+ * (`/^(?:.*<<fork>>)/i` — measured: `<<CHOICE>>`, `<<FORK>>` and `<<Join>>`
+ * each land on the lowercase value here), so which casing was written is
+ * recorded nowhere.
+ *
+ * The state **keeps its authored id and its place in the relations**: this
+ * is a change of figure, not of structure, so nothing else on `StateDecl`
+ * moves and a transition names a stereotyped state exactly as it names any
+ * other.
+ */
+export type StateStereotype = "choice" | "fork" | "join";
+
+/**
+ * Which side of its state a note was written on: the two spellings, and the
+ * only two — measured (mermaid 11.17.2), `note over Idle : text` is a
+ * **lexical error**, so `over` is not a third position here the way it is in
+ * a sequence diagram.
+ *
+ * Kept as the author's own two-word spelling rather than folded to
+ * `"left"`/`"right"`, because that is the whole of what Mermaid records
+ * (`note={"position":"right of",...}`) and a renamed value would be a
+ * vocabulary of Siren's own for a construct it is copying.
+ */
+export type StateNotePosition = "left of" | "right of";
+
+/**
+ * A note written onto one state — `note right of Idle : waiting for work`.
+ *
+ * **It hangs off the state**, which is why this is a field on `StateDecl`
+ * rather than an entry in a list beside the states. Measured (mermaid
+ * 11.17.2): the note is reported *on the state's own record* as
+ * `note={"position":"right of","text":"waiting for work"}` — emphatically
+ * not the shape `ClassDocument.notes` has, where a note is an element of its
+ * own that may float free or attach to a class. Copying that shape here
+ * would build a data model Mermaid does not have.
+ *
+ * **Singular, not a list**, and that too is measured rather than assumed: a
+ * second `note ... of Idle` **replaces** the first, whichever side either
+ * was written on (`note right of Idle : first` then
+ * `note left of Idle : second` reports one note,
+ * `{"position":"left of","text":"second"}`). So a state carries at most one,
+ * last statement wins, and there is no document in which two notes annotate
+ * one state.
+ *
+ * **It has no id of its own.** Mermaid's drawn note is addressed by a name
+ * derived from its state (`state-Idle----note-1`), never by anything the
+ * author wrote, so a note is reachable only *through* the state it annotates
+ * and is **not** a timeline target — ADR-0009's targets are ids, and there is
+ * no id here to be one. Minting one would invent an author-facing handle
+ * Mermaid has no spelling for, so nothing does.
+ */
+export interface StateNote {
+  position: StateNotePosition;
+  /**
+   * The note's text, trimmed — never empty, because `note right of Idle :`
+   * with nothing after the colon is a lexical error in Mermaid (measured),
+   * not a note carrying a blank line.
+   */
+  text: string;
+}
 
 /**
  * A state as the parser read it — one declaration per state, in the order
@@ -1900,6 +2001,23 @@ export interface StateDecl {
    */
   id: string | null;
   kind: StateKind;
+  /**
+   * The `<<choice>>`/`<<fork>>`/`<<join>>` marker written on this state's
+   * declaration, or `null` when the author wrote none — a second axis
+   * beside `kind`, for the measured reasons `StateStereotype` records.
+   *
+   * **Only the line that first names the state can set it.** Measured
+   * (mermaid 11.17.2): `A --> X` followed by `state X <<choice>>` reports
+   * `id="X" type="default"` — Mermaid's `addState` upgrades an existing
+   * state's `doc` but guards its `type` behind `if (!state.type)`, and an
+   * existing state always already has one. So a stereotype written below
+   * the first mention of its state is inert, which is the opposite of the
+   * way a later `state X { }` block upgrades `kind` to `composite`.
+   *
+   * Always `null` on a pseudo-state: `[*]` is not an id and there is no
+   * spelling of this statement that names one.
+   */
+  stereotype: StateStereotype | null;
   /**
    * The descriptions the author wrote for this state, in written order —
    * empty when they wrote none, which is the ordinary case and the one that
@@ -1945,6 +2063,23 @@ export interface StateDecl {
    */
   parentId: string | null;
   /**
+   * Which **concurrent region** of `parentId`'s block this state was written
+   * in, counting from `0` in written order — and `null` whenever its level
+   * has no `--` in it at all, which is every level in a document that never
+   * writes one.
+   *
+   * An index rather than an id because the region has no id yet: the parser
+   * reads authored spellings and a region's name is generated
+   * (`buildStateModel` mints `region:1`, ADR-0010), exactly as a
+   * pseudo-state's is. The pair (`parentId`, this) is what that stage
+   * re-parents by.
+   *
+   * Always `null` at the document's own level: measured (mermaid 11.17.2),
+   * a `--` outside every composite is a **parse error**, so there is no
+   * document in which the top level has regions.
+   */
+  regionIndex: number | null;
+  /**
    * This composite's own `direction LR` (or `TB`/`BT`/`RL`), written on a
    * line of its own inside its block — `null` when the author wrote none,
    * and always `null` on anything that is not a composite.
@@ -1952,8 +2087,23 @@ export interface StateDecl {
    * A per-level rank direction and not a cascading one, exactly as
    * `SirenSubgraph.direction` is: a nested composite that names none lays
    * out along the document's own direction rather than its parent's.
+   *
+   * Always `null` on a composite whose block carries a `--`: measured, the
+   * statement belongs to the **region** it was written in and not to the
+   * block around them (`StateRegion.direction`), so a divided composite has
+   * no direction of its own to carry.
    */
   direction: Direction | null;
+  /**
+   * The note written onto this state, or `null` when the author wrote none —
+   * which is the ordinary case and the one every other statement leaves
+   * alone.
+   *
+   * One field rather than a list, and a field here rather than a collection
+   * beside the states: both are measured, and `StateNote` records what was
+   * measured and why.
+   */
+  note: StateNote | null;
   /** 1-based line the state was first named on. */
   line: number;
   /** 1-based column the statement that first named it starts at. */
@@ -1998,10 +2148,71 @@ export interface StateTransition {
    * id in the diagram's one global id space.
    */
   parentId: string | null;
+  /**
+   * Which concurrent region of `parentId`'s block this transition was
+   * written in, on exactly the terms `StateDecl.regionIndex` records — and
+   * carried for the same one reason `parentId` is: it is what says *which*
+   * level's start or end a `null` endpoint means, now that a `--` makes a
+   * block several levels rather than one.
+   */
+  regionIndex: number | null;
   /** 1-based line the transition was written on. */
   sourceLine: number;
   /** 1-based column the statement starts at. */
   sourceColumn: number;
+}
+
+/**
+ * One **concurrent region** of a composite state's block — the thing a `--`
+ * line divides that block into.
+ *
+ * ```
+ * state Active {
+ *   Reading --> Parsing
+ *   --
+ *   Logging --> Flushed
+ * }
+ * ```
+ *
+ * Measured (mermaid 11.17.2, `scripts/mermaid-probe.mjs`): Mermaid
+ * synthesises a `divider`-typed state **per region** and re-parents each
+ * region's members under it (`in="root/Active/divider-id-1"`), so a region
+ * is a level of its own and not a decoration of the block. `n` dividers
+ * make `n + 1` regions, the first of which holds everything written above
+ * the first `--`; an empty one is a region like any other (measured:
+ * `--` twice in a row reports three dividers, the middle one holding
+ * nothing).
+ *
+ * **A region has no authored name, and Mermaid's own name for it cannot be
+ * copied**: the second divider comes back as `id-g8d8ncxe8va-1`, a
+ * different string on every run. So the id is minted by `buildStateModel`
+ * through `generatedId` (`region:1`, ADR-0010), which is both reproducible
+ * and — carrying a colon, where every authored id is `\w+` — impossible for
+ * an author to collide with.
+ *
+ * Regions live in a list of their own on the document rather than among the
+ * states, for the reason `StateDecl.regionIndex` gives: at parse time they
+ * have no id for a `parentId` to name, so the pair (`parentId`, `index`) is
+ * the handle until one is minted.
+ */
+export interface StateRegion {
+  /** The composite state whose block this region is part of. Never `null`: a `--` at the document's own level is a parse error in Mermaid (measured). */
+  parentId: string;
+  /** Which region of that block this is, counting from `0` in written order. */
+  index: number;
+  /**
+   * The `direction` statement written **inside this region**, or `null`
+   * when it carries none.
+   *
+   * Measured, and the measurement is the surprising half of this construct:
+   * `direction` is scoped to the region it sits in, not to the block. In
+   * `state Active { A --> B  --  direction LR  C --> D }` mermaid lays the
+   * *second* region's members out left-to-right and leaves the first one
+   * top-to-bottom; moving the statement above the `--` swaps which region
+   * turns. So a divided composite's own `StateDecl.direction` is always
+   * `null` and this is where the statement lands.
+   */
+  direction: Direction | null;
 }
 
 /**
@@ -2016,8 +2227,62 @@ export interface StateTransition {
  */
 export interface StateDocument {
   kind: "state";
+  /**
+   * The whole diagram's rank direction: the `direction LR` (or `TB`/`BT`/
+   * `RL`) the author wrote at the document's own level, outside every
+   * composite, and `TB` when they wrote none.
+   *
+   * Non-null, the way `ClassDocument.direction` is: every document lays out
+   * in *some* direction, and "the author named none" is not a third answer
+   * downstream could do anything with. A composite's own direction is the
+   * nullable one (`StateDecl.direction`), because there "none" genuinely
+   * means "lay this block out along the document's direction".
+   *
+   * **The first statement wins, not the last** — measured against mermaid
+   * 11.17.2, which is the one place this diagram kind disagrees with
+   * `ClassDocument.direction`'s last-wins rule. `direction LR` followed by
+   * `direction RL` reports `LR`, and `direction RL` followed by
+   * `direction LR` reports `RL`: mermaid's state database answers
+   * `getDirection()` from `rootDoc.find(stmt === "dir")`, so a later
+   * statement at the same level is inert rather than an overwrite.
+   *
+   * Position on the page does not matter otherwise: a `direction` written
+   * after the first transition governs the document just as one written
+   * first does. And a composite's own `direction` never reaches here —
+   * measured: it lives in that block's own doc, so a document whose only
+   * `direction` is inside a composite reports `TB`.
+   */
+  direction: Direction;
   states: StateDecl[];
   transitions: StateTransition[];
+  /**
+   * Every concurrent region every composite's block was divided into, in
+   * written order — empty for a document that writes no `--`, which is the
+   * ordinary case and the one in which `StateDecl.regionIndex` is `null`
+   * everywhere.
+   *
+   * A list beside the states rather than entries among them, because a
+   * region has no id until `buildStateModel` mints one and `StateDecl.id`
+   * is where an id belongs.
+   */
+  regions: StateRegion[];
+  /**
+   * The `classDef` and `class` statements the author wrote, in written
+   * order, as the same kind-agnostic `StyleDecl` a flowchart and a class
+   * diagram parse to — so `resolveStyles` pairs a definition with the
+   * directive applying it here exactly as it does there.
+   *
+   * `class` is this kind's spelling of the apply-directive (a class diagram
+   * writes `cssClass`, a flowchart writes `class`), normalized to the
+   * `apply` kind by the parser with the author's own spelling kept in
+   * `StyleDecl.authoredAs`.
+   *
+   * There is no `style` statement here, deliberately: measured, mermaid
+   * 11.17.2 *does* accept `style Busy fill:#f00` in a state diagram and
+   * paints it, but no compatibility-corpus row covers that construct yet,
+   * so it stays refused rather than half-implemented from one measurement.
+   */
+  styles: StyleDecl[];
   /**
    * The `timeline:` block the author wrote, or `null` when they wrote none —
    * the same distinction `ClassDocument.timeline` draws, where `null` means
@@ -2047,6 +2312,13 @@ export interface StateDocument {
  * disc and a ring rather than a labelled box — and nothing but this field
  * says which.
  *
+ * **This list holds states the parser never declared.** A `kind: "region"`
+ * entry is one concurrent region of a composite's block, synthesised here
+ * from `StateDocument.regions` and wearing a generated id of its own
+ * (`region:1`) — and the members written inside it arrive with their
+ * `parentId` pointing at it rather than at the block, which is the whole of
+ * what a `--` does to the model.
+ *
  * **Flat, with a `parentId`, rather than the tree the parser read.** The
  * shape `ResolvedSubgraph` already takes and for the same reason: what
  * reads this is layout, which wants one cluster per entry and a parent to
@@ -2057,6 +2329,20 @@ export interface StateDocument {
 export interface ResolvedState {
   id: string;
   kind: StateKind;
+  /**
+   * The `<<choice>>`/`<<fork>>`/`<<join>>` marker the author wrote on this
+   * state, carried straight through from `StateDecl.stereotype` — authored,
+   * and with nothing for this stage to resolve.
+   *
+   * A second axis beside `kind` rather than three more of its values, for
+   * the measured reasons `StateStereotype` records; `kind` is asked first
+   * downstream, because a state that is both a composite and stereotyped is
+   * drawn as the frame (measured).
+   *
+   * Always `null` on a pseudo-state: `[*]` is not an id, so no statement
+   * can mark one.
+   */
+  stereotype: StateStereotype | null;
   /**
    * The composite state that holds this one, or `null` at the document's
    * own level — carried through from `StateDecl.parentId`, which is where
@@ -2082,6 +2368,20 @@ export interface ResolvedState {
    * diagram too (mermaid 11.17.2 draws no `s` once `s : text` is written).
    */
   descriptions: string[];
+  /**
+   * The note written onto this state, or `null` when the author wrote none —
+   * carried straight through from `StateDecl.note`, authored text and an
+   * authored side with nothing for this stage to resolve.
+   *
+   * Always `null` on a pseudo-state, and not by a rule of this stage's:
+   * `note right of [*]` is refused by name in the parser, so no note ever
+   * reaches a state whose id was generated.
+   *
+   * It stays a field on the state rather than becoming an element beside
+   * them, because it has no id — see `StateNote`, and ADR-0009 on why that
+   * makes it unaddressable from a `timeline:` block.
+   */
+  note: StateNote | null;
 }
 
 /**
@@ -2103,14 +2403,35 @@ export interface ResolvedStateTransition {
  * states, identified transitions, and the resolved timeline.
  */
 export interface StateModel {
+  /**
+   * The whole diagram's rank direction, carried through from
+   * `StateDocument.direction` — authored, already resolved to one of the
+   * four canonical spellings, and with nothing for the model stage to
+   * decide. `ClassModel.direction` carries a class diagram's the same way.
+   *
+   * Beside it, and not instead of it, `ResolvedState.direction` carries a
+   * composite's own: measured, the two are independent, so this one governs
+   * the document's own level and each composite's governs its block.
+   */
+  direction: Direction;
   states: ResolvedState[];
   transitions: ResolvedStateTransition[];
+  /**
+   * Each styled state's accepted declarations, already flattened by the
+   * shared `resolveStyles` — one entry per state that ended up with at
+   * least one, and none for a state the author styled with nothing.
+   *
+   * Only a **state** can be a target: measured, mermaid 11.17.2 records a
+   * `classes` array on a state and nowhere else, so no `class` statement
+   * can name a transition.
+   */
+  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
 }
 
 /** Result of `buildStateModel`. */
 export interface StateModelResult {
-  model: StateModel | null;
+  model: StateModel;
   diagnostics: Diagnostic[];
 }
 
@@ -2132,18 +2453,69 @@ export interface PositionedStateRow {
 }
 
 /**
+ * A state's note with a layout-assigned box and the connector joining it to
+ * that state. `x`/`y` are the box's top-left corner, as everywhere else here.
+ *
+ * **Placed, not merely sized.** Measured (mermaid 11.17.2): the note is a
+ * node of the layout graph in its own right — Mermaid inserts it as one,
+ * joined to its state by an edge with `arrowhead: "none"` — which is what
+ * keeps it clear of the states around it instead of drawn over them. Siren
+ * hands it to the same shared layout core for the same reason, exactly as
+ * `layoutClassDiagram` already does with a class note.
+ *
+ * `position` does not survive to here, and that is the point of laying it out
+ * this way: the side the author named has already been spent, as the
+ * *direction* of that joining edge — `right of` runs state → note and
+ * `left of` runs note → state (measured, from Mermaid's own construction) —
+ * so which side the note ended up on is now a fact about `x`/`y`, not a flag
+ * for the renderer to act on a second time.
+ */
+export interface PositionedStateNote {
+  /** The note's text, exactly as the author wrote it. */
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * The connector between the state and the note, **always ordered from the
+   * state to the note** whichever side the author put it on — so a reader of
+   * these points never has to ask which spelling produced them.
+   *
+   * Drawn with no arrowhead, measured: Mermaid builds this edge with
+   * `arrowhead: "none"`, which is what keeps a note's connector from reading
+   * as a transition into the note.
+   */
+  connector: Point[];
+}
+
+/**
  * A state with a layout-assigned box. `x`/`y` are the box's top-left corner,
  * matching `PositionedNode` and `PositionedClass`.
  */
 export interface PositionedState {
   id: string;
   /**
-   * Which figure the renderer draws here — a labelled box, or the filled
-   * disc and the ring the two pseudo-states are. Carried this far because
-   * layout has already sized the box differently for each and only this
-   * says which one was sized.
+   * Which figure the renderer draws here — a labelled box, the filled disc
+   * and the ring the two pseudo-states are, the titled frame a composite
+   * is, or the untitled dashed one a concurrent region is. Carried this far
+   * because layout has already sized the box differently for each and only
+   * this says which one was sized.
    */
   kind: StateKind;
+  /**
+   * The stereotype marker this state was declared with, or `null` — which
+   * figure to draw inside the box, once `kind` has said it is an ordinary
+   * state rather than a frame or a pseudo-state.
+   *
+   * Carried this far for the same reason `kind` is: layout has already
+   * sized the box for the figure (28 × 28 for a choice's diamond, 70 × 10
+   * for a fork or join's bar, turned through a right angle where the
+   * level runs `LR`), and only this says which one it sized. The
+   * *orientation* is not carried, because it is already in the box: a bar
+   * wider than it is tall is the horizontal one.
+   */
+  stereotype: StateStereotype | null;
   x: number;
   y: number;
   width: number;
@@ -2160,6 +2532,16 @@ export interface PositionedState {
    */
   rows: PositionedStateRow[];
   /**
+   * Author declarations to emit as this state's inline `style` attributes:
+   * the frame's on the box (or, for a composite, on the frame rect), the
+   * text's on every row it draws. `PositionedClass.style` carries a class
+   * diagram's the same way.
+   *
+   * Both halves are empty rather than absent for a state the author styled
+   * with nothing, so the renderer asks one question instead of two.
+   */
+  style: AuthorStyle;
+  /**
    * Where the divider under the first row goes, or `null` when this box
    * draws none.
    *
@@ -2171,6 +2553,17 @@ export interface PositionedState {
    * the descriptions: an id is not drawn once a description exists.
    */
   dividerY: number | null;
+  /**
+   * The note hanging off this state, placed and connected, or `null` when
+   * the author wrote none.
+   *
+   * Carried **on the state** rather than in a list beside them, all the way
+   * to the renderer, for the reason `StateNote` gives: it has no id, so
+   * there is nothing else it could be addressed as, and the elements drawn
+   * for it wear the state's own `data-siren-id` rather than one of their own
+   * (ADR-0009 — a timeline target is an id, and a note has none).
+   */
+  note: PositionedStateNote | null;
 }
 
 /** A transition with a layout-assigned path and, when it carries one, a label anchor. */

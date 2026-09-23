@@ -15,6 +15,39 @@ The alternative — reading as much of the line as we understand and drawing the
 them a wrong picture with nothing in it to notice, and disguises *not implemented* as *supported*.
 What Siren stands on, construct by construct, is measured by the **compatibility corpus** below.
 
+### When Mermaid itself is the one drawing it wrongly
+
+The absolute condition says a document that renders in Mermaid must render here. It does not say
+it must render *identically wrongly*. So there is a third rule, and it is deliberately narrow:
+
+> **Where Mermaid's own output contradicts what the document says, Siren draws what the document
+> says, and the divergence is written down by name — at the site, and in that construct's corpus
+> row.**
+
+The bound is the word *contradicts*. This is not a licence to improve on Mermaid's layout, its
+spacing or its taste; those are Mermaid's to decide and Siren follows them. It applies only where
+the document is unambiguous and Mermaid's picture disagrees with it — which makes the divergence
+a measurement, not a preference. Two instances, both measured against 11.17.2:
+
+- **A pseudo-state swallowed by an authored id.** `[*] --> root_start` names three things;
+  Mermaid produces two, redirecting the start pseudo-state's edge into a self-loop nobody wrote,
+  with no diagnostic. Siren mints `start:1` / `end:1` instead, which an authored `\w+` id cannot
+  collide with (ADR-0010). Written up at `pseudoStateIds` in `graph-model/buildStateModel.ts`.
+- **A note's side ignored because of its spelling.** `note LEFT OF Idle : x` is accepted by
+  Mermaid, which records `position: "LEFT OF"` and then decides the side with an exact
+  `=== "left of"` test — so it draws the note on the *right*, the opposite of what the line
+  says, with no diagnostic. Siren reads the position case-insensitively and draws the side the
+  author named.
+
+Note what the second one shows: Mermaid's own *record* of the document was right and only its
+drawing was wrong. `CompatCase.meaning` is "what Mermaid means by it" — so a corpus row for a
+construct like this stays `supported`, asserts Siren's picture, and carries the difference from
+Mermaid's drawing in its `meaning`. The row is still measuring meaning against a picture; it is
+Mermaid that failed to match itself.
+
+Every divergence under this rule is a claim that needs evidence, so a new one arrives with the
+measurement of both pictures in the row, never with an assertion that ours looks better.
+
 ## Language
 
 **Siren document**:
