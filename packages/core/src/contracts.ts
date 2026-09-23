@@ -1179,29 +1179,39 @@ export interface GraphModel {
 }
 
 /**
- * Result of `buildGraphModel`. Carries `graph` (flowchart), `model`
- * (sequence), `classModel` (class) and `stateModel` (state) so the one
- * dispatcher function can return any of the four shapes.
+ * Result of `buildGraphModel`, tagged by the kind of document it resolved —
+ * the same four words `SirenDocument.kind` uses, so a caller that knows what
+ * it parsed reads the same vocabulary back, plus `"failed"` for a document
+ * that did not resolve.
  *
- * At most one is non-null, matching the `SirenDocument.kind` of the document
- * it resolved — not exactly one, because a stage that fails resolution
- * returns all four null alongside an error-severity diagnostic explaining
- * why. A caller must therefore branch on the field it expects being non-null,
- * never assume the other three being null means its own is populated.
+ * **A tag, not four nullable fields.** This used to be `{ graph, model,
+ * classModel, stateModel, diagnostics }` with the rule "at most one is
+ * non-null", which a caller could only act on by picking a field and
+ * null-checking it — and which grew a fifth nullable field with every
+ * diagram kind the roadmap adds. The union says the same thing in a form the
+ * compiler enforces: narrow on `kind` and the payload is *there*.
  *
- * "Four nullable fields, at most one non-null" is a shape a discriminated
- * union would say better, and that is known, recorded debt rather than an
- * oversight: turning it into one touches every caller of every stage and is
- * tracked as its own refactor rather than smuggled into the ticket that
- * added a fourth kind.
+ * **`"failed"` is not "unknown kind".** The kind was always known — it came
+ * from the parsed document. What `"failed"` names is the state the old shape
+ * spelled "every field null": the sub-builder for a known kind produced no
+ * model, and the error-severity diagnostic saying why is in `diagnostics`.
+ * Splitting it off is what removes the intermediate state where a caller
+ * holds the right kind and a null model, which is the state each of
+ * `render()`'s branches used to have to check for by hand.
+ *
+ * **One payload name, `model`, on every arm** rather than a per-kind name.
+ * After narrowing, `result.model` is already the right type, so the per-kind
+ * names bought nothing a reader needed — while costing a fresh naming
+ * decision on every kind added, which is the cost this shape exists to
+ * remove. Nothing can read `model` without narrowing first, so a mis-narrowed
+ * caller is a type error and not a wrong field.
  */
-export interface GraphModelResult {
-  graph: GraphModel | null;
-  model: SequenceModel | null;
-  classModel: ClassModel | null;
-  stateModel: StateModel | null;
-  diagnostics: Diagnostic[];
-}
+export type GraphModelResult =
+  | { kind: "flowchart"; model: GraphModel; diagnostics: Diagnostic[] }
+  | { kind: "sequence"; model: SequenceModel; diagnostics: Diagnostic[] }
+  | { kind: "class"; model: ClassModel; diagnostics: Diagnostic[] }
+  | { kind: "state"; model: StateModel; diagnostics: Diagnostic[] }
+  | { kind: "failed"; diagnostics: Diagnostic[] };
 
 /** A 2D point used for edge path routing. */
 export interface Point {

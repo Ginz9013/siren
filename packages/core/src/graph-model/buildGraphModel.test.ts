@@ -1,6 +1,38 @@
 import { describe, expect, it } from "vitest";
-import type { FlowchartDocument, LinkStyleDecl, SirenDocument } from "../contracts";
+import type {
+  Diagnostic,
+  FlowchartDocument,
+  GraphModel,
+  LinkStyleDecl,
+  SirenDocument,
+} from "../contracts";
 import { buildGraphModel } from "./buildGraphModel";
+
+/**
+ * Asserts a `buildGraphModel` call resolved a flowchart and hands back that
+ * arm's model, so a test about a flowchart's own ids, styles or timeline
+ * reads the model without repeating the tag check — the shape `parseOk` in
+ * `parseFlowchart.test.ts` already has for `SirenDocument`'s union, one
+ * stage downstream.
+ *
+ * It names the model `graph`, the word a flowchart's model goes by
+ * everywhere below it. `GraphModelResult` calls it `model` on every arm
+ * because nothing there is about flowcharts in particular; a flowchart test
+ * is, and holds no other model to tell it apart from.
+ */
+function buildFlowchart(document: SirenDocument): {
+  graph: GraphModel;
+  diagnostics: Diagnostic[];
+} {
+  const result = buildGraphModel(document);
+  if (result.kind !== "flowchart") {
+    throw new Error(
+      `expected a flowchart result, got a ${result.kind} one` +
+        ` (diagnostics: ${JSON.stringify(result.diagnostics)})`,
+    );
+  }
+  return { graph: result.model, diagnostics: result.diagnostics };
+}
 
 /**
  * `A --> B`'s decomposition, spread into every fixture below that is about
@@ -39,7 +71,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -67,7 +99,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -102,7 +134,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -147,7 +179,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     expect(graph!.timeline.entries.map((e) => e.targetId)).toEqual(["B"]);
@@ -178,7 +210,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph!.nodes).toEqual([
@@ -205,7 +237,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     expect(graph!.nodes).toEqual([
@@ -233,7 +265,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -267,7 +299,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     expect(graph!.timeline.entries).toEqual([
@@ -304,7 +336,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     expect(graph!.timeline.entries).toEqual([
@@ -339,7 +371,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     expect(graph!.timeline.entries).toEqual([
@@ -366,7 +398,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -395,7 +427,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -430,7 +462,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     expect(graph!.timeline.entries).toEqual([
@@ -462,7 +494,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph).not.toBeNull();
@@ -500,7 +532,7 @@ describe("buildGraphModel", () => {
       },
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph).not.toBeNull();
     // The warning does not drop the exit action itself — it's advisory,
@@ -578,7 +610,7 @@ describe("buildGraphModel", () => {
     expect(diagnostics).toEqual([]);
   });
 
-  it("dispatches a kind: \"sequence\" document to buildSequenceModel, leaving graph null and populating model", () => {
+  it("dispatches a kind: \"sequence\" document to buildSequenceModel, tagging the result \"sequence\"", () => {
     const document: SirenDocument = {
       kind: "sequence",
       title: null,
@@ -603,16 +635,19 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, model, diagnostics } = buildGraphModel(document);
+    const result = buildGraphModel(document);
 
-    expect(diagnostics).toEqual([]);
-    expect(graph).toBeNull();
-    expect(model).not.toBeNull();
-    expect(model!.participants.map((p) => p.id)).toEqual(["A", "B"]);
-    expect(model!.statements.filter((s) => s.kind === "message")).toHaveLength(1);
+    expect(result.diagnostics).toEqual([]);
+    // The tag is what says which sub-builder ran. It replaces the three
+    // `toBeNull()` checks the old four-nullable-field shape needed to say
+    // the same thing, and unlike them it cannot be true of two kinds at once.
+    expect(result.kind).toBe("sequence");
+    if (result.kind !== "sequence") throw new Error(`got a ${result.kind} result`);
+    expect(result.model.participants.map((p) => p.id)).toEqual(["A", "B"]);
+    expect(result.model.statements.filter((s) => s.kind === "message")).toHaveLength(1);
   });
 
-  it("dispatches a kind: \"flowchart\" document to buildFlowchartModel, leaving model null and populating graph", () => {
+  it("dispatches a kind: \"flowchart\" document to buildFlowchartModel, tagging the result \"flowchart\"", () => {
     const document: SirenDocument = {
       kind: "flowchart",
       interactions: [],
@@ -627,17 +662,17 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, model, diagnostics } = buildGraphModel(document);
+    const result = buildGraphModel(document);
 
-    expect(diagnostics).toEqual([]);
-    expect(model).toBeNull();
-    expect(graph).not.toBeNull();
-    expect(graph!.nodes).toEqual([
+    expect(result.diagnostics).toEqual([]);
+    expect(result.kind).toBe("flowchart");
+    if (result.kind !== "flowchart") throw new Error(`got a ${result.kind} result`);
+    expect(result.model.nodes).toEqual([
       { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
     ]);
   });
 
-  it("dispatches a kind: \"class\" document to buildClassModel, leaving graph and model null and populating classModel", () => {
+  it("dispatches a kind: \"class\" document to buildClassModel, tagging the result \"class\"", () => {
     const document: SirenDocument = {
       kind: "class",
       direction: "TB",
@@ -664,14 +699,13 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, model, classModel, diagnostics } = buildGraphModel(document);
+    const result = buildGraphModel(document);
 
-    expect(diagnostics).toEqual([]);
-    expect(graph).toBeNull();
-    expect(model).toBeNull();
-    expect(classModel).not.toBeNull();
-    expect(classModel!.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
-    expect(classModel!.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.kind).toBe("class");
+    if (result.kind !== "class") throw new Error(`got a ${result.kind} result`);
+    expect(result.model.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
+    expect(result.model.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
   });
 
   it("resolves a flowchart's `style` statements onto the nodes they name, leaving an unstyled node with no declarations", () => {
@@ -705,7 +739,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     const byId = Object.fromEntries(graph!.nodes.map((n) => [n.id, n]));
@@ -746,7 +780,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([
       {
@@ -787,7 +821,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([
       {
@@ -832,7 +866,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     // Three edges, so an off-by-one in either direction lands on a
@@ -875,7 +909,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([
       {
@@ -925,7 +959,7 @@ describe("buildGraphModel", () => {
 
     // The count is the actionable half: "9 is too high" is only useful next
     // to how high the author may go.
-    const two = buildGraphModel(documentWith(2));
+    const two = buildFlowchart(documentWith(2));
     expect(two.diagnostics).toEqual([
       {
         severity: "error",
@@ -937,7 +971,7 @@ describe("buildGraphModel", () => {
     ]);
     expect(two.graph!.edges.every((edge) => edge.style.frame.length === 0)).toBe(true);
 
-    const one = buildGraphModel(documentWith(1));
+    const one = buildFlowchart(documentWith(1));
     expect(one.diagnostics[0].message).toBe(
       "linkStyle index 9 addresses no edge in a document with 1 edge; dropping the declaration.",
     );
@@ -971,7 +1005,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     // Including the `#2` repeat, which has no index of its own that an
@@ -1021,7 +1055,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     expect(graph!.edges.map((edge) => edge.style)).toEqual([
@@ -1074,7 +1108,7 @@ describe("buildGraphModel", () => {
     };
 
     const styled = (document: SirenDocument) => {
-      const { graph, diagnostics } = buildGraphModel(document);
+      const { graph, diagnostics } = buildFlowchart(document);
       expect(diagnostics).toEqual([]);
       return graph!.edges.map((edge) => [edge.id, edge.style.frame]);
     };
@@ -1131,7 +1165,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     // The specific statement said one thing about edge 0, so it takes one
@@ -1191,7 +1225,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph, diagnostics } = buildGraphModel(document);
+    const { graph, diagnostics } = buildFlowchart(document);
 
     expect(diagnostics).toEqual([]);
     // Neither statement is more specific than the other, so nothing here is
@@ -1234,7 +1268,7 @@ describe("buildGraphModel", () => {
       timeline: null,
     };
 
-    const { graph } = buildGraphModel(document);
+    const { graph } = buildFlowchart(document);
 
     // The index and `default` are both authored spellings, spent here. If
     // either survived as a field, layout and the renderer would have a
@@ -1296,7 +1330,7 @@ describe("an edge's arrow through the model", () => {
   });
 
   it("carries the line, both ends and the length onto the edge it gives an id", () => {
-    const { graph, diagnostics } = buildGraphModel(
+    const { graph, diagnostics } = buildFlowchart(
       documentWith([
         { from: "A", to: "B", line: "dotted", fromEnd: "arrow", toEnd: "circle", minLength: 3, label: null },
       ]),
@@ -1323,7 +1357,7 @@ describe("an edge's arrow through the model", () => {
     // parser that decided `A -->|yes| B` and `A -- yes --> B` say the same
     // thing, and this stage re-deciding it would be the second opinion the
     // rule above exists to prevent.
-    const { graph } = buildGraphModel(
+    const { graph } = buildFlowchart(
       documentWith([
         { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: "yes" },
         { from: "B", to: "A", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
@@ -1340,7 +1374,7 @@ describe("an edge's arrow through the model", () => {
     // The repeat-pair id (`A-B#2`) is assigned here, and it would be an easy
     // place to hand both edges one arrow — they are, after all, the same
     // pair. They are not the same edge.
-    const { graph } = buildGraphModel(
+    const { graph } = buildFlowchart(
       documentWith([
         { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
         { from: "A", to: "B", line: "thick", fromEnd: "none", toEnd: "cross", minLength: 2, label: null },
@@ -1388,7 +1422,7 @@ describe("a subgraph in the graph model", () => {
   });
 
   it("gives each one a generated id and puts its members' parentage on the nodes", () => {
-    const { graph, diagnostics } = buildGraphModel(
+    const { graph, diagnostics } = buildFlowchart(
       grouped([
         { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },
       ]),
@@ -1408,7 +1442,7 @@ describe("a subgraph in the graph model", () => {
   });
 
   it("numbers a nested subgraph in source order and points it at the one enclosing it", () => {
-    const { graph } = buildGraphModel(
+    const { graph } = buildFlowchart(
       grouped([
         {
           name: "Outer",
@@ -1445,7 +1479,7 @@ describe("a subgraph in the graph model", () => {
     // The trap the class diagram already paid for, one kind over: `A` is a
     // node *and* the word the author titled the block with. Two elements,
     // two ids, and the frame's cannot be spelled by any node.
-    const { graph, diagnostics } = buildGraphModel(
+    const { graph, diagnostics } = buildFlowchart(
       grouped([{ name: "A", label: "A", nodeIds: ["B"], subgraphs: [], direction: null }]),
     );
 
@@ -1464,7 +1498,7 @@ describe("a subgraph in the graph model", () => {
     const document = grouped([
       { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },
     ]) as FlowchartDocument;
-    const { graph, diagnostics } = buildGraphModel({
+    const { graph, diagnostics } = buildFlowchart({
       ...document,
       timeline: {
         entries: [{ kind: "enter", step: 1, targetId: "subgraph:1", effect: "fade" }],
@@ -1522,20 +1556,18 @@ describe("buildGraphModel — a state document", () => {
     ],
   };
 
-  it("resolves it through buildStateModel into `stateModel`, leaving the other three null", () => {
-    // `GraphModelResult`'s fourth nullable field: at most one is non-null,
-    // and which one says what kind of document was resolved. A caller must
-    // branch on the field it expects being non-null, never on the others
-    // being null.
-    const { graph, model, classModel, stateModel, diagnostics } = buildGraphModel(stateDocument);
+  it("resolves it through buildStateModel, tagging the result \"state\"", () => {
+    // `GraphModelResult` is tagged by the kind it resolved, so a caller
+    // narrows on the tag and is then holding a model — there is no "the
+    // other three are null, so mine must be populated" inference left to
+    // make, and no fifth field for the fifth diagram kind to add.
+    const result = buildGraphModel(stateDocument);
 
-    expect(diagnostics).toEqual([]);
-    expect(graph).toBeNull();
-    expect(model).toBeNull();
-    expect(classModel).toBeNull();
-    expect(stateModel).not.toBeNull();
-    expect(stateModel!.states.map((state) => state.id)).toEqual(["Idle", "Running"]);
-    expect(stateModel!.transitions.map((transition) => transition.id)).toEqual([
+    expect(result.diagnostics).toEqual([]);
+    expect(result.kind).toBe("state");
+    if (result.kind !== "state") throw new Error(`got a ${result.kind} result`);
+    expect(result.model.states.map((state) => state.id)).toEqual(["Idle", "Running"]);
+    expect(result.model.transitions.map((transition) => transition.id)).toEqual([
       "Idle-Running",
       "Running-Running",
     ]);

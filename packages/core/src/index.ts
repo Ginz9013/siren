@@ -270,12 +270,20 @@ export function render(
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
 
-  if (parseResult.document.kind === "state") {
-    if (graphResult.stateModel === null) {
-      return { svg: null, controller: null, diagnostics };
-    }
+  // The one failure check the four branches below used to make four times
+  // over, each on its own nullable field. `buildGraphModel` tags a document
+  // it could not resolve `"failed"` whatever kind it was, so asking once here
+  // leaves every branch past this line holding a model rather than a maybe.
+  if (graphResult.kind === "failed") {
+    return { svg: null, controller: null, diagnostics };
+  }
 
-    const stateModel = graphResult.stateModel;
+  // Dispatch on the *result's* tag rather than on the document's. They are
+  // the same word — `buildGraphModel` carries the document's kind out
+  // unchanged — but only the result's tag is what narrows `model` to the type
+  // this branch is about to lay out.
+  if (graphResult.kind === "state") {
+    const stateModel = graphResult.model;
     const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
     if (!stateLayout.placed) {
       diagnostics.push(stateLayout.diagnostic);
@@ -303,11 +311,7 @@ export function render(
     return { svg: stateSvg, controller: stateController, diagnostics };
   }
 
-  if (parseResult.document.kind === "class") {
-    if (graphResult.classModel === null) {
-      return { svg: null, controller: null, diagnostics };
-    }
-
+  if (graphResult.kind === "class") {
     // The third of the three layout stages that reach the shared core, held
     // to the same terms as the other two. **No document reaches this branch's
     // failure path today** — the construct that defeats the engine is a
@@ -318,7 +322,7 @@ export function render(
     // site bare would mean a future source of a missing coordinate escapes
     // `render()` as a thrown error here while the other two kinds report it,
     // and `Diagnostic`'s contract is that it is returned and never thrown.
-    const classModel = graphResult.classModel;
+    const classModel = graphResult.model;
     const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
     if (!classLayout.placed) {
       diagnostics.push(classLayout.diagnostic);
@@ -346,11 +350,7 @@ export function render(
     return { svg: classSvg, controller: classController, diagnostics };
   }
 
-  if (parseResult.document.kind === "sequence") {
-    if (graphResult.model === null) {
-      return { svg: null, controller: null, diagnostics };
-    }
-
+  if (graphResult.kind === "sequence") {
     // The fourth layout call site, and the last one to be held to these
     // terms. It reaches no shared layout core — a sequence diagram is placed
     // by columns and rows, not by the graph engine — so nothing upstream of
@@ -385,14 +385,14 @@ export function render(
     return { svg: sequenceSvg, controller: sequenceController, diagnostics };
   }
 
-  if (graphResult.graph === null) {
-    return { svg: null, controller: null, diagnostics };
-  }
-
-  // Bound to a local because the narrowing above does not survive into the
-  // closure below — a property's narrowing is discarded inside a function
-  // expression, and a `!` there would assert what the line above proved.
-  const graph = graphResult.graph;
+  // Bound to a local here, and in the three branches above, to give the model
+  // the name its own layout stage knows it by. The binding used to be
+  // load-bearing and no longer is: a *property* narrowing (`graphResult.graph
+  // !== null`) is discarded inside the function expression below, which is
+  // what forced a local rather than a `!`, but narrowing a `const` on its own
+  // discriminant survives into one — so `graphResult.model` would read
+  // correctly there too. One more hand-written step the tag took over.
+  const graph = graphResult.model;
   const flowchartLayout = attemptLayout(() => layoutGraph(graph, { measureText }));
   if (!flowchartLayout.placed) {
     diagnostics.push(flowchartLayout.diagnostic);
