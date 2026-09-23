@@ -34,22 +34,47 @@ import {
 export function buildStateModel(document: StateDocument): StateModelResult {
   const diagnostics: Diagnostic[] = [];
 
-  const pseudoIdsByLevel = pseudoStateIds(document);
+  const regionIdByLevel = regionIds(document);
+  const levelOf = (parentId: string | null, regionIndex: number | null): string | null =>
+    regionIndex === null ? parentId : (regionIdByLevel.get(levelKey(parentId, regionIndex)) ?? parentId);
+  const pseudoIdsByLevel = pseudoStateIds(document, regionIdByLevel, levelOf);
 
-  const states = document.states.map<ResolvedState>((state) =>
+  const regionsByComposite = new Map<string, ResolvedState[]>();
+  for (const region of document.regions) {
+    regionsByComposite.set(region.parentId, [
+      ...(regionsByComposite.get(region.parentId) ?? []),
+      {
+        id: regionIdByLevel.get(levelKey(region.parentId, region.index))!,
+        kind: "region",
+        // Never stereotyped, never described, never annotated: a region has
+        // no authored declaration for any of those statements to name.
+        stereotype: null,
+        descriptions: [],
+        parentId: region.parentId,
+        // The `direction` written inside this region — measured, the
+        // statement is the region's rather than the block's.
+        direction: region.direction,
+        note: null,
+      },
+    ]);
+  }
+
+  const states = document.states.flatMap<ResolvedState>((state) => [
     state.id !== null
       ? // Authored — a state or a composite — so `StateDecl.id` is the name
         // the author wrote, non-null by that contract, where only a
-        // pseudo-state arrives unnamed. Descriptions, membership and a
-        // composite's own direction pass through as written, and so does a
-        // note: they are authored, and there is nothing here to resolve
-        // about them.
+        // pseudo-state arrives unnamed. Descriptions and a composite's own
+        // direction pass through as written, and so does a note: they are
+        // authored, and there is nothing here to resolve about them.
+        // Membership is the one thing that can move: a state written inside
+        // a concurrent region belongs to that region, whose id was minted
+        // above.
         {
           id: state.id,
           kind: state.kind,
           stereotype: state.stereotype,
           descriptions: state.descriptions,
-          parentId: state.parentId,
+          parentId: levelOf(state.parentId, state.regionIndex),
           direction: state.direction,
           note: state.note,
         }
@@ -58,20 +83,28 @@ export function buildStateModel(document: StateDocument): StateModelResult {
         // direction, because only a composite has a block to write one in,
         // and no note, because `note right of [*]` is refused by name in
         // the parser. What it does carry is its level, which is what chooses
-        // its id.
+        // its id — and a region is a level of its own (measured: each
+        // divider comes back with a `_start` of its own).
         {
-          id: pseudoIdsByLevel.get(state.parentId)![state.kind as "start" | "end"],
+          id: pseudoIdsByLevel.get(levelOf(state.parentId, state.regionIndex))![
+            state.kind as "start" | "end"
+          ],
           kind: state.kind,
           // And no stereotype, ever: `[*]` is not an id, so no
           // `state ... <<choice>>` statement can name a pseudo-state.
           stereotype: null,
           descriptions: [],
-          parentId: state.parentId,
+          parentId: levelOf(state.parentId, state.regionIndex),
           direction: null,
           note: null,
         },
-  );
-  const transitions = assignTransitionIds(document, pseudoIdsByLevel);
+    // A composite's regions follow it immediately, so the list reads in the
+    // order the picture nests — frame, its regions, then what they hold.
+    // They are emitted here rather than appended, because nothing else in
+    // this file has to know where a synthesised frame belongs.
+    ...(state.id === null ? [] : (regionsByComposite.get(state.id) ?? [])),
+  ]);
+  const transitions = assignTransitionIds(document, pseudoIdsByLevel, levelOf);
 
   // Author styling, through the very call `buildClassModel` and
   // `buildFlowchartModel` make. Nothing here is this kind's: a `classDef` is
@@ -140,6 +173,47 @@ export function buildStateModel(document: StateDocument): StateModelResult {
 const ROOT_LEVEL = 1;
 
 /**
+ * The key a *level* is addressed by before it has an id: the block it sits
+ * in and, for a concurrent region, which region of that block.
+ *
+ * `\u0000` cannot occur in an authored `\w+` id, so the two halves can
+ * never be confused for one another.
+ */
+const levelKey = (parentId: string | null, regionIndex: number): string =>
+  `${parentId}\u0000${regionIndex}`;
+
+/**
+ * The id each concurrent region is drawn and addressed under, keyed by the
+ * (composite, index) pair the parser recorded it as.
+ *
+ * `region:1`, `region:2`, ... in the order `StateDocument.regions` lists
+ * them, through `generatedId` (ADR-0010) exactly as a pseudo-state's and a
+ * flowchart subgraph's are.
+ *
+ * **Minted here and emphatically not read off Mermaid.** Measured (11.17.2,
+ * `scripts/mermaid-probe.mjs`): Mermaid names the first divider in a block
+ * `divider-id-1` and every one after it something like
+ * `id-g8d8ncxe8va-1` — a **different string on every run**, because the id
+ * is built from a random component. Copying those would make
+ * `data-siren-id` unreproducible, so two renders of one document would
+ * disagree about what a `timeline:` entry names. Counting from the
+ * document's own order instead is reproducible by construction, and the
+ * colon `generatedId` puts in the id is what keeps `region:1` out of the
+ * `\w+` space every authored id lives in — so no `class` statement, no
+ * transition endpoint and no `timeline:` target can collide with one.
+ */
+function regionIds(document: StateDocument): Map<string, string> {
+  const byLevel = new Map<string, string>();
+  document.regions.forEach((region, index) => {
+    byLevel.set(
+      levelKey(region.parentId, region.index),
+      generatedId("region", index + 1),
+    );
+  });
+  return byLevel;
+}
+
+/**
  * The ids each level's two pseudo-states are drawn and addressed under, by
  * the composite that opens the level — `null` for the document's own.
  *
@@ -182,6 +256,8 @@ const ROOT_LEVEL = 1;
  */
 function pseudoStateIds(
   document: StateDocument,
+  regionIdByLevel: ReadonlyMap<string, string>,
+  levelOf: (parentId: string | null, regionIndex: number | null) => string | null,
 ): Map<string | null, Record<"start" | "end", string>> {
   const byLevel = new Map<string | null, Record<"start" | "end", string>>();
 
@@ -197,9 +273,26 @@ function pseudoStateIds(
   // keeps the `start:1` / `end:1` it has always had.
   openLevel(null);
   for (const state of document.states) {
-    if (state.kind === "composite") {
+    if (state.kind === "composite" && state.id !== null) {
       openLevel(state.id);
+      // A composite's own regions open right after it, so the numbering
+      // follows the page. **A divided composite's own level then holds no
+      // `[*]` at all** — every statement inside it belongs to one of the
+      // regions — and it keeps its number anyway, for the reason a level
+      // with no `[*]` in it always has: the numbers are handles, and a gap
+      // in them costs nothing while renumbering to close one would move an
+      // unrelated block's ids.
+      for (const region of document.regions) {
+        if (region.parentId === state.id) {
+          openLevel(regionIdByLevel.get(levelKey(region.parentId, region.index))!);
+        }
+      }
     }
+  }
+  // Defensive, and cheap: a level named by a member the loop above never
+  // reached still gets a pair rather than an undefined lookup downstream.
+  for (const state of document.states) {
+    openLevel(levelOf(state.parentId, state.regionIndex));
   }
 
   return byLevel;
@@ -223,13 +316,15 @@ function pseudoStateIds(
  * (ADR-0010), so no such id can also be `${from}-${to}` for two states the
  * author named.
  *
- * *Which* level's is decided by `StateTransition.parentId` — the block the
- * line was written in — and by nothing else, because that is the only thing
- * that tells one level's `[*]` from another's.
+ * *Which* level's is decided by `StateTransition.parentId` and
+ * `StateTransition.regionIndex` — the block, and the concurrent region of
+ * it, the line was written in — and by nothing else, because that is the
+ * only thing that tells one level's `[*]` from another's.
  */
 function assignTransitionIds(
   document: StateDocument,
   pseudoIdsByLevel: ReadonlyMap<string | null, Record<"start" | "end", string>>,
+  levelOf: (parentId: string | null, regionIndex: number | null) => string | null,
 ): ResolvedStateTransition[] {
   const seenPairCounts = new Map<string, number>();
 
@@ -237,7 +332,9 @@ function assignTransitionIds(
     // A `null` endpoint is `[*]`, and which pseudo-state it means is the
     // side it was written on: from-side start, to-side end. Measured —
     // they are two different pseudo-states, not one node used twice.
-    const pseudo = pseudoIdsByLevel.get(transition.parentId)!;
+    const pseudo = pseudoIdsByLevel.get(
+      levelOf(transition.parentId, transition.regionIndex),
+    )!;
     const from = transition.from ?? pseudo.start;
     const to = transition.to ?? pseudo.end;
 

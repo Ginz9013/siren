@@ -1001,6 +1001,11 @@ state Grouped {
 direction LR
 Held --> Beside
 }
+state Concurrent {
+Reading --> Parsing
+--
+Logging --> Flushed
+}
 `;
 
 describe("default theme coverage of the state renderer", () => {
@@ -1048,6 +1053,11 @@ describe("default theme coverage of the state renderer", () => {
       // which the first case already covers, and this asks the question of
       // the figure that does not.
       ['g.siren-state[data-siren-id="Split"]', ".siren-state-bar"],
+      // And a concurrent region, which is addressable under the generated
+      // id `buildStateModel` minted for it (`region:1`) and drawn with a
+      // sixth figure again — a dashed frame, `.siren-state-region`, which
+      // neither the box rule nor the composite rule reaches.
+      ['g.siren-state[data-siren-id="region:1"]', ".siren-state-region"],
       [".siren-transition", ".siren-transition-line"],
     ];
 

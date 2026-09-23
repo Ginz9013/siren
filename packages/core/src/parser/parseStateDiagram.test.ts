@@ -43,7 +43,7 @@ describe("parseStateDiagram", () => {
 
     expect(document.states.map((state) => state.id)).toEqual(["Idle", "Running"]);
     expect(document.transitions).toEqual([
-      { from: "Idle", to: "Running", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
+      { from: "Idle", to: "Running", label: null, parentId: null, regionIndex: null, sourceLine: 2, sourceColumn: 3 },
     ]);
   });
 
@@ -59,6 +59,7 @@ describe("parseStateDiagram", () => {
         to: "Running",
         label: "start the job",
         parentId: null,
+        regionIndex: null,
         sourceLine: 2,
         sourceColumn: 3,
       },
@@ -102,6 +103,7 @@ describe("parseStateDiagram", () => {
         to: "Running",
         label: "retry",
         parentId: null,
+        regionIndex: null,
         sourceLine: 2,
         sourceColumn: 3,
       },
@@ -173,13 +175,14 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Idle\n  Idle --> Running\n");
 
     expect(document.states).toEqual([
-      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
       {
         id: "Running",
         kind: "state",
         stereotype: null,
         descriptions: [],
         parentId: null,
+        regionIndex: null,
         direction: null,
         note: null,
         line: 3,
@@ -201,9 +204,9 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n");
 
     expect(document.states).toEqual([
-      { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
-      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
-      { id: null, kind: "end", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
+      { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
+      { id: null, kind: "end", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 3, column: 3 },
     ]);
     expect(document.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
       "null->Idle",
@@ -234,7 +237,7 @@ describe("parseStateDiagram", () => {
 
     expect(document.states.map((state) => state.kind)).toEqual(["start", "end"]);
     expect(document.transitions).toEqual([
-      { from: null, to: null, label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
+      { from: null, to: null, label: null, parentId: null, regionIndex: null, sourceLine: 2, sourceColumn: 3 },
     ]);
   });
 
@@ -253,6 +256,7 @@ describe("parseStateDiagram", () => {
         stereotype: null,
         descriptions: ["waits here"],
         parentId: null,
+        regionIndex: null,
         direction: null,
         note: null,
         line: 2,
@@ -284,6 +288,7 @@ describe("parseStateDiagram", () => {
         stereotype: null,
         descriptions: ["one", "two", "three"],
         parentId: null,
+        regionIndex: null,
         direction: null,
         note: null,
         line: 2,
@@ -328,6 +333,176 @@ describe("parseStateDiagram", () => {
       ["Inner1", "state", "Outer"],
       ["Inner2", "state", "Outer"],
     ]);
+  });
+
+  it("splits a composite's block into concurrent regions at each `--`", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): `state Active {
+    // A --> B  --  C --> D }` reports two `divider`-typed states
+    // `in="root/Active"` with `A`/`B` under the first and `C`/`D` under the
+    // second — so `--` opens a level, and everything written before the
+    // first one is already in a region rather than directly in the block.
+    //
+    // The parser names neither region: their ids are generated, and
+    // generated ids are `buildStateModel`'s to mint (ADR-0010), exactly as
+    // a pseudo-state's is. What it records is *which* region each statement
+    // was written in.
+    const document = documentOf(
+      "stateDiagram-v2\n  state Active {\n    A --> B\n    --\n    C --> D\n  }\n",
+    );
+
+    expect(document.regions).toEqual([
+      { parentId: "Active", index: 0, direction: null },
+      { parentId: "Active", index: 1, direction: null },
+    ]);
+    expect(
+      document.states.map((state) => [state.id, state.parentId, state.regionIndex]),
+    ).toEqual([
+      ["Active", null, null],
+      ["A", "Active", 0],
+      ["B", "Active", 0],
+      ["C", "Active", 1],
+      ["D", "Active", 1],
+    ]);
+    expect(
+      document.transitions.map((t) => [t.from, t.to, t.parentId, t.regionIndex]),
+    ).toEqual([
+      ["A", "B", "Active", 0],
+      ["C", "D", "Active", 1],
+    ]);
+  });
+
+  it("counts a `--` per token, so `----` opens two regions and leaves an empty one between", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): `--` is one
+    // lexer token, so a line of `----` reports *two* dividers and three
+    // regions with the middle one holding nothing — byte for byte the dump
+    // two consecutive `--` lines produce. `------` reports three dividers
+    // and four regions.
+    //
+    // An empty region is a region: it is in the list, and nothing collapses
+    // it away.
+    const inline = documentOf(
+      "stateDiagram-v2\n  state Active {\n    A --> B\n    ----\n    C --> D\n  }\n",
+    );
+    const stacked = documentOf(
+      "stateDiagram-v2\n  state Active {\n    A --> B\n    --\n    --\n    C --> D\n  }\n",
+    );
+
+    for (const [name, document] of [["----", inline], ["-- --", stacked]] as const) {
+      expect(document.regions, `for ${name}`).toEqual([
+        { parentId: "Active", index: 0, direction: null },
+        { parentId: "Active", index: 1, direction: null },
+        { parentId: "Active", index: 2, direction: null },
+      ]);
+      expect(
+        document.states.map((state) => [state.id, state.regionIndex]),
+        `for ${name}`,
+      ).toEqual([
+        ["Active", null],
+        ["A", 0],
+        ["B", 0],
+        ["C", 2],
+        ["D", 2],
+      ]);
+    }
+
+    expect(
+      documentOf(
+        "stateDiagram-v2\n  state Active {\n    A --> B\n    ------\n    C --> D\n  }\n",
+      ).regions.length,
+    ).toBe(4);
+  });
+
+  it("reads only a whole line of `--` pairs as a divider, and nothing else", () => {
+    // The pattern's reach, measured against mermaid 11.17.2 in both
+    // directions.
+    //
+    // **Under-reach is not the risk here; over-reach is.** An *odd* run of
+    // dashes is a lexical error in mermaid — both `-` and `---` come back
+    // "Unrecognized text" — so reading `---` as a divider would draw a
+    // picture for a document mermaid refuses. And `--` inside a label or a
+    // description produces no divider at all: `A --> B : go -- now` reports
+    // one plain relation.
+    const inALabel = documentOf(
+      "stateDiagram-v2\n  state Active {\n    A --> B : go -- now\n  }\n",
+    );
+    expect(inALabel.regions).toEqual([]);
+    expect(inALabel.transitions.map((t) => t.label)).toEqual(["go -- now"]);
+
+    const inADescription = documentOf(
+      "stateDiagram-v2\n  state Active {\n    A : waits -- then goes\n  }\n",
+    );
+    expect(inADescription.regions).toEqual([]);
+    expect(inADescription.states.map((state) => state.descriptions)).toEqual([
+      [],
+      ["waits -- then goes"],
+    ]);
+
+    for (const dashes of ["-", "---", "-----"]) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  state Active {\n    A --> B\n    ${dashes}\n  }\n`,
+      );
+      expect(document, `for "${dashes}"`).toBeNull();
+      expect(
+        diagnostics.map((d) => d.message),
+        `for "${dashes}"`,
+      ).toContain(`Unrecognized stateDiagram line: "${dashes}"`);
+    }
+  });
+
+  it("reads a `direction` inside a divided block onto the region it was written in", () => {
+    // The surprising half of this construct, and measured rather than
+    // reasoned (mermaid 11.17.2, rendering and reading the node transforms):
+    // `direction LR` above the `--` lays the **first** region's members out
+    // left-to-right (A and B at one y, 180 apart in x) and leaves the second
+    // region's stacked in a column; moving the same statement below the `--`
+    // swaps exactly which region turns. So the statement is the region's,
+    // not the block's — and a divided composite therefore has no direction
+    // of its own.
+    const above = documentOf(
+      "stateDiagram-v2\n  state Active {\n    direction LR\n    A --> B\n    --\n    C --> D\n  }\n",
+    );
+    expect(above.regions).toEqual([
+      { parentId: "Active", index: 0, direction: "LR" },
+      { parentId: "Active", index: 1, direction: null },
+    ]);
+
+    const below = documentOf(
+      "stateDiagram-v2\n  state Active {\n    A --> B\n    --\n    direction LR\n    C --> D\n  }\n",
+    );
+    expect(below.regions).toEqual([
+      { parentId: "Active", index: 0, direction: null },
+      { parentId: "Active", index: 1, direction: "LR" },
+    ]);
+
+    // Neither of them puts anything on the composite: measured, mermaid
+    // keeps the statement in the region's own doc, and the block around
+    // them lays its regions out along the document's direction.
+    for (const document of [above, below]) {
+      expect(document.states.map((state) => [state.id, state.direction])[0]).toEqual([
+        "Active",
+        null,
+      ]);
+      expect(document.direction).toBe("TB");
+    }
+  });
+
+  it("refuses a `--` written outside every composite block, the way Mermaid does", () => {
+    // Measured (mermaid 11.17.2): a `--` at the document's own level is a
+    // **parse error** — "Expecting 'SPACE', 'NL', ... got 'INVALID'" — so
+    // there is no picture here to be compatible with, and accepting the
+    // line would be Siren drawing something Mermaid will not. Refused by
+    // name rather than as an unrecognized line, since the author wrote a
+    // construct this parser knows: they put it in the wrong place.
+    const { document, diagnostics } = parseStateDiagram(
+      "stateDiagram-v2\n  A --> B\n  --\n  C --> D\n",
+    );
+
+    expect(document).toBeNull();
+    const refusal = diagnostics.find((d) => d.line === 3);
+    expect(refusal?.severity).toBe("error");
+    expect(refusal?.message).toBe(
+      'A "--" concurrency divider belongs inside a composite state\'s block, in "--"',
+    );
   });
 
   it("opens a composite with the quoted-description spelling, carrying that description onto the frame", () => {
@@ -546,7 +721,6 @@ describe("parseStateDiagram", () => {
       ["note right of [*] : the beginning", 'a note on a "[*]" pseudo-state'],
       ["note left of [*] : the beginning", 'a note on a "[*]" pseudo-state'],
       ["note right of Idle", 'a multi-line "note ... end note"'],
-      ["--", 'the "--" concurrency divider'],
     ];
 
     for (const [statement, named] of cases) {

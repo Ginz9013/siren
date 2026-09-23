@@ -908,8 +908,45 @@ const SILENTLY_WRONG = 0;
  * `A --> X` then `state X <<choice>>` draws a box in mermaid and draws a box
  * here. `silently-wrong` does not move: this row was a named refusal, never
  * a wrong picture.
+ *
+ * **1 → 0, and the state diagram's backlog is empty.**
+ * `st-concurrency-divider` is `supported`: `--` inside a composite now
+ * draws the concurrent regions mermaid draws (`01M368K24`). The only
+ * *structural* one of the six — the previous five added a field or a
+ * figure, this one changed what members are parented to. Measured:
+ * mermaid synthesises a `divider`-typed state **per region** and re-parents
+ * that region's members under it, so `n` dividers make `n + 1` levels, each
+ * with a `[*]` pair of its own; an empty region is a region; `--` is one
+ * lexer token, so `----` is two dividers while an odd run (`-`, `---`) is a
+ * lexical error; and a `--` outside every composite is a parse error, which
+ * Siren refuses by name.
+ *
+ * The trap this row carried, and the reason it was worth writing down: the
+ * ids mermaid gives those dividers are **not reproducible** — the second
+ * came back `id-wjxqkl6axch-1`, `id-g8d8ncxe8va-1` and `id-kql3sfhyxu-1` on
+ * three runs of one document. Copying them would have made `data-siren-id`
+ * different every render. Siren mints `region:1` through `generatedId`
+ * (ADR-0010) instead, which is the same on every run and, carrying a colon,
+ * cannot collide with an authored `\w+` id.
+ *
+ * **What was measured and deliberately not implemented**, neither covered
+ * by a row: a transition **crossing** two regions is legal in both, and
+ * mermaid answers it by flattening the block into one column with the
+ * region frames drawn empty, where Siren keeps each state in the region
+ * that first named it (the rule `StateDecl.parentId` already states) and
+ * routes the transition between the two frames — a different arrangement of
+ * the same two states and the same arrow, recorded rather than matched.
+ * And one divergence is **inherited rather than introduced**: under a
+ * document-level `LR`, mermaid lays an undirected nested frame's members
+ * out top-to-bottom while Siren follows the document — already filed as
+ * `01M36SJDN` for an undirected composite, and a region is exactly such a
+ * frame. Nothing here made it worse and nothing here fixes it; the fix
+ * lives in the shared layout core.
+ *
+ * `silently-wrong` does not move: this row was a named refusal, never a
+ * wrong picture.
  */
-const REJECTED = 1;
+const REJECTED = 0;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

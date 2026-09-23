@@ -6,6 +6,7 @@ import type {
   StateDecl,
   StateDocument,
   StateNotePosition,
+  StateRegion,
   StateStereotype,
   StateTransition,
   StyleDecl,
@@ -245,6 +246,27 @@ const STEREOTYPE_RE = /^state\s+(\w+)\s*<<(choice|fork|join)>>$/i;
 const COMPOSITE_CLOSE = "}";
 
 /**
+ * The concurrency divider: a line of **nothing but `--`, one or more times
+ * over**, which splits the composite block it sits in into concurrent
+ * regions.
+ *
+ * The repetition is not generosity, it is the lexer: measured (mermaid
+ * 11.17.2), `--` is one token and a line of `----` is therefore *two*
+ * dividers — it reports three regions with an empty one in the middle,
+ * exactly as two `--` lines on their own do, and `------` reports four. An
+ * **odd** run is not a longer divider but a lexical error: both `-` and
+ * `---` are rejected outright ("Unrecognized text"), which is why this is
+ * `(?:--)+` and not `-{2,}` — the latter, which the unimplemented table
+ * used while the construct was refused, would now read `---` as a divider
+ * where Mermaid reads it as nothing at all.
+ *
+ * Anchored on the whole trimmed line, so a `--` inside a label
+ * (`A --> B : go -- now`) or a description is untouched: measured, neither
+ * produces a divider.
+ */
+const DIVIDER_RE = /^(?:--)+$/;
+
+/**
  * `note right of Idle : waiting for work` — a note written onto one state,
  * on the side the author named.
  *
@@ -391,14 +413,6 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) 
     pattern: /^note\s+(?:left|right)\s+of\s+\w+\s*$/,
     name: () => 'a multi-line "note ... end note"',
   },
-  {
-    // Measured: synthesises `divider`-typed states and re-parents the
-    // members under them — and Mermaid's own ids for those dividers carry a
-    // random component (`id-g8d8ncxe8va-1`), so an implementation must mint
-    // its own through `generatedId` rather than copy Mermaid's.
-    pattern: /^-{2,}$/,
-    name: () => 'the "--" concurrency divider',
-  },
 ];
 
 /**
@@ -521,6 +535,33 @@ export function parseStateDiagram(source: string): ParseResult {
     [];
 
   /**
+   * How many `--` lines each composite's block has carried so far, by that
+   * composite's id — so the region a statement is written in is that count,
+   * and the number of regions the block ends up with is that count plus one.
+   *
+   * Keyed by the composite rather than held on the `openBlocks` entry so
+   * that a block reopened under the same name (`state Outer { }` written
+   * twice) goes on counting where it left off, the way every other thing a
+   * composite accumulates does.
+   */
+  const dividersByComposite = new Map<string, number>();
+
+  /**
+   * The `direction` statement written in each region, keyed by the region it
+   * was written in. Kept here rather than assigned to the composite as it is
+   * read, because whether that block *has* regions is not known until the
+   * whole block has been read: a `--` may come after the `direction`.
+   *
+   * Resolved once the document is complete — onto the region for a divided
+   * block, and onto the composite itself for an undivided one, whose whole
+   * block is its only region.
+   */
+  const directionByRegion = new Map<string, Direction>();
+
+  /** The key `directionByRegion` and the region list agree on. `\u0000` cannot occur in a `\w+` id. */
+  const regionKey = (parentId: string, index: number): string => `${parentId}\u0000${index}`;
+
+  /**
    * Reads the declaration list of a `classDef` statement, turning each
    * segment that is not a `property:value` pair into an error diagnostic on
    * that statement's line — the answer `parseClassDiagram` and
@@ -550,6 +591,22 @@ export function parseStateDiagram(source: string): ParseResult {
     openBlocks.length === 0 ? null : openBlocks[openBlocks.length - 1].state.id;
 
   /**
+   * Which region of that level a statement read right now belongs to: how
+   * many `--` lines the innermost open block has carried, and `null` at the
+   * document's own level, where a `--` is a parse error and there are no
+   * regions to be in.
+   *
+   * Recorded on every statement inside every block, and *unrecorded* at the
+   * end for the blocks that turned out to carry no `--` at all — see the
+   * pass below, and `StateDecl.regionIndex`, which is `null` for exactly
+   * those.
+   */
+  const currentRegionIndex = (): number | null => {
+    const parentId = currentParentId();
+    return parentId === null ? null : (dividersByComposite.get(parentId) ?? 0);
+  };
+
+  /**
    * Records a state the given statement named, and hands back its one
    * declaration. Only the first mention creates it, so a state named by ten
    * transitions is still one state, positioned where it was first written —
@@ -572,6 +629,10 @@ export function parseStateDiagram(source: string): ParseResult {
       // transition out of the frame rather than a membership statement.
       if (already.parentId === null && !openBlocks.some((block) => block.state.id === id)) {
         already.parentId = currentParentId();
+        // The region travels with the level: a state claimed by a block
+        // joins the region that claimed it, not the region-less document
+        // level it was first written at.
+        already.regionIndex = currentRegionIndex();
       }
       return already;
     }
@@ -584,6 +645,10 @@ export function parseStateDiagram(source: string): ParseResult {
       stereotype: null,
       descriptions: [],
       parentId: currentParentId(),
+      // Which concurrent region of that level. Provisional until the
+      // document is complete: a level that turns out to carry no `--` has
+      // no regions, and every member of it is reset to `null` below.
+      regionIndex: currentRegionIndex(),
       // Filled in below if this state turns out to be a composite whose
       // block writes a `direction` of its own.
       direction: null,
@@ -660,15 +725,22 @@ export function parseStateDiagram(source: string): ParseResult {
    * was written at, which is the innermost open block or the document
    * itself.
    */
-  const declaredPseudoKinds = new Map<string | null, Set<"start" | "end">>();
+  const declaredPseudoKinds = new Map<string, Set<"start" | "end">>();
   const declarePseudoState = (
     kind: "start" | "end",
     line: number,
     column: number,
   ): void => {
     const parentId = currentParentId();
-    const atThisLevel = declaredPseudoKinds.get(parentId) ?? new Set<"start" | "end">();
-    declaredPseudoKinds.set(parentId, atThisLevel);
+    const regionIndex = currentRegionIndex();
+    // Keyed by the **region** as well as the block, because a `--` makes
+    // one block several levels: measured (mermaid 11.17.2), a `[*]` in each
+    // of two regions comes back as two different starts,
+    // `divider-id-1_start` and the second divider's own.
+    const atThisLevel =
+      declaredPseudoKinds.get(`${parentId}\u0000${regionIndex}`) ??
+      new Set<"start" | "end">();
+    declaredPseudoKinds.set(`${parentId}\u0000${regionIndex}`, atThisLevel);
     if (atThisLevel.has(kind)) {
       return;
     }
@@ -688,6 +760,7 @@ export function parseStateDiagram(source: string): ParseResult {
       stereotype: null,
       descriptions: [],
       parentId,
+      regionIndex,
       direction: null,
       note: null,
       line,
@@ -793,6 +866,10 @@ export function parseStateDiagram(source: string): ParseResult {
         // says which start or end pseudo-state a `null` endpoint means, now
         // that there is one pair per level rather than one per document.
         parentId: currentParentId(),
+        // And which region of it, for the same reason: a `--` makes one
+        // block several levels, each with a `[*]` pair of its own
+        // (measured — each divider comes back with its own `_start`).
+        regionIndex: currentRegionIndex(),
         sourceLine: lineNumber,
         sourceColumn: column,
       });
@@ -824,6 +901,41 @@ export function parseStateDiagram(source: string): ParseResult {
 
     if (line === COMPOSITE_CLOSE && openBlocks.length > 0) {
       openBlocks.pop();
+      continue;
+    }
+
+    // The concurrency divider, read right after the two statements that open
+    // and close a block because it is the third statement about a block's
+    // own shape — and before every pattern that reads a *state*, none of
+    // which can match a line of dashes anyway.
+    //
+    // A `--` at the document's own level is **refused**, measured rather
+    // than chosen: mermaid 11.17.2 rejects such a document outright
+    // ("Expecting ... got 'INVALID'"), so there is no picture to be
+    // compatible with and accepting it would be Siren drawing something
+    // Mermaid will not.
+    const dividerMatch = DIVIDER_RE.exec(line);
+    if (dividerMatch !== null) {
+      const blockId = currentParentId();
+      if (blockId === null) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `A "--" concurrency divider belongs inside a composite state's ` +
+            `block, in "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
+      // One region per `--` token, not per line: `----` is two of them and
+      // opens two regions, leaving an empty one between (measured — see
+      // `DIVIDER_RE`).
+      dividersByComposite.set(
+        blockId,
+        (dividersByComposite.get(blockId) ?? 0) + line.length / 2,
+      );
       continue;
     }
 
@@ -869,7 +981,19 @@ export function parseStateDiagram(source: string): ParseResult {
     const statementDirection = matchClassDirection(line);
     if (statementDirection !== null) {
       if (openBlocks.length > 0) {
-        openBlocks[openBlocks.length - 1].state.direction = statementDirection;
+        // Onto the **region** it was written in, which for an undivided
+        // block is the whole block and lands on the composite below.
+        // Measured (mermaid 11.17.2): in a divided block the statement turns
+        // its own region and leaves the others alone — `direction LR` above
+        // the `--` lays region one out left-to-right and region two
+        // top-to-bottom, and moving it below the `--` swaps which one turns.
+        // Both `!`s are the same fact: a block is open, so there is a
+        // current level, and a composite is authored so its id is never
+        // `null`.
+        directionByRegion.set(
+          regionKey(currentParentId()!, currentRegionIndex()!),
+          statementDirection,
+        );
       } else if (documentDirection === null) {
         documentDirection = statementDirection;
       }
@@ -1014,6 +1138,57 @@ export function parseStateDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
+  /**
+   * The regions every divided block ended up with, and the two things that
+   * can only be settled once the whole document has been read.
+   *
+   * A block's `--` count is not known while it is being read, so every
+   * statement inside every block has recorded a region index and every
+   * `direction` statement has been filed under the region it sat in. Here
+   * the blocks that carried no `--` give both back: their members' indices
+   * return to `null`, and the `direction` filed under their one notional
+   * region lands on the composite itself, which is where an undivided
+   * block's direction has always lived.
+   *
+   * `n` dividers make `n + 1` regions, including any that hold nothing —
+   * measured: two `--` in a row report three dividers with the middle one
+   * empty, so an empty region is a region and not a line to be collapsed.
+   */
+  const dividers = (parentId: string | null): number =>
+    parentId === null ? 0 : (dividersByComposite.get(parentId) ?? 0);
+
+  const regions: StateRegion[] = [];
+  for (const state of states) {
+    // A composite is authored, so its id is never `null` — the narrowing is
+    // for the type, which allows one for the pseudo-states this skips.
+    if (state.kind !== "composite" || state.id === null) {
+      continue;
+    }
+    const compositeId = state.id;
+    const count = dividers(compositeId);
+    if (count === 0) {
+      state.direction = directionByRegion.get(regionKey(compositeId, 0)) ?? null;
+      continue;
+    }
+    for (let index = 0; index <= count; index++) {
+      regions.push({
+        parentId: compositeId,
+        index,
+        direction: directionByRegion.get(regionKey(compositeId, index)) ?? null,
+      });
+    }
+  }
+  for (const state of states) {
+    if (dividers(state.parentId) === 0) {
+      state.regionIndex = null;
+    }
+  }
+  for (const transition of transitions) {
+    if (dividers(transition.parentId) === 0) {
+      transition.regionIndex = null;
+    }
+  }
+
   const document: StateDocument = {
     kind: "state",
     // `TB` is Mermaid's own default for a document that names no direction,
@@ -1021,6 +1196,7 @@ export function parseStateDiagram(source: string): ParseResult {
     direction: documentDirection ?? "TB",
     states,
     transitions,
+    regions,
     styles,
     timeline,
   };

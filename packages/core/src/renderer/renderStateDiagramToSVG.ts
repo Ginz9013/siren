@@ -111,6 +111,10 @@ function buildState(state: PositionedState): SVGGElement {
     return buildComposite(state);
   }
 
+  if (state.kind === "region") {
+    return buildRegion(state);
+  }
+
   if (state.stereotype !== null) {
     return buildStereotypedState(state);
   }
@@ -281,6 +285,50 @@ function buildComposite(state: PositionedState): SVGGElement {
   // 11.17.2 records the note on the composite's own record, and the same
   // statement writes it.
   appendNote(g, state);
+
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-state">` for one concurrent region — the
+ * `<rect class="siren-state-region">` at the frame layout grew around that
+ * region's members, and nothing else.
+ *
+ * **Untitled, and that is measured rather than a simplification.** With
+ * `--markup` (mermaid 11.17.2) a divider's group comes back holding exactly
+ * one element, a `rect.divider`, with no label child anywhere in it — and
+ * mermaid's own stylesheet gives that rect `stroke-dasharray: 10,10`, so
+ * the figure is a *dashed frame* around the region rather than a single
+ * line between two of them. The dashes are the theme's
+ * (`.siren-state-region`), the figure is this.
+ *
+ * There is also nothing it *could* be titled with: a region's id is
+ * generated (`region:1`), so drawing it would put a string the author never
+ * wrote onto the picture — the reason a pseudo-state draws no label either.
+ *
+ * **Still a `siren-state` group wearing that generated id**, for the reason
+ * a composite's is: everything that addresses a state by id addresses this
+ * the same way, so the theme's highlight rules and a `timeline:` entry both
+ * reach it through the selector they already use. That the id is generated
+ * rather than authored changes nothing about the lookup — a pseudo-state's
+ * `start:1` is addressable on exactly these terms (ADR-0009: a target is an
+ * id, and this one has one because the renderer needed it anyway).
+ *
+ * No author style: a region carries none and can carry none, because a
+ * `class` statement names a `\w+` id and `region:1` has a colon in it.
+ */
+function buildRegion(state: PositionedState): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-state");
+  g.setAttribute("data-siren-id", state.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-state-region");
+  frame.setAttribute("x", String(state.x));
+  frame.setAttribute("y", String(state.y));
+  frame.setAttribute("width", String(state.width));
+  frame.setAttribute("height", String(state.height));
+  g.appendChild(frame);
 
   return g;
 }

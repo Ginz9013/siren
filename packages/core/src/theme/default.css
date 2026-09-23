@@ -732,6 +732,31 @@
 }
 
 /*
+ * A concurrent region — one of the frames a `--` divides a composite's
+ * block into. Unfilled and outlined for the same reason
+ * `.siren-composite-frame` is: it encloses state boxes drawn over it, and a
+ * fill here would hide whatever it overlaps.
+ *
+ * **Dashed, and that is the figure rather than a decoration of it.**
+ * Measured (mermaid 11.17.2): the region comes back as a
+ * `rect.divider`, and mermaid's own stylesheet gives that rect
+ * `stroke-dasharray: 10,10` — a dashed frame is what tells a reader these
+ * two blocks run at the same time instead of one after the other, which is
+ * the whole of what the construct says. The dash lengths are Siren's
+ * (ADR-0004 makes the numbers the theme's), the dashing is not.
+ *
+ * Square-cornered, unlike a composite's frame: this is a region boundary
+ * rather than a state's own rounded box, and mermaid draws no `rx` on it
+ * (its `rx: 5px` rule names `rect.outer`, which a divider is not).
+ */
+.siren-state-region {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  stroke-dasharray: 6 4;
+}
+
+/*
  * The two pseudo-states `[*]` spells, drawn the way UML draws them and
  * Mermaid confirms (measured, 11.17.2): a start is a filled disc, an end a
  * ring around a smaller filled one.
@@ -1113,9 +1138,17 @@
  * `highlight Split outline` is a step on which nothing happens. The
  * `<<choice>>` diamond needs no selector of its own — it wears
  * `.siren-state-frame`, which the first one already names.
+ *
+ * `.siren-state-region` is here on the composite's own terms: a concurrent
+ * region is drawn with a frame of its own again, and it is addressable —
+ * under the generated id `region:1`, the way a pseudo-state is addressable
+ * under `start:1` (ADR-0009 — a target is an id, and this one has one
+ * because the renderer needed it regardless). Without this selector
+ * `highlight region:1 outline` would be a step on which nothing happens.
  */
 .siren-state.siren-highlight-outline .siren-state-frame,
 .siren-state.siren-highlight-outline .siren-composite-frame,
+.siren-state.siren-highlight-outline .siren-state-region,
 .siren-state.siren-highlight-outline .siren-state-start,
 .siren-state.siren-highlight-outline .siren-state-bar,
 .siren-state.siren-highlight-outline .siren-state-end,

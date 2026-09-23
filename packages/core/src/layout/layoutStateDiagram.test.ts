@@ -757,6 +757,268 @@ describe("layoutStateDiagram", () => {
     expect(placed("Inner").rows[0].y + rowHalf).toBeLessThanOrEqual(placed("Deep").y);
   });
 
+  it("draws each concurrent region as a frame of its own, side by side inside the block", () => {
+    // `state Active { A --> B  --  C --> D }` after the model has minted the
+    // region ids. Two facts, both measured off mermaid 11.17.2 by rendering
+    // the document and reading the node transforms out of the SVG:
+    //
+    // - each region holds its own members and nothing else, inside the
+    //   block's frame;
+    // - the two regions sit **side by side** under the default `TB` — their
+    //   group transforms came back `translate(35, 37.5)` and
+    //   `translate(125, 37.5)`, one y and two x — while each region's own
+    //   members stack in a column (A at y 68, B at y 208).
+    //
+    // The second is what falls out of the graph rather than being arranged
+    // here: two clusters with no edge between them share a rank, and a rank
+    // runs across the flow.
+    const laid = layoutStateDiagram(
+      {
+        direction: "TB",
+        states: [
+          { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+        ],
+        transitions: [
+          { id: "A-B", from: "A", to: "B", label: null },
+          { id: "C-D", from: "C", to: "D", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    const encloses = (outer: { x: number; y: number; width: number; height: number }, inner: typeof outer) =>
+      inner.x > outer.x &&
+      inner.y > outer.y &&
+      inner.x + inner.width < outer.x + outer.width &&
+      inner.y + inner.height < outer.y + outer.height;
+
+    for (const [regionId, memberIds] of [
+      ["region:1", ["A", "B"]],
+      ["region:2", ["C", "D"]],
+    ] as const) {
+      expect(encloses(placed("Active"), placed(regionId)), `Active encloses ${regionId}`).toBe(true);
+      for (const memberId of memberIds) {
+        expect(encloses(placed(regionId), placed(memberId)), `${regionId} encloses ${memberId}`).toBe(true);
+      }
+    }
+
+    // And each region holds *only* its own: the other region's members lie
+    // outside it, which is the half an enclosure check on the right pairs
+    // alone would let through.
+    expect(encloses(placed("region:1"), placed("C")), "region:1 encloses C").toBe(false);
+    expect(encloses(placed("region:2"), placed("A")), "region:2 encloses A").toBe(false);
+
+    // Side by side, not stacked: the two frames overlap in y and are
+    // disjoint in x, which is what "concurrent" looks like under `TB`.
+    const [one, two] = [placed("region:1"), placed("region:2")];
+    const disjointInX =
+      one.x + one.width <= two.x || two.x + two.width <= one.x;
+    expect(disjointInX, "the two regions are side by side").toBe(true);
+    expect(one.y).toBe(two.y);
+
+    // A region draws no title: it has no name to draw, and mermaid's own
+    // divider group comes back with no label element in it at all.
+    expect(placed("region:1").rows).toEqual([]);
+    expect(placed("region:1").dividerY).toBeNull();
+  });
+
+  it("places every node of a region carrying a direction that holds a nested composite", () => {
+    // **The shape that produced `01M2WQV0`**: a cluster carrying a
+    // `rankdir` whose direct child is another cluster. The layout engine
+    // expands such a cluster exactly one level, leaving the nested frame
+    // unexpanded and everything inside it without coordinates — which used
+    // to be a whole board of NaN with no diagnostic and is now
+    // `UnplacedNodesError`.
+    //
+    // A concurrent region reaches that shape on ordinary input, because a
+    // region may both declare a `direction` of its own (measured — the
+    // statement belongs to the region it sits in) and hold a `state Inner {`
+    // block. The compensation in the shared core (`rankdirFor`) gives a
+    // cluster with a *directed ancestor* the graph's own rankdir, at any
+    // depth, so the nested frame is expanded too; this is what says that
+    // compensation reaches a region and that nothing here has to change it.
+    //
+    // Both directions of nesting, because they fail differently: a region
+    // that declares the direction and holds a frame, and a composite that
+    // declares one and holds the divided block.
+    const regionHoldingAFrame = () =>
+      layoutStateDiagram(
+        {
+          direction: "TB",
+          states: [
+            { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+            { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: "LR", note: null },
+            { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+            { id: "Inner", kind: "composite", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+            { id: "X", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+            { id: "Y", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
+            { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+            { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          ],
+          transitions: [
+            { id: "X-Y", from: "X", to: "Y", label: null },
+            { id: "C-D", from: "C", to: "D", label: null },
+          ],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      );
+
+    const compositeHoldingADividedBlock = () =>
+      layoutStateDiagram(
+        {
+          direction: "TB",
+          states: [
+            { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
+            { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+            { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+            { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+            { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+            { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+            { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+            { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          ],
+          transitions: [
+            { id: "A-B", from: "A", to: "B", label: null },
+            { id: "C-D", from: "C", to: "D", label: null },
+          ],
+          styles: [],
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        options,
+      );
+
+    for (const [name, run] of [
+      ["a region carrying the direction", regionHoldingAFrame],
+      ["a composite carrying it above the regions", compositeHoldingADividedBlock],
+    ] as const) {
+      expect(run, name).not.toThrow();
+      const laid = run();
+      // Not merely "it did not throw": every box has four finite numbers,
+      // which is what `UnplacedNodesError` is a guard against, and the
+      // canvas covers them.
+      for (const state of laid.states) {
+        for (const value of [state.x, state.y, state.width, state.height]) {
+          expect(Number.isFinite(value), `${name}: ${state.id}`).toBe(true);
+        }
+        expect(state.x, `${name}: ${state.id}`).toBeGreaterThanOrEqual(0);
+        expect(state.y, `${name}: ${state.id}`).toBeGreaterThanOrEqual(0);
+        expect(state.x + state.width, `${name}: ${state.id}`).toBeLessThanOrEqual(laid.width);
+        expect(state.y + state.height, `${name}: ${state.id}`).toBeLessThanOrEqual(laid.height);
+      }
+    }
+
+    // And the direction a region declares governs **its own** members and
+    // stops there — the rule `rankdirFor` already states for a cluster
+    // inside a directed one, and a prediction this test overturned on the
+    // way in: `Inner` names no direction of its own, so `X` and `Y` stack
+    // down the column even though the region holding `Inner` runs `LR`.
+    // That is the core's documented meaning and Mermaid's (a frame that
+    // says nothing takes the document's direction, not its parent's).
+    const nested = regionHoldingAFrame();
+    const inNested = (id: string) => nested.states.find((state) => state.id === id)!;
+    expect(inNested("X").x).toBe(inNested("Y").x);
+
+    // Said directly, on a region whose own members are ordinary states:
+    // `LR` puts them in a row, where the undirected region beside it keeps
+    // its column.
+    const laid = layoutStateDiagram(
+      {
+        direction: "TB",
+        states: [
+          { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: "LR", note: null },
+          { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+        ],
+        transitions: [
+          { id: "A-B", from: "A", to: "B", label: null },
+          { id: "C-D", from: "C", to: "D", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+    expect(placed("A").y, "the LR region lays its members out in a row").toBe(placed("B").y);
+    expect(placed("A").x).toBeLessThan(placed("B").x);
+    expect(placed("C").x, "the undirected region keeps its column").toBe(placed("D").x);
+    expect(placed("C").y).toBeLessThan(placed("D").y);
+  });
+
+  it("lays an undirected region out along the document's direction, inheriting 01M36SJDN", () => {
+    // **A divergence recorded, not introduced.** `01M36SJDN` says that
+    // under a document-level `LR` a composite naming no direction of its
+    // own lays out left-to-right here and top-to-bottom in mermaid, with no
+    // diagnostic. A concurrent region is exactly such an undirected nested
+    // frame, so it sits on top of that divergence and inherits it whole.
+    //
+    // Measured (mermaid 11.17.2, rendering `direction LR` above
+    // `state Active { A --> B -- C --> D }` and reading the transforms): the
+    // region groups came back `translate(35, 37.5)` and
+    // `translate(125, 37.5)` and their members at y 68 and y 208 —
+    // **identical, coordinate for coordinate, to the same document with no
+    // `direction` at all.** Mermaid's document-level `LR` reaches neither
+    // the regions' arrangement nor their contents.
+    //
+    // Siren's shared core gives an undirected cluster the graph's own
+    // `rankdir` (see `rankdirFor`), so here `LR` reaches both. This pins
+    // that difference so it is a measured fact rather than a surprise, and
+    // so that a fix to `01M36SJDN` — which lives in the shared core and is
+    // not this construct's to make — turns up here as a red test rather
+    // than as silence.
+    const laid = layoutStateDiagram(
+      {
+        direction: "LR",
+        states: [
+          { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
+          { id: "region:1", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "region:2", kind: "region", stereotype: null, descriptions: [], parentId: "Active", direction: null, note: null },
+          { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "region:1", direction: null, note: null },
+          { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+          { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "region:2", direction: null, note: null },
+        ],
+        transitions: [
+          { id: "A-B", from: "A", to: "B", label: null },
+          { id: "C-D", from: "C", to: "D", label: null },
+        ],
+        styles: [],
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      options,
+    );
+    const placed = (id: string) => laid.states.find((state) => state.id === id)!;
+
+    // A region's members run along the document's `LR` here; mermaid keeps
+    // them in a column.
+    expect(placed("A").y, "Siren turns an undirected region with the document").toBe(
+      placed("B").y,
+    );
+    expect(placed("A").x).toBeLessThan(placed("B").x);
+
+    // And the regions themselves are stacked rather than side by side,
+    // because a rank runs across the flow and the flow is now horizontal —
+    // where mermaid keeps them side by side whatever the document says.
+    const [one, two] = [placed("region:1"), placed("region:2")];
+    expect(one.x, "the regions stack once the flow turns").toBe(two.x);
+    expect(one.y + one.height).toBeLessThanOrEqual(two.y);
+  });
+
   it("lands a transition naming a composite on that frame's own boundary", () => {
     // dagre throws on an edge whose endpoint is a cluster, so the shared
     // core proxies a member and clips the route back to the frame. The frame
