@@ -4,8 +4,10 @@ import { parseSiren } from "./parseSiren";
 import type {
   ClassDocument,
   Diagnostic,
+  ErDocument,
   FlowchartDocument,
   SequenceDocument,
+  SirenDocument,
 } from "../contracts";
 
 /**
@@ -25,6 +27,20 @@ function parseFlowchartOk(source: string): {
     );
   }
   return { document, diagnostics };
+}
+
+/**
+ * Narrows a dispatched document to the ER arm, so the tests below read its
+ * entities without a `document!` or a vacuous `not.toBeNull()` — the shape
+ * `buildFlowchart` in `buildGraphModel.test.ts` has one stage downstream.
+ */
+function erDocument(document: SirenDocument | null): ErDocument {
+  if (document === null || document.kind !== "er") {
+    throw new Error(
+      `expected an ER document, got ${document === null ? "null" : document.kind}`,
+    );
+  }
+  return document;
 }
 
 describe("parseSiren", () => {
@@ -950,6 +966,29 @@ timeline:
       expect(document, header).not.toBeNull();
       expect(document!.kind, header).toBe("state");
     }
+  });
+
+  it('dispatches an erDiagram document to parseErDiagram, tagged kind: "er"', () => {
+    const { document, diagnostics } = parseSiren("erDiagram\n  CUSTOMER\n  ORDER\n");
+
+    expect(diagnostics).toEqual([]);
+    expect(erDocument(document).entities.map((entity) => entity.name)).toEqual([
+      "CUSTOMER",
+      "ORDER",
+    ]);
+  });
+
+  it("strips %% comments from an erDiagram before the kind's parser sees them", () => {
+    // The dispatcher owns comment stripping for the whole language, so a
+    // fifth kind gets it without a line of its own — and this is what says
+    // so rather than assuming it. A `%%` reaching `parseErDiagram` would be
+    // outside the entity alphabet and cost the document.
+    const { document, diagnostics } = parseSiren(
+      "%% the shop's records\nerDiagram\n  CUSTOMER %% the one who pays\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(erDocument(document).entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
   });
 
   it("ignores whole-line, indented and trailing %% comments in a flowchart", () => {
@@ -2458,7 +2497,7 @@ describe("the header spellings the dispatcher teaches", () => {
     '"flowchart TB", "flowchart BT", "flowchart LR", "flowchart RL",' +
     ' "graph TB", "graph BT", "graph LR", "graph RL",' +
     ' "sequenceDiagram", "classDiagram", "classDiagram-v2",' +
-    ' "stateDiagram", or "stateDiagram-v2"';
+    ' "stateDiagram", "stateDiagram-v2", or "erDiagram"';
 
   it("names both `classDiagram-v2` and `stateDiagram-v2` among them when it rejects a header", () => {
     // `parseClassDiagram` has always accepted `classDiagram-v2`, and the
@@ -2490,7 +2529,12 @@ describe("the header spellings the dispatcher teaches", () => {
     const named = rejected.slice(0, rejected.indexOf(', found "'));
     const spellings = [...named.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
-    expect(spellings).toHaveLength(13);
+    // Fourteen since the ER diagram joined, and it contributes exactly one:
+    // measured, `erDiagram` has no `-v2` alias to collapse the way the class
+    // and state rows above it do — the prefix detector fires on
+    // `erDiagram-v2` but the lexer's keyword token stops at the `\b`, so that
+    // spelling is the header plus an **entity named `-v2`**.
+    expect(spellings).toHaveLength(14);
     for (const spelling of spellings) {
       // Only the header is under test: a document that is nothing but one
       // has other things wrong with it (an empty `sequenceDiagram` has no

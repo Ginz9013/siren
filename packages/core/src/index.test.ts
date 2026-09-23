@@ -6850,3 +6850,104 @@ describe("render() — a measurer whose answer is not two finite numbers", () =>
     }
   }
 });
+
+describe("render() — an ER diagram, end to end", () => {
+  /** Renders `source` into a fresh attached container and hands back the result. */
+  const renderEr = (source: string) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    return { container, result: render(source, container) };
+  };
+
+  it("mounts one box per standalone entity, each carrying its id and its name", () => {
+    // The whole of this ticket, read off the picture. Measured (mermaid
+    // 11.17.2): `erDiagram / CUSTOMER / ORDER` reports two entities and no
+    // relationships, and draws a box apiece — an entity nothing points at is
+    // legal ER, not an empty diagram.
+    const { container, result } = renderEr("erDiagram\n  CUSTOMER\n  ORDER\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+
+    const svg = result.svg!;
+    const groups = Array.from(svg.querySelectorAll("g.siren-er-entity"));
+    expect(groups.map((g) => g.getAttribute("data-siren-id"))).toEqual([
+      "CUSTOMER",
+      "ORDER",
+    ]);
+    expect(
+      groups.map((g) => g.querySelector("text.siren-er-entity-label")!.textContent),
+    ).toEqual(["CUSTOMER", "ORDER"]);
+    // A box apiece, and each name inside the box that names it — a label
+    // drawn anywhere in the picture would pass a text-only check.
+    for (const group of groups) {
+      const frame = group.querySelector("rect.siren-er-entity-frame")!;
+      const label = group.querySelector("text.siren-er-entity-label")!;
+      const [x, y, width, height] = ["x", "y", "width", "height"].map((name) =>
+        Number(frame.getAttribute(name)),
+      );
+      expect(Number(label.getAttribute("x"))).toBeGreaterThan(x);
+      expect(Number(label.getAttribute("x"))).toBeLessThan(x + width);
+      expect(Number(label.getAttribute("y"))).toBeGreaterThan(y);
+      expect(Number(label.getAttribute("y"))).toBeLessThan(y + height);
+    }
+  });
+
+  it("draws a hyphenated entity name, which a flowchart id still cannot carry", () => {
+    // `LINE-ITEM` is ordinary ER (measured: one entity) and is the reason
+    // this kind reads its own name alphabet rather than borrowing `\w+`.
+    const { result } = renderEr("erDiagram\n  LINE-ITEM\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      result.svg!.querySelector('g.siren-er-entity[data-siren-id="LINE-ITEM"] text')!
+        .textContent,
+    ).toBe("LINE-ITEM");
+  });
+
+  it("returns a working controller for an ER diagram, as every other kind does", () => {
+    // `SirenRenderResult.controller` is null *only* when rendering failed, so
+    // a kind that returned none would break that promise for its callers.
+    const { result } = renderEr("erDiagram\n  CUSTOMER\n");
+
+    expect(result.controller).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+  });
+
+  it("draws a header-only document as an empty picture, with nothing said", () => {
+    // Measured: `erDiagram` alone is not an error in Mermaid — it reports
+    // the diagram type with an empty entity table. Refusing it would cost a
+    // document Mermaid renders.
+    const { result } = renderEr("erDiagram\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(result.svg!.querySelectorAll("g.siren-er-entity")).toHaveLength(0);
+  });
+
+  it("refuses each unimplemented construct by name, and draws nothing", () => {
+    // CONTEXT.md's opening policy, end to end: an author reaching for one of
+    // the four constructs this ticket left out is told *which* is missing,
+    // rather than that their document is malformed — and gets no picture,
+    // rather than a partial one with the construct drawn away.
+    const cases: [string, string][] = [
+      ["CUSTOMER ||--o{ ORDER : places", "a relationship between two entities"],
+      ["CUSTOMER {\n    string name\n  }", "an entity's attribute block"],
+      ['CUSTOMER["Customer Account"]', "an entity alias"],
+      ["direction LR", 'a document-level "direction" statement'],
+    ];
+
+    for (const [line, name] of cases) {
+      const { result } = renderEr(`erDiagram\n  ${line}\n`);
+
+      expect(result.svg, line).toBeNull();
+      expect(
+        result.diagnostics.map((d) => `${d.severity}: ${d.message}`),
+        line,
+      ).toEqual([
+        `error: Unimplemented erDiagram construct: ${name}, in "${line.split("\n")[0].trim()}"`,
+      ]);
+    }
+  });
+});

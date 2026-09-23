@@ -266,7 +266,8 @@
 .siren-namespace,
 .siren-note,
 .siren-state,
-.siren-transition {
+.siren-transition,
+.siren-er-entity {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -1110,6 +1111,41 @@
 }
 
 /*
+ * ER diagram, per the frozen SVG conventions in renderErDiagramToSVG.ts.
+ * The same bargain the class and state blocks above strike: the flowchart's
+ * color tokens are reused rather than extended with ER-specific ones (an
+ * entity *is* a node), and each is named at the point of use rather than
+ * aliased into a new `--siren-*` in `:root`, which would freeze its light
+ * value above the demos' `<body>`-scoped dark override.
+ */
+
+/*
+ * An entity's box. Rounded by the token rather than by an inline `rx`,
+ * exactly as a flowchart rectangle and a state box are: measured with
+ * `--markup`, mermaid 11.17.2 draws an entity as a plain
+ * `rect.basic.label-container` with no `rx` of its own, so the corner radius
+ * here is decoration of the box rather than the figure — and decoration is
+ * the theme's, where a consumer can redeclare it (ADR-0008).
+ */
+.siren-er-entity-frame {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+/*
+ * The entity's name. Weighted like a class name and a state's title row,
+ * for the reason both are: this text *titles* its box rather than being
+ * something the box holds. Attributes land under it in a later ticket and
+ * are what will need the lighter weight beside it.
+ */
+.siren-er-entity-label {
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
  * The state diagram's own `outline` rules, for the reason the class
  * diagram's exist one block up: the highlight class lands on a
  * `<g class="siren-state">` whose stroke lives on an inner
@@ -1139,6 +1175,13 @@
  * `<<choice>>` diamond needs no selector of its own — it wears
  * `.siren-state-frame`, which the first one already names.
  *
+ * `.siren-er-entity-frame` is named here on the same terms as the box in the
+ * first selector: an ER entity is addressable by id in the rendered SVG
+ * (ADR-0009), so it is that kind's timeline target the moment it reads a
+ * `timeline:` block, and every selector above names another kind's classes.
+ * Without this, `highlight CUSTOMER outline` would be a step on which nothing
+ * visibly happens.
+ *
  * `.siren-state-region` is here on the composite's own terms: a concurrent
  * region is drawn with a frame of its own again, and it is addressable —
  * under the generated id `region:1`, the way a pseudo-state is addressable
@@ -1146,6 +1189,7 @@
  * because the renderer needed it regardless). Without this selector
  * `highlight region:1 outline` would be a step on which nothing happens.
  */
+.siren-er-entity.siren-highlight-outline .siren-er-entity-frame,
 .siren-state.siren-highlight-outline .siren-state-frame,
 .siren-state.siren-highlight-outline .siren-composite-frame,
 .siren-state.siren-highlight-outline .siren-state-region,
