@@ -929,6 +929,11 @@ const STATE_FIGURES: readonly [selector: string, figure: string][] = [
   ["polygon.siren-state-frame", "diamond"],
   ["rect.siren-state-bar", "bar"],
   ["rect.siren-composite-frame", "frame"],
+  // A concurrent region's own frame: untitled and dashed where a
+  // composite's is titled and solid, so it is a figure of its own rather
+  // than a second spelling of `frame`, and a row that could not tell them
+  // apart would pass on a region drawn as the block it divides.
+  ["rect.siren-state-region", "region"],
   ["circle.siren-state-start", "disc"],
   ["circle.siren-state-end", "ring"],
   ["circle.siren-state-end-inner", "dot"],
@@ -3932,15 +3937,104 @@ line2\`"]`,
         --
         Logging --> Flushed
       }`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`--` inside a composite splits it into concurrent regions. Measured: " +
-      "Mermaid synthesises `divider`-typed states and re-parents each " +
-      "region's members under one of them (`in=\"root/Active/divider-id-1\"`), " +
-      "and **their ids carry a random component** — the second divider came " +
-      "back as `id-g8d8ncxe8va-1`, a different string on every run. So an " +
-      "implementation must mint its own ids through `generatedId` (ADR-0010) " +
-      "and must not copy Mermaid's, which are not reproducible.",
+      "Mermaid synthesises a `divider`-typed state **per region** and " +
+      "re-parents that region's members under it " +
+      "(`in=\"root/Active/divider-id-1\"`), so `n` dividers make `n + 1` " +
+      "levels and everything above the first `--` is already in one. An " +
+      "empty region is a region (`--` twice in a row reports three dividers " +
+      "with the middle one holding nothing), `--` is one lexer token so " +
+      "`----` is two dividers, and an odd run of dashes (`-`, `---`) is a " +
+      "lexical error rather than a longer divider. A `--` at the document's " +
+      "own level is a parse error, and Siren refuses it by name. " +
+      "**Their ids carry a random component** — the second divider came " +
+      "back as `id-g8d8ncxe8va-1`, a different string on every run — so " +
+      "Siren mints its own through `generatedId` (`region:1`, ADR-0010) and " +
+      "copies none of Mermaid's; the same document renders to the same ids " +
+      "every time here, which is the one thing Mermaid cannot do. Measured " +
+      "again by rendering: mermaid draws each region as a `rect.divider` " +
+      "inside a cluster with no label in it at all, dashed by its own " +
+      "stylesheet (`stroke-dasharray: 10,10`), and lays the regions **side " +
+      "by side** under `TB` — the two region groups came back " +
+      "`translate(35, 37.5)` and `translate(125, 37.5)`, one y and two x — " +
+      "while each region's own members stack in a column. Siren gets that " +
+      "arrangement from the graph rather than by arranging it: two clusters " +
+      "with no edge between them share a rank. Two measured gaps left " +
+      "open, neither covered by a row: a `direction` statement belongs to " +
+      "the **region** it sits in rather than to the block (implemented, " +
+      "`StateRegion.direction`), while under a document-level `LR` mermaid " +
+      "still lays an undirected region's members out top-to-bottom where " +
+      "Siren follows the document — the divergence already filed as " +
+      "`01M36SJDN` for an undirected composite, inherited here unchanged " +
+      "rather than introduced; and a transition **crossing** two regions is " +
+      "legal in both, but mermaid flattens the block when it sees one " +
+      "(every node came back in a single column, the region frames drawn " +
+      "empty around nothing) where Siren keeps each state in the region " +
+      "that first named it and routes the transition between the two " +
+      "frames.",
+    assert: (result) => {
+      // The structure: a frame holding two region frames, each holding its
+      // own pair — read as figures so a region drawn as the block it
+      // divides, or not drawn at all, names itself on the spot.
+      expectSame("states and their figures", stateFigures(result), [
+        "start:1: disc",
+        "Active: frame",
+        "region:1: region",
+        "region:2: region",
+        "Reading: box",
+        "Parsing: box",
+        "Logging: box",
+        "Flushed: box",
+      ]);
+
+      // Membership, as geometry rather than as parentage: each region holds
+      // its own two states and neither of the other's.
+      expectSame(
+        "the block encloses both regions",
+        [
+          encloses(stateRect(result, "Active"), stateRect(result, "region:1")),
+          encloses(stateRect(result, "Active"), stateRect(result, "region:2")),
+        ],
+        [true, true],
+      );
+      expectSame(
+        "the first region holds its own pair and nothing else",
+        [
+          encloses(stateRect(result, "region:1"), stateRect(result, "Reading")),
+          encloses(stateRect(result, "region:1"), stateRect(result, "Parsing")),
+          encloses(stateRect(result, "region:1"), stateRect(result, "Logging")),
+          encloses(stateRect(result, "region:1"), stateRect(result, "Flushed")),
+        ],
+        [true, true, false, false],
+      );
+      expectSame(
+        "the second region holds its own pair and nothing else",
+        [
+          encloses(stateRect(result, "region:2"), stateRect(result, "Logging")),
+          encloses(stateRect(result, "region:2"), stateRect(result, "Flushed")),
+          encloses(stateRect(result, "region:2"), stateRect(result, "Reading")),
+          encloses(stateRect(result, "region:2"), stateRect(result, "Parsing")),
+        ],
+        [true, true, false, false],
+      );
+
+      // Side by side, which is what "concurrent" looks like under `TB` and
+      // what mermaid's own transforms measured.
+      const [one, two] = [stateRect(result, "region:1"), stateRect(result, "region:2")];
+      expectSame(
+        "the two regions are drawn side by side, not stacked",
+        one.right <= two.left || two.right <= one.left,
+        true,
+      );
+
+      // No text on either: a region's id is generated, so drawing it would
+      // put a string the author never wrote on the picture — and mermaid's
+      // own divider group holds no label element at all.
+      expectSame("a region draws no text", stateTexts(result, "region:1"), []);
+      expectSame("neither does the second", stateTexts(result, "region:2"), []);
+    },
   },
   {
     id: "st-author-style",

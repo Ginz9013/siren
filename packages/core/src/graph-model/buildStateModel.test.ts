@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Direction, StateDocument } from "../contracts";
+import { parseStateDiagram } from "../parser/parseStateDiagram";
 import { buildStateModel } from "./buildStateModel";
 
 /**
@@ -18,6 +19,7 @@ function document(
   return {
     kind: "state",
     direction,
+    regions: [],
     styles: [],
     timeline: null,
     states: ids.map((id) => ({
@@ -26,6 +28,7 @@ function document(
       stereotype: null,
       descriptions: [],
       parentId: null,
+      regionIndex: null,
       direction: null,
       note: null,
       line: 1,
@@ -36,6 +39,7 @@ function document(
       to,
       label: label ?? null,
       parentId: null,
+      regionIndex: null,
       sourceLine: index + 2,
       sourceColumn: 3,
     })),
@@ -166,6 +170,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       timeline: null,
       states: [
@@ -175,6 +180,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -186,6 +192,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: ["waiting for work", "nothing queued"],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -197,6 +204,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 3,
@@ -209,6 +217,7 @@ describe("buildStateModel", () => {
           to: "Idle",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 2,
           sourceColumn: 3,
         },
@@ -217,6 +226,7 @@ describe("buildStateModel", () => {
           to: "Busy",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 3,
           sourceColumn: 3,
         },
@@ -239,6 +249,7 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       timeline: null,
       states: [
@@ -248,6 +259,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -259,6 +271,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -270,6 +283,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 3,
@@ -282,6 +296,7 @@ describe("buildStateModel", () => {
           to: "Idle",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 2,
           sourceColumn: 3,
         },
@@ -290,6 +305,7 @@ describe("buildStateModel", () => {
           to: null,
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 3,
           sourceColumn: 3,
         },
@@ -316,6 +332,7 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       timeline: null,
       states: [
@@ -325,6 +342,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -336,6 +354,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -347,6 +366,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 3,
@@ -358,6 +378,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 4,
@@ -370,6 +391,7 @@ describe("buildStateModel", () => {
           to: "Idle",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 2,
           sourceColumn: 3,
         },
@@ -378,6 +400,7 @@ describe("buildStateModel", () => {
           to: "Busy",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 3,
           sourceColumn: 3,
         },
@@ -386,6 +409,7 @@ describe("buildStateModel", () => {
           to: null,
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 4,
           sourceColumn: 3,
         },
@@ -394,6 +418,7 @@ describe("buildStateModel", () => {
           to: null,
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 5,
           sourceColumn: 3,
         },
@@ -415,6 +440,7 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       timeline: null,
       states: [
@@ -424,6 +450,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -435,6 +462,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -446,6 +474,7 @@ describe("buildStateModel", () => {
           to: null,
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 2,
           sourceColumn: 3,
         }],
@@ -470,6 +499,7 @@ describe("buildStateModel", () => {
     const { model } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       timeline: null,
       states: [
@@ -479,6 +509,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -490,6 +521,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 2,
@@ -501,6 +533,7 @@ describe("buildStateModel", () => {
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: null,
           note: null,
           line: 3,
@@ -513,6 +546,7 @@ describe("buildStateModel", () => {
           to: "root_start",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 2,
           sourceColumn: 3,
         },
@@ -521,6 +555,7 @@ describe("buildStateModel", () => {
           to: "B",
           label: null,
           parentId: null,
+          regionIndex: null,
           sourceLine: 3,
           sourceColumn: 3,
         },
@@ -547,27 +582,29 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       timeline: null,
       states: [
-        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
         {
           id: "Outer",
           kind: "composite",
           stereotype: null,
           descriptions: [],
           parentId: null,
+          regionIndex: null,
           direction: "LR",
           note: null,
           line: 3,
           column: 3,
         },
-        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null, line: 5, column: 5 },
-        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null, line: 5, column: 5 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: "Outer", regionIndex: null, direction: null, note: null, line: 5, column: 5 },
+        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", regionIndex: null, direction: null, note: null, line: 5, column: 5 },
       ],
       transitions: [
-        { from: null, to: "Outer", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
-        { from: null, to: "Inner", label: null, parentId: "Outer", sourceLine: 5, sourceColumn: 5 },
+        { from: null, to: "Outer", label: null, parentId: null, regionIndex: null, sourceLine: 2, sourceColumn: 3 },
+        { from: null, to: "Inner", label: null, parentId: "Outer", regionIndex: null, sourceLine: 5, sourceColumn: 5 },
       ],
     });
 
@@ -583,6 +620,120 @@ describe("buildStateModel", () => {
     expect(model!.transitions.map((t) => t.id)).toEqual(["start:1-Outer", "start:2-Inner"]);
   });
 
+  it("mints an id for each concurrent region and re-parents that region's members under it", () => {
+    // `state Active { A --> B  --  C --> D }`, as the parser hands it over:
+    // two regions with no names, and each member carrying the pair
+    // (`parentId`, `regionIndex`) that says which one holds it.
+    //
+    // Naming them is this stage's, for the same reason a pseudo-state's
+    // name is (ADR-0010): an id the author never wrote is a generated id.
+    // **And it must be minted rather than copied.** Measured (mermaid
+    // 11.17.2): mermaid's own divider ids carry a random component — the
+    // second came back `id-g8d8ncxe8va-1`, a different string on every run
+    // — so they are not reproducible and nothing here may read them.
+    // `region:1` is, and the colon keeps it out of the `\w+` space every
+    // authored id lives in.
+    const { model, diagnostics } = buildStateModel({
+      kind: "state",
+      direction: "TB",
+      regions: [
+        { parentId: "Active", index: 0, direction: null },
+        { parentId: "Active", index: 1, direction: "LR" },
+      ],
+      styles: [],
+      timeline: null,
+      states: [
+        { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
+        { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 0, direction: null, note: null, line: 3, column: 5 },
+        { id: "B", kind: "state", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 0, direction: null, note: null, line: 3, column: 5 },
+        { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 1, direction: null, note: null, line: 5, column: 5 },
+        { id: "D", kind: "state", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 1, direction: null, note: null, line: 5, column: 5 },
+      ],
+      transitions: [
+        { from: "A", to: "B", label: null, parentId: "Active", regionIndex: 0, sourceLine: 3, sourceColumn: 5 },
+        { from: "C", to: "D", label: null, parentId: "Active", regionIndex: 1, sourceLine: 5, sourceColumn: 5 },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.states.map((state) => [state.id, state.kind, state.parentId])).toEqual([
+      ["Active", "composite", null],
+      // The regions sit beside their composite, between it and the members
+      // they hold, so the list reads in the order the picture nests.
+      ["region:1", "region", "Active"],
+      ["region:2", "region", "Active"],
+      ["A", "state", "region:1"],
+      ["B", "state", "region:1"],
+      ["C", "state", "region:2"],
+      ["D", "state", "region:2"],
+    ]);
+    // The `direction` statement written inside a region is that region's
+    // (measured), so it arrives on the region and not on the block.
+    expect(model!.states.map((state) => [state.id, state.direction])).toEqual([
+      ["Active", null],
+      ["region:1", null],
+      ["region:2", "LR"],
+      ["A", null],
+      ["B", null],
+      ["C", null],
+      ["D", null],
+    ]);
+  });
+
+  it("gives each concurrent region its own start and end, apart from the block's", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): a `[*]` written
+    // in each of two regions comes back as *two* starts, named after the
+    // divider that holds them — `divider-id-1_start` and the second
+    // divider's own — so a region is a level in the same sense a composite
+    // is, and not a decoration inside one.
+    //
+    // The level numbers follow the page: the document, the composite, then
+    // that composite's regions in order. The divided composite's own level
+    // (2) holds no `[*]` at all and keeps its number anyway — a gap in the
+    // numbering costs nothing, and closing it would move an unrelated
+    // block's ids.
+    const { model, diagnostics } = buildStateModel({
+      kind: "state",
+      direction: "TB",
+      regions: [
+        { parentId: "Active", index: 0, direction: null },
+        { parentId: "Active", index: 1, direction: null },
+      ],
+      styles: [],
+      timeline: null,
+      states: [
+        { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 0, direction: null, note: null, line: 3, column: 5 },
+        { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 0, direction: null, note: null, line: 3, column: 5 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 1, direction: null, note: null, line: 5, column: 5 },
+        { id: "C", kind: "state", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 1, direction: null, note: null, line: 5, column: 5 },
+        { id: null, kind: "end", stereotype: null, descriptions: [], parentId: "Active", regionIndex: 1, direction: null, note: null, line: 6, column: 5 },
+      ],
+      transitions: [
+        { from: null, to: "A", label: null, parentId: "Active", regionIndex: 0, sourceLine: 3, sourceColumn: 5 },
+        { from: null, to: "C", label: null, parentId: "Active", regionIndex: 1, sourceLine: 5, sourceColumn: 5 },
+        { from: "C", to: null, label: null, parentId: "Active", regionIndex: 1, sourceLine: 6, sourceColumn: 5 },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model!.states.map((state) => [state.id, state.parentId])).toEqual([
+      ["Active", null],
+      ["region:1", "Active"],
+      ["region:2", "Active"],
+      ["start:3", "region:1"],
+      ["A", "region:1"],
+      ["start:4", "region:2"],
+      ["C", "region:2"],
+      ["end:4", "region:2"],
+    ]);
+    expect(model!.transitions.map((t) => t.id)).toEqual([
+      "start:3-A",
+      "start:4-C",
+      "C-end:4",
+    ]);
+  });
+
   it("resolves a timeline naming all four addressable kinds — a state, a transition, a composite and a pseudo-state", () => {
     // States and transitions share one id space, exactly as a flowchart's
     // nodes and edges do, and a composite is a state — so `highlight Outer`
@@ -592,15 +743,16 @@ describe("buildStateModel", () => {
     const { model, diagnostics } = buildStateModel({
       kind: "state",
       direction: "TB",
+      regions: [],
       styles: [],
       states: [
-        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
-        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
-        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null, line: 4, column: 5 },
+        { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 2, column: 3 },
+        { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, regionIndex: null, direction: null, note: null, line: 3, column: 3 },
+        { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", regionIndex: null, direction: null, note: null, line: 4, column: 5 },
       ],
       transitions: [
-        { from: null, to: "Outer", label: null, parentId: null, sourceLine: 2, sourceColumn: 3 },
-        { from: "Outer", to: "Inner", label: null, parentId: null, sourceLine: 5, sourceColumn: 3 },
+        { from: null, to: "Outer", label: null, parentId: null, regionIndex: null, sourceLine: 2, sourceColumn: 3 },
+        { from: "Outer", to: "Inner", label: null, parentId: null, regionIndex: null, sourceLine: 5, sourceColumn: 3 },
       ],
       timeline: {
         entries: [
@@ -783,5 +935,98 @@ describe("buildStateModel", () => {
     expect(diagnostics[0].severity).toBe("warning");
     expect(diagnostics[0].message).toContain('transition "Idle-Busy"');
     expect(diagnostics[0].message).toContain('"Busy" exits at step 1');
+  });
+});
+
+/**
+ * The property this construct exists to have and Mermaid does not: the same
+ * document, read twice, names its concurrent regions the same way.
+ *
+ * Driven from source text through `parseStateDiagram` rather than from a
+ * hand-built document, because what has to be reproducible is the whole
+ * path from the author's line to the id — a region's index, its place in
+ * `StateDocument.regions`, and the counter `generatedId` runs off it.
+ */
+describe("buildStateModel, on the ids it mints for concurrent regions", () => {
+  const modelOf = (source: string) => {
+    const { document, diagnostics } = parseStateDiagram(source);
+    expect(diagnostics).toEqual([]);
+    const built = buildStateModel(document as StateDocument);
+    expect(built.diagnostics).toEqual([]);
+    return built.model!;
+  };
+
+  const SOURCE = `stateDiagram-v2
+  [*] --> Active
+  state Active {
+    [*] --> Reading
+    Reading --> Parsing
+    --
+    Logging --> Flushed
+  }
+  state Second {
+    P --> Q
+    --
+    R --> S
+  }
+`;
+
+  it("names them the same way on every run, which is what Mermaid cannot do", () => {
+    // **Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): mermaid's own
+    // divider ids are not reproducible.** The first in a block is
+    // `divider-id-1`, and every one after it is built from a random
+    // component — the second came back `id-wjxqkl6axch-1`,
+    // `id-g8d8ncxe8va-1`, `id-kql3sfhyxu-1` on three consecutive runs of the
+    // same document. An implementation that read those ids would give
+    // `data-siren-id` a different value every render, so a `timeline:` entry
+    // naming a region would work or not depending on the run.
+    //
+    // `generatedId` counts from the document's own order instead, so the
+    // answer is the same every time by construction — and the colon in
+    // `region:1` keeps it out of the `\w+` space every authored id lives in
+    // (ADR-0010), which is why no collision check is needed either.
+    const first = modelOf(SOURCE).states.map((state) => state.id);
+    const second = modelOf(SOURCE).states.map((state) => state.id);
+
+    expect(first).toEqual(second);
+    expect(first).toEqual([
+      "start:1",
+      "Active",
+      "region:1",
+      "region:2",
+      "start:3",
+      "Reading",
+      "Parsing",
+      "Logging",
+      "Flushed",
+      "Second",
+      "region:3",
+      "region:4",
+      "P",
+      "Q",
+      "R",
+      "S",
+    ]);
+
+    // The transitions too, since a transition's id is built from its
+    // endpoints and a region's `[*]` is one of them.
+    expect(modelOf(SOURCE).transitions.map((t) => t.id)).toEqual(
+      modelOf(SOURCE).transitions.map((t) => t.id),
+    );
+    expect(modelOf(SOURCE).transitions.map((t) => t.id)).toContain("start:3-Reading");
+  });
+
+  it("gives no region an id an author could have written", () => {
+    // Not a guarded collision but an unconstructible one: `region:1` has a
+    // colon in it, every authored state id is `\w+`, and `\w` does not
+    // match a colon — so no `class` statement, no transition endpoint and
+    // no `timeline:` target can name one by accident (ADR-0010). Asserted
+    // on the shape rather than on a list, so a future generated id is held
+    // to the same rule.
+    for (const state of modelOf(SOURCE).states) {
+      if (state.kind === "region") {
+        expect(state.id).toMatch(/^region:\d+$/);
+      }
+    }
   });
 });

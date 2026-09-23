@@ -1876,8 +1876,18 @@ export interface PositionedClassDiagram {
  * `StateDocument.kind` discriminates the whole diagram by; they are
  * different questions asked at different levels, and nothing reads one for
  * the other.
+ *
+ * `"region"` is the one value **no `StateDecl` ever carries**: a concurrent
+ * region has no authored spelling, so the parser cannot declare one and it
+ * appears first on `ResolvedState`, where `buildStateModel` mints it beside
+ * the composite it divides (`StateRegion`). It is a frame like a composite
+ * — a cluster holding its own members — and it is a separate value because
+ * the two are drawn differently: a composite is a titled, solid-outlined
+ * frame, a region an untitled dashed one (measured, mermaid 11.17.2: a
+ * divider's `rect.divider` takes `stroke-dasharray: 10,10` and carries no
+ * label element at all).
  */
-export type StateKind = "state" | "composite" | "start" | "end";
+export type StateKind = "state" | "composite" | "start" | "end" | "region";
 
 /**
  * The stereotype marker a state was declared with — `state Choice <<choice>>`
@@ -2044,6 +2054,23 @@ export interface StateDecl {
    */
   parentId: string | null;
   /**
+   * Which **concurrent region** of `parentId`'s block this state was written
+   * in, counting from `0` in written order — and `null` whenever its level
+   * has no `--` in it at all, which is every level in a document that never
+   * writes one.
+   *
+   * An index rather than an id because the region has no id yet: the parser
+   * reads authored spellings and a region's name is generated
+   * (`buildStateModel` mints `region:1`, ADR-0010), exactly as a
+   * pseudo-state's is. The pair (`parentId`, this) is what that stage
+   * re-parents by.
+   *
+   * Always `null` at the document's own level: measured (mermaid 11.17.2),
+   * a `--` outside every composite is a **parse error**, so there is no
+   * document in which the top level has regions.
+   */
+  regionIndex: number | null;
+  /**
    * This composite's own `direction LR` (or `TB`/`BT`/`RL`), written on a
    * line of its own inside its block — `null` when the author wrote none,
    * and always `null` on anything that is not a composite.
@@ -2051,6 +2078,11 @@ export interface StateDecl {
    * A per-level rank direction and not a cascading one, exactly as
    * `SirenSubgraph.direction` is: a nested composite that names none lays
    * out along the document's own direction rather than its parent's.
+   *
+   * Always `null` on a composite whose block carries a `--`: measured, the
+   * statement belongs to the **region** it was written in and not to the
+   * block around them (`StateRegion.direction`), so a divided composite has
+   * no direction of its own to carry.
    */
   direction: Direction | null;
   /**
@@ -2107,10 +2139,71 @@ export interface StateTransition {
    * id in the diagram's one global id space.
    */
   parentId: string | null;
+  /**
+   * Which concurrent region of `parentId`'s block this transition was
+   * written in, on exactly the terms `StateDecl.regionIndex` records — and
+   * carried for the same one reason `parentId` is: it is what says *which*
+   * level's start or end a `null` endpoint means, now that a `--` makes a
+   * block several levels rather than one.
+   */
+  regionIndex: number | null;
   /** 1-based line the transition was written on. */
   sourceLine: number;
   /** 1-based column the statement starts at. */
   sourceColumn: number;
+}
+
+/**
+ * One **concurrent region** of a composite state's block — the thing a `--`
+ * line divides that block into.
+ *
+ * ```
+ * state Active {
+ *   Reading --> Parsing
+ *   --
+ *   Logging --> Flushed
+ * }
+ * ```
+ *
+ * Measured (mermaid 11.17.2, `scripts/mermaid-probe.mjs`): Mermaid
+ * synthesises a `divider`-typed state **per region** and re-parents each
+ * region's members under it (`in="root/Active/divider-id-1"`), so a region
+ * is a level of its own and not a decoration of the block. `n` dividers
+ * make `n + 1` regions, the first of which holds everything written above
+ * the first `--`; an empty one is a region like any other (measured:
+ * `--` twice in a row reports three dividers, the middle one holding
+ * nothing).
+ *
+ * **A region has no authored name, and Mermaid's own name for it cannot be
+ * copied**: the second divider comes back as `id-g8d8ncxe8va-1`, a
+ * different string on every run. So the id is minted by `buildStateModel`
+ * through `generatedId` (`region:1`, ADR-0010), which is both reproducible
+ * and — carrying a colon, where every authored id is `\w+` — impossible for
+ * an author to collide with.
+ *
+ * Regions live in a list of their own on the document rather than among the
+ * states, for the reason `StateDecl.regionIndex` gives: at parse time they
+ * have no id for a `parentId` to name, so the pair (`parentId`, `index`) is
+ * the handle until one is minted.
+ */
+export interface StateRegion {
+  /** The composite state whose block this region is part of. Never `null`: a `--` at the document's own level is a parse error in Mermaid (measured). */
+  parentId: string;
+  /** Which region of that block this is, counting from `0` in written order. */
+  index: number;
+  /**
+   * The `direction` statement written **inside this region**, or `null`
+   * when it carries none.
+   *
+   * Measured, and the measurement is the surprising half of this construct:
+   * `direction` is scoped to the region it sits in, not to the block. In
+   * `state Active { A --> B  --  direction LR  C --> D }` mermaid lays the
+   * *second* region's members out left-to-right and leaves the first one
+   * top-to-bottom; moving the statement above the `--` swaps which region
+   * turns. So a divided composite's own `StateDecl.direction` is always
+   * `null` and this is where the statement lands.
+   */
+  direction: Direction | null;
 }
 
 /**
@@ -2153,6 +2246,17 @@ export interface StateDocument {
   direction: Direction;
   states: StateDecl[];
   transitions: StateTransition[];
+  /**
+   * Every concurrent region every composite's block was divided into, in
+   * written order — empty for a document that writes no `--`, which is the
+   * ordinary case and the one in which `StateDecl.regionIndex` is `null`
+   * everywhere.
+   *
+   * A list beside the states rather than entries among them, because a
+   * region has no id until `buildStateModel` mints one and `StateDecl.id`
+   * is where an id belongs.
+   */
+  regions: StateRegion[];
   /**
    * The `classDef` and `class` statements the author wrote, in written
    * order, as the same kind-agnostic `StyleDecl` a flowchart and a class
@@ -2198,6 +2302,13 @@ export interface StateDocument {
  * pseudo-states are *drawn* differently from a state — a titled frame, a
  * disc and a ring rather than a labelled box — and nothing but this field
  * says which.
+ *
+ * **This list holds states the parser never declared.** A `kind: "region"`
+ * entry is one concurrent region of a composite's block, synthesised here
+ * from `StateDocument.regions` and wearing a generated id of its own
+ * (`region:1`) — and the members written inside it arrive with their
+ * `parentId` pointing at it rather than at the block, which is the whole of
+ * what a `--` does to the model.
  *
  * **Flat, with a `parentId`, rather than the tree the parser read.** The
  * shape `ResolvedSubgraph` already takes and for the same reason: what
@@ -2376,10 +2487,11 @@ export interface PositionedStateNote {
 export interface PositionedState {
   id: string;
   /**
-   * Which figure the renderer draws here — a labelled box, or the filled
-   * disc and the ring the two pseudo-states are. Carried this far because
-   * layout has already sized the box differently for each and only this
-   * says which one was sized.
+   * Which figure the renderer draws here — a labelled box, the filled disc
+   * and the ring the two pseudo-states are, the titled frame a composite
+   * is, or the untitled dashed one a concurrent region is. Carried this far
+   * because layout has already sized the box differently for each and only
+   * this says which one was sized.
    */
   kind: StateKind;
   /**

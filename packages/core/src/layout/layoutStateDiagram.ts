@@ -91,6 +91,20 @@ const forkBarBox = (direction: Direction): { width: number; height: number } =>
  */
 const COMPOSITE_PADDING = 12;
 
+/**
+ * Whether this kind of state is drawn as a **frame** — a box grown around
+ * whatever names it as a parent — rather than as a figure of its own size.
+ *
+ * Two kinds are, for the same structural reason and with two different
+ * figures: a composite is the titled frame `state Outer {` opens, and a
+ * concurrent region is the untitled one a `--` divides that block into.
+ * Everything that grows, shifts, clips to or nests a frame asks this rather
+ * than naming `"composite"`, so a second frame kind could not be half
+ * added.
+ */
+const isFrame = (kind: ResolvedState["kind"]): boolean =>
+  kind === "composite" || kind === "region";
+
 /** Horizontal padding between a note box's edge and its text. */
 const NOTE_PADDING_X = 10;
 /** Vertical padding between a note box's edge and its text. */
@@ -168,7 +182,7 @@ export function layoutStateDiagram(
           // could sensibly be, and it is what a composite holding nothing is
           // drawn at, since the core lays a childless cluster out as an
           // ordinary box.
-          ...(state.kind === "composite" ? { isCluster: true } : {}),
+          ...(isFrame(state.kind) ? { isCluster: true } : {}),
           // Membership, and the only thing about a composite the shared core
           // is told. `undefined` rather than `null` at the document's own
           // level, because the core switches dagre's compound mode on by the
@@ -360,9 +374,13 @@ export function layoutStateDiagram(
  * that disagreement is the core's to settle.
  */
 function levelDirections(model: StateModel): (state: ResolvedState) => Direction {
-  const compositeDirections = new Map(
+  // Every frame, not only every composite: a concurrent region is a level
+  // too, and its own `direction` is the one a fork inside it is turned by.
+  // Measured — `direction` written inside a divided block belongs to the
+  // region it sits in and leaves the other regions top-to-bottom.
+  const frameDirections = new Map(
     model.states
-      .filter((state) => state.kind === "composite")
+      .filter((state) => isFrame(state.kind))
       .map((state) => [state.id, state.direction] as const),
   );
   return (state) =>
@@ -370,10 +388,10 @@ function levelDirections(model: StateModel): (state: ResolvedState) => Direction
       ? // The document's own level, whose direction is the document's — `TB`
         // when the author named none, resolved in the parser.
         model.direction
-      : // A composite's level, whose direction is that block's own statement.
-        // `??` covers both "the block named none" and — defensively — a
-        // parent no composite declares.
-        (compositeDirections.get(state.parentId) ?? "TB");
+      : // A frame's level, whose direction is that block's or region's own
+        // statement. `??` covers both "it named none" and — defensively —
+        // a parent no frame declares.
+        (frameDirections.get(state.parentId) ?? "TB");
 }
 
 /**
@@ -482,13 +500,15 @@ function compositeFrames(
     const cluster = boxById.get(id)!;
     const plan = planById.get(id)!;
     // The plan's height *is* the title strip: padding, the title rows, then
-    // padding again before whatever the frame holds starts.
+    // padding again before whatever the frame holds starts. A region has no
+    // title, so its plan is one padding and the clearance above its first
+    // member is the ordinary padding rather than a strip.
     const strip = plan.height;
 
     const held = (memberIdsByParent.get(id) ?? []).flatMap((memberId) => {
       const member = stateById.get(memberId)!;
       return [
-        member.kind === "composite" ? frameOf(memberId) : boxById.get(memberId)!,
+        isFrame(member.kind) ? frameOf(memberId) : boxById.get(memberId)!,
         // A member's **note** is held by this frame too: it was laid out at
         // the same level and is drawn inside the block, so a frame grown
         // from the state boxes alone leaves it hanging outside the figure
@@ -516,7 +536,7 @@ function compositeFrames(
   };
 
   for (const state of model.states) {
-    if (state.kind === "composite") {
+    if (isFrame(state.kind)) {
       frameOf(state.id);
     }
   }
@@ -560,6 +580,26 @@ function planStateBox(
   if (state.kind === "start" || state.kind === "end") {
     const size = PSEUDO_STATE_RADIUS * 2;
     return { width: size, height: size, rows: [], dividerY: null };
+  }
+
+  // A concurrent region is a frame with **no title**: measured (mermaid
+  // 11.17.2, `--markup`), a divider's group holds one `rect.divider` and no
+  // label element at all. Its id is generated (`region:1`), so drawing it
+  // would put a string the author never wrote on the picture — the same
+  // reason a pseudo-state draws none.
+  //
+  // So the plan is padding and nothing else. That number doubles as the
+  // clearance `compositeFrames` leaves above the first member, which for a
+  // region is the ordinary padding rather than a strip, and as the box a
+  // region holding nothing is drawn at — an empty region is a region
+  // (measured: two `--` in a row report three dividers, the middle empty).
+  if (state.kind === "region") {
+    return {
+      width: COMPOSITE_PADDING * 2,
+      height: COMPOSITE_PADDING,
+      rows: [],
+      dividerY: null,
+    };
   }
 
   const texts = state.descriptions.length === 0 ? [state.id] : state.descriptions;

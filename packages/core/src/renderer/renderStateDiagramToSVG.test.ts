@@ -859,3 +859,76 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     );
   });
 });
+
+describe("renderStateDiagramToSVG, on a concurrent region", () => {
+  it("draws it as an untitled frame wearing its generated id, and nothing else", () => {
+    // Measured with `--markup` (mermaid 11.17.2): a concurrent region comes
+    // back as a `g.statediagram-cluster` holding exactly one element — a
+    // `rect.divider` — with **no label** anywhere inside it, and mermaid's
+    // own stylesheet gives that rect `stroke-dasharray: 10,10`. So the
+    // figure is a dashed frame around the region's members, and there is
+    // nothing to write on it: the id is generated, so drawing it would put
+    // a string the author never wrote on the picture.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Active",
+          kind: "composite",
+          stereotype: null,
+          x: 5,
+          y: 10,
+          width: 300,
+          height: 200,
+          rows: [{ text: "Active", y: 30 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: null,
+        },
+        {
+          id: "region:1",
+          kind: "region",
+          stereotype: null,
+          x: 20,
+          y: 50,
+          width: 130,
+          height: 140,
+          rows: [],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: null,
+        },
+      ],
+      transitions: [],
+      timeline: { totalSteps: 0, entries: [] },
+      width: 320,
+      height: 220,
+    });
+
+    // A `siren-state` group like every other frame, so a `timeline:` entry
+    // and the theme's highlight rules reach it through the one selector
+    // they already use — wearing the id `buildStateModel` minted.
+    const group = svg.querySelector('g.siren-state[data-siren-id="region:1"]')!;
+    expect(group).not.toBeNull();
+
+    const frame = group.querySelector("rect.siren-state-region")!;
+    expect([
+      frame.getAttribute("x"),
+      frame.getAttribute("y"),
+      frame.getAttribute("width"),
+      frame.getAttribute("height"),
+    ]).toEqual(["20", "50", "130", "140"]);
+
+    // No title, and not the composite's figure either: a region is
+    // untitled, and `.siren-composite-frame` is the rounded, solid-outlined
+    // one the block around it takes.
+    expect(group.querySelector("text")).toBeNull();
+    expect(group.querySelector("rect.siren-composite-frame")).toBeNull();
+    expect(group.querySelector("rect.siren-state-frame")).toBeNull();
+
+    // And the composite beside it is untouched — the two frames are two
+    // figures, not one drawn twice.
+    const block = svg.querySelector('g.siren-state[data-siren-id="Active"]')!;
+    expect(block.querySelector("rect.siren-composite-frame")).not.toBeNull();
+    expect(block.querySelector("rect.siren-state-region")).toBeNull();
+  });
+});
