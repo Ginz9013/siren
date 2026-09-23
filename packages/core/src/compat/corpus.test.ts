@@ -876,8 +876,40 @@ const SILENTLY_WRONG = 0;
  * rather than costing a document that renders its picture.
  * `silently-wrong` does not move: this row was a named refusal, never a
  * wrong picture.
+ *
+ * **2 → 1, and this one was a change of figure rather than of structure.**
+ * `st-stereotype-choice` is `supported`: `state Choice <<choice>>`,
+ * `<<fork>>` and `<<join>>` now draw the diamond and the bar mermaid draws
+ * (`01M368J34`). The measurement that shaped it is that mermaid records this
+ * as a `type` field on the state's own record while the *same* field reads
+ * `"default"` on the start and end pseudo-states — so it is a second axis
+ * and not three more `StateKind` values, and a state can be both stereotyped
+ * and a composite (measured: `state X <<choice>>` then `state X { A --> B }`
+ * is one state, `type="choice"`, holding two members, drawn as the frame).
+ * The state keeps its authored id and its place in the relations, so the
+ * parser and the model gained one carried field each and the work was in
+ * layout and the renderer: a 28 × 28 diamond, a 70 × 10 bar turned to
+ * 10 × 70 where its **own level** runs `LR`, and no label on any of the
+ * three.
+ *
+ * **What was measured and deliberately not implemented**, because no row
+ * covers it, and each still refused by name rather than half-drawn:
+ * `[[fork]]`/`[[join]]`/`[[choice]]` is a **second authored spelling** of
+ * the same marker (measured: `state X [[fork]]` reports `type="fork"`);
+ * `<<end>>`, `<<start>>` and any other word are **accepted and ignored** by
+ * mermaid, the statement declaring nothing at all, where Siren refuses the
+ * line; and mermaid's own looseness about the id — `state Foo Bar
+ * <<choice>>` reports a state whose id is literally `Foo Bar`, and
+ * `state "desc" as X <<choice>>` one called `"desc" as X` beside a separate
+ * `X` — is not copied, since ids here are `\w+`. One measured behaviour
+ * *was* copied rather than diverged from, and it is the one worth flagging:
+ * a stereotype written **below** its state's first mention is inert
+ * (`addState` guards the field with `if (!state.type)`), so
+ * `A --> X` then `state X <<choice>>` draws a box in mermaid and draws a box
+ * here. `silently-wrong` does not move: this row was a named refusal, never
+ * a wrong picture.
  */
-const REJECTED = 2;
+const REJECTED = 1;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

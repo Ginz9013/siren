@@ -173,10 +173,11 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  Idle\n  Idle --> Running\n");
 
     expect(document.states).toEqual([
-      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
       {
         id: "Running",
         kind: "state",
+        stereotype: null,
         descriptions: [],
         parentId: null,
         direction: null,
@@ -200,9 +201,9 @@ describe("parseStateDiagram", () => {
     const document = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n");
 
     expect(document.states).toEqual([
-      { id: null, kind: "start", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
-      { id: "Idle", kind: "state", descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
-      { id: null, kind: "end", descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
+      { id: null, kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 2, column: 3 },
+      { id: null, kind: "end", stereotype: null, descriptions: [], parentId: null, direction: null, note: null, line: 3, column: 3 },
     ]);
     expect(document.transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
       "null->Idle",
@@ -249,6 +250,7 @@ describe("parseStateDiagram", () => {
       {
         id: "Lonely",
         kind: "state",
+        stereotype: null,
         descriptions: ["waits here"],
         parentId: null,
         direction: null,
@@ -279,6 +281,7 @@ describe("parseStateDiagram", () => {
       {
         id: "Both",
         kind: "state",
+        stereotype: null,
         descriptions: ["one", "two", "three"],
         parentId: null,
         direction: null,
@@ -535,9 +538,6 @@ describe("parseStateDiagram", () => {
     // generic "Unrecognized stateDiagram line" would tell the author their
     // document was malformed, which is a different and untrue claim.
     const cases: [string, string][] = [
-      ["state Choice <<choice>>", 'the "<<choice>>" stereotype'],
-      ["state Split <<fork>>", 'the "<<fork>>" stereotype'],
-      ["state Merge <<join>>", 'the "<<join>>" stereotype'],
       // The note construct itself is implemented now; these are the two of
       // its spellings that are not, each still valid Mermaid. Measured:
       // `note right of [*] : x` attaches the note to the level's *start*
@@ -563,6 +563,129 @@ describe("parseStateDiagram", () => {
       // shape every other diagnostic in this parser takes.
       expect(refusal!.message, `for "${statement}"`).toContain(`"${statement}"`);
       expect(refusal!.message, `for "${statement}"`).not.toContain("Unrecognized");
+    }
+  });
+
+  it("marks a state with the stereotype it was declared with, and leaves everything else about it alone", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs): a closed set of
+    // three, recorded as a `type` field on the state's own record —
+    // `id="Choice" type="choice"`. The state keeps the id the author wrote
+    // and its place in the relations, so this is a change of *figure* and
+    // not of structure.
+    const document = documentOf(
+      "stateDiagram-v2\n" +
+        "  state Choice <<choice>>\n" +
+        "  state Split <<fork>>\n" +
+        "  state Merge <<join>>\n" +
+        "  Choice --> Split\n" +
+        "  Split --> Merge\n",
+    );
+
+    expect(document.states.map((state) => [state.id, state.kind, state.stereotype])).toEqual([
+      ["Choice", "state", "choice"],
+      ["Split", "state", "fork"],
+      ["Merge", "state", "join"],
+    ]);
+    // Still an ordinary endpoint: the stereotype line declared the state, so
+    // the transitions name it rather than declaring a second one beside it.
+    expect(document.transitions.map((t) => [t.from, t.to])).toEqual([
+      ["Choice", "Split"],
+      ["Split", "Merge"],
+    ]);
+  });
+
+  it("reads the stereotype word case-insensitively, as Mermaid's own lexer rule does", () => {
+    // Measured (mermaid 11.17.2): `<<CHOICE>>`, `<<FORK>>` and `<<Join>>`
+    // each report the lowercase `type`, because the lexer rule is
+    // `/^(?:.*<<fork>>)/i`. Unlike a note's `position` — which Mermaid
+    // records verbatim and then compares exactly, drawing the wrong side —
+    // the casing changes nothing about what is recorded here, so there is no
+    // wrong picture to decline and refusing it would cost a document Mermaid
+    // draws.
+    for (const [written, expected] of [
+      ["<<CHOICE>>", "choice"],
+      ["<<Fork>>", "fork"],
+      ["<<jOiN>>", "join"],
+    ]) {
+      const document = documentOf(`stateDiagram-v2\n  state X ${written}\n`);
+      expect(
+        document.states.map((state) => state.stereotype),
+        `for "${written}"`,
+      ).toEqual([expected]);
+    }
+  });
+
+  it("leaves a stereotype written below its state's first mention inert, as Mermaid does", () => {
+    // Measured (mermaid 11.17.2): `A --> X` followed by
+    // `state X <<choice>>` reports `id="X" type="default"` — Mermaid's
+    // `addState` guards the field with `if (!state.type)`, and a state that
+    // already exists always has one. So the marker only takes on the line
+    // that *first names* the state.
+    //
+    // The opposite of the way a block upgrades a state to a composite, which
+    // Mermaid does do (`if (!state.doc)`), and the reason these two are not
+    // one rule.
+    const late = documentOf("stateDiagram-v2\n  A --> X\n  state X <<choice>>\n");
+    expect(late.states.map((state) => [state.id, state.stereotype])).toEqual([
+      ["A", null],
+      ["X", null],
+    ]);
+
+    // And, for the same reason, a second marker on one state cannot replace
+    // the first.
+    const twice = documentOf(
+      "stateDiagram-v2\n  state X <<choice>>\n  state X <<fork>>\n",
+    );
+    expect(twice.states.map((state) => [state.id, state.stereotype])).toEqual([
+      ["X", "choice"],
+    ]);
+  });
+
+  it("refuses the stereotype-shaped lines Mermaid does not read as one", () => {
+    // Over-reach guards on `STEREOTYPE_RE`, every row measured against
+    // mermaid 11.17.2 with scripts/mermaid-probe.mjs. The pattern this one
+    // replaced (the `UNIMPLEMENTED` entry) was `/<<\s*(choice|fork|join)\s*>>/`
+    // — unanchored at both ends and tolerant of inner spaces — and every row
+    // below is a line it would have claimed.
+    const refused = [
+      // Mermaid's rule spells the brackets literally, so spaces inside them
+      // are not a stereotype: measured, this declares *nothing* and `X` comes
+      // back `type="default"` from the transition alone.
+      "state X << choice >>",
+      // Measured: this *is* a stereotype in Mermaid, and it also declares a
+      // second, phantom state called `trailing` — the `.*<<choice>>` token
+      // takes the prefix as the id and the rest becomes an id of its own.
+      // Drawing a box nobody wrote is the silently-wrong answer; refusing is
+      // the honest one.
+      "state X <<choice>> trailing",
+      // Measured: Mermaid reports a state whose id is literally `Foo Bar` —
+      // a name no transition can reach. Ids are read in `\w+` here.
+      "state Foo Bar <<choice>>",
+      // Measured: the id comes back as `"desc" as X`, with a *separate* `X`
+      // beside it. Two states where the author wrote one.
+      'state "desc" as X <<choice>>',
+      // The second spelling Mermaid's lexer accepts — `[[fork]]`, measured to
+      // report `type="fork"`. No corpus row covers it, so it stays refused
+      // rather than quietly implemented.
+      "state X [[fork]]",
+      // Not one of the three. Measured: `<<end>>`, `<<start>>` and `<<foo>>`
+      // are each accepted and *ignored* by Mermaid — the statement declares
+      // nothing at all. No corpus row covers that, so it is not implemented
+      // here either.
+      "state X <<end>>",
+      "state X <<foo>>",
+    ];
+
+    for (const statement of refused) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  A --> X\n  ${statement}\n`,
+      );
+
+      expect(document, `for "${statement}"`).toBeNull();
+      const refusal = diagnostics.find((d) => d.line === 3);
+      expect(refusal, `for "${statement}"`).toBeDefined();
+      expect(refusal!.severity, `for "${statement}"`).toBe("error");
+      expect(refusal!.message, `for "${statement}"`).toContain(`"${statement}"`);
     }
   });
 

@@ -971,7 +971,11 @@ describe("default theme's design tokens", () => {
  * because a frame encloses boxes drawn over it and so must not be filled —
  * and a **note**, whose box, text and connector are drawn inside the state's
  * own group through the three classes a class diagram's note already uses,
- * so this is what says those rules reach a note drawn here too.
+ * so this is what says those rules reach a note drawn here too — and the
+ * three **stereotyped** states, whose diamond and bar are the two figures
+ * here with no text inside them to give the reader a clue when nothing
+ * paints them: an unpainted bar is not a faint slab, it is a gap in the
+ * picture, exactly as an unpainted disc is.
  *
  * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`
  * and `EVERY_CLASS_FEATURE` are: exhaustive *class* coverage is a different
@@ -987,6 +991,12 @@ Running --> [*]
 Running : working
 state "on the current job" as Running
 note right of Idle : waiting for work
+state Choice <<choice>>
+state Split <<fork>>
+state Merge <<join>>
+Idle --> Choice
+Choice --> Split
+Split --> Merge
 state Grouped {
 direction LR
 Held --> Beside
@@ -1030,6 +1040,14 @@ describe("default theme coverage of the state renderer", () => {
       // first case covers, so a rule written for the box misses it and
       // `highlight Grouped outline` is a step on which nothing happens.
       ['g.siren-state[data-siren-id="Grouped"]', ".siren-composite-frame"],
+      // A stereotyped state is a timeline target under the author's own
+      // name like any other, and its bar is a fifth figure again — solid,
+      // with no stroke of its own, so a rule written for the box leaves
+      // `highlight Split outline` doing nothing at all. The `<<choice>>`
+      // diamond needs no case beside it: it wears `.siren-state-frame`,
+      // which the first case already covers, and this asks the question of
+      // the figure that does not.
+      ['g.siren-state[data-siren-id="Split"]', ".siren-state-bar"],
       [".siren-transition", ".siren-transition-line"],
     ];
 
