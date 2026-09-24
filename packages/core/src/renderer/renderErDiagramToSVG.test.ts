@@ -17,8 +17,58 @@ const diagram = (
   ...bounds,
 });
 
-const CUSTOMER = { id: "CUSTOMER", label: "CUSTOMER", x: 10, y: 20, width: 92, height: 40 };
-const ORDER = { id: "ORDER", label: "ORDER", x: 10, y: 200, width: 92, height: 40 };
+const CUSTOMER = {
+  id: "CUSTOMER",
+  label: "CUSTOMER",
+  x: 10,
+  y: 20,
+  width: 92,
+  height: 40,
+  attributeTable: null,
+};
+const ORDER = {
+  id: "ORDER",
+  label: "ORDER",
+  x: 10,
+  y: 200,
+  width: 92,
+  height: 40,
+  attributeTable: null,
+};
+
+/**
+ * `CUSTOMER` with one attribute, `string c UK,PK`, and every coordinate
+ * written out rather than computed.
+ *
+ * The name row is the band from `y` (20) to `headerDividerY` (60); the one
+ * attribute row runs from there to the box's foot (140), so its cells sit
+ * on its centre line at 100. The three drawn columns start at 10, 70 and
+ * 130, and each cell's text starts half a padding in from its column's own
+ * left edge. Writing the numbers out is the point: these tests are about
+ * what the renderer does with the layout's geometry, and a fixture that
+ * recomputed it could not tell a misplaced cell from a correct one.
+ */
+const WITH_ATTRIBUTES = {
+  id: "CUSTOMER",
+  label: "CUSTOMER",
+  x: 10,
+  y: 20,
+  width: 180,
+  height: 120,
+  attributeTable: {
+    headerDividerY: 60,
+    columnDividerXs: [70, 130],
+    rows: [
+      {
+        cells: [
+          { column: "type" as const, text: "string", x: 17, y: 100 },
+          { column: "name" as const, text: "c", x: 77, y: 100 },
+          { column: "keys" as const, text: "UK,PK", x: 137, y: 100 },
+        ],
+      },
+    ],
+  },
+};
 
 /**
  * `CUSTOMER ||--o{ ORDER : places`, routed downward.
@@ -134,6 +184,75 @@ describe("renderErDiagramToSVG", () => {
     expect(x).toBeLessThan(CUSTOMER.x + CUSTOMER.width);
     expect(y).toBeGreaterThan(CUSTOMER.y);
     expect(y).toBeLessThan(CUSTOMER.y + CUSTOMER.height);
+  });
+
+  it("draws every attribute cell where the layout put it, and the rules between them", () => {
+    // Measured (mermaid 11.17.2, `--markup`): an entity with attributes is
+    // drawn as a table — the name on its own row, a full-width rule under
+    // it, one vertical rule at each internal column boundary, and the four
+    // fields left-aligned in their columns. Every coordinate here is the
+    // layout's, so this test is about *what the renderer does with them*:
+    // a cell drawn somewhere other than where it was placed reads perfectly
+    // well and points at the wrong column.
+    const svg = renderErDiagramToSVG(diagram([WITH_ATTRIBUTES]));
+
+    const cells = Array.from(svg.querySelectorAll("text.siren-er-attribute")).map(
+      (text) => [
+        text.getAttribute("class"),
+        text.textContent,
+        Number(text.getAttribute("x")),
+        Number(text.getAttribute("y")),
+      ],
+    );
+    expect(cells).toEqual([
+      ["siren-er-attribute siren-er-attribute-type", "string", 17, 100],
+      ["siren-er-attribute siren-er-attribute-name", "c", 77, 100],
+      ["siren-er-attribute siren-er-attribute-keys", "UK,PK", 137, 100],
+    ]);
+    // Left-aligned, not centred: a column of types reads as a column only
+    // if every cell starts at the same x, and `x` is the text's left edge.
+    for (const text of Array.from(svg.querySelectorAll("text.siren-er-attribute"))) {
+      expect(text.getAttribute("text-anchor")).toBe("start");
+    }
+
+    // Three rules: the full-width one under the name row, and one at each
+    // of the two internal column boundaries. The vertical ones start at the
+    // name row's foot rather than at the box's top — a rule drawn through
+    // the name row would cut the entity's own name in three.
+    const rules = Array.from(svg.querySelectorAll("line.siren-er-entity-divider")).map(
+      (line) =>
+        ["x1", "y1", "x2", "y2"].map((name) => Number(line.getAttribute(name))),
+    );
+    expect(rules).toEqual([
+      [10, 60, 190, 60],
+      [70, 60, 70, 140],
+      [130, 60, 130, 140],
+    ]);
+  });
+
+  it("centres the name in the name row when the box carries a table, not in the box", () => {
+    // The silent defect one figure over: a name centred in the *box* draws
+    // with no diagnostic anywhere and lands on top of the attribute rows.
+    // So the name is asked to sit above the rule, which is exactly the band
+    // Mermaid gives it (measured with `--markup`: `.label.name` is
+    // translated to the top of the shape, above every `.attribute-*` label).
+    const svg = renderErDiagramToSVG(diagram([WITH_ATTRIBUTES]));
+
+    const label = svg.querySelector("text.siren-er-entity-label");
+    expect(label?.textContent).toBe("CUSTOMER");
+    expect(Number(label?.getAttribute("y"))).toBeLessThan(
+      WITH_ATTRIBUTES.attributeTable.headerDividerY,
+    );
+    expect(Number(label?.getAttribute("y"))).toBeGreaterThan(WITH_ATTRIBUTES.y);
+
+    // An entity with no table keeps the centre of the whole box, which is
+    // the picture Mermaid draws for it.
+    const plain = renderErDiagramToSVG(diagram([CUSTOMER]));
+    expect(Number(plain.querySelector("text.siren-er-entity-label")?.getAttribute("y"))).toBe(
+      CUSTOMER.y + CUSTOMER.height / 2,
+    );
+    expect(plain.querySelectorAll("line.siren-er-entity-divider")).toHaveLength(0);
+    expect(plain.querySelectorAll("text.siren-er-attribute")).toHaveLength(0);
   });
 
   it("puts each entity's id on its group, so a timeline entry can name it", () => {

@@ -28,12 +28,24 @@ import type {
 export function buildErModel(document: ErDocument): ErModelResult {
   const byId = new Map<string, ResolvedErEntity>();
   for (const entity of document.entities) {
-    if (!byId.has(entity.name)) {
+    const existing = byId.get(entity.name);
+    if (existing === undefined) {
       // The name is both halves: it is what Mermaid's table is keyed on and
       // what it reports as the entity's `label`. They part company when an
       // alias lands — see `ResolvedErEntity`.
-      byId.set(entity.name, { id: entity.name, label: entity.name });
+      byId.set(entity.name, {
+        id: entity.name,
+        label: entity.name,
+        attributes: [...entity.attributes],
+      });
+      continue;
     }
+    // The **attributes** of a repeat do join the first mention, where its
+    // name does not. Measured: `E { string a }` followed by `E { string b }`
+    // reports one entity carrying both, in that order — so a second block is
+    // an addition to the table, not a replacement of it, and dropping either
+    // one would silently lose a row Mermaid draws.
+    existing.attributes.push(...entity.attributes);
   }
 
   return {

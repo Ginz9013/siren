@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ErDocument, ErRelationshipDecl } from "../contracts";
+import type { ErAttribute, ErDocument, ErRelationshipDecl } from "../contracts";
 import { buildErModel } from "./buildErModel";
 
 /** An `ErDocument` naming `names`, in the order given, and nothing else. */
 const documentOf = (...names: string[]): ErDocument => ({
   kind: "er",
-  entities: names.map((name) => ({ name })),
+  entities: names.map((name) => ({ name, attributes: [] })),
   relationships: [],
 });
 
@@ -36,8 +36,8 @@ const relates = (
 const documentRelating = (...relationships: ErRelationshipDecl[]): ErDocument => ({
   kind: "er",
   entities: relationships.flatMap((relationship) => [
-    { name: relationship.left },
-    { name: relationship.right },
+    { name: relationship.left, attributes: [] },
+    { name: relationship.right, attributes: [] },
   ]),
   relationships,
 });
@@ -55,8 +55,43 @@ describe("buildErModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.entities).toEqual([
-      { id: "CUSTOMER", label: "CUSTOMER" },
-      { id: "ORDER", label: "ORDER" },
+      { id: "CUSTOMER", label: "CUSTOMER", attributes: [] },
+      { id: "ORDER", label: "ORDER", attributes: [] },
+    ]);
+  });
+
+  it("carries an entity's attributes through, and concatenates a second block onto the first", () => {
+    // Measured (mermaid 11.17.2): an entity may open **several** blocks —
+    // `E { string a }` followed by `E { string b }` reports one entity
+    // carrying both attributes, in that order. The parser records a block on
+    // the mention that opened it, so joining them belongs here, beside the
+    // de-duplication of the name itself. Keeping only the first block's
+    // would silently drop attributes Mermaid draws; keeping only the last's
+    // would silently drop different ones.
+    const attribute = (name: string): ErAttribute => ({
+      type: "string",
+      name,
+      keys: [],
+      comment: "",
+    });
+    const { model, diagnostics } = buildErModel({
+      kind: "er",
+      entities: [
+        { name: "CUSTOMER", attributes: [attribute("a")] },
+        { name: "ORDER", attributes: [] },
+        { name: "CUSTOMER", attributes: [attribute("b")] },
+      ],
+      relationships: [],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.entities).toEqual([
+      {
+        id: "CUSTOMER",
+        label: "CUSTOMER",
+        attributes: [attribute("a"), attribute("b")],
+      },
+      { id: "ORDER", label: "ORDER", attributes: [] },
     ]);
   });
 
@@ -108,11 +143,11 @@ describe("buildErModel", () => {
     const { model } = buildErModel({
       kind: "er",
       entities: [
-        { name: "ZZZ" },
-        { name: "A" },
-        { name: "B" },
-        { name: "B" },
-        { name: "A" },
+        { name: "ZZZ", attributes: [] },
+        { name: "A", attributes: [] },
+        { name: "B", attributes: [] },
+        { name: "B", attributes: [] },
+        { name: "A", attributes: [] },
       ],
       relationships: [relates("A", "B", { label: "first" })],
     });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ErDocument } from "../contracts";
+import type { ErAttribute, ErDocument } from "../contracts";
 import { parseErDiagram } from "./parseErDiagram";
 
 /**
@@ -27,6 +27,22 @@ function documentOf(source: string): ErDocument {
 /** The names the parser read, in source order. */
 const namesOf = (source: string): string[] =>
   documentOf(source).entities.map((entity) => entity.name);
+
+/**
+ * The attributes the parser read under the **first** declaration of `name`,
+ * or a thrown explanation naming what it did read instead. Narrowed here so
+ * a test about an attribute block never reaches for `find(...)!`.
+ */
+function attributesOf(source: string, name: string): ErAttribute[] {
+  const entities = documentOf(source).entities;
+  const entity = entities.find((candidate) => candidate.name === name);
+  if (entity === undefined) {
+    throw new Error(
+      `no entity named "${name}"; the parser read ${entities.map((e) => e.name).join(", ")}`,
+    );
+  }
+  return entity.attributes;
+}
 
 describe("parseErDiagram", () => {
   it("reads a bare name on a line of its own as a standalone entity", () => {
@@ -276,16 +292,133 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     );
   });
 
-  it("names an attribute block once, rather than once per line inside it", () => {
-    // Measured: `CUSTOMER { string name / int age }` records the two
-    // attributes *under* the entity, which still enters the table as
-    // `CUSTOMER`. The block is therefore one construct, and reporting its
-    // body lines as malformed as well would make three claims where one is
-    // true — two of them untrue, since `string name` is perfectly good ER.
-    expect(
-      refusalsFor("erDiagram\n  CUSTOMER {\n    string name\n    int age\n  }\n  ORDER\n"),
-    ).toEqual([
-      'Unimplemented erDiagram construct: an entity\'s attribute block, in "CUSTOMER {"',
+  it("reads an attribute block as attributes under the entity that opened it", () => {
+    // Measured (mermaid 11.17.2, `scripts/mermaid-probe.mjs`): `CUSTOMER {
+    // string name / int age }` records the two attributes *under* an entity
+    // that still enters the table as `CUSTOMER` — the block is one
+    // construct, not a run of statements, and it declares the entity as
+    // surely as a bare name does. `ORDER` after the closing brace is an
+    // ordinary entity again, which is what says the block really closed.
+    const source = "erDiagram\n  CUSTOMER {\n    string name\n    int age\n  }\n  ORDER\n";
+
+    expect(refusalsFor(source)).toEqual([]);
+    expect(namesOf(source)).toEqual(["CUSTOMER", "ORDER"]);
+    expect(attributesOf(source, "CUSTOMER")).toEqual([
+      { type: "string", name: "name", keys: [], comment: "" },
+      { type: "int", name: "age", keys: [], comment: "" },
+    ]);
+    // And an entity that opened no block has none — measured, `attributes`
+    // comes back an empty collection for a bare name.
+    expect(attributesOf(source, "ORDER")).toEqual([]);
+  });
+
+  it("splits an attribute's keys on the comma, and keeps a comma inside a comment", () => {
+    // Measured (mermaid 11.17.2): `string c UK,PK "both"` reports
+    // `keys: ["UK", "PK"]` — two keys, because Mermaid's block lexer takes
+    // `\b(PK|FK|UK)\b` before its word rule, leaving the `,` to separate
+    // them. The same character two fields to the right is ordinary text:
+    // `"x, y"` is one comment with a comma in it.
+    //
+    // ⚠️ The split is **this construct's own**. One kind over, a state
+    // diagram's `class Busy alpha,beta` does *not* split — it yields a
+    // single literal class name `"alpha,beta"` — so neither behaviour may be
+    // carried across from the other.
+    const source =
+      'erDiagram\n  CUSTOMER {\n    string c UK,PK "both"\n    int age PK "the age"\n' +
+      '    string note "x, y"\n    string plain\n  }\n';
+
+    expect(attributesOf(source, "CUSTOMER")).toEqual([
+      { type: "string", name: "c", keys: ["UK", "PK"], comment: "both" },
+      { type: "int", name: "age", keys: ["PK"], comment: "the age" },
+      { type: "string", name: "note", keys: [], comment: "x, y" },
+      { type: "string", name: "plain", keys: [], comment: "" },
+    ]);
+
+    // Over-reach control, measured: `x,y` in the *name* position is one
+    // name and not two, because `x` is no key and the word rule — whose
+    // alphabet contains the comma — then takes the lot.
+    expect(attributesOf("erDiagram\n  E {\n    string x,y\n  }\n", "E")).toEqual([
+      { type: "string", name: "x,y", keys: [], comment: "" },
+    ]);
+  });
+
+  it("reads a type and a name in the alphabet Mermaid reads them in", () => {
+    // Measured, one probe per line: the in-block word rule is
+    // `[*A-Za-z_À-￿][A-Za-z0-9\-_\[\]().,À-￿*]*`, so
+    // parentheses and brackets are ordinary *inside* a word — `string(99)`
+    // and `int[]` are each one type — and so are `-`, `.`, `_`, `*` and
+    // anything above ASCII. This is a **third** alphabet in this one diagram
+    // kind: an entity name admits none of `()[]`, and a flowchart id admits
+    // no hyphen.
+    const source =
+      "erDiagram\n  E {\n    string(99) code\n    int[] xs\n    decimal(10,2) price\n" +
+      "    a-b c-d\n    a.b c.d\n    中文 名字\n    *x _y\n  }\n";
+
+    expect(attributesOf(source, "E")).toEqual([
+      { type: "string(99)", name: "code", keys: [], comment: "" },
+      { type: "int[]", name: "xs", keys: [], comment: "" },
+      { type: "decimal(10,2)", name: "price", keys: [], comment: "" },
+      { type: "a-b", name: "c-d", keys: [], comment: "" },
+      { type: "a.b", name: "c.d", keys: [], comment: "" },
+      { type: "中文", name: "名字", keys: [], comment: "" },
+      { type: "*x", name: "_y", keys: [], comment: "" },
+    ]);
+
+    // Several attributes on one line, because Mermaid's grammar is
+    // `attributes: attribute | attributes attribute` — measured, `string a
+    // int b` inside a block reports the same two attributes the two-line
+    // spelling does.
+    expect(attributesOf("erDiagram\n  E {\n    string a int b\n  }\n", "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "int", name: "b", keys: [], comment: "" },
+    ]);
+  });
+
+  it("refuses the attribute lines Mermaid refuses, rather than drawing half of one", () => {
+    // Each of these is a parse error in mermaid 11.17.2, measured one probe
+    // per line, and each is an over-reach this parser could easily commit:
+    //
+    // - `int 1st` — the word rule may not *begin* with a digit.
+    // - `string PK` and `PK x` — the key rule is read before the word rule,
+    //   so those two letters standing alone are never a type or a name.
+    // - `string UK.y` — the same, mid-line: `UK` is taken, and `.y` is left
+    //   where a name was wanted.
+    // - `string c UK,XX "both"` — the key list holds key kinds only; a
+    //   fourth word in that position is refused, not adopted as a key.
+    // - `string x PK UK` and `string x PK,` — keys are comma-separated,
+    //   and the comma may neither be omitted nor left dangling.
+    // - `string x "a" PK` — the comment is last; keys after it are refused.
+    // - `string x` alone on a line is fine, but `string` alone is not.
+    // - `list~int~ xs` and `` `odd` x `` — a generic type and a backticked
+    //   word are constructs Mermaid draws and this parser does not
+    //   implement, so they are refused whole rather than half-read.
+    for (const body of [
+      "int 1st",
+      "string PK",
+      "PK x",
+      "string UK.y",
+      'string c UK,XX "both"',
+      "string x PK UK",
+      "string x PK,",
+      'string x "a" PK',
+      "string",
+      "list~int~ xs",
+      "`odd` x",
+    ]) {
+      expect(refusalsFor(`erDiagram\n  E {\n    ${body}\n  }\n`), `for "${body}"`).toEqual([
+        `Unrecognized erDiagram attribute: "${body}"`,
+      ]);
+    }
+  });
+
+  it("refuses a block the author never closed, which Mermaid refuses too", () => {
+    // Measured: `E {` with `string a` under it and no `}` is a parse error
+    // in Mermaid — the block has to close. Read as if it had closed, Siren
+    // would draw a picture for a document Mermaid draws nothing for, which
+    // is the one direction the absolute compatibility condition does not
+    // permit.
+    expect(refusalsFor("erDiagram\n  E {\n    string a\n")).toEqual([
+      'Unclosed erDiagram attribute block: "E {"',
     ]);
   });
 

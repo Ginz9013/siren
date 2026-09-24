@@ -6937,9 +6937,12 @@ describe("render() — an ER diagram, end to end", () => {
     // Mermaid's fifth cardinality, `u` (`MD_PARENT`) — measured, it parses
     // and then renders with no marker at all on that end, so nothing in the
     // document says what it means.
+    //
+    // An entity's attribute block has left this list the same way, and for
+    // the same reason: `CUSTOMER { string name }` is drawn as a table now,
+    // so naming it here would be a refusal of a construct this kind reads.
     const cases: [string, string][] = [
       ["A u--o{ B : x", 'the "u" (MD_PARENT) relationship cardinality'],
-      ["CUSTOMER {\n    string name\n  }", "an entity's attribute block"],
       ['CUSTOMER["Customer Account"]', "an entity alias"],
       ["direction LR", 'a document-level "direction" statement'],
     ];

@@ -994,8 +994,27 @@ const SILENTLY_WRONG = 0;
  * has no row of its own, and it needs one. Writing it down would be case (2)
  * above and would raise this number back to 4, which is why it belongs to a
  * ticket of its own rather than to the one that lowered it.
+ *
+ * **3 → 2: `er-attributes` is drawn.** An entity's `{ ... }` block is read
+ * as `type name [keys] [comment]` and drawn as a table — the name on a row
+ * of its own, a rule under it, and left-aligned cells in the columns the
+ * entity actually uses. The row asserts the drawn SVG, row by row and cell
+ * by cell, and it carries both cases: an entity that writes keys and
+ * comments gets four columns, one that writes neither gets two.
+ * `silently-wrong` does not move — this was a named refusal, and what
+ * replaced it is a picture the row reads back.
+ *
+ * Three pieces of the block are **not** drawn and have no row here yet, all
+ * three of them valid Mermaid: a `~`-delimited generic type
+ * (`list~int~ xs`), a backticked word (`` `odd name` ``), and a block opened
+ * and closed on one line (`E { string a }`). Each is refused — the document
+ * costs, and no picture is drawn — but by the generic unrecognized-line
+ * message rather than by name, which is the state every unimplemented
+ * attribute detail was already in. Writing them down would be case (2)
+ * above and would raise this number again, so they belong to tickets of
+ * their own rather than to the one that lowered it.
  */
-const REJECTED = 3;
+const REJECTED = 2;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
