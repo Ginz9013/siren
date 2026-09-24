@@ -14,6 +14,8 @@ const diagram = (
   entities,
   relationships,
   timeline: { totalSteps: 0, entries: [] },
+  accTitle: null,
+  accDescr: null,
   ...bounds,
 });
 
@@ -425,5 +427,73 @@ describe("renderErDiagramToSVG", () => {
 
     expect(svg.querySelectorAll("g.siren-er-entity")).toHaveLength(0);
     expect(svg.getAttribute("viewBox")).toBe("0 0 0 0");
+  });
+
+  it("puts the accessible title in a <title> and the description in a <desc>, each wired to the root", () => {
+    // **Measured for this kind, not carried over from either of the two
+    // arrangements already in this repo.** Real mermaid 11.17.2 renders
+    //
+    //     erDiagram
+    //       accTitle: Order book
+    //       accDescr: how orders relate to customers
+    //       CUSTOMER ||--o{ ORDER : places
+    //
+    // with `<title id="chart-title-…">Order book</title>` and
+    // `<desc id="chart-desc-…">how orders relate to customers</desc>` as the
+    // root's first two children, and `aria-labelledby` / `aria-describedby`
+    // on the root naming those two ids — byte for byte the flowchart's
+    // arrangement.
+    const svg = renderErDiagramToSVG({
+      ...diagram([CUSTOMER]),
+      accTitle: "Order book",
+      accDescr: "how orders relate to customers",
+    });
+
+    const title = svg.querySelector("title");
+    const desc = svg.querySelector("desc");
+    expect(title?.textContent).toBe("Order book");
+    expect(desc?.textContent).toBe("how orders relate to customers");
+    // Wired, rather than merely present: a `<title>` no `aria-labelledby`
+    // points at is read by no screen reader, and the two assertions above
+    // cannot tell that case from this one.
+    expect(svg.getAttribute("aria-labelledby")).toBe(title?.getAttribute("id"));
+    expect(svg.getAttribute("aria-describedby")).toBe(desc?.getAttribute("id"));
+    expect(title?.getAttribute("id")).not.toBe(desc?.getAttribute("id"));
+
+    // ⚠️ **No `role`.** Measured: mermaid puts `role="graphics-document
+    // document"` on the ER root exactly as it does on a flowchart's, and
+    // unconditionally — nothing to do with `accTitle` — and Siren draws that
+    // attribute for no kind. `renderSequenceToSVG` writes `role="img"`,
+    // which is neither what Mermaid does nor what this kind was measured to
+    // need; it is an older unmeasured line and is deliberately not copied
+    // here.
+    expect(svg.getAttribute("role")).toBeNull();
+  });
+
+  it("draws neither element for a document that named neither", () => {
+    // `null` has to mean "draw nothing": an empty `<title>` would be read
+    // aloud as an unnamed figure, which is worse than no title at all.
+    const svg = renderErDiagramToSVG(diagram([CUSTOMER]));
+
+    expect(svg.querySelector("title")).toBeNull();
+    expect(svg.querySelector("desc")).toBeNull();
+    expect(svg.getAttribute("aria-labelledby")).toBeNull();
+    expect(svg.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("draws each of the two independently of the other", () => {
+    // Two statements, two stores, two aria attributes — so a document
+    // writing only one must get only that one. Asserted both ways round
+    // because the single most likely defect is one `if` guarding both,
+    // which passes every test that writes both.
+    const titleOnly = renderErDiagramToSVG({ ...diagram([CUSTOMER]), accTitle: "T" });
+    expect(titleOnly.querySelector("title")?.textContent).toBe("T");
+    expect(titleOnly.querySelector("desc")).toBeNull();
+    expect(titleOnly.getAttribute("aria-describedby")).toBeNull();
+
+    const descrOnly = renderErDiagramToSVG({ ...diagram([CUSTOMER]), accDescr: "D" });
+    expect(descrOnly.querySelector("desc")?.textContent).toBe("D");
+    expect(descrOnly.querySelector("title")).toBeNull();
+    expect(descrOnly.getAttribute("aria-labelledby")).toBeNull();
   });
 });

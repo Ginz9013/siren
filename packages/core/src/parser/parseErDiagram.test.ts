@@ -28,6 +28,9 @@ function documentOf(source: string): ErDocument {
 const namesOf = (source: string): string[] =>
   documentOf(source).entities.map((entity) => entity.name);
 
+/** The relationships the parser read, whole, in source order. */
+const relationshipsOf = (source: string) => documentOf(source).relationships;
+
 /**
  * The attributes the parser read under the **first** declaration of `name`,
  * or a thrown explanation naming what it did read instead. Narrowed here so
@@ -220,6 +223,178 @@ describe("parseErDiagram", () => {
       "A",
     ]);
   });
+
+  it("runs several statements on one line, in the order they are written", () => {
+    // Measured (mermaid 11.17.2): `CUSTOMER ORDER LINE-ITEM` reports
+    // **three** entities. Mermaid's ER grammar is `statements: statement |
+    // statements statement` with no separator of its own, so a line is a
+    // *stream* and not a statement — which is what a whole-line anchor got
+    // wrong, refusing an ordinary document outright.
+    expect(namesOf("erDiagram\n  CUSTOMER ORDER LINE-ITEM\n")).toEqual([
+      "CUSTOMER",
+      "ORDER",
+      "LINE-ITEM",
+    ]);
+
+    // Names and relationships mix freely in that stream, both ways round —
+    // measured: `A B ||--o{ C : x` reports three entities with the
+    // relationship between **B** and C, and `A ||--o{ B : x C ||--o{ D : y`
+    // reports two relationships.
+    expect(namesOf("erDiagram\n  A B ||--o{ C : x\n")).toEqual(["A", "B", "C"]);
+    expect(relationshipsOf("erDiagram\n  A B ||--o{ C : x\n").map((r) => `${r.left}->${r.right}`)).toEqual([
+      "B->C",
+    ]);
+    expect(
+      relationshipsOf("erDiagram\n  A ||--o{ B : x C ||--o{ D : y\n").map(
+        (r) => `${r.left}->${r.right}`,
+      ),
+    ).toEqual(["A->B", "C->D"]);
+
+    // And a quoted name takes part like any other.
+    expect(namesOf('erDiagram\n  "A B" C\n')).toEqual(["A B", "C"]);
+  });
+
+  it("refuses a line whose statement stream would read an ER keyword as a box", () => {
+    // ⚠️ **The guard a line-as-a-stream reader cannot do without.** Every one
+    // of these words is spelled by the ordinary name alphabet, so without it
+    // `subgraph sales` / `end` came back as boxes called `subgraph`, `sales`
+    // and `end` — three figures Mermaid draws no box for — in place of the
+    // cluster it does draw. Silently, which is the one outcome worse than a
+    // refusal.
+    //
+    // Measured one probe per word (11.17.2): `end`, `subgraph`, `class`,
+    // `style` and `classDef` are each a parse error on a line of their own,
+    // and `A end B`, `A subgraph B` and `A style B` are parse errors too.
+    for (const word of ["end", "subgraph", "class", "style", "classDef"]) {
+      expect(refusalsFor(`erDiagram\n  A ${word} B\n`)).toEqual([
+        `Unrecognized erDiagram line: "A ${word} B"`,
+      ]);
+    }
+
+    // Case-insensitively, measured: `STYLE`, `Style`, `End`, `SubGraph` and
+    // `classdef` all refuse the same way.
+    expect(refusalsFor("erDiagram\n  A SubGraph B\n")).toHaveLength(1);
+    expect(refusalsFor("erDiagram\n  A Style B\n")).toHaveLength(1);
+
+    // At a relationship's endpoints and in its label too — measured,
+    // `A ||--o{ end : x`, `style ||--o{ B : x` and `A ||--o{ B : end` are
+    // each refused, the last two as *lexical* errors.
+    expect(refusalsFor("erDiagram\n  A ||--o{ end : x\n")).toHaveLength(1);
+    expect(refusalsFor("erDiagram\n  style ||--o{ B : x\n")).toHaveLength(1);
+    expect(refusalsFor("erDiagram\n  A ||--o{ B : end\n")).toHaveLength(1);
+
+    // ⚠️ **`title` is not one of them**, and that is measured rather than
+    // assumed from the grammar's terminal list: `title My Diagram` reports
+    // **three entities** and `A title B` three as well, so the ER lexer
+    // never emits the token. Refusing it would cost three boxes Mermaid
+    // draws.
+    expect(namesOf("erDiagram\n  title My Diagram\n  A\n")).toEqual([
+      "title",
+      "My",
+      "Diagram",
+      "A",
+    ]);
+
+    // Quoted, a reserved word is an ordinary name again — quoting takes
+    // anything (measured).
+    expect(namesOf('erDiagram\n  A "end" B\n')).toEqual(["A", "end", "B"]);
+  });
+
+  it("reads a two-word relationship label as one word plus a third entity", () => {
+    // ⚠️ Measured, and the reason the label is one token: `A ||--o{ B : two
+    // words` reports the role as **`two`** and then declares a **third
+    // entity** called `words`. Reading the tail as the label would draw a
+    // label Mermaid never draws and lose a box it does.
+    const source = "erDiagram\n  A ||--o{ B : two words\n";
+
+    expect(namesOf(source)).toEqual(["A", "B", "words"]);
+    expect(relationshipsOf(source).map((r) => r.label)).toEqual(["two"]);
+
+    // The control: quoted, it really is one label with a space in it and no
+    // third box (measured).
+    const quoted = 'erDiagram\n  A ||--o{ B : "two words"\n';
+    expect(namesOf(quoted)).toEqual(["A", "B"]);
+    expect(relationshipsOf(quoted).map((r) => r.label)).toEqual(["two words"]);
+  });
+
+  it("reads `direction TD` as two entities, because this grammar has no TD", () => {
+    // ⚠️ Measured: the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally and
+    // the flowchart's `TD` alias never reaches it, so `direction TD` is two
+    // ordinary entities and the diagram still runs top-to-bottom by default.
+    // This is the same construct as the row above, not a direction feature:
+    // the line is simply two names.
+    const source = "erDiagram\n  direction TD\n";
+
+    expect(namesOf(source)).toEqual(["direction", "TD"]);
+    expect(directionOf(source)).toBe("TB");
+
+    // And with something in front of it: `XX direction TD` is **three**
+    // entities (measured), because no direction rule matches the line at
+    // all.
+    expect(namesOf("erDiagram\n  XX direction TD\n")).toEqual(["XX", "direction", "TD"]);
+  });
+
+  it("lets a direction statement swallow its whole line, which is what Mermaid's rule does", () => {
+    // ⚠️ Measured, and not derivable from anything else here: Mermaid's rule
+    // is the **greedy** `/^(?:.*direction\s+LR[^\n]*)/i`, so it matches from
+    // the start of the line whenever `direction` and one of the four values
+    // appear anywhere in it, and swallows everything on either side.
+    //
+    // - `XX direction LR` sets `LR` and declares **no** entity.
+    // - `direction LRX` sets `LR` — the trailing `[^\n]*` takes the `X`.
+    // - `A ||--o{ B : x direction LR` sets `LR` and reports **no entities
+    //   and no relationship at all**.
+    expect(namesOf("erDiagram\n  XX direction LR\n")).toEqual([]);
+    expect(directionOf("erDiagram\n  XX direction LR\n")).toBe("LR");
+
+    expect(namesOf("erDiagram\n  direction LRX\n")).toEqual([]);
+    expect(directionOf("erDiagram\n  direction LRX\n")).toBe("LR");
+
+    const swallowed = "erDiagram\n  A ||--o{ B : x direction LR\n";
+    expect(namesOf(swallowed)).toEqual([]);
+    expect(relationshipsOf(swallowed)).toEqual([]);
+    expect(directionOf(swallowed)).toBe("LR");
+  });
+
+  it("breaks a tie between two directions on one line by Mermaid's own rule order", () => {
+    // Four lexer rules, one per value, and jison breaks a tie between two
+    // equally long matches by rule order — `direction_tb`, `direction_bt`,
+    // `direction_rl`, `direction_lr`, read straight out of its symbol table.
+    // Measured, one probe per pair, and it is **not** "the last one wins":
+    expect(directionOf("erDiagram\n  direction LR direction TB\n")).toBe("TB");
+    expect(directionOf("erDiagram\n  direction TB direction LR\n")).toBe("TB");
+    expect(directionOf("erDiagram\n  direction RL direction BT\n")).toBe("BT");
+    expect(directionOf("erDiagram\n  direction LR direction RL\n")).toBe("RL");
+  });
+
+  it("reads accTitle and accDescr, and neither declares an entity", () => {
+    // Measured (mermaid 11.17.2, `scripts/mermaid-probe.mjs`):
+    //
+    //     erDiagram
+    //       accTitle: Order book
+    //       accDescr: how orders relate to customers
+    //       CUSTOMER ||--o{ ORDER : places
+    //
+    // reports exactly two entities, `CUSTOMER` and `ORDER` — so neither
+    // statement puts a box on the canvas — while the rendered root carries
+    // `aria-labelledby`/`aria-describedby` pointing at a `<title>` and a
+    // `<desc>` holding those two strings.
+    const document = documentOf(
+      "erDiagram\n  accTitle: Order book\n  accDescr: how orders relate to customers\n  CUSTOMER ||--o{ ORDER : places\n",
+    );
+    expect(document.accTitle).toBe("Order book");
+    expect(document.accDescr).toBe("how orders relate to customers");
+    expect(document.entities.map((entity) => entity.name)).toEqual(["CUSTOMER", "ORDER"]);
+  });
+
+  it("leaves both null when the document writes neither", () => {
+    // `null` rather than `""`, the way `FlowchartDocument` spells it: the
+    // renderer draws no `<title>` at all for a document that named none,
+    // which an empty string could not be told apart from.
+    const document = documentOf("erDiagram\n  CUSTOMER\n");
+    expect(document.accTitle).toBeNull();
+    expect(document.accDescr).toBeNull();
+  });
 });
 
 /** The messages the parser reported for `source`. */
@@ -227,6 +402,44 @@ const refusalsFor = (source: string): string[] =>
   parseErDiagram(source).diagnostics.map((d) => d.message);
 
 describe("parseErDiagram refuses an unimplemented construct by name", () => {
+  it("names the multi-line accDescr block rather than reading an entity out of it", () => {
+    // Measured (mermaid 11.17.2): `accDescr {` / `a long description` / `}`
+    // written beside `CUSTOMER` reports **one** entity, `CUSTOMER` — the
+    // block is the description's own multi-line spelling and puts no box on
+    // the canvas.
+    //
+    // ⚠️ `ENTITY_HEAD_RE` matches that opening line exactly as it matches
+    // `CUSTOMER {`, so without a guard read *before* it this parser would
+    // draw a box called `accDescr` for a document Mermaid draws no box for —
+    // a silently wrong picture rather than a refusal.
+    //
+    // The control below is the boundary: `accTitle {` has no such rule.
+    // Measured, `accTitle {` / `x` / `}` is a **parse error** in Mermaid
+    // ("Expecting 'ATTRIBUTE_WORD'"), which is an entity called `accTitle`
+    // opening a block with a malformed attribute in it — the reading this
+    // parser already gives it, so it must stay untouched.
+    expect(
+      refusalsFor("erDiagram\n  accDescr {\n    a long description\n  }\n  CUSTOMER\n"),
+    ).toEqual([
+      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "accDescr {"',
+    ]);
+
+    // **The body that made this a silently wrong picture rather than a
+    // missing one.** Measured: `accDescr {` / `string x` / `}` beside
+    // `CUSTOMER` reports **one** entity in Mermaid. `string x` is a
+    // well-formed attribute, so without the guard this parser read the
+    // block as an entity's and drew two boxes — `CUSTOMER`, and an
+    // `accDescr` carrying a `string x` row — saying nothing. One
+    // diagnostic, and no second box.
+    expect(refusalsFor("erDiagram\n  accDescr {\n    string x\n  }\n  CUSTOMER\n")).toEqual([
+      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "accDescr {"',
+    ]);
+
+    // The boundary: `accTitle {` has no such rule in Mermaid, so it stays
+    // an ordinary entity opening an ordinary attribute block here.
+    expect(namesOf("erDiagram\n  accTitle {\n    string x\n  }\n")).toEqual(["accTitle"]);
+  });
+
   it('names the "u" cardinality, the fifth one this parser does not draw', () => {
     // Measured (mermaid 11.17.2): Mermaid's `Cardinality` enum has **five**
     // members, and the fifth is `MD_PARENT`, spelled `u` — its lexer rule is
@@ -291,25 +504,6 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     for (const line of ["A}o--|| B : x", "A||--o{B : x", "A ||-- o{ B : x", "A ||--o{ B : -"]) {
       expect(refusalsFor(`erDiagram\n  ${line}\n`), `for the line "${line}"`).toEqual([]);
     }
-  });
-
-  it("names a second statement written after a relationship on the same line", () => {
-    // Measured, and genuinely surprising: `A ||--o{ B : two words` is **not**
-    // a relationship labelled "two words". Mermaid reports the role as `two`
-    // and then declares a *third entity* called `words` — its grammar runs
-    // several statements on one line, which this parser does not. Reading
-    // the whole tail as the label would draw a label Mermaid never draws and
-    // lose a box it does.
-    const line = "A ||--o{ B : two words";
-    expect(refusalsFor(`erDiagram\n  ${line}\n`)).toEqual([
-      `Unimplemented erDiagram construct: a second statement after a relationship on the same line, in "${line}"`,
-    ]);
-
-    // A quoted label is the spelling that *does* carry a space — measured,
-    // `: "two words"` reports the role as `two words` with no extra entity.
-    expect(documentOf('erDiagram\n  A ||--o{ B : "two words"\n').relationships[0].label).toBe(
-      "two words",
-    );
   });
 
   it("reads an attribute block as attributes under the entity that opened it", () => {
@@ -457,6 +651,89 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(aliasOf("erDiagram\n  CUSTOMER\n", "CUSTOMER")).toBeNull();
   });
 
+  it("reads a quoted entity name as the entity's name, quotes stripped and no alias", () => {
+    // Measured (mermaid 11.17.2):
+    //
+    //     "Customer Account" ||--o{ ORDER : places
+    //
+    // reports an entity **keyed on** `Customer Account` —
+    // `label="Customer Account"` with **no `alias` field at all** — and the
+    // relationship names it the same way. So the quotes are how an ER name
+    // gets a character its bare alphabet has no room for, and what they
+    // change is the *id*.
+    const source = 'erDiagram\n  "Customer Account" ||--o{ ORDER : places\n';
+
+    expect(namesOf(source)).toEqual(["Customer Account", "ORDER"]);
+    expect(aliasOf(source, "Customer Account")).toBeNull();
+    expect(relationshipsOf(source)).toEqual([
+      {
+        left: "Customer Account",
+        leftCardinality: "onlyOne",
+        line: "identifying",
+        rightCardinality: "zeroOrMore",
+        right: "ORDER",
+        label: "places",
+      },
+    ]);
+
+    // A quoted name on a line of its own is an entity too (measured), and
+    // one on the **right** of a relationship as well.
+    expect(namesOf('erDiagram\n  "Customer Account"\n')).toEqual(["Customer Account"]);
+    expect(namesOf('erDiagram\n  A ||--o{ "Order Line" : has\n')).toEqual(["A", "Order Line"]);
+  });
+
+  it("parts the quoted name from the alias — one moves the id, the other the drawn text", () => {
+    // ⚠️ **The two constructs that look identical on screen.** Measured,
+    // side by side:
+    //
+    //     CUSTOMER["Customer Account"]   label="CUSTOMER" alias="Customer Account"
+    //     "Customer Account"             label="Customer Account", no alias
+    //
+    // Both draw a box reading "Customer Account". Only the id tells them
+    // apart, and the id is what a `timeline:` entry addresses (ADR-0009), so
+    // reading one as the other moves every animation target in the document.
+    expect(namesOf('erDiagram\n  CUSTOMER["Customer Account"]\n')).toEqual(["CUSTOMER"]);
+    expect(aliasOf('erDiagram\n  CUSTOMER["Customer Account"]\n', "CUSTOMER")).toBe(
+      "Customer Account",
+    );
+
+    expect(namesOf('erDiagram\n  "Customer Account"\n')).toEqual(["Customer Account"]);
+    expect(aliasOf('erDiagram\n  "Customer Account"\n', "Customer Account")).toBeNull();
+
+    // And they **compose**: measured, `"A B" ["alias"]` reports
+    // `label="A B" alias="alias"`, so a quoted name may still take one.
+    expect(namesOf('erDiagram\n  "A B" ["alias"]\n')).toEqual(["A B"]);
+    expect(aliasOf('erDiagram\n  "A B" ["alias"]\n', "A B")).toBe("alias");
+  });
+
+  it("reads a quoted name in the whole alphabet Mermaid reads one in, and no wider", () => {
+    // **Anything but a quote**, which is the measurement that ended
+    // `01M3977716`'s separator argument: `"CUSTOMER:ORDER"` and
+    // `"subgraph:1"` both parse and are keyed on exactly those strings, so
+    // no character is reserved to keep authored ids and generated ones
+    // apart in this kind.
+    expect(namesOf('erDiagram\n  "CUSTOMER:ORDER" ||--|| X : y\n')).toEqual([
+      "CUSTOMER:ORDER",
+      "X",
+    ]);
+    expect(namesOf('erDiagram\n  "subgraph:1" ||--|| B : y\n')).toEqual(["subgraph:1", "B"]);
+
+    // Whitespace inside the quotes is **kept**, not trimmed — measured, the
+    // entity is keyed on `"  padded  "` with both runs of spaces intact. A
+    // trim here would key two different Mermaid entities on one id.
+    expect(namesOf('erDiagram\n  "  padded  "\n')).toEqual(["  padded  "]);
+
+    // `--` is a whole entity once it is quoted (measured), where a bare
+    // `--` is a parse error — so the relationship-body guard must not reach
+    // inside the quotes.
+    expect(namesOf('erDiagram\n  "--"\n')).toEqual(["--"]);
+
+    // The over-reach control, measured as a **parse error** in Mermaid
+    // ("Expecting ... got 'WORD'"): an empty quoted name is not a name, so
+    // the pattern is `[^"]+` and never `[^"]*`.
+    expect(refusalsFor('erDiagram\n  ""\n')).toEqual(['Unrecognized erDiagram line: """"']);
+  });
+
   it("reads an alias on the line that opens an attribute block", () => {
     // Measured: `CUSTOMER["Customer Account"] {` with `string n` under it
     // reports one entity, `label="CUSTOMER" alias="Customer Account"`,
@@ -551,11 +828,8 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // grammar, so `direction TD` is *two entities*. Reading it as `TB` here
     // would turn two boxes into a directive — silently, since `TB` is also
     // the default and nothing in the picture would say a box went missing.
-    // Siren does not draw the two-statements-on-one-line form either, so the
-    // document is refused rather than half-read.
-    expect(refusalsFor("erDiagram\n  direction TD\n  A\n")).toEqual([
-      'Unrecognized erDiagram line: "direction TD"',
-    ]);
+    expect(refusalsFor("erDiagram\n  direction TD\n  A\n")).toEqual([]);
+    expect(namesOf("erDiagram\n  direction TD\n  A\n")).toEqual(["direction", "TD", "A"]);
 
     // And a `direction` written *inside* an attribute block is an
     // attribute, not a directive — measured, `E { direction LR }` reports

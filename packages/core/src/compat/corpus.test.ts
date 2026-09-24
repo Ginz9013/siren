@@ -1044,7 +1044,7 @@ const SILENTLY_WRONG = 0;
  * for this kind, and a quoted entity name changes the *id* rather than adding
  * an alias.
  *
- * The thirteen, grouped by why they were left:
+ * The ten, grouped by why they were left:
  *
  * - **Two already refused by name**, and the two this comment previously
  *   promised rows for: `er-md-parent-cardinality` (`u`, Mermaid's fifth
@@ -1062,21 +1062,43 @@ const SILENTLY_WRONG = 0;
  *   `er-style-statement`, `er-style-classdef` and `er-style-class-shorthand`.
  *   ER's grammar has all three terminals and nothing in Siren reads any of
  *   them; measured, they reach exactly the records a flowchart's do.
- * - **Multi-statement lines**: `er-statements-one-line`. One construct under
- *   three gaps this comment used to list separately — `direction TD` (two
- *   entities), the greedy `.*direction\s+LR[^\n]*` lexer rule, and the third
- *   entity a two-word relationship label declares.
- * - **A quoted entity name**: `er-entity-name-quoted`, which is how an ER
- *   name gets a space in it and is *not* the alias construct.
- * - **Accessibility**: `er-acc-title` and `er-acc-descr`, already `supported`
- *   for two other kinds and unread in this one.
+ * - **`accDescr`'s braced spelling**: `er-acc-descr-multiline`, a row that
+ *   did not exist before `01M3978B7` and is the one entry here that was
+ *   **silently wrong** rather than merely unimplemented — `accDescr {` /
+ *   `string x` / `}` drew a second box called `accDescr` with an attribute
+ *   in it, saying nothing. Refused by name now. It is counted here rather
+ *   than by `SILENTLY_WRONG` because by the time the row was written the
+ *   defect was already fixed, and a ratchet counts what the code does
+ *   today.
  *
- * Eleven of the thirteen are refused by the **generic** unrecognized-line
+ * Seven of the ten are refused by the **generic** unrecognized-line
  * message rather than by name, which is the state every unimplemented ER
  * construct was already in; naming them belongs to the tickets that implement
  * them, exactly as it did for the attribute trio.
+ *
+ * `01M3978B7` moved it from thirteen to ten, **minus four plus one**:
+ *
+ * - `er-acc-title` and `er-acc-descr`, measured to be the flowchart's
+ *   arrangement exactly — `<title>`/`<desc>` on the root wired by
+ *   `aria-labelledby`/`aria-describedby`, and no `role` written at all,
+ *   because real Mermaid writes `role="graphics-document document"` on both
+ *   roots and Siren draws that attribute for no kind.
+ * - `er-entity-name-quoted`, whose id `reportIdCollisions` now has to hold:
+ *   a quoted name can spell `CUSTOMER:ORDER`, which is exactly what a
+ *   relationship between `CUSTOMER` and `ORDER` mints.
+ * - `er-statements-one-line`, and with it the three gaps that row absorbed.
+ * - **Plus** `er-acc-descr-multiline`, found while implementing the two
+ *   accessibility rows.
+ *
+ * Reading a line as a stream of statements is also what made
+ * `RESERVED_BARE_NAMES` necessary, and `er-subgraph` is the row that found
+ * it: `subgraph sales` / `end` are spelled by the ordinary name alphabet, so
+ * a stream without that guard drew three boxes Mermaid draws none for. The
+ * row went from a refusal to a silent mis-render and back inside one ticket,
+ * which is the argument for a corpus that runs every construct on every
+ * change rather than only the one being worked on.
  */
-const REJECTED = 13;
+const REJECTED = 10;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

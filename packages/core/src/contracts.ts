@@ -2814,6 +2814,24 @@ export interface ErDocument {
    * `parseTimelineBlock` rather than by a fifth copy of it.
    */
   timeline: SirenTimeline | null;
+  /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:`
+   * statement. Draws nothing on the canvas and declares no entity
+   * (measured, mermaid 11.17.2: the document that writes it beside
+   * `CUSTOMER ||--o{ ORDER : places` still reports exactly two entities);
+   * it reaches only the rendered SVG's `<title>`.
+   *
+   * ER has no visible `title` statement of its own for this to be distinct
+   * from, so — exactly as in `FlowchartDocument` — this field carries the
+   * whole of the construct.
+   */
+  accTitle: string | null;
+  /**
+   * The diagram's screen-reader-only description — Mermaid's `accDescr:`
+   * statement, `accTitle`'s twin. Draws nothing on the canvas either, and
+   * reaches only the rendered SVG's `<desc>`.
+   */
+  accDescr: string | null;
 }
 
 /**
@@ -3036,6 +3054,10 @@ export interface ErModel {
    * something has to be handed to it either way.
    */
   timeline: ResolvedTimeline;
+  /** Carried through unchanged from `ErDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
+  accTitle: string | null;
+  /** Carried through unchanged from `ErDocument.accDescr` — no resolution needed for plain text with no target to validate against. */
+  accDescr: string | null;
 }
 
 /**
@@ -3193,4 +3215,8 @@ export interface PositionedErDiagram {
   timeline: ResolvedTimeline;
   width: number;
   height: number;
+  /** Carried through unchanged from `ErModel.accTitle`. Takes no space on the canvas, so layout places nothing for it — it becomes the rendered root's `<title>`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `ErModel.accDescr`. Takes no space either, and becomes the rendered root's `<desc>`. */
+  accDescr: string | null;
 }

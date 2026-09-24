@@ -263,5 +263,11 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     timeline: model.timeline,
     width: laidOut.width,
     height: laidOut.height,
+    // Neither is drawn on the canvas, so neither takes part in the geometry
+    // above — measured, a document writing both reports the same entity
+    // table as one writing neither. They pass through for the renderer,
+    // which puts them on the SVG root.
+    accTitle: model.accTitle,
+    accDescr: model.accDescr,
   };
 }

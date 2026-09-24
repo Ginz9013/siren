@@ -112,6 +112,42 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   // see `mintIdScope`. Two ER diagrams on one page would otherwise share
   // four fixed ids, and `url(#...)` resolves document-wide.
   const scope = mintIdScope();
+
+  // **Measured for ER rather than inherited**, because this repo already
+  // holds two different answers on this line. Real mermaid 11.17.2 renders
+  // an `erDiagram` carrying `accTitle:` and `accDescr:` with `<title>` and
+  // `<desc>` as the root's first two children and `aria-labelledby` /
+  // `aria-describedby` naming them — identical to what it does for a
+  // flowchart, so `renderToSVG`'s arrangement is the one this kind follows.
+  //
+  // ⚠️ **And no `role`.** Mermaid writes `role="graphics-document document"`
+  // on both roots, unconditionally and unrelated to these two statements;
+  // Siren draws that attribute for no kind, so nothing is written here.
+  // `renderSequenceToSVG` writes `role="img"` instead — a spelling Mermaid
+  // uses for neither kind, left alone there as an older unmeasured line and
+  // deliberately not copied into this one.
+  //
+  // Before `<defs>`, because Mermaid puts them first and an accessible name
+  // is read from the first `<title>` a consumer finds.
+  if (diagram.accTitle !== null) {
+    const accTitleId = `chart-title${scope}`;
+    const accTitleEl = document.createElementNS(SVG_NS, "title");
+    accTitleEl.setAttribute("id", accTitleId);
+    accTitleEl.textContent = diagram.accTitle;
+    svg.appendChild(accTitleEl);
+    svg.setAttribute("aria-labelledby", accTitleId);
+  }
+  // Its own `if` rather than an `else` or a shared one: two statements, two
+  // stores in Mermaid, and a document may write either alone.
+  if (diagram.accDescr !== null) {
+    const accDescrId = `chart-desc${scope}`;
+    const accDescrEl = document.createElementNS(SVG_NS, "desc");
+    accDescrEl.setAttribute("id", accDescrId);
+    accDescrEl.textContent = diagram.accDescr;
+    svg.appendChild(accDescrEl);
+    svg.setAttribute("aria-describedby", accDescrId);
+  }
+
   svg.appendChild(buildDefs(scope));
 
   for (const entity of diagram.entities) {

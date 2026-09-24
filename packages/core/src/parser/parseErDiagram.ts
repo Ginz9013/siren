@@ -17,24 +17,6 @@ import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 const ER_HEADERS = listAcceptedHeaders(["er"]);
 
 /**
- * An entity name on a line of its own.
- *
- * **The alphabet is Mermaid's own, measured rather than borrowed.** Its ER
- * lexer reads a name as `([^\x00-\x7F]|\w|-|\*|\.)+` (mermaid 11.17.2), and
- * the probe agrees construct by construct: `LINE-ITEM`, `A_B`, `a1`,
- * `Order2`, `P.Q`, `Ünïcode` and `中文實體` each come back as one entity,
- * while `X$Y` is a parse error. This is a **different language** from a
- * flowchart, whose ids are `\w+` plus `.` and where a dashed id is still an
- * open gap — so `\w+` was not reusable here, and copying it would have
- * refused `LINE-ITEM`, which is ordinary ER.
- *
- * `-`, `.` and `*` are each a whole name on their own (measured: all three
- * report one entity), which is why there is no "must contain a letter"
- * guard: adding one would refuse three documents Mermaid draws.
- */
-const ENTITY_NAME_RE = /^(?:[\w*.-]|[^\x00-\x7F])+$/u;
-
-/**
  * A line of nothing but relationship punctuation — never a name, however
  * freely the alphabet above admits `-` and `.`.
  *
@@ -52,11 +34,103 @@ const ENTITY_NAME_RE = /^(?:[\w*.-]|[^\x00-\x7F])+$/u;
 const RELATIONSHIP_BODY_ONLY_RE = /^[-.]{2,}$/;
 
 /**
- * The entity-name alphabet again, as a source fragment, so the relationship
- * pattern below reads a name in exactly the language `ENTITY_NAME_RE` does.
- * Two spellings of one alphabet would be two places for it to drift.
+ * A **bare** entity name — one, and the alphabet every pattern below reads
+ * one in. A source fragment rather than a `RegExp`, because several patterns
+ * embed it and two spellings of one alphabet would be two places to drift.
+ *
+ * **The alphabet is Mermaid's own, measured rather than borrowed.** Its ER
+ * lexer reads a name as `([^\x00-\x7F]|\w|-|\*|\.)+` (mermaid 11.17.2), and
+ * the probe agrees construct by construct: `LINE-ITEM`, `A_B`, `a1`,
+ * `Order2`, `P.Q`, `Ünïcode` and `中文實體` each come back as one entity,
+ * while `X$Y` is a parse error. This is a **different language** from a
+ * flowchart, whose ids are `\w+` plus `.` and where a dashed id is still an
+ * open gap — so `\w+` was not reusable here, and copying it would have
+ * refused `LINE-ITEM`, which is ordinary ER.
+ *
+ * `-`, `.` and `*` are each a whole name on their own (measured: all three
+ * report one entity), which is why there is no "must contain a letter"
+ * guard: adding one would refuse three documents Mermaid draws — and why
+ * `readEntityHead` needs `RELATIONSHIP_BODY_ONLY_RE` beside it.
  */
 const NAME_SOURCE = "(?:[\\w*.-]|[^\\x00-\\x7F])+";
+
+/**
+ * A **quoted** entity name — the second spelling of a name, and the one that
+ * has no alphabet at all.
+ *
+ * Measured (mermaid 11.17.2), one probe per claim:
+ *
+ * - `"Customer Account" ||--o{ ORDER : places` keys the entity on
+ *   `Customer Account`, quotes **stripped**, with **no `alias` field**. So
+ *   this is not the alias construct: an alias leaves the id alone and
+ *   changes the drawn text, while quoting changes the id itself. The two
+ *   draw the same box and only `data-siren-id` parts them.
+ * - `"CUSTOMER:ORDER"` and `"subgraph:1"` both parse, keyed on exactly
+ *   those strings. **Anything but a quote goes in**, which is why ADR-0010's
+ *   "separate the two id spaces with a character neither can spell" does not
+ *   hold for this kind and `reportIdCollisions` holds the invariant instead
+ *   (`buildErModel`).
+ * - `"--"` is an entity named `--`, where a bare `--` is a parse error — so
+ *   `RELATIONSHIP_BODY_ONLY_RE` must not reach inside the quotes.
+ * - `"  padded  "` is keyed on `  padded  `, spaces intact: **not trimmed**.
+ *   Trimming would key two distinct Mermaid entities on one id.
+ * - `""` is a **parse error** ("Expecting ... got 'WORD'"), hence `+` and
+ *   never `*`.
+ * - `"A"||--o{ B : x` parses, so the closing quote is a token boundary of
+ *   its own and needs no space after it.
+ */
+const QUOTED_NAME_SOURCE = '"[^"\\r\\n]+"';
+
+/**
+ * Either spelling of one name, for every pattern that reads one. A single
+ * fragment rather than a second copy per pattern, for the reason
+ * `NAME_SOURCE` gives about itself.
+ */
+const ANY_NAME_SOURCE = `(?:${QUOTED_NAME_SOURCE}|${NAME_SOURCE})`;
+
+/**
+ * `"Customer Account"` → `Customer Account`; `CUSTOMER` → `CUSTOMER`.
+ *
+ * The one place the quotes come off, so that every stage after the parser
+ * sees the id Mermaid's table is keyed on and nothing has to remember which
+ * spelling wrote it. Deliberately no `trim()`: see `QUOTED_NAME_SOURCE`.
+ */
+const unquoteName = (name: string): string =>
+  name.startsWith('"') ? name.slice(1, -1) : name;
+
+/**
+ * The words a **bare** ER name may never be, whatever the alphabet allows.
+ *
+ * ⚠️ **This is the guard a line-as-a-stream reader cannot do without, and it
+ * was found by an existing corpus row breaking.** `NAME_SOURCE` spells every
+ * one of these happily, so without it `readStatements` read
+ * `subgraph sales` / ... / `end` as boxes called `subgraph`, `sales` and
+ * `end` — three figures Mermaid draws no box for, silently, in place of the
+ * cluster it does draw (`er-subgraph`).
+ *
+ * Measured one probe per word (mermaid 11.17.2), bare and mid-line: `end`,
+ * `subgraph`, `class`, `style` and `classDef` are each a **parse error** on
+ * a line of their own, and `A end B`, `A subgraph B` and `A style B` are
+ * parse errors too. Case-insensitively — `STYLE`, `Style`, `End`,
+ * `SubGraph` and `classdef` all refuse the same way — so this is one set
+ * read without regard to case.
+ *
+ * ⚠️ **`title` is deliberately absent, and that is measured too.** The ER
+ * grammar names a `title` terminal, but its lexer never emits one: `title My
+ * Diagram` reports **three entities**, and `A title B` reports three as
+ * well. So `title` is an ordinary ER name and refusing it would cost three
+ * boxes Mermaid draws.
+ *
+ * A **quoted** name is not asked: quoting takes anything (measured), so
+ * `"end"` is an ordinary entity.
+ */
+const RESERVED_BARE_NAMES: ReadonlySet<string> = new Set([
+  "end",
+  "subgraph",
+  "class",
+  "style",
+  "classdef",
+]);
 
 /**
  * Every spelling of a cardinality, punctuation and words alike, and the
@@ -164,35 +238,39 @@ const alternation = (spellings: readonly string[]): string =>
  * whole tail as the label would draw a label Mermaid does not.
  */
 const RELATIONSHIP_SOURCE =
-  `^(${NAME_SOURCE})(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
+  `^(${ANY_NAME_SOURCE})(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
   `\\s*(${alternation(Object.keys(LINE_BY_SPELLING))})\\s*` +
-  `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${NAME_SOURCE})` +
-  `\\s*:\\s*("[^"\\r\\n]+"|${NAME_SOURCE})`;
-
-const RELATIONSHIP_RE = new RegExp(`${RELATIONSHIP_SOURCE}\\s*$`, "iu");
+  `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${ANY_NAME_SOURCE})` +
+  `\\s*:\\s*(${QUOTED_NAME_SOURCE}|${NAME_SOURCE})`;
 
 /**
- * The same relationship with something *after* its label — Mermaid's next
- * statement on the same line, which this parser refuses by name rather than
- * swallowing into the label. See the `UNIMPLEMENTED` entry that uses it.
+ * ⚠️ **Not anchored on the end of the line.** Mermaid's grammar is
+ * `statements: statement | statements statement`, so a line is a *stream* of
+ * statements and a relationship is only ever a prefix of what is left of one
+ * — measured, `A ||--o{ B : two words` is a relationship labelled `two`
+ * **plus a third entity** called `words`, and `A ||--o{ B : x C ||--o{ D :
+ * y` is two relationships. `readStatements` is what reads the rest.
  */
-const RELATIONSHIP_THEN_MORE_RE = new RegExp(`${RELATIONSHIP_SOURCE}\\s+\\S`, "iu");
+const RELATIONSHIP_RE = new RegExp(RELATIONSHIP_SOURCE, "iu");
 
 /**
- * The relationship `line` declares, or `null` when it declares none.
+ * The relationship at the head of `text`, and how many characters it took —
+ * or `null` when `text` does not begin with one.
  *
  * Returns the whole declaration rather than a boolean so the caller cannot
  * read the two cardinalities back in the wrong order: `left` and `right`
  * are the source's own, and Mermaid's crossed `cardA`/`cardB` are never
  * spoken here (see `ErRelationshipDecl`).
  */
-function readRelationship(line: string): ErRelationshipDecl | null {
-  const match = RELATIONSHIP_RE.exec(line);
+function readRelationship(
+  text: string,
+): { decl: ErRelationshipDecl; length: number } | null {
+  const match = RELATIONSHIP_RE.exec(text);
   if (match === null) {
     return null;
   }
   const [, left, leftMarker, body, rightMarker, right, rawLabel] = match;
-  const label = rawLabel.startsWith('"') ? rawLabel.slice(1, -1) : rawLabel;
+  const label = unquoteName(rawLabel);
   // Lower-cased for the lookup because Mermaid's lexer rules are all `/i` —
   // measured, `A ZERO OR ONE to many B : x` reports `ZERO_OR_ONE`, so the
   // shouted spelling is the same construct and not an entity called `ZERO`.
@@ -204,36 +282,134 @@ function readRelationship(line: string): ErRelationshipDecl | null {
   if (RELATIONSHIP_BODY_ONLY_RE.test(label)) {
     return null;
   }
+  // And the reserved words, at each of the three places this pattern reads a
+  // bare one. Measured: `A ||--o{ end : x`, `style ||--o{ B : x` and
+  // `A ||--o{ B : end` are each refused by Mermaid — the last two as
+  // *lexical* errors, because the lexer emits a keyword token wherever those
+  // letters stand alone. Quoted, they are ordinary text again, which is why
+  // this asks about the raw match and not the unquoted string.
+  if ([left, right, rawLabel].some((text) => RESERVED_BARE_NAMES.has(text.toLowerCase()))) {
+    return null;
+  }
   return {
-    left,
-    leftCardinality: CARDINALITY_BY_SPELLING[spelling(leftMarker)],
-    line: LINE_BY_SPELLING[spelling(body)],
-    rightCardinality: CARDINALITY_BY_SPELLING[spelling(rightMarker)],
-    right,
-    label,
+    decl: {
+      // Unquoted here, once, so that every stage after this one sees the id
+      // Mermaid's own table is keyed on — measured, `"Customer Account"
+      // ||--o{ ORDER : places` reports `leftEntity="Customer Account"` with
+      // the quotes gone.
+      left: unquoteName(left),
+      leftCardinality: CARDINALITY_BY_SPELLING[spelling(leftMarker)],
+      line: LINE_BY_SPELLING[spelling(body)],
+      rightCardinality: CARDINALITY_BY_SPELLING[spelling(rightMarker)],
+      right: unquoteName(right),
+      label,
+    },
+    length: match[0].length,
   };
 }
 
 /**
- * The document's own rank-direction statement: `direction LR`, and the three
- * other spellings.
+ * The document's own rank-direction statement, as its four **greedy** lexer
+ * rules — one per value, in Mermaid's own order.
  *
- * **Anchored on the whole statement, and on the four canonical values.**
- * Measured (mermaid 11.17.2): `direction` on a line of its own is an
- * ordinary **entity** called `direction`, and `direction TD` is **two**
- * entities — the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally and the
- * flowchart's `TD` alias does not reach this grammar. So a pattern reaching
- * for a bare keyword would swallow one box, and a fifth spelling here would
- * swallow two.
+ * ⚠️ **This rule eats its whole line, and that is measured rather than
+ * inferred.** Mermaid's is `/^(?:.*direction\s+LR[^\n]*)/i`, with a leading
+ * `.*` and a trailing `[^\n]*`, so it matches from the start of a line
+ * whenever the keyword and one of the four values appear anywhere in it and
+ * swallows everything on both sides. One probe per claim (11.17.2):
+ *
+ * - `XX direction LR` sets `LR` and declares **no** entity.
+ * - `direction LRX` sets `LR`; the trailing `[^\n]*` takes the `X`.
+ * - `mydirection LRA` sets `LR` too — the leading `.*` reaches inside a
+ *   word.
+ * - `A ||--o{ B : x direction LR` sets `LR` and reports **no entities and
+ *   no relationship at all**.
+ * - `accTitle: direction LR` sets `LR` and records **no accessible title**,
+ *   which is why this is read before `ACC_TITLE_RE`.
+ *
+ * **Four values and `TD` is not one of them.** The ER lexer writes
+ * `TB`/`BT`/`RL`/`LR` out literally and the flowchart's `TD` alias does not
+ * reach this grammar, so `direction TD` matches nothing here and is two
+ * ordinary entities (measured) — which the statement reader then finds.
+ *
+ * **The order is the tie-break**, measured on four pairs: `direction LR
+ * direction TB` and `direction TB direction LR` both report `TB`,
+ * `direction RL direction BT` reports `BT`, and `direction LR direction RL`
+ * reports `RL`. Every one of the four rules matches such a line to the same
+ * end, and jison breaks an equal-length tie by rule order — `direction_tb`,
+ * `direction_bt`, `direction_rl`, `direction_lr`, read out of its own symbol
+ * table. So it is **not** "the last one wins".
  *
  * Case-insensitive because the lexer is: `direction lr` reports `LR`.
  *
- * ⚠️ Read **before** `ENTITY_HEAD_RE` is consulted but, like every statement
- * here, after the in-block reader — measured, `direction LR` written *inside*
- * an attribute block is an attribute (`type="direction" name="LR"`), not a
- * direction, and the block reader is what keeps it one.
+ * ⚠️ Read before every other statement but, like all of them, **after** the
+ * in-block reader — measured, `direction LR` written *inside* an attribute
+ * block is an attribute (`type="direction" name="LR"`), and the block reader
+ * is what keeps it one.
  */
-const DIRECTION_RE = /^direction\s+(TB|BT|RL|LR)\s*$/i;
+const DIRECTION_RULES: readonly { value: Direction; pattern: RegExp }[] = (
+  ["TB", "BT", "RL", "LR"] as const
+).map((value) => ({ value, pattern: new RegExp(`^.*direction\\s+${value}[^\\n]*$`, "i") }));
+
+/** The direction `line` sets, or `null` when it sets none. */
+function readDirection(line: string): Direction | null {
+  return DIRECTION_RULES.find(({ pattern }) => pattern.test(line))?.value ?? null;
+}
+
+/**
+ * `accTitle: text` and `accDescr: text` — the diagram's screen-reader-only
+ * title and description, spelled exactly as `parseFlowchart`'s and
+ * `parseSequenceDiagram`'s copies of the same two patterns. The colon is
+ * required.
+ *
+ * **Measured for this kind rather than carried over.** `erDiagram` with
+ * both statements under it reports the same two entities as the document
+ * without them, so neither puts a box on the canvas; and the SVG real
+ * Mermaid renders for it carries `aria-labelledby` and `aria-describedby`
+ * pointing at a `<title>` and a `<desc>` that hold those strings — the
+ * flowchart's arrangement exactly, `role` and all (see
+ * `renderErDiagramToSVG`).
+ *
+ * Read before the entity patterns for the reason `DIRECTION_RE` is: both
+ * words are in the entity-name alphabet, so a reader asking "is this a
+ * name?" first would find one. The colon is what keeps a bare entity called
+ * `accTitle` out of here — and a bare `accTitle` **is** an ordinary entity
+ * (measured), so that boundary is load-bearing rather than tidy.
+ *
+ * Mermaid's braced multi-line spelling, `accDescr { ... }`, is deliberately
+ * unread — the same line `parseFlowchart` draws — and refused by name in
+ * `UNIMPLEMENTED` below, because `ENTITY_HEAD_RE` would otherwise read it
+ * as an entity called `accDescr` opening an attribute block.
+ */
+const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
+const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
+
+/**
+ * The opening line of Mermaid's **braced** `accDescr { ... }`, which this
+ * parser recognizes only in order to refuse it by name.
+ *
+ * Measured (mermaid 11.17.2): `accDescr {` / `a long description` / `}`
+ * beside `CUSTOMER` reports **one** entity, `CUSTOMER` — so the block is a
+ * description and not an entity with attributes. That is `accDescr`'s alone:
+ * `accTitle {` has no such rule, and `accTitle {` / `x` / `}` is a *parse
+ * error* in Mermaid ("Expecting 'ATTRIBUTE_WORD'"), which is exactly an
+ * entity called `accTitle` opening an attribute block with a malformed one
+ * inside — the reading this parser already gives it.
+ *
+ * Read **before** `ENTITY_HEAD_RE`, unlike every other `UNIMPLEMENTED`
+ * entry, because that pattern matches this line and would draw a box called
+ * `accDescr` for a document Mermaid draws no box for at all.
+ *
+ * ⚠️ **This was a silently wrong picture, not merely a missing one.**
+ * Measured, `accDescr {` / `string x` / `}` beside `CUSTOMER` reports one
+ * entity in Mermaid; without this guard the block's body reads as a
+ * perfectly well-formed attribute, so Siren drew **two** boxes — `CUSTOMER`
+ * and an `accDescr` carrying a `string x` row — with no diagnostic at all.
+ * A body that happens not to parse as attributes was refused instead, which
+ * is why the defect could sit here unseen: it only shows when the
+ * description is written in two words that look like a type and a name.
+ */
+const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
 
 /**
  * An entity's **head**: its name, its alias if it wrote one, and the brace
@@ -274,38 +450,141 @@ const DIRECTION_RE = /^direction\s+(TB|BT|RL|LR)\s*$/i;
  * unrecognized-line diagnostic, which costs the document, so no picture is
  * drawn for it.
  *
- * ⚠️ **Both trailing groups are optional, so this matches a bare name too**
- * — which is why `readEntityHead` refuses to answer unless one of them is
- * present. Without that guard it would declare an entity called `--`, the
- * very line `RELATIONSHIP_BODY_ONLY_RE` exists to keep out.
+ * ⚠️ **Both trailing groups are optional, so this reads a bare name too** —
+ * which is the whole point now that a line is a stream: a name, a name with
+ * an alias, and a name opening a block are one statement with two optional
+ * tails, and measured they mix freely within a line. `A["x"] B` is an
+ * aliased `A` and a bare `B`, `A B["x"]` is a bare `A` and an aliased `B`,
+ * and `A B {` with `string n` under it puts that attribute on **`B`**.
+ *
+ * The name is either spelling (`ANY_NAME_SOURCE`), because the two
+ * constructs compose: measured, `"A B" ["alias"]` reports `label="A B"
+ * alias="alias"`, and `"A B" {` with `string n` under it reports that entity
+ * carrying that attribute.
+ *
+ * ⚠️ Not anchored on the end of the line — see `RELATIONSHIP_RE` — so the
+ * brace's "must end the line" rule is `readStatements`' to enforce, and it
+ * does.
  */
-const ENTITY_HEAD_RE =
-  /^((?:[\w*.-]|[^\x00-\x7F])+)(?:\s*\[\s*"([^"\r\n]+)"\s*\])?\s*(\{)?$/u;
+const ENTITY_HEAD_RE = new RegExp(
+  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*"([^"\\r\\n]+)"\\s*\\])?(\\s*\\{)?`,
+  "u",
+);
 const ATTRIBUTE_BLOCK_CLOSE = "}";
 
-/** One entity head, as `ENTITY_HEAD_RE` read it. */
+/** One entity head, as `ENTITY_HEAD_RE` read it, and how much it took. */
 interface ErEntityHead {
   name: string;
   alias: string | null;
   opensBlock: boolean;
+  length: number;
 }
 
 /**
- * The entity `line` declares with an alias, a block, or both — or `null`
- * when it declares neither, which is every line a *bare* name already took
- * and every line that is no entity head at all.
+ * The entity at the head of `text`, or `null` when `text` does not begin
+ * with one.
  */
-function readEntityHead(line: string): ErEntityHead | null {
-  const match = ENTITY_HEAD_RE.exec(line);
+function readEntityHead(text: string): ErEntityHead | null {
+  const match = ENTITY_HEAD_RE.exec(text);
   if (match === null) {
     return null;
   }
-  const [, name, alias, brace] = match;
-  if (alias === undefined && brace === undefined) {
+  const [whole, name, alias, brace] = match;
+  // The over-reach guard the name alphabet needs: `-` and `.` are each a
+  // whole name, so the alphabet admits `--`, which Mermaid's lexer reads as
+  // a relationship body and refuses. Quoted, the same characters *are* a
+  // name (measured, `"--"` is an entity), so this only ever asks about the
+  // bare spelling.
+  if (
+    !name.startsWith('"') &&
+    (RELATIONSHIP_BODY_ONLY_RE.test(name) || RESERVED_BARE_NAMES.has(name.toLowerCase()))
+  ) {
     return null;
   }
 
-  return { name, alias: alias ?? null, opensBlock: brace !== undefined };
+  return {
+    name: unquoteName(name),
+    alias: alias ?? null,
+    opensBlock: brace !== undefined,
+    length: whole.length,
+  };
+}
+
+/** Every statement one line declares, read left to right. */
+interface ErLineStatements {
+  /** The entities named, in source order, relationship endpoints included. */
+  entities: ErEntityDecl[];
+  /** The relationships named, in source order. */
+  relationships: ErRelationshipDecl[];
+  /** The entity whose attribute block this line opened, or `null`. */
+  opensBlockOn: ErEntityDecl | null;
+}
+
+/**
+ * Every statement `line` declares, or `null` when any part of it is
+ * unreadable.
+ *
+ * **A line is a stream, not a statement.** Mermaid's grammar is `statements:
+ * statement | statements statement` with no separator of its own, so
+ * `CUSTOMER ORDER LINE-ITEM` is **three** entities (measured) and the
+ * whole-line anchor this reader replaced refused an ordinary document
+ * outright. Three gaps that looked separate are this one construct:
+ * `direction TD` is two entities because no direction rule matches it,
+ * `A ||--o{ B : two words` is a relationship labelled `two` plus an entity
+ * called `words`, and `A B ||--o{ C : x` is a bare `A` before a
+ * relationship between `B` and `C`.
+ *
+ * **A relationship is tried before a name**, because it begins with one: a
+ * name-first reader would take `A` out of `A ||--o{ B : x` and then find
+ * `||--o{ B : x` unreadable.
+ *
+ * All-or-nothing on purpose. A half-read line would put some of its boxes on
+ * the canvas and drop the rest silently; returning `null` costs the document
+ * and says so, which is the trade every refusal in this parser makes.
+ */
+function readStatements(line: string): ErLineStatements | null {
+  const entities: ErEntityDecl[] = [];
+  const relationships: ErRelationshipDecl[] = [];
+  let opensBlockOn: ErEntityDecl | null = null;
+  let rest = line;
+
+  while (rest.length > 0) {
+    const relationship = readRelationship(rest);
+    if (relationship !== null) {
+      // Both endpoints join the one entity list, in the order the line names
+      // them — measured, a relationship declares its entities exactly as a
+      // bare name does and Mermaid's table interleaves the two kinds of
+      // statement in first-mention order. `buildErModel` de-duplicates.
+      entities.push(
+        { name: relationship.decl.left, alias: null, attributes: [] },
+        { name: relationship.decl.right, alias: null, attributes: [] },
+      );
+      relationships.push(relationship.decl);
+      rest = rest.slice(relationship.length).trimStart();
+      continue;
+    }
+
+    const head = readEntityHead(rest);
+    if (head === null) {
+      return null;
+    }
+    const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
+    entities.push(declared);
+    rest = rest.slice(head.length).trimStart();
+
+    if (head.opensBlock) {
+      // **The brace has to end the line.** Mermaid's lexer is freer —
+      // `E { string a }` on one line is a document it draws — and that
+      // spelling stays refused here rather than half-read, which is what
+      // `er-block-one-line` records.
+      if (rest.length > 0) {
+        return null;
+      }
+      opensBlockOn = declared;
+    }
+  }
+
+  return { entities, relationships, opensBlockOn };
 }
 
 /**
@@ -472,22 +751,10 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     // refused by name rather than guessed at. The lookahead is what leaves
     // an entity called `u` — or `usage` — alone; both are ordinary names
     // (measured).
-    pattern: /^(?:[\w*.-]|[^\x00-\x7F])+\s+u(?=[-.|])/u,
+    // Either spelling of the left name, measured: `"A" u--o{ B : x` reports
+    // `leftCard="MD_PARENT"` exactly as the unquoted spelling does.
+    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s+u(?=[-.|])`, "u"),
     name: 'the "u" (MD_PARENT) relationship cardinality',
-  },
-  {
-    // A relationship this parser *can* read, with something written after
-    // its label. Measured, and it is not a longer label: `A ||--o{ B : two
-    // words` reports the role as `two` and then declares a **third entity**
-    // called `words`, because Mermaid's grammar runs several statements on
-    // one line (`A B C` is three entities). Reading the tail as the label
-    // would draw a label Mermaid never draws and lose a box it does.
-    //
-    // Anchored on a whole readable relationship rather than on "a line with
-    // spaces in it", so the quoted spelling — `: "two words"`, measured to
-    // be one role with a space in it — is untouched.
-    pattern: RELATIONSHIP_THEN_MORE_RE,
-    name: "a second statement after a relationship on the same line",
   },
   {
     // The **bracketless** alias, which `ENTITY_ALIAS_RE` deliberately does
@@ -498,7 +765,11 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     // The lookahead is what keeps the quoted spelling out of this table now
     // that it is implemented: a line reaching here opened its brackets on
     // something other than a `"`.
-    pattern: /^(?:[\w*.-]|[^\x00-\x7F])+\s*\[\s*[^"\s]/u,
+    // Either spelling of the name, measured: `"A B"[Unquoted]` reports
+    // `label="A B" alias="Unquoted"`, so a quoted name takes the bracketless
+    // alias too and must be refused by the same name rather than falling
+    // through to the generic message.
+    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s*\\[\\s*[^"\\s]`, "u"),
     name: "an entity alias written without quotes",
   },
 ];
@@ -558,6 +829,23 @@ export function parseErDiagram(source: string): ParseResult {
    * all, as opposed to declaring an empty block.
    */
   let timeline: SirenTimeline | null = null;
+  /**
+   * The screen-reader-only title and description, `null` until a statement
+   * names one. **Last wins** for each, measured rather than assumed:
+   * `accTitle: first` then `accTitle: second`, with `accDescr: one` then
+   * `accDescr: two`, renders a `<title>` reading `second` and a `<desc>`
+   * reading `two` (mermaid 11.17.2). Same rule as `direction` one field up,
+   * and the opposite of the **first**-wins an ER alias takes — three rules
+   * in one parser, each measured on its own construct.
+   */
+  let accTitle: string | null = null;
+  let accDescr: string | null = null;
+  /**
+   * Whether the reader is inside a `accDescr { ... }` block it has already
+   * refused by name. Its body is prose rather than ER, so every line of it
+   * is dropped until the closing brace — see `ACC_DESCR_BRACED_RE`.
+   */
+  let drainingAccDescr = false;
 
   const lines = source.split(/\r\n|\r|\n/);
   for (const [index, rawLine] of lines.entries()) {
@@ -592,6 +880,17 @@ export function parseErDiagram(source: string): ParseResult {
       }
       timeline = { entries };
       break;
+    }
+
+    // Inside a refused `accDescr { ... }`, every line is prose. Read before
+    // the attribute-block reader, which those two can never both be true
+    // for: this block is entered without an `openEntity`, because no entity
+    // was declared for it.
+    if (drainingAccDescr) {
+      if (line === ATTRIBUTE_BLOCK_CLOSE) {
+        drainingAccDescr = false;
+      }
+      continue;
     }
 
     // Inside a block, every line is either its closing brace or attributes.
@@ -637,46 +936,69 @@ export function parseErDiagram(source: string): ParseResult {
       continue;
     }
 
-    // Before the entity patterns, because `direction` is in the entity-name
-    // alphabet: a reader that asked "is this a name?" first would find one
-    // and declare a box for a line that declares none.
-    const namedDirection = DIRECTION_RE.exec(line);
+    // **First of all the statements**, because its rule swallows the line it
+    // is written on and everything already on it. Measured, one probe apiece:
+    // `A ||--o{ B : x direction LR` reports no entity and no relationship,
+    // and `accTitle: direction LR` records no accessible title — so a reader
+    // that asked "is this an accTitle?" or "is this a relationship?" first
+    // would answer a question Mermaid never reaches. See `DIRECTION_RULES`.
+    const namedDirection = readDirection(line);
     if (namedDirection !== null) {
       // Assignment rather than "only if unset" — see `direction` above.
-      direction = namedDirection[1].toUpperCase() as Direction;
+      direction = namedDirection;
       continue;
     }
 
-    if (ENTITY_NAME_RE.test(line) && !RELATIONSHIP_BODY_ONLY_RE.test(line)) {
-      entities.push({ name: line, alias: null, attributes: [] });
+    // Before the entity patterns: `accTitle` and `accDescr` are both
+    // ordinary entity names in this alphabet — measured, a bare `accTitle`
+    // is a box — so the colon is the whole of the boundary, and a reader
+    // asking "is this a name?" first would never see it.
+    const namedAccTitle = ACC_TITLE_RE.exec(line);
+    if (namedAccTitle !== null) {
+      accTitle = namedAccTitle[1].trim();
       continue;
     }
 
-    const relationship = readRelationship(line);
-    if (relationship !== null) {
-      // Both endpoints join the one entity list, in the order the line names
-      // them — measured, a relationship declares its entities exactly as a
-      // bare name does and Mermaid's table interleaves the two kinds of
-      // statement in first-mention order. `buildErModel` de-duplicates.
-      entities.push(
-        { name: relationship.left, alias: null, attributes: [] },
-        { name: relationship.right, alias: null, attributes: [] },
-      );
-      relationships.push(relationship);
+    const namedAccDescr = ACC_DESCR_RE.exec(line);
+    if (namedAccDescr !== null) {
+      accDescr = namedAccDescr[1].trim();
       continue;
     }
 
-    // An alias and an attribute block each declare their entity exactly as a
-    // bare name does (measured), so both enter the same list here — and a
-    // line writing both declares one entity carrying both, which is why they
-    // are read together. A block's body is appended to this very
-    // declaration; see `openEntity`.
-    const head = readEntityHead(line);
-    if (head !== null) {
-      const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
-      entities.push(declared);
-      if (head.opensBlock) {
-        openEntity = declared;
+    // The braced spelling, refused by name here rather than in the table at
+    // the bottom, because `ENTITY_HEAD_RE` below would otherwise claim it —
+    // see `ACC_DESCR_BRACED_RE`.
+    //
+    // The body is then drained to its closing brace rather than read, so the
+    // refusal is **one** diagnostic naming the construct instead of that one
+    // plus a line of prose reported as an unrecognized statement: the
+    // description is text, and telling an author their sentence is malformed
+    // ER says the wrong thing twice over.
+    if (ACC_DESCR_BRACED_RE.test(line)) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          "Unimplemented erDiagram construct: the multi-line `accDescr { ... }` " +
+          `description, in "${line}"`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      drainingAccDescr = true;
+      continue;
+    }
+
+    // Every remaining statement, read left to right across the line — see
+    // `readStatements`. All or nothing: a line it cannot finish reading
+    // contributes none of its boxes rather than some of them.
+    const statements = readStatements(line);
+    if (statements !== null) {
+      entities.push(...statements.entities);
+      relationships.push(...statements.relationships);
+      if (statements.opensBlockOn !== null) {
+        // A block's body is appended to this very declaration; see
+        // `openEntity`.
+        openEntity = statements.opensBlockOn;
         openedAt = { line, lineNumber, column };
       }
       continue;
@@ -722,6 +1044,14 @@ export function parseErDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: ErDocument = { kind: "er", direction, entities, relationships, timeline };
+  const document: ErDocument = {
+    kind: "er",
+    direction,
+    entities,
+    relationships,
+    timeline,
+    accTitle,
+    accDescr,
+  };
   return { document, diagnostics };
 }

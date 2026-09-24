@@ -26,6 +26,8 @@ const model = (...names: string[]): ErModel => ({
   entities: names.map((name) => ({ id: name, label: name, attributes: [] })),
   relationships: [],
   timeline: { totalSteps: 0, entries: [] },
+  accTitle: null,
+  accDescr: null,
 });
 
 /** One entity carrying `attributes`, and nothing else in the diagram. */
@@ -34,6 +36,8 @@ const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel =
   entities: [{ id: name, label: name, attributes }],
   relationships: [],
   timeline: { totalSteps: 0, entries: [] },
+  accTitle: null,
+  accDescr: null,
 });
 
 /**
@@ -73,6 +77,8 @@ const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
   })),
   relationships: [relationship],
   timeline: { totalSteps: 0, entries: [] },
+  accTitle: null,
+  accDescr: null,
 });
 
 const CUSTOMER_PLACES_ORDER: ErModel["relationships"][number] = {
@@ -473,5 +479,19 @@ describe("layoutErDiagram carries the timeline", () => {
     );
 
     expect(laidOut.timeline).toBe(resolved);
+  });
+
+  it("carries the accessible title and description to the positioned diagram", () => {
+    // Neither takes any space on the canvas — measured, the document that
+    // writes both reports the same entity table as the one that writes
+    // neither — so layout has nothing to place and only has to hand them on
+    // to the renderer, which is the one stage that draws them.
+    const laidOut = layoutErDiagram(
+      { ...model("CUSTOMER"), accTitle: "Order book", accDescr: "how orders relate" },
+      options,
+    );
+
+    expect(laidOut.accTitle).toBe("Order book");
+    expect(laidOut.accDescr).toBe("how orders relate");
   });
 });
