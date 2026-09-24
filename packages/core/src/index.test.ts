@@ -7036,13 +7036,20 @@ describe("render() — an ER diagram, end to end", () => {
         );
       }),
     ).toEqual([
-      "CUSTOMER-ORDER: only-one-solid-zero-or-more",
-      "CUSTOMER-ADDRESS: zero-or-one-dashed-zero-or-one",
-      "ORDER-LINE-ITEM: only-one-solid-one-or-more",
-      "LINE-ITEM-PRODUCT: zero-or-more-solid-only-one",
-      "PRODUCT-WAREHOUSE: one-or-more-dashed-one-or-more",
-      "PRODUCT-LINE-ITEM: only-one-solid-zero-or-more",
+      "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      "CUSTOMER:ADDRESS: zero-or-one-dashed-zero-or-one",
+      "ORDER:LINE-ITEM: only-one-solid-one-or-more",
+      "LINE-ITEM:PRODUCT: zero-or-more-solid-only-one",
+      "PRODUCT:WAREHOUSE: one-or-more-dashed-one-or-more",
+      "PRODUCT:LINE-ITEM: only-one-solid-zero-or-more",
     ]);
+
+    // ⚠️ `LINE-ITEM:PRODUCT` is the reason this kind joins with a colon and
+    // the other four keep `-`. Under the old spelling that id was
+    // `LINE-ITEM-PRODUCT`, which is a name `LINE-ITEM-PRODUCT` could have
+    // been declared under — `-` is inside this kind's name alphabet — and
+    // the two elements would have worn one `data-siren-id` with nothing
+    // said. A colon cannot be written in an unquoted ER name at all.
 
     // And the attribute table is drawn, cell by cell, in the columns the
     // entity actually uses — four for `CUSTOMER`, which writes keys and a
@@ -7103,10 +7110,10 @@ describe("render() — an ER diagram, end to end", () => {
     // both kinds an author can address here.
     expect(pendingIds()).toEqual([
       "CUSTOMER",
-      "CUSTOMER-ORDER",
+      "CUSTOMER:ORDER",
       "LINE-ITEM",
       "ORDER",
-      "ORDER-LINE-ITEM",
+      "ORDER:LINE-ITEM",
     ]);
 
     const entity = (id: string) =>
@@ -7116,8 +7123,8 @@ describe("render() — an ER diagram, end to end", () => {
     const customer = entity("CUSTOMER");
     const order = entity("ORDER");
     const lineItem = entity("LINE-ITEM");
-    const places = relationship("CUSTOMER-ORDER");
-    const contains = relationship("ORDER-LINE-ITEM");
+    const places = relationship("CUSTOMER:ORDER");
+    const contains = relationship("ORDER:LINE-ITEM");
 
     // Step 1: an entity enters — under the name its **author** wrote, while
     // its box draws the alias. The two parting is the whole point of
@@ -7166,10 +7173,10 @@ describe("render() — an ER diagram, end to end", () => {
     expect(controller.currentStep).toBe(0);
     expect(pendingIds()).toEqual([
       "CUSTOMER",
-      "CUSTOMER-ORDER",
+      "CUSTOMER:ORDER",
       "LINE-ITEM",
       "ORDER",
-      "ORDER-LINE-ITEM",
+      "ORDER:LINE-ITEM",
     ]);
     expect(places.classList.contains("siren-highlight-glow")).toBe(false);
   });
@@ -7200,7 +7207,7 @@ describe("render() — an ER diagram, end to end", () => {
         renderEr(repeated).result.svg!.querySelectorAll("g.siren-er-relationship"),
       ).map((el) => el.getAttribute("data-siren-id"));
 
-    expect(repeatedIds()).toEqual(["A-B", "A-B#2"]);
-    expect(repeatedIds()).toEqual(["A-B", "A-B#2"]);
+    expect(repeatedIds()).toEqual(["A:B", "A:B#2"]);
+    expect(repeatedIds()).toEqual(["A:B", "A:B#2"]);
   });
 });

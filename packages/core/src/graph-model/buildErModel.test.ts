@@ -189,7 +189,7 @@ describe("buildErModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model.relationships).toEqual([
       {
-        id: "CUSTOMER-ORDER",
+        id: "CUSTOMER:ORDER",
         from: "CUSTOMER",
         to: "ORDER",
         fromCardinality: "onlyOne",
@@ -197,6 +197,42 @@ describe("buildErModel", () => {
         line: "identifying",
         label: "places",
       },
+    ]);
+  });
+
+  it("joins a relationship's two endpoint names with a colon, and counts a repeated pair from #2", () => {
+    // **This kind spells its connector ids `${from}:${to}`, and it is the
+    // only kind that does.** A flowchart edge, a class relationship, a
+    // sequence message and a state transition all keep `${from}-${to}`,
+    // because their authored ids are `\w+` and a hyphen cannot appear in
+    // one. An ER entity name can: measured from Mermaid's own lexer, it is
+    // `([^\x00-\x7F]|\w|-|\*|\.)+`, so `LINE-ITEM` beside `LINE ||--o{ ITEM`
+    // gave a box and a line one `data-siren-id` with no diagnostic at all.
+    //
+    // A colon is the better separator here because it is measured to be
+    // refused everywhere an *unquoted* ER name is read — every one of
+    // `A:B`, `A:B ||--o{ C : has`, `A ||--o{ C:D : has`, `A { str:ing x }`
+    // and `A { string x:y }` is a Mermaid parse error (mermaid 11.17.2, via
+    // `scripts/mermaid-probe.mjs`). It is **not** impossible outright: a
+    // *quoted* name takes one, and `reportIdCollisions` rather than this
+    // spelling is what guards against that. See `ResolvedErRelationship`.
+    //
+    // The `#2` suffix is unchanged and still load-bearing: measured, `A
+    // ||--o{ B : first` and `A }o--|| B : second` report **two**
+    // relationships over the same ordered pair.
+    const { model, diagnostics } = buildErModel(
+      documentRelating(
+        relates("CUSTOMER", "ORDER"),
+        relates("CUSTOMER", "ORDER", { label: "also places" }),
+        relates("ORDER", "LINE-ITEM", { label: "contains" }),
+      ),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.relationships.map((relationship) => relationship.id)).toEqual([
+      "CUSTOMER:ORDER",
+      "CUSTOMER:ORDER#2",
+      "ORDER:LINE-ITEM",
     ]);
   });
 
@@ -246,9 +282,76 @@ describe("buildErModel", () => {
     expect(
       model.relationships.map((r) => [r.id, r.fromCardinality, r.toCardinality]),
     ).toEqual([
-      ["A-B", "onlyOne", "zeroOrMore"],
-      ["A-B#2", "zeroOrMore", "onlyOne"],
+      ["A:B", "onlyOne", "zeroOrMore"],
+      ["A:B#2", "zeroOrMore", "onlyOne"],
     ]);
+  });
+
+  it("warns when two drawn elements would wear one data-siren-id, and still draws both", () => {
+    // **The invariant this kind cannot get from its alphabet, so it checks
+    // for it instead.** Every other kind argues the collision away: an
+    // authored id is `\w+`, a connector joins two of them with `-`, a
+    // generated id carries a colon (ADR-0010), so no two spaces meet. ER
+    // breaks that argument twice over, both measured in mermaid 11.17.2:
+    //
+    // - an unquoted entity name may contain `-`, which is why the connector
+    //   separator moved to `:` above;
+    // - a **quoted** entity name may contain anything at all, colon
+    //   included — `erDiagram / "CUSTOMER:ORDER" ||--|| X : y` parses, and
+    //   so does `erDiagram / "subgraph:1" ||--|| B : y`, which is the id
+    //   `generatedId("subgraph", 1)` mints.
+    //
+    // So the rule is checked against the ids actually minted rather than
+    // argued from which characters can appear. The document below is one
+    // the ER parser cannot produce *today* (its name alphabet has no colon)
+    // and one Mermaid accepts, which is exactly the gap `01M3978B7` opens
+    // when it lands quoted entity names.
+    const document = documentRelating(relates("CUSTOMER", "ORDER"));
+    document.entities.push({ name: "CUSTOMER:ORDER", alias: null, attributes: [] });
+
+    const { model, diagnostics } = buildErModel(document);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'id collision: "CUSTOMER:ORDER" is drawn on an entity and a relationship — a ' +
+          '`timeline:` entry naming it addresses every one of them (ADR-0009)',
+      },
+    ]);
+
+    // **A warning, and nothing is dropped.** A document that collides is one
+    // Mermaid draws, and the absolute compatibility condition says Siren
+    // draws it too; the picture was never the ambiguous part, the target
+    // space was. Both elements are still here, ids and all.
+    expect(model.entities.map((entity) => entity.id)).toEqual([
+      "CUSTOMER",
+      "ORDER",
+      "CUSTOMER:ORDER",
+    ]);
+    expect(model.relationships.map((relationship) => relationship.id)).toEqual([
+      "CUSTOMER:ORDER",
+    ]);
+  });
+
+  it("says nothing when every drawn element's id is its own", () => {
+    // The control the warning above needs: the construct that used to
+    // collide under the `-` spelling. `erDiagram / LINE-ITEM / LINE ||--o{
+    // ITEM : x` gave the box `LINE-ITEM` and the line `LINE-ITEM` one id
+    // with no diagnostic at all — three drawn elements, two of them
+    // indistinguishable to `querySelectorAll`. Under `:` the line is
+    // `LINE:ITEM`, and this asserts the silence is earned rather than the
+    // detector being asleep.
+    const document = documentRelating(relates("LINE", "ITEM", { label: "x" }));
+    document.entities.unshift({ name: "LINE-ITEM", alias: null, attributes: [] });
+
+    const { model, diagnostics } = buildErModel(document);
+
+    expect(diagnostics).toEqual([]);
+    expect([
+      ...model.entities.map((entity) => entity.id),
+      ...model.relationships.map((relationship) => relationship.id),
+    ]).toEqual(["LINE-ITEM", "LINE", "ITEM", "LINE:ITEM"]);
   });
 
   it("carries the document's direction through unchanged", () => {
@@ -289,7 +392,7 @@ describe("buildErModel resolves the timeline", () => {
       withTimeline({
         entries: [
           { kind: "enter", step: 1, targetId: "CUSTOMER", effect: "fade" },
-          { kind: "enter", step: 2, targetId: "CUSTOMER-ORDER", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "CUSTOMER:ORDER", effect: "fade" },
           { kind: "highlight", step: 3, targetId: "ORDER", effect: "outline" },
         ],
       }),
@@ -300,7 +403,7 @@ describe("buildErModel resolves the timeline", () => {
       totalSteps: 3,
       entries: [
         { kind: "enter", step: 1, targetId: "CUSTOMER", effect: "fade" },
-        { kind: "enter", step: 2, targetId: "CUSTOMER-ORDER", effect: "fade" },
+        { kind: "enter", step: 2, targetId: "CUSTOMER:ORDER", effect: "fade" },
         { kind: "highlight", step: 3, targetId: "ORDER", effect: "outline" },
       ],
     });
@@ -342,8 +445,8 @@ describe("buildErModel resolves the timeline", () => {
       {
         severity: "warning",
         message:
-          'timeline: relationship "CUSTOMER-ORDER" remains visible after its endpoint ' +
-          '"CUSTOMER" exits at step 2 — add "exit CUSTOMER-ORDER ..." at or before step 2',
+          'timeline: relationship "CUSTOMER:ORDER" remains visible after its endpoint ' +
+          '"CUSTOMER" exits at step 2 — add "exit CUSTOMER:ORDER ..." at or before step 2',
       },
     ]);
   });
