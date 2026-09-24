@@ -8,6 +8,7 @@ const documentOf = (...names: string[]): ErDocument => ({
   direction: "TB",
   entities: names.map((name) => ({ name, alias: null, attributes: [] })),
   relationships: [],
+  timeline: null,
 });
 
 /**
@@ -42,6 +43,7 @@ const documentRelating = (...relationships: ErRelationshipDecl[]): ErDocument =>
     { name: relationship.right, alias: null, attributes: [] },
   ]),
   relationships,
+  timeline: null,
 });
 
 describe("buildErModel", () => {
@@ -75,6 +77,7 @@ describe("buildErModel", () => {
     // mechanism, different picture.
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      timeline: null,
       direction: "TB",
       entities: [{ name: "CUSTOMER", alias: "Customer Account", attributes: [] }],
       relationships: [],
@@ -101,6 +104,7 @@ describe("buildErModel", () => {
     const first = (...entities: { name: string; alias: string | null }[]) =>
       buildErModel({
         kind: "er",
+        timeline: null,
         direction: "TB",
         entities: entities.map((entity) => ({ ...entity, attributes: [] })),
         relationships: [],
@@ -135,6 +139,7 @@ describe("buildErModel", () => {
     });
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      timeline: null,
       direction: "TB",
       entities: [
         { name: "CUSTOMER", alias: null, attributes: [attribute("a")] },
@@ -202,6 +207,7 @@ describe("buildErModel", () => {
     // the entry already there.
     const { model } = buildErModel({
       kind: "er",
+      timeline: null,
       direction: "TB",
       entities: [
         { name: "ZZZ", alias: null, attributes: [] },
@@ -252,16 +258,93 @@ describe("buildErModel", () => {
     // `LR` leaves `LR` — and the default arrives as `TB` rather than being
     // re-derived here, so there is only one place that decides it.
     const laidOutIn = (direction: ErDocument["direction"]) =>
-      buildErModel({ kind: "er", direction, entities: [], relationships: [] }).model.direction;
+      buildErModel({ kind: "er", direction, entities: [], relationships: [], timeline: null })
+        .model.direction;
 
     expect(laidOutIn("LR")).toBe("LR");
     expect(laidOutIn("BT")).toBe("BT");
     expect(laidOutIn("TB")).toBe("TB");
   });
 
-  it("hands back a timeline with no steps, since this kind reads no timeline block yet", () => {
+  it("hands back a timeline with no steps for a document that opens no block", () => {
     const { model } = buildErModel(documentOf("CUSTOMER"));
 
     expect(model.timeline).toEqual({ totalSteps: 0, entries: [] });
+  });
+});
+
+describe("buildErModel resolves the timeline", () => {
+  /** A document naming `CUSTOMER`, `ORDER` and the relationship between them. */
+  const withTimeline = (timeline: ErDocument["timeline"]): ErDocument => ({
+    ...documentRelating(relates("CUSTOMER", "ORDER")),
+    timeline,
+  });
+
+  it("keeps an entry naming an entity and an entry naming a relationship", () => {
+    // The two kinds of ER timeline target, asserted together because the
+    // question ADR-0009 asks of a new diagram kind is *which ids exist*, and
+    // the answer here is both the boxes and the lines between them — every
+    // one of which `renderErDiagramToSVG` already stamps `data-siren-id` on.
+    const { model, diagnostics } = buildErModel(
+      withTimeline({
+        entries: [
+          { kind: "enter", step: 1, targetId: "CUSTOMER", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "CUSTOMER-ORDER", effect: "fade" },
+          { kind: "highlight", step: 3, targetId: "ORDER", effect: "outline" },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.timeline).toEqual({
+      totalSteps: 3,
+      entries: [
+        { kind: "enter", step: 1, targetId: "CUSTOMER", effect: "fade" },
+        { kind: "enter", step: 2, targetId: "CUSTOMER-ORDER", effect: "fade" },
+        { kind: "highlight", step: 3, targetId: "ORDER", effect: "outline" },
+      ],
+    });
+  });
+
+  it("drops an entry naming an id nothing holds, and says which id", () => {
+    // An attribute is deliberately **not** a target: its cells are drawn
+    // inside the entity's own `<g>` and carry no id of their own, so `email`
+    // below is an unknown id rather than a row that could be animated.
+    const document = withTimeline({
+      entries: [{ kind: "enter", step: 1, targetId: "email", effect: "fade", line: 6, column: 3 }],
+    });
+    document.entities[0].attributes.push({ type: "string", name: "email", keys: [], comment: "" });
+
+    const { model, diagnostics } = buildErModel(document);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'timeline: references unknown id "email"',
+        line: 6,
+        column: 3,
+      },
+    ]);
+    expect(model.timeline.entries).toEqual([]);
+  });
+
+  it("warns when a relationship outlives an entity it joins", () => {
+    // The shared rule, with this kind's own noun: nothing hides a line
+    // because a box it touches went away, so a relationship left drawn from
+    // empty space is the author's to exit.
+    const { diagnostics } = buildErModel(
+      withTimeline({
+        entries: [{ kind: "exit", step: 2, targetId: "CUSTOMER", effect: "fade" }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'timeline: relationship "CUSTOMER-ORDER" remains visible after its endpoint ' +
+          '"CUSTOMER" exits at step 2 — add "exit CUSTOMER-ORDER ..." at or before step 2',
+      },
+    ]);
   });
 });

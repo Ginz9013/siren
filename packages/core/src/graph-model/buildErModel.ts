@@ -1,9 +1,14 @@
 import type {
+  Diagnostic,
   ErDocument,
   ErModelResult,
   ResolvedErEntity,
   ResolvedErRelationship,
 } from "../contracts";
+import {
+  resolveTimeline,
+  warnOnConnectorsOutlivingTheirEndpoints,
+} from "./resolveTimeline";
 
 /**
  * Resolves a parsed `ErDocument` into an `ErModel`: the entities, each named
@@ -18,14 +23,14 @@ import type {
  * `data-siren-id`, which makes a `timeline:` entry naming it ambiguous
  * (ADR-0009).
  *
- * `diagnostics` is empty for every document that reaches here, and the
- * result type still carries it: the shape every builder in this directory
- * has, so `buildGraphModel` folds all five the same way. `model` is
- * non-nullable for the reason `GraphModelResult` records — there is no
- * failure path here, and a nullable payload would be a state no caller can
- * reach.
+ * **And the `timeline:` block, resolved against the ids this stage just
+ * settled.** Only a document that wrote one can produce a diagnostic here;
+ * `model` is still non-nullable for the reason `GraphModelResult` records —
+ * a bad timeline entry costs itself and not the picture, so there is no
+ * failure path and a nullable payload would be a state no caller can reach.
  */
 export function buildErModel(document: ErDocument): ErModelResult {
+  const diagnostics: Diagnostic[] = [];
   const byId = new Map<string, ResolvedErEntity>();
   /**
    * The entities some mention has already given an alias — asked rather than
@@ -75,20 +80,57 @@ export function buildErModel(document: ErDocument): ErModelResult {
     }
   }
 
+  const entities = [...byId.values()];
+  const relationships = assignRelationshipIds(document);
+
+  // **Two kinds of timeline target: an entity and a relationship**, sharing
+  // one id space exactly as a flowchart's nodes and edges do, so the shared
+  // resolver never has to learn which kind of element an id belongs to.
+  //
+  // An entity is named by the id the *author* wrote, which is what an alias
+  // deliberately leaves alone (see `ResolvedErEntity`): renaming a box on
+  // screen must not move the target a `timeline:` entry names.
+  //
+  // An **attribute** is not a target and has no id. Its four cells are drawn
+  // inside the entity's own `<g>` and carry no `data-siren-id` — ADR-0009
+  // makes a target an id, and a row of a table has no identity of its own in
+  // Mermaid's record either (attributes are a plain array on the entity,
+  // keyed by nothing, and `PK,PK` reports two of them). Giving a row an id
+  // would mean minting one from its position, which changes the moment the
+  // author inserts a row above it; the entity that owns it is the stable
+  // thing to animate, and it already is one.
+  const timeline = resolveTimeline(
+    document.timeline,
+    new Set([
+      ...entities.map((entity) => entity.id),
+      ...relationships.map((relationship) => relationship.id),
+    ]),
+    diagnostics,
+  );
+
+  // A relationship is a connector — two ids joined by a drawn line — so the
+  // rule that already covers a flowchart edge, a class relationship, a
+  // sequence message and a state transition covers it, called rather than
+  // copied. Advisory only: nothing is dropped, and an author who gives the
+  // relationship its own `exit` silences it.
+  warnOnConnectorsOutlivingTheirEndpoints(
+    timeline.entries,
+    relationships,
+    "relationship",
+    diagnostics,
+  );
+
   return {
     model: {
       // Straight through: which statement won is the parser's measurement
       // (last wins), and re-deciding it here would be a second answer to a
       // question already settled.
       direction: document.direction,
-      entities: [...byId.values()],
-      relationships: assignRelationshipIds(document),
-      // Empty because this kind reads no `timeline:` block yet, and present
-      // because `render()` builds a controller for every kind — see
-      // `ErModel.timeline`.
-      timeline: { totalSteps: 0, entries: [] },
+      entities,
+      relationships,
+      timeline,
     },
-    diagnostics: [],
+    diagnostics,
   };
 }
 

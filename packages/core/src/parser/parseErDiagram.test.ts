@@ -568,3 +568,94 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(directionOf(inBlock)).toBe("TB");
   });
 });
+
+describe("parseErDiagram reads the timeline block", () => {
+  it("reads `timeline:` and its entries, ending the diagram body there", () => {
+    // ADR-0002 keeps the animation block separate from the structural
+    // definition, and `parseTimelineBlock` is the one grammar every kind
+    // reads it with — so this parser's whole share of the construct is
+    // *where the block starts*, and a fifth copy of the entry grammar would
+    // be a fifth chance for a verb to drift.
+    const document = documentOf(
+      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n\ntimeline:\n  step 1: enter ORDER fade\n",
+    );
+
+    expect(document.timeline).toEqual({
+      entries: [
+        { kind: "enter", step: 1, targetId: "ORDER", effect: "fade", line: 5, column: 3 },
+      ],
+    });
+    // And the body above it is still read: opening the block must not cost
+    // the diagram.
+    expect(document.entities.map((entity) => entity.name)).toEqual(["CUSTOMER", "ORDER"]);
+  });
+
+  it("reports no timeline at all for a document that opens no block", () => {
+    // `null` rather than an empty block, because the two are different
+    // answers and `resolveTimeline` short-circuits on the first — which is
+    // what keeps a document with no animation free of timeline diagnostics.
+    expect(documentOf("erDiagram\n  CUSTOMER\n").timeline).toBeNull();
+  });
+
+  it("costs the whole document when a line inside the block is not a step entry", () => {
+    // The rule every kind keeps: a diagnostic inside the block is an error
+    // like any other, so nothing half-animated reaches the next stage.
+    const { document, diagnostics } = parseErDiagram(
+      "erDiagram\n  CUSTOMER\n\ntimeline:\n  nonsense\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized timeline line: "nonsense"']);
+  });
+
+  it("opens the timeline even while an attribute block is still open, and names the unclosed block", () => {
+    // The ordering claim, and it is the difference between two diagnostics.
+    // The in-block reader runs before every statement pattern because
+    // `string name` is two words; `timeline:` is read *before* it anyway, so
+    // an author who forgot a `}` is told about the brace they forgot rather
+    // than about an "attribute" they never wrote.
+    const { document, diagnostics } = parseErDiagram(
+      "erDiagram\n  CUSTOMER {\n    string name\n\ntimeline:\n  step 1: enter CUSTOMER fade\n",
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Unclosed erDiagram attribute block: "CUSTOMER {"',
+    ]);
+  });
+
+  it("answers a document that opens with `timeline:` with the missing header, not with a timeline", () => {
+    // Before the header there is no diagram to animate, so the header
+    // diagnostic is the one that names the problem. A timeline check running
+    // first would drain the rest of the file and then report an empty
+    // document, pointing at line 1 for a fault on line 1 with the wrong
+    // reason.
+    const { document, diagnostics } = parseErDiagram("timeline:\n  step 1: enter A fade\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Expected "erDiagram", found "timeline:"',
+    ]);
+  });
+
+  it("leaves an entity the author simply called `timeline` alone", () => {
+    // The over-reach control. Measured (mermaid 11.17.2): `timeline` is an
+    // ordinary ER name — `erDiagram / timeline / timeline ||--o{ ORDER : x`
+    // reports an entity called `timeline` and a relationship from it. The
+    // block is opened by `timeline:` and by nothing else (the shared
+    // `TIMELINE_HEADER_RE` is anchored on the whole line, colon included),
+    // so a reader matching the bare word would swallow a box Mermaid draws
+    // **and** silently eat the rest of the document with it.
+    const document = documentOf("erDiagram\n  timeline\n  timeline ||--o{ ORDER : x\n");
+
+    expect(document.entities.map((entity) => entity.name)).toEqual([
+      "timeline",
+      "timeline",
+      "ORDER",
+    ]);
+    expect(document.relationships.map((r) => `${r.left}-${r.right}`)).toEqual([
+      "timeline-ORDER",
+    ]);
+    expect(document.timeline).toBeNull();
+  });
+});

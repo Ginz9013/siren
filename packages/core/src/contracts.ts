@@ -2785,6 +2785,23 @@ export interface ErDocument {
   entities: ErEntityDecl[];
   /** The relationships declared, in source order. */
   relationships: ErRelationshipDecl[];
+  /**
+   * The `timeline:` block as written, or `null` when the document declares
+   * none — the same field, with the same two meanings, that
+   * `FlowchartDocument`, `ClassDocument`, `SequenceDocument` and
+   * `StateDocument` already carry.
+   *
+   * `null` and `{ entries: [] }` are deliberately different answers: the
+   * first says the author wrote no block at all, the second that they opened
+   * one and put no step in it. `resolveTimeline` short-circuits on the
+   * first, which is what keeps a document with no animation free of every
+   * timeline diagnostic.
+   *
+   * Not Mermaid syntax and so nothing here is measured against it: the block
+   * is Siren's own (ADR-0002), read by the one shared grammar
+   * `parseTimelineBlock` rather than by a fifth copy of it.
+   */
+  timeline: SirenTimeline | null;
 }
 
 /**
@@ -2917,7 +2934,23 @@ export interface ResolvedErRelationship {
    * that repeats are real: `A ||--o{ B : first` and `A }o--|| B : second`
    * report **two** relationships, and two elements sharing a
    * `data-siren-id` would make a timeline entry naming it ambiguous
-   * (ADR-0009).
+   * (ADR-0009). Reproducible, too: the id is a function of the source's own
+   * names and order, so two renders of one document mint it identically.
+   *
+   * ⚠️ **In this one diagram kind the `-` convention is not collision-proof,
+   * and it is the only kind where it is not.** ADR-0010's argument that a
+   * connector id cannot spell anything else rests on ids being `\w+`; an ER
+   * entity name is `([^\x00-\x7F]|\w|-|\*|\.)+` (measured from Mermaid's own
+   * lexer), so it may contain `-`. `erDiagram / LINE-ITEM / LINE ||--o{ ITEM
+   * : x` is legal Mermaid and draws, in Siren, an entity and a relationship
+   * **both** wearing `data-siren-id="LINE-ITEM"` — with no diagnostic. The
+   * picture is right; what is ambiguous is a `timeline:` entry naming that
+   * id, which `createAnimationController` applies to every element wearing
+   * it. Minting the id instead (`generatedId`, colon-bearing — and `:` *is*
+   * impossible in an ER name: `erDiagram / A:B` is a Mermaid parse error)
+   * would close it at the cost of the readable spelling every other kind
+   * keeps, so the choice belongs to a ticket of its own rather than to the
+   * one that found it.
    */
   id: string;
   /** The entity at the left-hand end, as the source wrote it. */
@@ -2958,15 +2991,18 @@ export interface ErModel {
   /** The relationships, in source order and each with an id of its own. */
   relationships: ResolvedErRelationship[];
   /**
-   * Always empty today: this kind reads no `timeline:` block yet, so no
-   * document can put a step in it.
+   * The `timeline:` block resolved against this kind's two target kinds —
+   * an **entity**, by the id its author wrote whatever an alias renamed it
+   * to on screen, and a **relationship**, by the id `buildErModel` assigned
+   * it. An **attribute** is neither: its cells are drawn inside the entity's
+   * `<g>` with no `data-siren-id` of their own, so the box that owns a row
+   * is what animates it.
    *
-   * Carried anyway, and not as speculation — `render()` builds an
-   * `AnimationController` for **every** kind (`SirenRenderResult.controller`
-   * is null only when rendering failed), so something has to be handed to
-   * it. A field here rather than an empty literal at that call site is what
-   * keeps the one answer in the one place, the way every other kind's model
-   * already carries this.
+   * `{ totalSteps: 0, entries: [] }` for a document that opened no block,
+   * which is still what `render()` needs: it builds an
+   * `AnimationController` for **every** kind
+   * (`SirenRenderResult.controller` is null only when rendering failed), so
+   * something has to be handed to it either way.
    */
   timeline: ResolvedTimeline;
 }

@@ -1,0 +1,31 @@
+erDiagram
+
+%% A small order book, written with every construct the ER renderer reads.
+
+direction LR
+
+CUSTOMER["Customer Account"] {
+  string id PK "the account number"
+  string name
+  string email UK,FK
+}
+
+ORDER {
+  int number PK
+  string status
+}
+
+LINE-ITEM {
+  int quantity
+  int price
+}
+
+PRODUCT
+WAREHOUSE
+
+CUSTOMER ||--o{ ORDER : places
+CUSTOMER |o..o| ADDRESS : "billed to"
+ORDER ||--|{ LINE-ITEM : contains
+LINE-ITEM }o--|| PRODUCT : names
+PRODUCT }|.-|{ WAREHOUSE : stocked
+PRODUCT one to zero or many LINE-ITEM : "appears in"

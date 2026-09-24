@@ -8,8 +8,10 @@ import type {
   ErRelationshipDecl,
   ErRelationshipLine,
   ParseResult,
+  SirenTimeline,
 } from "../contracts";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
+import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
 /** The headers a diagnostic here names, asked of the one registry that accepts them. */
 const ER_HEADERS = listAcceptedHeaders(["er"]);
@@ -550,6 +552,12 @@ export function parseErDiagram(source: string): ParseResult {
    * repo, which is exactly why this one was measured and not inherited.
    */
   let direction: Direction = "TB";
+  /**
+   * The `timeline:` block, once one has been opened. `null` until then,
+   * which is what tells `buildErModel` the document declares no animation at
+   * all, as opposed to declaring an empty block.
+   */
+  let timeline: SirenTimeline | null = null;
 
   const lines = source.split(/\r\n|\r|\n/);
   for (const [index, rawLine] of lines.entries()) {
@@ -560,6 +568,31 @@ export function parseErDiagram(source: string): ParseResult {
 
     const lineNumber = index + 1;
     const column = rawLine.length - rawLine.trimStart().length + 1;
+
+    // The `timeline:` block ends the diagram body and runs to the end of the
+    // document — the one-way switch every other kind makes, so an ER
+    // statement written after it is a timeline diagnostic rather than
+    // silently parsing as structure. Draining the body is
+    // `parseTimelineBody`'s job; what stays here is where the block starts,
+    // and that a diagnostic inside it costs the whole document.
+    //
+    // ⚠️ Read **after** the header (a document opening with `timeline:` has
+    // no diagram to animate, and the header diagnostic is the one that says
+    // so) and **before** the in-block reader, so `timeline:` written while
+    // an attribute block is still open opens the timeline and leaves the
+    // unclosed block to be reported by name below. The alternative — letting
+    // the in-block reader see it first — answers an author who wrote a
+    // timeline with "Unrecognized erDiagram attribute", which names the
+    // wrong problem.
+    if (sawHeader && isTimelineHeader(line)) {
+      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(lines, index + 1);
+      diagnostics.push(...bodyDiagnostics);
+      if (bodyDiagnostics.length > 0) {
+        sawError = true;
+      }
+      timeline = { entries };
+      break;
+    }
 
     // Inside a block, every line is either its closing brace or attributes.
     // Read before the header check and before every statement pattern,
@@ -689,6 +722,6 @@ export function parseErDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: ErDocument = { kind: "er", direction, entities, relationships };
+  const document: ErDocument = { kind: "er", direction, entities, relationships, timeline };
   return { document, diagnostics };
 }
