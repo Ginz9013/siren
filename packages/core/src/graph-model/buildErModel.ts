@@ -149,6 +149,11 @@ export function buildErModel(document: ErDocument): ErModelResult {
       entities,
       relationships,
       timeline,
+      // Plain text with nothing in the document to resolve it against, so
+      // this stage has nothing to decide — the same straight-through
+      // carriage `GraphModel.accTitle` gets for a flowchart.
+      accTitle: document.accTitle,
+      accDescr: document.accDescr,
     },
     diagnostics,
   };

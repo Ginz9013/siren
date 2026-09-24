@@ -5065,7 +5065,7 @@ line2\`"]`,
     kind: "er",
     source: `erDiagram
       CUSTOMER ORDER LINE-ITEM`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "Mermaid's ER grammar runs several statements on one line: measured, " +
       "`CUSTOMER ORDER LINE-ITEM` reports **three** entities. This is the " +
@@ -5074,18 +5074,33 @@ line2\`"]`,
       "the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally and the " +
       "flowchart's `TD` alias never reaches this grammar. `A ||--o{ B : two " +
       "words` is a relationship whose label is `two` plus a third entity " +
-      "called `words` — which is why `parseErDiagram` refuses that one **by " +
-      "name**. And Mermaid's own direction rule is spelled " +
+      "called `words`. And Mermaid's own direction rule is spelled " +
       "`.*direction\\s+LR[^\\n]*`, so `XX direction LR` sets the direction and " +
-      "swallows the rest of the line, declaring no entity at all. Siren " +
-      "anchors every statement on the whole line, so all four are refused.",
+      "swallows the rest of the line, declaring no entity at all.\n\n" +
+      "Reading a line as a **stream** of statements is what closes all four " +
+      "at once — and what makes `RESERVED_BARE_NAMES` load-bearing: `end`, " +
+      "`subgraph`, `class`, `style` and `classDef` are spelled by the name " +
+      "alphabet but are each a parse error in Mermaid, so a stream that read " +
+      "them as names drew boxes for `er-subgraph` that Mermaid draws no box " +
+      "for.",
+    assert: (result) => {
+      // Three boxes from one line, read off the picture. The id is what
+      // says the line was split rather than swallowed: a single box labelled
+      // "CUSTOMER ORDER LINE-ITEM" would satisfy any assert that only
+      // counted characters.
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+        "LINE-ITEM[LINE-ITEM]",
+      ]);
+    },
   },
   {
     id: "er-entity-name-quoted",
     kind: "er",
     source: `erDiagram
       "Customer Account" ||--o{ ORDER : places`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "A quoted entity name, which is how a name gets a space in it. " +
       "Measured: the entity is keyed on `Customer Account` with the quotes " +
@@ -5094,6 +5109,20 @@ line2\`"]`,
       "construct: an alias leaves the id alone and changes the drawn text, " +
       "while a quoted name changes **both**, which makes the id a string no " +
       "`ENTITY_NAME_RE` alphabet can spell.",
+    assert: (result) => {
+      // Read off the picture as `id[label]`, because the id is the whole of
+      // what parts this construct from the alias one: `er-alias-unquoted`'s
+      // sibling `CUSTOMER["Customer Account"]` draws the very same words and
+      // keeps `data-siren-id="CUSTOMER"`. An assert on the drawn text alone
+      // could not tell the two apart.
+      expectSame("the entities drawn", erEntities(result), [
+        "Customer Account[Customer Account]",
+        "ORDER[ORDER]",
+      ]);
+      expectSame("the relationship drawn", erRelationships(result), [
+        "Customer Account:ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
   },
   {
     id: "er-acc-title",
@@ -5101,14 +5130,32 @@ line2\`"]`,
     source: `erDiagram
       accTitle: Order book
       CUSTOMER ||--o{ ORDER : places`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "The diagram's screen-reader-only title. Measured: `getAccTitle()` " +
       "answers `\"Order book\"` and the entity table is untouched, so it " +
       "draws nothing on the canvas and is a `<title>` on the `<svg>` — the " +
       "same construct `fc-acc-title` and `seq-acc-title` already cover for " +
-      "two other kinds. Unread here, so an ER document that uses it is " +
-      "refused outright rather than losing its accessibility text quietly.",
+      "two other kinds, and real Mermaid wires this kind's root with " +
+      "`aria-labelledby` exactly as it wires a flowchart's.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector("title");
+      if (title === null) throw new Error("no <title> was drawn");
+      expectSame("the accessible title text", title.textContent, "Order book");
+      expectSame(
+        "the root svg is labelled by that title",
+        svg.getAttribute("aria-labelledby"),
+        title.getAttribute("id"),
+      );
+      // Nothing on the canvas: the statement is a box in no picture Mermaid
+      // draws, and the entity table is the same two entries with or without
+      // it (measured).
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+      ]);
+    },
   },
   {
     id: "er-acc-descr",
@@ -5116,13 +5163,64 @@ line2\`"]`,
     source: `erDiagram
       accDescr: how orders relate to customers
       CUSTOMER ||--o{ ORDER : places`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "The screen-reader-only description, `accTitle`'s twin. Measured: " +
       "`getAccDescription()` answers `\"how orders relate to customers\"` and " +
       "nothing else changes. Its own row rather than a line in the one " +
       "above because Mermaid gives it its own statement, its own store and " +
       "its own multi-line `accDescr { ... }` spelling — and `fc-acc-title` " +
-      "and `fc-acc-descr` are already two rows for that reason.",
+      "and `fc-acc-descr` are already two rows for that reason. The braced " +
+      "spelling is still unimplemented, and now refused **by name** rather " +
+      "than read as an entity called `accDescr`.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const desc = svg.querySelector("desc");
+      if (desc === null) throw new Error("no <desc> was drawn");
+      expectSame(
+        "the accessible description text",
+        desc.textContent,
+        "how orders relate to customers",
+      );
+      expectSame(
+        "the root svg is described by that desc",
+        svg.getAttribute("aria-describedby"),
+        desc.getAttribute("id"),
+      );
+      // The twin assertion to `er-acc-title`'s: a document writing only the
+      // description gets only the description, and no `<title>` appears
+      // beside it.
+      expectSame("no accessible title was invented", svg.querySelector("title"), null);
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+      ]);
+    },
+  },
+  {
+    id: "er-acc-descr-multiline",
+    kind: "er",
+    source: `erDiagram
+      accDescr {
+        string x
+      }
+      CUSTOMER`,
+    status: "rejected",
+    meaning:
+      "`accDescr`'s **braced** spelling, the multi-line description. " +
+      "Measured: this document reports exactly one entity, `CUSTOMER` — the " +
+      "block is prose and puts no box on the canvas. `accTitle {` has no " +
+      "such rule and is a *parse error* in Mermaid, so the brace belongs to " +
+      "this word alone.\n\n" +
+      "⚠️ **This row was found while implementing `er-acc-descr`, and it " +
+      "was a silently wrong picture rather than a missing one.** " +
+      "`ENTITY_HEAD_RE` matches `accDescr {` exactly as it matches " +
+      "`CUSTOMER {`, and `string x` is a well-formed attribute, so Siren " +
+      "drew **two** boxes for it — `CUSTOMER`, and an `accDescr` carrying a " +
+      "`string x` row — with no diagnostic of any severity. It hid because " +
+      "a description written in anything but two attribute-shaped words " +
+      "was refused instead. `parseErDiagram` now names it and drains the " +
+      "block, so the body's prose is not reported as malformed ER on top of " +
+      "the refusal.",
   },
 ];

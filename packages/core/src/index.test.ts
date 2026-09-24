@@ -7210,4 +7210,55 @@ describe("render() — an ER diagram, end to end", () => {
     expect(repeatedIds()).toEqual(["A:B", "A:B#2"]);
     expect(repeatedIds()).toEqual(["A:B", "A:B#2"]);
   });
+
+  it("warns when a quoted entity name collides with a relationship id, and still draws both", () => {
+    // **The check `01M3977716` left aimed at this ticket, now reachable from
+    // source for the first time.** A relationship's id is `${from}:${to}`,
+    // and a colon is refused everywhere an *unquoted* ER name is read — but
+    // a quoted one takes anything (measured: `"CUSTOMER:ORDER" ||--|| X : y`
+    // parses and is keyed on exactly that string). So this document mints
+    // `CUSTOMER:ORDER` twice: once for the box, once for the line.
+    //
+    // The whole point of the warning is that it is **not** a refusal.
+    // Mermaid draws this document, so Siren draws it — the picture was never
+    // the ambiguous part. What is ambiguous is a `timeline:` entry naming
+    // the shared id, which `createAnimationController` resolves with
+    // `querySelectorAll` and so applies to every element wearing it
+    // (ADR-0009).
+    const { result } = renderEr(
+      'erDiagram\n  "CUSTOMER:ORDER"\n  CUSTOMER ||--o{ ORDER : places\n',
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'id collision: "CUSTOMER:ORDER" is drawn on an entity and a relationship — a ' +
+          "`timeline:` entry naming it addresses every one of them (ADR-0009)",
+      },
+    ]);
+
+    // Drawn, and drawn whole: three boxes and one line. A refusal here would
+    // be a Mermaid-renders-Siren-doesn't case, which is the thing this
+    // project exists to prevent.
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-er-entity")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["CUSTOMER:ORDER", "CUSTOMER", "ORDER"]);
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-er-relationship")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["CUSTOMER:ORDER"]);
+
+    // And the control: the same document with the quotes taken off the first
+    // line is three separate ids and no warning at all, so the diagnostic is
+    // a fact about the collision rather than about quoted names.
+    const clean = renderEr(
+      "erDiagram\n  CUSTOMER_ORDER\n  CUSTOMER ||--o{ ORDER : places\n",
+    ).result;
+    expect(clean.diagnostics).toEqual([]);
+  });
 });

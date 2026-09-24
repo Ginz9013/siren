@@ -9,6 +9,8 @@ const documentOf = (...names: string[]): ErDocument => ({
   entities: names.map((name) => ({ name, alias: null, attributes: [] })),
   relationships: [],
   timeline: null,
+  accTitle: null,
+  accDescr: null,
 });
 
 /**
@@ -44,6 +46,8 @@ const documentRelating = (...relationships: ErRelationshipDecl[]): ErDocument =>
   ]),
   relationships,
   timeline: null,
+  accTitle: null,
+  accDescr: null,
 });
 
 describe("buildErModel", () => {
@@ -78,6 +82,8 @@ describe("buildErModel", () => {
     const { model, diagnostics } = buildErModel({
       kind: "er",
       timeline: null,
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       entities: [{ name: "CUSTOMER", alias: "Customer Account", attributes: [] }],
       relationships: [],
@@ -105,6 +111,8 @@ describe("buildErModel", () => {
       buildErModel({
         kind: "er",
         timeline: null,
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         entities: entities.map((entity) => ({ ...entity, attributes: [] })),
         relationships: [],
@@ -140,6 +148,8 @@ describe("buildErModel", () => {
     const { model, diagnostics } = buildErModel({
       kind: "er",
       timeline: null,
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       entities: [
         { name: "CUSTOMER", alias: null, attributes: [attribute("a")] },
@@ -244,6 +254,8 @@ describe("buildErModel", () => {
     const { model } = buildErModel({
       kind: "er",
       timeline: null,
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       entities: [
         { name: "ZZZ", alias: null, attributes: [] },
@@ -361,8 +373,15 @@ describe("buildErModel", () => {
     // `LR` leaves `LR` — and the default arrives as `TB` rather than being
     // re-derived here, so there is only one place that decides it.
     const laidOutIn = (direction: ErDocument["direction"]) =>
-      buildErModel({ kind: "er", direction, entities: [], relationships: [], timeline: null })
-        .model.direction;
+      buildErModel({
+        kind: "er",
+        direction,
+        entities: [],
+        relationships: [],
+        timeline: null,
+        accTitle: null,
+        accDescr: null,
+      }).model.direction;
 
     expect(laidOutIn("LR")).toBe("LR");
     expect(laidOutIn("BT")).toBe("BT");
@@ -373,6 +392,29 @@ describe("buildErModel", () => {
     const { model } = buildErModel(documentOf("CUSTOMER"));
 
     expect(model.timeline).toEqual({ totalSteps: 0, entries: [] });
+  });
+
+  it("carries the accessible title and description through untouched", () => {
+    // Plain text with no target to resolve against, so this stage has
+    // nothing to decide about either — the rule `GraphModel.accTitle`
+    // already records for a flowchart. Asserting it here is what stops a
+    // later stage inventing a second answer.
+    const { model, diagnostics } = buildErModel({
+      ...documentOf("CUSTOMER"),
+      accTitle: "Order book",
+      accDescr: "how orders relate to customers",
+    });
+
+    expect(model.accTitle).toBe("Order book");
+    expect(model.accDescr).toBe("how orders relate to customers");
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("leaves both null for a document that wrote neither", () => {
+    const { model } = buildErModel(documentOf("CUSTOMER"));
+
+    expect(model.accTitle).toBeNull();
+    expect(model.accDescr).toBeNull();
   });
 });
 

@@ -76,6 +76,8 @@ describe("buildGraphModel", () => {
         { name: "ORDER", alias: null, attributes: [] },
       ],
       relationships: [],
+      accTitle: null,
+      accDescr: null,
       timeline: null,
     });
 
