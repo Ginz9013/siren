@@ -977,8 +977,25 @@ const SILENTLY_WRONG = 0;
  * drawn SVG, and lower this number by one. The `supported` row that landed
  * beside them — `er-entities` — is not in this count and never was: a
  * construct that arrives already working cannot make a backlog fall.
+ *
+ * **4 → 3: `er-relationship` is drawn.** All four cardinalities in both the
+ * punctuation and the word spelling, both line types, the label, and the
+ * entities a relationship declares along the way — the row now asserts the
+ * drawn SVG end by end, which is what a construct whose two cardinalities
+ * Mermaid reports *crossed over* needs (`cardA` is the marker next to
+ * `entityB`). `silently-wrong` does not move: this was a named refusal, and
+ * what replaced it is a picture the row reads back.
+ *
+ * One piece of it is **not** drawn and is not written down here yet:
+ * Mermaid's fifth cardinality `u` (`MD_PARENT`, `A u--o{ B : x`), which it
+ * parses and then renders with no marker at all on that end.
+ * `parseErDiagram` refuses it by name — it named it as a malformed line
+ * before, so this is strictly better than the state it inherited — but it
+ * has no row of its own, and it needs one. Writing it down would be case (2)
+ * above and would raise this number back to 4, which is why it belongs to a
+ * ticket of its own rather than to the one that lowered it.
  */
-const REJECTED = 4;
+const REJECTED = 3;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

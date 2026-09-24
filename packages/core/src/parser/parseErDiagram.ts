@@ -1,4 +1,12 @@
-import type { Diagnostic, ErDocument, ErEntityDecl, ParseResult } from "../contracts";
+import type {
+  Diagnostic,
+  ErCardinality,
+  ErDocument,
+  ErEntityDecl,
+  ErRelationshipDecl,
+  ErRelationshipLine,
+  ParseResult,
+} from "../contracts";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 
 /** The headers a diagnostic here names, asked of the one registry that accepts them. */
@@ -38,6 +46,169 @@ const ENTITY_NAME_RE = /^(?:[\w*.-]|[^\x00-\x7F])+$/u;
  * `--` for a document Mermaid does not render at all.
  */
 const RELATIONSHIP_BODY_ONLY_RE = /^[-.]{2,}$/;
+
+/**
+ * The entity-name alphabet again, as a source fragment, so the relationship
+ * pattern below reads a name in exactly the language `ENTITY_NAME_RE` does.
+ * Two spellings of one alphabet would be two places for it to drift.
+ */
+const NAME_SOURCE = "(?:[\\w*.-]|[^\\x00-\\x7F])+";
+
+/**
+ * Every spelling of a cardinality, punctuation and words alike, and the
+ * figure each stands for — measured one probe per spelling (mermaid
+ * 11.17.2). The words are a **synonym** rather than a second construct:
+ * `A one to zero or many B : x` reaches the same record as
+ * `A ||--o{ B : x`.
+ *
+ * **Both mirror images of each pair are legal on either side**, measured
+ * rather than assumed: `A o|--o{ B` reports `ZERO_OR_ONE` on the left just
+ * as `A |o--o{ B` does, and `A |{--o{ B` reports `ONE_OR_MORE` just as
+ * `A }|--o{ B` does. So this is one table read from both ends, not a left
+ * table and a right one.
+ *
+ * `u` — Mermaid's fifth cardinality, `MD_PARENT` — is deliberately absent;
+ * see `UNIMPLEMENTED` for what happens to it and why.
+ */
+const CARDINALITY_BY_SPELLING: Readonly<Record<string, ErCardinality>> = {
+  "||": "onlyOne",
+  one: "onlyOne",
+  "only one": "onlyOne",
+  "1": "onlyOne",
+
+  "|o": "zeroOrOne",
+  "o|": "zeroOrOne",
+  "zero or one": "zeroOrOne",
+  "one or zero": "zeroOrOne",
+
+  "}o": "zeroOrMore",
+  "o{": "zeroOrMore",
+  "zero or more": "zeroOrMore",
+  "zero or many": "zeroOrMore",
+  "many(0)": "zeroOrMore",
+  many: "zeroOrMore",
+  "0+": "zeroOrMore",
+
+  "}|": "oneOrMore",
+  "|{": "oneOrMore",
+  "one or more": "oneOrMore",
+  "one or many": "oneOrMore",
+  "many(1)": "oneOrMore",
+  "1+": "oneOrMore",
+};
+
+/**
+ * Every spelling of a relationship body, and the line each draws. Measured:
+ * `--` and `to` report `IDENTIFYING`; `..`, `.-`, `-.` and `optionally to`
+ * report `NON_IDENTIFYING` — six spellings of two values.
+ */
+const LINE_BY_SPELLING: Readonly<Record<string, ErRelationshipLine>> = {
+  "--": "identifying",
+  to: "identifying",
+  "..": "nonIdentifying",
+  ".-": "nonIdentifying",
+  "-.": "nonIdentifying",
+  "optionally to": "nonIdentifying",
+};
+
+/**
+ * One alternation over `spellings`, longest first so `}|` is never read as
+ * `}` plus something and `one or more` is never read as `one`.
+ *
+ * A spelling ending in a word character gets a `\b`, because Mermaid's own
+ * rules do (`one\b`, `to\b`, `many\b`) and its entity-name rule is the
+ * longest match otherwise. That `\b` is what keeps `A oneto 0+ B : x` out:
+ * Mermaid reads `oneto` as one entity name and then has no cardinality, and
+ * without the boundary this would read it as `one` + `to`. The spellings
+ * that end in punctuation — `1+`, `0+`, `many(0)`, `||` — get none, and
+ * that too is measured: `A 1+to 0+ B : x` is a relationship in Mermaid.
+ */
+const alternation = (spellings: readonly string[]): string =>
+  [...spellings]
+    .sort((a, b) => b.length - a.length)
+    .map(
+      (spelling) =>
+        spelling.replace(/[|{}.*+?^$()[\]\\]/g, "\\$&") + (/\w$/.test(spelling) ? "\\b" : ""),
+    )
+    .join("|");
+
+/**
+ * One relationship:
+ * `<entity> <cardinality> <body> <cardinality> <entity> : <label>`, in
+ * either spelling of each of the three middle tokens — **and they mix**,
+ * measured: `A one --o{ B : x` and `A ||.. many B : x` are both
+ * relationships, so each token is chosen independently rather than the line
+ * being in "word mode" or "punctuation mode".
+ *
+ * Whitespace between tokens is `\s*`, because Mermaid's lexer skips it and
+ * needs none: `A||--o{B : x`, `A ||-- o{ B : x` and `A || --o{ B : x` all
+ * report the same relationship as the spaced spelling.
+ *
+ * **The one boundary that is not optional is the left entity's.** `o` is in
+ * the entity-name alphabet, and Mermaid's longest-match lexer swallows it:
+ * measured, `Ao|--o{ B : x` and `Ao{--|| B : x` are both *parse errors*,
+ * because the name comes back `Ao` and what is left is not a cardinality.
+ * A word spelling is swallowed the same way (`Aone--o{ B : x`). So the left
+ * cardinality may be glued to the name only when it starts with `|` or `}`,
+ * neither of which a name can contain — which is exactly what the lookahead
+ * below says. Everything to the right of the body is safe with `\s*`,
+ * because the lexer starts a fresh token after one.
+ *
+ * The label is one token or a quoted string, and that is the boundary
+ * Mermaid draws too — measured, `A ||--o{ B : two words` reports the role
+ * as `two` and then declares a **third entity** called `words`. Reading the
+ * whole tail as the label would draw a label Mermaid does not.
+ */
+const RELATIONSHIP_SOURCE =
+  `^(${NAME_SOURCE})(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
+  `\\s*(${alternation(Object.keys(LINE_BY_SPELLING))})\\s*` +
+  `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${NAME_SOURCE})` +
+  `\\s*:\\s*("[^"\\r\\n]+"|${NAME_SOURCE})`;
+
+const RELATIONSHIP_RE = new RegExp(`${RELATIONSHIP_SOURCE}\\s*$`, "iu");
+
+/**
+ * The same relationship with something *after* its label — Mermaid's next
+ * statement on the same line, which this parser refuses by name rather than
+ * swallowing into the label. See the `UNIMPLEMENTED` entry that uses it.
+ */
+const RELATIONSHIP_THEN_MORE_RE = new RegExp(`${RELATIONSHIP_SOURCE}\\s+\\S`, "iu");
+
+/**
+ * The relationship `line` declares, or `null` when it declares none.
+ *
+ * Returns the whole declaration rather than a boolean so the caller cannot
+ * read the two cardinalities back in the wrong order: `left` and `right`
+ * are the source's own, and Mermaid's crossed `cardA`/`cardB` are never
+ * spoken here (see `ErRelationshipDecl`).
+ */
+function readRelationship(line: string): ErRelationshipDecl | null {
+  const match = RELATIONSHIP_RE.exec(line);
+  if (match === null) {
+    return null;
+  }
+  const [, left, leftMarker, body, rightMarker, right, rawLabel] = match;
+  const label = rawLabel.startsWith('"') ? rawLabel.slice(1, -1) : rawLabel;
+  // Lower-cased for the lookup because Mermaid's lexer rules are all `/i` —
+  // measured, `A ZERO OR ONE to many B : x` reports `ZERO_OR_ONE`, so the
+  // shouted spelling is the same construct and not an entity called `ZERO`.
+  const spelling = (marker: string) => marker.toLowerCase().replace(/\s+/g, " ");
+  // The same over-reach guard the name alphabet needs, for the same reason:
+  // `-` is a whole label on its own (measured, reported as `label="-"`),
+  // and admitting it admits `--`, which Mermaid reads as a relationship
+  // body and refuses ("got 'IDENTIFYING'").
+  if (RELATIONSHIP_BODY_ONLY_RE.test(label)) {
+    return null;
+  }
+  return {
+    left,
+    leftCardinality: CARDINALITY_BY_SPELLING[spelling(leftMarker)],
+    line: LINE_BY_SPELLING[spelling(body)],
+    rightCardinality: CARDINALITY_BY_SPELLING[spelling(rightMarker)],
+    right,
+    label,
+  };
+}
 
 /**
  * The line that opens an entity's attribute block, and the one that closes
@@ -80,27 +251,36 @@ const ATTRIBUTE_BLOCK_CLOSE = "}";
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
   {
-    // Two spellings of one construct, measured to be exactly that: both
-    // `CUSTOMER ||--o{ ORDER : places` and `CUSTOMER one to zero or more
-    // ORDER : places` report `leftCard="ONLY_ONE" relType="IDENTIFYING"
-    // rightCard="ZERO_OR_MORE"`, so the words are a synonym of the
-    // punctuation rather than a second construct.
+    // **Mermaid's fifth cardinality**, and the one this parser does not
+    // draw. Measured: its `Cardinality` enum has five members, the fifth
+    // being `MD_PARENT`, whose lexer rule is `u(?=[.\-|])` — so `u` is a
+    // marker only when a body follows it immediately, which makes it a
+    // *left-hand* spelling and nothing else (`A ||--u B : x` is a parse
+    // error, "got 'UNICODE_TEXT'"). `A u--o{ B : x` renders, and what
+    // Mermaid draws for it is an edge with `marker-end` only and **no
+    // `marker-start` at all**, because `md_parent` names no marker in its
+    // own table.
     //
-    // The punctuation half requires the body (`--`, `..`, `.-`, `-.`) to be
-    // its own whitespace-delimited token, flanked only by cardinality
-    // punctuation. That is what keeps it off `A--B C`, where Mermaid's own
-    // longest-match lexer reads `A--B` as **one entity name** and no
-    // relationship exists to refuse.
-    pattern: /^\S+\s+[|o{}01+]*(?:--|\.\.|\.-|-\.)[|o{}01+]*(?:\s|$)/,
-    name: "a relationship between two entities",
+    // Nothing in the document says what a missing marker means, so it is
+    // refused by name rather than guessed at. The lookahead is what leaves
+    // an entity called `u` — or `usage` — alone; both are ordinary names
+    // (measured).
+    pattern: /^(?:[\w*.-]|[^\x00-\x7F])+\s+u(?=[-.|])/u,
+    name: 'the "u" (MD_PARENT) relationship cardinality',
   },
   {
-    // The word spelling of the same thing. `to` and `optionally to` are the
-    // two identification words (measured), and nothing this parser
-    // implements is more than one token wide, so a multi-token line reaching
-    // here cannot be an entity being shadowed.
-    pattern: /^\S+\s+.*\s(?:optionally\s+)?to\s/i,
-    name: "a relationship between two entities",
+    // A relationship this parser *can* read, with something written after
+    // its label. Measured, and it is not a longer label: `A ||--o{ B : two
+    // words` reports the role as `two` and then declares a **third entity**
+    // called `words`, because Mermaid's grammar runs several statements on
+    // one line (`A B C` is three entities). Reading the tail as the label
+    // would draw a label Mermaid never draws and lose a box it does.
+    //
+    // Anchored on a whole readable relationship rather than on "a line with
+    // spaces in it", so the quoted spelling — `: "two words"`, measured to
+    // be one role with a space in it — is untouched.
+    pattern: RELATIONSHIP_THEN_MORE_RE,
+    name: "a second statement after a relationship on the same line",
   },
   {
     // Measured: `CUSTOMER["Customer Account"]` records **one** entity whose
@@ -149,6 +329,7 @@ function unimplementedIn(line: string): string | null {
 export function parseErDiagram(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
   const entities: ErEntityDecl[] = [];
+  const relationships: ErRelationshipDecl[] = [];
   let sawError = false;
   let sawHeader = false;
   /**
@@ -196,6 +377,17 @@ export function parseErDiagram(source: string): ParseResult {
       continue;
     }
 
+    const relationship = readRelationship(line);
+    if (relationship !== null) {
+      // Both endpoints join the one entity list, in the order the line names
+      // them — measured, a relationship declares its entities exactly as a
+      // bare name does and Mermaid's table interleaves the two kinds of
+      // statement in first-mention order. `buildErModel` de-duplicates.
+      entities.push({ name: relationship.left }, { name: relationship.right });
+      relationships.push(relationship);
+      continue;
+    }
+
     // Refused by name at the line that opens it, and then swallowed whole —
     // see `ATTRIBUTE_BLOCK_OPEN_RE`. Its body is good ER, so the honest
     // count of things wrong with this document is one.
@@ -237,6 +429,6 @@ export function parseErDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: ErDocument = { kind: "er", entities };
+  const document: ErDocument = { kind: "er", entities, relationships };
   return { document, diagnostics };
 }

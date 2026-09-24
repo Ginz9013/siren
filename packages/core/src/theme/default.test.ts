@@ -1099,22 +1099,31 @@ describe("default theme coverage of the state renderer", () => {
 
 /**
  * An ER diagram exercising every class the ER renderer emits: entity boxes,
- * their frames, and their names. Three of them rather than one, and one of
- * them hyphenated, so a rule written against a single box or against a `\w+`
- * name would still be seen here.
+ * their frames, and their names; relationships, their lines, their labels
+ * and all three cardinality glyphs. Three entities rather than one, and one
+ * of them hyphenated, so a rule written against a single box or against a
+ * `\w+` name would still be seen here.
+ *
+ * The two relationships between them cover all four cardinalities and both
+ * line types: `||--o{` is `onlyOne`/`zeroOrMore` on a solid line, `|o..|{`
+ * is `zeroOrOne`/`oneOrMore` on a dashed one. Both are asymmetric, which
+ * matters even here — an unthemed marker is invisible, and a theme test on
+ * a symmetric relationship can be satisfied by half the markers.
  *
  * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`,
  * `EVERY_CLASS_FEATURE` and `EVERY_STATE_FEATURE` are: exhaustive *class*
  * coverage is a different goal from a demo example's, and an example
  * narrowed for the demo's sake must not quietly narrow what the theme is
  * checked against. It is deliberately the whole of what this kind draws
- * today — the tickets that land relationships, attributes and aliases add a
- * figure apiece here and then have to theme what they added.
+ * today — the tickets that land attributes and aliases add a figure apiece
+ * here and then have to theme what they added.
  */
 const EVERY_ER_FEATURE = `erDiagram
 CUSTOMER
 ORDER
 LINE-ITEM
+CUSTOMER ||--o{ ORDER : places
+ORDER |o..|{ LINE-ITEM : contains
 `;
 
 describe("default theme coverage of the ER renderer", () => {
@@ -1145,6 +1154,30 @@ describe("default theme coverage of the ER renderer", () => {
     const shape = group?.querySelector(".siren-er-entity-frame");
     if (group === null || group === undefined || shape === null || shape === undefined) {
       throw new Error("no .siren-er-entity-frame inside .siren-er-entity");
+    }
+
+    const before = getComputedStyle(shape).stroke;
+    group.classList.add("siren-highlight-outline");
+    const after = getComputedStyle(shape).stroke;
+    group.classList.remove("siren-highlight-outline");
+
+    expect(after).not.toBe(before);
+    expect(after).toContain("--siren-highlight-color");
+  });
+
+  it("gives a highlighted relationship the outline effect, not just the glow one", () => {
+    // The entity's own check, one figure over. A relationship is addressable
+    // by id in the rendered SVG (ADR-0009) — `CUSTOMER-ORDER` — so it is this
+    // kind's second timeline target the moment the kind reads a `timeline:`
+    // block, and every outline selector in the theme names some other kind's
+    // classes. Without one of its own, `highlight CUSTOMER-ORDER outline`
+    // would be a step on which nothing visibly happens.
+    const svg = renderThemedSVG(EVERY_ER_FEATURE);
+
+    const group = svg.querySelector("g.siren-er-relationship");
+    const shape = group?.querySelector(".siren-er-relationship-line");
+    if (group === null || group === undefined || shape === null || shape === undefined) {
+      throw new Error("no .siren-er-relationship-line inside .siren-er-relationship");
     }
 
     const before = getComputedStyle(shape).stroke;

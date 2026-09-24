@@ -6927,12 +6927,18 @@ describe("render() — an ER diagram, end to end", () => {
   });
 
   it("refuses each unimplemented construct by name, and draws nothing", () => {
-    // CONTEXT.md's opening policy, end to end: an author reaching for one of
-    // the four constructs this ticket left out is told *which* is missing,
+    // CONTEXT.md's opening policy, end to end: an author reaching for a
+    // construct this kind has not implemented is told *which* is missing,
     // rather than that their document is malformed — and gets no picture,
     // rather than a partial one with the construct drawn away.
+    //
+    // `CUSTOMER ||--o{ ORDER : places` used to head this list and no longer
+    // does: relationships are drawn. What remains of that construct is
+    // Mermaid's fifth cardinality, `u` (`MD_PARENT`) — measured, it parses
+    // and then renders with no marker at all on that end, so nothing in the
+    // document says what it means.
     const cases: [string, string][] = [
-      ["CUSTOMER ||--o{ ORDER : places", "a relationship between two entities"],
+      ["A u--o{ B : x", 'the "u" (MD_PARENT) relationship cardinality'],
       ["CUSTOMER {\n    string name\n  }", "an entity's attribute block"],
       ['CUSTOMER["Customer Account"]', "an entity alias"],
       ["direction LR", 'a document-level "direction" statement'],

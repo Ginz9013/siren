@@ -267,7 +267,8 @@
 .siren-note,
 .siren-state,
 .siren-transition,
-.siren-er-entity {
+.siren-er-entity,
+.siren-er-relationship {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -1146,6 +1147,63 @@
 }
 
 /*
+ * A relationship's line. `fill` is absent for the reason
+ * `.siren-relationship-line`'s is: the renderer writes `fill="none"` onto
+ * the path itself, since the route is an open, multi-segment path a default
+ * fill would paint as a polygon over the entities it joins.
+ *
+ * The dash that tells `--` from `..` is *not* here either, and deliberately:
+ * it is inline on the path, because it is what the document said rather than
+ * what the theme prefers — a consumer redeclaring this rule must not be able
+ * to turn a non-identifying relationship into an identifying one.
+ */
+.siren-er-relationship-line {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * The role written after the colon. The label *names the relationship*
+ * rather than annotating it, so it takes the node text color the way a
+ * class relationship's label does, not `.siren-multiplicity`'s line color.
+ */
+.siren-er-relationship-label {
+  font-size: var(--siren-label-font-size);
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The three glyphs every cardinality marker is built from. All three are
+ * strokes in the line's own color, because all three are parts *of* the
+ * line — measured, Mermaid draws its ER markers with the relationship's
+ * stroke and no fill of their own.
+ *
+ * The bar and the crow's foot must not be filled: the bar is a single open
+ * stroke, and the foot is an open almond that SVG's initial `fill: black`
+ * would paint as a solid blob against the entity box. The renderer writes
+ * `fill="none"` on the foot's path for that reason, and a `<line>` takes no
+ * fill at all.
+ *
+ * The circle is the opposite, and it is the one rule here that changes what
+ * the picture *means*: it is filled with the surface the diagram sits on
+ * rather than left transparent, which is what Mermaid does
+ * (`<circle fill="white">`, `mainBkg` in its newer marker set). Unfilled,
+ * the relationship line runs straight through the middle of the "optional"
+ * circle and it stops reading as a circle at all.
+ */
+.siren-er-cardinality-bar,
+.siren-er-cardinality-crows-foot {
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-er-cardinality-circle {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-edge-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
  * The state diagram's own `outline` rules, for the reason the class
  * diagram's exist one block up: the highlight class lands on a
  * `<g class="siren-state">` whose stroke lives on an inner
@@ -1182,6 +1240,14 @@
  * Without this, `highlight CUSTOMER outline` would be a step on which nothing
  * visibly happens.
  *
+ * `.siren-er-relationship-line` is there on exactly the same terms — an ER
+ * relationship is this kind's second target, addressable under
+ * `CUSTOMER-ORDER`, and its stroke lives on an inner line the way a state
+ * transition's does. Its two cardinality markers are deliberately *not*
+ * named: a `<marker>`'s contents are drawn out of `<defs>`, where the
+ * highlight class on the relationship's `<g>` does not reach them, so a
+ * selector here would be a rule that never matched.
+ *
  * `.siren-state-region` is here on the composite's own terms: a concurrent
  * region is drawn with a frame of its own again, and it is addressable —
  * under the generated id `region:1`, the way a pseudo-state is addressable
@@ -1190,6 +1256,7 @@
  * `highlight region:1 outline` would be a step on which nothing happens.
  */
 .siren-er-entity.siren-highlight-outline .siren-er-entity-frame,
+.siren-er-relationship.siren-highlight-outline .siren-er-relationship-line,
 .siren-state.siren-highlight-outline .siren-state-frame,
 .siren-state.siren-highlight-outline .siren-composite-frame,
 .siren-state.siren-highlight-outline .siren-state-region,
