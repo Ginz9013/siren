@@ -4694,32 +4694,123 @@ line2\`"]`,
     id: "er-alias",
     kind: "er",
     source: `erDiagram
-      CUSTOMER["Customer Account"]`,
-    status: "rejected",
+      CUSTOMER["Customer Account"] {
+        string code
+      }
+      ORDER`,
+    status: "supported",
     meaning:
       "A bracketed quoted string after an entity's name is its alias — the " +
       "text drawn in place of the name. Measured: one entity comes back " +
       "`label=\"CUSTOMER\" alias=\"Customer Account\"`, so the alias sits " +
       "*beside* the name rather than replacing it, and the name stays what " +
-      "addresses the entity. Read and dropped, the box would be titled with " +
-      "the very name the author took care to replace.",
+      "addresses the entity — while `--markup` shows the **box** reading " +
+      "\"Customer Account\". So the alias splits `id` from `label`, which is " +
+      "what keeps a `timeline:` target (ADR-0009 — a target is an id) " +
+      "pointing at the same entity after it is renamed on screen. The alias " +
+      "and an attribute block compose: measured, this very document reports " +
+      "one entity carrying both. ⚠️ **Not a state diagram's `state \"text\" " +
+      "as s`**, which is a *description* recorded beside the id and leaves " +
+      "the drawn name alone — two different mechanisms with two different " +
+      "pictures.",
+    assert: (result) => {
+      // The two halves, read off the picture: `data-siren-id` is still the
+      // authored name and the name row draws the alias. A row asserting
+      // only the text would pass with the id renamed too, which is the
+      // defect that breaks every timeline entry naming this entity.
+      expectSame(
+        "CUSTOMER is addressed by its name and titled with its alias",
+        [
+          erEntities(result).map((entity) => entity.split("[")[0]),
+          texts(result, 'g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-entity-label'),
+        ],
+        [["CUSTOMER", "ORDER"], ["Customer Account"]],
+      );
+      // The un-aliased entity beside it is the control: a renderer drawing
+      // *every* box from some second field would fail here rather than
+      // going unnoticed.
+      expectSame(
+        "ORDER, which wrote no alias, is still titled with its own name",
+        texts(result, 'g.siren-er-entity[data-siren-id="ORDER"] text.siren-er-entity-label'),
+        ["ORDER"],
+      );
+      // And the alias did not cost the entity its table: measured, this
+      // document reports the attribute under the aliased entity.
+      expectSame(
+        "the aliased entity still draws its one attribute row",
+        texts(result, 'g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-attribute'),
+        ["string", "code"],
+      );
+      // The name is drawn inside the box it titles, above the rule that
+      // closes the name row — the alias is longer than the name, so a box
+      // measured against the name it replaced would be too narrow and the
+      // text would spill out of its own frame with no diagnostic anywhere.
+      const box = erEntityRect(result, "CUSTOMER");
+      const anchor = erLabelAnchor(result, "CUSTOMER");
+      expectSame(
+        "the alias is drawn inside CUSTOMER's own box",
+        anchor.x > box.left && anchor.x < box.right && anchor.y > box.top && anchor.y < box.bottom,
+        true,
+      );
+      expectSame(
+        "the two boxes are drawn clear of one another",
+        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        false,
+      );
+    },
   },
   {
     id: "er-direction",
     kind: "er",
     source: `erDiagram
       direction LR
-      CUSTOMER
-      ORDER`,
-    status: "rejected",
+      CUSTOMER ||--o{ ORDER : places`,
+    status: "supported",
     meaning:
       "`direction LR` sets the whole diagram's rank direction. Measured: " +
       "this document reports `LR` where one naming no direction reports " +
       "`TB`, so it genuinely governs the layout. Four spellings and **no " +
       "`TD`** — the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally, so " +
-      "`direction TD` is measured to be two ordinary entities. Refused by " +
-      "name rather than read and dropped: a diagram the author asked to run " +
-      "left to right, drawn top to bottom with nothing said, is exactly the " +
-      "silent mis-render the other ratchet in `corpus.test.ts` counts.",
+      "`direction TD` is measured to be two ordinary entities. ⚠️ **Last " +
+      "wins**, measured rather than derived: `setDirection(dir)` is a plain " +
+      "assignment, so `direction LR` then `direction RL` reports `RL` — the " +
+      "class diagram's rule and the *opposite* of the state diagram's " +
+      "first-wins. Read and dropped, a diagram the author asked to run left " +
+      "to right and got drawn top to bottom is exactly the silent " +
+      "mis-render the other ratchet in `corpus.test.ts` counts: every " +
+      "diagnostic empty, a picture drawn, and only the coordinates " +
+      "disagreeing — which is why this row's assert compares them.",
+    assert: (result) => {
+      const customer = erEntityRect(result, "CUSTOMER");
+      const order = erEntityRect(result, "ORDER");
+
+      // A relationship puts the two entities on consecutive ranks, so the
+      // axis they are separated along *is* the direction. Under `LR` the
+      // second box is clear to the right of the first.
+      expectSame(
+        "ORDER is placed to the right of CUSTOMER, not below it",
+        customer.right <= order.left,
+        true,
+      );
+      // And they share a band of rows, which `TB` cannot produce — this is
+      // the half that fails when a layout pins the direction to its own
+      // default, since the ordering check above would still hold for boxes
+      // stacked on a diagonal.
+      expectSame(
+        "the two boxes overlap vertically, as only a left-to-right rank can",
+        customer.top < order.bottom && order.top < customer.bottom,
+        true,
+      );
+      // The picture is still the picture: both boxes, their names, and the
+      // relationship between them. A "direction" that lost a box would
+      // satisfy every geometric claim above vacuously.
+      expectSame("both entities are drawn, under their own names", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+      ]);
+      expectSame("the relationship is drawn between them", erRelationships(result), [
+        "CUSTOMER-ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
   },
 ];

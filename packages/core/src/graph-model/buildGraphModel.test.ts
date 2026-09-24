@@ -70,9 +70,10 @@ describe("buildGraphModel", () => {
   it("resolves an ER document through buildErModel, tagged kind: \"er\"", () => {
     const { model, diagnostics } = buildEr({
       kind: "er",
+      direction: "TB",
       entities: [
-        { name: "CUSTOMER", attributes: [] },
-        { name: "ORDER", attributes: [] },
+        { name: "CUSTOMER", alias: null, attributes: [] },
+        { name: "ORDER", alias: null, attributes: [] },
       ],
       relationships: [],
     });

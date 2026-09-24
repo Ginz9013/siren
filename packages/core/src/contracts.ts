@@ -2610,12 +2610,12 @@ export interface PositionedStateDiagram {
  * relationships — so a standalone entity is legal ER and draws a box, rather
  * than being an empty diagram waiting for an arrow.
  *
- * One field today, and it is the field an entity is *addressed* by: Mermaid
- * keys its entity table on the name the author wrote, so it is both the id
- * downstream and the text drawn in the box. The alias and the attribute list
- * a later ticket reads join it here rather than replacing it — measured, both
- * are recorded *beside* the name (`label="CUSTOMER" alias="Customer
- * Account"`), not instead of it.
+ * The name is the field an entity is *addressed* by: Mermaid keys its entity
+ * table on the name the author wrote, so it is the id downstream whatever
+ * else the declaration carries. The alias and the attribute list are
+ * recorded *beside* it — measured, `CUSTOMER["Customer Account"]` reports
+ * one entity `label="CUSTOMER" alias="Customer Account"` — not instead of
+ * it.
  */
 export interface ErEntityDecl {
   /**
@@ -2626,6 +2626,35 @@ export interface ErEntityDecl {
    * carry no hyphen.
    */
   name: string;
+  /**
+   * The bracketed quoted string written after the name —
+   * `CUSTOMER["Customer Account"]` — or `null` when this mention wrote
+   * none.
+   *
+   * **Beside the name, not instead of it**, and that is the whole point of
+   * the field: measured (mermaid 11.17.2), the entity comes back
+   * `label="CUSTOMER" alias="Customer Account"`, keyed on `CUSTOMER`. What
+   * the *box* draws is the alias — measured with `--markup`, the name row
+   * of `CUSTOMER["Customer Account"]` reads "Customer Account" — so the two
+   * part company exactly where `ResolvedErEntity`'s `id` and `label` do.
+   *
+   * ⚠️ **Not a description, however much a state diagram's `state "text" as
+   * s` looks like it.** Measured one kind over, that one writes into the
+   * state's `descriptions` and is drawn *under* the id; this replaces the
+   * drawn name outright. Two different mechanisms with two different
+   * pictures.
+   *
+   * Nullable rather than `""`, because Mermaid's own empty is not reachable:
+   * `A[""]` is a **parse error** ("Expecting 'UNICODE_TEXT', ... got
+   * 'WORD'"), so an empty string here could only ever mean "none", and a
+   * field with two spellings of one state is a field two readers will
+   * disagree about.
+   *
+   * Per mention, like `attributes`: an entity may be named several times and
+   * only one of those mentions carry an alias. Which one wins is
+   * `buildErModel`'s — measured, the **first non-empty** one does.
+   */
+  alias: string | null;
   /**
    * The attributes this *mention* of the entity declared, in source order —
    * empty for a bare name and for either end of a relationship.
@@ -2707,14 +2736,40 @@ export interface ErAttribute {
  * ends at the `\b`, and the trailing `-v2` is read as an **entity named
  * `-v2`** beside whatever else the document declares.
  *
- * No `direction` field: `direction LR` is valid ER (measured — it reports
- * `LR` where a document naming none reports `TB`) and is deliberately
- * refused by name until the ticket that draws it, rather than read and
- * dropped. It joins here then, the way `StateDocument.direction` sits beside
- * its states.
  */
 export interface ErDocument {
   kind: "er";
+  /**
+   * The whole diagram's rank direction: the `direction LR` (or
+   * `TB`/`BT`/`RL`) the author wrote, or `TB` when they wrote none.
+   *
+   * Non-null, the way `ClassDocument.direction` and
+   * `StateDocument.direction` are: measured, Mermaid's ER database
+   * initializes `this.direction = "TB"` and `getDirection()` returns it, so
+   * "the author named none" is not a third answer downstream could do
+   * anything with.
+   *
+   * ⚠️ **Last wins, and this had to be measured because the two kinds
+   * already here disagree.** `direction LR` then `direction RL` reports
+   * `RL`, and the reverse pair reports `LR` (mermaid 11.17.2): its
+   * `setDirection(dir)` is a plain assignment, so every statement overwrites
+   * the one before. That is `ClassDocument.direction`'s rule and the
+   * **opposite** of `StateDocument.direction`'s first-wins, which answers
+   * `getDirection()` with `rootDoc.find((doc) => doc.stmt === "dir")`.
+   * Deriving this from either would have drawn one of the two documents the
+   * wrong way round.
+   *
+   * Position on the page does not matter: a `direction` written after the
+   * first relationship governs just the same (measured).
+   *
+   * ⚠️ **Four spellings and `TD` is not one of them.** Mermaid's ER lexer
+   * writes `TB`/`BT`/`RL`/`LR` out literally and the flowchart's `TD` alias
+   * does not reach this grammar — measured, `direction TD` is **two
+   * entities**, `direction` and `TD`. So the `TD` normalization
+   * `Direction`'s own doc describes belongs to the kinds that accept it, and
+   * not to this one.
+   */
+  direction: Direction;
   /**
    * The entities declared, in source order — by a bare name on a line of its
    * own **and** by either end of a relationship, interleaved.
@@ -2883,6 +2938,14 @@ export interface ResolvedErRelationship {
  * resolved timeline.
  */
 export interface ErModel {
+  /**
+   * The whole diagram's rank direction, carried straight through from
+   * `ErDocument.direction` — `TB` unless the author named one. Non-null for
+   * the reason that field gives, and `layoutErDiagram` hands it to
+   * `layoutDirectedGraph` as `rankdir` with nothing to map, since the four
+   * values are dagre's own.
+   */
+  direction: Direction;
   /**
    * The entities, in the order they were first named and **once each**.
    * Measured: `CUSTOMER / ORDER / CUSTOMER` reports two entities with

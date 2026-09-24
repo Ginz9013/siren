@@ -29,17 +29,6 @@ const ENTITY_PADDING_X = 14;
 const ENTITY_PADDING_Y = 8;
 
 /**
- * The direction an ER diagram ranks in, until `direction` is implemented.
- *
- * Measured: a document naming no `direction` reports `TB`, which is also
- * what `erDiagram` alone reports. `direction LR` is refused by name by
- * `parseErDiagram` until the ticket that draws it, so no document reaching
- * here asks for anything else — and when one can, this becomes a field on
- * the model the way `StateModel.direction` already is.
- */
-const DEFAULT_RANKDIR = "TB";
-
-/**
  * The four columns of an attribute table, in the order Mermaid draws them
  * and paired with the text each one takes from an attribute.
  *
@@ -194,7 +183,15 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   );
 
   const laidOut = layoutDirectedGraph({
-    rankdir: DEFAULT_RANKDIR,
+    // The document's own rank direction — `TB` unless the author wrote a
+    // `direction`, which is the default measured against mermaid 11.17.2.
+    // The four values are dagre's own, so there is nothing to map.
+    //
+    // A direction read by the parser and dropped here would be **silent**:
+    // no diagnostic is missing, a picture is still drawn, and only where the
+    // boxes landed says the author was disobeyed. That is why the test for
+    // this compares coordinates rather than counting diagnostics.
+    rankdir: model.direction,
     nodes: model.entities.map((entity) => {
       const plan = planById.get(entity.id)!;
       return { id: entity.id, width: plan.width, height: plan.height };
