@@ -230,6 +230,83 @@ function statesIn(doc) {
   );
 }
 
+/**
+ * The shape of one getter's answer, in a few characters.
+ *
+ * A shape and never the value: the question this is answering is only "does
+ * this getter hold the document", and the reader about to be written is what
+ * prints the contents properly. `getConfig()` alone would bury the hint.
+ */
+function summarizeValue(value) {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `array(${value.length})`;
+  if (value instanceof Map) return `Map(${value.size})`;
+  if (value instanceof Set) return `Set(${value.size})`;
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    const shown = keys.length > 6 ? `${keys.slice(0, 6).join(", ")}, … (${keys.length} keys)` : keys.join(", ");
+    return `object{${shown}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Every getter a diagram database answers, each with what it returned for the
+ * document just probed. The whole content of the "no reader for diagram type"
+ * hint, and the only thing the next person adding a reader has to go on.
+ *
+ * **Mermaid keeps these getters on the database's class prototype, and
+ * `Object.keys` reports own properties only — so `Object.keys(db)` finds none
+ * of them.** That is not a hypothetical: measured on Mermaid 11.17.2, an ER
+ * database's own keys are `getAccTitle, getAccDescription, getDiagramTitle,
+ * getConfig` — four pieces of boilerplate — while `getEntities`,
+ * `getRelationships`, `getClasses` and `getDirection` all sit on
+ * `ErDB.prototype`. Requirement, architecture, treemap and all four of
+ * flowchart/sequence/state/class are the same shape. **Do not reduce this back
+ * to `Object.keys`.** The ER board lost time to exactly that: the hint printed
+ * a list with no getter in it, and the real API had to be found by walking the
+ * prototype by hand.
+ *
+ * The reason the broken version looked plausible is worth recording too. A
+ * handful of older kinds — journey, gantt, pie, sankey, gitGraph, timeline,
+ * c4, block, xychart, quadrantChart, radar — still build their database as a
+ * plain object literal, where the getters *are* own properties, so `Object.keys`
+ * appears to work if that is what you test against. Both sources are read here
+ * every time; the prototype is not a fallback. One level of it is enough:
+ * measured across all twenty-one kinds Mermaid 11.17.2 parses, every database
+ * is either a plain object or a class extending nothing, so the chain is never
+ * deeper than `db -> XxxDB.prototype -> Object.prototype`.
+ *
+ * Each getter is **called**, because the names alone are the weak half of the
+ * hint. A requirement diagram answers twelve of them and only three carry the
+ * document; annotated, `getRequirements() -> Map(1)` stands out from
+ * `getAccTitle() -> ""` at a glance, and that is the whole job. Several take
+ * arguments (`getEntity`, `getNode`) or throw when called bare
+ * (`getCompiledStyles`); the throw is printed as-is, since "this one needs
+ * arguments" is also an answer.
+ *
+ * Calling them is safe from this branch: it is the end of the parse report,
+ * and `--paint`/`--markup` hand the *source text* back to Mermaid, which
+ * parses it into a fresh database rather than reusing this one.
+ */
+function getterHints(db) {
+  const names = [
+    ...new Set([
+      ...Object.keys(db),
+      ...Object.getOwnPropertyNames(Object.getPrototypeOf(db) ?? {}),
+    ]),
+  ].filter((name) => typeof db[name] === "function" && name.startsWith("get"));
+  if (names.length === 0) return ["(this database answers no getter at all)"];
+  return names.map((name) => {
+    try {
+      return `${name}() -> ${summarizeValue(db[name]())}`;
+    } catch (error) {
+      return `${name}() -> throws: ${String(error.message).split("\n")[0]}`;
+    }
+  });
+}
+
 function report(type, db) {
   if (typeof db.getVertices === "function") {
     section(
@@ -425,10 +502,10 @@ function report(type, db) {
   }
 
   console.log(`\n## no reader for diagram type ${JSON.stringify(type)}`);
-  console.log("  Add one above — the database's own getters are:");
-  console.log(
-    `  ${Object.keys(db).filter((key) => typeof db[key] === "function").join(", ")}`,
-  );
+  console.log("  Add one above. Every getter this database answers, and what each");
+  console.log("  returned for the document probed above — the ones holding something");
+  console.log("  are the ones your reader wants:");
+  for (const line of getterHints(db)) console.log(`    ${line}`);
 }
 
 /**
