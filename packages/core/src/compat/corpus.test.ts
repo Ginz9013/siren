@@ -1097,8 +1097,52 @@ const SILENTLY_WRONG = 0;
  * row went from a refusal to a silent mis-render and back inside one ticket,
  * which is the argument for a corpus that runs every construct on every
  * change rather than only the one being worked on.
+ *
+ * **10 → 7: the attribute block's three are drawn, by implementation.** The
+ * plainest kind of fall — three rows moved from `rejected` to `supported`,
+ * nothing rose to meet them, `silently-wrong` stays 0, and each row's assert
+ * now reads the picture back cell by cell instead of naming what is missing.
+ *
+ * Two of the three were tokenizer rules restored to Mermaid's own order, and
+ * the pair is worth keeping side by side because they are **opposites**:
+ * `er-attribute-generic` keeps its delimiters (`list~int~` is drawn tildes
+ * and all, since the rule's action returns the whole match as one word),
+ * while `er-attribute-backtick` loses its own (the backticks emit no token
+ * at all, so `` `odd name` `` draws as `odd name`). A reader that treated
+ * "quoting" as one idea would get one of them wrong, silently, and the
+ * picture is the only place it would show.
+ *
+ * `er-block-one-line` was **not** the third tokenizer rule, and that is the
+ * measurement this ticket turned on. `E { string a }` is not a one-line
+ * spelling of a block: a brace is a lexer **condition switch**, so `{` and
+ * `}` sit *inside* the statement stream `er-statements-one-line` already
+ * records, and a newline is insignificant on both sides of them. Measured,
+ * the mode changes mid-line in both directions — `A B { string a }` puts the
+ * attribute on `B`, `E { string a } F` is a filled block and then a bare
+ * entity, and a block may open mid-line and close two lines later. So the
+ * fix was to track the mode across the line rather than to add a pattern,
+ * and it closed three spellings nobody had written a row for along with the
+ * one that had one.
+ *
+ * One construct was measured here and deliberately **not** implemented:
+ * Mermaid's `` [^`]+ `` matches a newline, so a backticked word may span
+ * lines — `` string `a `` over `` b` `` is one attribute named
+ * `` a\n    b ``. Siren refuses both halves, honestly and with no picture,
+ * and `parseErDiagram`'s rule table says so.
+ *
+ * **It has a row now: `er-attribute-backtick-multiline`, which is why this
+ * literal is 8 and not 7.** That is case (2) — an id that was not in this
+ * file before, naming a gap that already existed. The implementing ticket
+ * measured it and proposed leaving it unwritten so the number could fall
+ * cleanly; the number falling cleanly is not what the number is for. On
+ * this project a count that only ever went down has turned out to be an
+ * undercount four times — `fc-subgraph-self-edge`, the NaN cluster,
+ * `state X`, and `accDescr { }` — and every one of them was found by
+ * widening what gets named, never by tightening a ratchet. So the ticket
+ * moved three rows down and this one row up, and the arithmetic says so out
+ * loud: 10 − 3 + 1.
  */
-const REJECTED = 10;
+const REJECTED = 8;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
