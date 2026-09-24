@@ -2648,8 +2648,97 @@ export interface ErEntityDecl {
  */
 export interface ErDocument {
   kind: "er";
-  /** The entities declared, in source order. */
+  /**
+   * The entities declared, in source order — by a bare name on a line of its
+   * own **and** by either end of a relationship, interleaved.
+   *
+   * One list rather than two, and that is measured rather than tidy:
+   * `erDiagram / ZZZ / A ||--o{ B : first / B / A` reports three entities in
+   * the order `ZZZ`, `A`, `B`, so Mermaid's table is in first-mention order
+   * across *both* kinds of statement. Keeping relationship endpoints in
+   * `relationships` alone would leave nothing able to say that `ZZZ` came
+   * before `A` and after nothing. De-duplication is still `buildErModel`'s,
+   * so a name appears here once per mention.
+   */
   entities: ErEntityDecl[];
+  /** The relationships declared, in source order. */
+  relationships: ErRelationshipDecl[];
+}
+
+/**
+ * How many of one entity take part at one end of a relationship.
+ *
+ * Four values, and a fifth that is deliberately absent. Mermaid's
+ * `Cardinality` enum (11.17.2) has five members — `ONLY_ONE`,
+ * `ZERO_OR_ONE`, `ONE_OR_MORE`, `ZERO_OR_MORE` and `MD_PARENT`, the last
+ * spelled `u` (`A u--o{ B : x`, measured: it parses, and Mermaid then draws
+ * **no marker at all** on that end). Since nothing in the document says what
+ * a missing marker means, `u` is refused by name in `parseErDiagram` rather
+ * than guessed at, and it is not in this union.
+ *
+ * Each value is one *figure*, measured from Mermaid's own marker defs and
+ * decomposing cleanly into two glyphs — the one touching the entity box and
+ * the one further out along the line:
+ *
+ * | value | inner glyph | outer glyph |
+ * | --- | --- | --- |
+ * | `onlyOne` | bar | bar |
+ * | `zeroOrOne` | bar | circle |
+ * | `oneOrMore` | crow's foot | bar |
+ * | `zeroOrMore` | crow's foot | circle |
+ *
+ * So the inner glyph says *one or many* and the outer says *mandatory or
+ * optional* — which is the classic crow's-foot reading, and it is what the
+ * renderer builds its four markers out of.
+ */
+export type ErCardinality = "onlyOne" | "zeroOrOne" | "oneOrMore" | "zeroOrMore";
+
+/**
+ * Which of the two lines a relationship is drawn with. Measured: `--` is
+ * Mermaid's `IDENTIFYING` and each of `..`, `.-` and `-.` is
+ * `NON_IDENTIFYING` — three spellings of one value, not three values — and
+ * the word forms agree (`to` identifying, `optionally to` not). Mermaid
+ * draws the second with `stroke-dasharray: 8,8`.
+ */
+export type ErRelationshipLine = "identifying" | "nonIdentifying";
+
+/**
+ * One relationship as the author wrote it, described **left to right in the
+ * source's own order**.
+ *
+ * ⚠️ **Mermaid's own record of this is crossed over, and these field names
+ * deliberately are not.** Measured (mermaid 11.17.2,
+ * `scripts/mermaid-probe.mjs`), `CUSTOMER ||--o{ ORDER : places` reports
+ * `cardA="ZERO_OR_MORE" cardB="ONLY_ONE"` — `cardA` is the marker written
+ * next to `entityB`, and `cardB` the one next to `entityA`. (Mermaid's
+ * *picture* is right: its renderer reads `arrowTypeStart` out of `cardB`,
+ * undoing the swap.) `leftCardinality` here means the marker next to
+ * `left`, with nothing to undo, because a field whose name says the
+ * opposite of what it holds draws every relationship backwards exactly once
+ * and then looks fine.
+ *
+ * Three of the sixteen cardinality pairs are symmetric — `||--||`,
+ * `}|--|{`, `|o--o|` — so a test written on one of them passes with the
+ * sides swapped. Every test and every corpus row for this construct uses an
+ * asymmetric pair for that reason.
+ */
+export interface ErRelationshipDecl {
+  /** The entity named first on the line. */
+  left: string;
+  /** The marker written next to `left` — **not** Mermaid's `cardA`. */
+  leftCardinality: ErCardinality;
+  line: ErRelationshipLine;
+  /** The marker written next to `right` — **not** Mermaid's `cardB`. */
+  rightCardinality: ErCardinality;
+  /** The entity named second on the line. */
+  right: string;
+  /**
+   * The text after the colon. **Required**, measured rather than assumed:
+   * `CUSTOMER ||--o{ ORDER` with no colon is a Mermaid parse error
+   * ("Expecting 'COLON', 'STYLE_SEPARATOR', got 'NEWLINE'"), so there is no
+   * such thing as an unlabelled ER relationship and this is not nullable.
+   */
+  label: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -2678,8 +2767,41 @@ export interface ResolvedErEntity {
 }
 
 /**
+ * A relationship after model resolution: an id of its own, its two
+ * endpoints, and the marker drawn at **each** of them.
+ *
+ * `from`/`to` are the source's left and right, and `fromCardinality` is the
+ * marker drawn against `from`. Mermaid's own record crosses those two —
+ * see `ErRelationshipDecl` for the measurement — and the crossing is undone
+ * once, in the parser, so that nothing downstream has to remember it.
+ */
+export interface ResolvedErRelationship {
+  /**
+   * `${from}-${to}`, then `#2`, `#3`, ... for repeats of the same ordered
+   * pair — the convention a flowchart edge and a class relationship already
+   * follow, so one `timeline:` vocabulary addresses all of them. Measured
+   * that repeats are real: `A ||--o{ B : first` and `A }o--|| B : second`
+   * report **two** relationships, and two elements sharing a
+   * `data-siren-id` would make a timeline entry naming it ambiguous
+   * (ADR-0009).
+   */
+  id: string;
+  /** The entity at the left-hand end, as the source wrote it. */
+  from: string;
+  /** The entity at the right-hand end. */
+  to: string;
+  /** The marker drawn against `from`. */
+  fromCardinality: ErCardinality;
+  /** The marker drawn against `to`. */
+  toCardinality: ErCardinality;
+  line: ErRelationshipLine;
+  label: string;
+}
+
+/**
  * The normalized in-memory ER diagram produced by `buildErModel`: the
- * entities, de-duplicated, and the resolved timeline.
+ * entities, de-duplicated, the relationships with their ids, and the
+ * resolved timeline.
  */
 export interface ErModel {
   /**
@@ -2691,6 +2813,8 @@ export interface ErModel {
    * is a rule the model owes rather than a tidy-up.
    */
   entities: ResolvedErEntity[];
+  /** The relationships, in source order and each with an id of its own. */
+  relationships: ResolvedErRelationship[];
   /**
    * Always empty today: this kind reads no `timeline:` block yet, so no
    * document can put a step in it.
@@ -2742,11 +2866,39 @@ export interface PositionedErEntity {
 }
 
 /**
- * The ER diagram after layout: positioned entities plus the resolved
- * timeline, ready for `renderErDiagramToSVG`.
+ * A relationship with a route. `points` runs **from `from` to `to`** — the
+ * source's own left-to-right order — so the renderer hangs
+ * `fromCardinality` on `marker-start` and `toCardinality` on `marker-end`
+ * with nothing to reverse. Reversing the route somewhere in here and the
+ * markers somewhere else would cancel out on the three symmetric
+ * cardinality pairs and draw every other relationship backwards.
+ */
+export interface PositionedErRelationship {
+  id: string;
+  from: string;
+  to: string;
+  fromCardinality: ErCardinality;
+  toCardinality: ErCardinality;
+  line: ErRelationshipLine;
+  label: string;
+  points: Point[];
+  /**
+   * Centre of the space the layout kept clear for the label, or `null` when
+   * the shared layout core reserved none. Nullable on the same terms as
+   * `PositionedClassRelationship.labelAnchor`, rather than because an ER
+   * relationship can be unlabelled — measured, it cannot be.
+   */
+  labelAnchor: Point | null;
+}
+
+/**
+ * The ER diagram after layout: positioned entities and routed
+ * relationships plus the resolved timeline, ready for
+ * `renderErDiagramToSVG`.
  */
 export interface PositionedErDiagram {
   entities: PositionedErEntity[];
+  relationships: PositionedErRelationship[];
   timeline: ResolvedTimeline;
   width: number;
   height: number;

@@ -3,6 +3,7 @@ import type {
   LayoutOptions,
   PositionedErDiagram,
   PositionedErEntity,
+  PositionedErRelationship,
 } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
@@ -35,15 +36,22 @@ const ENTITY_PADDING_Y = 8;
 const DEFAULT_RANKDIR = "TB";
 
 /**
- * Places an `ErModel`'s entities and reports the diagram's bounds.
+ * Places an `ErModel`'s entities, routes its relationships, and reports the
+ * diagram's bounds.
  *
- * **Through the shared layout core, with no edges at all.** That looks like
- * a roundabout way to lay boxes out in a row, and it is the arrangement
- * Mermaid produces: measured with `--markup`, `erDiagram / CUSTOMER / ORDER`
- * draws the two at `translate(28, 18)` and `translate(208, 18)` — the same
- * y, side by side — because nothing joins them and they share a rank. Laying
- * them out here by hand would reproduce that for this document and then have
- * to grow a second layout engine for the one relationships land in.
+ * **Through the shared layout core.** Measured with `--markup`,
+ * `erDiagram / CUSTOMER / ORDER` draws the two unrelated boxes at
+ * `translate(28, 18)` and `translate(208, 18)` — the same y, side by side,
+ * because nothing joins them and they share a rank — and a relationship
+ * puts them on consecutive ranks instead. That is what a ranked graph
+ * layout produces, so this asks for one rather than growing a second engine
+ * beside `layoutDirectedGraph`.
+ *
+ * **Every route runs from the relationship's `from` to its `to`**, which is
+ * the source's own left-to-right order, and the two cardinalities travel
+ * with their own ends. Mermaid's record of the pair is crossed (see
+ * `ErRelationshipDecl`); the parser undid it once, and nothing here undoes
+ * it again.
  */
 export function layoutErDiagram(model: ErModel, options: LayoutOptions): PositionedErDiagram {
   const sizeById = new Map(
@@ -65,10 +73,19 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       id: entity.id,
       ...sizeById.get(entity.id)!,
     })),
-    edges: [],
+    edges: model.relationships.map((relationship) => ({
+      id: relationship.id,
+      from: relationship.from,
+      to: relationship.to,
+      // Every ER relationship carries a label — measured, the `: label` is
+      // required — so the core is always asked to hold the ranks apart for
+      // one, and it reports back where that space ended up.
+      label: options.measureText.measure(relationship.label),
+    })),
   });
 
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
   const entities: PositionedErEntity[] = model.entities.map((entity) => {
     const box = boxById.get(entity.id)!;
     return {
@@ -81,8 +98,26 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     };
   });
 
+  const relationships: PositionedErRelationship[] = model.relationships.map(
+    (relationship) => {
+      const route = routeById.get(relationship.id)!;
+      return {
+        id: relationship.id,
+        from: relationship.from,
+        to: relationship.to,
+        fromCardinality: relationship.fromCardinality,
+        toCardinality: relationship.toCardinality,
+        line: relationship.line,
+        label: relationship.label,
+        points: route.points,
+        labelAnchor: route.labelAnchor ?? null,
+      };
+    },
+  );
+
   return {
     entities,
+    relationships,
     timeline: model.timeline,
     width: laidOut.width,
     height: laidOut.height,

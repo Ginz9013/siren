@@ -940,6 +940,75 @@ function erEntityRect(
   };
 }
 
+/**
+ * Every ER relationship as
+ * `id: <from marker>-<line>-<to marker>`, read out of the *picture*.
+ *
+ * The two markers are read from the `marker-start` / `marker-end` the line
+ * carries, with the render's own id scope stripped off, and the line from
+ * whether it was drawn dashed. That is the whole of what the drawn
+ * relationship says, and reading it end by end is what makes a row able to
+ * claim the sides were not swapped — Mermaid's own record of the pair is
+ * crossed over (`cardA` is the marker next to `entityB`), so a row that
+ * only counted markers would pass with every relationship drawn backwards.
+ */
+function erRelationships(result: SirenRenderResult): string[] {
+  return elements(result, "g.siren-er-relationship").map((g) => {
+    const line = g.querySelector("path.siren-er-relationship-line");
+    if (line === null) throw new Error(`relationship "${idOf(g)}" drew no line`);
+    // `url(#siren-er-only-one__k3f9a1x2)` → `only-one`. The scope after the
+    // `__` is minted per render (`mintIdScope`) and is cut off rather than
+    // matched — no `siren-*` name contains an underscore, which is what
+    // that separator exists for.
+    const marker = (attribute: string): string => {
+      const value = line.getAttribute(attribute) ?? "";
+      const name = /url\(#siren-er-(.+)__.{8}\)$/.exec(value);
+      return name === null ? `<no ${attribute}>` : name[1];
+    };
+    const dashed = line.getAttribute("stroke-dasharray") !== null ? "dashed" : "solid";
+    return `${idOf(g)}: ${marker("marker-start")}-${dashed}-${marker("marker-end")}`;
+  });
+}
+
+/** The glyphs one cardinality's `<marker>` is built from, nearest the box first. */
+function erCardinalityGlyphs(result: SirenRenderResult, name: string): string[] {
+  const marker = svgOf(result).querySelector(`defs marker[id^="siren-er-${name}__"]`);
+  if (marker === null) throw new Error(`no <marker> was defined for "${name}"`);
+  const refX = Number(marker.getAttribute("refX"));
+  // How far out along the line each glyph sits: `0` is the box's edge.
+  const placed = Array.from(marker.children).map((glyph) => {
+    const className = glyph.getAttribute("class") ?? "";
+    if (className.includes("siren-er-cardinality-bar")) {
+      return { glyph: "bar", out: refX - Number(glyph.getAttribute("x1")) };
+    }
+    if (className.includes("siren-er-cardinality-circle")) {
+      return { glyph: "circle", out: refX - Number(glyph.getAttribute("cx")) };
+    }
+    const xs = Array.from(
+      (glyph.getAttribute("d") ?? "").matchAll(/(-?[\d.]+),(-?[\d.]+)/g),
+      (pair) => Number(pair[1]),
+    );
+    return { glyph: "crows-foot", out: refX - Math.max(...xs) };
+  });
+  return placed.sort((a, b) => a.out - b.out).map((entry) => entry.glyph);
+}
+
+/** Where one ER relationship's drawn label sits. */
+function erRelationshipLabelAnchor(
+  result: SirenRenderResult,
+  id: string,
+): { text: string; x: number; y: number } {
+  const text = svgOf(result).querySelector(
+    `g.siren-er-relationship[data-siren-id="${id}"] text.siren-er-relationship-label`,
+  );
+  if (text === null) throw new Error(`no relationship "${id}" drew a label`);
+  return {
+    text: text.textContent ?? "",
+    x: Number(text.getAttribute("x")),
+    y: Number(text.getAttribute("y")),
+  };
+}
+
 /** Where one ER entity's drawn name sits, so a row can ask whether it is inside its own box. */
 function erLabelAnchor(result: SirenRenderResult, id: string): { x: number; y: number } {
   const text = svgOf(result).querySelector(
@@ -4351,19 +4420,100 @@ line2\`"]`,
     id: "er-relationship",
     kind: "er",
     source: `erDiagram
-      CUSTOMER ||--o{ ORDER : places`,
-    status: "rejected",
+      CUSTOMER ||--o{ ORDER : places
+      ORDER |o..|{ LINE-ITEM : contains`,
+    status: "supported",
     meaning:
       "A relationship joins two entities, with a cardinality at each end and " +
-      "a label after the colon. Measured: this reports " +
+      "a label after the colon. Measured: the first line reports " +
       "`leftCard=\"ONLY_ONE\" relType=\"IDENTIFYING\" " +
       "rightCard=\"ZERO_OR_MORE\"` and declares both entities along the way. " +
       "The word spelling `CUSTOMER one to zero or more ORDER : places` " +
-      "reports the *same* relationship, so the two are one construct. The " +
-      "`: label` is **required** — `CUSTOMER ||--|| ORDER` is a parse error " +
-      "in Mermaid. Refused by name here rather than read and dropped: an ER " +
-      "diagram whose arrows were silently discarded would be two boxes and " +
-      "no diagram.",
+      "reports the *same* relationship, so the two are one construct, and " +
+      "they mix freely (`CUSTOMER one --o{ ORDER : places`). The `: label` " +
+      "is **required** — `CUSTOMER ||--|| ORDER` is a parse error in " +
+      "Mermaid.\n\n" +
+      "⚠️ **Mermaid records the two cardinalities crossed over.** " +
+      "`CUSTOMER ||--o{ ORDER : places` comes back `cardA=\"ZERO_OR_MORE\" " +
+      "cardB=\"ONLY_ONE\"` — `cardA` is the marker written next to " +
+      "`entityB`. Its own renderer undoes the swap (`arrowTypeStart` is read " +
+      "out of `cardB`), so Mermaid's *picture* is right and only its field " +
+      "names lie; an implementation written from those names draws every " +
+      "relationship backwards. Both sources here are asymmetric for that " +
+      "reason: `||--||`, `}|--|{` and `|o--o|` are drawn identically either " +
+      "way round and would pass a swapped implementation.\n\n" +
+      "The figures are Mermaid's own marker definitions, measured: a " +
+      "cardinality is two glyphs, the one against the box saying *one* (a " +
+      "bar) or *many* (a closed almond of two quadratic curves — **not** " +
+      "three prongs, whatever \"crow's foot\" suggests) and the one further " +
+      "out saying *mandatory* (a bar) or *optional* (a small circle filled " +
+      "with the surface color). `--` is drawn solid and `..` dashed " +
+      "(`stroke-dasharray: 8,8`), and the label goes at the middle of the " +
+      "line.\n\n" +
+      "Not covered by this row, and still refused by name: `u`, Mermaid's " +
+      "fifth cardinality (`MD_PARENT`), which it parses and then draws with " +
+      "no marker at all on that end.",
+    assert: (result) => {
+      // End by end, with the render's own id scope stripped: which marker
+      // is at which end is the whole claim, so a reader of a failure here
+      // sees the swap rather than a count that happens to match.
+      expectSame("relationships and the marker at each end", erRelationships(result), [
+        "CUSTOMER-ORDER: only-one-solid-zero-or-more",
+        "ORDER-LINE-ITEM: zero-or-one-dashed-one-or-more",
+      ]);
+
+      // And each marker really is the figure Mermaid draws, glyph by glyph,
+      // nearest the entity box first. A marker with the same parts in the
+      // other order is a different cardinality.
+      expectSame("the figure `||` draws", erCardinalityGlyphs(result, "only-one"), [
+        "bar",
+        "bar",
+      ]);
+      expectSame("the figure `|o` draws", erCardinalityGlyphs(result, "zero-or-one"), [
+        "bar",
+        "circle",
+      ]);
+      expectSame("the figure `|{` draws", erCardinalityGlyphs(result, "one-or-more"), [
+        "crows-foot",
+        "bar",
+      ]);
+      expectSame("the figure `o{` draws", erCardinalityGlyphs(result, "zero-or-more"), [
+        "crows-foot",
+        "circle",
+      ]);
+
+      // Three boxes, not two: a relationship declares its entities, so
+      // `LINE-ITEM` is drawn although no line of its own names it.
+      expectSame("entities and their drawn names", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+        "LINE-ITEM[LINE-ITEM]",
+      ]);
+
+      // The label is drawn between the two boxes it joins rather than
+      // merely somewhere in the picture — the check that makes this a
+      // reading of the drawing and not of the text.
+      const places = erRelationshipLabelAnchor(result, "CUSTOMER-ORDER");
+      expectSame("the first relationship's drawn label", places.text, "places");
+      expectSame(
+        "`places` is drawn in the gap between CUSTOMER and ORDER",
+        places.y > erEntityRect(result, "CUSTOMER").bottom &&
+          places.y < erEntityRect(result, "ORDER").top,
+        true,
+      );
+
+      // And the relationship really moved the boxes apart: two entities a
+      // relationship joins sit on consecutive ranks, where two unrelated
+      // ones share one (measured with `--markup`).
+      expectSame(
+        "the three boxes are drawn clear of one another",
+        [
+          overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+          overlaps(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
+        ],
+        [false, false],
+      );
+    },
   },
   {
     id: "er-attributes",

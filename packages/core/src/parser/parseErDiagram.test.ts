@@ -92,6 +92,98 @@ describe("parseErDiagram", () => {
       "P.Q",
     ]);
   });
+
+  it("reads a relationship's two markers on the sides the author wrote them", () => {
+    // **The trap this test exists to spring.** Measured (mermaid 11.17.2,
+    // `scripts/mermaid-probe.mjs`), Mermaid records a relationship's two
+    // cardinalities *crossed*: for `CUSTOMER ||--o{ ORDER : places` it
+    // reports `cardA="ZERO_OR_MORE" cardB="ONLY_ONE"` — `cardA` is the
+    // marker written next to `entityB`. Implementing from those field names
+    // draws every relationship backwards, and the two sources below are
+    // **asymmetric** so that a swap cannot hide: a symmetric `||--||` passes
+    // either way round.
+    expect(documentOf("erDiagram\n  CUSTOMER ||--o{ ORDER : places\n").relationships).toEqual([
+      {
+        left: "CUSTOMER",
+        leftCardinality: "onlyOne",
+        line: "identifying",
+        rightCardinality: "zeroOrMore",
+        right: "ORDER",
+        label: "places",
+      },
+    ]);
+    // The mirror image of the same relationship. Measured:
+    // `leftCard="ZERO_OR_MORE" rightCard="ONLY_ONE"` — so reading the line
+    // backwards turns this one into the one above.
+    expect(documentOf("erDiagram\n  ORDER }o--|| CUSTOMER : belongs\n").relationships).toEqual([
+      {
+        left: "ORDER",
+        leftCardinality: "zeroOrMore",
+        line: "identifying",
+        rightCardinality: "onlyOne",
+        right: "CUSTOMER",
+        label: "belongs",
+      },
+    ]);
+  });
+
+  it("reads the word spelling of a cardinality as the same thing as the punctuation", () => {
+    // Measured, one probe per spelling: the words reach the *same* records
+    // as the punctuation, so they are a synonym rather than a second
+    // construct — which is why one corpus row covers both. Every source here
+    // is asymmetric, so reading the line backwards fails it.
+    //
+    // Mermaid's lexer rules are all `/i`, measured: `A ZERO OR ONE to many B`
+    // reports `ZERO_OR_ONE` too.
+    const markers = (source: string) => {
+      const [relationship] = documentOf(`erDiagram\n  ${source}\n`).relationships;
+      return [relationship.leftCardinality, relationship.line, relationship.rightCardinality];
+    };
+
+    expect(markers("A one or zero to zero or many B : x")).toEqual([
+      "zeroOrOne",
+      "identifying",
+      "zeroOrMore",
+    ]);
+    expect(markers("A ZERO OR ONE to many B : x")).toEqual([
+      "zeroOrOne",
+      "identifying",
+      "zeroOrMore",
+    ]);
+    expect(markers("A zero or many optionally to many(1) B : x")).toEqual([
+      "zeroOrMore",
+      "nonIdentifying",
+      "oneOrMore",
+    ]);
+    expect(markers("A 0+ to 1+ B : x")).toEqual(["zeroOrMore", "identifying", "oneOrMore"]);
+    expect(markers("A many(0) to only one B : x")).toEqual([
+      "zeroOrMore",
+      "identifying",
+      "onlyOne",
+    ]);
+    expect(markers("A 1 to one or many B : x")).toEqual(["onlyOne", "identifying", "oneOrMore"]);
+
+    // And the two spellings **mix**, measured rather than assumed: each of
+    // the three tokens is chosen independently, so a line may word one end
+    // and punctuate the other.
+    expect(markers("A one --o{ B : x")).toEqual(["onlyOne", "identifying", "zeroOrMore"]);
+    expect(markers("A ||.. many B : x")).toEqual(["onlyOne", "nonIdentifying", "zeroOrMore"]);
+  });
+
+  it("declares both of a relationship's entities, in the order the line names them", () => {
+    // Measured: `erDiagram / ZZZ / A ||--o{ B : first / B / A` reports three
+    // entities in the order `ZZZ`, `A`, `B` — so a relationship declares its
+    // two entities exactly as a bare name does, and the table is in
+    // first-mention order across *both* kinds of statement. Recording the
+    // endpoints anywhere but in this one list would lose that interleaving.
+    expect(namesOf("erDiagram\n  ZZZ\n  A ||--o{ B : first\n  B\n  A\n")).toEqual([
+      "ZZZ",
+      "A",
+      "B",
+      "B",
+      "A",
+    ]);
+  });
 });
 
 /** The messages the parser reported for `source`. */
@@ -99,23 +191,89 @@ const refusalsFor = (source: string): string[] =>
   parseErDiagram(source).diagnostics.map((d) => d.message);
 
 describe("parseErDiagram refuses an unimplemented construct by name", () => {
-  it("names a relationship, in both of the spellings Mermaid accepts for one", () => {
-    // Measured (mermaid 11.17.2): `CUSTOMER ||--o{ ORDER : places` and
-    // `CUSTOMER one to zero or more ORDER : places` report the *same*
-    // relationship — `leftCard="ONLY_ONE" relType="IDENTIFYING"
-    // rightCard="ZERO_OR_MORE"` — so the words are a synonym of the
-    // punctuation and not a separate construct. Both are refused here, so an
-    // author reaching for either is told which construct is missing rather
-    // than that their document is malformed.
-    for (const line of [
-      "CUSTOMER ||--o{ ORDER : places",
-      "A }o..o{ B : x",
-      "CUSTOMER one to zero or more ORDER : places",
-    ]) {
+  it('names the "u" cardinality, the fifth one this parser does not draw', () => {
+    // Measured (mermaid 11.17.2): Mermaid's `Cardinality` enum has **five**
+    // members, and the fifth is `MD_PARENT`, spelled `u` — its lexer rule is
+    // `u(?=[.\-|])`. `A u--o{ B : x` parses, and the renderer then emits the
+    // edge with `marker-end` only and **no `marker-start` at all**, because
+    // `md_parent` names no marker in its table.
+    //
+    // Nothing in the document says what a missing marker means, so this is
+    // refused by name rather than guessed at — and named as itself rather
+    // than as "a relationship", which this parser now draws.
+    //
+    // Only ever the **left** cardinality, and that is measured too: the
+    // lookahead means `u` is only a marker when the body follows it
+    // immediately, so `A ||--u B : x` is a parse error ("got 'UNICODE_TEXT'")
+    // and there is no right-hand spelling of it to refuse.
+    for (const line of ["A u--o{ B : x", "A u..|| B : x", "A u-.o{ B : x"]) {
       expect(refusalsFor(`erDiagram\n  ${line}\n`), `for the line "${line}"`).toEqual([
-        `Unimplemented erDiagram construct: a relationship between two entities, in "${line}"`,
+        `Unimplemented erDiagram construct: the "u" (MD_PARENT) relationship cardinality, in "${line}"`,
       ]);
     }
+
+    // Measured over-reach control: `u` is a cardinality only directly before
+    // `.`, `-` or `|`, so an entity called `u` — and one called `usage` — is
+    // an ordinary name, and `A u to many B : x` is a Mermaid **parse error**
+    // rather than a relationship.
+    expect(namesOf("erDiagram\n  u\n  usage\n")).toEqual(["u", "usage"]);
+  });
+
+  it("refuses a relationship line Mermaid itself refuses, rather than reading one", () => {
+    // Each of these is a measured Mermaid parse error, so reading any of
+    // them would be Siren drawing a picture for a document that has none.
+    //
+    // - `A ||--o{ B` — "Expecting 'COLON', 'STYLE_SEPARATOR', got 'NEWLINE'".
+    //   The `: label` is part of the grammar, not an option.
+    // - `A -- B : x` — `relSpec` is `cardinality relType cardinality`, so a
+    //   body with no markers either side is not a relationship.
+    // - `Ao|--o{ B : x` and `Ao{--|| B : x` — the **over-reach this pattern
+    //   invites**, and the same shape as the run-of-punctuation trap one
+    //   ticket back. `o` is in the entity-name alphabet, so Mermaid's
+    //   longest-match lexer reads the name as `Ao` and what is left is not a
+    //   cardinality. A pattern letting any cardinality glue itself to the
+    //   left-hand name reads two documents Mermaid rejects.
+    // - `A ||--o{ B : --` — a label of nothing but body punctuation, refused
+    //   with "got 'IDENTIFYING'", exactly as a *name* of nothing but body
+    //   punctuation is.
+    for (const line of [
+      "A ||--o{ B",
+      "A -- B : x",
+      "Ao|--o{ B : x",
+      "Ao{--|| B : x",
+      "A ||--o{ B : --",
+    ]) {
+      const { document, diagnostics } = parseErDiagram(`erDiagram\n  ${line}\n`);
+      expect(document, `for the line "${line}"`).toBeNull();
+      expect(diagnostics.map((d) => d.severity), `for the line "${line}"`).toContain("error");
+    }
+
+    // The negative controls, so the guard above cannot pass by refusing
+    // every relationship: each of these *is* one in Mermaid. `A}o--|| B` is
+    // the mirror of the glued case — `}` cannot appear in a name, so this
+    // one really is a relationship.
+    for (const line of ["A}o--|| B : x", "A||--o{B : x", "A ||-- o{ B : x", "A ||--o{ B : -"]) {
+      expect(refusalsFor(`erDiagram\n  ${line}\n`), `for the line "${line}"`).toEqual([]);
+    }
+  });
+
+  it("names a second statement written after a relationship on the same line", () => {
+    // Measured, and genuinely surprising: `A ||--o{ B : two words` is **not**
+    // a relationship labelled "two words". Mermaid reports the role as `two`
+    // and then declares a *third entity* called `words` — its grammar runs
+    // several statements on one line, which this parser does not. Reading
+    // the whole tail as the label would draw a label Mermaid never draws and
+    // lose a box it does.
+    const line = "A ||--o{ B : two words";
+    expect(refusalsFor(`erDiagram\n  ${line}\n`)).toEqual([
+      `Unimplemented erDiagram construct: a second statement after a relationship on the same line, in "${line}"`,
+    ]);
+
+    // A quoted label is the spelling that *does* carry a space — measured,
+    // `: "two words"` reports the role as `two words` with no extra entity.
+    expect(documentOf('erDiagram\n  A ||--o{ B : "two words"\n').relationships[0].label).toBe(
+      "two words",
+    );
   });
 
   it("names an attribute block once, rather than once per line inside it", () => {

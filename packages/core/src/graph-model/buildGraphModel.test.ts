@@ -71,6 +71,7 @@ describe("buildGraphModel", () => {
     const { model, diagnostics } = buildEr({
       kind: "er",
       entities: [{ name: "CUSTOMER" }, { name: "ORDER" }],
+      relationships: [],
     });
 
     expect(diagnostics).toEqual([]);
