@@ -5,7 +5,8 @@ import { buildErModel } from "./buildErModel";
 /** An `ErDocument` naming `names`, in the order given, and nothing else. */
 const documentOf = (...names: string[]): ErDocument => ({
   kind: "er",
-  entities: names.map((name) => ({ name, attributes: [] })),
+  direction: "TB",
+  entities: names.map((name) => ({ name, alias: null, attributes: [] })),
   relationships: [],
 });
 
@@ -35,9 +36,10 @@ const relates = (
 /** An `ErDocument` whose entities are exactly the ones its relationships name. */
 const documentRelating = (...relationships: ErRelationshipDecl[]): ErDocument => ({
   kind: "er",
+  direction: "TB",
   entities: relationships.flatMap((relationship) => [
-    { name: relationship.left, attributes: [] },
-    { name: relationship.right, attributes: [] },
+    { name: relationship.left, alias: null, attributes: [] },
+    { name: relationship.right, alias: null, attributes: [] },
   ]),
   relationships,
 });
@@ -60,6 +62,63 @@ describe("buildErModel", () => {
     ]);
   });
 
+  it("draws an entity's alias in place of its name, and leaves its id alone", () => {
+    // Measured (mermaid 11.17.2): `CUSTOMER["Customer Account"]` records one
+    // entity keyed on `CUSTOMER` — `label="CUSTOMER" alias="Customer
+    // Account"` — and `--markup` shows the *box* reading "Customer Account".
+    // So the two fields part company exactly here: `id` stays the authored
+    // name, which is what a `timeline:` target addresses (ADR-0009), and
+    // `label` becomes the alias.
+    //
+    // ⚠️ Not a state diagram's `state "text" as s`, which is a *description*
+    // drawn beside the id and leaves the drawn name alone. Different
+    // mechanism, different picture.
+    const { model, diagnostics } = buildErModel({
+      kind: "er",
+      direction: "TB",
+      entities: [{ name: "CUSTOMER", alias: "Customer Account", attributes: [] }],
+      relationships: [],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.entities).toEqual([
+      { id: "CUSTOMER", label: "Customer Account", attributes: [] },
+    ]);
+  });
+
+  it("lets the first alias an entity is given win, and a later bare mention not clear it", () => {
+    // ⚠️ Measured, and **the opposite of `direction`'s rule one field over**
+    // — which is why it could not be inherited from it. Mermaid's
+    // `addEntity(name, alias)` ends `else if (!existing.alias && alias)
+    // existing.alias = alias`, so:
+    //
+    // - `A["x"]` then `A["y"]` reports `alias="x"` — first wins.
+    // - `A` then `A["Second"]` reports `alias="Second"` — a mention with no
+    //   alias does not claim the field, so a later one still can.
+    // - `A["First"]` then `A` reports `alias="First"` — and does not clear
+    //   it, which is the defect a naive last-wins would produce: the box
+    //   would fall back to its id with nothing said.
+    const first = (...entities: { name: string; alias: string | null }[]) =>
+      buildErModel({
+        kind: "er",
+        direction: "TB",
+        entities: entities.map((entity) => ({ ...entity, attributes: [] })),
+        relationships: [],
+      }).model.entities[0].label;
+
+    expect(first({ name: "A", alias: "x" }, { name: "A", alias: "y" })).toBe("x");
+    expect(first({ name: "A", alias: null }, { name: "A", alias: "Second" })).toBe("Second");
+    expect(first({ name: "A", alias: "First" }, { name: "A", alias: null })).toBe("First");
+
+    // The over-reach control, and it is not hypothetical: measured,
+    // `A["A"]` then `A["B"]` reports `alias="A"`. An implementation that
+    // read "has an alias yet?" off the *drawn label* — "is it still equal to
+    // the id?" — would answer no here and let `B` through, replacing an
+    // alias Mermaid keeps. The question is whether an alias was claimed, not
+    // whether it happens to read like the name.
+    expect(first({ name: "A", alias: "A" }, { name: "A", alias: "B" })).toBe("A");
+  });
+
   it("carries an entity's attributes through, and concatenates a second block onto the first", () => {
     // Measured (mermaid 11.17.2): an entity may open **several** blocks —
     // `E { string a }` followed by `E { string b }` reports one entity
@@ -76,10 +135,11 @@ describe("buildErModel", () => {
     });
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      direction: "TB",
       entities: [
-        { name: "CUSTOMER", attributes: [attribute("a")] },
-        { name: "ORDER", attributes: [] },
-        { name: "CUSTOMER", attributes: [attribute("b")] },
+        { name: "CUSTOMER", alias: null, attributes: [attribute("a")] },
+        { name: "ORDER", alias: null, attributes: [] },
+        { name: "CUSTOMER", alias: null, attributes: [attribute("b")] },
       ],
       relationships: [],
     });
@@ -142,12 +202,13 @@ describe("buildErModel", () => {
     // the entry already there.
     const { model } = buildErModel({
       kind: "er",
+      direction: "TB",
       entities: [
-        { name: "ZZZ", attributes: [] },
-        { name: "A", attributes: [] },
-        { name: "B", attributes: [] },
-        { name: "B", attributes: [] },
-        { name: "A", attributes: [] },
+        { name: "ZZZ", alias: null, attributes: [] },
+        { name: "A", alias: null, attributes: [] },
+        { name: "B", alias: null, attributes: [] },
+        { name: "B", alias: null, attributes: [] },
+        { name: "A", alias: null, attributes: [] },
       ],
       relationships: [relates("A", "B", { label: "first" })],
     });
@@ -182,6 +243,20 @@ describe("buildErModel", () => {
       ["A-B", "onlyOne", "zeroOrMore"],
       ["A-B#2", "zeroOrMore", "onlyOne"],
     ]);
+  });
+
+  it("carries the document's direction through unchanged", () => {
+    // Which way round the diagram runs is settled in the parser (last wins,
+    // measured) and read by the layout. This stage identifies and
+    // de-duplicates; it does not reinterpret, so a direction that arrived
+    // `LR` leaves `LR` — and the default arrives as `TB` rather than being
+    // re-derived here, so there is only one place that decides it.
+    const laidOutIn = (direction: ErDocument["direction"]) =>
+      buildErModel({ kind: "er", direction, entities: [], relationships: [] }).model.direction;
+
+    expect(laidOutIn("LR")).toBe("LR");
+    expect(laidOutIn("BT")).toBe("BT");
+    expect(laidOutIn("TB")).toBe("TB");
   });
 
   it("hands back a timeline with no steps, since this kind reads no timeline block yet", () => {

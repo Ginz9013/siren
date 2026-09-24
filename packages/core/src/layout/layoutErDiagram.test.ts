@@ -22,6 +22,7 @@ const options = { measureText: fakeMeasurer };
 const measuredWidth = (text: string) => fakeMeasurer.measure(text).width;
 
 const model = (...names: string[]): ErModel => ({
+  direction: "TB",
   entities: names.map((name) => ({ id: name, label: name, attributes: [] })),
   relationships: [],
   timeline: { totalSteps: 0, entries: [] },
@@ -29,6 +30,7 @@ const model = (...names: string[]): ErModel => ({
 
 /** One entity carrying `attributes`, and nothing else in the diagram. */
 const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel => ({
+  direction: "TB",
   entities: [{ id: name, label: name, attributes }],
   relationships: [],
   timeline: { totalSteps: 0, entries: [] },
@@ -63,6 +65,7 @@ const rowTexts = (table: PositionedErAttributeTable, index: number): string[] =>
  * swapped, which is the one defect these tests exist to catch.
  */
 const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
+  direction: "TB",
   entities: [relationship.from, relationship.to].map((id) => ({
     id,
     label: id,
@@ -389,6 +392,49 @@ describe("layoutErDiagram", () => {
       expect(entity.x + entity.width, entity.id).toBeLessThanOrEqual(width);
       expect(entity.y + entity.height, entity.id).toBeLessThanOrEqual(height);
     }
+  });
+
+  it("ranks the diagram along the direction the model names", () => {
+    // **Asserted by comparing coordinates, and it has to be.** A direction
+    // read and dropped is the silent defect this construct exists to avoid:
+    // every diagnostic stays empty, a picture is still drawn, and only where
+    // the two boxes ended up says whether the author was obeyed.
+    //
+    // A relationship puts the two entities on consecutive ranks, so the axis
+    // they are separated along *is* the direction, and the order along it is
+    // its sign. `TB` and `LR` are checked against their own opposites rather
+    // than against each other, so a layout that ignored the field and always
+    // ranked downward fails the `LR` pair, and one that swapped a sign fails
+    // the `BT`/`RL` pair.
+    const placed = (direction: ErModel["direction"]) => {
+      const laidOut = layoutErDiagram(
+        { ...relating(CUSTOMER_PLACES_ORDER), direction },
+        options,
+      );
+      return {
+        customer: boxOf(laidOut.entities, "CUSTOMER"),
+        order: boxOf(laidOut.entities, "ORDER"),
+      };
+    };
+
+    const topToBottom = placed("TB");
+    expect(topToBottom.customer.bottom).toBeLessThanOrEqual(topToBottom.order.top);
+
+    const bottomToTop = placed("BT");
+    expect(bottomToTop.order.bottom).toBeLessThanOrEqual(bottomToTop.customer.top);
+
+    const leftToRight = placed("LR");
+    expect(leftToRight.customer.right).toBeLessThanOrEqual(leftToRight.order.left);
+
+    const rightToLeft = placed("RL");
+    expect(rightToLeft.order.right).toBeLessThanOrEqual(rightToLeft.customer.left);
+
+    // And the two axes really are different pictures: under `LR` the boxes
+    // share a band of rows, which under `TB` they cannot. Without this, a
+    // layout that placed everything on one diagonal would satisfy all four
+    // inequalities above.
+    expect(leftToRight.customer.top).toBeLessThan(leftToRight.order.bottom);
+    expect(leftToRight.order.top).toBeLessThan(leftToRight.customer.bottom);
   });
 
   it("gives a header-only document finite bounds and no boxes", () => {

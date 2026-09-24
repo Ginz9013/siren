@@ -1013,8 +1013,40 @@ const SILENTLY_WRONG = 0;
  * attribute detail was already in. Writing them down would be case (2)
  * above and would raise this number again, so they belong to tickets of
  * their own rather than to the one that lowered it.
+ *
+ * **2 → 0: `er-alias` and `er-direction` are drawn, and the ER backlog is
+ * empty.** An entity's bracketed quoted string is read as its alias and
+ * titles the box while the authored name stays its `data-siren-id`; a
+ * document-level `direction` is read in all four spellings and ranks the
+ * diagram, **last statement winning** — measured rather than derived, since
+ * `parseStateDiagram` is first-wins and `parseClassDiagram` is last-wins and
+ * ER is neither's by inheritance. Both rows assert the drawn SVG, and the
+ * direction row does it by **comparing coordinates**: a direction read and
+ * dropped leaves every diagnostic empty and still draws a picture, so
+ * nothing but where the boxes landed can catch it. `silently-wrong` does not
+ * move: both were named refusals, and what replaced each is a picture its
+ * row reads back.
+ *
+ * Four constructs are **not** drawn and have no row here yet, all four valid
+ * Mermaid, and each would be case (2) above:
+ *
+ * - Mermaid's bracketless alias, `A[Unquoted]` — refused **by name** by
+ *   `parseErDiagram`, and measured to record the same `alias` field the
+ *   quoted spelling does.
+ * - `subgraph <id> ... end`, which ER genuinely has: measured, its database
+ *   answers `getSubGraphs()` with one entry carrying `nodes` and its own
+ *   `dir`, and the entities inside it come back with `parentId`. This one is
+ *   a whole construct rather than a spelling, and no row covers it.
+ * - The greedy shape of Mermaid's own direction rule. Its lexer spells it
+ *   `.*direction\s+LR[^\n]*`, so `XX direction LR` and `direction LR YY` are
+ *   measured to set the direction **and swallow the rest of the line**,
+ *   declaring no entity. Siren's pattern is anchored on the whole statement,
+ *   so both are refused — as the generic unrecognized line, which is the
+ *   state every multi-statement ER line is already in.
+ * - `direction TD`, which is measured to be **two entities** rather than a
+ *   direction, and so is a case of that same multi-statement gap.
  */
-const REJECTED = 2;
+const REJECTED = 0;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

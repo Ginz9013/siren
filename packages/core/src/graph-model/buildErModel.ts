@@ -27,17 +27,31 @@ import type {
  */
 export function buildErModel(document: ErDocument): ErModelResult {
   const byId = new Map<string, ResolvedErEntity>();
+  /**
+   * The entities some mention has already given an alias — asked rather than
+   * inferring it from the drawn label, because the two answers differ.
+   * Measured: `A["A"]` then `A["B"]` reports `alias="A"`, and a reader that
+   * took "label still equals id" for "no alias yet" would let `B` replace
+   * it.
+   */
+  const aliased = new Set<string>();
   for (const entity of document.entities) {
     const existing = byId.get(entity.name);
     if (existing === undefined) {
-      // The name is both halves: it is what Mermaid's table is keyed on and
-      // what it reports as the entity's `label`. They part company when an
-      // alias lands — see `ResolvedErEntity`.
+      // The name is what Mermaid's table is keyed on, so it is the id
+      // whatever the entity is called on screen. An **alias** is what parts
+      // the two: measured with `--markup`, the box of
+      // `CUSTOMER["Customer Account"]` draws "Customer Account", while the
+      // table entry stays keyed on `CUSTOMER` — so the alias replaces the
+      // drawn text and nothing else (see `ResolvedErEntity`).
       byId.set(entity.name, {
         id: entity.name,
-        label: entity.name,
+        label: entity.alias ?? entity.name,
         attributes: [...entity.attributes],
       });
+      if (entity.alias !== null) {
+        aliased.add(entity.name);
+      }
       continue;
     }
     // The **attributes** of a repeat do join the first mention, where its
@@ -46,10 +60,27 @@ export function buildErModel(document: ErDocument): ErModelResult {
     // an addition to the table, not a replacement of it, and dropping either
     // one would silently lose a row Mermaid draws.
     existing.attributes.push(...entity.attributes);
+    // The **first alias wins, and a mention without one does not clear it.**
+    // Measured from Mermaid's own `addEntity`, whose last branch is
+    // `else if (!existing.alias && alias) existing.alias = alias`: `A["x"]`
+    // then `A["y"]` reports `x`, while `A` then `A["Second"]` reports
+    // `Second` — so the test is "is the field still unclaimed", not "is this
+    // the first mention".
+    //
+    // ⚠️ First-wins here and **last**-wins for `direction` one stage back,
+    // both measured on this one diagram kind. Neither rule is the other's.
+    if (!aliased.has(entity.name) && entity.alias !== null) {
+      aliased.add(entity.name);
+      existing.label = entity.alias;
+    }
   }
 
   return {
     model: {
+      // Straight through: which statement won is the parser's measurement
+      // (last wins), and re-deciding it here would be a second answer to a
+      // question already settled.
+      direction: document.direction,
       entities: [...byId.values()],
       relationships: assignRelationshipIds(document),
       // Empty because this kind reads no `timeline:` block yet, and present

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ErAttribute, ErDocument } from "../contracts";
+import type { Direction, ErAttribute, ErDocument } from "../contracts";
 import { parseErDiagram } from "./parseErDiagram";
 
 /**
@@ -43,6 +43,26 @@ function attributesOf(source: string, name: string): ErAttribute[] {
   }
   return entity.attributes;
 }
+
+/**
+ * The alias the parser read under the **first** declaration of `name`, or a
+ * thrown explanation naming what it did read instead. Narrowed here for the
+ * reason `attributesOf` is: a test about an alias never reaches for
+ * `find(...)!`, and never asserts on `undefined` by accident.
+ */
+function aliasOf(source: string, name: string): string | null {
+  const entities = documentOf(source).entities;
+  const entity = entities.find((candidate) => candidate.name === name);
+  if (entity === undefined) {
+    throw new Error(
+      `no entity named "${name}"; the parser read ${entities.map((e) => e.name).join(", ")}`,
+    );
+  }
+  return entity.alias;
+}
+
+/** The document's rank direction, read through the same narrowing helper. */
+const directionOf = (source: string): Direction => documentOf(source).direction;
 
 describe("parseErDiagram", () => {
   it("reads a bare name on a line of its own as a standalone entity", () => {
@@ -422,36 +442,129 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     ]);
   });
 
-  it("names an alias, and leaves the bracketless entity beside it alone", () => {
-    // Measured: `CUSTOMER["Customer Account"]` records one entity whose
-    // `label` is still `CUSTOMER` with `alias="Customer Account"` beside it —
-    // the alias is a second field on the entity, not a renaming of it. Read
-    // and dropped, the box would be titled with the name the author took
-    // care to replace.
-    const line = 'CUSTOMER["Customer Account"]';
-    expect(refusalsFor(`erDiagram\n  ${line}\n`)).toEqual([
-      `Unimplemented erDiagram construct: an entity alias, in "${line}"`,
+  it("reads a bracketed quoted string after a name as that entity's alias", () => {
+    // Measured (mermaid 11.17.2): `CUSTOMER["Customer Account"]` records
+    // **one** entity, `label="CUSTOMER" alias="Customer Account"` — so the
+    // alias sits *beside* the name rather than replacing it, and the name
+    // stays what addresses the entity.
+    expect(namesOf('erDiagram\n  CUSTOMER["Customer Account"]\n')).toEqual(["CUSTOMER"]);
+    expect(aliasOf('erDiagram\n  CUSTOMER["Customer Account"]\n', "CUSTOMER")).toBe(
+      "Customer Account",
+    );
+
+    // The control that says the field is genuinely read rather than always
+    // filled: a bare name carries no alias at all.
+    expect(aliasOf("erDiagram\n  CUSTOMER\n", "CUSTOMER")).toBeNull();
+  });
+
+  it("reads an alias on the line that opens an attribute block", () => {
+    // Measured: `CUSTOMER["Customer Account"] {` with `string n` under it
+    // reports one entity, `label="CUSTOMER" alias="Customer Account"`,
+    // carrying that attribute — the two constructs compose, and the alias
+    // does not cost the entity its table.
+    const source = 'erDiagram\n  CUSTOMER["Customer Account"] {\n    string n\n  }\n';
+
+    expect(namesOf(source)).toEqual(["CUSTOMER"]);
+    expect(aliasOf(source, "CUSTOMER")).toBe("Customer Account");
+    expect(attributesOf(source, "CUSTOMER")).toEqual([
+      { type: "string", name: "n", keys: [], comment: "" },
     ]);
   });
 
-  it("names a document-level direction, and only for a direction Mermaid reads as one", () => {
-    // Measured: `direction LR` in an ER document reports `LR` where a
-    // document naming none reports `TB`, so it genuinely governs the layout.
-    // Read and dropped, a diagram the author asked to run left-to-right
-    // would be drawn top-to-bottom with nothing said.
-    // `direction lr` is here because Mermaid's lexer is case-insensitive and
-    // reports `LR` for it (measured) — refusing only the shouted spelling
-    // would leave the quiet one reported as a malformed line.
-    for (const line of ["direction LR", "direction TB", "direction BT", "direction lr"]) {
-      expect(refusalsFor(`erDiagram\n  ${line}\n  A\n`), `for "${line}"`).toEqual([
-        `Unimplemented erDiagram construct: a document-level "direction" statement, in "${line}"`,
-      ]);
-    }
+  it("reads an alias in the whole alphabet Mermaid reads one in, and no wider", () => {
+    // Measured: the alias is a quoted run of anything but a quote —
+    // `A["a & b <c> d"]` reports `alias="a & b <c> d"`, so the characters a
+    // renderer has to escape are ordinary text here.
+    expect(aliasOf('erDiagram\n  A["a & b <c> d"]\n', "A")).toBe("a & b <c> d");
 
+    // And `A [ "spaced" ]` is the same entity, because Mermaid's lexer skips
+    // whitespace between tokens (measured: `alias="spaced"`).
+    expect(aliasOf('erDiagram\n  A [ "spaced" ]\n', "A")).toBe("spaced");
+
+    // The over-reach controls, both measured as **parse errors** in Mermaid.
+    // An empty alias is one ("Expecting 'UNICODE_TEXT', ... got 'WORD'"), and
+    // so is an alias with a relationship written after it — so a pattern that
+    // admitted either would draw a picture for a document Mermaid draws
+    // nothing for.
+    expect(refusalsFor('erDiagram\n  A[""]\n')).toEqual(['Unrecognized erDiagram line: "A[""]"']);
+    expect(refusalsFor('erDiagram\n  A["one"] ||--|| B : r\n')).toEqual([
+      'Unrecognized erDiagram line: "A["one"] ||--|| B : r"',
+    ]);
+
+    // Mermaid's *bracketless* spelling is an alias too (measured:
+    // `A[Unquoted]` reports `alias="Unquoted"`), and this parser does not
+    // read it — so it is refused **by name**, not reported as malformed.
+    expect(refusalsFor("erDiagram\n  A[Unquoted]\n")).toEqual([
+      'Unimplemented erDiagram construct: an entity alias written without quotes, in "A[Unquoted]"',
+    ]);
+  });
+
+  it("reads a document-level direction, in all four spellings, and defaults to TB", () => {
+    // Measured (mermaid 11.17.2): `direction LR` reports `LR` where a
+    // document naming none reports `TB`, so it genuinely governs the layout.
+    // All four are written out literally in Mermaid's ER lexer.
+    expect(directionOf("erDiagram\n  direction LR\n  A\n")).toBe("LR");
+    expect(directionOf("erDiagram\n  direction RL\n  A\n")).toBe("RL");
+    expect(directionOf("erDiagram\n  direction BT\n  A\n")).toBe("BT");
+    expect(directionOf("erDiagram\n  direction TB\n  A\n")).toBe("TB");
+
+    // The default, which is what makes the four above readings rather than a
+    // constant: a document naming no direction reports `TB` (measured).
+    expect(directionOf("erDiagram\n  A\n")).toBe("TB");
+
+    // Case-insensitively, because Mermaid's lexer rules are all `/i`:
+    // measured, `direction lr` reports `LR` too.
+    expect(directionOf("erDiagram\n  direction lr\n  A\n")).toBe("LR");
+
+    // And the statement is not an entity: the line declares a direction and
+    // nothing else, so `A` is the only box.
+    expect(namesOf("erDiagram\n  direction LR\n  A\n")).toEqual(["A"]);
+  });
+
+  it("lets the last direction statement win, wherever on the page it was written", () => {
+    // ⚠️ Measured, not derived, because the two kinds already in this repo
+    // disagree: `parseStateDiagram` is **first**-wins and
+    // `parseClassDiagram` is last-wins. ER is the class diagram's answer —
+    // `direction LR` then `direction RL` reports `RL`, and the reverse pair
+    // reports `LR` (mermaid 11.17.2), because its `setDirection(dir)` is a
+    // plain assignment. Both orders are asserted: a first-wins reader passes
+    // one of them by luck.
+    expect(directionOf("erDiagram\n  direction LR\n  direction RL\n  A\n")).toBe("RL");
+    expect(directionOf("erDiagram\n  direction RL\n  direction LR\n  A\n")).toBe("LR");
+
+    // And position on the page does not matter otherwise: measured, a
+    // `direction` written *after* the first relationship governs just the
+    // same.
+    expect(directionOf("erDiagram\n  A ||--|| B : r\n  direction LR\n")).toBe("LR");
+  });
+
+  it("reads a direction only where Mermaid reads one", () => {
     // The over-reach control. Measured: `direction` on a line of its own is
     // an ordinary **entity** (Mermaid reports one entity called `direction`
     // and the document's direction still `TB`), so a pattern reaching for a
-    // bare keyword would refuse a document Mermaid draws.
+    // bare keyword would swallow a box Mermaid draws.
     expect(namesOf("erDiagram\n  direction\n")).toEqual(["direction"]);
+    expect(directionOf("erDiagram\n  direction\n")).toBe("TB");
+
+    // **`TD` is not a fifth spelling**, measured: Mermaid's ER lexer writes
+    // the four out literally and the flowchart's alias never reaches this
+    // grammar, so `direction TD` is *two entities*. Reading it as `TB` here
+    // would turn two boxes into a directive — silently, since `TB` is also
+    // the default and nothing in the picture would say a box went missing.
+    // Siren does not draw the two-statements-on-one-line form either, so the
+    // document is refused rather than half-read.
+    expect(refusalsFor("erDiagram\n  direction TD\n  A\n")).toEqual([
+      'Unrecognized erDiagram line: "direction TD"',
+    ]);
+
+    // And a `direction` written *inside* an attribute block is an
+    // attribute, not a directive — measured, `E { direction LR }` reports
+    // `type="direction" name="LR"` and the document's direction stays `TB`.
+    // A reader that tried the statement patterns first would lose the row.
+    const inBlock = "erDiagram\n  E {\n    direction LR\n  }\n";
+    expect(attributesOf(inBlock, "E")).toEqual([
+      { type: "direction", name: "LR", keys: [], comment: "" },
+    ]);
+    expect(directionOf(inBlock)).toBe("TB");
   });
 });

@@ -186,6 +186,26 @@ describe("renderErDiagramToSVG", () => {
     expect(y).toBeLessThan(CUSTOMER.y + CUSTOMER.height);
   });
 
+  it("draws a name-row text that an alias's own punctuation cannot escape out of", () => {
+    // An **alias** is what makes this reachable in the name row: an entity
+    // *name* is `([^\x00-\x7F]|\w|-|\*|\.)+` and can hold none of these, but
+    // an alias is a quoted run of anything but a quote — measured,
+    // `A["a & b <c> d"]` reports exactly that alias, so the characters an
+    // SVG serializer has to escape are ordinary text here.
+    //
+    // Asserted on the **serialized** markup, not on `textContent`, because
+    // that is where the defect would show: a label built by writing markup
+    // would put a `<c>` element into the picture, and reading `textContent`
+    // back would report the characters either way.
+    const ALIASED = { ...CUSTOMER, label: "a & b <c> d" };
+    const svg = renderErDiagramToSVG(diagram([ALIASED]));
+
+    const label = svg.querySelector("text.siren-er-entity-label");
+    expect(label?.textContent).toBe("a & b <c> d");
+    expect(label?.children).toHaveLength(0);
+    expect(new XMLSerializer().serializeToString(svg)).toContain("a &amp; b &lt;c&gt; d");
+  });
+
   it("draws every attribute cell where the layout put it, and the rules between them", () => {
     // Measured (mermaid 11.17.2, `--markup`): an entity with attributes is
     // drawn as a table — the name on its own row, a full-width rule under

@@ -1,5 +1,6 @@
 import type {
   Diagnostic,
+  Direction,
   ErAttribute,
   ErCardinality,
   ErDocument,
@@ -212,13 +213,57 @@ function readRelationship(line: string): ErRelationshipDecl | null {
 }
 
 /**
- * The line that opens an entity's attribute block, and the one that closes
- * it.
+ * The document's own rank-direction statement: `direction LR`, and the three
+ * other spellings.
  *
- * Measured: `CUSTOMER { string name / int age }` records the attributes
- * *under* an entity that still enters the table as `CUSTOMER`, so the block
- * declares the entity exactly as a bare name does, and the name is captured
- * here rather than read a second time.
+ * **Anchored on the whole statement, and on the four canonical values.**
+ * Measured (mermaid 11.17.2): `direction` on a line of its own is an
+ * ordinary **entity** called `direction`, and `direction TD` is **two**
+ * entities — the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally and the
+ * flowchart's `TD` alias does not reach this grammar. So a pattern reaching
+ * for a bare keyword would swallow one box, and a fifth spelling here would
+ * swallow two.
+ *
+ * Case-insensitive because the lexer is: `direction lr` reports `LR`.
+ *
+ * ⚠️ Read **before** `ENTITY_HEAD_RE` is consulted but, like every statement
+ * here, after the in-block reader — measured, `direction LR` written *inside*
+ * an attribute block is an attribute (`type="direction" name="LR"`), not a
+ * direction, and the block reader is what keeps it one.
+ */
+const DIRECTION_RE = /^direction\s+(TB|BT|RL|LR)\s*$/i;
+
+/**
+ * An entity's **head**: its name, its alias if it wrote one, and the brace
+ * that opens its attribute block if it opened one.
+ *
+ * One pattern rather than two, because the two constructs compose and
+ * Mermaid composes them in one place: measured, `CUSTOMER["Customer
+ * Account"] {` with `string n` under it reports a single entity carrying
+ * both the alias and the attribute. Read by two patterns, whichever ran
+ * second would have to re-read the name, and a document writing both would
+ * reach only one of them.
+ *
+ * **The alias.** Measured (mermaid 11.17.2): `CUSTOMER["Customer Account"]`
+ * comes back `label="CUSTOMER" alias="Customer Account"`, so the brackets
+ * add a field and do not rename the entity — and the box draws the alias
+ * (measured with `--markup`). Three boundaries, each measured:
+ *
+ * - **The quotes are required and may not be empty.** `A[""]` is a parse
+ *   error in Mermaid ("Expecting 'UNICODE_TEXT', ... got 'WORD'"), so
+ *   `[^"]+` rather than `[^"]*`.
+ * - **`A [ "spaced" ]` is the same entity** — measured, alias `spaced` —
+ *   because the lexer skips whitespace between tokens, so `\s*` sits at
+ *   each seam.
+ * - **The line has to end there.** Measured, `A["one"] ||--|| B : r` is a
+ *   *parse error* in Mermaid — an alias does not attach to a relationship —
+ *   so a pattern that let the line run on would draw a relationship Mermaid
+ *   refuses.
+ *
+ * The one alias spelling it deliberately does *not* read is Mermaid's
+ * bracketless one: `A[Unquoted]` is an alias there too (measured), and it is
+ * refused **by name** in `UNIMPLEMENTED` rather than half-read, for the
+ * reason the generic and backtick attribute rules are absent below.
  *
  * **The brace is required to end the line, and the closing one to be alone
  * on its own.** Mermaid's lexer is freer than that — `E { string a }` on one
@@ -226,9 +271,40 @@ function readRelationship(line: string): ErRelationshipDecl | null {
  * than half-read: an opening line this pattern declines falls through to the
  * unrecognized-line diagnostic, which costs the document, so no picture is
  * drawn for it.
+ *
+ * ⚠️ **Both trailing groups are optional, so this matches a bare name too**
+ * — which is why `readEntityHead` refuses to answer unless one of them is
+ * present. Without that guard it would declare an entity called `--`, the
+ * very line `RELATIONSHIP_BODY_ONLY_RE` exists to keep out.
  */
-const ATTRIBUTE_BLOCK_OPEN_RE = /^((?:[\w*.-]|[^\x00-\x7F])+)\s*\{$/u;
+const ENTITY_HEAD_RE =
+  /^((?:[\w*.-]|[^\x00-\x7F])+)(?:\s*\[\s*"([^"\r\n]+)"\s*\])?\s*(\{)?$/u;
 const ATTRIBUTE_BLOCK_CLOSE = "}";
+
+/** One entity head, as `ENTITY_HEAD_RE` read it. */
+interface ErEntityHead {
+  name: string;
+  alias: string | null;
+  opensBlock: boolean;
+}
+
+/**
+ * The entity `line` declares with an alias, a block, or both — or `null`
+ * when it declares neither, which is every line a *bare* name already took
+ * and every line that is no entity head at all.
+ */
+function readEntityHead(line: string): ErEntityHead | null {
+  const match = ENTITY_HEAD_RE.exec(line);
+  if (match === null) {
+    return null;
+  }
+  const [, name, alias, brace] = match;
+  if (alias === undefined && brace === undefined) {
+    return null;
+  }
+
+  return { name, alias: alias ?? null, opensBlock: brace !== undefined };
+}
 
 /**
  * Mermaid's in-block lexer, rule for rule and **in its own order**, because
@@ -412,27 +488,16 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     name: "a second statement after a relationship on the same line",
   },
   {
-    // Measured: `CUSTOMER["Customer Account"]` records **one** entity whose
-    // `label` is still `CUSTOMER`, with `alias="Customer Account"` beside
-    // it. So the alias is a second field on the entity rather than a
-    // renaming of it — and reading the line while dropping the brackets
-    // would title the box with the very name the author replaced.
-    pattern: /^(?:[\w*.-]|[^\x00-\x7F])+\s*\[/u,
-    name: "an entity alias",
-  },
-  {
-    // Measured: `direction LR` reports `LR` where a document naming none
-    // reports `TB`, so it genuinely governs the layout and cannot be read
-    // and dropped.
+    // The **bracketless** alias, which `ENTITY_ALIAS_RE` deliberately does
+    // not read. Measured: `A[Unquoted]` records `alias="Unquoted"` exactly
+    // as the quoted spelling does, so it is a document Mermaid draws and
+    // must be refused by name rather than reported as malformed.
     //
-    // **Four spellings, and `TD` is deliberately not among them.** Mermaid's
-    // ER lexer writes the four out literally and has no `TD` rule (the
-    // flowchart's alias does not reach this grammar), so `direction TD` is
-    // measured to be *two entities* — `direction` and `TD` — and refusing it
-    // here would refuse a document Mermaid draws. Case-insensitive, because
-    // the lexer is: `direction lr` reports `LR` too.
-    pattern: /^direction\s+(?:TB|BT|RL|LR)\s*$/i,
-    name: 'a document-level "direction" statement',
+    // The lookahead is what keeps the quoted spelling out of this table now
+    // that it is implemented: a line reaching here opened its brackets on
+    // something other than a `"`.
+    pattern: /^(?:[\w*.-]|[^\x00-\x7F])+\s*\[\s*[^"\s]/u,
+    name: "an entity alias written without quotes",
   },
 ];
 
@@ -473,6 +538,18 @@ export function parseErDiagram(source: string): ParseResult {
    * point at the line the author wrote rather than at the end of the file.
    */
   let openedAt: { line: string; lineNumber: number; column: number } | null = null;
+  /**
+   * The rank direction the last `direction` statement named — `TB` until one
+   * does, which is Mermaid's own initial value.
+   *
+   * **Last wins**, measured rather than derived: `direction LR` then
+   * `direction RL` reports `RL`, and the reverse pair reports `LR`, because
+   * Mermaid's `setDirection(dir)` is a plain assignment. That is
+   * `parseClassDiagram`'s rule and the **opposite** of
+   * `parseStateDiagram`'s first-wins — two different answers already in this
+   * repo, which is exactly why this one was measured and not inherited.
+   */
+  let direction: Direction = "TB";
 
   const lines = source.split(/\r\n|\r|\n/);
   for (const [index, rawLine] of lines.entries()) {
@@ -527,8 +604,18 @@ export function parseErDiagram(source: string): ParseResult {
       continue;
     }
 
+    // Before the entity patterns, because `direction` is in the entity-name
+    // alphabet: a reader that asked "is this a name?" first would find one
+    // and declare a box for a line that declares none.
+    const namedDirection = DIRECTION_RE.exec(line);
+    if (namedDirection !== null) {
+      // Assignment rather than "only if unset" — see `direction` above.
+      direction = namedDirection[1].toUpperCase() as Direction;
+      continue;
+    }
+
     if (ENTITY_NAME_RE.test(line) && !RELATIONSHIP_BODY_ONLY_RE.test(line)) {
-      entities.push({ name: line, attributes: [] });
+      entities.push({ name: line, alias: null, attributes: [] });
       continue;
     }
 
@@ -539,21 +626,26 @@ export function parseErDiagram(source: string): ParseResult {
       // bare name does and Mermaid's table interleaves the two kinds of
       // statement in first-mention order. `buildErModel` de-duplicates.
       entities.push(
-        { name: relationship.left, attributes: [] },
-        { name: relationship.right, attributes: [] },
+        { name: relationship.left, alias: null, attributes: [] },
+        { name: relationship.right, alias: null, attributes: [] },
       );
       relationships.push(relationship);
       continue;
     }
 
-    // An attribute block declares its entity exactly as a bare name does
-    // (measured), so the entity is pushed here and the block's body is
-    // appended to this very declaration — see `openEntity`.
-    const blockOpen = ATTRIBUTE_BLOCK_OPEN_RE.exec(line);
-    if (blockOpen !== null) {
-      openEntity = { name: blockOpen[1], attributes: [] };
-      openedAt = { line, lineNumber, column };
-      entities.push(openEntity);
+    // An alias and an attribute block each declare their entity exactly as a
+    // bare name does (measured), so both enter the same list here — and a
+    // line writing both declares one entity carrying both, which is why they
+    // are read together. A block's body is appended to this very
+    // declaration; see `openEntity`.
+    const head = readEntityHead(line);
+    if (head !== null) {
+      const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
+      entities.push(declared);
+      if (head.opensBlock) {
+        openEntity = declared;
+        openedAt = { line, lineNumber, column };
+      }
       continue;
     }
 
@@ -597,6 +689,6 @@ export function parseErDiagram(source: string): ParseResult {
     return { document: null, diagnostics };
   }
 
-  const document: ErDocument = { kind: "er", entities, relationships };
+  const document: ErDocument = { kind: "er", direction, entities, relationships };
   return { document, diagnostics };
 }

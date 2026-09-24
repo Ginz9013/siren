@@ -6941,10 +6941,15 @@ describe("render() — an ER diagram, end to end", () => {
     // An entity's attribute block has left this list the same way, and for
     // the same reason: `CUSTOMER { string name }` is drawn as a table now,
     // so naming it here would be a refusal of a construct this kind reads.
+    //
+    // `direction LR` has left it outright — it ranks the diagram now — and
+    // the alias has left it in the quoted spelling only. What is left of the
+    // alias is Mermaid's **bracketless** one, measured to record the same
+    // `alias` field (`A[Unquoted]` reports `alias="Unquoted"`) and still not
+    // read here.
     const cases: [string, string][] = [
       ["A u--o{ B : x", 'the "u" (MD_PARENT) relationship cardinality'],
-      ['CUSTOMER["Customer Account"]', "an entity alias"],
-      ["direction LR", 'a document-level "direction" statement'],
+      ["CUSTOMER[Customer Account]", "an entity alias written without quotes"],
     ];
 
     for (const [line, name] of cases) {
