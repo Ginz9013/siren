@@ -1041,6 +1041,43 @@ function erAttributeRows(result: SirenRenderResult, id: string): string[] {
 }
 
 /**
+ * The inline author style on one ER entity's drawn rectangle, or `""` when
+ * the author styled it with nothing.
+ *
+ * `nodeStyle` and `stateStyle`'s answer for this kind, read the same way:
+ * the attribute the browser will paint from, rather than anything upstream
+ * of it. Equality rather than `endsWith`, because an entity's frame carries
+ * no theme-owned inline declaration in front of the author's — it is a
+ * plain rectangle whose corner radius is a CSS custom property.
+ */
+function erEntityStyle(result: SirenRenderResult, id: string): string {
+  const frame = svgOf(result).querySelector(
+    `g.siren-er-entity[data-siren-id="${id}"] rect.siren-er-entity-frame`,
+  );
+  if (frame === null) throw new Error(`no entity "${id}" was drawn with a rectangle`);
+  return frame.getAttribute("style") ?? "";
+}
+
+/**
+ * The inline author style on every **text** one ER entity draws — its name
+ * first, then each attribute cell in the order `erAttributeRows` reads them.
+ *
+ * Its own reader beside `erEntityStyle` for the reason `edgeLabelStyle` is
+ * one: the two halves of an author's style land on different elements, so a
+ * row that read only the rectangle could not tell "the author's `color`
+ * painted the label" from "it was dropped". One entry per drawn text, so a
+ * row that loses the last attribute cell's paint is a difference in the
+ * list's *length* as well as its contents.
+ */
+function erEntityTextStyles(result: SirenRenderResult, id: string): string[] {
+  const g = svgOf(result).querySelector(`g.siren-er-entity[data-siren-id="${id}"]`);
+  if (g === null) throw new Error(`no entity "${id}" was drawn`);
+  return Array.from(g.querySelectorAll("text")).map(
+    (text) => text.getAttribute("style") ?? "",
+  );
+}
+
+/**
  * The rules drawn inside one entity box, as `horizontal` or `vertical` plus
  * the coordinate each runs along — enough for a row to say how many columns
  * the table really has without counting cells a second time.
@@ -5158,14 +5195,107 @@ line2\`"]`,
     source: `erDiagram
       CUSTOMER ||--o{ ORDER : places
       style ORDER fill:#f96,stroke:#333`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`style <entity> <declarations>` applies declarations to one entity " +
       "directly. Measured: `ORDER` comes back with " +
       "`cssStyles=[\"fill:#f96\",\"stroke:#333\"]` while its `cssClasses` stays " +
       "`\"default\"` — so the declarations hang off the entity itself, the " +
       "same shape a flowchart's `style` produces (`fc-style-style`). The " +
-      "comma splits the declaration list and nothing else.",
+      "comma splits the declaration list and nothing else.\n\n" +
+      "⚠️ **The statement runs to the end of its line**, which no other ER " +
+      "statement does: `style\\b` switches Mermaid's lexer into a condition " +
+      "whose only exit is the newline, so `style A fill:#f96 C` draws no box " +
+      "called `C` (measured) — `er-style-statement-swallows-line` is the row " +
+      "for that half.",
+    assert: (result) => {
+      // Read off the picture: the declarations on the box the author named,
+      // and nothing on the box they did not.
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#f96;stroke:#333");
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "");
+      // Both boxes are still drawn, and the relationship with them: the
+      // statement styles the diagram, it does not declare or consume it.
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+      ]);
+    },
+  },
+  {
+    id: "er-style-statement-swallows-line",
+    kind: "er",
+    source: `erDiagram
+      A style B fill:#f96 C`,
+    status: "supported",
+    meaning:
+      "The half of `style` that parts it from every other statement in this " +
+      "kind. Mermaid's `style\\b` rule calls `this.begin(\"style\")`, and the " +
+      "only rule leaving that condition is `[\\n]+` — so the declaration list " +
+      "runs to the newline. Measured: `A style B fill:#f96 C` reports **one** " +
+      "entity, `A`. `C` is another `styleComponent` and not a statement, and " +
+      "`B` is a target rather than a declaration, so neither becomes a box.\n\n" +
+      "Its own row because the failure is silent in both directions: a " +
+      "reader returning to the statement stream draws a `C` Mermaid draws " +
+      "none for, and one treating the target as a declaration draws a `B`. " +
+      "`er-style-class-statement` is the deliberate contrast — `class` " +
+      "changes no lexer condition and so does **not** swallow its line.",
+    assert: (result) => {
+      expectSame("the entities drawn", erEntities(result), ["A[A]"]);
+    },
+  },
+  {
+    id: "er-style-class-statement",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      A
+      class A urgent B`,
+    status: "supported",
+    meaning:
+      "`class` is the one styling keyword that changes no lexer condition, " +
+      "so its statement ends where its second `idList` does. Measured: " +
+      "`class A urgent B` styles `A` **and** declares an entity `B` — " +
+      "Mermaid's rule is `CLASS idList idList` with no separator after it.\n\n" +
+      "Read beside `er-style-statement-swallows-line`, which is the same " +
+      "shape under `style` and comes out the other way. A reader treating " +
+      "\"a styling keyword\" as one idea gets one of the two wrong, and both " +
+      "failures are silent.",
+    assert: (result) => {
+      expectSame("the entities drawn", erEntities(result), ["A[A]", "B[B]"]);
+      expectSame("A's inline style", erEntityStyle(result, "A"), "fill:#f96");
+      expectSame("B's inline style", erEntityStyle(result, "B"), "");
+    },
+  },
+  {
+    id: "er-style-class-stacked",
+    kind: "er",
+    source: `erDiagram
+      classDef alpha fill:#f00,stroke:#00f
+      classDef beta fill:#0f0
+      A
+      class A alpha,beta`,
+    status: "supported",
+    meaning:
+      "Two answers in one row, both measured with `--markup` (mermaid " +
+      "11.17.2).\n\n" +
+      "**The comma splits the class-name half too**, which is this kind's " +
+      "own rule: `class A alpha,beta` gives `A` `cssClasses=\"default alpha " +
+      "beta\"`. A **state diagram** reads that operand as a bare `\\w+` and " +
+      "yields one class literally named `alpha,beta`, matching no definition " +
+      "and painting nothing (`01M368GZR`), so the symmetry could not be " +
+      "carried across.\n\n" +
+      "**And the stacking is first position, last value**: the drawn box " +
+      "reads `fill:#0f0 !important;stroke:#00f !important` — `beta` wins the " +
+      "`fill` both declare, while the `stroke` only `alpha` declares " +
+      "survives, and `fill` keeps the position `alpha` gave it. Reversing " +
+      "the two `class` statements reverses only the `fill`, measured.",
+    assert: (result) => {
+      // The whole string, in order: dropping `beta` leaves `fill:#f00`,
+      // dropping `alpha` loses the `stroke`, and re-ordering the halves
+      // moves `fill` behind `stroke`. Each is a different picture and none
+      // of them says anything.
+      expectSame("A's inline style", erEntityStyle(result, "A"), "fill:#0f0;stroke:#00f");
+    },
   },
   {
     id: "er-style-classdef",
@@ -5174,15 +5304,60 @@ line2\`"]`,
       classDef urgent fill:#f96,stroke:#333
       CUSTOMER ||--o{ ORDER : places
       class ORDER urgent`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`classDef` names a set of declarations and `class <entity> <name>` " +
       "applies it. Measured, and **both halves land**: `getClasses()` " +
       "answers with `urgent -> {id:\"urgent\", styles:[\"fill:#f96\"," +
       "\"stroke:#333\"], textStyles:[]}`, and the entity's `cssClasses` " +
       "becomes `\"default urgent\"` — the identical pair a flowchart " +
-      "(`fc-style-classdef`) and a class diagram already produce. ER's " +
-      "grammar has these terminals; nothing in Siren reads them here.",
+      "(`fc-style-classdef`) and a class diagram already produce.\n\n" +
+      "The definition may be written **above or below** the directive " +
+      "applying it (measured both ways), which is why the parser records the " +
+      "two unpaired and `resolveStyles` matches them up.",
+    assert: (result) => {
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#f96;stroke:#333");
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "");
+    },
+  },
+  {
+    id: "er-style-classdef-color",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#000,color:#fff
+      ORDER:::urgent {
+        string id PK
+      }`,
+    status: "supported",
+    meaning:
+      "Where an author's `color` lands in this kind, measured with " +
+      "`--markup` rather than carried over: it reaches the entity's name " +
+      "label **and every attribute cell in the same box** — one `<text " +
+      "style=\"fill:#fff !important\">` apiece on `name`, `attribute-type`, " +
+      "`attribute-name`, `attribute-keys` and `attribute-comment`. A `class` " +
+      "names the entity and not one of its rows, so recolouring a box means " +
+      "its whole table.\n\n" +
+      "The `color` → `fill` respelling is `resolveStyles`', shared with " +
+      "three other kinds: SVG paints a `<text>` with `fill`, and an inline " +
+      "`color` would sit in a property that never reaches it.",
+    assert: (result) => {
+      // The frame keeps only the frame's half, and every text keeps only the
+      // text's: a renderer that wrote both onto both would repaint the
+      // letters the box's colour and hide them, saying nothing.
+      expectSame("ORDER's frame", erEntityStyle(result, "ORDER"), "fill:#000");
+      // The name and all three drawn cells, as one list — so dropping the
+      // last cell's paint is a change in length as well as in contents.
+      expectSame("every text ORDER draws", erEntityTextStyles(result, "ORDER"), [
+        "fill:#fff",
+        "fill:#fff",
+        "fill:#fff",
+        "fill:#fff",
+      ]);
+      // And the table is still the table: the paint did not move a cell.
+      expectSame("ORDER's attribute rows", erAttributeRows(result, "ORDER"), [
+        "type=string | name=id | keys=PK",
+      ]);
+    },
   },
   {
     id: "er-style-class-shorthand",
@@ -5198,10 +5373,115 @@ line2\`"]`,
       "urgent\"` — so the two are one construct in two spellings. **No " +
       "`classDef` is needed for it**, measured: the source here declares " +
       "none and the class still lands, which is what keeps this row " +
-      "measuring `:::` and not the `classDef` line beside it. It is a " +
-      "separate row because it is a separate *statement shape*: the " +
-      "directive rides on an entity declaration, so reading it means " +
-      "changing the entity-head pattern rather than adding a keyword.",
+      "measuring `:::` and not the `classDef` line beside it.\n\n" +
+      "⚠️ **The statement shape itself now works — this row is refused by " +
+      "something else, and the difference matters.** " +
+      "`er-style-class-shorthand-defined` is the same construct with a " +
+      "`classDef` beside it and is supported. What refuses *this* source is " +
+      "the missing definition: `resolveStyles` reports `::: applies " +
+      "\"urgent\", which no classDef defines` at error severity, a rule " +
+      "settled for every kind that styles (`fc-style-class-unknown-name` " +
+      "and `01M36C2S4` drew the line between an unknown **target**, dropped " +
+      "in silence as Mermaid drops it, and an unknown **name**, which still " +
+      "speaks). Mermaid draws this document and paints nothing, so Siren is " +
+      "the stricter of the two here — a divergence this row now measures " +
+      "rather than one it hides, and the reason the number fell by two and " +
+      "not by three.",
+  },
+  {
+    id: "er-style-class-shorthand-defined",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      CUSTOMER ||--o{ ORDER : places
+      ORDER:::urgent`,
+    status: "supported",
+    meaning:
+      "`:::` as its own statement shape, with the definition it names in the " +
+      "document. Measured, this reaches exactly the record " +
+      "`class ORDER urgent` does, so the two spellings are one construct — " +
+      "and the directive **rides on an entity declaration**, which is why " +
+      "reading it meant widening the entity-head pattern rather than adding " +
+      "a keyword.\n\n" +
+      "Its own row beside `er-style-class-shorthand` because that one's " +
+      "source names no `classDef` and so measures a different thing: " +
+      "Siren's diagnostic for an undefined class name. This row is the " +
+      "statement shape on its own.",
+    assert: (result) => {
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#f96");
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "");
+      // The entity is still declared by the line that styles it, and the
+      // relationship that also names it is still drawn once.
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+      ]);
+      expectSame("the relationships drawn", erRelationships(result), [
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
+  },
+  {
+    id: "er-style-target-colon",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style CUSTOMER:ORDER fill:#f96`,
+    status: "rejected",
+    meaning:
+      "**The most natural thing an author would write to style a " +
+      "relationship, and Mermaid draws garbage for it.** A relationship's " +
+      "id is `${from}:${to}` (01M3977716), so `style CUSTOMER:ORDER " +
+      "fill:#f96` is the obvious spelling — and `er-style-statement` " +
+      "records the measurement that says it cannot work: `addCssStyles` " +
+      "reaches only `entities` and `subGraphs`, never a relationship.\n\n" +
+      "What Mermaid does instead is worse than refusing. Its `style` " +
+      "condition's word rule is `([^\\x00-\\x7F]|\\w|-|\\*)+`, which has no " +
+      "colon, and the condition skips whitespace while `style: style " +
+      "styleComponent` concatenates with no separator. Measured with " +
+      "`--markup`: **`CUSTOMER`'s own rect comes out carrying " +
+      "`style=\":ORDERfill !important\"`** — a declaration that is not a " +
+      "declaration, on an element the author never named, with no error " +
+      "anywhere. The relationship is left alone, as the database says it " +
+      "must be.\n\n" +
+      "So this is the **exception to the absolute condition**, in the form " +
+      "CONTEXT.md states it: Mermaid renders it, but Mermaid renders it " +
+      "*wrong* and says nothing, so Siren refuses rather than copying the " +
+      "bug. ⚠️ The refusal is real but **generic** today " +
+      "(`Unrecognized erDiagram line`), which tells the author their line " +
+      "is malformed rather than that they are styling something that cannot " +
+      "be styled. Naming it is what keeps this row here.\n\n" +
+      "This row is mine, not `01M3977QT`'s. It measured that a " +
+      "relationship cannot be styled and drew the right conclusion for the " +
+      "target set, but read this document as painting nothing; the `rect` " +
+      "says otherwise. The conclusion survives the correction — a " +
+      "relationship id must stay out of the style target set — and the " +
+      "document itself needed a row.",
+  },
+  {
+    id: "er-style-classdef-default",
+    kind: "er",
+    source: `erDiagram
+      classDef default fill:#abc
+      CUSTOMER`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Every ER entity already wears a class called `default`.** " +
+      "Measured from Mermaid's own database: `addEntity` creates each entity " +
+      "with `cssClasses: \"default\"` and `getCompiledStyles` resolves paint " +
+      "from `cssClasses.split(\" \")`, so `classDef default fill:#abc` paints " +
+      "`CUSTOMER` — confirmed with `--markup`, `style=\"fill:#abc " +
+      "!important\"` on its box — with no `class` statement anywhere.\n\n" +
+      "Siren has no implicit class in any kind, so reading this statement " +
+      "and applying it to nothing would draw a **different picture with no " +
+      "diagnostic**. Refused by name instead, which is what keeps it out of " +
+      "`SILENTLY_WRONG`. Written when ER styling landed, because that is " +
+      "when the statement became readable at all.\n\n" +
+      "⚠️ **The same gap is open in the flowchart and has no row.** Measured " +
+      "on Siren itself: `flowchart TB / classDef default fill:#abc / A` " +
+      "reports no diagnostic and paints nothing, which is exactly the silent " +
+      "divergence refused here. That is `parseFlowchart`'s to fix and was " +
+      "outside this ticket's write scope.",
   },
   {
     id: "er-statements-one-line",

@@ -4,6 +4,7 @@ import type {
   PositionedErDiagram,
   PositionedErEntity,
   PositionedErRelationship,
+  StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
 
@@ -349,6 +350,7 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   frame.setAttribute("y", String(entity.y));
   frame.setAttribute("width", String(entity.width));
   frame.setAttribute("height", String(entity.height));
+  applyAuthorStyle(frame, entity.style.frame);
   g.appendChild(frame);
 
   const table = entity.attributeTable;
@@ -364,6 +366,7 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   label.setAttribute("text-anchor", "middle");
   label.setAttribute("dominant-baseline", "middle");
   label.textContent = entity.label;
+  applyAuthorStyle(label, entity.style.text);
   g.appendChild(label);
 
   if (table !== null) {
@@ -392,12 +395,60 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
         // renderer here keeps: attribute text is author input and must
         // render literally.
         text.textContent = cell.text;
+        // **Every cell, not just the name.** Measured with `--markup`
+        // (mermaid 11.17.2): an author's `color` reaches the name label and
+        // every attribute label in the same box alike — a `class` names the
+        // entity, not one of its rows. `renderStateDiagramToSVG` gives a
+        // state's description rows the same reading.
+        applyAuthorStyle(text, entity.style.text);
         g.appendChild(text);
       }
     }
   }
 
   return g;
+}
+
+/**
+ * Writes the author's resolved `style`/`classDef`/`class`/`:::` declarations
+ * onto `element` as an inline `style` attribute, in declaration order, or
+ * leaves the element without one when the author styled nothing.
+ *
+ * The same function `renderClassDiagramToSVG` and `renderStateDiagramToSVG`
+ * have, for the same reasons, spelled the same way: inline rather than a
+ * generated class rule, and on the **drawn shape** rather than its enclosing
+ * `<g>`, both for the cascade reason ADR-0008 records. The theme styles
+ * `.siren-er-entity-frame`, `.siren-er-entity-label` and
+ * `.siren-er-attribute` directly, so an inline declaration on those elements
+ * outranks it without `!important`, while the same declaration on the `<g>`
+ * would only ever be *inherited* by them and so would lose.
+ *
+ * ⚠️ **No `!important`, and that is a deliberate departure from Mermaid's
+ * own markup rather than an oversight.** Mermaid writes `fill:#f96
+ * !important` because it applies author styles through a generated class
+ * rule that has to beat its own theme; Siren writes the declaration on the
+ * element the theme targets, where specificity already settles it — and a
+ * `!important` here would also outrank a *consumer's* stylesheet, which is
+ * the thing ADR-0008 exists to keep reachable.
+ *
+ * The values are written verbatim. They are author input, but they arrive
+ * here having already passed `resolveStyles`' gate in `buildErModel` (no
+ * `url(`, no `expression(`, no `;`, no backslash), and re-checking here
+ * would fork that single source of truth. This attribute is a CSS sink,
+ * never an HTML one: nothing is parsed as markup, so the hard
+ * `textContent`-never-`innerHTML` invariant is untouched.
+ *
+ * A **relationship** is deliberately not reached by this: measured, no
+ * styling statement in this kind can name one (see `buildErModel`).
+ */
+function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
+  if (style.length === 0) {
+    return;
+  }
+  element.setAttribute(
+    "style",
+    style.map(({ property, value }) => `${property}:${value}`).join(";"),
+  );
 }
 
 /** One `<line class="siren-er-entity-divider">` between the two points given. */

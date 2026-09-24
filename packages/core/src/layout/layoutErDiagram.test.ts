@@ -25,6 +25,7 @@ const model = (...names: string[]): ErModel => ({
   direction: "TB",
   entities: names.map((name) => ({ id: name, label: name, attributes: [] })),
   relationships: [],
+  styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -35,6 +36,7 @@ const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel =
   direction: "TB",
   entities: [{ id: name, label: name, attributes }],
   relationships: [],
+  styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -76,6 +78,7 @@ const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
     attributes: [],
   })),
   relationships: [relationship],
+  styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -493,5 +496,43 @@ describe("layoutErDiagram carries the timeline", () => {
 
     expect(laidOut.accTitle).toBe("Order book");
     expect(laidOut.accDescr).toBe("how orders relate");
+  });
+});
+
+describe("layoutErDiagram carries the author's styling to the box that wears it", () => {
+  it("hands each styled entity its own declarations and the rest the empty pair", () => {
+    // The model has already merged everything one entity was styled by and
+    // dropped what its gate refused, so there is nothing to reconcile here —
+    // this stage only has to put the right declarations on the right box.
+    // An entity absent from the resolved list gets the empty pair, which is
+    // what says "no `style` attribute" to the renderer without it having to
+    // test for a missing field.
+    const laidOut = layoutErDiagram(
+      {
+        ...model("CUSTOMER", "ORDER"),
+        styles: [
+          {
+            targetId: "ORDER",
+            style: {
+              frame: [{ property: "fill", value: "#f96" }],
+              text: [{ property: "fill", value: "#fff" }],
+            },
+          },
+        ],
+      },
+      options,
+    );
+
+    const styleOf = (id: string) =>
+      laidOut.entities.find((entity) => entity.id === id)?.style;
+
+    // ⚠️ Named rather than positional: a stage that handed the list out in
+    // draw order instead of by id would style `CUSTOMER` here, draw a
+    // perfectly good picture, and report nothing.
+    expect(styleOf("ORDER")).toEqual({
+      frame: [{ property: "fill", value: "#f96" }],
+      text: [{ property: "fill", value: "#fff" }],
+    });
+    expect(styleOf("CUSTOMER")).toEqual({ frame: [], text: [] });
   });
 });

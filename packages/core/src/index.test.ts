@@ -7261,4 +7261,60 @@ describe("render() — an ER diagram, end to end", () => {
     ).result;
     expect(clean.diagnostics).toEqual([]);
   });
+
+  it("names the keyword an ER author actually typed when a class nothing defines is applied", () => {
+    // `class X name` and `X:::name` are **one construct in two spellings**
+    // (measured: both reach `setClass` and leave `cssClasses="default
+    // name"`), so both arrive at `resolveStyles` as the same `apply`. What
+    // must not be shared is the word the diagnostic quotes: telling an
+    // author who wrote `:::` that their `class` is wrong points at a line
+    // they never wrote.
+    //
+    // ⚠️ This is also what keeps `er-style-class-shorthand` a **refusal**
+    // while `er-style-class-shorthand-defined` is supported. Mermaid draws
+    // this document and paints nothing; Siren reports the undefined class
+    // name, a rule settled for every kind that styles (`01M36C2S4`), so
+    // Siren is the stricter of the two here. The corpus row records that
+    // divergence but can only say "some error-severity diagnostic" — the
+    // message itself is this test's.
+    const { result } = renderEr(
+      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER:::urgent\n  class CUSTOMER missing\n",
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '::: applies "urgent", which no classDef defines; dropping the declaration.',
+        line: 3,
+        column: 3,
+      },
+      {
+        severity: "error",
+        message: 'class applies "missing", which no classDef defines; dropping the declaration.',
+        line: 4,
+        column: 3,
+      },
+    ]);
+    // The picture is still drawn — a dropped declaration costs itself, not
+    // the diagram.
+    expect(
+      Array.from(result.svg!.querySelectorAll("g.siren-er-entity")).map((g) =>
+        g.getAttribute("data-siren-id"),
+      ),
+    ).toEqual(["CUSTOMER", "ORDER"]);
+
+    // The control: an unknown **target** is dropped in silence, exactly as
+    // Mermaid drops it — measured, `class A,Ghost urgent` in a flowchart
+    // gives `A` the class and never makes a vertex called `Ghost`. Two
+    // different mistakes, and only one of them speaks.
+    const quiet = renderEr(
+      "erDiagram\n  classDef urgent fill:#f96\n  CUSTOMER\n  class CUSTOMER,Ghost urgent\n",
+    ).result;
+    expect(quiet.diagnostics).toEqual([]);
+    expect(
+      quiet
+        .svg!.querySelector('g.siren-er-entity[data-siren-id="CUSTOMER"] rect.siren-er-entity-frame')!
+        .getAttribute("style"),
+    ).toBe("fill:#f96");
+  });
 });

@@ -2798,6 +2798,30 @@ export interface ErDocument {
   /** The relationships declared, in source order. */
   relationships: ErRelationshipDecl[];
   /**
+   * The `style`, `classDef`, `class` and `:::` statements the author wrote,
+   * in written order, as the same kind-agnostic `StyleDecl` a flowchart, a
+   * class diagram and a state diagram already parse to — so `resolveStyles`
+   * pairs a definition with the directive applying it here exactly as it
+   * does there.
+   *
+   * **Four spellings, three roles, and this kind is the first to write all
+   * of them.** `class X name` and `X:::name` are one `apply` in two
+   * spellings (measured, mermaid 11.17.2: both reach `setClass`, and both
+   * leave the entity's `cssClasses` reading `"default name"`), with the
+   * author's own keyword kept in `StyleDecl.authoredAs` so a diagnostic
+   * quotes the line they wrote.
+   *
+   * ⚠️ **Only an entity can be a target, measured from Mermaid's own
+   * database rather than inferred.** `addCssStyles(ids, styles)` and
+   * `setClass(ids, classNames)` each look up `this.entities.get(id)` and
+   * `this.subGraphLookup.get(id)` and nothing else, so **no relationship
+   * can ever be styled** — `style CUSTOMER:ORDER fill:#f96` parses, reaches
+   * `addCssStyles`, and paints nothing. That is why `buildErModel` hands
+   * `resolveStyles` the entity ids alone and not the `addressable` list the
+   * timeline gets.
+   */
+  styles: StyleDecl[];
+  /**
    * The `timeline:` block as written, or `null` when the document declares
    * none — the same field, with the same two meanings, that
    * `FlowchartDocument`, `ClassDocument`, `SequenceDocument` and
@@ -3040,6 +3064,19 @@ export interface ErModel {
   /** The relationships, in source order and each with an id of its own. */
   relationships: ResolvedErRelationship[];
   /**
+   * Each styled entity's accepted declarations, already flattened by the
+   * shared `resolveStyles` — one entry per entity that ended up with at
+   * least one, and none for an entity the author styled with nothing.
+   *
+   * ⚠️ **Only an entity can be a target, and a relationship deliberately
+   * cannot.** Measured from Mermaid's own database: `addCssStyles` and
+   * `setClass` reach `entities` and `subGraphs` and nothing else, so
+   * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
+   * `CUSTOMER:ORDER` is exactly the id this model gives that relationship,
+   * so the two lists are not interchangeable however alike they look.
+   */
+  styles: ResolvedStyle[];
+  /**
    * The `timeline:` block resolved against this kind's two target kinds —
    * an **entity**, by the id its author wrote whatever an alias renamed it
    * to on screen, and a **relationship**, by the id `buildErModel` assigned
@@ -3094,6 +3131,24 @@ export interface PositionedErEntity {
   y: number;
   width: number;
   height: number;
+  /**
+   * Author declarations to emit as this entity's inline `style` attributes:
+   * the frame's on the box it is drawn as, the text's on the name **and on
+   * every attribute cell**.
+   *
+   * That reach is measured rather than chosen. With `--markup`, mermaid
+   * 11.17.2 puts an author's `color` on the entity's name label *and* on
+   * every `attribute-type` / `attribute-name` / `attribute-keys` /
+   * `attribute-comment` label in the same box — one `<text style="fill:#fff
+   * !important">` apiece. A `class` names the entity and not one of its
+   * rows, so recolouring a box means its whole table.
+   *
+   * Both halves are empty rather than absent for an entity the author styled
+   * with nothing, so the renderer asks one question instead of two —
+   * `PositionedState.style` and `PositionedClass.style` carry theirs the
+   * same way.
+   */
+  style: AuthorStyle;
   /**
    * The attribute table inside the box, or `null` when the entity declared
    * no attributes.
