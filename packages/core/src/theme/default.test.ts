@@ -1178,11 +1178,16 @@ describe("default theme coverage of the ER renderer", () => {
 
   it("gives a highlighted relationship the outline effect, not just the glow one", () => {
     // The entity's own check, one figure over. A relationship is addressable
-    // by id in the rendered SVG (ADR-0009) — `CUSTOMER-ORDER` — so it is this
+    // by id in the rendered SVG (ADR-0009) — `CUSTOMER:ORDER` — so it is this
     // kind's second timeline target the moment the kind reads a `timeline:`
     // block, and every outline selector in the theme names some other kind's
-    // classes. Without one of its own, `highlight CUSTOMER-ORDER outline`
+    // classes. Without one of its own, `highlight CUSTOMER:ORDER outline`
     // would be a step on which nothing visibly happens.
+    //
+    // ⚠️ The **colon** is this kind's own connector separator and not a typo
+    // for the `-` the other four use: an ER entity name may contain a
+    // hyphen, so `${from}-${to}` could spell a legal entity name and put two
+    // drawn elements under one id (see `ResolvedErRelationship`).
     const svg = renderThemedSVG(EVERY_ER_FEATURE);
 
     const group = svg.querySelector("g.siren-er-relationship");

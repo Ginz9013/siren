@@ -1033,9 +1033,21 @@ export interface GraphNode {
  * `subgraph A` and records both, measured — so carrying the author's own
  * word here would hand two unrelated drawn elements one `data-siren-id`, and
  * a `timeline:` entry naming it would address both with nothing to say so.
- * ADR-0010 settles the spelling: `${kind}:${n}`, minted by `generatedId`,
- * and no authored id or `${from}-${to}` connector id can contain a colon.
+ * ADR-0010 settles the spelling: `${kind}:${n}`, minted by `generatedId`.
  * The class diagram's namespace is the same decision one kind over.
+ *
+ * ⚠️ **The separation that spelling buys holds for the flowchart, class,
+ * sequence and state kinds, and not for ER.** For those four it is exact:
+ * an authored id is `\w+`, so neither it nor a `${from}-${to}` connector id
+ * built from two of them can contain a colon, and a generated id therefore
+ * cannot be spelled by either. ER breaks both halves — its connector ids
+ * *are* colon-bearing (`${from}:${to}`, see `ResolvedErRelationship`), and
+ * a quoted entity name may contain a colon too, so `"subgraph:1"` is a
+ * legal entity name and exactly what `generatedId("subgraph", 1)` mints
+ * (measured, mermaid 11.17.2). ER holds the invariant with a runtime check
+ * instead — `reportIdCollisions` in `buildErModel` — which is where a
+ * future ER `subgraph` cluster's id must be registered. See ADR-0010's own
+ * "Where this argument does not reach" section.
  *
  * Flat, in the order the author wrote the `subgraph` keywords (pre-order),
  * rather than the tree `SirenSubgraph` is: what reads this is layout, which
@@ -2928,29 +2940,48 @@ export interface ResolvedErEntity {
  */
 export interface ResolvedErRelationship {
   /**
-   * `${from}-${to}`, then `#2`, `#3`, ... for repeats of the same ordered
-   * pair — the convention a flowchart edge and a class relationship already
-   * follow, so one `timeline:` vocabulary addresses all of them. Measured
-   * that repeats are real: `A ||--o{ B : first` and `A }o--|| B : second`
-   * report **two** relationships, and two elements sharing a
-   * `data-siren-id` would make a timeline entry naming it ambiguous
-   * (ADR-0009). Reproducible, too: the id is a function of the source's own
-   * names and order, so two renders of one document mint it identically.
+   * **`${from}:${to}`** — a colon, and this is the only kind that uses one.
+   * Then `#2`, `#3`, ... for repeats of the same ordered pair, which *is*
+   * the shared convention: measured, `A ||--o{ B : first` and `A }o--|| B :
+   * second` report **two** relationships, so the suffix is load-bearing
+   * rather than defensive. Reproducible, too — the id is a function of the
+   * source's own names and order, so two renders of one document mint it
+   * identically.
    *
-   * ⚠️ **In this one diagram kind the `-` convention is not collision-proof,
-   * and it is the only kind where it is not.** ADR-0010's argument that a
-   * connector id cannot spell anything else rests on ids being `\w+`; an ER
-   * entity name is `([^\x00-\x7F]|\w|-|\*|\.)+` (measured from Mermaid's own
-   * lexer), so it may contain `-`. `erDiagram / LINE-ITEM / LINE ||--o{ ITEM
-   * : x` is legal Mermaid and draws, in Siren, an entity and a relationship
-   * **both** wearing `data-siren-id="LINE-ITEM"` — with no diagnostic. The
-   * picture is right; what is ambiguous is a `timeline:` entry naming that
-   * id, which `createAnimationController` applies to every element wearing
-   * it. Minting the id instead (`generatedId`, colon-bearing — and `:` *is*
-   * impossible in an ER name: `erDiagram / A:B` is a Mermaid parse error)
-   * would close it at the cost of the readable spelling every other kind
-   * keeps, so the choice belongs to a ticket of its own rather than to the
-   * one that found it.
+   * ⚠️ **A flowchart edge, a class relationship, a sequence message and a
+   * state transition all keep `${from}-${to}`, and must.** Their authored
+   * ids are `\w+`, which cannot contain a hyphen, so the collision below is
+   * unconstructible there; changing them would move three kinds' public
+   * `data-siren-id` surface to fix a problem only this kind has.
+   *
+   * ⚠️ **Why this kind is different, and why the colon is an improvement
+   * rather than a proof.** ADR-0010's argument — a connector id cannot
+   * spell anything else, because every authored id is `\w+` — fails here.
+   * An unquoted ER entity name is `([^\x00-\x7F]|\w|-|\*|\.)+` (measured
+   * from Mermaid's own lexer), so it may contain `-`: under the old
+   * spelling `erDiagram / LINE-ITEM / LINE ||--o{ ITEM : x` drew an entity
+   * and a relationship **both** wearing `data-siren-id="LINE-ITEM"`, with
+   * no diagnostic. The picture was right; the ambiguous thing was a
+   * `timeline:` entry naming that id, which `createAnimationController`
+   * applies to every element wearing it (ADR-0009).
+   *
+   * A colon is measured to be refused everywhere an **unquoted** ER name is
+   * read — each of `erDiagram / A:B`, `A:B ||--o{ C : has`, `A ||--o{ C:D :
+   * has`, `A { str:ing x }` and `A { string x:y }` is a parse error in
+   * mermaid 11.17.2 (`scripts/mermaid-probe.mjs`). But it is **not**
+   * impossible in an ER name outright, and a comment that said so would be
+   * wrong: a *quoted* name takes any character at all, and both
+   * `erDiagram / "CUSTOMER:ORDER" ||--|| X : y` and
+   * `erDiagram / "subgraph:1" ||--|| B : y` parse. Siren refuses quoted
+   * names today (`er-entity-name-quoted`), which is the only reason this
+   * spelling cannot be collided with from a source document right now.
+   *
+   * So the invariant is **not** held by the separator. It is held by
+   * `reportIdCollisions` in `buildErModel`, which compares the ids actually
+   * minted and warns when two drawn elements share one — a check rather
+   * than an argument, because no choice of separator survives a name
+   * alphabet that has no forbidden characters left. The corpus row
+   * `er-relationship-id-space` is what pins it.
    */
   id: string;
   /** The entity at the left-hand end, as the source wrote it. */

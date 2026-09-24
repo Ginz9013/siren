@@ -1273,8 +1273,11 @@
  *
  * `.siren-er-relationship-line` is there on exactly the same terms — an ER
  * relationship is this kind's second target, addressable under
- * `CUSTOMER-ORDER`, and its stroke lives on an inner line the way a state
- * transition's does. Its two cardinality markers are deliberately *not*
+ * `CUSTOMER:ORDER`, and its stroke lives on an inner line the way a state
+ * transition's does. ⚠️ A **colon**, unlike every other kind's connector id:
+ * an ER entity name may contain `-`, so `${from}-${to}` could spell a legal
+ * entity name and hand two drawn elements one id (see
+ * `ResolvedErRelationship`). Its two cardinality markers are deliberately *not*
  * named: a `<marker>`'s contents are drawn out of `<defs>`, where the
  * highlight class on the relationship's `<g>` does not reach them, so a
  * selector here would be a rule that never matched.

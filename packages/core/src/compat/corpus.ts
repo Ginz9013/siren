@@ -4501,14 +4501,22 @@ line2\`"]`,
       "line.\n\n" +
       "Not covered by this row, and still refused by name: `u`, Mermaid's " +
       "fifth cardinality (`MD_PARENT`), which it parses and then draws with " +
-      "no marker at all on that end.",
+      "no marker at all on that end.\n\n" +
+      "⚠️ **The ids read back below are `CUSTOMER:ORDER` and " +
+      "`ORDER:LINE-ITEM` — a colon, where every other kind joins a " +
+      "connector's endpoints with `-`.** This row is why the difference is " +
+      "not cosmetic: its own second relationship would have been " +
+      "`ORDER-LINE-ITEM` under the shared spelling, and that is a legal ER " +
+      "entity name, one rename away from this document drawing a box and a " +
+      "line under one `data-siren-id`. `er-relationship-id-space` is the " +
+      "row that measures the collision itself.",
     assert: (result) => {
       // End by end, with the render's own id scope stripped: which marker
       // is at which end is the whole claim, so a reader of a failure here
       // sees the swap rather than a count that happens to match.
       expectSame("relationships and the marker at each end", erRelationships(result), [
-        "CUSTOMER-ORDER: only-one-solid-zero-or-more",
-        "ORDER-LINE-ITEM: zero-or-one-dashed-one-or-more",
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+        "ORDER:LINE-ITEM: zero-or-one-dashed-one-or-more",
       ]);
 
       // And each marker really is the figure Mermaid draws, glyph by glyph,
@@ -4542,7 +4550,7 @@ line2\`"]`,
       // The label is drawn between the two boxes it joins rather than
       // merely somewhere in the picture — the check that makes this a
       // reading of the drawing and not of the text.
-      const places = erRelationshipLabelAnchor(result, "CUSTOMER-ORDER");
+      const places = erRelationshipLabelAnchor(result, "CUSTOMER:ORDER");
       expectSame("the first relationship's drawn label", places.text, "places");
       expectSame(
         "`places` is drawn in the gap between CUSTOMER and ORDER",
@@ -4562,6 +4570,71 @@ line2\`"]`,
         ],
         [false, false],
       );
+    },
+  },
+  {
+    id: "er-relationship-id-space",
+    kind: "er",
+    source: `erDiagram
+      LINE-ITEM
+      LINE ||--o{ ITEM : x`,
+    status: "supported",
+    meaning:
+      "**Three boxes and a line, all four addressable apart** — the row " +
+      "that pins this kind's id space rather than any one construct in it. " +
+      "Every element Siren stamps `data-siren-id` on is a `timeline:` " +
+      "target (ADR-0009), and `createAnimationController` resolves a target " +
+      "with `querySelectorAll`, so two elements wearing one id make an " +
+      "entry naming it apply to both.\n\n" +
+      "This document is the shortest one where that used to happen. A " +
+      "relationship's id was `${from}-${to}`, which for `LINE ||--o{ ITEM` " +
+      "is `LINE-ITEM` — and `LINE-ITEM` on the line above is a perfectly " +
+      "legal entity name, because this kind's name alphabet is " +
+      "`([^\\x00-\\x7F]|\\w|-|\\*|\\.)+` (measured from Mermaid's own lexer) " +
+      "and `-` is inside it. The box and the line came out with the same " +
+      "id and **no diagnostic at all**.\n\n" +
+      "The id is now `${from}:${to}`, so the line is `LINE:ITEM`. Measured, " +
+      "a colon cannot be written anywhere an unquoted ER name is read — " +
+      "`A:B`, `A:B ||--o{ C : has`, `A ||--o{ C:D : has`, `A { str:ing x }` " +
+      "and `A { string x:y }` are each a Mermaid parse error (11.17.2). " +
+      "⚠️ That makes the colon **strictly better than the hyphen, not " +
+      "impossible to collide**: a *quoted* name takes one, and " +
+      "`\"CUSTOMER:ORDER\" ||--|| X : y` parses. What holds the invariant is " +
+      "`reportIdCollisions` in `buildErModel`, which compares the ids " +
+      "actually minted; this row is what says the ids it compares are all " +
+      "different for the document that used to defeat them.\n\n" +
+      "⚠️ The other four kinds keep `${from}-${to}` and are right to: their " +
+      "authored ids are `\\w+`, which cannot contain a hyphen, so the " +
+      "collision this row exists for is unconstructible there. Making all " +
+      "five match would change three kinds' public `data-siren-id` surface " +
+      "to fix a problem only this one has.",
+    assert: (result) => {
+      // The whole claim, read off the drawing: every `data-siren-id` the
+      // render stamped. Four elements and four ids — under the old spelling
+      // this was four elements and **three** ids, which is exactly what no
+      // assert was watching for.
+      //
+      // Sorted, because what matters here is the id *space* and not the
+      // order the groups happen to sit in the DOM; a row that pinned the
+      // drawing order as well would fail for a reason that has nothing to
+      // do with what it is about.
+      const ids = elements(result, "[data-siren-id]").map(idOf).sort();
+      expectSame("every drawn element's id", ids, [
+        "ITEM",
+        "LINE",
+        "LINE-ITEM",
+        "LINE:ITEM",
+      ]);
+      expectSame("no two of them are the same string", new Set(ids).size, ids.length);
+
+      // And the box that shares the *spelling* is still the box: a reader
+      // of the failure above should not have to wonder whether the entity
+      // survived at all.
+      expectSame("entities and their drawn names", erEntities(result), [
+        "LINE-ITEM[LINE-ITEM]",
+        "LINE[LINE]",
+        "ITEM[ITEM]",
+      ]);
     },
   },
   {
@@ -4779,7 +4852,14 @@ line2\`"]`,
       "to right and got drawn top to bottom is exactly the silent " +
       "mis-render the other ratchet in `corpus.test.ts` counts: every " +
       "diagnostic empty, a picture drawn, and only the coordinates " +
-      "disagreeing — which is why this row's assert compares them.",
+      "disagreeing — which is why this row's assert compares them.\n\n" +
+      "The relationship read back below is `CUSTOMER:ORDER`: this kind " +
+      "joins a connector's two endpoint names with a **colon** rather than " +
+      "the `-` the other four use, because an ER entity name may contain a " +
+      "hyphen and so a `${from}-${to}` id can spell one (see " +
+      "`er-relationship-id-space`). Nothing about the direction depends on " +
+      "the spelling; the id appears here only because this row reads the " +
+      "relationship back by it.",
     assert: (result) => {
       const customer = erEntityRect(result, "CUSTOMER");
       const order = erEntityRect(result, "ORDER");
@@ -4809,7 +4889,7 @@ line2\`"]`,
         "ORDER[ORDER]",
       ]);
       expectSame("the relationship is drawn between them", erRelationships(result), [
-        "CUSTOMER-ORDER: only-one-solid-zero-or-more",
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
       ]);
     },
   },

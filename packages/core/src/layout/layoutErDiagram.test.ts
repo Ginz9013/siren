@@ -76,7 +76,7 @@ const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
 });
 
 const CUSTOMER_PLACES_ORDER: ErModel["relationships"][number] = {
-  id: "CUSTOMER-ORDER",
+  id: "CUSTOMER:ORDER",
   from: "CUSTOMER",
   to: "ORDER",
   fromCardinality: "onlyOne",
@@ -307,7 +307,7 @@ describe("layoutErDiagram", () => {
     );
 
     const [route] = relationships;
-    expect(route.id).toBe("CUSTOMER-ORDER");
+    expect(route.id).toBe("CUSTOMER:ORDER");
     expect(route.points.length).toBeGreaterThanOrEqual(2);
     expect(
       touches(boxOf(entities, "CUSTOMER"), route.points[0]),
@@ -367,7 +367,7 @@ describe("layoutErDiagram", () => {
     // And it is reported somewhere on the way between the two boxes, not at
     // the origin: a label drawn at (0, 0) still has the right characters in
     // it.
-    const anchor = labelAnchorOf(shortLabel, "CUSTOMER-ORDER");
+    const anchor = labelAnchorOf(shortLabel, "CUSTOMER:ORDER");
     expect(anchor.y).toBeGreaterThan(boxOf(shortLabel.entities, "CUSTOMER").top);
     expect(anchor.y).toBeLessThan(boxOf(shortLabel.entities, "ORDER").bottom);
   });
@@ -463,7 +463,7 @@ describe("layoutErDiagram carries the timeline", () => {
       totalSteps: 2,
       entries: [
         { kind: "enter", step: 1, targetId: "CUSTOMER", effect: "fade" },
-        { kind: "enter", step: 2, targetId: "CUSTOMER-ORDER", effect: "fade" },
+        { kind: "enter", step: 2, targetId: "CUSTOMER:ORDER", effect: "fade" },
       ],
     };
 

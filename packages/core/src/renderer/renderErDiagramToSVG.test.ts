@@ -80,7 +80,7 @@ const WITH_ATTRIBUTES = {
  * anything.
  */
 const PLACES: PositionedErRelationship = {
-  id: "CUSTOMER-ORDER",
+  id: "CUSTOMER:ORDER",
   from: "CUSTOMER",
   to: "ORDER",
   fromCardinality: "onlyOne",
@@ -415,7 +415,7 @@ describe("renderErDiagramToSVG", () => {
     const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES]));
 
     const group = svg.querySelector("g.siren-er-relationship");
-    expect(group?.getAttribute("data-siren-id")).toBe("CUSTOMER-ORDER");
+    expect(group?.getAttribute("data-siren-id")).toBe("CUSTOMER:ORDER");
     expect(group?.querySelector("path.siren-er-relationship-line")).not.toBeNull();
     expect(group?.querySelector("text.siren-er-relationship-label")).not.toBeNull();
   });

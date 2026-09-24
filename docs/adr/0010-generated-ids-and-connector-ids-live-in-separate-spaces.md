@@ -46,6 +46,42 @@ would carry the cost of an ambiguity that is not theirs.
 separate from `data-siren-id`. Rejected: it forks the one lookup ADR-0009 just unified, and the
 controller would have to know which attribute a target might be hiding behind.
 
+## Where this argument does not reach
+
+The rule above is stated for every kind, and the *rule* still is. The **argument** for it is not: it
+rests on "an authored id is `\w+` by every parser's own grammar", and the ER diagram is the one kind
+where that premise is false. Both halves of the separation fail there, and a reader who takes the
+paragraph above as universal will be wrong in the one place it matters.
+
+An ER entity name is `([^\x00-\x7F]|\w|-|\*|\.)+` — measured from Mermaid's own lexer, not inferred.
+So a hyphen is inside the alphabet, and the connector half fell first: `erDiagram / LINE-ITEM / LINE
+||--o{ ITEM : x` gave the box and the line one `data-siren-id="LINE-ITEM"` with no diagnostic, which
+is the same defect `box-1` was, arrived at from the other direction. ER's connector ids are now
+`${from}:${to}`, because a colon is measured to be refused everywhere an unquoted ER name is read.
+
+That is an improvement, not a proof, and the generated half is why. A **quoted** ER entity name
+takes any character at all — `erDiagram / "subgraph:1" ||--|| B : y` parses, and records an entity
+literally named `subgraph:1`, which is precisely the id `generatedId("subgraph", 1)` mints. The
+colon is not a character ER names cannot contain; it is a character *unquoted* ER names cannot
+contain. Choosing a different separator would not help, because there is no character left to
+choose: a quoted name can spell anything, so no forbidden-character argument can be made to work in
+this kind at all.
+
+ER therefore holds the invariant the way this ADR rejected in its first considered option — by
+checking — and the rejection stands for the four kinds it was written about. It was rejected there
+because a detector "tells an author their document is broken without giving them a way to write it
+correctly", and that reasoning was sound where a rule could make the state unreachable instead.
+Where no rule can, a check that reports the ambiguity beats an argument that has quietly stopped
+being true. `reportIdCollisions` in `buildErModel` compares the ids actually minted rather than the
+characters they are made of, and warns — it does not refuse, because a colliding document is one
+Mermaid draws and the compatibility condition says Siren draws it too. The corpus row
+`er-relationship-id-space` pins the case; `01M3977716` is the ticket that measured all of this.
+
+**The decision is unchanged**: a generated id is `${kind}:${n}`, everywhere, and `generatedId` is
+still the one place that decides its shape. What this section changes is what a new diagram kind
+should conclude from it — if its authored ids are not `\w+`, the colon buys it a narrower guarantee
+than the paragraph above promises, and it owes its ids a collision check rather than an argument.
+
 ## Consequences
 
 `data-siren-id` values changed for sequence box groupings and control-flow blocks (`box-1` →
