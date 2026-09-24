@@ -76,6 +76,7 @@ describe("buildGraphModel", () => {
         { name: "ORDER", alias: null, attributes: [] },
       ],
       relationships: [],
+      timeline: null,
     });
 
     expect(diagnostics).toEqual([]);

@@ -6964,4 +6964,243 @@ describe("render() — an ER diagram, end to end", () => {
       ]);
     }
   });
+
+  it("renders examples/er-core.srn end to end with zero diagnostics \u2014 every construct this kind reads: a standalone entity, both line types, all four cardinalities in both spellings, an alias, an attribute table and a document direction", () => {
+    // Zero diagnostics of *any* severity, which is a stronger claim than the
+    // `examples/` enumeration test above makes: that one filters to error
+    // severity, so a warning would slip past it unremarked.
+    const { result } = renderEr(readExample("er-core"));
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+
+    // Drift guards first: the assertions below are only worth their ink
+    // while the document still declares what it claims to. Read off the
+    // source rather than trusted, so deleting a line from the example fails
+    // here instead of quietly shrinking the coverage.
+    const source = readExample("er-core");
+    for (const [what, spelling] of [
+      ["a standalone entity", "\nPRODUCT\n"],
+      ["an alias", 'CUSTOMER["Customer Account"]'],
+      ["a document direction", "direction LR"],
+      ["an attribute with a key list and a comment", 'string id PK "the account number"'],
+      ["an attribute with two keys", "string email UK,FK"],
+      ["a solid relationship", "||--o{"],
+      ["a dashed relationship", "|o..o|"],
+      ["the third dashed spelling", "}|.-|{"],
+      ["the word spelling of a relationship", "one to zero or many"],
+    ] as [string, string][]) {
+      expect(source.includes(spelling), `examples/er-core.srn no longer declares ${what}`).toBe(
+        true,
+      );
+    }
+
+    // Six entities: the four declared by name and the two a relationship
+    // brought in (`ADDRESS`, and `WAREHOUSE` which is also declared). The
+    // order is first mention across both kinds of statement, which is
+    // Mermaid's own table order (measured).
+    const entities = Array.from(svg.querySelectorAll("g.siren-er-entity"));
+    expect(entities.map((g) => g.getAttribute("data-siren-id"))).toEqual([
+      "CUSTOMER",
+      "ORDER",
+      "LINE-ITEM",
+      "PRODUCT",
+      "WAREHOUSE",
+      "ADDRESS",
+    ]);
+
+    // The alias renames the box and nothing else: `CUSTOMER` is still the id
+    // above, and "Customer Account" is what is drawn.
+    expect(
+      svg.querySelector('g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-entity-label')!
+        .textContent,
+    ).toBe("Customer Account");
+
+    // Every relationship, with the marker drawn at each end — the end-by-end
+    // reading a crossed `cardA`/`cardB` needs, since three of the pairs are
+    // symmetric and would pass a swapped implementation.
+    const markerName = (line: Element, which: "marker-start" | "marker-end") =>
+      (line.getAttribute(which) ?? "")
+        .replace(/^url\(#siren-er-/, "")
+        // The render's own id scope (`mintIdScope`), stripped so the claim
+        // reads as which marker is at which end rather than as a token
+        // nothing can predict.
+        .replace(/__[a-z0-9]+\)$/, "");
+    expect(
+      Array.from(svg.querySelectorAll("g.siren-er-relationship")).map((g) => {
+        const line = g.querySelector("path.siren-er-relationship-line")!;
+        const dashed = line.getAttribute("stroke-dasharray") !== null;
+        return (
+          `${g.getAttribute("data-siren-id")}: ${markerName(line, "marker-start")}` +
+          `-${dashed ? "dashed" : "solid"}-${markerName(line, "marker-end")}`
+        );
+      }),
+    ).toEqual([
+      "CUSTOMER-ORDER: only-one-solid-zero-or-more",
+      "CUSTOMER-ADDRESS: zero-or-one-dashed-zero-or-one",
+      "ORDER-LINE-ITEM: only-one-solid-one-or-more",
+      "LINE-ITEM-PRODUCT: zero-or-more-solid-only-one",
+      "PRODUCT-WAREHOUSE: one-or-more-dashed-one-or-more",
+      "PRODUCT-LINE-ITEM: only-one-solid-zero-or-more",
+    ]);
+
+    // And the attribute table is drawn, cell by cell, in the columns the
+    // entity actually uses — four for `CUSTOMER`, which writes keys and a
+    // comment, and two for `LINE-ITEM`, which writes neither.
+    const cellsOf = (id: string) =>
+      Array.from(
+        svg.querySelectorAll(`g.siren-er-entity[data-siren-id="${id}"] text.siren-er-attribute`),
+      ).map((cell) => `${cell.getAttribute("class")!.split(" ")[1]}=${cell.textContent}`);
+    expect(cellsOf("CUSTOMER")).toEqual([
+      "siren-er-attribute-type=string",
+      "siren-er-attribute-name=id",
+      "siren-er-attribute-keys=PK",
+      "siren-er-attribute-comment=the account number",
+      "siren-er-attribute-type=string",
+      "siren-er-attribute-name=name",
+      "siren-er-attribute-keys=",
+      "siren-er-attribute-comment=",
+      "siren-er-attribute-type=string",
+      "siren-er-attribute-name=email",
+      "siren-er-attribute-keys=UK,FK",
+      "siren-er-attribute-comment=",
+    ]);
+    expect(cellsOf("LINE-ITEM")).toEqual([
+      "siren-er-attribute-type=int",
+      "siren-er-attribute-name=quantity",
+      "siren-er-attribute-type=int",
+      "siren-er-attribute-name=price",
+    ]);
+
+    // The direction is `LR`, which nothing but where the boxes landed can
+    // say: a direction read and dropped leaves every diagnostic empty. Under
+    // `LR` the first rank is left of the second; under the default `TB` it
+    // would be above it.
+    const boxOf = (id: string) =>
+      svg.querySelector(`g.siren-er-entity[data-siren-id="${id}"] rect.siren-er-entity-frame`)!;
+    expect(Number(boxOf("CUSTOMER").getAttribute("x"))).toBeLessThan(
+      Number(boxOf("ORDER").getAttribute("x")),
+    );
+  });
+
+  it("drives examples/er-reveal.srn's timeline through both of this kind's addressable targets \u2014 an entity and a relationship \u2014 with next(), prev() and reset()", () => {
+    const { result } = renderEr(readExample("er-reveal"));
+
+    // Zero diagnostics of any severity: a relationship left drawn after an
+    // endpoint exits is a *warning*, so an example that got this wrong would
+    // still pass the enumeration test above.
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(6);
+
+    const svg = result.svg!;
+    const pendingIds = () =>
+      Array.from(svg.querySelectorAll(".siren-pending"))
+        .map((el) => el.getAttribute("data-siren-id"))
+        .sort();
+
+    // Exactly the five elements with an `enter` action start hidden, across
+    // both kinds an author can address here.
+    expect(pendingIds()).toEqual([
+      "CUSTOMER",
+      "CUSTOMER-ORDER",
+      "LINE-ITEM",
+      "ORDER",
+      "ORDER-LINE-ITEM",
+    ]);
+
+    const entity = (id: string) =>
+      svg.querySelector(`g.siren-er-entity[data-siren-id="${id}"]`)!;
+    const relationship = (id: string) =>
+      svg.querySelector(`g.siren-er-relationship[data-siren-id="${id}"]`)!;
+    const customer = entity("CUSTOMER");
+    const order = entity("ORDER");
+    const lineItem = entity("LINE-ITEM");
+    const places = relationship("CUSTOMER-ORDER");
+    const contains = relationship("ORDER-LINE-ITEM");
+
+    // Step 1: an entity enters — under the name its **author** wrote, while
+    // its box draws the alias. The two parting is the whole point of
+    // `ResolvedErEntity`'s two fields.
+    controller.next();
+    expect(customer.classList.contains("siren-pending")).toBe(false);
+    expect(customer.classList.contains("siren-enter-fade")).toBe(true);
+    expect(customer.querySelector("text.siren-er-entity-label")!.textContent).toBe(
+      "Customer Account",
+    );
+    expect(order.classList.contains("siren-pending")).toBe(true);
+
+    // Step 2: a relationship enters beside the entity it points at — the
+    // second target kind, and the one whose id nothing in the document
+    // spells out.
+    controller.next();
+    expect(order.classList.contains("siren-enter-slide-top")).toBe(true);
+    expect(places.classList.contains("siren-pending")).toBe(false);
+    expect(places.classList.contains("siren-enter-fade")).toBe(true);
+
+    controller.next(); // step 3 — LINE-ITEM and the relationship into it
+
+    // Step 4: a highlight on an entity that is already on screen.
+    controller.next();
+    expect(customer.classList.contains("siren-highlight-outline")).toBe(true);
+
+    // Step 5: the highlight moves to the relationship, in the other effect.
+    controller.next();
+    expect(places.classList.contains("siren-highlight-glow")).toBe(true);
+    expect(customer.classList.contains("siren-highlight-outline")).toBe(false);
+
+    // Step 6: both ends of the tail leave together, which is what keeps this
+    // document free of the connector-outlives-its-endpoint warning.
+    controller.next();
+    expect(controller.currentStep).toBe(6);
+    expect(contains.classList.contains("siren-exit-fade")).toBe(true);
+    expect(lineItem.classList.contains("siren-exit-slide-right")).toBe(true);
+
+    // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(contains.classList.contains("siren-exit-fade")).toBe(false);
+    expect(places.classList.contains("siren-highlight-glow")).toBe(true);
+
+    // And reset returns both kinds to the state step 0 established.
+    controller.reset();
+    expect(controller.currentStep).toBe(0);
+    expect(pendingIds()).toEqual([
+      "CUSTOMER",
+      "CUSTOMER-ORDER",
+      "LINE-ITEM",
+      "ORDER",
+      "ORDER-LINE-ITEM",
+    ]);
+    expect(places.classList.contains("siren-highlight-glow")).toBe(false);
+  });
+
+  it("stamps the same data-siren-id on every figure when one document is rendered twice", () => {
+    // ADR-0009 makes a timeline target an id, so an id that differed between
+    // two renders would make a `timeline:` block mean one thing on the first
+    // paint and another on the second — a board re-rendering on every source
+    // change does exactly that. Every id this kind mints is a function of the
+    // source's own names and order, and nothing here counts renders or reads
+    // a clock; this is what says so.
+    const source = readExample("er-core");
+    const idsOf = () =>
+      Array.from(renderEr(source).result.svg!.querySelectorAll("[data-siren-id]")).map(
+        (el) => `${el.getAttribute("class")}#${el.getAttribute("data-siren-id")}`,
+      );
+
+    const first = idsOf();
+    expect(first.length).toBeGreaterThan(0);
+    expect(idsOf()).toEqual(first);
+
+    // The repeated ordered pair, whose id is the one thing here that is
+    // *counted* rather than read: `#2` has to fall on the same relationship
+    // both times, so the count must restart per render.
+    const repeated = "erDiagram\n  A ||--o{ B : first\n  A }o--|| B : second\n";
+    const repeatedIds = () =>
+      Array.from(
+        renderEr(repeated).result.svg!.querySelectorAll("g.siren-er-relationship"),
+      ).map((el) => el.getAttribute("data-siren-id"));
+
+    expect(repeatedIds()).toEqual(["A-B", "A-B#2"]);
+    expect(repeatedIds()).toEqual(["A-B", "A-B#2"]);
+  });
 });

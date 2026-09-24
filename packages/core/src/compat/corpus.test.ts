@@ -1027,26 +1027,56 @@ const SILENTLY_WRONG = 0;
  * move: both were named refusals, and what replaced each is a picture its
  * row reads back.
  *
- * Four constructs are **not** drawn and have no row here yet, all four valid
- * Mermaid, and each would be case (2) above:
+ * **0 → 13: the ER board wrote down what it excluded.** Case (2) above,
+ * thirteen times over, and the second time a board has closed this way — the
+ * State board's own 0 → 6 is the precedent and the wording this paragraph
+ * follows. Nothing fell to compensate and nothing broke: every one of the
+ * thirteen was *already* refused before this ticket, and what changed is that
+ * the gap is now measured instead of remembered. No `supported` row moved,
+ * and `silently-wrong` stays 0.
  *
- * - Mermaid's bracketless alias, `A[Unquoted]` — refused **by name** by
- *   `parseErDiagram`, and measured to record the same `alias` field the
- *   quoted spelling does.
- * - `subgraph <id> ... end`, which ER genuinely has: measured, its database
- *   answers `getSubGraphs()` with one entry carrying `nodes` and its own
- *   `dir`, and the entities inside it come back with `parentId`. This one is
- *   a whole construct rather than a spelling, and no row covers it.
- * - The greedy shape of Mermaid's own direction rule. Its lexer spells it
- *   `.*direction\s+LR[^\n]*`, so `XX direction LR` and `direction LR YY` are
- *   measured to set the direction **and swallow the rest of the line**,
- *   declaring no entity. Siren's pattern is anchored on the whole statement,
- *   so both are refused — as the generic unrecognized line, which is the
- *   state every multi-statement ER line is already in.
- * - `direction TD`, which is measured to be **two entities** rather than a
- *   direction, and so is a case of that same multi-statement gap.
+ * Each row's source was re-measured as legal Mermaid against 11.17.2 for the
+ * row itself rather than inherited from the ticket that first noticed it, and
+ * each `meaning` says what Mermaid's own record holds — which, for three of
+ * them, corrected a detail this comment used to state from memory: an ER
+ * `subgraph`'s membership lives in the cluster's `nodes` array and **not** in
+ * a `parentId` on the entity, `classDef` really does populate `getClasses()`
+ * for this kind, and a quoted entity name changes the *id* rather than adding
+ * an alias.
+ *
+ * The thirteen, grouped by why they were left:
+ *
+ * - **Two already refused by name**, and the two this comment previously
+ *   promised rows for: `er-md-parent-cardinality` (`u`, Mermaid's fifth
+ *   cardinality, drawn with no marker at all on that end) and
+ *   `er-alias-unquoted` (`A[Unquoted]`, recording the same `alias` field the
+ *   quoted spelling does).
+ * - **The attribute block's three, ticket `01M394HDP`**:
+ *   `er-attribute-generic` (`list~int~ codes` — tildes **kept**, so the cell
+ *   draws them), `er-attribute-backtick` (`` `odd name` `` — backticks
+ *   **stripped**, so the space survives) and `er-block-one-line`
+ *   (`E { string a }`).
+ * - **The cluster, ticket `01M395S26`**: `er-subgraph`, a whole construct
+ *   rather than a spelling, carrying its own `dir`.
+ * - **Author styling, three spellings and no ticket until now**:
+ *   `er-style-statement`, `er-style-classdef` and `er-style-class-shorthand`.
+ *   ER's grammar has all three terminals and nothing in Siren reads any of
+ *   them; measured, they reach exactly the records a flowchart's do.
+ * - **Multi-statement lines**: `er-statements-one-line`. One construct under
+ *   three gaps this comment used to list separately — `direction TD` (two
+ *   entities), the greedy `.*direction\s+LR[^\n]*` lexer rule, and the third
+ *   entity a two-word relationship label declares.
+ * - **A quoted entity name**: `er-entity-name-quoted`, which is how an ER
+ *   name gets a space in it and is *not* the alias construct.
+ * - **Accessibility**: `er-acc-title` and `er-acc-descr`, already `supported`
+ *   for two other kinds and unread in this one.
+ *
+ * Eleven of the thirteen are refused by the **generic** unrecognized-line
+ * message rather than by name, which is the state every unimplemented ER
+ * construct was already in; naming them belongs to the tickets that implement
+ * them, exactly as it did for the attribute trio.
  */
-const REJECTED = 0;
+const REJECTED = 13;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -4813,4 +4813,236 @@ line2\`"]`,
       ]);
     },
   },
+  // ---------------------------------------------------------------------------
+  // The thirteen constructs the ER board deliberately left out.
+  // ---------------------------------------------------------------------------
+  //
+  // Every one is valid Mermaid, re-measured against 11.17.2 with
+  // `scripts/mermaid-probe.mjs` for this row rather than taken from the
+  // ticket that noticed it, and every one is **refused** today: the document
+  // costs and no picture is drawn. Two of them are refused *by name*
+  // (`parseErDiagram`'s `UNIMPLEMENTED` table); the other eleven fall to the
+  // generic unrecognized-line message, which is the state every unimplemented
+  // ER construct was already in and is what the tickets named below will
+  // change as they land. Writing them down is the point: this is the honest
+  // backlog, measured rather than remembered.
+  {
+    id: "er-md-parent-cardinality",
+    kind: "er",
+    source: `erDiagram
+      A u--o{ B : x`,
+    status: "rejected",
+    meaning:
+      "`u` is Mermaid's **fifth** cardinality, `MD_PARENT`. Measured: its " +
+      "`Cardinality` enum has five members and this is the last; its lexer " +
+      "rule is `u(?=[.\\-|])`, so `u` is a marker only when a relationship " +
+      "body follows it immediately — which makes it a **left-hand spelling " +
+      "only** (`A ||--u B : x` is a parse error, \"got 'UNICODE_TEXT'\"), and " +
+      "leaves an entity called `u`, or `usage`, an ordinary name. What " +
+      "Mermaid *draws* for it is an edge with a `marker-end` and **no " +
+      "`marker-start` at all**, because `md_parent` names no marker in its " +
+      "own table. Nothing in the document says what a missing marker means, " +
+      "so Siren refuses it **by name** rather than guessing. Named in the " +
+      "`er-relationship` row as the one piece of that construct left out.",
+  },
+  {
+    id: "er-alias-unquoted",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER[Customer Account]`,
+    status: "rejected",
+    meaning:
+      "Mermaid's **bracketless** alias. Measured: it records exactly the " +
+      "field the quoted spelling does — `label=\"CUSTOMER\" alias=\"Customer " +
+      "Account\"` — so the box draws \"Customer Account\" and the table stays " +
+      "keyed on `CUSTOMER`, the same picture `er-alias` asserts for " +
+      "`CUSTOMER[\"Customer Account\"]`. It is a second *spelling* of a " +
+      "construct Siren already draws, refused **by name** rather than " +
+      "half-read, so an author is told to add the quotes rather than told " +
+      "their document is malformed.",
+  },
+  {
+    id: "er-attribute-generic",
+    kind: "er",
+    source: `erDiagram
+      ORDER {
+        list~int~ codes
+      }`,
+    status: "rejected",
+    meaning:
+      "A `~`-delimited generic type inside an attribute block. Measured: the " +
+      "attribute comes back `type=\"list~int~\" name=\"codes\"` — the tildes " +
+      "are kept, so Mermaid draws the type cell **verbatim**, tildes and " +
+      "all, rather than rewriting it into angle brackets the way a class " +
+      "diagram's generic is. `parseErDiagram`'s in-block token table " +
+      "deliberately omits Mermaid's generic rule, which is what refuses the " +
+      "line instead of quietly losing its argument. Ticket `01M394HDP`.",
+  },
+  {
+    id: "er-attribute-backtick",
+    kind: "er",
+    source: `erDiagram
+      ORDER {
+        string \`odd name\`
+      }`,
+    status: "rejected",
+    meaning:
+      "A backtick-quoted attribute name, which is how an attribute gets a " +
+      "space in it. Measured: `string `odd name`` comes back `type=\"string\" " +
+      "name=\"odd name\"` — the backticks are **stripped** and the space " +
+      "survives, unlike the generic above whose delimiters are kept. So the " +
+      "cell draws `odd name`. Omitted from the in-block token table for the " +
+      "same reason. Ticket `01M394HDP`.",
+  },
+  {
+    id: "er-block-one-line",
+    kind: "er",
+    source: `erDiagram
+      E { string a }`,
+    status: "rejected",
+    meaning:
+      "An attribute block opened, filled and closed on one line. Measured: " +
+      "`E { string a }` reports one entity carrying one attribute — " +
+      "identical to the three-line spelling, because Mermaid's lexer skips " +
+      "newlines inside a block condition rather than requiring them. Siren " +
+      "requires the opening brace to end its line and the closing one to be " +
+      "alone on its own (see `ENTITY_HEAD_RE`), so this falls through to the " +
+      "unrecognized-line message. Ticket `01M394HDP`.",
+  },
+  {
+    id: "er-subgraph",
+    kind: "er",
+    source: `erDiagram
+      subgraph sales
+        direction LR
+        CUSTOMER ||--o{ ORDER : places
+      end
+      WAREHOUSE`,
+    status: "rejected",
+    meaning:
+      "ER genuinely has clusters. Measured: `getSubGraphs()` answers with " +
+      "one entry — `{id:\"sales\", title:\"sales\", nodes:[\"CUSTOMER\",\"ORDER\"], " +
+      "dir:\"LR\", classes:[], cssStyles:[]}` — while `getEntities()` reports " +
+      "all three entities flat, so membership lives on the **cluster** and " +
+      "not on the entity. The `dir` is the cluster's own rank direction, " +
+      "independent of the document's, which is the half a flowchart " +
+      "subgraph already needed `layoutDirectedGraph` to place. A whole " +
+      "construct rather than a spelling. Ticket `01M395S26`.",
+  },
+  {
+    id: "er-style-statement",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:#f96,stroke:#333`,
+    status: "rejected",
+    meaning:
+      "`style <entity> <declarations>` applies declarations to one entity " +
+      "directly. Measured: `ORDER` comes back with " +
+      "`cssStyles=[\"fill:#f96\",\"stroke:#333\"]` while its `cssClasses` stays " +
+      "`\"default\"` — so the declarations hang off the entity itself, the " +
+      "same shape a flowchart's `style` produces (`fc-style-style`). The " +
+      "comma splits the declaration list and nothing else.",
+  },
+  {
+    id: "er-style-classdef",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96,stroke:#333
+      CUSTOMER ||--o{ ORDER : places
+      class ORDER urgent`,
+    status: "rejected",
+    meaning:
+      "`classDef` names a set of declarations and `class <entity> <name>` " +
+      "applies it. Measured, and **both halves land**: `getClasses()` " +
+      "answers with `urgent -> {id:\"urgent\", styles:[\"fill:#f96\"," +
+      "\"stroke:#333\"], textStyles:[]}`, and the entity's `cssClasses` " +
+      "becomes `\"default urgent\"` — the identical pair a flowchart " +
+      "(`fc-style-classdef`) and a class diagram already produce. ER's " +
+      "grammar has these terminals; nothing in Siren reads them here.",
+  },
+  {
+    id: "er-style-class-shorthand",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      ORDER:::urgent`,
+    status: "rejected",
+    meaning:
+      "`:::` is the apply-directive written onto the entity instead of as a " +
+      "statement of its own. Measured: `ORDER:::urgent` reaches the same " +
+      "record the `class ORDER urgent` statement does — `cssClasses=\"default " +
+      "urgent\"` — so the two are one construct in two spellings. **No " +
+      "`classDef` is needed for it**, measured: the source here declares " +
+      "none and the class still lands, which is what keeps this row " +
+      "measuring `:::` and not the `classDef` line beside it. It is a " +
+      "separate row because it is a separate *statement shape*: the " +
+      "directive rides on an entity declaration, so reading it means " +
+      "changing the entity-head pattern rather than adding a keyword.",
+  },
+  {
+    id: "er-statements-one-line",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ORDER LINE-ITEM`,
+    status: "rejected",
+    meaning:
+      "Mermaid's ER grammar runs several statements on one line: measured, " +
+      "`CUSTOMER ORDER LINE-ITEM` reports **three** entities. This is the " +
+      "construct underneath three separate-looking gaps. `direction TD` is " +
+      "two entities (`direction` and `TD`) rather than a direction, because " +
+      "the ER lexer writes `TB`/`BT`/`RL`/`LR` out literally and the " +
+      "flowchart's `TD` alias never reaches this grammar. `A ||--o{ B : two " +
+      "words` is a relationship whose label is `two` plus a third entity " +
+      "called `words` — which is why `parseErDiagram` refuses that one **by " +
+      "name**. And Mermaid's own direction rule is spelled " +
+      "`.*direction\\s+LR[^\\n]*`, so `XX direction LR` sets the direction and " +
+      "swallows the rest of the line, declaring no entity at all. Siren " +
+      "anchors every statement on the whole line, so all four are refused.",
+  },
+  {
+    id: "er-entity-name-quoted",
+    kind: "er",
+    source: `erDiagram
+      "Customer Account" ||--o{ ORDER : places`,
+    status: "rejected",
+    meaning:
+      "A quoted entity name, which is how a name gets a space in it. " +
+      "Measured: the entity is keyed on `Customer Account` with the quotes " +
+      "**stripped** — `label=\"Customer Account\"`, no `alias` field at all — " +
+      "and the relationship names it the same way. So this is not the alias " +
+      "construct: an alias leaves the id alone and changes the drawn text, " +
+      "while a quoted name changes **both**, which makes the id a string no " +
+      "`ENTITY_NAME_RE` alphabet can spell.",
+  },
+  {
+    id: "er-acc-title",
+    kind: "er",
+    source: `erDiagram
+      accTitle: Order book
+      CUSTOMER ||--o{ ORDER : places`,
+    status: "rejected",
+    meaning:
+      "The diagram's screen-reader-only title. Measured: `getAccTitle()` " +
+      "answers `\"Order book\"` and the entity table is untouched, so it " +
+      "draws nothing on the canvas and is a `<title>` on the `<svg>` — the " +
+      "same construct `fc-acc-title` and `seq-acc-title` already cover for " +
+      "two other kinds. Unread here, so an ER document that uses it is " +
+      "refused outright rather than losing its accessibility text quietly.",
+  },
+  {
+    id: "er-acc-descr",
+    kind: "er",
+    source: `erDiagram
+      accDescr: how orders relate to customers
+      CUSTOMER ||--o{ ORDER : places`,
+    status: "rejected",
+    meaning:
+      "The screen-reader-only description, `accTitle`'s twin. Measured: " +
+      "`getAccDescription()` answers `\"how orders relate to customers\"` and " +
+      "nothing else changes. Its own row rather than a line in the one " +
+      "above because Mermaid gives it its own statement, its own store and " +
+      "its own multi-line `accDescr { ... }` spelling — and `fc-acc-title` " +
+      "and `fc-acc-descr` are already two rows for that reason.",
+  },
 ];
