@@ -441,14 +441,12 @@ const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
  * The one alias spelling it deliberately does *not* read is Mermaid's
  * bracketless one: `A[Unquoted]` is an alias there too (measured), and it is
  * refused **by name** in `UNIMPLEMENTED` rather than half-read, for the
- * reason the generic and backtick attribute rules are absent below.
+ * reason the bracketless alias is.
  *
- * **The brace is required to end the line, and the closing one to be alone
- * on its own.** Mermaid's lexer is freer than that — `E { string a }` on one
- * line is a document it draws — and that spelling stays refused here rather
- * than half-read: an opening line this pattern declines falls through to the
- * unrecognized-line diagnostic, which costs the document, so no picture is
- * drawn for it.
+ * **The brace needs no line of its own.** It is a *mode switch* rather than
+ * a line ending — measured, `E { string a }` and the three-line spelling
+ * report the same record — so this pattern says only that a block opened
+ * here, and `readLine` reads whatever follows in the block's own alphabet.
  *
  * ⚠️ **Both trailing groups are optional, so this reads a bare name too** —
  * which is the whole point now that a line is a stream: a name, a name with
@@ -462,9 +460,7 @@ const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
  * alias="alias"`, and `"A B" {` with `string n` under it reports that entity
  * carrying that attribute.
  *
- * ⚠️ Not anchored on the end of the line — see `RELATIONSHIP_RE` — so the
- * brace's "must end the line" rule is `readStatements`' to enforce, and it
- * does.
+ * ⚠️ Not anchored on the end of the line — see `RELATIONSHIP_RE`.
  */
 const ENTITY_HEAD_RE = new RegExp(
   `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*"([^"\\r\\n]+)"\\s*\\])?(\\s*\\{)?`,
@@ -510,19 +506,23 @@ function readEntityHead(text: string): ErEntityHead | null {
   };
 }
 
-/** Every statement one line declares, read left to right. */
-interface ErLineStatements {
+/** Everything one line declares, read left to right. */
+interface ErLineReading {
   /** The entities named, in source order, relationship endpoints included. */
   entities: ErEntityDecl[];
   /** The relationships named, in source order. */
   relationships: ErRelationshipDecl[];
-  /** The entity whose attribute block this line opened, or `null`. */
-  opensBlockOn: ErEntityDecl | null;
+  /**
+   * The entity whose attribute block is still open where the line ends, or
+   * `null` when none is — the reader's mode, handed back so the next line
+   * starts in it.
+   */
+  openEntity: ErEntityDecl | null;
 }
 
 /**
- * Every statement `line` declares, or `null` when any part of it is
- * unreadable.
+ * Everything `line` declares, given the block it began inside — or `null`
+ * when any part of it is unreadable.
  *
  * **A line is a stream, not a statement.** Mermaid's grammar is `statements:
  * statement | statements statement` with no separator of its own, so
@@ -534,21 +534,63 @@ interface ErLineStatements {
  * called `words`, and `A B ||--o{ C : x` is a bare `A` before a
  * relationship between `B` and `C`.
  *
+ * ⚠️ **And the braces are inside that stream, not around it.** An attribute
+ * block is a *lexer condition* rather than a run of lines: `{` switches in,
+ * `}` pops straight back out (`popState(); return 18`), and a newline means
+ * nothing to either — Mermaid's block condition skips newlines with a rule
+ * of its own. Measured, one probe apiece: `E { string a }` and the
+ * three-line spelling report the **same** record; `E { string a } F` is that
+ * entity and then a bare `F`; `A B { string a }` puts the attribute on `B`;
+ * `E { string a } A ||--o{ B : x` is a filled block and then a relationship;
+ * and a block may equally open mid-line and close two lines later, or open
+ * on its own line and close mid-line with statements after it. That is why
+ * the open entity is a *parameter* here rather than a line class the caller
+ * decides between: the mode changes mid-line, so only the reader that walks
+ * the line can track it.
+ *
  * **A relationship is tried before a name**, because it begins with one: a
  * name-first reader would take `A` out of `A ||--o{ B : x` and then find
  * `||--o{ B : x` unreadable.
  *
- * All-or-nothing on purpose. A half-read line would put some of its boxes on
- * the canvas and drop the rest silently; returning `null` costs the document
- * and says so, which is the trade every refusal in this parser makes.
+ * All-or-nothing on purpose, and that is why the attributes are buffered
+ * rather than appended as they are read: a half-read line would put some of
+ * its boxes on the canvas and drop the rest silently, and an entity that
+ * arrived on an earlier line would keep the attributes of a line that was
+ * refused. Returning `null` costs the document and says so, which is the
+ * trade every refusal in this parser makes.
  */
-function readStatements(line: string): ErLineStatements | null {
+function readLine(line: string, openEntity: ErEntityDecl | null): ErLineReading | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
-  let opensBlockOn: ErEntityDecl | null = null;
+  /**
+   * The attributes each entity gained on this line, held back until the
+   * whole line has been read — see the all-or-nothing paragraph above.
+   */
+  const appends: { entity: ErEntityDecl; attributes: ErAttribute[] }[] = [];
+  let open = openEntity;
   let rest = line;
 
   while (rest.length > 0) {
+    if (open !== null) {
+      // Inside the block condition, where `}` is the way out and everything
+      // else is attributes. Read before the statement patterns, because the
+      // alphabets overlap: `string name` is two words, and a reader that
+      // asked "is this an entity name?" first would find `string` and
+      // declare a box.
+      if (rest.startsWith(ATTRIBUTE_BLOCK_CLOSE)) {
+        open = null;
+        rest = rest.slice(ATTRIBUTE_BLOCK_CLOSE.length).trimStart();
+        continue;
+      }
+      const read = readAttributes(rest);
+      if (read === null) {
+        return null;
+      }
+      appends.push({ entity: open, attributes: read.attributes });
+      rest = rest.slice(read.length).trimStart();
+      continue;
+    }
+
     const relationship = readRelationship(rest);
     if (relationship !== null) {
       // Both endpoints join the one entity list, in the order the line names
@@ -573,18 +615,14 @@ function readStatements(line: string): ErLineStatements | null {
     rest = rest.slice(head.length).trimStart();
 
     if (head.opensBlock) {
-      // **The brace has to end the line.** Mermaid's lexer is freer —
-      // `E { string a }` on one line is a document it draws — and that
-      // spelling stays refused here rather than half-read, which is what
-      // `er-block-one-line` records.
-      if (rest.length > 0) {
-        return null;
-      }
-      opensBlockOn = declared;
+      open = declared;
     }
   }
 
-  return { entities, relationships, opensBlockOn };
+  for (const { entity, attributes } of appends) {
+    entity.attributes.push(...attributes);
+  }
+  return { entities, relationships, openEntity: open };
 }
 
 /**
@@ -609,15 +647,77 @@ function readStatements(line: string): ErLineStatements | null {
  *   wherever those two letters stand alone, including where a type or a
  *   name was wanted.
  *
- * The generic and the backtick rules are deliberately absent: `list~int~ xs`
- * and `` `odd name` `` are documents Mermaid draws that this parser does not
- * implement, so they must not be half-read. Leaving them out is what refuses
- * them — the `~` and the `` ` `` reach no rule, and the line is reported as
- * unrecognized rather than quietly losing its generic argument.
+ * ⚠️ **The generic rule's place in this order is load-bearing, not tidy.**
+ * It is read before the word rule *and* before the comment rule, and the
+ * second of those is measurable: `string x "a~b~"` is a **parse error** in
+ * Mermaid, because the generic rule reaches the quoted string first, takes
+ * it whole, and leaves a third bare word where the grammar wanted a
+ * comment. Put the comment rule first and Siren would accept a line Mermaid
+ * draws no picture for at all. `string x "has ~ tilde"` is the control: its
+ * tilde is not closed inside the quotes, so the generic rule declines and
+ * the comment rule has it.
  */
 const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; pattern: RegExp }[] = [
   { kind: "key", pattern: /^\b(?:PK|FK|UK)\b/iu },
+  /**
+   * Mermaid's generic rule, `([^\s]*)[~].*[~]([^\s]*)`, character for
+   * character — and a **word** like any other, because its action returns
+   * the same `ATTRIBUTE_WORD` the plain word rule does, with the whole match
+   * as its text. So the tildes are **kept** and the type is drawn verbatim
+   * (measured: `list~int~ codes` → `type="list~int~"`), unlike a class
+   * diagram's generic, which is re-spelled into angle brackets. Nothing
+   * downstream takes it apart, which is why there is no `ErAttribute` field
+   * for a type argument: Mermaid records none either.
+   *
+   * ⚠️ **`.*`, not `[^\s]*`** — twice over, and both halves are measured:
+   * a space goes *inside* the delimiters (`list~a b~ spaced` is one type and
+   * one name), and the greed runs to the **last** tilde on the line, so
+   * `list~int~ x~y~ z` is one attribute typed `list~int~ x~y~` rather than
+   * two. It cannot run further than that: `.` does not match a newline, and
+   * the leading `[^\s]*` has to reach its first tilde without crossing
+   * whitespace, so the token is confined to the line it starts on however
+   * greedy its middle is.
+   *
+   * A generic stands wherever a word does, the name position included
+   * (measured: `x list~int~` → `name="list~int~"`).
+   */
+  { kind: "word", pattern: /^[^\s]*~.*~[^\s]*/u },
   { kind: "word", pattern: /^[*A-Za-z_À-￿][A-Za-z0-9\-_[\]().,À-￿*]*/u },
+  /**
+   * Mermaid's backtick rules, three of them folded into one pattern —
+   * `` [`] `` opens the `block_bq` condition, `` [^`]+ `` there is the
+   * word, and `` [`] `` closes it. The two backticks emit **no token at
+   * all**, which is the whole of the construct: they are delimiters that
+   * vanish, and the word is what stood between them. So `` `odd name` ``
+   * reports `name="odd name"` (measured) — the **opposite** of the generic
+   * rule above, whose delimiters are part of its word.
+   *
+   * ⚠️ **This is how an attribute gets a character its alphabet refuses.**
+   * The word rule two lines up admits no space, colon, brace, tilde or
+   * quote; measured, `` string `a:b{}~"c` `` carries all five through
+   * untouched, the brace included — it does not close the block from inside
+   * the quotes. A key word goes through too: `` string `PK` `` is a name,
+   * where a bare `string PK` is a parse error, because the key rule never
+   * gets to look once the condition has switched.
+   *
+   * Because the delimiters are token-less rather than part of the word, two
+   * runs may touch: `` `a``b` `` is a type and a name (measured), not one
+   * word with backticks in the middle.
+   *
+   * ⚠️ **One measured divergence, taken deliberately.** Mermaid's
+   * `` [^`]+ `` matches a newline, so a backticked word may span lines —
+   * measured, `` string `a `` over `` b` `` is one attribute named
+   * `` a\n    b ``, indentation included. This reader works a line at a
+   * time, so `[^`]+` is spelled against one line and both halves are
+   * refused instead: the document costs and says so, where a single-line
+   * cell drawn for a two-line name would be the silent kind of wrong. A
+   * backtick with no partner anywhere is a parse error in Mermaid too, so
+   * that half agrees rather than diverging.
+   *
+   * Group 1 rather than the whole match, which is what strips the quotes —
+   * see `tokenizeAttributeLine`.
+   */
+  { kind: "word", pattern: /^`([^`]+)`/u },
   { kind: "comment", pattern: /^"[^"]*"/u },
 ];
 
@@ -634,10 +734,17 @@ interface AttributeToken {
  * `punctuation` token, which is how `,` — a token the grammar names but the
  * lexer has no rule for inside a block — comes to separate two keys.
  */
-function tokenizeAttributeLine(line: string): AttributeToken[] | null {
+function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length: number } | null {
   const tokens: AttributeToken[] = [];
-  let rest = line;
+  let rest = text;
   while (rest.length > 0) {
+    // Mermaid's rule 31, the way out of the block condition — and the
+    // reason this reader hands back a length: what follows the brace is
+    // statements again, on the same line, and only the caller knows how to
+    // read those.
+    if (rest.startsWith(ATTRIBUTE_BLOCK_CLOSE)) {
+      break;
+    }
     const space = /^\s+/u.exec(rest);
     if (space !== null) {
       rest = rest.slice(space[0].length);
@@ -646,8 +753,10 @@ function tokenizeAttributeLine(line: string): AttributeToken[] | null {
     const rule = ATTRIBUTE_TOKEN_RULES.find(({ pattern }) => pattern.test(rest));
     if (rule === undefined) {
       // Mermaid's `.` rule, and the only characters this parser lets through
-      // it are the ones its grammar names. A `~` or a backtick would reach
-      // here too, and refusing them is the point — see the rule table.
+      // it are the ones its grammar names. A lone `~` reaches here — the
+      // generic rule needs its closing tilde — and so does a backtick with
+      // no partner on the line, and refusing both is the point: measured,
+      // `list~int xs` is a parse error in Mermaid too.
       if (rest.startsWith(",")) {
         tokens.push({ kind: "punctuation", text: "," });
         rest = rest.slice(1);
@@ -655,16 +764,21 @@ function tokenizeAttributeLine(line: string): AttributeToken[] | null {
       }
       return null;
     }
-    const text = rule.pattern.exec(rest)![0];
-    tokens.push({ kind: rule.kind, text });
-    rest = rest.slice(text.length);
+    const match = rule.pattern.exec(rest)!;
+    // The token's text is group 1 where a rule has one and the whole match
+    // otherwise — the one place a rule's delimiters come off, and the
+    // difference between the two constructs above: the generic rule
+    // captures nothing and keeps its tildes, the backtick rule captures
+    // what stood between the quotes and loses them.
+    tokens.push({ kind: rule.kind, text: match[1] ?? match[0] });
+    rest = rest.slice(match[0].length);
   }
-  return tokens;
+  return { tokens, length: text.length - rest.length };
 }
 
 /**
- * The attributes `line` declares, or `null` when it declares none this
- * parser can read.
+ * The attributes at the head of `text`, and how many characters they took —
+ * or `null` when it declares none this parser can read.
  *
  * **Several per line, because Mermaid's grammar is `attributes: attribute |
  * attributes attribute`** — measured, `string a int b` inside a block
@@ -673,12 +787,17 @@ function tokenizeAttributeLine(line: string): AttributeToken[] | null {
  * an optional comment, and every one of those boundaries is measured:
  * `string x PK UK` (no comma) and `string x "a" PK` (comment before keys)
  * are both parse errors in Mermaid, as is a trailing comma.
+ *
+ * It stops at the closing brace rather than at the end of the line, because
+ * the block ends where that brace is and not where the line does — see
+ * `readLine`.
  */
-function readAttributes(line: string): ErAttribute[] | null {
-  const tokens = tokenizeAttributeLine(line);
-  if (tokens === null) {
+function readAttributes(text: string): { attributes: ErAttribute[]; length: number } | null {
+  const tokenized = tokenizeAttributeLine(text);
+  if (tokenized === null) {
     return null;
   }
+  const { tokens, length } = tokenized;
   const attributes: ErAttribute[] = [];
   let at = 0;
   const peek = (): AttributeToken | undefined => tokens[at];
@@ -711,7 +830,7 @@ function readAttributes(line: string): ErAttribute[] | null {
 
     attributes.push({ type: type.text, name: name.text, keys, comment });
   }
-  return attributes.length === 0 ? null : attributes;
+  return attributes.length === 0 ? null : { attributes, length };
 }
 
 /**
@@ -893,19 +1012,18 @@ export function parseErDiagram(source: string): ParseResult {
       continue;
     }
 
-    // Inside a block, every line is either its closing brace or attributes.
-    // Read before the header check and before every statement pattern,
-    // because the alphabets overlap: `string name` is two words, and a
-    // reader that asked "is this an entity name?" first would find `string`
-    // and declare a box.
+    // A line that *starts* inside a block. It need not end inside one —
+    // `string a } F` closes the block and declares an entity, measured — so
+    // the whole line goes to `readLine` with the open entity, exactly as a
+    // line outside a block goes to it with `null`. What this branch decides
+    // is only which two things the block-mode start implies: that the
+    // header, `direction` and the accessibility statements are not
+    // consulted (measured — `direction LR` inside a block is an attribute),
+    // and that an unreadable line is reported as an **attribute** rather
+    // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      if (line === ATTRIBUTE_BLOCK_CLOSE) {
-        openEntity = null;
-        openedAt = null;
-        continue;
-      }
-      const attributes = readAttributes(line);
-      if (attributes === null) {
+      const reading = readLine(line, openEntity);
+      if (reading === null) {
         diagnostics.push({
           severity: "error",
           message: `Unrecognized erDiagram attribute: "${line}"`,
@@ -915,7 +1033,15 @@ export function parseErDiagram(source: string): ParseResult {
         sawError = true;
         continue;
       }
-      openEntity.attributes.push(...attributes);
+      entities.push(...reading.entities);
+      relationships.push(...reading.relationships);
+      if (reading.openEntity !== openEntity) {
+        // Either the block closed, or it closed and another opened on the
+        // same line; `openedAt` follows so an unclosed-block diagnostic
+        // still points at the line that opened the block it names.
+        openEntity = reading.openEntity;
+        openedAt = openEntity === null ? null : { line, lineNumber, column };
+      }
       continue;
     }
 
@@ -989,16 +1115,18 @@ export function parseErDiagram(source: string): ParseResult {
     }
 
     // Every remaining statement, read left to right across the line — see
-    // `readStatements`. All or nothing: a line it cannot finish reading
+    // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const statements = readStatements(line);
-    if (statements !== null) {
-      entities.push(...statements.entities);
-      relationships.push(...statements.relationships);
-      if (statements.opensBlockOn !== null) {
-        // A block's body is appended to this very declaration; see
-        // `openEntity`.
-        openEntity = statements.opensBlockOn;
+    const reading = readLine(line, null);
+    if (reading !== null) {
+      entities.push(...reading.entities);
+      relationships.push(...reading.relationships);
+      if (reading.openEntity !== null) {
+        // A block left open where the line ended; its body is appended to
+        // this very declaration as the next lines are read. A block that
+        // opened *and closed* on this line has already had its attributes
+        // appended and leaves nothing here to do.
+        openEntity = reading.openEntity;
         openedAt = { line, lineNumber, column };
       }
       continue;

@@ -526,6 +526,127 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(attributesOf(source, "ORDER")).toEqual([]);
   });
 
+  it("reads a brace as a mode switch rather than a line ending, so a block may open and close on one line", () => {
+    // ⚠️ **The one-line block is not a second construct.** Measured
+    // (mermaid 11.17.2, `scripts/mermaid-probe.mjs`), `E { string a }` and
+    // the three-line spelling report the *same* record — one entity `E`
+    // carrying `type="string" name="a"`. Read out of Mermaid's lexer, the
+    // reason is that a newline is insignificant on both sides of the brace:
+    // `{` switches into the block condition, `}` pops straight back out
+    // (rule 31, `popState(); return 18`), and the statement stream carries
+    // on from wherever that leaves it. So the brace is a mode switch and
+    // the line ending means nothing to it.
+    const oneLine = "erDiagram\n  E { string a }\n";
+    const threeLine = "erDiagram\n  E {\n    string a\n  }\n";
+
+    expect(refusalsFor(oneLine)).toEqual([]);
+    expect(namesOf(oneLine)).toEqual(namesOf(threeLine));
+    expect(attributesOf(oneLine, "E")).toEqual(attributesOf(threeLine, "E"));
+    expect(attributesOf(oneLine, "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+
+    // Spaces around the braces are the lexer's to skip, so the tight
+    // spelling is the same document — measured, `E {string a}` reports the
+    // same one attribute.
+    expect(attributesOf("erDiagram\n  E {string a}\n", "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+
+    // An **empty** block is an entity with no attributes rather than a
+    // refusal — measured, both `E {}` and `E { }` report `E` with none.
+    for (const line of ["E {}", "E { }"]) {
+      expect(refusalsFor(`erDiagram\n  ${line}\n`), `for "${line}"`).toEqual([]);
+      expect(namesOf(`erDiagram\n  ${line}\n`), `for "${line}"`).toEqual(["E"]);
+      expect(attributesOf(`erDiagram\n  ${line}\n`, "E"), `for "${line}"`).toEqual([]);
+    }
+  });
+
+  it("carries the statement stream through a block's braces, in both directions", () => {
+    // The consequence of the brace being a mode switch: everything
+    // `01M3978B7` measured about a line being a *stream* of statements
+    // still holds on either side of one. Measured, one probe per line.
+
+    // A block closes and the stream resumes: `E { string a } F` is two
+    // entities, and only `E` carries the attribute.
+    const afterClose = "erDiagram\n  E { string a } F\n";
+    expect(refusalsFor(afterClose)).toEqual([]);
+    expect(namesOf(afterClose)).toEqual(["E", "F"]);
+    expect(attributesOf(afterClose, "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+    expect(attributesOf(afterClose, "F")).toEqual([]);
+
+    // A block opens on an entity that was not the first on its line —
+    // measured, `A B { string a }` puts the attribute on **`B`**, which is
+    // the same rule the multi-line spelling already followed.
+    const secondOnLine = "erDiagram\n  A B { string a }\n";
+    expect(namesOf(secondOnLine)).toEqual(["A", "B"]);
+    expect(attributesOf(secondOnLine, "A")).toEqual([]);
+    expect(attributesOf(secondOnLine, "B")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+
+    // Two blocks on one line, each keeping its own attributes.
+    const twoBlocks = "erDiagram\n  E { string a } F { string b }\n";
+    expect(namesOf(twoBlocks)).toEqual(["E", "F"]);
+    expect(attributesOf(twoBlocks, "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+    expect(attributesOf(twoBlocks, "F")).toEqual([
+      { type: "string", name: "b", keys: [], comment: "" },
+    ]);
+
+    // And a relationship on either side of a block, measured both ways
+    // round: `E { string a } A ||--o{ B : x` and
+    // `A ||--o{ B : x C { string d }` each report the relationship *and*
+    // the block's attribute.
+    const blockThenRelationship = "erDiagram\n  E { string a } A ||--o{ B : x\n";
+    expect(refusalsFor(blockThenRelationship)).toEqual([]);
+    expect(namesOf(blockThenRelationship)).toEqual(["E", "A", "B"]);
+    expect(relationshipsOf(blockThenRelationship)).toEqual([
+      {
+        left: "A",
+        leftCardinality: "onlyOne",
+        line: "identifying",
+        rightCardinality: "zeroOrMore",
+        right: "B",
+        label: "x",
+      },
+    ]);
+    expect(attributesOf(blockThenRelationship, "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+
+    const relationshipThenBlock = "erDiagram\n  A ||--o{ B : x C { string d }\n";
+    expect(refusalsFor(relationshipThenBlock)).toEqual([]);
+    expect(namesOf(relationshipThenBlock)).toEqual(["A", "B", "C"]);
+    expect(attributesOf(relationshipThenBlock, "C")).toEqual([
+      { type: "string", name: "d", keys: [], comment: "" },
+    ]);
+
+    // The brace is insignificant in the *other* direction too, and this is
+    // the half a "one-line block" reading alone would miss: a block may
+    // open mid-line and close two lines later, or open on its own line and
+    // close mid-line with statements after it. Measured, both of these
+    // report the same two entities and the same attributes.
+    const opensMidLine = "erDiagram\n  E { string a\n    int b\n  }\n  F\n";
+    expect(refusalsFor(opensMidLine)).toEqual([]);
+    expect(namesOf(opensMidLine)).toEqual(["E", "F"]);
+    expect(attributesOf(opensMidLine, "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "int", name: "b", keys: [], comment: "" },
+    ]);
+
+    const closesMidLine = "erDiagram\n  E {\n    string a } F\n";
+    expect(refusalsFor(closesMidLine)).toEqual([]);
+    expect(namesOf(closesMidLine)).toEqual(["E", "F"]);
+    expect(attributesOf(closesMidLine, "E")).toEqual([
+      { type: "string", name: "a", keys: [], comment: "" },
+    ]);
+    expect(attributesOf(closesMidLine, "F")).toEqual([]);
+  });
+
   it("splits an attribute's keys on the comma, and keeps a comma inside a comment", () => {
     // Measured (mermaid 11.17.2): `string c UK,PK "both"` reports
     // `keys: ["UK", "PK"]` — two keys, because Mermaid's block lexer takes
@@ -588,6 +709,180 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     ]);
   });
 
+  it("reads a `~`-delimited generic type as one word, tildes and all", () => {
+    // Measured (mermaid 11.17.2, `scripts/mermaid-probe.mjs`), one probe per
+    // claim. Mermaid's in-block generic rule is `([^\s]*)[~].*[~]([^\s]*)`,
+    // read *before* the word rule, and its action returns the **whole match**
+    // as one `ATTRIBUTE_WORD`: `list~int~ codes` comes back
+    // `type="list~int~" name="codes"`. The delimiters are kept, so there is
+    // no inner structure to model and nothing to re-spell — a class
+    // diagram's generic is rewritten into angle brackets, and this one is
+    // not.
+    const source =
+      "erDiagram\n  E {\n    list~int~ codes\n    map~string,list~int~~ index\n" +
+      "    x list~int~\n    list~a b~ spaced\n    ~x~ headless\n  }\n";
+
+    expect(refusalsFor(source)).toEqual([]);
+    expect(attributesOf(source, "E")).toEqual([
+      // Nested, and still one token: `.*` is greedy, so it runs to the last
+      // `~` rather than to the first — measured, `map~string,list~int~~`
+      // comes back entire, not truncated at `list~int~`.
+      { type: "list~int~", name: "codes", keys: [], comment: "" },
+      { type: "map~string,list~int~~", name: "index", keys: [], comment: "" },
+      // The rule is not the type's: measured, `x list~int~` reports
+      // `type="x" name="list~int~"`, so a generic is a *word* wherever a
+      // word may stand.
+      { type: "x", name: "list~int~", keys: [], comment: "" },
+      // ⚠️ A space goes **inside** the delimiters, unlike every other word
+      // in this block: `.*` is not `[^\s]*`. Measured, `list~a b~ spaced`
+      // is one type and one name, not three words.
+      { type: "list~a b~", name: "spaced", keys: [], comment: "" },
+      // And the leading group may be empty — `~x~ headless` reports
+      // `type="~x~"`.
+      { type: "~x~", name: "headless", keys: [], comment: "" },
+    ]);
+
+    // ⚠️ **Greedy to the last tilde on the line**, which is the measurement
+    // a reader would most likely get wrong by stopping at the second `~`:
+    // `list~int~ x~y~ z` is **one** attribute whose type spans the space,
+    // not two attributes. Read non-greedily it would be `list~int~ x` plus
+    // `y~ z`, which is a different picture.
+    expect(attributesOf("erDiagram\n  E {\n    list~int~ x~y~ z\n  }\n", "E")).toEqual([
+      { type: "list~int~ x~y~", name: "z", keys: [], comment: "" },
+    ]);
+    // The control that keeps that greed honest: with no second pair on the
+    // line, `list~int~ a string b` is two ordinary attributes.
+    expect(attributesOf("erDiagram\n  E {\n    list~int~ a string b\n  }\n", "E")).toEqual([
+      { type: "list~int~", name: "a", keys: [], comment: "" },
+      { type: "string", name: "b", keys: [], comment: "" },
+    ]);
+
+    // A generic takes keys and a comment like any other type — measured,
+    // `list~int~ codes PK "c"` reports all four fields.
+    expect(attributesOf('erDiagram\n  E {\n    list~int~ codes PK "c"\n  }\n', "E")).toEqual([
+      { type: "list~int~", name: "codes", keys: ["PK"], comment: "c" },
+    ]);
+  });
+
+  it("refuses the tilde spellings Mermaid refuses, rather than half-reading them", () => {
+    // Measured, one probe per line, and both refusals fall out of *where*
+    // the generic rule sits rather than out of a guard written for them:
+    //
+    // - `list~int xs` — a lone `~` reaches no rule at all ("Expecting
+    //   'ATTRIBUTE_WORD', '?', got '~'"), because the generic rule needs its
+    //   closing tilde and the word alphabet has no `~` in it.
+    // - `string x "a~b~"` — a parse error too, and the interesting one: the
+    //   generic rule is read **before** the comment rule, so it swallows the
+    //   quoted string whole and leaves a third bare word where the grammar
+    //   wanted an attribute. A reader that put its comment rule first would
+    //   accept this and draw a comment Mermaid draws no picture for at all.
+    for (const body of ["list~int xs", 'string x "a~b~"']) {
+      expect(refusalsFor(`erDiagram\n  E {\n    ${body}\n  }\n`), `for "${body}"`).toEqual([
+        `Unrecognized erDiagram attribute: "${body}"`,
+      ]);
+    }
+
+    // The negative control for that ordering: a tilde that is *not* closed
+    // inside the quotes leaves the comment rule its own. Measured,
+    // `string x "has ~ tilde"` and `string x "a~b"` are both ordinary
+    // attributes with ordinary comments.
+    expect(
+      attributesOf('erDiagram\n  E {\n    string x "has ~ tilde"\n    string y "a~b"\n  }\n', "E"),
+    ).toEqual([
+      { type: "string", name: "x", keys: [], comment: "has ~ tilde" },
+      { type: "string", name: "y", keys: [], comment: "a~b" },
+    ]);
+  });
+
+  it("reads a backticked word with its backticks stripped, whatever is between them", () => {
+    // Measured (mermaid 11.17.2), one probe per claim, and the mechanism is
+    // read out of Mermaid's own lexer: a backtick inside a block enters the
+    // `block_bq` condition and emits **no token**, the run of non-backticks
+    // after it emits one `ATTRIBUTE_WORD`, and the closing backtick pops the
+    // state and emits no token either. So the quotes are delimiters that
+    // vanish — `string `odd name`` comes back `type="string" name="odd
+    // name"` — the **opposite** of the generic above, whose tildes are part
+    // of the word.
+    const source =
+      "erDiagram\n  E {\n    string `odd name`\n    `odd type` x\n" +
+      '    string `a:b{}~"c`\n    string `PK`\n  }\n';
+
+    expect(refusalsFor(source)).toEqual([]);
+    expect(attributesOf(source, "E")).toEqual([
+      { type: "string", name: "odd name", keys: [], comment: "" },
+      // Either position, measured: a backticked word is a word.
+      { type: "odd type", name: "x", keys: [], comment: "" },
+      // ⚠️ **This is what backticks are for.** Every one of these
+      // characters is refused by the block's word alphabet
+      // (`[*A-Za-z_À-￿][A-Za-z0-9\-_\[\]().,À-￿*]*`) — a colon, braces, a
+      // tilde and a double quote — and measured, all four go straight
+      // through: `string `a:b{}~"c`` reports `name="a:b{}~\"c"`. Note the
+      // brace in particular: it does **not** close the attribute block from
+      // inside the quotes.
+      { type: "string", name: 'a:b{}~"c', keys: [], comment: "" },
+      // And a key word quoted is ordinary text, because the key rule never
+      // gets to look: the backtick rule has already switched conditions.
+      // Measured, `string `PK`` reports `name="PK"` with **no** key at all,
+      // where a bare `string PK` is a parse error.
+      { type: "string", name: "PK", keys: [], comment: "" },
+    ]);
+
+    // Keys and a comment still follow a backticked name — measured,
+    // `string `x` PK "c"` reports all four fields.
+    expect(attributesOf('erDiagram\n  E {\n    string `x` PK "c"\n  }\n', "E")).toEqual([
+      { type: "string", name: "x", keys: ["PK"], comment: "c" },
+    ]);
+
+    // The consequence of the delimiters being token-less rather than part
+    // of the word: two backticked runs may touch. Measured, `` `a``b` `` is
+    // one attribute — type `a`, name `b` — and not one word called `a``b`.
+    expect(attributesOf("erDiagram\n  E {\n    `a``b`\n  }\n", "E")).toEqual([
+      { type: "a", name: "b", keys: [], comment: "" },
+    ]);
+
+    // And the ordering control between the two constructs this ticket
+    // added: Mermaid reads its generic rule **before** its backtick rule,
+    // so measured, ``list~`a`~ x`` is one type `list~`a`~` with the
+    // backticks intact inside it — not a backticked word. Read the other
+    // way round it would be three words and a refusal.
+    expect(attributesOf("erDiagram\n  E {\n    list~`a`~ x\n  }\n", "E")).toEqual([
+      { type: "list~`a`~", name: "x", keys: [], comment: "" },
+    ]);
+  });
+
+  it("refuses the backtick spellings Mermaid refuses, rather than half-reading them", () => {
+    // Measured, one probe per line:
+    //
+    // - ``string ` ` `` with nothing between the backticks emits no word at
+    //   all, so the grammar is left wanting one ("Expecting
+    //   'ATTRIBUTE_WORD', '?', got 'BLOCK_STOP'"). An empty name is not an
+    //   attribute.
+    // - ``string `a`b`` and ``string a`b` `` are parse errors for a
+    //   different reason, and the one this parser gets for free: the
+    //   delimiters vanish, so each line is **three** words where an
+    //   attribute is two, and the third is a type with no name after it.
+    for (const body of ["string ``", "string `a`b", "string a`b`"]) {
+      expect(refusalsFor(`erDiagram\n  E {\n    ${body}\n  }\n`), `for "${body}"`).toEqual([
+        `Unrecognized erDiagram attribute: "${body}"`,
+      ]);
+    }
+
+    // An opening backtick with no closing one on the line. ⚠️ **This is a
+    // divergence, and a deliberate one**: Mermaid's `block_bq` rule is
+    // `` [^`]+ ``, which matches a newline, so measured, `string `a` on one
+    // line and ``b` `` on the next is **one** attribute named `a\n    b` —
+    // a name with a line break and the source's indentation inside it.
+    // This parser reads a line at a time and refuses both halves, which
+    // costs the document and says so; drawing a single-line cell for a
+    // two-line name would be the silent kind of wrong. Unterminated
+    // altogether — no second backtick anywhere — is a parse error in
+    // Mermaid too, so that half agrees.
+    expect(refusalsFor("erDiagram\n  E {\n    string `a\n    b`\n  }\n")).toEqual([
+      'Unrecognized erDiagram attribute: "string `a"',
+      'Unrecognized erDiagram attribute: "b`"',
+    ]);
+  });
+
   it("refuses the attribute lines Mermaid refuses, rather than drawing half of one", () => {
     // Each of these is a parse error in mermaid 11.17.2, measured one probe
     // per line, and each is an over-reach this parser could easily commit:
@@ -603,9 +898,6 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     //   and the comma may neither be omitted nor left dangling.
     // - `string x "a" PK` — the comment is last; keys after it are refused.
     // - `string x` alone on a line is fine, but `string` alone is not.
-    // - `list~int~ xs` and `` `odd` x `` — a generic type and a backticked
-    //   word are constructs Mermaid draws and this parser does not
-    //   implement, so they are refused whole rather than half-read.
     for (const body of [
       "int 1st",
       "string PK",
@@ -616,8 +908,6 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       "string x PK,",
       'string x "a" PK',
       "string",
-      "list~int~ xs",
-      "`odd` x",
     ]) {
       expect(refusalsFor(`erDiagram\n  E {\n    ${body}\n  }\n`), `for "${body}"`).toEqual([
         `Unrecognized erDiagram attribute: "${body}"`,

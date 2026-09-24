@@ -4947,16 +4947,48 @@ line2\`"]`,
     source: `erDiagram
       ORDER {
         list~int~ codes
+        map~string,list~int~~ index
+        x list~int~
       }`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "A `~`-delimited generic type inside an attribute block. Measured: the " +
-      "attribute comes back `type=\"list~int~\" name=\"codes\"` — the tildes " +
-      "are kept, so Mermaid draws the type cell **verbatim**, tildes and " +
-      "all, rather than rewriting it into angle brackets the way a class " +
-      "diagram's generic is. `parseErDiagram`'s in-block token table " +
-      "deliberately omits Mermaid's generic rule, which is what refuses the " +
-      "line instead of quietly losing its argument. Ticket `01M394HDP`.",
+      "A `~`-delimited generic type inside an attribute block. Measured " +
+      "(mermaid 11.17.2, `scripts/mermaid-probe.mjs`): the attribute comes " +
+      "back `type=\"list~int~\" name=\"codes\"` — the tildes are **kept**, so " +
+      "Mermaid draws the type cell verbatim, tildes and all, rather than " +
+      "rewriting it into angle brackets the way a class diagram's generic " +
+      "is. There is no inner structure anywhere in its record: its lexer " +
+      "rule `([^\\s]*)[~].*[~]([^\\s]*)` returns the **whole match** as one " +
+      "`ATTRIBUTE_WORD`, the same token the plain word rule returns, so " +
+      "`list~int~` is a word that happens to contain tildes and not a type " +
+      "with an argument.\n\n" +
+      "⚠️ **`.*` is greedy, and both halves of that matter.** " +
+      "`map~string,list~int~~ index` comes back entire — a reader that " +
+      "stopped at the first closing tilde would report `map~string,list~int~` " +
+      "and leave a stray `~` — and `list~int~ x~y~ z`, which this row does " +
+      "not draw because the corpus cannot tell one wide cell from two, is " +
+      "**one** attribute typed `list~int~ x~y~` (pinned at the parser " +
+      "seam instead). A generic also stands in the *name* position: " +
+      "measured, `x list~int~` reports `name=\"list~int~\"`, which is the " +
+      "third row here.\n\n" +
+      "The rule's place in Mermaid's block lexer is read before the word " +
+      "rule *and* before the comment rule, and the second is measurable: " +
+      "`string x \"a~b~\"` is a parse error there, because the generic rule " +
+      "eats the quoted string. `parseErDiagram` keeps that order.",
+    assert: (result) => {
+      // Two columns, because no attribute here writes a key or a comment —
+      // and the text of each cell verbatim, which is the whole claim: a
+      // parser that stripped the delimiters would draw `list` and `int`, or
+      // `list<int>`, and every other assertion in this row would still hold.
+      expectSame("ORDER's attribute rows", erAttributeRows(result, "ORDER"), [
+        "type=list~int~ | name=codes",
+        "type=map~string,list~int~~ | name=index",
+        "type=x | name=list~int~",
+      ]);
+      // The box is still a box with a name on it: a table drawn for an
+      // entity nobody can find is not the picture Mermaid draws.
+      expectSame("the entity is drawn under its own name", erEntities(result), ["ORDER[ORDER]"]);
+    },
   },
   {
     id: "er-attribute-backtick",
@@ -4964,30 +4996,141 @@ line2\`"]`,
     source: `erDiagram
       ORDER {
         string \`odd name\`
+        \`odd type\` x
+        string \`PK\`
+        string \`a:b{}~"c\`
+      }`,
+    status: "supported",
+    meaning:
+      "A backtick-quoted word, which is how an attribute gets a character " +
+      "its own alphabet refuses. Measured (mermaid 11.17.2, " +
+      "`scripts/mermaid-probe.mjs`): `string `odd name`` comes back " +
+      "`type=\"string\" name=\"odd name\"` — the backticks are **stripped** " +
+      "and the space survives, the exact opposite of the generic above " +
+      "whose delimiters are kept. Read out of Mermaid's lexer, that is not " +
+      "a convention but a mechanism: the opening backtick enters the " +
+      "`block_bq` condition and emits **no token**, the run of " +
+      "non-backticks after it emits the word, and the closing backtick pops " +
+      "the state and emits none either.\n\n" +
+      "⚠️ **What goes in is what the word alphabet " +
+      "(`[*A-Za-z_\\u00C0-\\uFFFF][A-Za-z0-9\\-_\\[\\]().,\\u00C0-\\uFFFF*]*`) " +
+      "keeps out.** Measured, `` string `a:b{}~\"c` `` reports " +
+      "`name=\"a:b{}~\\\"c\"` — a colon, both braces, a tilde and a double " +
+      "quote, all ordinary text. The brace is the one worth naming: it does " +
+      "**not** close the attribute block from inside the quotes. And " +
+      "`` string `PK` `` is a name rather than a key (measured), where a " +
+      "bare `string PK` is a parse error, because the key rule never gets " +
+      "to look once the condition has switched.\n\n" +
+      "Either position takes one: `` `odd type` x `` reports " +
+      "`type=\"odd type\"`. The spelling Siren does **not** read is " +
+      "Mermaid's multi-line one — `` [^`]+ `` matches a newline, so a " +
+      "backticked word may span lines — and that is refused rather than " +
+      "half-read; see `parseErDiagram`'s rule table.",
+    assert: (result) => {
+      // The backticks are gone and everything between them is drawn, which
+      // is the whole claim of the row: a parser that left the quotes on
+      // would draw ``odd name`` here and pass every other assertion below.
+      // The second row is the same claim in the type column, and the third
+      // says the key rule did not fire — a key would move `PK` into a
+      // `keys` cell of its own and give this table a third column.
+      expectSame("ORDER's attribute rows", erAttributeRows(result, "ORDER"), [
+        "type=string | name=odd name",
+        "type=odd type | name=x",
+        "type=string | name=PK",
+        'type=string | name=a:b{}~"c',
+      ]);
+      // Two columns and two rules: the keys column is dropped, so `PK` is
+      // genuinely a name and not a key drawn in the wrong place.
+      expectSame(
+        "the table is two columns wide, so no key was read",
+        erEntityDividers(result, "ORDER").length,
+        2,
+      );
+      // And the brace inside the quotes did not close the block: an entity
+      // is drawn, under its own name, carrying all four rows above.
+      expectSame("the entity is drawn under its own name", erEntities(result), ["ORDER[ORDER]"]);
+    },
+  },
+  {
+    id: "er-attribute-backtick-multiline",
+    kind: "er",
+    source: `erDiagram
+      ORDER {
+        string \`a
+        b\`
       }`,
     status: "rejected",
     meaning:
-      "A backtick-quoted attribute name, which is how an attribute gets a " +
-      "space in it. Measured: `string `odd name`` comes back `type=\"string\" " +
-      "name=\"odd name\"` — the backticks are **stripped** and the space " +
-      "survives, unlike the generic above whose delimiters are kept. So the " +
-      "cell draws `odd name`. Omitted from the in-block token table for the " +
-      "same reason. Ticket `01M394HDP`.",
+      "**A backticked word may span lines**, and this is the half of " +
+      "`er-attribute-backtick` that did not land with it. Measured: the " +
+      "`block_bq` condition's word rule is `` [^`]+ ``, and that character " +
+      "class matches a newline like any other character, so the run between " +
+      "the two backticks simply continues onto the next line. Mermaid " +
+      "reports one attribute, `type=\"string\"`, `name=\"a\\n    b\"` — the " +
+      "name carries the line break **and the source's own indentation**, " +
+      "which is a second decision nobody has made: what a cell containing a " +
+      "newline should be drawn as.\n\n" +
+      "Siren reads a line at a time, so it refuses both halves " +
+      "(`Unrecognized erDiagram attribute: \"string \\`a\"` and " +
+      "`\"b\\`\"`). That is a violation of the absolute compatibility " +
+      "condition — Mermaid draws this document and Siren draws nothing — " +
+      "but an **honest** one: the document costs the author a picture and " +
+      "says so, which is why it counts here and not against " +
+      "`SILENTLY_WRONG`.\n\n" +
+      "⚠️ **This row exists because `01M394HDP` measured the gap and the " +
+      "ratchet could not see it.** Three rows fell that ticket and this one " +
+      "rose, which is the accounting the ratchet comment asks for: a rise " +
+      "that names something already broken is not a regression. On this " +
+      "project a number that only ever falls has been an undercount four " +
+      "times, every one of them found by widening what gets named.\n\n" +
+      "Truly unterminated — a backtick with no partner anywhere in the " +
+      "document — is a parse error in Mermaid too, so that half already " +
+      "agrees and is asserted in `parseErDiagram.test.ts`.",
   },
   {
     id: "er-block-one-line",
     kind: "er",
     source: `erDiagram
-      E { string a }`,
-    status: "rejected",
+      E { string a } F`,
+    status: "supported",
     meaning:
-      "An attribute block opened, filled and closed on one line. Measured: " +
-      "`E { string a }` reports one entity carrying one attribute — " +
-      "identical to the three-line spelling, because Mermaid's lexer skips " +
-      "newlines inside a block condition rather than requiring them. Siren " +
-      "requires the opening brace to end its line and the closing one to be " +
-      "alone on its own (see `ENTITY_HEAD_RE`), so this falls through to the " +
-      "unrecognized-line message. Ticket `01M394HDP`.",
+      "An attribute block opened, filled and closed on one line — and then " +
+      "a further statement after it, because the two are the same " +
+      "measurement. Measured (mermaid 11.17.2, `scripts/mermaid-probe.mjs`): " +
+      "`E { string a }` reports one entity carrying one attribute, " +
+      "**identical** to the three-line spelling, and `E { string a } F` " +
+      "reports that entity and then a bare `F`.\n\n" +
+      "⚠️ **So this is not a second construct but the first one read " +
+      "properly.** A brace is a *lexer condition switch*, not a line " +
+      "ending: `{` enters the block condition, `}` runs `popState()` and " +
+      "hands the rest of the line back to the statement stream " +
+      "`er-statements-one-line` already records, and the block condition " +
+      "has a newline rule of its own so a line break means nothing inside " +
+      "it either. Measured, the mode changes mid-line in both directions — " +
+      "`A B { string a }` puts the attribute on `B`, " +
+      "`E { string a } A ||--o{ B : x` is a filled block then a " +
+      "relationship, and a block may open mid-line and close two lines " +
+      "later. Siren used to require the opening brace to end its line and " +
+      "the closing one to stand alone; it now tracks the mode across the " +
+      "line, which is what `readLine` does.\n\n" +
+      "The one-line spellings this row cannot show are pinned at the parser " +
+      "seam instead, since the picture cannot tell them apart: `E {}` is an " +
+      "entity with no attributes rather than a refusal, and `E {string a}` " +
+      "with no spaces is the same document.",
+    assert: (result) => {
+      // Both boxes, which is the claim the row turns on: `F` is only drawn
+      // if the closing brace really returned the reader to the statement
+      // stream instead of ending the line.
+      expectSame("both entities are drawn, under their own names", erEntities(result), [
+        "E[E]",
+        "F[F]",
+      ]);
+      // The attribute landed on `E` and nowhere else — a reader that lost
+      // the mode could plausibly hang it on `F`, and both boxes would still
+      // be here.
+      expectSame("E's attribute rows", erAttributeRows(result, "E"), ["type=string | name=a"]);
+      expectSame("F has no attribute table at all", erAttributeRows(result, "F"), []);
+    },
   },
   {
     id: "er-subgraph",
