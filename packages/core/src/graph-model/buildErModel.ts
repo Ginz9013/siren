@@ -5,6 +5,7 @@ import type {
   ResolvedErEntity,
   ResolvedErRelationship,
 } from "../contracts";
+import { resolveStyles } from "./resolveStyles";
 import {
   resolveTimeline,
   warnOnConnectorsOutlivingTheirEndpoints,
@@ -122,6 +123,30 @@ export function buildErModel(document: ErDocument): ErModelResult {
 
   reportIdCollisions(addressable, diagnostics);
 
+  // Author styling, through the very call `buildStateModel`,
+  // `buildClassModel` and `buildFlowchartModel` make. Nothing here is this
+  // kind's: a `classDef` is paired with the directive applying it, a
+  // property declared twice keeps its first position and its last value, and
+  // the value gate that refuses `url(`, `expression(`, `;` and `\` is the
+  // board's security boundary — all decided once, in `resolveStyles`, so
+  // five diagram kinds cannot end up with five opinions about what an
+  // author's `color` means.
+  //
+  // ⚠️ **The entity ids alone, and deliberately not `addressable`.** Measured
+  // from Mermaid's own ER database (11.17.2): `addCssStyles(ids, styles)` and
+  // `setClass(ids, classNames)` each look up `this.entities.get(id)` and
+  // `this.subGraphLookup.get(id)` and nothing else, so **no relationship can
+  // be styled in this kind at all** — `style CUSTOMER:ORDER fill:#f96`
+  // parses, reaches `addCssStyles`, and paints nothing. A relationship's id
+  // is `${from}:${to}` (01M3977716), which is exactly the string an author
+  // would reach for, so handing the timeline's target list over here would
+  // paint a line Mermaid leaves alone, with no diagnostic anywhere.
+  const styles = resolveStyles(
+    document.styles,
+    new Set(entities.map((entity) => entity.id)),
+    diagnostics,
+  );
+
   const timeline = resolveTimeline(
     document.timeline,
     new Set(addressable.map((element) => element.id)),
@@ -148,6 +173,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
       direction: document.direction,
       entities,
       relationships,
+      styles,
       timeline,
       // Plain text with nothing in the document to resolve it against, so
       // this stage has nothing to decide — the same straight-through

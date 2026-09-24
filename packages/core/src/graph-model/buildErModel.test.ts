@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { ErAttribute, ErDocument, ErRelationshipDecl } from "../contracts";
+import type {
+  ErAttribute,
+  ErDocument,
+  ErRelationshipDecl,
+  StyleDecl,
+} from "../contracts";
 import { buildErModel } from "./buildErModel";
 
 /** An `ErDocument` naming `names`, in the order given, and nothing else. */
 const documentOf = (...names: string[]): ErDocument => ({
   kind: "er",
+  styles: [],
   direction: "TB",
   entities: names.map((name) => ({ name, alias: null, attributes: [] })),
   relationships: [],
@@ -39,6 +45,7 @@ const relates = (
 /** An `ErDocument` whose entities are exactly the ones its relationships name. */
 const documentRelating = (...relationships: ErRelationshipDecl[]): ErDocument => ({
   kind: "er",
+  styles: [],
   direction: "TB",
   entities: relationships.flatMap((relationship) => [
     { name: relationship.left, alias: null, attributes: [] },
@@ -81,6 +88,7 @@ describe("buildErModel", () => {
     // mechanism, different picture.
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      styles: [],
       timeline: null,
       accTitle: null,
       accDescr: null,
@@ -110,6 +118,7 @@ describe("buildErModel", () => {
     const first = (...entities: { name: string; alias: string | null }[]) =>
       buildErModel({
         kind: "er",
+        styles: [],
         timeline: null,
         accTitle: null,
         accDescr: null,
@@ -147,6 +156,7 @@ describe("buildErModel", () => {
     });
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      styles: [],
       timeline: null,
       accTitle: null,
       accDescr: null,
@@ -253,6 +263,7 @@ describe("buildErModel", () => {
     // the entry already there.
     const { model } = buildErModel({
       kind: "er",
+      styles: [],
       timeline: null,
       accTitle: null,
       accDescr: null,
@@ -375,6 +386,7 @@ describe("buildErModel", () => {
     const laidOutIn = (direction: ErDocument["direction"]) =>
       buildErModel({
         kind: "er",
+        styles: [],
         direction,
         entities: [],
         relationships: [],
@@ -491,5 +503,95 @@ describe("buildErModel resolves the timeline", () => {
           '"CUSTOMER" exits at step 2 — add "exit CUSTOMER:ORDER ..." at or before step 2',
       },
     ]);
+  });
+});
+
+/** An `ErDocument` naming `names` and carrying `styles`. */
+const documentStyling = (names: string[], styles: StyleDecl[]): ErDocument => ({
+  ...documentOf(...names),
+  styles,
+});
+
+describe("buildErModel resolves the author's styling", () => {
+  it("flattens a classDef and the directive applying it onto the entity named", () => {
+    // Through the very call `buildStateModel`, `buildClassModel` and
+    // `buildFlowchartModel` make: nothing about this is ER's, so the pairing
+    // of a definition with the directive applying it, the value gate, and
+    // the split of `color` off onto the label all stay decided once.
+    const { model, diagnostics } = buildErModel(
+      documentStyling(
+        ["CUSTOMER", "ORDER"],
+        [
+          {
+            styleKind: "classDef",
+            authoredAs: "classDef",
+            targetIds: [],
+            name: "urgent",
+            properties: [
+              { property: "fill", value: "#f96" },
+              { property: "color", value: "#fff" },
+            ],
+          },
+          {
+            styleKind: "apply",
+            authoredAs: "class",
+            targetIds: ["ORDER"],
+            name: "urgent",
+            properties: [],
+          },
+        ],
+      ),
+    );
+
+    expect(diagnostics).toEqual([]);
+    // One entry, and it is `ORDER`'s: a mutation that styled the first
+    // entity instead of the named one leaves every diagnostic empty and
+    // still draws a picture.
+    expect(model.styles).toEqual([
+      {
+        targetId: "ORDER",
+        style: {
+          frame: [{ property: "fill", value: "#f96" }],
+          // The author's `color` arrives spelled `fill`, because SVG paints
+          // a `<text>` with `fill` and an inline `color` would never reach
+          // it. Decided in `resolveStyles` and not re-decided here.
+          text: [{ property: "fill", value: "#fff" }],
+        },
+      },
+    ]);
+  });
+
+  it("hands the resolver the entity ids alone, because no relationship can be styled", () => {
+    // ⚠️ Measured from Mermaid's own database rather than inferred:
+    // `addCssStyles(ids, styles)` and `setClass(ids, classNames)` each look
+    // up `this.entities.get(id)` and `this.subGraphLookup.get(id)` and
+    // nothing else. So `style CUSTOMER:ORDER fill:#f96` reaches
+    // `addCssStyles`, finds no entity of that name, and paints **nothing** —
+    // measured end to end with `--markup`, where the relationship's path
+    // carries no author declaration at all.
+    //
+    // The relationship's id is `${from}:${to}` on Siren's side (01M3977716),
+    // which is exactly the string an author would reach for. Listing it as a
+    // valid target would paint a line Mermaid leaves alone, silently.
+    const { model, diagnostics } = buildErModel({
+      ...documentRelating(relates("CUSTOMER", "ORDER")),
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["CUSTOMER:ORDER"],
+          name: null,
+          properties: [{ property: "fill", value: "#f96" }],
+        },
+      ],
+    });
+
+    // The id really is the one that was aimed at, so this is a test about
+    // the target set and not about a typo.
+    expect(model.relationships.map((r) => r.id)).toEqual(["CUSTOMER:ORDER"]);
+    // Dropped in silence, which is `resolveStyles`' settled answer for a
+    // target that does not exist — Mermaid says nothing either.
+    expect(diagnostics).toEqual([]);
+    expect(model.styles).toEqual([]);
   });
 });

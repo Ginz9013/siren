@@ -9,7 +9,9 @@ import type {
   ErRelationshipLine,
   ParseResult,
   SirenTimeline,
+  StyleDecl,
 } from "../contracts";
+import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
@@ -131,6 +133,139 @@ const RESERVED_BARE_NAMES: ReadonlySet<string> = new Set([
   "style",
   "classdef",
 ]);
+
+/**
+ * A name in the alphabet Mermaid's **style condition** reads one in — the
+ * targets of a `style` and the names a `classDef` defines.
+ *
+ * ⚠️ **A different alphabet from `NAME_SOURCE`, by one character, and that
+ * is measured rather than tidy.** `style\b` and `classDef\b` each call
+ * `this.begin("style")` (mermaid 11.17.2), and that condition's word rule is
+ * `([^\x00-\x7F]|\w|-|\*)+` — the entity rule **without the `.`**. So an
+ * entity Mermaid is perfectly happy to declare cannot be reached by a
+ * `style` statement at all: measured, `P.Q` is one entity and
+ * `style P.Q fill:red` is a **lexical error** in the same document, while
+ * `class P.Q u` styles it. Spelling one alphabet for both would accept a
+ * document Mermaid draws no picture for.
+ */
+const STYLE_NAME_SOURCE = "(?:[\\w*-]|[^\\x00-\\x7F])+";
+
+/** One or more names of `source`, comma-separated — Mermaid's `idList`. */
+const idListSource = (source: string): string => `${source}(?:\\s*,\\s*${source})*`;
+
+/**
+ * `style ORDER fill:#f96,stroke:#333` — declarations applied straight to one
+ * or more entities, and the **only** statement in this kind that is read to
+ * the end of its line.
+ *
+ * ⚠️ **It swallows everything after it, and that is the load-bearing half.**
+ * `style\b` switches the lexer into its `style` condition, and the only rule
+ * that leaves that condition is `[\n]+` — so the declaration list runs to the
+ * newline however many words are in it. Measured one probe apiece (mermaid
+ * 11.17.2):
+ *
+ * - `A style B fill:#f96 C` reports **one** entity, `A`. No `C`: the trailing
+ *   word is another `styleComponent`, not a statement. A reader that returned
+ *   to the statement stream after the declarations would draw a box Mermaid
+ *   draws none for.
+ * - `A style B fill:#f96` reports one entity too, so `style` is an ordinary
+ *   mid-line statement rather than a line class — and naming a target does
+ *   **not** declare it.
+ * - `style A fill:red;B` is a **parse error**: `;` ends the declaration list
+ *   without leaving the condition, so what follows has nowhere to go.
+ *
+ * The target list is `idList` — comma-separated, measured on `class` below
+ * and the same non-terminal in Mermaid's grammar for all three statements.
+ *
+ * ⚠️ Not anchored on the end of the line for the reason every other pattern
+ * here is not: `rest` is whatever the statement stream has left, and this
+ * pattern's `.+` is what makes that remainder its own.
+ */
+const STYLE_RE = new RegExp(`^style\\b\\s+(${idListSource(STYLE_NAME_SOURCE)})\\s+(.+)$`, "iu");
+
+/**
+ * `classDef urgent fill:#f96,stroke:#333` — a named set of declarations,
+ * applied to nothing on its own.
+ *
+ * `classDef\b` calls `this.begin("style")` exactly as `style\b` does, so
+ * everything `STYLE_RE` says about swallowing the line and about the
+ * alphabet holds here too, and the names are read in `STYLE_NAME_SOURCE`
+ * rather than the entity alphabet for the same measured reason.
+ *
+ * **The name half is an `idList`, so one statement may define several.**
+ * Measured: `classDef a,b fill:red` beside `class A b` paints `A` red, so
+ * `b` really was defined by that one line. Each becomes a `StyleDecl` of its
+ * own, which is what lets `resolveStyles` keep `name` a single string across
+ * all five kinds.
+ *
+ * Read before `CLASS_RE`, which is Mermaid's own rule order (rule 41 before
+ * rule 42) — though neither can claim the other's line, because `class\b`
+ * needs a word boundary and `classDef` has none after `class`.
+ */
+const CLASS_DEF_RE = new RegExp(
+  `^classDef\\b\\s+(${idListSource(STYLE_NAME_SOURCE)})\\s+(.+)$`,
+  "iu",
+);
+
+/**
+ * `class ORDER urgent` — the apply-directive as a statement of its own.
+ *
+ * ⚠️ **`class\b` does *not* switch the lexer condition**, unlike its two
+ * neighbours, and three measured differences follow from that one fact:
+ *
+ * - Its operands are read in the **entity** alphabet, `.` included, so
+ *   `class P.Q u` styles the entity `P.Q` that `style P.Q fill:red` cannot
+ *   reach at all.
+ * - It does **not** swallow the line. Measured, `class A urgent B` styles
+ *   `A` *and* declares an entity `B` — Mermaid's rule is
+ *   `CLASS idList idList` with no separator after it, so the statement ends
+ *   the moment its second `idList` does.
+ * - A **quoted** name is refused: measured, `class "Customer Account" u` is
+ *   a parse error ("got 'ENTITY_NAME'"), because `idList` takes only
+ *   `UNICODE_TEXT` and `STYLE_TEXT`. This pattern reads no quoted name, and
+ *   the line then falls to `RESERVED_BARE_NAMES` and is refused — which is
+ *   the same answer.
+ *
+ * ⚠️ **Both halves are `idList`, and that is this kind's own measurement.**
+ * `class A,B urgent` styles both entities *and* `class A alpha,beta` gives
+ * `A` both classes. A state diagram splits only the **target** half
+ * (`class Busy alpha,beta` is one class literally named `alpha,beta`
+ * there), so the symmetry could not be carried across and had to be
+ * measured here.
+ */
+const CLASS_RE = new RegExp(
+  `^class\\b\\s+(${idListSource(NAME_SOURCE)})\\s+(${idListSource(NAME_SOURCE)})`,
+  "iu",
+);
+
+/**
+ * The class **every ER entity already wears**, and the one name a `classDef`
+ * here may not define.
+ *
+ * Measured from Mermaid's own database (11.17.2): `addEntity` creates each
+ * entity with `cssClasses: "default"`, and `getCompiledStyles` resolves a
+ * node's paint from `cssClasses.split(" ")`. So `classDef default fill:#abc`
+ * beside a bare `A` paints `A` — confirmed with `--markup`,
+ * `style="fill:#abc !important"` on its box — with no `class` statement
+ * anywhere in the document.
+ *
+ * Siren has no implicit class in any kind, so reading this statement and
+ * applying it to nothing draws a **different picture with no diagnostic**,
+ * which is the one failure the compatibility condition rules out outright.
+ * It is refused by name in `UNIMPLEMENTED` instead, and this is the constant
+ * both halves of that refusal are spelled from.
+ *
+ * Case-sensitive, and that too is measured: `classDef DEFAULT fill:red`
+ * keys Mermaid's class map on `DEFAULT`, which no entity's `cssClasses`
+ * names, so it paints nothing there either — and nothing here. The two
+ * agree, so there is nothing to refuse.
+ *
+ * ⚠️ **The same gap exists in `parseFlowchart` and is not this ticket's.**
+ * Measured on Siren itself, `flowchart TB / classDef default fill:#abc / A`
+ * reports no diagnostic and no style, exactly the silent divergence refused
+ * here — an unrowed defect that predates ER styling.
+ */
+const DEFAULT_CLASS_NAME = "default";
 
 /**
  * Every spelling of a cardinality, punctuation and words alike, and the
@@ -460,10 +595,27 @@ const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
  * alias="alias"`, and `"A B" {` with `string n` under it reports that entity
  * carrying that attribute.
  *
+ * **And `:::`, between the alias and the brace** — the apply-directive
+ * written onto the declaration instead of as a statement of its own. It is
+ * a third optional tail rather than a pattern of its own for the reason the
+ * alias is not one: measured (mermaid 11.17.2), Mermaid has a separate
+ * grammar production for every combination — `A:::u`, `A["Alias"]:::u`,
+ * `A:::u { ... }`, `A["Alias"]:::u { ... }` — and in every one of them the
+ * `:::` sits **after** the brackets and **before** the brace. The other
+ * order is refused: `A:::u["Alias"]` is a parse error ("got 'SQS'"), so a
+ * pattern that read the three tails in any order would accept a document
+ * Mermaid draws no picture for.
+ *
+ * Its class list is an `idList` in the **entity** alphabet — `:::` changes
+ * no lexer condition, so `A:::alpha,beta` gives `A` both classes exactly as
+ * `class A alpha,beta` does (measured). `A:::` alone is a parse error, which
+ * is why the group is `+` and not `*`.
+ *
  * ⚠️ Not anchored on the end of the line — see `RELATIONSHIP_RE`.
  */
 const ENTITY_HEAD_RE = new RegExp(
-  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*"([^"\\r\\n]+)"\\s*\\])?(\\s*\\{)?`,
+  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*"([^"\\r\\n]+)"\\s*\\])?` +
+    `(?::::(${idListSource(NAME_SOURCE)}))?(\\s*\\{)?`,
   "u",
 );
 const ATTRIBUTE_BLOCK_CLOSE = "}";
@@ -472,6 +624,8 @@ const ATTRIBUTE_BLOCK_CLOSE = "}";
 interface ErEntityHead {
   name: string;
   alias: string | null;
+  /** The classes a `:::` applied to it, in source order; empty when it wrote none. */
+  classes: string[];
   opensBlock: boolean;
   length: number;
 }
@@ -485,7 +639,7 @@ function readEntityHead(text: string): ErEntityHead | null {
   if (match === null) {
     return null;
   }
-  const [whole, name, alias, brace] = match;
+  const [whole, name, alias, classes, brace] = match;
   // The over-reach guard the name alphabet needs: `-` and `.` are each a
   // whole name, so the alphabet admits `--`, which Mermaid's lexer reads as
   // a relationship body and refuses. Quoted, the same characters *are* a
@@ -501,6 +655,7 @@ function readEntityHead(text: string): ErEntityHead | null {
   return {
     name: unquoteName(name),
     alias: alias ?? null,
+    classes: classes === undefined ? [] : splitIdList(classes),
     opensBlock: brace !== undefined,
     length: whole.length,
   };
@@ -512,6 +667,17 @@ interface ErLineReading {
   entities: ErEntityDecl[];
   /** The relationships named, in source order. */
   relationships: ErRelationshipDecl[];
+  /**
+   * The styling statements named, in source order, already stamped with the
+   * position of the line that wrote them.
+   */
+  styles: StyleDecl[];
+  /**
+   * The segments of a declaration list that were not `property:value` pairs
+   * — handed back rather than diagnosed here, because this reader has no
+   * diagnostics list and the caller is the one holding the line's position.
+   */
+  malformedStyles: string[];
   /**
    * The entity whose attribute block is still open where the line ends, or
    * `null` when none is — the reader's mode, handed back so the next line
@@ -559,9 +725,15 @@ interface ErLineReading {
  * refused. Returning `null` costs the document and says so, which is the
  * trade every refusal in this parser makes.
  */
-function readLine(line: string, openEntity: ErEntityDecl | null): ErLineReading | null {
+function readLine(
+  line: string,
+  openEntity: ErEntityDecl | null,
+  where: { line: number; column: number },
+): ErLineReading | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
+  const styles: StyleDecl[] = [];
+  const malformedStyles: string[] = [];
   /**
    * The attributes each entity gained on this line, held back until the
    * whole line has been read — see the all-or-nothing paragraph above.
@@ -591,6 +763,91 @@ function readLine(line: string, openEntity: ErEntityDecl | null): ErLineReading 
       continue;
     }
 
+    // The styling statements, read **before** the entity patterns, because
+    // every one of their keywords is spelled by the name alphabet and a
+    // reader asking "is this a name?" first would find one. They stay out of
+    // `RESERVED_BARE_NAMES`' way rather than replacing it: measured, those
+    // same words are still refused where a *name* belongs (`A ||--o{ style :
+    // x` is a parse error), so the reservation is what a word falls back to
+    // once no statement here has claimed it.
+    const style = STYLE_RE.exec(rest);
+    if (style !== null) {
+      const { properties, malformed } = parseStyleProperties(style[2]);
+      malformedStyles.push(...malformed);
+      styles.push({
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: splitIdList(style[1]),
+        name: null,
+        properties,
+        line: where.line,
+        column: where.column,
+      });
+      // The whole remainder of the line, not `style[0].length`: the lexer
+      // stays in its `style` condition until the newline, so there is no
+      // statement after this one to return to. See `STYLE_RE`.
+      break;
+    }
+
+    const classDef = CLASS_DEF_RE.exec(rest);
+    if (classDef !== null) {
+      const names = splitIdList(classDef[1]);
+      // ⚠️ **`default` is a class every ER entity already wears**, so this
+      // one name reaches boxes no statement mentions — see
+      // `IMPLICIT_DEFAULT_CLASS_RE`. Refused rather than read, because
+      // reading it and applying it to nothing would draw a different picture
+      // from Mermaid's with no diagnostic at all.
+      if (names.includes(DEFAULT_CLASS_NAME)) {
+        return null;
+      }
+      const { properties, malformed } = parseStyleProperties(classDef[2]);
+      malformedStyles.push(...malformed);
+      // One `StyleDecl` per name, because `name` is a single string in the
+      // shared contract and `classDef a,b fill:red` defines two — measured.
+      // The declarations are the same list for each, and a malformed one is
+      // reported once, at the line that wrote it, rather than once per name.
+      for (const name of names) {
+        styles.push({
+          styleKind: "classDef",
+          authoredAs: "classDef",
+          targetIds: [],
+          name,
+          properties,
+          line: where.line,
+          column: where.column,
+        });
+      }
+      // Swallows the line for the reason `style` does: same lexer condition.
+      break;
+    }
+
+    const apply = CLASS_RE.exec(rest);
+    if (apply !== null) {
+      // One `StyleDecl` per class name, in the order the author wrote them
+      // — which is what gives the stacking its answer: measured, a later
+      // class wins a property both name (`class A alpha,beta` paints
+      // `beta`'s fill) while a property only the earlier one names survives,
+      // and that is exactly what `resolveStyles` does with a sequence of
+      // applications.
+      for (const name of splitIdList(apply[2])) {
+        styles.push({
+          styleKind: "apply",
+          authoredAs: "class",
+          targetIds: splitIdList(apply[1]),
+          name,
+          properties: [],
+          line: where.line,
+          column: where.column,
+        });
+      }
+      // Its own length, not the line's: `class` never left the initial
+      // condition, so the stream continues. See `CLASS_RE`.
+      // Its own length, not the line's: `class` never left the initial
+      // condition, so the stream continues. See `CLASS_RE`.
+      rest = rest.slice(apply[0].length).trimStart();
+      continue;
+    }
+
     const relationship = readRelationship(rest);
     if (relationship !== null) {
       // Both endpoints join the one entity list, in the order the line names
@@ -612,6 +869,21 @@ function readLine(line: string, openEntity: ErEntityDecl | null): ErLineReading 
     }
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
+    // `A:::urgent` is `class A urgent` written onto the declaration — one
+    // construct in two spellings (measured: both reach `setClass` and leave
+    // `cssClasses="default urgent"`), so it becomes the same `apply` and
+    // differs only in the keyword a diagnostic would quote.
+    for (const name of head.classes) {
+      styles.push({
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: [declared.name],
+        name,
+        properties: [],
+        line: where.line,
+        column: where.column,
+      });
+    }
     rest = rest.slice(head.length).trimStart();
 
     if (head.opensBlock) {
@@ -622,7 +894,22 @@ function readLine(line: string, openEntity: ErEntityDecl | null): ErLineReading 
   for (const { entity, attributes } of appends) {
     entity.attributes.push(...attributes);
   }
-  return { entities, relationships, openEntity: open };
+  return { entities, relationships, styles, malformedStyles, openEntity: open };
+}
+
+/**
+ * One `idList` as its members — `A,B` and `A, B` alike, measured: a space
+ * after the comma is spare in Mermaid's lexer, which skips whitespace
+ * between tokens in both the initial and the `style` condition.
+ *
+ * Empty segments are dropped, so a stray comma costs nothing here; the
+ * patterns that feed this cannot produce one anyway.
+ */
+function splitIdList(text: string): string[] {
+  return text
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
 }
 
 /**
@@ -891,6 +1178,21 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s*\\[\\s*[^"\\s]`, "u"),
     name: "an entity alias written without quotes",
   },
+  {
+    // The implicit `default` class — see `DEFAULT_CLASS_NAME` for what it
+    // reaches and why reading it would be worse than refusing it.
+    //
+    // The pattern finds `default` as a whole member of the `classDef`'s name
+    // list, wherever in the list it stands. `\b` after it is what leaves
+    // `classDef defaulting fill:red` alone: the leading group needs a comma
+    // to consume a name, so it cannot eat `defaulting`, and matching
+    // `default` inside that word then fails the boundary.
+    pattern: new RegExp(
+      `\\bclassDef\\b\\s+(?:${STYLE_NAME_SOURCE}\\s*,\\s*)*${DEFAULT_CLASS_NAME}\\b`,
+      "u",
+    ),
+    name: 'the implicit "default" class every entity wears',
+  },
 ];
 
 /**
@@ -965,6 +1267,40 @@ export function parseErDiagram(source: string): ParseResult {
    * is dropped until the closing brace — see `ACC_DESCR_BRACED_RE`.
    */
   let drainingAccDescr = false;
+  /**
+   * The author's styling statements in written order, definitions and
+   * apply-directives alike. Left unpaired here on purpose: an
+   * apply-directive may name a `classDef` written below it — measured,
+   * `A / class A u / classDef u fill:red` paints `A` — and pairing them is
+   * `resolveStyles`' job, which is where the other four kinds leave it too.
+   */
+  const styles: StyleDecl[] = [];
+
+  /**
+   * Everything one line's reading contributes, taken in one place so the
+   * two callers of `readLine` cannot drift apart about what a line may
+   * carry — the in-block caller reads the same statements once its brace
+   * closes mid-line.
+   *
+   * A malformed declaration is diagnosed *here* rather than in `readLine`,
+   * which holds no diagnostics list; the message is
+   * `parseStateDiagram`'s and `parseClassDiagram`'s word for word, because
+   * it is the same mistake in a different kind's document.
+   */
+  const take = (reading: ErLineReading, lineNumber: number, column: number): void => {
+    entities.push(...reading.entities);
+    relationships.push(...reading.relationships);
+    styles.push(...reading.styles);
+    for (const segment of reading.malformedStyles) {
+      diagnostics.push({
+        severity: "error",
+        message: `Unrecognized style declaration: "${segment}"`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+    }
+  };
 
   const lines = source.split(/\r\n|\r|\n/);
   for (const [index, rawLine] of lines.entries()) {
@@ -1022,7 +1358,7 @@ export function parseErDiagram(source: string): ParseResult {
     // and that an unreadable line is reported as an **attribute** rather
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      const reading = readLine(line, openEntity);
+      const reading = readLine(line, openEntity, { line: lineNumber, column });
       if (reading === null) {
         diagnostics.push({
           severity: "error",
@@ -1033,8 +1369,7 @@ export function parseErDiagram(source: string): ParseResult {
         sawError = true;
         continue;
       }
-      entities.push(...reading.entities);
-      relationships.push(...reading.relationships);
+      take(reading, lineNumber, column);
       if (reading.openEntity !== openEntity) {
         // Either the block closed, or it closed and another opened on the
         // same line; `openedAt` follows so an unclosed-block diagnostic
@@ -1117,10 +1452,9 @@ export function parseErDiagram(source: string): ParseResult {
     // Every remaining statement, read left to right across the line — see
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const reading = readLine(line, null);
+    const reading = readLine(line, null, { line: lineNumber, column });
     if (reading !== null) {
-      entities.push(...reading.entities);
-      relationships.push(...reading.relationships);
+      take(reading, lineNumber, column);
       if (reading.openEntity !== null) {
         // A block left open where the line ended; its body is appended to
         // this very declaration as the next lines are read. A block that
@@ -1177,6 +1511,7 @@ export function parseErDiagram(source: string): ParseResult {
     direction,
     entities,
     relationships,
+    styles,
     timeline,
     accTitle,
     accDescr,

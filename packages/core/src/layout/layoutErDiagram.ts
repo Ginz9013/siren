@@ -207,6 +207,20 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     })),
   });
 
+  /**
+   * Each styled entity's declarations, keyed for lookup below.
+   *
+   * `buildErModel` has already merged everything one entity was styled by
+   * and dropped the values its gate refused, and omits an entity that ended
+   * up with none — so there is nothing to reconcile here. An entity absent
+   * from this map gets the empty pair, which is what says "no `style`
+   * attribute" to the renderer without it having to test for a missing
+   * field. `layoutStateDiagram` keys a state's the same way.
+   */
+  const styleByEntityId = new Map(
+    model.styles.map(({ targetId, style }) => [targetId, style]),
+  );
+
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
   const entities: PositionedErEntity[] = model.entities.map((entity) => {
@@ -219,6 +233,10 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       y: box.y,
       width: box.width,
       height: box.height,
+      // By id and never by position: a stage that handed the resolved list
+      // out in draw order would style the wrong box, draw a perfectly good
+      // picture, and report nothing.
+      style: styleByEntityId.get(entity.id) ?? { frame: [], text: [] },
       // The plan was measured against the box's own top-left corner, so
       // placing it is one translation — the step `layoutClassDiagram` takes
       // for a class's compartments, and the reason nothing downstream has to

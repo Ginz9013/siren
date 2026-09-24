@@ -1062,6 +1062,8 @@ const SILENTLY_WRONG = 0;
  *   `er-style-statement`, `er-style-classdef` and `er-style-class-shorthand`.
  *   ER's grammar has all three terminals and nothing in Siren reads any of
  *   them; measured, they reach exactly the records a flowchart's do.
+ *   (Read as history: `01M3977QT` implemented all four spellings — see the
+ *   8 → 7 paragraph below for which rows moved and which did not.)
  * - **`accDescr`'s braced spelling**: `er-acc-descr-multiline`, a row that
  *   did not exist before `01M3978B7` and is the one entry here that was
  *   **silently wrong** rather than merely unimplemented — `accDescr {` /
@@ -1141,6 +1143,77 @@ const SILENTLY_WRONG = 0;
  * widening what gets named, never by tightening a ratchet. So the ticket
  * moved three rows down and this one row up, and the arithmetic says so out
  * loud: 10 − 3 + 1.
+ *
+ * **8 → 7: author styling lands, and the arithmetic is 8 − 2 + 1 rather than
+ * the 8 − 3 its ticket predicted.** All four spellings are implemented —
+ * `style`, `classDef`, `class` and `:::` — but only two of the three rows
+ * that were waiting on them could move, and the third is the interesting
+ * one.
+ *
+ * `er-style-class-shorthand`'s source declares **no `classDef`**, and that
+ * was deliberate: the row exists to measure that `:::` needs none, which
+ * Mermaid confirms by recording the class and painting nothing. Siren
+ * reports `::: applies "urgent", which no classDef defines` at error
+ * severity, so the row is still a refusal — but by a different rule than
+ * before, and one that belongs to no kind in particular.
+ * `01M36C2S4` drew that line deliberately: an unknown **target** is dropped
+ * in silence, exactly as Mermaid drops it, while an unknown class **name**
+ * still speaks, on the argument that the two are different mistakes and
+ * only the first is one Mermaid also tolerates. Reopening it here would
+ * have changed flowchart, class and state diagrams from an ER ticket.
+ * So the row stays, its `meaning` now names what actually refuses it, and
+ * `er-style-class-shorthand-defined` is the new supported row measuring the
+ * statement shape on its own. The construct works; the divergence the row
+ * now records is Siren being **stricter** than Mermaid, which is worth a
+ * number of its own rather than a quiet reclassification.
+ *
+ * The row that rose is case (2) again, and it is the one this ticket was
+ * most at risk of shipping silently. **Every ER entity already wears a
+ * class called `default`** — measured from Mermaid's `addEntity`, which
+ * creates each one with `cssClasses: "default"` — so `classDef default
+ * fill:#abc` paints every box in the document with no `class` statement
+ * anywhere. Before this ticket that line was refused because *no* `classDef`
+ * was read at all; after it, a reader that simply recorded the definition
+ * would accept the statement, apply it to nothing, and draw a different
+ * picture from Mermaid's **with no diagnostic** — the one failure mode the
+ * compatibility condition rules out outright. `er-style-classdef-default`
+ * names it and `parseErDiagram` refuses it, which is how `SILENTLY_WRONG`
+ * stays 0 through a ticket that could easily have moved it to 1.
+ *
+ * ⚠️ **And the same gap is open in the flowchart, unrowed.** Measured on
+ * Siren itself, `flowchart TB / classDef default fill:#abc / A` reports no
+ * diagnostic and paints nothing, which is precisely the silent divergence
+ * refused above. It predates ER styling and lives in files this ticket had
+ * no write scope for, so it is named here rather than fixed — the fifth
+ * time this count has turned out to be an undercount, and the fifth found
+ * by widening what gets named.
+ *
+ * Four supported rows arrived with the two that moved, and each pins a
+ * boundary the picture would otherwise hide:
+ * `er-style-statement-swallows-line` and `er-style-class-statement` are the
+ * same shape under the two keywords and come out **opposite** ways —
+ * `style\b` and `classDef\b` switch Mermaid's lexer into a condition whose
+ * only exit is the newline, while `class\b` switches nothing — so a reader
+ * treating "a styling keyword" as one idea draws a box Mermaid draws none
+ * for, or drops one it draws. `er-style-class-stacked` holds this kind's
+ * comma rule, which is **not** the state diagram's: both halves of
+ * `class A alpha,beta` split here. And `er-style-classdef-color` holds
+ * where an author's `color` lands — the entity's name *and* every attribute
+ * cell in its table.
+ *
+ * **One more row is mine rather than the ticket's, and it is why this
+ * literal is 8 and not 7: `er-style-target-colon`.** The ticket measured
+ * that no relationship can be styled and drew exactly the right conclusion
+ * from it — a relationship id stays out of the style target set, which
+ * matters because that id is `${from}:${to}` and so is the first thing an
+ * author would type. But it read `style CUSTOMER:ORDER fill:#f96` as
+ * painting nothing, and `--markup` says otherwise: `CUSTOMER`'s rect comes
+ * out wearing `style=":ORDERfill !important"`, because the `style`
+ * condition's word rule has no colon and the grammar concatenates what
+ * follows with no separator. Mermaid renders that document **wrongly and
+ * silently**, so Siren refusing it is the exception clause working as
+ * written — but a refusal nobody wrote down is the thing this file exists
+ * to prevent.
  */
 const REJECTED = 8;
 

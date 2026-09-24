@@ -26,6 +26,7 @@ const CUSTOMER = {
   y: 20,
   width: 92,
   height: 40,
+  style: { frame: [], text: [] },
   attributeTable: null,
 };
 const ORDER = {
@@ -35,6 +36,7 @@ const ORDER = {
   y: 200,
   width: 92,
   height: 40,
+  style: { frame: [], text: [] },
   attributeTable: null,
 };
 
@@ -57,6 +59,7 @@ const WITH_ATTRIBUTES = {
   y: 20,
   width: 180,
   height: 120,
+  style: { frame: [], text: [] },
   attributeTable: {
     headerDividerY: 60,
     columnDividerXs: [70, 130],
@@ -495,5 +498,80 @@ describe("renderErDiagramToSVG", () => {
     expect(descrOnly.querySelector("desc")?.textContent).toBe("D");
     expect(descrOnly.querySelector("title")).toBeNull();
     expect(descrOnly.getAttribute("aria-labelledby")).toBeNull();
+  });
+});
+
+describe("renderErDiagramToSVG writes the author's declarations onto the elements they are about", () => {
+  /** The `style` attribute of the one element matching `selector` inside `id`'s group. */
+  const styleOf = (svg: SVGSVGElement, id: string, selector: string) =>
+    svg
+      .querySelector(`g.siren-er-entity[data-siren-id="${id}"] ${selector}`)
+      ?.getAttribute("style") ?? null;
+
+  const STYLED = {
+    ...WITH_ATTRIBUTES,
+    style: {
+      frame: [
+        { property: "fill", value: "#f96" },
+        { property: "stroke", value: "#333" },
+      ],
+      text: [{ property: "fill", value: "#fff" }],
+    },
+  };
+
+  it("puts the frame's declarations on the drawn rect and the text's on the name", () => {
+    // ⚠️ On the drawn shape, never on the enclosing `<g>` — ADR-0008's
+    // cascade reason, and the mutation this row exists to catch: the theme
+    // styles `.siren-er-entity-frame` and `.siren-er-entity-label`
+    // directly, so an inline declaration on those elements outranks it
+    // without `!important`, while the same declaration on the `<g>` would
+    // only ever be *inherited* and so would lose. Moving it leaves every
+    // diagnostic empty and the declaration present in the markup.
+    const svg = renderErDiagramToSVG(diagram([STYLED]));
+
+    expect(styleOf(svg, "CUSTOMER", "rect.siren-er-entity-frame")).toBe(
+      "fill:#f96;stroke:#333",
+    );
+    expect(styleOf(svg, "CUSTOMER", "text.siren-er-entity-label")).toBe("fill:#fff");
+    expect(
+      svg.querySelector('g.siren-er-entity[data-siren-id="CUSTOMER"]')?.getAttribute("style"),
+    ).toBeNull();
+  });
+
+  it("paints every attribute cell with the author's text declarations, not just the name", () => {
+    // Measured with `--markup` (mermaid 11.17.2): `classDef u fill:#000,
+    // color:#fff` applied to an entity with a `string n` row puts
+    // `style="fill:#fff !important"` on the `<text>` of the name **and** of
+    // every `attribute-type` / `attribute-name` / `attribute-keys` /
+    // `attribute-comment` label. A `class` names the entity and not one of
+    // its rows.
+    const svg = renderErDiagramToSVG(diagram([STYLED]));
+    const cells = Array.from(
+      svg.querySelectorAll('g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-attribute'),
+    );
+
+    // The fixture's row is `string c UK,PK` — three columns drawn, so three
+    // cells, and the list asserted whole so that dropping the last one is
+    // caught rather than passing on the two that remain.
+    expect(cells.map((cell) => cell.textContent)).toEqual(["string", "c", "UK,PK"]);
+    expect(cells.map((cell) => cell.getAttribute("style"))).toEqual([
+      "fill:#fff",
+      "fill:#fff",
+      "fill:#fff",
+    ]);
+    // The frame's half stays off the text: `fill:#f96` on a cell would
+    // repaint the letters the box's colour and hide them.
+    expect(cells.every((cell) => !cell.getAttribute("style")?.includes("#f96"))).toBe(true);
+  });
+
+  it("writes no `style` attribute at all for an entity the author styled with nothing", () => {
+    // The empty pair is a state, not an absence: an element carrying
+    // `style=""` is a different document from one carrying none, and the
+    // theme is what should be reaching these elements.
+    const svg = renderErDiagramToSVG(diagram([WITH_ATTRIBUTES]));
+
+    expect(styleOf(svg, "CUSTOMER", "rect.siren-er-entity-frame")).toBeNull();
+    expect(styleOf(svg, "CUSTOMER", "text.siren-er-entity-label")).toBeNull();
+    expect(styleOf(svg, "CUSTOMER", "text.siren-er-attribute")).toBeNull();
   });
 });

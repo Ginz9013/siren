@@ -1223,3 +1223,278 @@ describe("parseErDiagram reads the timeline block", () => {
     expect(document.timeline).toBeNull();
   });
 });
+
+/** The styling statements the parser read, in source order. */
+const stylesOf = (source: string) => documentOf(source).styles;
+
+describe("parseErDiagram reads the author's styling statements", () => {
+  it("reads `style <entity> <declarations>` as one declaration per comma-separated pair", () => {
+    // Measured (mermaid 11.17.2): `style ORDER fill:#f96,stroke:#333` leaves
+    // `ORDER` carrying `cssStyles=["fill:#f96","stroke:#333"]` while its
+    // `cssClasses` stays `"default"` — so the declarations hang off the
+    // entity itself and the comma splits the list and nothing else.
+    // `--markup` confirms the picture: the entity's own
+    // `rect.basic.label-container` gains
+    // `style="fill:#f96 !important;stroke:#333 !important"`.
+    expect(
+      stylesOf("erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  style ORDER fill:#f96,stroke:#333\n"),
+    ).toEqual([
+      {
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: ["ORDER"],
+        name: null,
+        properties: [
+          { property: "fill", value: "#f96" },
+          { property: "stroke", value: "#333" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("lets a `style` swallow the rest of its line, and declares no entity for the target it names", () => {
+    // Measured (mermaid 11.17.2), one probe per claim. `style\b` calls
+    // `this.begin("style")` and the only rule that leaves that condition is
+    // `[\n]+`, so the declaration list runs to the newline:
+    //
+    //   A style B fill:#f96 C   → one entity, `A`. No `C`.
+    //   A style B fill:#f96     → one entity, `A`. No `B` either.
+    //
+    // Both halves matter and they fail differently. Returning to the
+    // statement stream after the declarations draws a box for `C` that
+    // Mermaid draws none for; treating a target as a declaration draws one
+    // for `B`. Each would be silent.
+    expect(namesOf("erDiagram\n  A style B fill:#f96 C\n")).toEqual(["A"]);
+    expect(namesOf("erDiagram\n  A style B fill:#f96\n")).toEqual(["A"]);
+
+    // And the statement is still read, mid-line, with the entity before it
+    // intact — so this is one statement stream and not a line class.
+    expect(
+      stylesOf("erDiagram\n  A style B fill:#f96 C\n").map((s) => [s.targetIds, s.properties]),
+    ).toEqual([[["B"], [{ property: "fill", value: "#f96 C" }]]]);
+  });
+
+  it("keeps `style` a reserved word everywhere a name belongs, so `er-subgraph` stays a refusal", () => {
+    // ⚠️ The regression guard. `style`, `class` and `classDef` becoming
+    // statement openers must not make them ordinary names: measured
+    // (mermaid 11.17.2), `A ||--o{ style : x` is a parse error ("got
+    // 'STYLE'"), `erDiagram / style` alone is one, and so is `A style B`
+    // with no declarations after it. A **quoted** `"style"` is an ordinary
+    // entity and still is.
+    expect(refusalsFor("erDiagram\n  A ||--o{ style : x\n")).toEqual([
+      'Unrecognized erDiagram line: "A ||--o{ style : x"',
+    ]);
+    expect(refusalsFor("erDiagram\n  style\n")).toEqual([
+      'Unrecognized erDiagram line: "style"',
+    ]);
+    expect(refusalsFor("erDiagram\n  A style B\n")).toEqual([
+      'Unrecognized erDiagram line: "A style B"',
+    ]);
+    expect(namesOf('erDiagram\n  "style" ||--o{ B : x\n')).toEqual(["style", "B"]);
+
+    // And the row this guard was found by: `subgraph` and `end` are spelled
+    // by the name alphabet, and a statement stream that read them as names
+    // drew three boxes Mermaid draws none for.
+    expect(
+      refusalsFor(
+        "erDiagram\n  subgraph sales\n    direction LR\n    CUSTOMER ||--o{ ORDER : places\n  end\n  WAREHOUSE\n",
+      ),
+    ).toEqual([
+      'Unrecognized erDiagram line: "subgraph sales"',
+      'Unrecognized erDiagram line: "end"',
+    ]);
+  });
+
+  it("reads `classDef` as a definition that targets nothing and `class` as the directive applying it", () => {
+    // Measured (mermaid 11.17.2), and **both halves land**: `getClasses()`
+    // answers with `urgent -> {id:"urgent", styles:["fill:#f96",
+    // "stroke:#333"], textStyles:[]}`, and the entity's `cssClasses`
+    // becomes `"default urgent"`. `--markup` shows the definition reaching
+    // the entity's own `rect.basic.label-container`.
+    expect(
+      stylesOf(
+        "erDiagram\n  classDef urgent fill:#f96,stroke:#333\n" +
+          "  CUSTOMER ||--o{ ORDER : places\n  class ORDER urgent\n",
+      ),
+    ).toEqual([
+      {
+        styleKind: "classDef",
+        authoredAs: "classDef",
+        targetIds: [],
+        name: "urgent",
+        properties: [
+          { property: "fill", value: "#f96" },
+          { property: "stroke", value: "#333" },
+        ],
+        line: 2,
+        column: 3,
+      },
+      {
+        styleKind: "apply",
+        authoredAs: "class",
+        targetIds: ["ORDER"],
+        name: "urgent",
+        properties: [],
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("splits a `class` statement's comma in **both** halves, where a state diagram splits only one", () => {
+    // ⚠️ The measurement that could not be carried across. `01M368GZR`
+    // measured a state diagram's `class Busy alpha,beta` as **one** class
+    // literally named `alpha,beta`, matching no definition and painting
+    // nothing — its grammar reads that operand as a bare `\w+`. ER's rule is
+    // `CLASS idList idList`, and measured (mermaid 11.17.2) both halves
+    // really do split:
+    //
+    //   class A,B urgent      → both entities report cssClasses "default urgent"
+    //   class A alpha,beta    → A reports cssClasses "default alpha beta"
+    //
+    // Assuming the state diagram's asymmetry would have dropped a class the
+    // author applied, silently.
+    const targets = stylesOf("erDiagram\n  A\n  B\n  class A,B urgent\n");
+    expect(targets.map((s) => [s.targetIds, s.name])).toEqual([[["A", "B"], "urgent"]]);
+
+    const names = stylesOf("erDiagram\n  A\n  class A alpha,beta\n");
+    expect(names.map((s) => [s.targetIds, s.name])).toEqual([
+      [["A"], "alpha"],
+      [["A"], "beta"],
+    ]);
+
+    // A space after the comma is spare, measured: `class A, B urgent` is the
+    // same statement, because the lexer skips whitespace between tokens.
+    expect(stylesOf("erDiagram\n  A\n  B\n  class A, B urgent\n")[0].targetIds).toEqual([
+      "A",
+      "B",
+    ]);
+
+    // And `classDef` defines both names from one line: measured, `classDef
+    // a,b fill:red` beside `class A b` paints `A`.
+    expect(
+      stylesOf("erDiagram\n  classDef a,b fill:red\n  A\n")
+        .map((s) => [s.styleKind, s.name, s.properties]),
+    ).toEqual([
+      ["classDef", "a", [{ property: "fill", value: "red" }]],
+      ["classDef", "b", [{ property: "fill", value: "red" }]],
+    ]);
+  });
+
+  it("stops a `class` statement where its second name list ends, unlike `style`", () => {
+    // ⚠️ The pair that has to be read side by side. `style\b` and
+    // `classDef\b` each call `this.begin("style")`, whose only exit is the
+    // newline; `class\b` changes no condition at all. Measured (mermaid
+    // 11.17.2):
+    //
+    //   class A urgent B      → A is styled **and** `B` is an entity
+    //   A style B fill:#f96 C → one entity, `A`; `C` is a styleComponent
+    //
+    // One reader treating "a styling keyword" as one idea gets one of the
+    // two wrong, and both failures are silent: a box drawn that Mermaid
+    // draws none for, or one dropped that it draws.
+    expect(namesOf("erDiagram\n  A\n  class A urgent B\n")).toEqual(["A", "B"]);
+
+    // The entity the target list can reach and the `style` alphabet cannot.
+    // Measured: `P.Q` is one entity, `class P.Q u` styles it, and
+    // `style P.Q fill:red` is a **lexical error** in Mermaid, because the
+    // style condition's word rule drops the `.`.
+    expect(stylesOf("erDiagram\n  P.Q\n  class P.Q u\n")[0].targetIds).toEqual(["P.Q"]);
+  });
+
+  it("reads `ORDER:::urgent` as the same apply-directive, riding on the entity declaration", () => {
+    // Measured (mermaid 11.17.2): `ORDER:::urgent` reaches the same
+    // `setClass` the `class ORDER urgent` statement does — the entity's
+    // `cssClasses` becomes `"default urgent"` — so the two are one construct
+    // in two spellings. The keyword kept in `authoredAs` is `:::`, which is
+    // what a diagnostic about this line may quote; `parseFlowchart` already
+    // spells it that way.
+    const document = documentOf("erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER:::urgent\n");
+
+    // ⚠️ The directive **rides on** an entity declaration rather than
+    // replacing it: `ORDER` is named a third time here, exactly as a bare
+    // `ORDER` on its own line would name it.
+    expect(document.entities.map((e) => e.name)).toEqual(["CUSTOMER", "ORDER", "ORDER"]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["ORDER"],
+        name: "urgent",
+        properties: [],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("composes `:::` with the alias and the attribute block, in Mermaid's own order", () => {
+    // Measured, one probe per position — Mermaid's grammar has a separate
+    // production for each and they are all `entityName ::: idList` *after*
+    // the alias brackets:
+    //
+    //   A["Alias"]:::u       → the alias and the class both land
+    //   A:::u["Alias"]       → a **parse error** ("got 'SQS'")
+    //   A:::u { string n }   → the block's attribute lands on A
+    //   A:::alpha,beta       → two classes, the comma splitting as `class`'s does
+    //   A:::x B              → A is styled and `B` is an ordinary entity
+    //   A:::                 → a parse error ("Expecting ... got 'NEWLINE'")
+    const aliased = documentOf('erDiagram\n  A["Alias"]:::u\n');
+    expect(aliased.entities.map((e) => [e.name, e.alias])).toEqual([["A", "Alias"]]);
+    expect(aliased.styles.map((s) => [s.targetIds, s.name])).toEqual([[["A"], "u"]]);
+
+    expect(refusalsFor('erDiagram\n  A:::u["Alias"]\n')).toEqual([
+      'Unrecognized erDiagram line: "A:::u[\"Alias\"]"',
+    ]);
+
+    expect(attributesOf("erDiagram\n  A:::u {\n    string n\n  }\n", "A")).toEqual([
+      { type: "string", name: "n", keys: [], comment: "" },
+    ]);
+
+    expect(
+      stylesOf("erDiagram\n  A:::alpha,beta\n").map((s) => [s.targetIds, s.name]),
+    ).toEqual([
+      [["A"], "alpha"],
+      [["A"], "beta"],
+    ]);
+
+    expect(namesOf("erDiagram\n  A:::x B\n")).toEqual(["A", "B"]);
+
+    expect(refusalsFor("erDiagram\n  A:::\n")).toEqual([
+      'Unrecognized erDiagram line: "A:::"',
+    ]);
+  });
+
+  it("refuses `classDef default` by name rather than accepting it and painting nothing", () => {
+    // ⚠️ **Every ER entity already wears a class called `default`**, and
+    // that is measured rather than inferred: Mermaid's `addEntity` creates
+    // each one with `cssClasses: "default"`, and `getCompiledStyles` reads
+    // `cssClasses.split(" ")`. So `classDef default fill:#abc` beside a bare
+    // `A` paints `A` — measured with `--markup`,
+    // `style="fill:#abc !important"` on its box — with no `class` statement
+    // anywhere.
+    //
+    // Siren has no implicit class of any kind, so reading this statement and
+    // applying it to nothing would draw a **different picture with no
+    // diagnostic** — the one failure mode the compatibility condition rules
+    // out absolutely. Refused by name until the construct is implemented,
+    // which is what `UNIMPLEMENTED` is for.
+    expect(refusalsFor("erDiagram\n  classDef default fill:#abc\n  A\n")).toEqual([
+      'Unimplemented erDiagram construct: the implicit "default" class every entity wears, in "classDef default fill:#abc"',
+    ]);
+
+    // Refused wherever it is named in the list, not only alone — measured,
+    // `classDef a,default fill:red` defines both.
+    expect(refusalsFor("erDiagram\n  classDef a,default fill:red\n")).toEqual([
+      'Unimplemented erDiagram construct: the implicit "default" class every entity wears, in "classDef a,default fill:red"',
+    ]);
+
+    // The over-reach control: an ordinary class whose name merely contains
+    // the word is untouched, and so is an **entity** called `default`, which
+    // is an ordinary ER name (measured: `erDiagram / default` is one box).
+    expect(stylesOf("erDiagram\n  classDef defaulting fill:red\n")[0].name).toBe("defaulting");
+    expect(namesOf("erDiagram\n  default\n")).toEqual(["default"]);
+  });
+});
