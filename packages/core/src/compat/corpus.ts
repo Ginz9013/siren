@@ -1009,6 +1009,55 @@ function erRelationshipLabelAnchor(
   };
 }
 
+/**
+ * One ER entity's attribute table as drawn, one string per row, each cell
+ * written `column=text` and ordered by where it was actually placed.
+ *
+ * Read off the picture twice over: the rows are grouped by the `y` the cells
+ * were drawn at and ordered left to right by their `x`, so a table whose
+ * cells carry the right classes and the wrong coordinates — every column
+ * heaped at one edge, or two rows interleaved — reads back differently here.
+ * A reader that trusted document order could not tell those apart.
+ */
+function erAttributeRows(result: SirenRenderResult, id: string): string[] {
+  const cells = Array.from(
+    svgOf(result).querySelectorAll(
+      `g.siren-er-entity[data-siren-id="${id}"] text.siren-er-attribute`,
+    ),
+  ).map((text) => ({
+    column: /siren-er-attribute-([a-z]+)/.exec(text.getAttribute("class") ?? "")?.[1] ?? "?",
+    text: text.textContent ?? "",
+    x: Number(text.getAttribute("x")),
+    y: Number(text.getAttribute("y")),
+  }));
+  const rowYs = [...new Set(cells.map((cell) => cell.y))].sort((a, b) => a - b);
+  return rowYs.map((y) =>
+    cells
+      .filter((cell) => cell.y === y)
+      .sort((a, b) => a.x - b.x)
+      .map((cell) => `${cell.column}=${cell.text}`)
+      .join(" | "),
+  );
+}
+
+/**
+ * The rules drawn inside one entity box, as `horizontal` or `vertical` plus
+ * the coordinate each runs along — enough for a row to say how many columns
+ * the table really has without counting cells a second time.
+ */
+function erEntityDividers(result: SirenRenderResult, id: string): string[] {
+  return Array.from(
+    svgOf(result).querySelectorAll(
+      `g.siren-er-entity[data-siren-id="${id}"] line.siren-er-entity-divider`,
+    ),
+  ).map((line) => {
+    const number = (name: string) => Number(line.getAttribute(name));
+    return number("y1") === number("y2")
+      ? `horizontal@${number("y1")}`
+      : `vertical@${number("x1")}`;
+  });
+}
+
 /** Where one ER entity's drawn name sits, so a row can ask whether it is inside its own box. */
 function erLabelAnchor(result: SirenRenderResult, id: string): { x: number; y: number } {
   const text = svgOf(result).querySelector(
@@ -4521,16 +4570,125 @@ line2\`"]`,
     source: `erDiagram
       CUSTOMER {
         string name
-        int age
+        int age PK "the age"
+        string c UK,PK "both"
+      }
+      ORDER {
+        string(99) code
+        int[] xs
       }`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "A brace block after an entity lists its attributes as `type name` " +
-      "pairs. Measured: the two attributes are recorded *under* an entity " +
-      "that still enters the table as `CUSTOMER`, so the block is one " +
-      "construct rather than a run of statements — which is why Siren names " +
-      "it once, at the line that opens it, and swallows the body rather " +
-      "than calling `string name` malformed.",
+      "A brace block after an entity lists its attributes, each of them " +
+      "`type name [keys] [comment]`. Measured (mermaid 11.17.2, " +
+      "`scripts/mermaid-probe.mjs`): they are recorded *under* an entity " +
+      "that still enters the table as `CUSTOMER`, so the block declares the " +
+      "entity as surely as a bare name does, and `int age PK \"the age\"` " +
+      "comes back `{type:\"int\", name:\"age\", keys:[\"PK\"], " +
+      "comment:\"the age\"}`.\n\n" +
+      "⚠️ **The comma splits the keys.** `string c UK,PK \"both\"` reports " +
+      "`keys: [\"UK\", \"PK\"]` — two of them — because Mermaid's in-block " +
+      "lexer takes `\\b(PK|FK|UK)\\b` *before* its word rule and leaves the " +
+      "`,` to separate them. This is the **opposite** of the comma one kind " +
+      "over: a state diagram's `class Busy alpha,beta` yields a single " +
+      "literal name `\"alpha,beta\"` (measured, `01M368GZR`). It is also " +
+      "the opposite of the comma two fields to the right, where `\"x, y\"` " +
+      "is one comment. Three key kinds and no more: `string c UK,XX " +
+      "\"both\"` is a parse error in Mermaid, not an attribute with a key " +
+      "called `XX`.\n\n" +
+      "The type is a word in a **third** alphabet — " +
+      "`[*A-Za-z_\\u00C0-\\uFFFF][A-Za-z0-9\\-_\\[\\]().,\\u00C0-\\uFFFF*]*` " +
+      "— so `string(99)` and `int[]` are each one type, and `int 1st` is a " +
+      "parse error because a word may not begin with a digit.\n\n" +
+      "Drawn as a table: measured with `--markup`, the name takes a row of " +
+      "its own with a full-width rule under it, and the four fields are " +
+      "left-aligned in columns carrying `attribute-type`, `attribute-name`, " +
+      "`attribute-keys` and `attribute-comment`, with the keys re-joined " +
+      "(`attribute.keys.join()`) for display. A column **no attribute uses " +
+      "is dropped** — Mermaid's `keysPresent`/`commentPresent` zero its " +
+      "width and skip the rule beside it — which is why `ORDER` here is two " +
+      "columns and one rule where `CUSTOMER` is four and three. That last " +
+      "fact is the one `--markup` cannot show: the probe's `getBBox` stub " +
+      "reports a constant width for every label, empty ones included, so " +
+      "both flags come back true there whatever the document says. It is " +
+      "read out of Mermaid's own `erBox` renderer instead.\n\n" +
+      "Siren draws no alternating row fill. Mermaid separates its rows by " +
+      "shading them rather than by ruling between them (its horizontal-rule " +
+      "loop runs over a single offset), and a shade is a *paint* — the " +
+      "theme's, by ADR-0008 — where the rules are the figure.",
+    assert: (result) => {
+      // The comment-present case and the comment-absent one, side by side:
+      // `CUSTOMER` writes keys and comments and gets all four columns,
+      // `ORDER` writes neither and gets two. A reader of the first alone
+      // could not tell a dropped column from a blank one.
+      expectSame("CUSTOMER's attribute rows", erAttributeRows(result, "CUSTOMER"), [
+        "type=string | name=name | keys= | comment=",
+        "type=int | name=age | keys=PK | comment=the age",
+        "type=string | name=c | keys=UK,PK | comment=both",
+      ]);
+      expectSame("ORDER's attribute rows", erAttributeRows(result, "ORDER"), [
+        "type=string(99) | name=code",
+        "type=int[] | name=xs",
+      ]);
+
+      // Four columns need three rules between them and two need one, each
+      // under the single full-width rule that closes the name row.
+      const customerRules = erEntityDividers(result, "CUSTOMER");
+      const orderRules = erEntityDividers(result, "ORDER");
+      expectSame(
+        "how many rules each table is drawn with",
+        [customerRules.length, orderRules.length],
+        [4, 2],
+      );
+      expectSame(
+        "one full-width rule apiece, under the name row",
+        [
+          customerRules.filter((rule) => rule.startsWith("horizontal")).length,
+          orderRules.filter((rule) => rule.startsWith("horizontal")).length,
+        ],
+        [1, 1],
+      );
+
+      // And the table is drawn *inside the box that owns it*, with the name
+      // above the rule rather than on top of the rows. Both are silent
+      // defects: text spilling out of its frame, or a name centred in the
+      // whole box, draws with no diagnostic anywhere.
+      const box = erEntityRect(result, "CUSTOMER");
+      const rule = Number(
+        svgOf(result)
+          .querySelector(
+            'g.siren-er-entity[data-siren-id="CUSTOMER"] line.siren-er-entity-divider',
+          )
+          ?.getAttribute("y1"),
+      );
+      expectSame(
+        "CUSTOMER's name is drawn above the rule that closes its name row",
+        erLabelAnchor(result, "CUSTOMER").y < rule && rule < box.bottom,
+        true,
+      );
+      const cells = Array.from(
+        svgOf(result).querySelectorAll(
+          'g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-attribute',
+        ),
+      );
+      expectSame(
+        "every one of CUSTOMER's cells is drawn inside CUSTOMER's own box",
+        cells.filter((cell) => {
+          const x = Number(cell.getAttribute("x"));
+          const y = Number(cell.getAttribute("y"));
+          return !(x > box.left && x < box.right && y > rule && y < box.bottom);
+        }).length,
+        0,
+      );
+
+      // The two boxes are still two boxes: a table that grew past its frame
+      // would be invisible to every check above and obvious here.
+      expectSame(
+        "the two boxes are drawn clear of one another",
+        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        false,
+      );
+    },
   },
   {
     id: "er-alias",

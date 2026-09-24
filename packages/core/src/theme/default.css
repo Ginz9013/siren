@@ -1138,11 +1138,42 @@
 /*
  * The entity's name. Weighted like a class name and a state's title row,
  * for the reason both are: this text *titles* its box rather than being
- * something the box holds. Attributes land under it in a later ticket and
- * are what will need the lighter weight beside it.
+ * something the box holds — and with an attribute table under it, the
+ * weight is what tells the name row from the rows it heads, since both are
+ * bands of the same box.
  */
 .siren-er-entity-label {
   font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
+ * The rules of the attribute table: the full-width one under the name row,
+ * and the vertical one at each column boundary. Part of the frame rather
+ * than connectors, so they track the frame's stroke — the terms
+ * `.siren-class-divider` is on, and the same figure one kind over.
+ */
+.siren-er-entity-divider {
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * An attribute's four cells. One rule for all of them, because all four are
+ * text the box *holds* rather than text that titles it — they take the
+ * node's text color at the ordinary weight the name is 600 against.
+ *
+ * The four per-column classes are named beside it so a consumer can reach
+ * one column without reaching the others (a bolder key column, a dimmer
+ * comment one); the default asks for nothing beyond what the shared rule
+ * already gives, which is why they add no declarations of their own but
+ * must still be named — an unnamed class is an unthemed one.
+ */
+.siren-er-attribute,
+.siren-er-attribute-type,
+.siren-er-attribute-name,
+.siren-er-attribute-keys,
+.siren-er-attribute-comment {
   fill: var(--siren-node-text);
 }
 

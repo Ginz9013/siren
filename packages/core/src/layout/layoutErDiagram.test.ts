@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ErModel, Point, PositionedErDiagram, TextMeasurer } from "../contracts";
+import type {
+  ErAttribute,
+  ErModel,
+  Point,
+  PositionedErAttributeTable,
+  PositionedErDiagram,
+  TextMeasurer,
+} from "../contracts";
 import { layoutErDiagram } from "./layoutErDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -15,10 +22,37 @@ const options = { measureText: fakeMeasurer };
 const measuredWidth = (text: string) => fakeMeasurer.measure(text).width;
 
 const model = (...names: string[]): ErModel => ({
-  entities: names.map((name) => ({ id: name, label: name })),
+  entities: names.map((name) => ({ id: name, label: name, attributes: [] })),
   relationships: [],
   timeline: { totalSteps: 0, entries: [] },
 });
+
+/** One entity carrying `attributes`, and nothing else in the diagram. */
+const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel => ({
+  entities: [{ id: name, label: name, attributes }],
+  relationships: [],
+  timeline: { totalSteps: 0, entries: [] },
+});
+
+/**
+ * The attribute table the layout planned for `id`, or a thrown explanation
+ * naming what it planned instead — narrowed once here, so no test below
+ * reaches for `table!`.
+ */
+const tableOf = (laidOut: PositionedErDiagram, id: string): PositionedErAttributeTable => {
+  const entity = laidOut.entities.find((candidate) => candidate.id === id);
+  if (entity === undefined) throw new Error(`no entity "${id}" was placed`);
+  if (entity.attributeTable === null) {
+    throw new Error(`entity "${id}" was given no attribute table`);
+  }
+  return entity.attributeTable;
+};
+
+/** One row of the table as `column=text` pairs, left to right by where they were placed. */
+const rowTexts = (table: PositionedErAttributeTable, index: number): string[] =>
+  [...table.rows[index].cells]
+    .sort((a, b) => a.x - b.x)
+    .map((cell) => `${cell.column}=${cell.text}`);
 
 /**
  * A model of exactly the two entities `relationship` joins.
@@ -29,7 +63,11 @@ const model = (...names: string[]): ErModel => ({
  * swapped, which is the one defect these tests exist to catch.
  */
 const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
-  entities: [relationship.from, relationship.to].map((id) => ({ id, label: id })),
+  entities: [relationship.from, relationship.to].map((id) => ({
+    id,
+    label: id,
+    attributes: [],
+  })),
   relationships: [relationship],
   timeline: { totalSteps: 0, entries: [] },
 });
@@ -91,6 +129,152 @@ describe("layoutErDiagram", () => {
       measuredWidth("LINE-ITEM") - measuredWidth("CUSTOMER"),
     );
     expect(customer.height).toBeGreaterThan(fakeMeasurer.measure("CUSTOMER").height);
+  });
+
+  it("lays an attribute out as four columns in Mermaid's own order, under a name row", () => {
+    // Measured (mermaid 11.17.2, `--markup`): an entity with attributes is
+    // drawn as a table — the name on a row of its own at the top, a rule
+    // under it, and then one row per attribute whose four labels carry the
+    // classes `attribute-type`, `attribute-name`, `attribute-keys` and
+    // `attribute-comment`, placed left to right at rising x in that order.
+    // The keys cell is `attribute.keys.join()` — the list re-joined with a
+    // comma, which is why `UK,PK` reads back as it was written even though
+    // the model holds two of them.
+    const laidOut = layoutErDiagram(
+      modelWithAttributes("CUSTOMER", [
+        { type: "int", name: "age", keys: ["PK"], comment: "the age" },
+        { type: "string", name: "c", keys: ["UK", "PK"], comment: "both" },
+      ]),
+      options,
+    );
+    const table = tableOf(laidOut, "CUSTOMER");
+
+    expect(rowTexts(table, 0)).toEqual([
+      "type=int",
+      "name=age",
+      "keys=PK",
+      "comment=the age",
+    ]);
+    expect(rowTexts(table, 1)).toEqual([
+      "type=string",
+      "name=c",
+      "keys=UK,PK",
+      "comment=both",
+    ]);
+
+    // The name row is a band of its own above every attribute: the rule
+    // under the name sits inside the box, and every cell below it.
+    const box = boxOf(laidOut.entities, "CUSTOMER");
+    expect(table.headerDividerY).toBeGreaterThan(box.top);
+    expect(table.headerDividerY).toBeLessThan(box.bottom);
+    for (const row of table.rows) {
+      for (const cell of row.cells) {
+        expect(cell.y, `${cell.column} sits below the name row`).toBeGreaterThan(
+          table.headerDividerY,
+        );
+      }
+    }
+
+    // An entity that declared none gets no table at all — the plain
+    // labelled rectangle Mermaid draws for it (`rect.basic.label-container`
+    // with the name inside), not an empty one.
+    expect(layoutErDiagram(model("ORDER"), options).entities[0].attributeTable).toBeNull();
+  });
+
+  it("drops the keys and comment columns an entity wrote nothing in", () => {
+    // Measured from Mermaid's own `erBox` renderer: `maxKeysWidth <= PADDING`
+    // sets `keysPresent = false`, which zeroes the column's width *and*
+    // skips the divider that would have bounded it; `commentPresent` does
+    // the same for the last column. So an entity of plain `type name` pairs
+    // is drawn as two columns and one rule, not four columns of which two
+    // are blank.
+    //
+    // ⚠️ This is the one question `--markup` cannot answer. The probe's
+    // `getBBox` stub reports a constant width 40 for *every* label, empty
+    // ones included, so both flags come back true there whatever the
+    // document says — the stub's answer, not Mermaid's.
+    const plain = tableOf(
+      layoutErDiagram(
+        modelWithAttributes("E", [{ type: "string", name: "a", keys: [], comment: "" }]),
+        options,
+      ),
+      "E",
+    );
+    expect(rowTexts(plain, 0)).toEqual(["type=string", "name=a"]);
+    expect(plain.columnDividerXs).toHaveLength(1);
+
+    // Keys but no comment: three columns, two rules. The dropped column is
+    // the *last* one, so this also says the comment column is not simply
+    // being drawn empty at the end.
+    const keyed = tableOf(
+      layoutErDiagram(
+        modelWithAttributes("E", [
+          { type: "string", name: "a", keys: [], comment: "" },
+          { type: "int", name: "b", keys: ["FK"], comment: "" },
+        ]),
+        options,
+      ),
+      "E",
+    );
+    expect(rowTexts(keyed, 0)).toEqual(["type=string", "name=a", "keys="]);
+    expect(rowTexts(keyed, 1)).toEqual(["type=int", "name=b", "keys=FK"]);
+    expect(keyed.columnDividerXs).toHaveLength(2);
+
+    // A comment with no keys anywhere: the keys column goes and the comment
+    // column stays, which is what says the two are decided independently
+    // rather than by a count of how many columns are in use.
+    const commented = tableOf(
+      layoutErDiagram(
+        modelWithAttributes("E", [
+          { type: "string", name: "a", keys: [], comment: "why" },
+        ]),
+        options,
+      ),
+      "E",
+    );
+    expect(rowTexts(commented, 0)).toEqual(["type=string", "name=a", "comment=why"]);
+    expect(commented.columnDividerXs).toHaveLength(2);
+  });
+
+  it("makes the box wide enough for the widest cell in every column", () => {
+    // The defect this catches is silent: a box sized from its name alone
+    // draws perfectly well and simply has its attribute text hanging out
+    // past the frame, with no diagnostic anywhere. So every cell is asked
+    // to start inside the frame and to have room for its own text before
+    // the next column's rule — measured against the fake measurer, which is
+    // the independent yardstick here.
+    const laidOut = layoutErDiagram(
+      modelWithAttributes("E", [
+        {
+          type: "averyverylongtypename",
+          name: "andaverylongattributename",
+          keys: ["PK", "FK", "UK"],
+          comment: "a comment longer than everything else on this row",
+        },
+      ]),
+      options,
+    );
+    const box = boxOf(laidOut.entities, "E");
+    const table = tableOf(laidOut, "E");
+    const boundaries = [...table.columnDividerXs, box.right];
+
+    for (const [index, cell] of [...table.rows[0].cells]
+      .sort((a, b) => a.x - b.x)
+      .entries()) {
+      expect(cell.x, `${cell.column} starts inside the frame`).toBeGreaterThan(box.left);
+      expect(
+        cell.x + fakeMeasurer.measure(cell.text).width,
+        `${cell.column} ends before its column does`,
+      ).toBeLessThanOrEqual(boundaries[index]);
+    }
+
+    // And the rules really are between the columns rather than heaped at
+    // one edge: strictly rising, and all of them inside the frame.
+    expect(table.columnDividerXs).toEqual([...table.columnDividerXs].sort((a, b) => a - b));
+    for (const x of table.columnDividerXs) {
+      expect(x).toBeGreaterThan(box.left);
+      expect(x).toBeLessThan(box.right);
+    }
   });
 
   it("puts entities with no relationship between them side by side, not stacked", () => {

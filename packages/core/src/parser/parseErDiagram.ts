@@ -1,5 +1,6 @@
 import type {
   Diagnostic,
+  ErAttribute,
   ErCardinality,
   ErDocument,
   ErEntityDecl,
@@ -212,16 +213,149 @@ function readRelationship(line: string): ErRelationshipDecl | null {
 
 /**
  * The line that opens an entity's attribute block, and the one that closes
- * it — the two ends of the construct this parser skips over whole.
+ * it.
  *
  * Measured: `CUSTOMER { string name / int age }` records the attributes
  * *under* an entity that still enters the table as `CUSTOMER`, so the block
- * is one construct rather than a run of independent statements. Reporting
- * each body line as malformed as well would make three claims where one is
- * true, and two of them would be untrue — `string name` is perfectly good ER.
+ * declares the entity exactly as a bare name does, and the name is captured
+ * here rather than read a second time.
+ *
+ * **The brace is required to end the line, and the closing one to be alone
+ * on its own.** Mermaid's lexer is freer than that — `E { string a }` on one
+ * line is a document it draws — and that spelling stays refused here rather
+ * than half-read: an opening line this pattern declines falls through to the
+ * unrecognized-line diagnostic, which costs the document, so no picture is
+ * drawn for it.
  */
-const ATTRIBUTE_BLOCK_OPEN_RE = /^(?:[\w*.-]|[^\x00-\x7F])+\s*\{$/u;
+const ATTRIBUTE_BLOCK_OPEN_RE = /^((?:[\w*.-]|[^\x00-\x7F])+)\s*\{$/u;
 const ATTRIBUTE_BLOCK_CLOSE = "}";
+
+/**
+ * Mermaid's in-block lexer, rule for rule and **in its own order**, because
+ * inside `{ ... }` the order is what the measurements turn on.
+ *
+ * Its block condition (mermaid 11.17.2) admits exactly these: whitespace,
+ * `\b((?:PK)|(?:FK)|(?:UK))\b`, a `~`-delimited generic, the word rule
+ * `[*A-Za-z_À-￿][A-Za-z0-9\-_\[\]().,À-￿*]*`, a
+ * backtick, `"[^"]*"`, a newline, `}`, and `.` for anything else. Jison
+ * takes the **first** rule that matches rather than the longest, and that
+ * single fact explains three measurements at once:
+ *
+ * - `string c UK,PK "both"` splits, because `UK` is taken by the key rule
+ *   before the word rule can swallow `UK,PK` whole (the word alphabet
+ *   contains the comma). The leftover `,` falls to `.` and becomes the
+ *   list separator.
+ * - `string x,y` does **not** split, because `x` is no key and the word
+ *   rule then takes `x,y` entire — so the comma is a separator only
+ *   between keys.
+ * - `string UK.y` and `PK x` are parse errors, because the key rule fires
+ *   wherever those two letters stand alone, including where a type or a
+ *   name was wanted.
+ *
+ * The generic and the backtick rules are deliberately absent: `list~int~ xs`
+ * and `` `odd name` `` are documents Mermaid draws that this parser does not
+ * implement, so they must not be half-read. Leaving them out is what refuses
+ * them — the `~` and the `` ` `` reach no rule, and the line is reported as
+ * unrecognized rather than quietly losing its generic argument.
+ */
+const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; pattern: RegExp }[] = [
+  { kind: "key", pattern: /^\b(?:PK|FK|UK)\b/iu },
+  { kind: "word", pattern: /^[*A-Za-z_À-￿][A-Za-z0-9\-_[\]().,À-￿*]*/u },
+  { kind: "comment", pattern: /^"[^"]*"/u },
+];
+
+interface AttributeToken {
+  kind: "key" | "word" | "comment" | "punctuation";
+  text: string;
+}
+
+/**
+ * `line` as the token stream Mermaid's block lexer would produce, or `null`
+ * when a character reaches no rule of its own.
+ *
+ * A character that falls to Mermaid's `.` rule becomes a one-character
+ * `punctuation` token, which is how `,` — a token the grammar names but the
+ * lexer has no rule for inside a block — comes to separate two keys.
+ */
+function tokenizeAttributeLine(line: string): AttributeToken[] | null {
+  const tokens: AttributeToken[] = [];
+  let rest = line;
+  while (rest.length > 0) {
+    const space = /^\s+/u.exec(rest);
+    if (space !== null) {
+      rest = rest.slice(space[0].length);
+      continue;
+    }
+    const rule = ATTRIBUTE_TOKEN_RULES.find(({ pattern }) => pattern.test(rest));
+    if (rule === undefined) {
+      // Mermaid's `.` rule, and the only characters this parser lets through
+      // it are the ones its grammar names. A `~` or a backtick would reach
+      // here too, and refusing them is the point — see the rule table.
+      if (rest.startsWith(",")) {
+        tokens.push({ kind: "punctuation", text: "," });
+        rest = rest.slice(1);
+        continue;
+      }
+      return null;
+    }
+    const text = rule.pattern.exec(rest)![0];
+    tokens.push({ kind: rule.kind, text });
+    rest = rest.slice(text.length);
+  }
+  return tokens;
+}
+
+/**
+ * The attributes `line` declares, or `null` when it declares none this
+ * parser can read.
+ *
+ * **Several per line, because Mermaid's grammar is `attributes: attribute |
+ * attributes attribute`** — measured, `string a int b` inside a block
+ * reports two attributes, exactly as the two-line spelling does. One
+ * attribute is `type name`, then an optional comma-separated key list, then
+ * an optional comment, and every one of those boundaries is measured:
+ * `string x PK UK` (no comma) and `string x "a" PK` (comment before keys)
+ * are both parse errors in Mermaid, as is a trailing comma.
+ */
+function readAttributes(line: string): ErAttribute[] | null {
+  const tokens = tokenizeAttributeLine(line);
+  if (tokens === null) {
+    return null;
+  }
+  const attributes: ErAttribute[] = [];
+  let at = 0;
+  const peek = (): AttributeToken | undefined => tokens[at];
+  while (at < tokens.length) {
+    const type = peek();
+    if (type?.kind !== "word") return null;
+    at += 1;
+    const name = peek();
+    if (name?.kind !== "word") return null;
+    at += 1;
+
+    const keys: string[] = [];
+    if (peek()?.kind === "key") {
+      keys.push(tokens[at].text);
+      at += 1;
+      while (peek()?.kind === "punctuation" && peek()?.text === ",") {
+        at += 1;
+        const next = peek();
+        if (next?.kind !== "key") return null;
+        keys.push(next.text);
+        at += 1;
+      }
+    }
+
+    let comment = "";
+    if (peek()?.kind === "comment") {
+      comment = tokens[at].text.slice(1, -1);
+      at += 1;
+    }
+
+    attributes.push({ type: type.text, name: name.text, keys, comment });
+  }
+  return attributes.length === 0 ? null : attributes;
+}
 
 /**
  * The constructs this parser reads well enough to *recognize* and does not
@@ -243,11 +377,6 @@ const ATTRIBUTE_BLOCK_CLOSE = "}";
  * author simply named `direction` or `to` alone.
  *
  * The table shrinks as constructs land. Every one of these has a ticket.
- *
- * The attribute block is the one unimplemented construct **not** in here,
- * because it is the one that spans several lines: it is named at the line
- * that opens it and then swallowed whole (see `ATTRIBUTE_BLOCK_OPEN_RE`),
- * which a table of one-line patterns cannot express.
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
   {
@@ -333,12 +462,17 @@ export function parseErDiagram(source: string): ParseResult {
   let sawError = false;
   let sawHeader = false;
   /**
-   * Whether the reader is inside an attribute block it has already refused.
-   * The body is swallowed rather than read: the construct was named once at
-   * the line that opened it, and every further message about it would be a
-   * second opinion on the same gap.
+   * The entity whose attribute block the reader is inside, or `null` between
+   * blocks. Attributes are appended to it as they are read, so the block's
+   * body lands on the declaration the opening line pushed rather than on a
+   * second entry for the same name.
    */
-  let inAttributeBlock = false;
+  let openEntity: ErEntityDecl | null = null;
+  /**
+   * Where that block was opened, kept so the unclosed-block diagnostic can
+   * point at the line the author wrote rather than at the end of the file.
+   */
+  let openedAt: { line: string; lineNumber: number; column: number } | null = null;
 
   const lines = source.split(/\r\n|\r|\n/);
   for (const [index, rawLine] of lines.entries()) {
@@ -347,13 +481,34 @@ export function parseErDiagram(source: string): ParseResult {
       continue;
     }
 
-    if (inAttributeBlock) {
-      inAttributeBlock = line !== ATTRIBUTE_BLOCK_CLOSE;
-      continue;
-    }
-
     const lineNumber = index + 1;
     const column = rawLine.length - rawLine.trimStart().length + 1;
+
+    // Inside a block, every line is either its closing brace or attributes.
+    // Read before the header check and before every statement pattern,
+    // because the alphabets overlap: `string name` is two words, and a
+    // reader that asked "is this an entity name?" first would find `string`
+    // and declare a box.
+    if (openEntity !== null) {
+      if (line === ATTRIBUTE_BLOCK_CLOSE) {
+        openEntity = null;
+        openedAt = null;
+        continue;
+      }
+      const attributes = readAttributes(line);
+      if (attributes === null) {
+        diagnostics.push({
+          severity: "error",
+          message: `Unrecognized erDiagram attribute: "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
+      openEntity.attributes.push(...attributes);
+      continue;
+    }
 
     // The header, asked of the shared registry rather than of a private copy
     // of the pattern — the rule `parseStateDiagram` already follows, so this
@@ -373,7 +528,7 @@ export function parseErDiagram(source: string): ParseResult {
     }
 
     if (ENTITY_NAME_RE.test(line) && !RELATIONSHIP_BODY_ONLY_RE.test(line)) {
-      entities.push({ name: line });
+      entities.push({ name: line, attributes: [] });
       continue;
     }
 
@@ -383,23 +538,22 @@ export function parseErDiagram(source: string): ParseResult {
       // them — measured, a relationship declares its entities exactly as a
       // bare name does and Mermaid's table interleaves the two kinds of
       // statement in first-mention order. `buildErModel` de-duplicates.
-      entities.push({ name: relationship.left }, { name: relationship.right });
+      entities.push(
+        { name: relationship.left, attributes: [] },
+        { name: relationship.right, attributes: [] },
+      );
       relationships.push(relationship);
       continue;
     }
 
-    // Refused by name at the line that opens it, and then swallowed whole —
-    // see `ATTRIBUTE_BLOCK_OPEN_RE`. Its body is good ER, so the honest
-    // count of things wrong with this document is one.
-    if (ATTRIBUTE_BLOCK_OPEN_RE.test(line)) {
-      diagnostics.push({
-        severity: "error",
-        message: `Unimplemented erDiagram construct: an entity's attribute block, in "${line}"`,
-        line: lineNumber,
-        column,
-      });
-      sawError = true;
-      inAttributeBlock = true;
+    // An attribute block declares its entity exactly as a bare name does
+    // (measured), so the entity is pushed here and the block's body is
+    // appended to this very declaration — see `openEntity`.
+    const blockOpen = ATTRIBUTE_BLOCK_OPEN_RE.exec(line);
+    if (blockOpen !== null) {
+      openEntity = { name: blockOpen[1], attributes: [] };
+      openedAt = { line, lineNumber, column };
+      entities.push(openEntity);
       continue;
     }
 
@@ -423,6 +577,20 @@ export function parseErDiagram(source: string): ParseResult {
       column: 1,
     });
     return { document: null, diagnostics };
+  }
+
+  // A block the author never closed. Measured: Mermaid refuses such a
+  // document outright ("Parse error"), so reading it as if the brace were
+  // there would draw a picture for a document Mermaid draws nothing for —
+  // the one direction the absolute compatibility condition rules out.
+  if (openedAt !== null) {
+    diagnostics.push({
+      severity: "error",
+      message: `Unclosed erDiagram attribute block: "${openedAt.line}"`,
+      line: openedAt.lineNumber,
+      column: openedAt.column,
+    });
+    sawError = true;
   }
 
   if (sawError) {

@@ -290,7 +290,18 @@ function crowsFoot(tipX: number): SVGPathElement {
   return path;
 }
 
-/** The `<g class="siren-er-entity">` for one entity: its frame and its name. */
+/**
+ * The `<g class="siren-er-entity">` for one entity: its frame, its name, and
+ * — when it declared attributes — the table under the name.
+ *
+ * **The name is centred in the *name row*, not in the box.** With no
+ * attributes the two are the same thing; with attributes they are not, and
+ * the difference is a silent one: a name centred in the box draws without a
+ * diagnostic anywhere and lands on top of the attribute rows. The band is
+ * the box's top edge down to `headerDividerY`, exactly the band the rule
+ * under the name bounds — the arrangement `renderClassDiagramToSVG` already
+ * uses for a class's name above its first compartment divider.
+ */
 function buildEntity(entity: PositionedErEntity): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-er-entity");
@@ -304,14 +315,13 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   frame.setAttribute("height", String(entity.height));
   g.appendChild(frame);
 
+  const table = entity.attributeTable;
+  const nameRowBottom = table === null ? entity.y + entity.height : table.headerDividerY;
+
   const label = document.createElementNS(SVG_NS, "text");
   label.setAttribute("class", "siren-er-entity-label");
-  // Centred in the box the layout sized for it. The box holds exactly one
-  // row, so the centre is the whole of the placement — there is no stack of
-  // rows here for layout to have assigned a y to, the way a state's
-  // descriptions are.
   label.setAttribute("x", String(entity.x + entity.width / 2));
-  label.setAttribute("y", String(entity.y + entity.height / 2));
+  label.setAttribute("y", String((entity.y + nameRowBottom) / 2));
   // Presentation attributes rather than theme rules, for the reason
   // `renderToSVG` gives: CSS would win over them and could drift out of sync
   // with the centering math above.
@@ -320,5 +330,47 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   label.textContent = entity.label;
   g.appendChild(label);
 
+  if (table !== null) {
+    // The full-width rule under the name row first, then one at each
+    // internal column boundary — running from that rule to the box's foot,
+    // so no vertical stroke crosses the name the entity is known by.
+    g.appendChild(
+      buildDivider(entity.x, table.headerDividerY, entity.x + entity.width, table.headerDividerY),
+    );
+    for (const x of table.columnDividerXs) {
+      g.appendChild(buildDivider(x, table.headerDividerY, x, entity.y + entity.height));
+    }
+    for (const row of table.rows) {
+      for (const cell of row.cells) {
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("class", `siren-er-attribute siren-er-attribute-${cell.column}`);
+        text.setAttribute("x", String(cell.x));
+        text.setAttribute("y", String(cell.y));
+        // `start`, not `middle`: the layout's `x` is the text's **left
+        // edge**, because a column of left-aligned cells is what makes a
+        // column read as one. A `middle` anchor here would draw every cell
+        // half its own width to the right of its column.
+        text.setAttribute("text-anchor", "start");
+        text.setAttribute("dominant-baseline", "middle");
+        // `textContent` rather than any markup path, the rule every other
+        // renderer here keeps: attribute text is author input and must
+        // render literally.
+        text.textContent = cell.text;
+        g.appendChild(text);
+      }
+    }
+  }
+
   return g;
+}
+
+/** One `<line class="siren-er-entity-divider">` between the two points given. */
+function buildDivider(x1: number, y1: number, x2: number, y2: number): SVGLineElement {
+  const line = document.createElementNS(SVG_NS, "line") as SVGLineElement;
+  line.setAttribute("class", "siren-er-entity-divider");
+  line.setAttribute("x1", String(x1));
+  line.setAttribute("y1", String(y1));
+  line.setAttribute("x2", String(x2));
+  line.setAttribute("y2", String(y2));
+  return line;
 }

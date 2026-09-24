@@ -2626,6 +2626,73 @@ export interface ErEntityDecl {
    * carry no hyphen.
    */
   name: string;
+  /**
+   * The attributes this *mention* of the entity declared, in source order —
+   * empty for a bare name and for either end of a relationship.
+   *
+   * Per mention rather than per entity, because an entity may open several
+   * blocks: measured (mermaid 11.17.2), `E { string a }` followed by
+   * `E { string b }` reports **one** entity carrying **both** attributes, in
+   * that order. Concatenating them is `buildErModel`'s, alongside the
+   * de-duplication of the name itself.
+   */
+  attributes: ErAttribute[];
+}
+
+/**
+ * One attribute inside an entity's `{ ... }` block: `type name [keys]
+ * [comment]`, the four fields Mermaid records for it and in that order.
+ *
+ * The shape is measured rather than designed — `int age PK "the age"` comes
+ * back `{ type: "int", name: "age", keys: ["PK"], comment: "the age" }`
+ * (mermaid 11.17.2, `scripts/mermaid-probe.mjs`) — and it is one interface
+ * shared by the parser and the model, the way `ClassMember` is, because
+ * nothing between the two stages reinterprets an attribute.
+ *
+ * `keys` and `comment` are always present and are empty when the author
+ * wrote neither, rather than nullable: Mermaid reports `keys: []` and
+ * `comment: ""` for `string name`, and the drawn table treats "no keys at
+ * all in this entity" as the question, which a list answers and a `null`
+ * only complicates.
+ */
+export interface ErAttribute {
+  /**
+   * The type word, exactly as written — **parentheses and brackets
+   * included**. Measured: `string(99) code` reports `type="string(99)"` and
+   * `int[] xs` reports `type="int[]"`, because Mermaid's in-block word rule
+   * is `[*A-Za-z_À-￿][A-Za-z0-9\-_\[\]().,À-￿*]*` — a
+   * *third* alphabet in this one diagram kind, neither the entity name's nor
+   * a flowchart id's. It may not **begin** with a digit (`int 1st` is a
+   * parse error in Mermaid), and `PK`, `FK` and `UK` are not words at all
+   * here: the key rule is read first, so `PK x` is a parse error too.
+   */
+  type: string;
+  /** The attribute's name, in the same alphabet as `type`. */
+  name: string;
+  /**
+   * The key kinds written after the name, in source order and **split on
+   * the comma**: `string c UK,PK "both"` reports `keys: ["UK", "PK"]`.
+   *
+   * ⚠️ That split is this construct's own and must not be generalized.
+   * Measured one kind over, a state diagram's `class Busy alpha,beta` does
+   * **not** split — it yields one literal class name `"alpha,beta"` — so a
+   * comma means a list here and a character there.
+   *
+   * Three kinds and no more: Mermaid's in-block key rule is
+   * `\b((?:PK)|(?:FK)|(?:UK))\b`, case-insensitively, and the spelling is
+   * kept as written (`pk` stays `pk`). A fourth word in the key position is
+   * a parse error — `string c UK,XX "both"` is refused by Mermaid — and a
+   * repeat is not (`PK,PK` reports two).
+   */
+  keys: string[];
+  /**
+   * The quoted comment after the keys, without its quotes, or `""` when the
+   * author wrote none. It is the **last** thing on an attribute: measured,
+   * `string x "a" PK` is a parse error, and so is a second comment. A comma
+   * inside it is ordinary text (`"x, y"` is one comment), which is the same
+   * character that splits `keys` two fields to the left.
+   */
+  comment: string;
 }
 
 /**
@@ -2764,6 +2831,18 @@ export interface ResolvedErEntity {
   id: string;
   /** The text the box draws. */
   label: string;
+  /**
+   * Every attribute this entity declared, in source order and **joined
+   * across blocks** — measured, an entity that opens two blocks carries both
+   * their attributes, in the order the blocks appeared. Empty when the
+   * entity declared none, which is the case that draws the plain labelled
+   * rectangle a box with no table is.
+   *
+   * Not de-duplicated, and that is measured too: `PK,PK` reports two keys
+   * and two attributes of the same name are both recorded, so there is no
+   * rule here to apply beyond concatenation.
+   */
+  attributes: ErAttribute[];
 }
 
 /**
@@ -2863,6 +2942,88 @@ export interface PositionedErEntity {
   y: number;
   width: number;
   height: number;
+  /**
+   * The attribute table inside the box, or `null` when the entity declared
+   * no attributes.
+   *
+   * `null` rather than an empty table, because the two are **different
+   * pictures** and not two amounts of the same one. Measured with
+   * `--markup`: an entity with no attributes is a `rect.basic
+   * .label-container` with its name centred in it, while one with
+   * attributes is a name row, a rule, and a grid — Mermaid's `erBox` takes
+   * an early return for the first. An empty table would draw a rule across
+   * a box with nothing under it.
+   *
+   * When it is present, the name is centred in the band between the box's
+   * top edge and `headerDividerY` rather than in the box, exactly as a
+   * class's name is centred above its first compartment divider.
+   */
+  attributeTable: PositionedErAttributeTable | null;
+}
+
+/** Which of an attribute's four fields a drawn cell holds. */
+export type ErAttributeColumn = "type" | "name" | "keys" | "comment";
+
+/**
+ * One attribute's table inside an entity box, in diagram coordinates.
+ *
+ * The geometry is Siren's (ADR-0004) and the *structure* is Mermaid's,
+ * measured from its `erBox` renderer and its `--markup`: a full-width rule
+ * under the name row, a vertical rule at every internal column boundary,
+ * and one row per attribute with the cells left-aligned in their columns.
+ *
+ * **There is no rule between attribute rows, and that is measured too.**
+ * Mermaid's horizontal-rule loop runs over `yOffsets`, which holds a single
+ * `0` — so the only horizontal rule it ever draws is the one under the name.
+ * It separates the rows by filling them in alternating shades instead. Siren
+ * draws no such fill: a row's shade is a *paint*, and paint is the theme's
+ * (ADR-0008, the rule a flowchart rectangle's corner radius already
+ * follows), while the rules are the figure.
+ */
+export interface PositionedErAttributeTable {
+  /** y of the full-width rule between the name row and the first attribute. */
+  headerDividerY: number;
+  /**
+   * x of each vertical rule, left to right — one at every boundary
+   * *between* two drawn columns, and none at the box's own edges.
+   *
+   * So two columns make one rule and four make three, and a column an
+   * entity wrote nothing in takes its rule with it when it goes: measured,
+   * Mermaid's `keysPresent`/`commentPresent` flags skip the rule and zero
+   * the width together.
+   */
+  columnDividerXs: number[];
+  /** One per attribute, in source order. */
+  rows: PositionedErAttributeRow[];
+}
+
+/** One attribute's drawn cells — the columns this entity uses, and no others. */
+export interface PositionedErAttributeRow {
+  cells: PositionedErAttributeCell[];
+}
+
+/**
+ * One cell of the attribute table: what it says, and where its text starts.
+ *
+ * `x` is the text's **left edge**, not its centre — cells are left-aligned
+ * in their columns, which is measured (Mermaid places each label at its
+ * column's left plus half the padding) and is what keeps a column of types
+ * reading as a column.
+ */
+export interface PositionedErAttributeCell {
+  column: ErAttributeColumn;
+  /**
+   * The text drawn. For `keys` this is the list **re-joined with a comma** —
+   * `attribute.keys.join()` is what Mermaid draws, so `UK,PK` reads back as
+   * the author wrote it even though the model holds two keys. The split is
+   * not undone: three keys make `PK,FK,UK`, and a single name containing a
+   * comma could never reach this field, because the key list admits only
+   * `PK`, `FK` and `UK`.
+   */
+  text: string;
+  x: number;
+  /** Vertical centre of the text, the way `PositionedClass`'s member lines are. */
+  y: number;
 }
 
 /**

@@ -1,9 +1,13 @@
 import type {
+  ErAttribute,
+  ErAttributeColumn,
   ErModel,
   LayoutOptions,
   PositionedErDiagram,
   PositionedErEntity,
+  PositionedErAttributeTable,
   PositionedErRelationship,
+  ResolvedErEntity,
 } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
@@ -36,6 +40,137 @@ const ENTITY_PADDING_Y = 8;
 const DEFAULT_RANKDIR = "TB";
 
 /**
+ * The four columns of an attribute table, in the order Mermaid draws them
+ * and paired with the text each one takes from an attribute.
+ *
+ * `keys` is re-joined with a comma because that is what Mermaid draws —
+ * `attribute.keys.join()` — so the cell reads back exactly as the author
+ * wrote it while the model keeps the list the picture cannot show.
+ */
+const COLUMNS: readonly { column: ErAttributeColumn; textOf: (a: ErAttribute) => string }[] = [
+  { column: "type", textOf: (attribute) => attribute.type },
+  { column: "name", textOf: (attribute) => attribute.name },
+  { column: "keys", textOf: (attribute) => attribute.keys.join(",") },
+  { column: "comment", textOf: (attribute) => attribute.comment },
+];
+
+/**
+ * The columns `attributes` actually uses: always `type` and `name`, plus
+ * `keys` and `comment` only where some attribute wrote one.
+ *
+ * Measured from Mermaid's `erBox` renderer, which is the only instrument
+ * that can answer it: `maxKeysWidth <= PADDING` sets `keysPresent = false`,
+ * zeroing the column's width and skipping the rule beside it, and
+ * `commentPresent` does the same one column over. `--markup` cannot be used
+ * here — the probe's `getBBox` stub reports a constant width for every
+ * label, empty ones included, so both flags come back true there whatever
+ * the document says.
+ *
+ * `type` and `name` have no such flag in Mermaid and need none: an
+ * attribute cannot be written without both (measured — `string` alone
+ * inside a block is a parse error).
+ */
+function drawnColumns(attributes: readonly ErAttribute[]): typeof COLUMNS {
+  return COLUMNS.filter(
+    ({ column, textOf }) =>
+      column === "type" ||
+      column === "name" ||
+      attributes.some((attribute) => textOf(attribute).length > 0),
+  );
+}
+
+/**
+ * An entity box measured but not yet placed: its size, and where its name
+ * row, rules and cells sit relative to its own top-left corner.
+ *
+ * Computed before the shared layout core runs, because the core needs the
+ * size, and translated into diagram coordinates once the core has placed the
+ * box — the two-step `layoutClassDiagram` already takes for a class's
+ * compartments.
+ */
+interface ErBoxPlan {
+  width: number;
+  height: number;
+  table: PositionedErAttributeTable | null;
+}
+
+/**
+ * Measures one entity box: as wide as its name or its widest column stack,
+ * whichever is greater, and as tall as its name row plus one row per
+ * attribute.
+ *
+ * Every column is its widest cell plus `ENTITY_PADDING_X`, half of which
+ * sits to the left of the text — Mermaid's own arrangement, which is what
+ * makes a column of left-aligned cells clear the rule beside it at both
+ * ends. When the name is wider than the columns together, the surplus is
+ * shared out equally among them, again as Mermaid does; the alternative,
+ * hanging it off the right-hand edge, would leave the last rule floating in
+ * the middle of a wide box.
+ */
+function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan {
+  const measure = (text: string) => options.measureText.measure(text);
+  const name = measure(entity.label);
+  const nameRowHeight = name.height + ENTITY_PADDING_Y * 2;
+  const nameRowWidth = name.width + ENTITY_PADDING_X * 2;
+
+  if (entity.attributes.length === 0) {
+    // The plain labelled rectangle, unchanged: measured with `--markup`, an
+    // entity with no attributes is a `rect.basic.label-container` with its
+    // name inside, and Mermaid's `erBox` returns early for it.
+    return { width: nameRowWidth, height: nameRowHeight, table: null };
+  }
+
+  const columns = drawnColumns(entity.attributes);
+  const cellTexts = columns.map(({ textOf }) => entity.attributes.map(textOf));
+  const widths = cellTexts.map(
+    (texts) => Math.max(...texts.map((text) => measure(text).width)) + ENTITY_PADDING_X,
+  );
+  const columnsWidth = widths.reduce((sum, width) => sum + width, 0);
+  const surplus = Math.max(0, nameRowWidth - columnsWidth);
+  const grown = widths.map((width) => width + surplus / widths.length);
+
+  const rowHeights = entity.attributes.map((attribute) => {
+    const tallest = Math.max(
+      ...columns.map(({ textOf }) => measure(textOf(attribute)).height),
+    );
+    return tallest + ENTITY_PADDING_Y * 2;
+  });
+
+  // Left edge of each column, and then the rules at every internal boundary
+  // between two of them. The box's own edges are not rules: the frame is.
+  const columnLefts: number[] = [];
+  let left = 0;
+  for (const width of grown) {
+    columnLefts.push(left);
+    left += width;
+  }
+
+  let top = nameRowHeight;
+  const rows = entity.attributes.map((attribute, index) => {
+    const centerY = top + rowHeights[index] / 2;
+    top += rowHeights[index];
+    return {
+      cells: columns.map(({ column, textOf }, columnIndex) => ({
+        column,
+        text: textOf(attribute),
+        x: columnLefts[columnIndex] + ENTITY_PADDING_X / 2,
+        y: centerY,
+      })),
+    };
+  });
+
+  return {
+    width: left,
+    height: top,
+    table: {
+      headerDividerY: nameRowHeight,
+      columnDividerXs: columnLefts.slice(1),
+      rows,
+    },
+  };
+}
+
+/**
  * Places an `ErModel`'s entities, routes its relationships, and reports the
  * diagram's bounds.
  *
@@ -54,25 +189,16 @@ const DEFAULT_RANKDIR = "TB";
  * it again.
  */
 export function layoutErDiagram(model: ErModel, options: LayoutOptions): PositionedErDiagram {
-  const sizeById = new Map(
-    model.entities.map((entity) => {
-      const text = options.measureText.measure(entity.label);
-      return [
-        entity.id,
-        {
-          width: text.width + ENTITY_PADDING_X * 2,
-          height: text.height + ENTITY_PADDING_Y * 2,
-        },
-      ] as const;
-    }),
+  const planById = new Map(
+    model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
   );
 
   const laidOut = layoutDirectedGraph({
     rankdir: DEFAULT_RANKDIR,
-    nodes: model.entities.map((entity) => ({
-      id: entity.id,
-      ...sizeById.get(entity.id)!,
-    })),
+    nodes: model.entities.map((entity) => {
+      const plan = planById.get(entity.id)!;
+      return { id: entity.id, width: plan.width, height: plan.height };
+    }),
     edges: model.relationships.map((relationship) => ({
       id: relationship.id,
       from: relationship.from,
@@ -88,6 +214,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
   const entities: PositionedErEntity[] = model.entities.map((entity) => {
     const box = boxById.get(entity.id)!;
+    const table = planById.get(entity.id)!.table;
     return {
       id: entity.id,
       label: entity.label,
@@ -95,6 +222,24 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       y: box.y,
       width: box.width,
       height: box.height,
+      // The plan was measured against the box's own top-left corner, so
+      // placing it is one translation — the step `layoutClassDiagram` takes
+      // for a class's compartments, and the reason nothing downstream has to
+      // know where the box ended up.
+      attributeTable:
+        table === null
+          ? null
+          : {
+              headerDividerY: box.y + table.headerDividerY,
+              columnDividerXs: table.columnDividerXs.map((x) => box.x + x),
+              rows: table.rows.map((row) => ({
+                cells: row.cells.map((cell) => ({
+                  ...cell,
+                  x: box.x + cell.x,
+                  y: box.y + cell.y,
+                })),
+              })),
+            },
     };
   });
 

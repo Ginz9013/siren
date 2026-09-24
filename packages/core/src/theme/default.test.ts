@@ -1110,16 +1110,27 @@ describe("default theme coverage of the state renderer", () => {
  * matters even here — an unthemed marker is invisible, and a theme test on
  * a symmetric relationship can be satisfied by half the markers.
  *
+ * `CUSTOMER` carries an attribute table, which is a second figure for an
+ * entity and not a decoration of the first: the name row's rule, the column
+ * rules and all four cell kinds appear only here. Its attributes are chosen
+ * so that every column is drawn — one writes keys, one writes a comment —
+ * because a column no attribute uses is dropped from the picture entirely,
+ * and an unthemed cell class in a dropped column would go unseen.
+ *
  * Inline rather than read from `examples/`, for the reason `EVERY_FEATURE`,
  * `EVERY_CLASS_FEATURE` and `EVERY_STATE_FEATURE` are: exhaustive *class*
  * coverage is a different goal from a demo example's, and an example
  * narrowed for the demo's sake must not quietly narrow what the theme is
  * checked against. It is deliberately the whole of what this kind draws
- * today — the tickets that land attributes and aliases add a figure apiece
- * here and then have to theme what they added.
+ * today — the ticket that lands aliases adds a figure here and then has to
+ * theme what it added.
  */
 const EVERY_ER_FEATURE = `erDiagram
-CUSTOMER
+CUSTOMER {
+  string name
+  int age PK "the age"
+  string c UK,PK "both"
+}
 ORDER
 LINE-ITEM
 CUSTOMER ||--o{ ORDER : places
