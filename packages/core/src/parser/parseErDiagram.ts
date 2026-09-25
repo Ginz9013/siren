@@ -640,10 +640,11 @@ const END_RE = /^end\b\s*/iu;
  *   so a pattern that let the line run on would draw a relationship Mermaid
  *   refuses.
  *
- * The one alias spelling it deliberately does *not* read is Mermaid's
- * bracketless one: `A[Unquoted]` is an alias there too (measured), and it is
- * refused **by name** in `UNIMPLEMENTED` rather than half-read, for the
- * reason the bracketless alias is.
+ * **The quotes are optional**, and Mermaid's bracketless spelling writes
+ * exactly the same field: measured, `A[Unquoted]` reports `label="A"
+ * alias="Unquoted"` character for character with `A["Unquoted"]`. But the
+ * bracketless spelling has an **alphabet** where the quoted one has none,
+ * and it is a much narrower one than it looks — see `readsAsOneEntityName`.
  *
  * **The brace needs no line of its own.** It is a *mode switch* rather than
  * a line ending — measured, `E { string a }` and the three-line spelling
@@ -681,11 +682,92 @@ const END_RE = /^end\b\s*/iu;
  * ⚠️ Not anchored on the end of the line — see `RELATIONSHIP_RE`.
  */
 const ENTITY_HEAD_RE = new RegExp(
-  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*"([^"\\r\\n]+)"\\s*\\])?` +
+  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*("[^"\\r\\n]+"|${NAME_SOURCE})\\s*\\])?` +
     `(?::::(${idListSource(NAME_SOURCE)}))?(\\s*\\{)?`,
   "u",
 );
 const ATTRIBUTE_BLOCK_CLOSE = "}";
+
+/**
+ * A word Mermaid's INITIAL condition claims with a rule of its own **before**
+ * its entity-name rule can reach it — so a bare string beginning with one is
+ * never a single `entityName` token, whatever the name alphabet says.
+ *
+ * ⚠️ **A wider set than `RESERVED_BARE_NAMES`, and the extra members are the
+ * cardinality and body *words*.** Measured one probe apiece (mermaid
+ * 11.17.2): `A[one]`, `A[many]` and `A[to]` are each a parse error naming
+ * the token the lexer found — `ONLY_ONE`, `ZERO_OR_MORE`, `IDENTIFYING` —
+ * exactly as `A[end]` names `END`. `erDiagram` is here for the same reason
+ * (`A[erDiagram]` → "got 'ER_DIAGRAM'"), and it is in no other set because
+ * no other position can be reached by it.
+ *
+ * Every rule is `\b`-terminated because Mermaid's are, and that boundary is
+ * load-bearing rather than tidy: measured, `A[oneX]`, `A[onetwo]`,
+ * `A[toast]`, `A[manyfold]` and `A[classdefx]` are all **ordinary aliases**,
+ * because a rule that cannot end on a word boundary never fires and the
+ * name rule takes the word whole. Case-insensitive because every rule in
+ * that lexer is: `A[END]` refuses exactly as `A[end]` does.
+ *
+ * `u` is the odd one and carries Mermaid's own lookahead: its rule is
+ * `u(?=[.\-|])`, so `u` claims a word only when a relationship body could
+ * follow it immediately. Measured, `A[u-x]`, `A[u.x]` and `A[U-x]` are parse
+ * errors ("got 'MD_PARENT'") while `A[u]` and `A[usage]` are aliases.
+ *
+ * The four relationship bodies are here too, as a **prefix** rather than as
+ * the whole string: `RELATIONSHIP_BODY_ONLY_RE` asks whether a name *is*
+ * nothing but body punctuation, and this asks whether one *starts* with it.
+ * Measured, `A[--x]` is "got 'IDENTIFYING'" and `A[..x]` is "got
+ * 'NON_IDENTIFYING'", while `A[x--y]` is an ordinary alias — the rule only
+ * ever fires at the head of a token.
+ */
+const KEYWORD_AT_NAME_HEAD_RE =
+  /^(?:(?:erDiagram|classDef|class|subgraph|end|many|one|to)\b|u(?=[-.|])|--|\.\.|\.-|-\.)/iu;
+
+/**
+ * A bare string Mermaid's lexer reads as **exactly one** `entityName` token —
+ * the whole of the bracketless alias's alphabet, and the question
+ * `NAME_SOURCE` alone cannot answer.
+ *
+ * `NAME_SOURCE` spells the lexer's *name rule*, which is the last rule to be
+ * offered a word; several earlier rules claim the head of a string that rule
+ * would have taken whole, and jison stops at the first rule that matches.
+ * Where that happens the bracket contents come out as two tokens or more,
+ * and the grammar — whose production is `entityName SQS entityName SQE`,
+ * one name and no more — refuses the document.
+ *
+ * ⚠️ **An alias is one name; a `subgraph` title is a list of words.** That is
+ * the difference this predicate exists to hold, and it is the measurement
+ * this construct turns on: `subgraph s1[a   b]` answers `"a b"` because
+ * `subgraphTitle` is `subgraphTitle word`, while `CUSTOMER[Customer Account]`
+ * is a **parse error** ("Expecting 'SQE', got 'UNICODE_TEXT'"). The bracket
+ * is the same character in both and the two constructs behind it are not the
+ * same shape, so `subgraphTitleOf` could not be reused here.
+ *
+ * **The digits are a rule of their own, and the reason is a missing `\b`.**
+ * Mermaid's `NUM` rule is `[0-9]+` with no word boundary after it, so it
+ * takes the leading digits of any word and leaves the rest standing.
+ * Measured: `A[1abc]`, `A[123abc]`, `A[9-9]`, `A[0-9]`, `A[1.5x]` and
+ * `A[1.5.7]` are all parse errors, while `A[123]` (`NUM`), `A[1.5]`
+ * (`DECIMAL_NUM`) and `A[1]` (`ENTITY_ONE`) are ordinary aliases. So a
+ * digit-headed alias is a name only when the whole of it is a number.
+ *
+ * ⚠️ **Deliberately asked of the alias and not of the entity name**, though
+ * the same lexer reads both — because the two positions answer differently
+ * where the head is a digit. Measured, a bare `1-2` on a line of its own is
+ * **two entities** in Mermaid, `1` and `-2`, since a line is a stream of
+ * statements and both tokens are names there; inside brackets the same
+ * string is a parse error, because the grammar wants a `]` after the first.
+ * Asking this in `readEntityHead`'s name position would cost a document
+ * Mermaid draws. The name position's own over-reach — a bare `to`, `one` or
+ * `many` draws a box here and is a parse error in Mermaid — is a separate,
+ * unrowed gap; see the report on this ticket.
+ */
+function readsAsOneEntityName(bare: string): boolean {
+  if (KEYWORD_AT_NAME_HEAD_RE.test(bare)) {
+    return false;
+  }
+  return !/^[0-9]/u.test(bare) || /^(?:[0-9]+\.[0-9]+|[0-9]+)$/u.test(bare);
+}
 
 /** One entity head, as `ENTITY_HEAD_RE` read it, and how much it took. */
 interface ErEntityHead {
@@ -718,10 +800,16 @@ function readEntityHead(text: string): ErEntityHead | null {
   ) {
     return null;
   }
+  // The bracketless alias's own alphabet, which the quoted spelling has
+  // none of — see `readsAsOneEntityName`. Asked of the raw match so that a
+  // quoted alias, where anything at all goes, never reaches it.
+  if (alias !== undefined && !alias.startsWith('"') && !readsAsOneEntityName(alias)) {
+    return null;
+  }
 
   return {
     name: unquoteName(name),
-    alias: alias ?? null,
+    alias: alias === undefined ? null : unquoteName(alias),
     classes: classes === undefined ? [] : splitIdList(classes),
     opensBlock: brace !== undefined,
     length: whole.length,
@@ -1277,35 +1365,42 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     // being `MD_PARENT`, whose lexer rule is `u(?=[.\-|])` — so `u` is a
     // marker only when a body follows it immediately, which makes it a
     // *left-hand* spelling and nothing else (`A ||--u B : x` is a parse
-    // error, "got 'UNICODE_TEXT'"). `A u--o{ B : x` renders, and what
-    // Mermaid draws for it is an edge with `marker-end` only and **no
-    // `marker-start` at all**, because `md_parent` names no marker in its
-    // own table.
+    // error, "got 'UNICODE_TEXT'"). It takes all four bodies, measured one
+    // apiece, and `A u--o{ B : x` renders.
     //
-    // Nothing in the document says what a missing marker means, so it is
-    // refused by name rather than guessed at. The lookahead is what leaves
-    // an entity called `u` — or `usage` — alone; both are ordinary names
-    // (measured).
+    // ⚠️ **It stays refused, and the reason is that Mermaid has no figure
+    // for it either — re-judged against CONTEXT.md's third rule and read
+    // out of Mermaid's own source rather than off the SVG.** What Mermaid
+    // draws is an edge with a `marker-end` and no `marker-start` at all,
+    // and that is not a blank left deliberately: `arrowTypesMap`
+    // (`chunks/mermaid.core/chunk-OSK3NFVY.mjs`, 11.17.2) carries
+    // `only_one`, `zero_or_one`, `one_or_more` and `zero_or_more` and **no
+    // `md_parent`**, so `addEdgeMarker` falls through to
+    // `log.warn("Unknown arrow type: " + arrowType)` and returns without
+    // setting the attribute — the warning fires, verbatim, on that
+    // document. The enum grew a member and the marker table did not follow.
+    // So the third rule's situation holds: Mermaid's picture contradicts a
+    // document that names a cardinality on that end. But the rule says to
+    // draw *what the document says*, and neither the document nor anything
+    // in the pinned version says what figure `MD_PARENT` is — the only
+    // trace left of one is `dist/diagrams/er/erMarkers.d.ts`, which still
+    // *declares* `MD_PARENT_START` and `MD_PARENT_END` for a module no
+    // bundle contains. A shape that cannot be read anywhere cannot be
+    // drawn, so the honest answer is still a refusal by name, and the
+    // corpus row carries the argument.
+    //
+    // The lookahead is what leaves an entity called `u` — or `usage` —
+    // alone; both are ordinary names (measured), on either end of a
+    // relationship as well as on a line of their own.
+    //
     // Either spelling of the left name, measured: `"A" u--o{ B : x` reports
-    // `leftCard="MD_PARENT"` exactly as the unquoted spelling does.
-    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s+u(?=[-.|])`, "u"),
+    // `leftCard="MD_PARENT"` exactly as the unquoted spelling does. And
+    // **case-insensitive, because Mermaid's whole ER lexer is**: measured,
+    // `A U--o{ B : x` reports `leftCard="MD_PARENT"` too, and without the
+    // flag that document was told it was unrecognized rather than
+    // unimplemented.
+    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s+u(?=[-.|])`, "iu"),
     name: 'the "u" (MD_PARENT) relationship cardinality',
-  },
-  {
-    // The **bracketless** alias, which `ENTITY_ALIAS_RE` deliberately does
-    // not read. Measured: `A[Unquoted]` records `alias="Unquoted"` exactly
-    // as the quoted spelling does, so it is a document Mermaid draws and
-    // must be refused by name rather than reported as malformed.
-    //
-    // The lookahead is what keeps the quoted spelling out of this table now
-    // that it is implemented: a line reaching here opened its brackets on
-    // something other than a `"`.
-    // Either spelling of the name, measured: `"A B"[Unquoted]` reports
-    // `label="A B" alias="Unquoted"`, so a quoted name takes the bracketless
-    // alias too and must be refused by the same name rather than falling
-    // through to the generic message.
-    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s*\\[\\s*[^"\\s]`, "u"),
-    name: "an entity alias written without quotes",
   },
   {
     // The implicit `default` class — see `DEFAULT_CLASS_NAME` for what it

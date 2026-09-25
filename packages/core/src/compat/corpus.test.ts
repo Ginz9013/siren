@@ -1269,8 +1269,58 @@ const SILENTLY_WRONG = 0;
  * have moved it to 3, and that is what this rise bought. A count that only
  * ever falls has been an undercount five times on this project; this is the
  * sixth time the fix was to widen what gets named.
+ *
+ * **10 → 9, where the ticket that moved it expected 8, and the missing one
+ * is a decision rather than an omission.** The ER board's two remaining
+ * *named* refusals were meant to close together. One did:
+ * `er-alias-unquoted` is `supported` — the quotes around an alias are
+ * optional, `CUSTOMER[Account]` writes the same `label`/`alias` pair
+ * `CUSTOMER["Account"]` writes, and the box draws the alias while the table
+ * stays keyed on the authored name. The other stays, and it stays for a
+ * reason that had to be read out of Mermaid's source rather than off its
+ * SVG.
+ *
+ * `er-md-parent-cardinality` (`A u--o{ B : x`) is still `rejected`.
+ * CONTEXT.md's third rule says that where Mermaid's own output contradicts
+ * what the document says, Siren draws what the document says and records
+ * the divergence by name — so the question was whether "no marker on the
+ * `u` end" is what `MD_PARENT` looks like or a table lookup that failed.
+ * It is a lookup that failed, and Mermaid says so itself: `arrowTypesMap`
+ * (`chunks/mermaid.core/chunk-OSK3NFVY.mjs`, 11.17.2) carries the four
+ * other cardinalities and no `md_parent`, `addEdgeMarker` logs `Unknown
+ * arrow type: md_parent` and returns, and the rendered SVG defines eight ER
+ * markers with none of them this one. But the third rule then asks Siren to
+ * draw what the document says, and **nothing says what figure `MD_PARENT`
+ * is**: the only trace of one left in the package is a type declaration
+ * (`dist/diagrams/er/erMarkers.d.ts` still names `MD_PARENT_START` and
+ * `MD_PARENT_END`) for a module no bundle contains. A rule that cannot be
+ * executed is not a licence to guess, and copying the blank would encode a
+ * logged internal failure as a construct — a left end an author could not
+ * tell from any other, with no diagnostic. So this one exits on a *figure*,
+ * from a Mermaid that draws one or a specification that describes one, and
+ * the row carries the whole argument.
+ *
+ * Two things were corrected rather than implemented while that was
+ * measured, and both are the instrument catching up rather than code
+ * changing. `er-alias-unquoted`'s **source was not valid Mermaid** —
+ * `CUSTOMER[Customer Account]` is a parse error, "Expecting 'SQE', got
+ * 'UNICODE_TEXT'", because a bracketless alias is a single `entityName`
+ * token where a `subgraph` title one construct over is a list of words — so
+ * the row had been recording a refusal Siren was right to make for a reason
+ * that was not true, and this file's own "if it is not valid Mermaid, it
+ * does not belong here" had been broken since the row was seeded. And the
+ * `u` refusal read only the lower-case spelling, where Mermaid's lexer is
+ * `/i` throughout, so `A U--o{ B : x` was told it was unrecognized instead
+ * of unimplemented; it is refused by name now. Neither changes this count.
+ *
+ * `silently-wrong` is untouched at 0. Both halves of this ticket were named
+ * refusals, never wrong pictures — and the alias half could have become one:
+ * a bracketless alias read in `NAME_SOURCE` alone would have drawn boxes
+ * labelled `to`, `one`, `many`, `1abc` and `end` for five documents Mermaid
+ * refuses outright. The alphabet is a lexer question and was answered as
+ * one (`readsAsOneEntityName`).
  */
-const REJECTED = 10;
+const REJECTED = 9;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

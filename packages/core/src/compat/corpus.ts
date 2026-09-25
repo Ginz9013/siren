@@ -4899,6 +4899,63 @@ line2\`"]`,
     },
   },
   {
+    id: "er-alias-unquoted",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER[Account]
+      ORDER`,
+    status: "supported",
+    meaning:
+      "The **bracketless** spelling of the alias above. Measured (mermaid " +
+      "11.17.2, `scripts/mermaid-probe.mjs`): `CUSTOMER[Account]` reports " +
+      "`label=\"CUSTOMER\" alias=\"Account\"` — the very two fields " +
+      "`CUSTOMER[\"Account\"]` writes — so the quotes are punctuation around " +
+      "one construct rather than a second construct, and the picture is the " +
+      "one `er-alias` asserts: the box draws the alias, the table stays keyed " +
+      "on `CUSTOMER`, and it composes with `:::`, with an attribute block and " +
+      "with the statement after it exactly as the quoted spelling does.\n\n" +
+      "⚠️ **Its alphabet is not the quoted spelling's, and this row's own " +
+      "source used to claim otherwise.** It was written `CUSTOMER[Customer " +
+      "Account]`, which mermaid 11.17.2 **refuses**: \"Expecting 'SQE', got " +
+      "'UNICODE_TEXT'\". A bracketless alias is a *single* `entityName` token " +
+      "— the production is `entityName SQS entityName SQE` — where the " +
+      "`subgraph` title one construct over is a *list of words* " +
+      "(`subgraphTitle: subgraphTitle word`, which is why `subgraph s1[a   b]` " +
+      "answers `\"a b\"`). Two words in an alias is a parse error, and so is " +
+      "any word an earlier lexer rule claims: `end`, `class`, `classDef`, " +
+      "`subgraph`, `erDiagram`, the cardinality and body words `one`, `many` " +
+      "and `to`, a `u` followed by `.`, `-` or `|`, a leading relationship " +
+      "body, and a digit-headed word that is not wholly a number — `[0-9]+` " +
+      "carries no word boundary, so `A[1abc]`, `A[9-9]` and `A[1.5.7]` all " +
+      "refuse while `A[123]` and `A[1.5]` do not. Siren answers every one of " +
+      "them with the generic unrecognized-line message, which is what Mermaid " +
+      "says about them: the document is malformed, not unimplemented.",
+    assert: (result) => {
+      // The two halves this construct is *about*, and the ones two agents
+      // have already swapped: `data-siren-id` is the authored name and the
+      // name row draws the alias. A reader that let the brackets rename the
+      // entity would pass a row asserting only the drawn text — and would
+      // break every `timeline:` entry naming `CUSTOMER` (ADR-0009: a target
+      // is an id).
+      expectSame(
+        "CUSTOMER is addressed by its name and titled with its bracketless alias",
+        [
+          erEntities(result).map((entity) => entity.split("[")[0]),
+          texts(result, 'g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-entity-label'),
+        ],
+        [["CUSTOMER", "ORDER"], ["Account"]],
+      );
+      // The control beside it, as in `er-alias`: an entity that wrote no
+      // alias is still titled with its own name, so a renderer drawing every
+      // box from some second field fails here rather than passing unnoticed.
+      expectSame(
+        "ORDER, which wrote no alias, is still titled with its own name",
+        texts(result, 'g.siren-er-entity[data-siren-id="ORDER"] text.siren-er-entity-label'),
+        ["ORDER"],
+      );
+    },
+  },
+  {
     id: "er-direction",
     kind: "er",
     source: `erDiagram
@@ -4966,12 +5023,19 @@ line2\`"]`,
   // Every one is valid Mermaid, re-measured against 11.17.2 with
   // `scripts/mermaid-probe.mjs` for this row rather than taken from the
   // ticket that noticed it, and every one is **refused** today: the document
-  // costs and no picture is drawn. Two of them are refused *by name*
-  // (`parseErDiagram`'s `UNIMPLEMENTED` table); the other eleven fall to the
-  // generic unrecognized-line message, which is the state every unimplemented
-  // ER construct was already in and is what the tickets named below will
-  // change as they land. Writing them down is the point: this is the honest
-  // backlog, measured rather than remembered.
+  // costs and no picture is drawn. Most are refused **by name** — some from
+  // `parseErDiagram`'s `UNIMPLEMENTED` table, some from a check that no line
+  // pattern could make (a cluster and an entity sharing a name, a directive
+  // painting a cluster) — and the rest fall to the generic unrecognized-line
+  // message. Writing them down is the point: this is the honest backlog,
+  // measured rather than remembered.
+  //
+  // ⚠️ **"Valid Mermaid" is a claim about this row's source, and it has been
+  // wrong once.** `er-alias-unquoted` sat here with the source
+  // `CUSTOMER[Customer Account]`, which mermaid 11.17.2 **refuses** — so the
+  // row recorded a refusal Siren was right to make for a reason that was not
+  // true, and the construct it meant to name went unmeasured. Re-measure the
+  // source, not only the construct.
   {
     id: "er-md-parent-cardinality",
     kind: "er",
@@ -4983,29 +5047,41 @@ line2\`"]`,
       "`Cardinality` enum has five members and this is the last; its lexer " +
       "rule is `u(?=[.\\-|])`, so `u` is a marker only when a relationship " +
       "body follows it immediately — which makes it a **left-hand spelling " +
-      "only** (`A ||--u B : x` is a parse error, \"got 'UNICODE_TEXT'\"), and " +
-      "leaves an entity called `u`, or `usage`, an ordinary name. What " +
-      "Mermaid *draws* for it is an edge with a `marker-end` and **no " +
-      "`marker-start` at all**, because `md_parent` names no marker in its " +
-      "own table. Nothing in the document says what a missing marker means, " +
-      "so Siren refuses it **by name** rather than guessing. Named in the " +
-      "`er-relationship` row as the one piece of that construct left out.",
-  },
-  {
-    id: "er-alias-unquoted",
-    kind: "er",
-    source: `erDiagram
-      CUSTOMER[Customer Account]`,
-    status: "rejected",
-    meaning:
-      "Mermaid's **bracketless** alias. Measured: it records exactly the " +
-      "field the quoted spelling does — `label=\"CUSTOMER\" alias=\"Customer " +
-      "Account\"` — so the box draws \"Customer Account\" and the table stays " +
-      "keyed on `CUSTOMER`, the same picture `er-alias` asserts for " +
-      "`CUSTOMER[\"Customer Account\"]`. It is a second *spelling* of a " +
-      "construct Siren already draws, refused **by name** rather than " +
-      "half-read, so an author is told to add the quotes rather than told " +
-      "their document is malformed.",
+      "only** (`A ||--u B : x` and `A u--u B : x` are parse errors, \"got " +
+      "'UNICODE_TEXT'\"), and leaves an entity called `u`, or `usage`, an " +
+      "ordinary name on either end of a relationship and on a line of its " +
+      "own. It takes all four bodies (`--`, `..`, `.-`, `-.`) and every " +
+      "right-hand cardinality, and the rule is case-insensitive like the " +
+      "rest of that lexer, so `A U--o{ B : x` is the same construct.\n\n" +
+      "**Re-judged against CONTEXT.md's third rule, and the refusal stands " +
+      "— as a decision, not an omission.** What Mermaid draws is an edge " +
+      "with a `marker-end` (the right end's own, `er-zeroOrMoreEnd` for " +
+      "`o{`) and **no `marker-start` at all**. The question the third rule " +
+      "asks is whether that blank is what `MD_PARENT` looks like or a table " +
+      "lookup that failed, and Mermaid's source answers it: `arrowTypesMap` " +
+      "in `chunks/mermaid.core/chunk-OSK3NFVY.mjs` lists `only_one`, " +
+      "`zero_or_one`, `one_or_more` and `zero_or_more` and **no " +
+      "`md_parent`**, so `addEdgeMarker` takes its `if (!arrowTypeInfo)` " +
+      "branch, logs `Unknown arrow type: md_parent` and returns without " +
+      "setting the attribute — the warning fires verbatim when this very " +
+      "document is rendered, and the SVG defines only those eight ER " +
+      "markers. It is a **lookup miss**: the enum gained a member and the " +
+      "marker table did not follow.\n\n" +
+      "So the third rule's condition is met — the document names a " +
+      "cardinality on that end and the picture shows none — but the rule " +
+      "says to draw *what the document says*, and nothing says what figure " +
+      "`MD_PARENT` is. The only trace of one left in 11.17.2 is " +
+      "`dist/diagrams/er/erMarkers.d.ts`, which still **declares** " +
+      "`MD_PARENT_START` and `MD_PARENT_END` for a module no bundle " +
+      "contains: the legacy ER renderer had the marker and the unified one " +
+      "did not carry it over, and the shape went with it. Siren cannot draw " +
+      "a figure that cannot be read anywhere, and copying \"no marker\" " +
+      "would encode a logged internal failure as a construct — a left end " +
+      "an author could not tell from any other, with no diagnostic. It " +
+      "stays refused **by name**. Its exit is a figure: a version of " +
+      "Mermaid that draws one, or a specification that says what one looks " +
+      "like. Named in the `er-relationship` row as the one piece of that " +
+      "construct left out.",
   },
   {
     id: "er-attribute-generic",

@@ -455,7 +455,20 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // lookahead means `u` is only a marker when the body follows it
     // immediately, so `A ||--u B : x` is a parse error ("got 'UNICODE_TEXT'")
     // and there is no right-hand spelling of it to refuse.
-    for (const line of ["A u--o{ B : x", "A u..|| B : x", "A u-.o{ B : x"]) {
+    // ⚠️ **And the shouted spelling is the same construct**, because every
+    // rule in that lexer is `/i` — measured, `A U--o{ B : x` reports
+    // `leftCard="MD_PARENT"` exactly as the lower-case line does. A refusal
+    // that read only the small `u` told an author of this document their
+    // line was unrecognized, which names the wrong problem for a construct
+    // that is simply not drawn yet.
+    for (const line of [
+      "A u--o{ B : x",
+      "A u..|| B : x",
+      "A u-.o{ B : x",
+      "A u.-|{ B : x",
+      "A U--o{ B : x",
+      '"A" u--o{ B : x',
+    ]) {
       expect(refusalsFor(`erDiagram\n  ${line}\n`), `for the line "${line}"`).toEqual([
         `Unimplemented erDiagram construct: the "u" (MD_PARENT) relationship cardinality, in "${line}"`,
       ]);
@@ -466,6 +479,11 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // an ordinary name, and `A u to many B : x` is a Mermaid **parse error**
     // rather than a relationship.
     expect(namesOf("erDiagram\n  u\n  usage\n")).toEqual(["u", "usage"]);
+    // Both are ordinary names in a relationship too, measured on each end:
+    // `u ||--o{ B : x` reports `leftCard="ONLY_ONE"` with `u` as the entity,
+    // and `A ||--o{ u : x` puts it on the right.
+    expect(namesOf("erDiagram\n  u ||--o{ B : x\n")).toEqual(["u", "B"]);
+    expect(namesOf("erDiagram\n  A ||--o{ usage : x\n")).toEqual(["A", "usage"]);
   });
 
   it("refuses a relationship line Mermaid itself refuses, rather than reading one", () => {
@@ -1058,11 +1076,134 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       'Unrecognized erDiagram line: "A["one"] ||--|| B : r"',
     ]);
 
-    // Mermaid's *bracketless* spelling is an alias too (measured:
-    // `A[Unquoted]` reports `alias="Unquoted"`), and this parser does not
-    // read it — so it is refused **by name**, not reported as malformed.
-    expect(refusalsFor("erDiagram\n  A[Unquoted]\n")).toEqual([
-      'Unimplemented erDiagram construct: an entity alias written without quotes, in "A[Unquoted]"',
+    // Mermaid's *bracketless* spelling is an alias too, and it is read here
+    // as well — see the two tests below for its own, narrower alphabet.
+  });
+
+  it("reads a bracketless alias as the same field the quoted spelling writes", () => {
+    // Measured (mermaid 11.17.2, scripts/mermaid-probe.mjs):
+    // `CUSTOMER[Unquoted]` reports `label="CUSTOMER" alias="Unquoted"` —
+    // the very two fields `CUSTOMER["Unquoted"]` writes. So the quotes are
+    // optional punctuation around one construct and not a second one: the
+    // **id** stays the authored name and only the drawn text moves.
+    expect(namesOf("erDiagram\n  CUSTOMER[Unquoted]\n")).toEqual(["CUSTOMER"]);
+    expect(aliasOf("erDiagram\n  CUSTOMER[Unquoted]\n", "CUSTOMER")).toBe("Unquoted");
+  });
+
+  it("reads a bracketless alias as one name token, never as a list of words", () => {
+    // ⚠️ **This is where the bracketless alias parts company with a
+    // `subgraph` title, and it is measured rather than carried across.** A
+    // title is `subgraphTitle: subgraphTitle word`, so `subgraph s1[a   b]`
+    // answers `"a b"`; an alias is a single `entityName` and nothing else
+    // (Mermaid's production is `entityName SQS entityName SQE`). So
+    // `CUSTOMER[Customer Account]` — two words — is a **parse error** in
+    // mermaid 11.17.2: "Expecting 'SQE', got 'UNICODE_TEXT'". A reader that
+    // joined the words would draw a picture for a document Mermaid draws
+    // none for.
+    expect(refusalsFor("erDiagram\n  CUSTOMER[Customer Account]\n")).toEqual([
+      'Unrecognized erDiagram line: "CUSTOMER[Customer Account]"',
+    ]);
+
+    // Every word an earlier lexer rule claims is refused in this position
+    // too, and each was measured on its own probe: `end`, `class`,
+    // `classDef`, `subgraph` and `erDiagram` come back naming their own
+    // token, and so do the **cardinality and body words** `one`, `many` and
+    // `to`, which no other part of this parser reserves. All of Mermaid's
+    // lexer rules are case-insensitive, so `END` refuses exactly as `end`
+    // does.
+    const claimed = ["end", "class", "classDef", "subgraph", "erDiagram", "one", "many", "to", "END"];
+    for (const word of claimed) {
+      expect(refusalsFor(`erDiagram\n  A[${word}]\n`)).toEqual([
+        `Unrecognized erDiagram line: "A[${word}]"`,
+      ]);
+    }
+
+    // `u` is one of them, but only where its own lookahead fires —
+    // `u(?=[.\-|])`. Measured: `A[u-x]` and `A[u.x]` are parse errors ("got
+    // 'MD_PARENT'"), uppercase included, while a bare `u` and any longer
+    // word starting with one are ordinary aliases.
+    for (const alias of ["u-x", "u.x", "U-x"]) {
+      expect(refusalsFor(`erDiagram\n  A[${alias}]\n`)).toEqual([
+        `Unrecognized erDiagram line: "A[${alias}]"`,
+      ]);
+    }
+
+    // A relationship body is refused where it *starts* the alias, not only
+    // where it is the whole of it — measured, `A[--x]` is "got
+    // 'IDENTIFYING'" and `A[..x]` is "got 'NON_IDENTIFYING'", while
+    // `A[x--y]` is an ordinary alias because no rule claims its head.
+    for (const alias of ["--", "--x", "..x", ".-x", "-.x"]) {
+      expect(refusalsFor(`erDiagram\n  A[${alias}]\n`)).toEqual([
+        `Unrecognized erDiagram line: "A[${alias}]"`,
+      ]);
+    }
+
+    // ⚠️ **A digit at the head is its own rule, and `[0-9]+` carries no word
+    // boundary** — so it takes the digits and leaves the rest standing where
+    // the grammar wanted the closing bracket. Measured: `A[1abc]`,
+    // `A[9-9]`, `A[0-9]` and `A[1.5.7]` are all parse errors, while a run of
+    // digits and a decimal are ordinary aliases (`NUM` and `DECIMAL_NUM` are
+    // both `entityName`s).
+    for (const alias of ["1abc", "123abc", "9-9", "0-9", "1.5.7", "1.5x", "1-2"]) {
+      expect(refusalsFor(`erDiagram\n  A[${alias}]\n`)).toEqual([
+        `Unrecognized erDiagram line: "A[${alias}]"`,
+      ]);
+    }
+
+    // The controls, every one measured as an ordinary alias in mermaid
+    // 11.17.2 — a keyword that is only a *prefix*, the whole bare-name
+    // alphabet, both numeric spellings, and a body-shaped run that does not
+    // start the word.
+    for (const alias of [
+      "usage",
+      "oneX",
+      "onetwo",
+      "toast",
+      "manyfold",
+      "classdefx",
+      "under-score",
+      "a*b",
+      "中文-x",
+      "123",
+      "1.5",
+      "1",
+      "x--y",
+      "-",
+      "u",
+    ]) {
+      expect(aliasOf(`erDiagram\n  A[${alias}]\n`, "A")).toBe(alias);
+    }
+  });
+
+  it("composes a bracketless alias with everything the quoted one composes with", () => {
+    // Measured one probe apiece (mermaid 11.17.2), and every answer is the
+    // quoted spelling's — which is the point: the quotes are punctuation
+    // around one construct, so nothing downstream of the brackets may
+    // behave differently for having lost them.
+    //
+    //   A[Unquoted]:::urgent      → alias="Unquoted" cssClasses="default urgent"
+    //   A[Unquoted] { string n }  → that alias carrying that attribute
+    //   A[Unquoted] B             → an aliased A and a bare B
+    //   "A B"[Unquoted]           → label="A B" alias="Unquoted"
+    //   A [ Unquoted ]            → the same entity; the lexer skips the spaces
+    //   A[Unquoted] ||--o{ B : x  → a **parse error** ("got 'ONLY_ONE'")
+    const styled = documentOf("erDiagram\n  A[Unquoted]:::urgent\n");
+    expect(styled.entities.map((e) => [e.name, e.alias])).toEqual([["A", "Unquoted"]]);
+    expect(styled.styles.map((s) => [s.targetIds, s.name])).toEqual([[["A"], "urgent"]]);
+
+    expect(attributesOf("erDiagram\n  A[Unquoted] {\n    string n\n  }\n", "A")).toEqual([
+      { type: "string", name: "n", keys: [], comment: "" },
+    ]);
+    expect(aliasOf("erDiagram\n  A[Unquoted] {\n    string n\n  }\n", "A")).toBe("Unquoted");
+
+    expect(namesOf("erDiagram\n  A[Unquoted] B\n")).toEqual(["A", "B"]);
+    expect(aliasOf("erDiagram\n  A[Unquoted] B\n", "A")).toBe("Unquoted");
+
+    expect(aliasOf('erDiagram\n  "A B"[Unquoted]\n', "A B")).toBe("Unquoted");
+    expect(aliasOf("erDiagram\n  A [ Unquoted ]\n", "A")).toBe("Unquoted");
+
+    expect(refusalsFor("erDiagram\n  A[Unquoted] ||--o{ B : x\n")).toEqual([
+      'Unrecognized erDiagram line: "A[Unquoted] ||--o{ B : x"',
     ]);
   });
 
