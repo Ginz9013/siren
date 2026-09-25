@@ -7,6 +7,7 @@ import type {
   ErEntityDecl,
   ErRelationshipDecl,
   ErRelationshipLine,
+  ErSubgraph,
   ParseResult,
   SirenTimeline,
   StyleDecl,
@@ -547,6 +548,72 @@ const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
 const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
 
 /**
+ * `subgraph s1`, `subgraph s1["My Title"]`, `subgraph s1 [Bracket Title]` —
+ * a cluster's opening line, and the **one statement in this kind that owns
+ * its whole line**.
+ *
+ * ⚠️ **Anchored on the end of the line, unlike every other pattern here,
+ * and that is measured rather than cautious.** Mermaid's rule is
+ * `subgraphHeader: SUBGRAPH entityName separator`, so the header needs a
+ * separator after it and the only one that works is a newline: measured
+ * (mermaid 11.17.2), `subgraph s1 A end` is a parse error ("Expecting
+ * 'EOF', 'NEWLINE', 'SQS', 'SEMI', got 'UNICODE_TEXT'") and `subgraph s1;`
+ * is a parse error too ("got ';'"). A pattern that let the statement stream
+ * carry on after the header would accept a document Mermaid draws no
+ * picture for. Its closing `end` is the exact opposite — an ordinary
+ * statement in that stream, read in `readLine` — and the asymmetry is
+ * Mermaid's, measured on both halves: `A end` closes the block after
+ * declaring `A`, and `end B` declares `B` outside it.
+ *
+ * **The name is mandatory and is an ER entity name, either spelling.**
+ * Measured: a bare `subgraph` is a parse error, `subgraph a.b` keys the
+ * block on `a.b`, `subgraph "My Cluster"` keys it on `My Cluster` with the
+ * quotes stripped, and `subgraph My Cluster` unquoted is a parse error. So
+ * this reads `ANY_NAME_SOURCE` and nothing wider — a flowchart's
+ * `subgraph Two Words` does not reach this grammar.
+ *
+ * **The bracketed title is optional and its quotes are optional too.**
+ * Measured, `s1["My Title"]` and `s1 [Bracket Title]` both answer with the
+ * text between the brackets, and `s1[a   b]` answers `"a b"` — Mermaid's
+ * `subgraphTitle` is a list of words joined with a single space, which is
+ * why `subgraphTitleOf` below collapses a run of whitespace instead of
+ * carrying it.
+ */
+const SUBGRAPH_HEAD_RE = new RegExp(
+  `^subgraph\\b\\s*(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*([^\\]\\r\\n]+?)\\s*\\])?$`,
+  "iu",
+);
+
+/**
+ * The text a header's brackets drew, as Mermaid joins it: quotes off if it
+ * wrote any, and every run of whitespace inside it one space.
+ *
+ * The quotes are stripped by `unquoteName` rather than by a branch of the
+ * pattern above, so the one place this file takes quotes off stays one
+ * place.
+ */
+function subgraphTitleOf(raw: string): string {
+  return unquoteName(raw).replace(/\s+/g, " ");
+}
+
+/**
+ * `end` — the statement that closes a cluster, spelled as Mermaid's own
+ * lexer rule `end\b\s*`, trailing whitespace and all.
+ *
+ * **A statement in the line's stream and not a line class**, measured both
+ * ways round (mermaid 11.17.2): `A end` declares `A` inside the block and
+ * then closes it, and `end B` closes the block and then declares `B`
+ * outside it. A reader that required `end` to stand alone would refuse two
+ * documents Mermaid draws.
+ *
+ * Read **after** the three styling statements, because `style\b` and
+ * `classDef\b` switch Mermaid's lexer into a condition where `end` is an
+ * ordinary word — measured, `style end fill:red` is a `style` statement
+ * targeting a name called `end`, not a block being closed.
+ */
+const END_RE = /^end\b\s*/iu;
+
+/**
  * An entity's **head**: its name, its alias if it wrote one, and the brace
  * that opens its attribute block if it opened one.
  *
@@ -684,6 +751,26 @@ interface ErLineReading {
    * starts in it.
    */
   openEntity: ErEntityDecl | null;
+  /**
+   * Every entity this line declared paired with the `subgraph` block that
+   * was open where it stood, in source order — `null` for one declared
+   * outside every block.
+   *
+   * Handed back rather than written straight onto the block, because this
+   * reader is all-or-nothing: a line it cannot finish must claim no members
+   * at all, exactly as it contributes no boxes. The caller replays this
+   * once the whole line has read.
+   */
+  memberships: { name: string; block: ErSubgraph | null }[];
+  /**
+   * How many `subgraph` blocks are still open where the line ends — the
+   * `end` statements it read, subtracted from the depth it began at.
+   *
+   * A count rather than a stack, because `end` only ever pops: a header
+   * owns its own line (`SUBGRAPH_HEAD_RE`), so nothing inside a line can
+   * push. The caller truncates its own stack to this.
+   */
+  remainingOpenBlocks: number;
 }
 
 /**
@@ -729,11 +816,22 @@ function readLine(
   line: string,
   openEntity: ErEntityDecl | null,
   where: { line: number; column: number },
+  openBlocks: readonly ErSubgraph[],
 ): ErLineReading | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
   const styles: StyleDecl[] = [];
   const malformedStyles: string[] = [];
+  const memberships: { name: string; block: ErSubgraph | null }[] = [];
+  /**
+   * How deep into `openBlocks` the reader still is. Decremented by `end`,
+   * and the block at the top of what is left is the one an entity declared
+   * here belongs to.
+   */
+  let depth = openBlocks.length;
+  const claim = (name: string): void => {
+    memberships.push({ name, block: depth === 0 ? null : openBlocks[depth - 1] });
+  };
   /**
    * The attributes each entity gained on this line, held back until the
    * whole line has been read — see the all-or-nothing paragraph above.
@@ -848,6 +946,21 @@ function readLine(
       continue;
     }
 
+    // The cluster's closing statement. Read here — after the three styling
+    // keywords and before a name can be found — for the reason `END_RE`
+    // gives, and refused outright where nothing is open: measured, a stray
+    // `end` is a parse error in Mermaid ("got 'END'"), so reading it as
+    // nothing would accept a document Mermaid draws no picture for.
+    const end = END_RE.exec(rest);
+    if (end !== null) {
+      if (depth === 0) {
+        return null;
+      }
+      depth -= 1;
+      rest = rest.slice(end[0].length).trimStart();
+      continue;
+    }
+
     const relationship = readRelationship(rest);
     if (relationship !== null) {
       // Both endpoints join the one entity list, in the order the line names
@@ -858,6 +971,13 @@ function readLine(
         { name: relationship.decl.left, alias: null, attributes: [] },
         { name: relationship.decl.right, alias: null, attributes: [] },
       );
+      // **Both endpoints join the open block**, measured rather than
+      // assumed: `subgraph sales / CUSTOMER ||--o{ ORDER : places / end`
+      // answers `nodes:["CUSTOMER","ORDER"]`, because Mermaid's
+      // relationship production hands both names up to the block that
+      // holds it exactly as a bare name is handed up.
+      claim(relationship.decl.left);
+      claim(relationship.decl.right);
       relationships.push(relationship.decl);
       rest = rest.slice(relationship.length).trimStart();
       continue;
@@ -869,6 +989,7 @@ function readLine(
     }
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
+    claim(declared.name);
     // `A:::urgent` is `class A urgent` written onto the declaration — one
     // construct in two spellings (measured: both reach `setClass` and leave
     // `cssClasses="default urgent"`), so it becomes the same `apply` and
@@ -894,7 +1015,15 @@ function readLine(
   for (const { entity, attributes } of appends) {
     entity.attributes.push(...attributes);
   }
-  return { entities, relationships, styles, malformedStyles, openEntity: open };
+  return {
+    entities,
+    relationships,
+    styles,
+    malformedStyles,
+    openEntity: open,
+    memberships,
+    remainingOpenBlocks: depth,
+  };
 }
 
 /**
@@ -1275,6 +1404,44 @@ export function parseErDiagram(source: string): ParseResult {
    * `resolveStyles`' job, which is where the other four kinds leave it too.
    */
   const styles: StyleDecl[] = [];
+  /**
+   * The `subgraph` blocks written at the top level, in source order; a
+   * nested one is inside its parent's own `subgraphs` instead.
+   */
+  const subgraphs: ErSubgraph[] = [];
+  /**
+   * The blocks still open, outermost first — the reader's second mode,
+   * beside `openEntity`. A header pushes (it owns its line) and every `end`
+   * inside a line pops, which is why `readLine` reports a remaining depth
+   * rather than a stack of its own.
+   */
+  let openBlocks: ErSubgraph[] = [];
+  /**
+   * Where each open block was opened, so an unclosed-block diagnostic can
+   * point at the header the author wrote rather than at the end of the
+   * file — the same debt `openedAt` pays for an attribute block.
+   */
+  let blockOpenedAt: { line: string; lineNumber: number; column: number }[] = [];
+  /**
+   * Every block's name and the header that wrote it, in source order — kept
+   * for the one refusal below that cannot be a line pattern, because what
+   * is wrong with the line is somewhere else in the document.
+   */
+  const blockHeaders: { name: string; line: string; lineNumber: number; column: number }[] = [];
+  /**
+   * The names of the blocks whose `end` the reader has already passed —
+   * Mermaid's `subGraphLookup`, which `addSubGraph` fills at the closing
+   * `end` and not at the header.
+   *
+   * ⚠️ **The refusal below turns on this rather than on the whole
+   * document's blocks, and that is measured.** A `style s1 fill:#f96`
+   * written *above* `subgraph s1 ... end` reaches `addCssStyles` before the
+   * name is registered and paints nothing — `cssStyles` comes back empty —
+   * which is the very picture `resolveStyles` already produces by dropping
+   * an unknown target. Refusing that document would cost a picture Mermaid
+   * draws.
+   */
+  const registeredBlocks = new Set<string>();
 
   /**
    * Everything one line's reading contributes, taken in one place so the
@@ -1287,8 +1454,57 @@ export function parseErDiagram(source: string): ParseResult {
    * `parseStateDiagram`'s and `parseClassDiagram`'s word for word, because
    * it is the same mistake in a different kind's document.
    */
-  const take = (reading: ErLineReading, lineNumber: number, column: number): void => {
+  const take = (
+    reading: ErLineReading,
+    lineNumber: number,
+    column: number,
+    line: string,
+  ): void => {
     entities.push(...reading.entities);
+    // Membership is replayed here rather than written as the line was read,
+    // so a line that turned out unreadable claims no members — the
+    // all-or-nothing rule `readLine` already keeps for boxes. A name is
+    // listed once per block however many times the line mentions it:
+    // measured, `subgraph s1 / A / A / end` answers `nodes:["A"]`, because
+    // Mermaid's `uniq` runs over the block's own list.
+    for (const { name, block } of reading.memberships) {
+      if (block !== null && !block.entityNames.includes(name)) {
+        block.entityNames.push(name);
+      }
+    }
+    for (const closed of openBlocks.slice(reading.remainingOpenBlocks)) {
+      registeredBlocks.add(closed.name);
+    }
+    openBlocks = openBlocks.slice(0, reading.remainingOpenBlocks);
+    blockOpenedAt = blockOpenedAt.slice(0, reading.remainingOpenBlocks);
+
+    // ⚠️ **A cluster is a legal style target in this kind, and painting it
+    // is not implemented** — so the directive is refused by name rather
+    // than dropped. Measured from Mermaid's own ER database (11.17.2):
+    // `addCssStyles` and `setClass` each look up `this.entities.get(id)`
+    // **and** `this.subGraphLookup.get(id)`, and `style s1 fill:#f96` below
+    // `subgraph s1 ... end` comes back as `cssStyles:["fill:#f96"]` on the
+    // cluster, `class s1 urgent` as `classes:["urgent"]` on it. That is the
+    // opposite of a relationship, which reaches neither map and is dropped
+    // here on purpose (see `resolveStyles`' call in `buildErModel`).
+    //
+    // Asked after the truncation above so that an `end` earlier on this
+    // very line has already registered its block, which is the order
+    // Mermaid reads the two statements in.
+    for (const style of reading.styles) {
+      for (const targetId of style.targetIds) {
+        if (!registeredBlocks.has(targetId)) continue;
+        diagnostics.push({
+          severity: "error",
+          message:
+            `Unimplemented erDiagram construct: a \`${style.authoredAs}\` statement ` +
+            `painting a \`subgraph\` cluster ("${targetId}"), in "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+      }
+    }
     relationships.push(...reading.relationships);
     styles.push(...reading.styles);
     for (const segment of reading.malformedStyles) {
@@ -1358,7 +1574,7 @@ export function parseErDiagram(source: string): ParseResult {
     // and that an unreadable line is reported as an **attribute** rather
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      const reading = readLine(line, openEntity, { line: lineNumber, column });
+      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks);
       if (reading === null) {
         diagnostics.push({
           severity: "error",
@@ -1369,7 +1585,7 @@ export function parseErDiagram(source: string): ParseResult {
         sawError = true;
         continue;
       }
-      take(reading, lineNumber, column);
+      take(reading, lineNumber, column, line);
       if (reading.openEntity !== openEntity) {
         // Either the block closed, or it closed and another opened on the
         // same line; `openedAt` follows so an unclosed-block diagnostic
@@ -1405,8 +1621,50 @@ export function parseErDiagram(source: string): ParseResult {
     // would answer a question Mermaid never reaches. See `DIRECTION_RULES`.
     const namedDirection = readDirection(line);
     if (namedDirection !== null) {
-      // Assignment rather than "only if unset" — see `direction` above.
-      direction = namedDirection;
+      // ⚠️ **The same statement means two different things depending on
+      // where it stands**, and that is Mermaid's own action rather than a
+      // convenience here: `if (!yy.subgraphDepth) setDirection(value) else
+      // hand it up to the block`. Measured, `direction RL / subgraph s1 /
+      // direction LR / ... / end / direction BT` answers `dir:"LR"` on the
+      // cluster and `getDirection() === "BT"` for the document — so a
+      // reader that set the document's from inside a block would turn the
+      // whole picture on a line that was never about it.
+      //
+      // Assignment either way, because last wins in both places — measured
+      // on the document (`LR` then `RL` answers `RL`) and inside a block
+      // (two `direction`s in one block answer with the second).
+      const innermost = openBlocks[openBlocks.length - 1];
+      if (innermost === undefined) {
+        direction = namedDirection;
+      } else {
+        innermost.direction = namedDirection;
+      }
+      continue;
+    }
+
+    // The cluster's opening line, read after `direction` for the reason
+    // every statement here is: that rule swallows the line it is written on
+    // from the very first character. Measured, `subgraph s1 direction LR`
+    // sets the **document's** direction and opens no block at all — its
+    // trailing `end` is then a parse error, which is what Siren answers too
+    // once `readLine` finds that `end` with nothing open.
+    const header = SUBGRAPH_HEAD_RE.exec(line);
+    if (header !== null && !RESERVED_BARE_NAMES.has(header[1].toLowerCase())) {
+      const name = unquoteName(header[1]);
+      const opened: ErSubgraph = {
+        name,
+        // The title if the header wrote one, otherwise the name — measured,
+        // `subgraph s1` answers `title:"s1"`.
+        label: header[2] === undefined ? name : subgraphTitleOf(header[2]),
+        direction: null,
+        entityNames: [],
+        subgraphs: [],
+      };
+      const parent = openBlocks[openBlocks.length - 1];
+      (parent === undefined ? subgraphs : parent.subgraphs).push(opened);
+      openBlocks.push(opened);
+      blockOpenedAt.push({ line, lineNumber, column });
+      blockHeaders.push({ name, line, lineNumber, column });
       continue;
     }
 
@@ -1452,9 +1710,9 @@ export function parseErDiagram(source: string): ParseResult {
     // Every remaining statement, read left to right across the line — see
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const reading = readLine(line, null, { line: lineNumber, column });
+    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks);
     if (reading !== null) {
-      take(reading, lineNumber, column);
+      take(reading, lineNumber, column, line);
       if (reading.openEntity !== null) {
         // A block left open where the line ended; its body is appended to
         // this very declaration as the next lines are read. A block that
@@ -1502,6 +1760,53 @@ export function parseErDiagram(source: string): ParseResult {
     sawError = true;
   }
 
+  // ⚠️ **A name worn by an entity and by a cluster at once, refused by
+  // name — the silent mis-render this construct arrives with.**
+  //
+  // Measured (mermaid 11.17.2), and the same answer whichever statement
+  // comes first: `subgraph s1 / A / end / s1 ||--|| B : r` records a
+  // phantom entity `entity-s1-1` that `getData()` throws away, handing the
+  // edge the **cluster** `s1` as its start; a bare `s1` after the block
+  // records the same phantom and `getData()` drops it too; and writing the
+  // relationship *before* the block leaves the edge pointing at a node
+  // `getData()` does not carry. In every one of them Mermaid draws **no
+  // box** for `s1` — the frame has taken the name.
+  //
+  // Every reading this parser has is an ordinary entity, so it would draw
+  // that box: a third figure beside the frame, with no diagnostic anywhere.
+  // Refused instead, at the header rather than at the mention, because the
+  // construct is the *sharing* and neither half is wrong on its own.
+  // Order-independent for the same reason, which is also what keeps it out
+  // of `UNIMPLEMENTED`: no pattern over one line can see the other half.
+  const mentioned = new Set(entities.map((entity) => entity.name));
+  for (const header of blockHeaders) {
+    if (!mentioned.has(header.name)) continue;
+    diagnostics.push({
+      severity: "error",
+      message:
+        "Unimplemented erDiagram construct: an entity sharing its name with a " +
+        `\`subgraph\` cluster ("${header.name}"), in "${header.line}"`,
+      line: header.lineNumber,
+      column: header.column,
+    });
+    sawError = true;
+  }
+
+  // A cluster the author never closed. Measured: Mermaid refuses such a
+  // document outright ("Parse error ... got 'EOF'"), so reading it as if
+  // the `end` were there would draw a picture for a document Mermaid draws
+  // nothing for — the same trade the unclosed attribute block makes, and
+  // reported per block so an author who forgot two `end`s is told twice.
+  for (const opened of blockOpenedAt) {
+    diagnostics.push({
+      severity: "error",
+      message: `Unclosed erDiagram subgraph block: "${opened.line}"`,
+      line: opened.lineNumber,
+      column: opened.column,
+    });
+    sawError = true;
+  }
+
   if (sawError) {
     return { document: null, diagnostics };
   }
@@ -1511,6 +1816,7 @@ export function parseErDiagram(source: string): ParseResult {
     direction,
     entities,
     relationships,
+    subgraphs,
     styles,
     timeline,
     accTitle,

@@ -3,6 +3,7 @@ import type {
   ErAttribute,
   ErDocument,
   ErRelationshipDecl,
+  ErSubgraph,
   StyleDecl,
 } from "../contracts";
 import { buildErModel } from "./buildErModel";
@@ -10,6 +11,7 @@ import { buildErModel } from "./buildErModel";
 /** An `ErDocument` naming `names`, in the order given, and nothing else. */
 const documentOf = (...names: string[]): ErDocument => ({
   kind: "er",
+  subgraphs: [],
   styles: [],
   direction: "TB",
   entities: names.map((name) => ({ name, alias: null, attributes: [] })),
@@ -45,6 +47,7 @@ const relates = (
 /** An `ErDocument` whose entities are exactly the ones its relationships name. */
 const documentRelating = (...relationships: ErRelationshipDecl[]): ErDocument => ({
   kind: "er",
+  subgraphs: [],
   styles: [],
   direction: "TB",
   entities: relationships.flatMap((relationship) => [
@@ -70,8 +73,8 @@ describe("buildErModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.entities).toEqual([
-      { id: "CUSTOMER", label: "CUSTOMER", attributes: [] },
-      { id: "ORDER", label: "ORDER", attributes: [] },
+      { id: "CUSTOMER", label: "CUSTOMER", attributes: [], parentId: null },
+      { id: "ORDER", label: "ORDER", attributes: [], parentId: null },
     ]);
   });
 
@@ -88,6 +91,7 @@ describe("buildErModel", () => {
     // mechanism, different picture.
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      subgraphs: [],
       styles: [],
       timeline: null,
       accTitle: null,
@@ -99,7 +103,7 @@ describe("buildErModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.entities).toEqual([
-      { id: "CUSTOMER", label: "Customer Account", attributes: [] },
+      { id: "CUSTOMER", label: "Customer Account", attributes: [], parentId: null },
     ]);
   });
 
@@ -118,6 +122,7 @@ describe("buildErModel", () => {
     const first = (...entities: { name: string; alias: string | null }[]) =>
       buildErModel({
         kind: "er",
+      subgraphs: [],
         styles: [],
         timeline: null,
         accTitle: null,
@@ -156,6 +161,7 @@ describe("buildErModel", () => {
     });
     const { model, diagnostics } = buildErModel({
       kind: "er",
+      subgraphs: [],
       styles: [],
       timeline: null,
       accTitle: null,
@@ -175,8 +181,9 @@ describe("buildErModel", () => {
         id: "CUSTOMER",
         label: "CUSTOMER",
         attributes: [attribute("a"), attribute("b")],
+        parentId: null,
       },
-      { id: "ORDER", label: "ORDER", attributes: [] },
+      { id: "ORDER", label: "ORDER", attributes: [], parentId: null },
     ]);
   });
 
@@ -263,6 +270,7 @@ describe("buildErModel", () => {
     // the entry already there.
     const { model } = buildErModel({
       kind: "er",
+      subgraphs: [],
       styles: [],
       timeline: null,
       accTitle: null,
@@ -386,6 +394,7 @@ describe("buildErModel", () => {
     const laidOutIn = (direction: ErDocument["direction"]) =>
       buildErModel({
         kind: "er",
+      subgraphs: [],
         styles: [],
         direction,
         entities: [],
@@ -593,5 +602,115 @@ describe("buildErModel resolves the author's styling", () => {
     // target that does not exist — Mermaid says nothing either.
     expect(diagnostics).toEqual([]);
     expect(model.styles).toEqual([]);
+  });
+});
+
+/**
+ * `subgraph` clusters, resolved: each given the generated id everything
+ * downstream addresses it by, pointed at the block enclosing it, and its
+ * members pushed onto the entities that belong to it.
+ *
+ * The **generated** id is ADR-0010's rule and not a choice made here: a
+ * block may legitimately share its name with something else in the document,
+ * so carrying the author's word would hand two drawn elements one
+ * `data-siren-id`. `subgraph:1` is what `generatedId("subgraph", 1)` mints,
+ * exactly as a flowchart's frame and a class diagram's namespace get theirs.
+ */
+describe("buildErModel resolves subgraph clusters", () => {
+  /** An `ErDocument` with `subgraphs` and the entities they name. */
+  const documentGrouping = (
+    subgraphs: ErSubgraph[],
+    ...names: string[]
+  ): ErDocument => ({
+    ...documentOf(...names),
+    subgraphs,
+  });
+
+  const block = (overrides: Partial<ErSubgraph> & { name: string }): ErSubgraph => ({
+    label: overrides.name,
+    direction: null,
+    entityNames: [],
+    subgraphs: [],
+    ...overrides,
+  });
+
+  it("mints a generated id per block and puts each entity in the block that claimed it", () => {
+    const { model, diagnostics } = buildErModel(
+      documentGrouping(
+        [block({ name: "sales", direction: "LR", entityNames: ["CUSTOMER", "ORDER"] })],
+        "CUSTOMER",
+        "ORDER",
+        "WAREHOUSE",
+      ),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.subgraphs).toEqual([
+      { id: "subgraph:1", label: "sales", parentId: null, direction: "LR" },
+    ]);
+    // Membership lands on the entity and nowhere else — the rule
+    // `ResolvedSubgraph` states one kind over, so a frame and the box it
+    // holds cannot disagree about which contains which.
+    expect(model.entities.map((entity) => [entity.id, entity.parentId])).toEqual([
+      ["CUSTOMER", "subgraph:1"],
+      ["ORDER", "subgraph:1"],
+      ["WAREHOUSE", null],
+    ]);
+  });
+
+  it("warns when a quoted entity name collides with a cluster's generated id", () => {
+    // ⚠️ **The reason ADR-0010's separating argument does not reach this
+    // kind, made to bite.** A quoted ER entity name takes anything — 
+    // measured (mermaid 11.17.2), `erDiagram / "subgraph:1" ||--|| B : y`
+    // parses and keys the entity on exactly that string — so the
+    // `${kind}:${n}` spelling that keeps a generated id out of every other
+    // kind's authored id space cannot do it here. `reportIdCollisions` is
+    // what holds the invariant instead, and a cluster is the third kind of
+    // element registered with it.
+    const { model, diagnostics } = buildErModel(
+      documentGrouping([block({ name: "sales", entityNames: ["A"] })], "A", "subgraph:1"),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'id collision: "subgraph:1" is drawn on an entity and a subgraph — a ' +
+          "`timeline:` entry naming it addresses every one of them (ADR-0009)",
+      },
+    ]);
+    // Advisory and never fatal: Mermaid draws this document, so Siren does
+    // too. Both elements are still in the model.
+    expect(model.entities.map((entity) => entity.id)).toEqual(["A", "subgraph:1"]);
+    expect(model.subgraphs.map((subgraph) => subgraph.id)).toEqual(["subgraph:1"]);
+  });
+
+  it("lets the block that closes first keep a name two blocks claimed", () => {
+    // ⚠️ **Closing order, not opening order**, and the two disagree exactly
+    // when one block nests inside another. Measured: `subgraph outer / A /
+    // subgraph inner / A / end / end` answers `inner` holding `A` while
+    // `outer` holds only `inner` — Mermaid's `makeUniq` runs inside
+    // `addSubGraph`, which fires at the closing `end`. Resolving in the
+    // order the keywords were written would put `A` in `outer`, draw a
+    // perfectly good picture, and report nothing.
+    const { model } = buildErModel(
+      documentGrouping(
+        [
+          block({
+            name: "outer",
+            entityNames: ["A"],
+            subgraphs: [block({ name: "inner", entityNames: ["A"] })],
+          }),
+        ],
+        "A",
+      ),
+    );
+
+    // The ids are still minted in the order the keywords were written.
+    expect(model.subgraphs).toEqual([
+      { id: "subgraph:1", label: "outer", parentId: null, direction: null },
+      { id: "subgraph:2", label: "inner", parentId: "subgraph:1", direction: null },
+    ]);
+    expect(model.entities.map((entity) => entity.parentId)).toEqual(["subgraph:2"]);
   });
 });

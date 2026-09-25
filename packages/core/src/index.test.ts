@@ -6965,7 +6965,7 @@ describe("render() — an ER diagram, end to end", () => {
     }
   });
 
-  it("renders examples/er-core.srn end to end with zero diagnostics \u2014 every construct this kind reads: a standalone entity, both line types, all four cardinalities in both spellings, an alias, an attribute table and a document direction", () => {
+  it("renders examples/er-core.srn end to end with zero diagnostics \u2014 every construct this kind reads: a standalone entity, both line types, all four cardinalities in both spellings, an alias, an attribute table, a document direction and a subgraph cluster with a direction of its own", () => {
     // Zero diagnostics of *any* severity, which is a stronger claim than the
     // `examples/` enumeration test above makes: that one filters to error
     // severity, so a warning would slip past it unremarked.
@@ -6989,6 +6989,8 @@ describe("render() — an ER diagram, end to end", () => {
       ["a dashed relationship", "|o..o|"],
       ["the third dashed spelling", "}|.-|{"],
       ["the word spelling of a relationship", "one to zero or many"],
+      ["a subgraph cluster", "subgraph fulfilment"],
+      ["a per-cluster direction", "\n  direction TB\n"],
     ] as [string, string][]) {
       expect(source.includes(spelling), `examples/er-core.srn no longer declares ${what}`).toBe(
         true,
@@ -7008,6 +7010,50 @@ describe("render() — an ER diagram, end to end", () => {
       "WAREHOUSE",
       "ADDRESS",
     ]);
+
+    // The cluster: one frame, titled by the author's own word, holding
+    // exactly the two entities the block named and neither of the two
+    // beside it. Read as containment rather than as coordinates — measured
+    // against mermaid, `getSubGraphs()` for this document answers
+    // `[{id:"fulfilment", nodes:["ORDER","LINE-ITEM"], dir:"TB"}]` while
+    // `getDirection()` stays `LR`, so the frame's own direction is not the
+    // document's.
+    const box = (element: Element | null) => {
+      if (element === null) throw new Error("nothing to measure");
+      const number = (name: string) => Number(element.getAttribute(name));
+      return {
+        left: number("x"),
+        top: number("y"),
+        right: number("x") + number("width"),
+        bottom: number("y") + number("height"),
+      };
+    };
+    const holds = (
+      outer: ReturnType<typeof box>,
+      inner: ReturnType<typeof box>,
+    ) =>
+      outer.left <= inner.left &&
+      outer.top <= inner.top &&
+      outer.right >= inner.right &&
+      outer.bottom >= inner.bottom;
+    const entityRect = (id: string) =>
+      box(svg.querySelector(`g.siren-er-entity[data-siren-id="${id}"] rect.siren-er-entity-frame`));
+
+    const clusters = Array.from(svg.querySelectorAll("g.siren-er-subgraph"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].querySelector("text.siren-er-subgraph-label")!.textContent).toBe(
+      "fulfilment",
+    );
+    const frame = box(clusters[0].querySelector("rect.siren-er-subgraph-frame"));
+    expect(holds(frame, entityRect("ORDER"))).toBe(true);
+    expect(holds(frame, entityRect("LINE-ITEM"))).toBe(true);
+    expect(holds(frame, entityRect("PRODUCT"))).toBe(false);
+    expect(holds(frame, entityRect("CUSTOMER"))).toBe(false);
+    // The block's own `TB` against the document's `LR`, read as geometry:
+    // its two members stack rather than standing side by side. Nothing but
+    // this line tells that picture from the one a cluster silently taking
+    // the document's direction would draw.
+    expect(entityRect("ORDER").bottom).toBeLessThanOrEqual(entityRect("LINE-ITEM").top);
 
     // The alias renames the box and nothing else: `CUSTOMER` is still the id
     // above, and "Customer Account" is what is drawn.
@@ -7209,6 +7255,47 @@ describe("render() — an ER diagram, end to end", () => {
 
     expect(repeatedIds()).toEqual(["A:B", "A:B#2"]);
     expect(repeatedIds()).toEqual(["A:B", "A:B#2"]);
+  });
+
+  it("animates an ER cluster named in a timeline block, frame and title together", () => {
+    // **ER's third timeline target**, beside the entity and the
+    // relationship. A frame nobody can name would be a decision by
+    // omission, and ADR-0009's "a target is an id" is what takes the title
+    // with the frame — the very rule the flowchart's own subgraph follows.
+    // The id is the generated `subgraph:1`, never the author's `sales`.
+    const { result } = renderEr(`erDiagram
+subgraph sales
+  CUSTOMER ||--o{ ORDER : places
+end
+
+timeline:
+step 1: enter subgraph:1 fade
+step 2: highlight subgraph:1 outline
+`);
+    expect(result.diagnostics).toEqual([]);
+
+    const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="subgraph:1"]'));
+    expect(drawn().map((el) => el.tagName)).toEqual(["g"]);
+    expect(drawn()[0].classList.contains("siren-pending")).toBe(true);
+
+    result.controller!.next();
+    expect(drawn()[0].classList.contains("siren-pending")).toBe(false);
+
+    result.controller!.next();
+    expect(drawn()[0].classList.contains("siren-highlight-outline")).toBe(true);
+  });
+
+  it("leaves the cluster id space unchanged for a document that groups nothing", () => {
+    // The grouping construct adds an id space to the document; a document
+    // that uses none must not gain one. Nothing here draws a frame, and
+    // `subgraph:1` names nothing an author could reach — which also keeps
+    // `reportIdCollisions` quiet for every ER document written before this
+    // construct existed.
+    const { result } = renderEr("erDiagram\n  CUSTOMER ||--o{ ORDER : places\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg!.querySelectorAll("g.siren-er-subgraph")).toHaveLength(0);
+    expect(result.svg!.querySelectorAll('[data-siren-id="subgraph:1"]')).toHaveLength(0);
   });
 
   it("warns when a quoted entity name collides with a relationship id, and still draws both", () => {

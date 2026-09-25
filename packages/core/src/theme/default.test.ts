@@ -1124,14 +1124,23 @@ describe("default theme coverage of the state renderer", () => {
  * checked against. It is deliberately the whole of what this kind draws
  * today — the ticket that lands aliases adds a figure here and then has to
  * theme what it added.
+ *
+ * A `subgraph` block wraps two of the three entities, because a cluster is
+ * a third figure and not a decoration of the box: its frame and its title
+ * carry classes no other element does, and an unthemed frame is simply not
+ * drawn (SVG's initial `stroke: none`). Its `direction` is written too, so
+ * that the block this file renders is the one the ER corpus rows draw.
  */
 const EVERY_ER_FEATURE = `erDiagram
-CUSTOMER {
-  string name
-  int age PK "the age"
-  string c UK,PK "both"
-}
-ORDER
+subgraph sales
+  direction LR
+  CUSTOMER {
+    string name
+    int age PK "the age"
+    string c UK,PK "both"
+  }
+  ORDER
+end
 LINE-ITEM
 CUSTOMER ||--o{ ORDER : places
 ORDER |o..|{ LINE-ITEM : contains
@@ -1194,6 +1203,30 @@ describe("default theme coverage of the ER renderer", () => {
     const shape = group?.querySelector(".siren-er-relationship-line");
     if (group === null || group === undefined || shape === null || shape === undefined) {
       throw new Error("no .siren-er-relationship-line inside .siren-er-relationship");
+    }
+
+    const before = getComputedStyle(shape).stroke;
+    group.classList.add("siren-highlight-outline");
+    const after = getComputedStyle(shape).stroke;
+    group.classList.remove("siren-highlight-outline");
+
+    expect(after).not.toBe(before);
+    expect(after).toContain("--siren-highlight-color");
+  });
+
+  it("gives a highlighted cluster the outline effect, not just the glow one", () => {
+    // The entity's own check, one figure over. A cluster is addressable by
+    // id in the rendered SVG (ADR-0009) — the generated `subgraph:1` — so
+    // it is this kind's third timeline target, and every outline selector
+    // in the theme names some other kind's classes. Without one of its own,
+    // `highlight subgraph:1 outline` would be a step on which nothing
+    // visibly happens.
+    const svg = renderThemedSVG(EVERY_ER_FEATURE);
+
+    const group = svg.querySelector("g.siren-er-subgraph");
+    const shape = group?.querySelector(".siren-er-subgraph-frame");
+    if (group === null || group === undefined || shape === null || shape === undefined) {
+      throw new Error("no .siren-er-subgraph-frame inside .siren-er-subgraph");
     }
 
     const before = getComputedStyle(shape).stroke;

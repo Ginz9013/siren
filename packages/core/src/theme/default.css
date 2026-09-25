@@ -268,6 +268,7 @@
 .siren-state,
 .siren-transition,
 .siren-er-entity,
+.siren-er-subgraph,
 .siren-er-relationship {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
@@ -1194,6 +1195,36 @@
 }
 
 /*
+ * An ER `subgraph` cluster's frame and its title — this kind's third
+ * figure, and the same one a flowchart's subgraph and a class diagram's
+ * namespace already draw, so it takes the same paint for the same reasons.
+ *
+ * Outlined and not filled: the frame encloses entity boxes that are drawn
+ * *over* it, so a fill here would sit behind the whole group and tint
+ * nothing usefully while still hiding whatever the frame overlaps — and a
+ * nested frame would tint its parent's fill a second time. It tracks the
+ * node stroke because it is a container of boxes, not a connector.
+ *
+ * No `font-size` on the title: `layoutErDiagram` measures it in
+ * `--siren-font-size` and grows the frame's top strip from what it
+ * measured, so shrinking or growing it here would leave the drawn text
+ * disagreeing with the strip built to hold it.
+ */
+.siren-er-subgraph-frame {
+  fill: none;
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+  rx: var(--siren-node-border-radius);
+}
+
+.siren-er-subgraph-label {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-font-size);
+  font-weight: 600;
+  fill: var(--siren-node-text);
+}
+
+/*
  * The role written after the colon. The label *names the relationship*
  * rather than annotating it, so it takes the node text color the way a
  * class relationship's label does, not `.siren-multiplicity`'s line color.
@@ -1290,6 +1321,7 @@
  * `highlight region:1 outline` would be a step on which nothing happens.
  */
 .siren-er-entity.siren-highlight-outline .siren-er-entity-frame,
+.siren-er-subgraph.siren-highlight-outline .siren-er-subgraph-frame,
 .siren-er-relationship.siren-highlight-outline .siren-er-relationship-line,
 .siren-state.siren-highlight-outline .siren-state-frame,
 .siren-state.siren-highlight-outline .siren-composite-frame,

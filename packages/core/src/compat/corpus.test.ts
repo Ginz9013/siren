@@ -1214,8 +1214,63 @@ const SILENTLY_WRONG = 0;
  * silently**, so Siren refusing it is the exception clause working as
  * written — but a refusal nobody wrote down is the thing this file exists
  * to prevent.
+ *
+ * **8 → 10: ER grows clusters, and the arithmetic is 8 − 1 + 3.** One row
+ * fell and three arrived, and all three are case (2) — constructs written
+ * down here for the first time, naming gaps nothing had measured. Not one
+ * of them can make this number fall by starting to work, because none of
+ * them was ever counted as backlog.
+ *
+ * `er-subgraph` is `supported`: ER really does have `subgraph` clusters,
+ * with a per-cluster `dir` that leaves the document's direction alone, and
+ * Siren now parses them, hands them to `layoutDirectedGraph` as clusters
+ * with a `parentId` and a `rankdir`, grows a frame around what each holds,
+ * and draws the two elements `--markup` says mermaid draws — a frame and a
+ * title. Three rows arrived `supported` beside it and are not in this
+ * count: `er-subgraph-title` (the bracketed header, and the two boundaries
+ * around it — a nameless `subgraph` is a parse error here where a
+ * flowchart mints `subGraph0`, and the header owns its line),
+ * `er-subgraph-nested` (a cluster inside a cluster with the **outer** one
+ * carrying the direction — `01M2WQV0`'s NaN shape, which `rankdirFor`
+ * already compensates, so `UnplacedNodesError` never fires), and
+ * `er-subgraph-duplicate-member` (a name claimed by two blocks goes to the
+ * one that **closes** first, which is the inner one when they nest —
+ * opening order would draw a perfectly good picture and report nothing).
+ *
+ * The three that rose are each a construct this one made reachable, and
+ * each would otherwise have been **silent**:
+ *
+ * - `er-subgraph-entity-name` — a name worn by an entity and by a cluster
+ *   at once. Measured, mermaid's relationship production calls `addEntity`
+ *   on both endpoints and only then asks `subGraphLookup`, so it records a
+ *   phantom entity, throws it away in `getData()`, and hands the edge the
+ *   **frame**. It draws no box for that name in any ordering. Every
+ *   reading Siren's parser has is an ordinary entity, so it would have
+ *   drawn a third figure beside the frame with nothing to notice. Its exit
+ *   is implementation — an endpoint that resolves to a frame, which
+ *   `layoutDirectedGraph` already routes through a representative member.
+ * - `er-subgraph-style` and `er-subgraph-class` — ⚠️ **a cluster is a legal
+ *   style target in this kind.** Measured from mermaid's own ER database:
+ *   `addCssStyles` and `setClass` each look up `this.entities.get(id)`
+ *   **and** `this.subGraphLookup.get(id)`, and both directives come back on
+ *   the cluster's record. That is the opposite of a relationship, whose id
+ *   reaches neither map (`er-style-target-colon`), so the two could not be
+ *   reasoned from one another and the assumption that a generated id is
+ *   never a style target — true for a flowchart's subgraph — is false here.
+ *   Reading them and applying them to nothing would repaint nothing and say
+ *   nothing; they are refused by name, and the refusal reads the **order**,
+ *   because a `style` written above the block paints nothing in mermaid
+ *   either and refusing that would cost a document it draws. Two rows and
+ *   not one, for the reason `er-style-class-statement` is a row beside
+ *   `er-style-statement`: `style` and `classDef` switch mermaid's lexer
+ *   into a condition that runs to the newline and `class` switches nothing.
+ *
+ * `silently-wrong` is untouched at 0 through a ticket that could easily
+ * have moved it to 3, and that is what this rise bought. A count that only
+ * ever falls has been an undercount five times on this project; this is the
+ * sixth time the fix was to widen what gets named.
  */
-const REJECTED = 8;
+const REJECTED = 10;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

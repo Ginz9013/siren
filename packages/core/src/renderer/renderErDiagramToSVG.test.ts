@@ -10,9 +10,11 @@ const diagram = (
   entities: PositionedErDiagram["entities"],
   bounds: { width: number; height: number } = { width: 400, height: 100 },
   relationships: PositionedErRelationship[] = [],
+  subgraphs: PositionedErDiagram["subgraphs"] = [],
 ): PositionedErDiagram => ({
   entities,
   relationships,
+  subgraphs,
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -573,5 +575,67 @@ describe("renderErDiagramToSVG writes the author's declarations onto the element
     expect(styleOf(svg, "CUSTOMER", "rect.siren-er-entity-frame")).toBeNull();
     expect(styleOf(svg, "CUSTOMER", "text.siren-er-entity-label")).toBeNull();
     expect(styleOf(svg, "CUSTOMER", "text.siren-er-attribute")).toBeNull();
+  });
+});
+
+/**
+ * A cluster's frame, drawn as the same two elements Mermaid draws it with —
+ * measured with `--markup`, an ER `subgraph` comes out a `g.cluster` holding
+ * a `<rect>` and a `g.cluster-label`.
+ *
+ * `data-siren-id` goes on the group and on neither part, which is what makes
+ * a cluster a timeline target: ADR-0009 resolves a target to *every* element
+ * carrying its id, and the frame and its title are two elements of one
+ * thing. The id is the generated `subgraph:1`, never the author's word.
+ */
+describe("renderErDiagramToSVG draws subgraph clusters", () => {
+  const FRAME = {
+    id: "subgraph:1",
+    label: "sales",
+    x: 4,
+    y: 6,
+    width: 200,
+    height: 120,
+    labelAnchor: { x: 104, y: 20 },
+  };
+
+  it("draws a frame and its title under one addressable group", () => {
+    const svg = renderErDiagramToSVG(
+      diagram([CUSTOMER], { width: 400, height: 200 }, [], [FRAME]),
+    );
+
+    const group = svg.querySelector("g.siren-er-subgraph");
+    expect(group).not.toBeNull();
+    expect(group?.getAttribute("data-siren-id")).toBe("subgraph:1");
+
+    const frame = group?.querySelector("rect.siren-er-subgraph-frame");
+    expect(frame?.getAttribute("x")).toBe("4");
+    expect(frame?.getAttribute("y")).toBe("6");
+    expect(frame?.getAttribute("width")).toBe("200");
+    expect(frame?.getAttribute("height")).toBe("120");
+
+    const title = group?.querySelector("text.siren-er-subgraph-label");
+    expect(title?.textContent).toBe("sales");
+    expect(title?.getAttribute("x")).toBe("104");
+    expect(title?.getAttribute("y")).toBe("20");
+
+    // Neither part carries an id of its own — one timeline entry moves the
+    // frame and its title together.
+    expect(frame?.hasAttribute("data-siren-id")).toBe(false);
+    expect(title?.hasAttribute("data-siren-id")).toBe(false);
+  });
+
+  it("paints a frame behind the boxes it groups", () => {
+    // SVG has no z-index, so the order elements are appended in *is* the
+    // stacking. A frame drawn after the entity it holds would cover it.
+    const svg = renderErDiagramToSVG(
+      diagram([CUSTOMER], { width: 400, height: 200 }, [], [FRAME]),
+    );
+
+    const drawn = Array.from(svg.querySelectorAll("g.siren-er-subgraph, g.siren-er-entity"));
+    expect(drawn.map((element) => element.getAttribute("class"))).toEqual([
+      "siren-er-subgraph",
+      "siren-er-entity",
+    ]);
   });
 });

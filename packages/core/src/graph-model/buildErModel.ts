@@ -2,9 +2,12 @@ import type {
   Diagnostic,
   ErDocument,
   ErModelResult,
+  ErSubgraph,
   ResolvedErEntity,
   ResolvedErRelationship,
+  ResolvedErSubgraph,
 } from "../contracts";
+import { generatedId } from "./generatedId";
 import { resolveStyles } from "./resolveStyles";
 import {
   resolveTimeline,
@@ -54,6 +57,9 @@ export function buildErModel(document: ErDocument): ErModelResult {
         id: entity.name,
         label: entity.alias ?? entity.name,
         attributes: [...entity.attributes],
+        // Filled in by `resolveErSubgraphs` below, which is the only thing
+        // that may: a block claims a name, a name does not name a block.
+        parentId: null,
       });
       if (entity.alias !== null) {
         aliased.add(entity.name);
@@ -83,6 +89,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
 
   const entities = [...byId.values()];
   const relationships = assignRelationshipIds(document);
+  const subgraphs = resolveErSubgraphs(document.subgraphs, byId);
 
   // **Two kinds of timeline target: an entity and a relationship**, sharing
   // one id space exactly as a flowchart's nodes and edges do, so the shared
@@ -119,6 +126,11 @@ export function buildErModel(document: ErDocument): ErModelResult {
       noun: "relationship",
       id: relationship.id,
     })),
+    // The third kind, registered here and checked for free by being here —
+    // which is what the comment above asked the cluster ticket to do. A
+    // quoted ER entity name takes a colon (measured, `"subgraph:1"
+    // ||--|| B : y` parses), so this id really is collidable.
+    ...subgraphs.map((subgraph) => ({ noun: "subgraph", id: subgraph.id })),
   ];
 
   reportIdCollisions(addressable, diagnostics);
@@ -173,6 +185,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
       direction: document.direction,
       entities,
       relationships,
+      subgraphs,
       styles,
       timeline,
       // Plain text with nothing in the document to resolve it against, so
@@ -183,6 +196,66 @@ export function buildErModel(document: ErDocument): ErModelResult {
     },
     diagnostics,
   };
+}
+
+/**
+ * Gives every `subgraph` block the generated id everything downstream
+ * addresses it by, points each at the block enclosing it, and writes the
+ * membership onto the entities themselves.
+ *
+ * **Two orders, and they are different orders.** The list this returns is
+ * **pre-order** — the order the author wrote the keywords down the page —
+ * because that is what numbers the ids and what layout wants to draw in.
+ * Membership is settled in **closing** order instead, innermost first,
+ * because that is Mermaid's: `makeUniq` runs inside `addSubGraph`, which
+ * fires at the closing `end`, and it drops a name some already-closed block
+ * has taken. Measured, `subgraph outer / A / subgraph inner / A / end /
+ * end` answers `inner` holding `A` and `outer` holding only `inner` — so
+ * the **inner** block keeps a name both claimed, although the outer one was
+ * opened first. Resolving membership in pre-order would put `A` in `outer`,
+ * draw a perfectly good picture, and report nothing.
+ *
+ * A member with no entity cannot arise from this parser — a block claims a
+ * name at the moment it is written, and writing one declares it — so an
+ * absent entry is this stage declining to invent one rather than a case
+ * with a diagnostic of its own.
+ */
+function resolveErSubgraphs(
+  blocks: readonly ErSubgraph[],
+  entityById: ReadonlyMap<string, ResolvedErEntity>,
+): ResolvedErSubgraph[] {
+  const resolved: ResolvedErSubgraph[] = [];
+  /** Each block's assigned id, in the order the ids were minted. */
+  const idOf = new Map<ErSubgraph, string>();
+
+  const number = (block: ErSubgraph, parentId: string | null): void => {
+    const id = generatedId("subgraph", resolved.length + 1);
+    idOf.set(block, id);
+    resolved.push({ id, label: block.label, parentId, direction: block.direction });
+    for (const child of block.subgraphs) {
+      number(child, id);
+    }
+  };
+  for (const block of blocks) {
+    number(block, null);
+  }
+
+  const claim = (block: ErSubgraph): void => {
+    // Depth-first, children before the parent: closing order.
+    for (const child of block.subgraphs) {
+      claim(child);
+    }
+    for (const name of block.entityNames) {
+      const entity = entityById.get(name);
+      if (entity === undefined || entity.parentId !== null) continue;
+      entity.parentId = idOf.get(block)!;
+    }
+  };
+  for (const block of blocks) {
+    claim(block);
+  }
+
+  return resolved;
 }
 
 /**
