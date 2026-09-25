@@ -5037,6 +5037,92 @@ line2\`"]`,
   // true, and the construct it meant to name went unmeasured. Re-measure the
   // source, not only the construct.
   {
+    id: "er-name-cardinality-word",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER one ORDER`,
+    status: "silently-wrong",
+    meaning:
+      "⚠️ **Siren draws three boxes for a document Mermaid refuses to " +
+      "parse, and says nothing.** Measured: `erDiagram / CUSTOMER one " +
+      "ORDER` is a parse error, `got 'ONLY_ONE'` — `one` is a cardinality " +
+      "keyword, and its lexer rule outranks the name rule, so the word can " +
+      "never stand where a name belongs. Siren reads the line as this " +
+      "kind's statement stream and declares `CUSTOMER`, `one` and `ORDER`.\\n\\n" +
+      "The whole family behaves this way, measured one probe per spelling: " +
+      "`to`, `one` and `many` alone are each a parse error and each a box " +
+      "here; the multi-word spellings are worse arithmetic — `only one` is " +
+      "a parse error and **two** boxes, `zero or one` a parse error and " +
+      "**three**. `A to B` draws three boxes. `to ||--o{ B : x` draws a " +
+      "whole relationship.\\n\\n" +
+      "⚠️ **This is not `RESERVED_BARE_NAMES`, and that is the point.** " +
+      "That set holds `end`, `subgraph`, `class`, `style` and `classDef`, " +
+      "each added by the ticket that made its keyword a statement opener. " +
+      "A cardinality word was never a statement opener, so nothing ever " +
+      "had a reason to reserve it, and no row named it until " +
+      "`01M39812J` measured the alias alphabet and walked into the same " +
+      "lexer rules from the other side.\\n\\n" +
+      "The exit is implementation, not refusal of the document: these are " +
+      "documents Mermaid refuses outright, so Siren refusing them costs an " +
+      "author nothing they had. What it costs today is a picture that " +
+      "disagrees with Mermaid's with no diagnostic to notice it by. The " +
+      "multi-word spellings are the part that is not a one-line fix — they " +
+      "have to be caught in the statement stream rather than in a name " +
+      "predicate.\\n\\n" +
+      "Control group, both sides agreeing and measured alongside: `0+`, " +
+      "`1+` and `many(0)` are refused here too, `1` is an entity in both " +
+      "(`ENTITY_ONE`), and `title` is an ordinary name in both.",
+    assert: (result) => {
+      // The wrong picture, spelled out: three boxes where Mermaid draws
+      // none, and `one` among them wearing a cardinality keyword as a
+      // name. Asserting the defect rather than the fix is what a
+      // `silently-wrong` row is for — when this is implemented the row
+      // moves to `rejected` and this assert is replaced, not deleted.
+      expectSame("the three boxes drawn for a document Mermaid refuses", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "one[one]",
+        "ORDER[ORDER]",
+      ]);
+      // And the part that makes it silent rather than merely wrong.
+      expectSame("no diagnostic says any of this", result.diagnostics, []);
+    },
+  },
+  {
+    id: "er-name-digit-head",
+    kind: "er",
+    source: `erDiagram
+      123abc`,
+    status: "silently-wrong",
+    meaning:
+      "⚠️ **Mermaid draws two boxes, Siren draws one, and nothing says " +
+      "so.** Measured: `123abc` reports entities `123` and `abc`, because " +
+      "the `NUM` rule is `[0-9]+` with **no word boundary** — it takes the " +
+      "digits and hands the rest back to the stream, which reads it as a " +
+      "second name. `1-2` is the same shape: two entities, `1` and `-2`. " +
+      "Siren's name alphabet has no such seam, so each is one box carrying " +
+      "the whole string.\\n\\n" +
+      "⚠️ **The same lexer rule reads two ways in two positions, and that " +
+      "is why this could not be fixed where it was found.** `01M39812J` " +
+      "wrote `readsAsOneEntityName` to give a **bracketless alias** this " +
+      "alphabet, where `A[1abc]` really is a parse error (the grammar wants " +
+      "`]`). Reusing that predicate in the name position would refuse `1-2` " +
+      "— a document Mermaid draws two boxes for. Refusal is the wrong " +
+      "answer here; **splitting** is the right one.\\n\\n" +
+      "So the exit is implementation, and it is the same implementation " +
+      "`er-name-cardinality-word` wants: a name position that reads the way " +
+      "Mermaid's lexer reads, rather than the way a single regular " +
+      "expression happens to.",
+    assert: (result) => {
+      // One box carrying the whole string, where Mermaid draws `123` and
+      // `abc` side by side. The count is the claim; the label is what says
+      // the seam was never found.
+      expectSame("the single box drawn where Mermaid draws two", erEntities(result), [
+        "123abc[123abc]",
+      ]);
+      expectSame("no diagnostic says the name was not split", result.diagnostics, []);
+    },
+  },
+  {
     id: "er-md-parent-cardinality",
     kind: "er",
     source: `erDiagram

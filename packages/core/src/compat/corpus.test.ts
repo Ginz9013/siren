@@ -329,8 +329,38 @@ describe("the corpus, case by case", () => {
  * `st-self-transition` strengthened from "a loop was drawn" to where it is
  * drawn. A ratchet only counts what someone measured, which is the argument
  * for measuring the whole class the moment one member of it is found.
+ *
+ * **0 → 2, and the argument of the paragraph above is the whole reason
+ * why.** `01M39812J` closed the ER board by measuring the alphabet a
+ * bracketless alias may use, walked into Mermaid's own lexer rules from the
+ * other side, and found two classes of document this kind draws differently
+ * with nothing reporting it. Neither is a regression: nothing here ever
+ * worked and stopped. They are case (2) — constructs written down for the
+ * first time, as the honest backlog they already were.
+ *
+ * `er-name-cardinality-word`: a cardinality or body word standing where a
+ * name belongs. `CUSTOMER one ORDER` is a parse error in Mermaid and three
+ * boxes here, and the multi-word spellings are worse — `zero or one` is a
+ * parse error and three boxes. It is **not** the `RESERVED_BARE_NAMES`
+ * problem: that set grew one keyword at a time as each became a statement
+ * opener, and a cardinality word never was one, so nothing had a reason to
+ * reserve it.
+ *
+ * `er-name-digit-head`: `123abc` is two entities in Mermaid and one box
+ * here, because `NUM` is `[0-9]+` with no word boundary. The ticket that
+ * found it could not fix it, and the reason is the useful part: the same
+ * rule reads two ways in two positions, so the predicate it wrote for the
+ * *alias* would refuse `1-2` in the *name* position, where Mermaid draws two
+ * boxes. Refusal is the wrong answer there; splitting is the right one.
+ *
+ * Both exits are implementation. Both were measured by the board that
+ * closed rather than by the next one to trip over them — which is the
+ * property the paragraph above asks for, and the seventh time this number
+ * has turned out to be an undercount. Every one of the seven was found by
+ * widening what gets named, never by tightening a ratchet, and this one was
+ * found by a ticket about something else entirely.
  */
-const SILENTLY_WRONG = 0;
+const SILENTLY_WRONG = 2;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
