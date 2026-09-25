@@ -1294,16 +1294,26 @@ describe("parseErDiagram reads the author's styling statements", () => {
     ]);
     expect(namesOf('erDiagram\n  "style" ||--o{ B : x\n')).toEqual(["style", "B"]);
 
-    // And the row this guard was found by: `subgraph` and `end` are spelled
-    // by the name alphabet, and a statement stream that read them as names
-    // drew three boxes Mermaid draws none for.
+    // And the row this guard was found by. `er-subgraph` is **implemented**
+    // now (`01M395S26`), so the document below draws rather than refusing —
+    // but the guard it was written for is unchanged and is asserted here in
+    // the form that still bites: `subgraph` and `end` are statement
+    // openers, and a statement opener is *not* a name. The three boxes
+    // Mermaid draws none for are `subgraph`, `sales` and `end`, and the
+    // assertion that none of them is drawn is what this line now says.
     expect(
-      refusalsFor(
+      namesOf(
         "erDiagram\n  subgraph sales\n    direction LR\n    CUSTOMER ||--o{ ORDER : places\n  end\n  WAREHOUSE\n",
       ),
-    ).toEqual([
-      'Unrecognized erDiagram line: "subgraph sales"',
-      'Unrecognized erDiagram line: "end"',
+    ).toEqual(["CUSTOMER", "ORDER", "WAREHOUSE"]);
+    // Where a name really does belong, both words are still refused —
+    // measured, `A ||--o{ end : x` and `A ||--o{ subgraph : x` are parse
+    // errors in Mermaid, and `RESERVED_BARE_NAMES` is what keeps them so.
+    expect(refusalsFor("erDiagram\n  A ||--o{ end : x\n")).toEqual([
+      'Unrecognized erDiagram line: "A ||--o{ end : x"',
+    ]);
+    expect(refusalsFor("erDiagram\n  A ||--o{ subgraph : x\n")).toEqual([
+      'Unrecognized erDiagram line: "A ||--o{ subgraph : x"',
     ]);
   });
 
@@ -1496,5 +1506,254 @@ describe("parseErDiagram reads the author's styling statements", () => {
     // is an ordinary ER name (measured: `erDiagram / default` is one box).
     expect(stylesOf("erDiagram\n  classDef defaulting fill:red\n")[0].name).toBe("defaulting");
     expect(namesOf("erDiagram\n  default\n")).toEqual(["default"]);
+  });
+});
+
+/**
+ * `subgraph <name> ... end` — ER's cluster, measured to be a real construct
+ * in this kind and not a flowchart-only one.
+ *
+ * Every expectation here comes from mermaid 11.17.2's own database, one
+ * probe per claim, never from running this parser:
+ *
+ * - `erDiagram / subgraph s1 / direction LR / A / B / end / A ||--|| B : r`
+ *   answers `getSubGraphs() ->
+ *   [{id:"s1", nodes:["A","B"], title:"s1", dir:"LR"}]` while
+ *   `getDirection()` stays `"TB"` — so the cluster's `dir` is its own and
+ *   leaves the document's alone.
+ * - `subgraph s1["My Title"]` answers `{id:"s1", title:"My Title"}`, and
+ *   `subgraph s1 [Bracket Title]` answers `{id:"s1", title:"Bracket
+ *   Title"}` — so the brackets carry a title and the quotes are optional.
+ * - a bare `subgraph` with no name is a **parse error** ("Expecting
+ *   'UNICODE_TEXT', 'NUM', 'ENTITY_NAME', 'DECIMAL_NUM', 'ENTITY_ONE', got
+ *   'NEWLINE'"), unlike a flowchart's, which mints `subGraph0`.
+ * - `subgraph s1 A end` on one line is a parse error too: the grammar is
+ *   `SUBGRAPH entityName separator`, and `subgraph s1;` is refused as well
+ *   — so the separator is a newline and the header owns its line.
+ * - `end`, by contrast, **is** a statement in the stream: `A end` closes
+ *   the block after declaring `A`, and `end B` declares `B` outside it.
+ * - a relationship written inside a block makes **both** its endpoints
+ *   members (`nodes:["CUSTOMER","ORDER"]`).
+ */
+describe("parseErDiagram reads subgraph clusters", () => {
+  it("reads a block's name, its members and its own direction", () => {
+    const document = documentOf(`erDiagram
+      subgraph s1
+        direction LR
+        A
+        B
+      end
+      A ||--|| B : r`);
+
+    expect(document.subgraphs).toEqual([
+      {
+        name: "s1",
+        label: "s1",
+        direction: "LR",
+        entityNames: ["A", "B"],
+        subgraphs: [],
+      },
+    ]);
+    // The document's own direction is untouched by the block's — measured,
+    // `getDirection()` answers `TB` for exactly this source.
+    expect(document.direction).toBe("TB");
+  });
+
+  it("refuses by name an entity and a cluster sharing one name", () => {
+    // ⚠️ **This is the silent mis-render this construct arrives with**, and
+    // it is measured rather than feared. Mermaid's relationship action calls
+    // `addEntity` on both endpoints unconditionally and *then* asks
+    // `subGraphLookup.has(...)`: for `subgraph s1 / A / end / s1 ||--|| B :
+    // r` it records a phantom entity `entity-s1-1` that `getData()` throws
+    // away, and hands the edge the **cluster** `s1` as its start — measured,
+    // `getData.edges` answers `{start:"s1", end:"entity-B-2"}` and
+    // `getData.nodes` carries no entity for `s1` at all. Rendered with
+    // `--markup` it draws two boxes (`A` inside the frame, `B` outside) and
+    // one frame, with the line leaving the frame.
+    //
+    // Read as an ordinary entity — which is every reading this parser has —
+    // Siren would draw a **third** box called `s1` beside the frame, with no
+    // diagnostic anywhere. So the document costs itself and says why, which
+    // is what the compatibility condition asks for while the construct is
+    // unimplemented.
+    // ⚠️ **And a bare mention is no safer**, which is what makes this one
+    // construct rather than a relationship rule: `subgraph s1 / A / end /
+    // s1` records the phantom entity too and `getData()` drops it just the
+    // same — Mermaid draws **no box** for `s1` in either document. So the
+    // refusal is spelled against the shared name and not against the
+    // statement that mentioned it, which also makes it order-independent:
+    // measured, writing `s1 ||--|| B : r` *before* the block leaves `s1`
+    // undrawn as well (its edge then points at a node `getData()` does not
+    // carry).
+    for (const source of [
+      "erDiagram\n  subgraph s1\n    A\n  end\n  s1 ||--|| B : r\n",
+      "erDiagram\n  subgraph s1\n    A\n  end\n  s1\n  A ||--|| B : r\n",
+    ]) {
+      const { document, diagnostics } = parseErDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+        'Unimplemented erDiagram construct: an entity sharing its name with a ' +
+          '`subgraph` cluster ("s1"), in "subgraph s1"',
+      ]);
+    }
+  });
+
+  it("refuses by name a `style` or `class` that paints a cluster", () => {
+    // ⚠️ **A cluster is a legal style target in this kind**, measured and
+    // not assumed: Mermaid's ER `addCssStyles` and `setClass` each look up
+    // `this.entities.get(id)` *and* `this.subGraphLookup.get(id)`, and
+    // probing `subgraph s1 / A / end / style s1 fill:#f96` answers
+    // `getSubGraphs() -> [{id:"s1", …, cssStyles:["fill:#f96"]}]`, while
+    // `class s1 urgent` answers `classes:["urgent"]` on the same record.
+    // So this is *not* the relationship case, where the directive reaches
+    // nothing at all and dropping it matches Mermaid exactly.
+    //
+    // `01M395S26` implements the cluster and leaves its paint to a ticket of
+    // its own. Left unread, the directive would be dropped in silence — by
+    // `resolveStyles`, whose rule for an unknown target is to drop it as
+    // Mermaid does — and a frame Mermaid fills would come out unfilled with
+    // nothing to notice. Refused by name instead.
+    for (const [statement, keyword] of [
+      ["style s1 fill:#f96", "style"],
+      ["class s1 urgent", "class"],
+    ]) {
+      const { document, diagnostics } = parseErDiagram(
+        `erDiagram\n  subgraph s1\n    A\n  end\n  ${statement}\n  A ||--|| B : r\n`,
+      );
+      expect(document).toBeNull();
+      expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+        "Unimplemented erDiagram construct: a `" +
+          keyword +
+          '` statement painting a `subgraph` cluster ("s1"), in "' +
+          statement +
+          '"',
+      ]);
+    }
+
+    // **And the order matters, so the refusal reads it.** Measured, a
+    // `style` written *above* the block reaches Mermaid's `addCssStyles`
+    // before `addSubGraph` has registered the name, and paints nothing at
+    // all — `cssStyles` comes back empty. Siren drops that unknown target
+    // in silence too, which is the same picture, so refusing it would cost
+    // a document Mermaid draws.
+    const above = parseErDiagram(
+      "erDiagram\n  style s1 fill:#f96\n  subgraph s1\n    A\n  end\n  A ||--|| B : r\n",
+    );
+    expect(above.diagnostics).toEqual([]);
+    expect(above.document).not.toBeNull();
+  });
+
+  it("reads the bracketed title, in both of its measured spellings", () => {
+    const titleOf = (header: string): string => {
+      const [block] = documentOf(`erDiagram\n  ${header}\n    A\n  end\n`).subgraphs;
+      return block.label;
+    };
+    // Measured one probe apiece: `title:"My Title"`, `title:"Bracket
+    // Title"`, and `title:"a b"` — Mermaid's `subgraphTitle` is a list of
+    // words joined with one space, so the run of three collapses.
+    expect(titleOf('subgraph s1["My Title"]')).toBe("My Title");
+    expect(titleOf("subgraph s1 [Bracket Title]")).toBe("Bracket Title");
+    expect(titleOf("subgraph s1[a   b]")).toBe("a b");
+    // And with no brackets the name is the title — measured, `subgraph s1`
+    // answers `title:"s1"`.
+    expect(titleOf("subgraph s1")).toBe("s1");
+    // A quoted name keys the block on the text inside the quotes —
+    // measured, `id:"My Cluster"` — and titles itself with it.
+    expect(titleOf('subgraph "My Cluster"')).toBe("My Cluster");
+  });
+
+  it("nests a block inside the block that was open, and keeps each direction its own", () => {
+    // Measured: `getSubGraphs()` answers `[{id:"inner", nodes:["A","B"]},
+    // {id:"outer", nodes:["inner","C"], dir:"LR"}]` — in *closing* order,
+    // with the inner block listed as a member of the outer one. The tree
+    // this parser builds says the same thing in the shape layout wants.
+    const document = documentOf(`erDiagram
+      subgraph outer
+        direction LR
+        subgraph inner
+          A
+          B
+        end
+        C
+      end
+      A ||--|| B : r`);
+
+    expect(document.subgraphs).toEqual([
+      {
+        name: "outer",
+        label: "outer",
+        direction: "LR",
+        entityNames: ["C"],
+        subgraphs: [
+          { name: "inner", label: "inner", direction: null, entityNames: ["A", "B"], subgraphs: [] },
+        ],
+      },
+    ]);
+  });
+
+  it("reads `end` as a statement in the line's stream, not as a line of its own", () => {
+    // Measured both ways round: `A end` declares `A` inside the block and
+    // then closes it; `end B` closes it and then declares `B` outside.
+    const inside = documentOf("erDiagram\n  subgraph s1\n  A end\n  B\n");
+    expect(inside.subgraphs[0].entityNames).toEqual(["A"]);
+    expect(inside.entities.map((entity) => entity.name)).toEqual(["A", "B"]);
+
+    const after = documentOf("erDiagram\n  subgraph s1\n  A\n  end B\n");
+    expect(after.subgraphs[0].entityNames).toEqual(["A"]);
+    expect(after.entities.map((entity) => entity.name)).toEqual(["A", "B"]);
+  });
+
+  it("makes both ends of a relationship written inside a block its members", () => {
+    // Measured: `subgraph sales / CUSTOMER ||--o{ ORDER : places / end`
+    // answers `nodes:["CUSTOMER","ORDER"]`.
+    const document = documentOf(
+      "erDiagram\n  subgraph sales\n    CUSTOMER ||--o{ ORDER : places\n  end\n  WAREHOUSE\n",
+    );
+    expect(document.subgraphs[0].entityNames).toEqual(["CUSTOMER", "ORDER"]);
+    expect(document.entities.map((entity) => entity.name)).toEqual([
+      "CUSTOMER",
+      "ORDER",
+      "WAREHOUSE",
+    ]);
+  });
+
+  it("refuses a header with no name, a stray `end`, and a block left open", () => {
+    // Each one is a parse error in Mermaid, measured: a bare `subgraph`
+    // answers "Expecting 'UNICODE_TEXT', 'NUM', 'ENTITY_NAME',
+    // 'DECIMAL_NUM', 'ENTITY_ONE', got 'NEWLINE'" — unlike a flowchart's,
+    // which mints `subGraph0` — a stray `end` answers "got 'END'", and a
+    // block never closed runs off the end of the document.
+    // Two diagnostics for the nameless header, not one: the block never
+    // opened, so its `end` has nothing to close and is refused on its own
+    // terms. Mermaid refuses the document too, for the first of the two.
+    expect(refusalsFor("erDiagram\n  subgraph\n    A\n  end\n")).toEqual([
+      'Unrecognized erDiagram line: "subgraph"',
+      'Unrecognized erDiagram line: "end"',
+    ]);
+    expect(refusalsFor("erDiagram\n  A\n  end\n")).toEqual([
+      'Unrecognized erDiagram line: "end"',
+    ]);
+    expect(refusalsFor("erDiagram\n  subgraph s1\n    A\n")).toEqual([
+      'Unclosed erDiagram subgraph block: "subgraph s1"',
+    ]);
+    // And the header owns its line: measured, `subgraph s1 A end` is a
+    // parse error ("got 'UNICODE_TEXT'"), because the grammar wants a
+    // newline after the name.
+    expect(refusalsFor("erDiagram\n  subgraph s1 A end\n")).toEqual([
+      'Unrecognized erDiagram line: "subgraph s1 A end"',
+    ]);
+    // A block a `timeline:` block cut short is still unclosed. The timeline
+    // ends the diagram body and runs to the end of the document, so there
+    // is no `end` left to come — and reporting nothing would let a
+    // document Mermaid refuses draw a frame around everything above it.
+    expect(
+      refusalsFor("erDiagram\n  subgraph s1\n    A\n\ntimeline:\n  step 1: enter A fade\n"),
+    ).toEqual(['Unclosed erDiagram subgraph block: "subgraph s1"']);
+    // Both kinds of block left open are named, each at its own header — an
+    // attribute block and a cluster are different mistakes.
+    expect(refusalsFor("erDiagram\n  subgraph s1\n    A {\n      string x\n")).toEqual([
+      'Unclosed erDiagram attribute block: "A {"',
+      'Unclosed erDiagram subgraph block: "subgraph s1"',
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import type {
   PositionedErDiagram,
   PositionedErEntity,
   PositionedErRelationship,
+  PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
@@ -151,6 +152,13 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
 
   svg.appendChild(buildDefs(scope));
 
+  // **Before the boxes**, because SVG has no z-index and a frame is painted
+  // behind what it groups. The model's order is outermost first, so an
+  // inner frame is drawn over its parent rather than under it.
+  for (const subgraph of diagram.subgraphs) {
+    svg.appendChild(buildSubgraph(subgraph));
+  }
+
   for (const entity of diagram.entities) {
     svg.appendChild(buildEntity(entity));
   }
@@ -162,6 +170,55 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   }
 
   return svg;
+}
+
+/**
+ * Builds the `<g class="siren-er-subgraph">` for one cluster: a
+ * `<rect class="siren-er-subgraph-frame">` at the frame layout grew around
+ * everything the block holds, and a
+ * `<text class="siren-er-subgraph-label">` at the anchor in the strip along
+ * its top edge.
+ *
+ * **The figure is Mermaid's, measured** with `--markup`: an ER `subgraph`
+ * comes out a `g.cluster` holding a `<rect>` and a `g.cluster-label` — the
+ * same two elements a flowchart subgraph draws, which is why this is
+ * `renderToSVG`'s `buildSubgraph` in this kind's own vocabulary rather than
+ * a second figure. The classes carry the `siren-er-` prefix every other
+ * element of this kind does, so a theme or a consumer can paint one kind's
+ * frames without reaching the other's.
+ *
+ * The anchor is layout's rather than computed here from the frame. That
+ * strip is the reason the frame is as tall as it is — `subgraphFrames` grew
+ * it to hold the title — so recomputing the position here would be a second
+ * opinion on one number, free to drift from the space reserved for it.
+ *
+ * `data-siren-id` goes on the group, which is what makes a cluster a
+ * timeline target: ADR-0009 resolves a target to *every* element carrying
+ * its id, and the frame and its title are two elements of one thing.
+ */
+function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-er-subgraph");
+  g.setAttribute("data-siren-id", subgraph.id);
+
+  const frame = document.createElementNS(SVG_NS, "rect");
+  frame.setAttribute("class", "siren-er-subgraph-frame");
+  frame.setAttribute("x", String(subgraph.x));
+  frame.setAttribute("y", String(subgraph.y));
+  frame.setAttribute("width", String(subgraph.width));
+  frame.setAttribute("height", String(subgraph.height));
+  g.appendChild(frame);
+
+  const title = document.createElementNS(SVG_NS, "text");
+  title.setAttribute("class", "siren-er-subgraph-label");
+  title.setAttribute("x", String(subgraph.labelAnchor.x));
+  title.setAttribute("y", String(subgraph.labelAnchor.y));
+  title.setAttribute("text-anchor", "middle");
+  title.setAttribute("dominant-baseline", "middle");
+  title.textContent = subgraph.label;
+  g.appendChild(title);
+
+  return g;
 }
 
 /**

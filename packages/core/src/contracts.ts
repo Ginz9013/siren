@@ -2749,6 +2749,83 @@ export interface ErAttribute {
  * `-v2`** beside whatever else the document declares.
  *
  */
+/**
+ * A `subgraph <name> ... end` block in an ER document, as written — the
+ * counterpart of a flowchart's `SirenSubgraph`, and measured to be a
+ * genuinely different construct rather than the same one re-read.
+ *
+ * Three differences from `SirenSubgraph`, each measured against mermaid
+ * 11.17.2 with `scripts/mermaid-probe.mjs` and each costing a document if
+ * carried across:
+ *
+ * - **The name is mandatory.** A bare `subgraph` with no name is a parse
+ *   error here ("Expecting 'UNICODE_TEXT', 'NUM', 'ENTITY_NAME',
+ *   'DECIMAL_NUM', 'ENTITY_ONE', got 'NEWLINE'"), where a flowchart mints
+ *   `subGraph0` for it. So this field is a `string` and not
+ *   `string | null`.
+ * - **The header owns its line.** Mermaid's rule is `SUBGRAPH entityName
+ *   separator`, and the separator has to be a newline: `subgraph s1 A end`
+ *   and `subgraph s1; A` are both parse errors. `end` is the opposite —
+ *   an ordinary statement in the line's stream, so `A end` closes the
+ *   block after declaring `A` and `end B` declares `B` outside it.
+ * - **The name alphabet is an ER entity name**, either spelling: `a.b` is
+ *   a legal block name and `subgraph "My Cluster"` keys the block on
+ *   `My Cluster` with the quotes stripped, while `subgraph My Cluster`
+ *   unquoted is a parse error.
+ */
+export interface ErSubgraph {
+  /**
+   * The author's own handle for the block, quotes stripped. Not the id
+   * anything downstream addresses the frame by — that is generated, see
+   * `ResolvedErSubgraph` — but the word an author would type, which is
+   * what a `style` or a relationship endpoint naming a cluster reaches for
+   * and therefore what the refusals for those two are spelled against.
+   *
+   * Two blocks may share it: measured, `subgraph s1 ... end` twice reports
+   * **two** clusters both keyed `s1`, so this is not unique and nothing may
+   * treat it as a key.
+   */
+  name: string;
+  /**
+   * The text drawn on the frame: the bracketed title if the header wrote
+   * one, otherwise the name again (measured — `subgraph s1` answers
+   * `title:"s1"`).
+   *
+   * The brackets take either spelling and the quotes are optional:
+   * `s1["My Title"]` and `s1 [Bracket Title]` both answer with the text
+   * between them. Mermaid's `subgraphTitle` is a *list of words* joined
+   * with a single space, so `s1[a   b]` answers `"a b"` — measured, which
+   * is why the run of spaces is collapsed rather than carried.
+   */
+  label: string;
+  /**
+   * This block's own rank direction, or `null` when it wrote none and its
+   * members lay out along the document's.
+   *
+   * ⚠️ **Independent of the document's, measured.** `subgraph s1 /
+   * direction LR / ... / end` answers `dir:"LR"` on the cluster while
+   * `getDirection()` stays `TB` — Mermaid's `direction` action is
+   * `if (!yy.subgraphDepth) setDirection(...) else pass it up`, so the same
+   * statement means two different things depending on where it is written.
+   * **Last wins inside a block too**, measured: two `direction`s in one
+   * block answer with the second.
+   */
+  direction: Direction | null;
+  /**
+   * The entities declared directly inside this block, in source order and
+   * de-duplicated — **relationship endpoints included**, which is measured
+   * rather than assumed: `subgraph sales / CUSTOMER ||--o{ ORDER : places /
+   * end` answers `nodes:["CUSTOMER","ORDER"]`.
+   *
+   * A name claimed by two blocks is still listed by both here; which block
+   * keeps it is `buildErModel`'s, because Mermaid settles it in *closing*
+   * order and the parser reads in opening order.
+   */
+  entityNames: string[];
+  /** Blocks opened inside this one, in source order. */
+  subgraphs: ErSubgraph[];
+}
+
 export interface ErDocument {
   kind: "er";
   /**
@@ -2797,6 +2874,21 @@ export interface ErDocument {
   entities: ErEntityDecl[];
   /** The relationships declared, in source order. */
   relationships: ErRelationshipDecl[];
+  /**
+   * The `subgraph <name> ... end` blocks written at the **top level** of the
+   * document, in source order; a block opened inside another is in that
+   * one's own `subgraphs` instead.
+   *
+   * ⚠️ **ER really has clusters** — `getSubGraphs()` answers with an entry
+   * per block while `getEntities()` stays flat (measured, mermaid 11.17.2),
+   * so membership lives on the *cluster* here and not on the entity, which
+   * is the opposite of where `GraphNode.parentId` puts a flowchart's. It
+   * moves to the entity one stage later, in `buildErModel`, for the reason
+   * `ResolvedSubgraph` gives: two statements of one fact are free to
+   * disagree. The parser cannot be that stage, because an entity is
+   * declared once per *mention* here and a member is claimed once.
+   */
+  subgraphs: ErSubgraph[];
   /**
    * The `style`, `classDef`, `class` and `:::` statements the author wrote,
    * in written order, as the same kind-agnostic `StyleDecl` a flowchart, a
@@ -2969,6 +3061,73 @@ export interface ResolvedErEntity {
    * rule here to apply beyond concatenation.
    */
   attributes: ErAttribute[];
+  /**
+   * The id of the `subgraph` cluster this entity was claimed by, or `null`
+   * when no block claimed it.
+   *
+   * A `ResolvedErSubgraph.id` — generated (`subgraph:1`) and never the
+   * author's word — for the reason that type gives. `null` rather than
+   * absent, and on **every** entity including those in a document with no
+   * block at all, so nothing downstream has to tell "no parent" from "this
+   * kind does not have parents".
+   *
+   * ⚠️ **Membership lives here and on nothing else.** The parser reads it
+   * the other way round, because Mermaid does — `getSubGraphs()` carries a
+   * node list while `getEntities()` stays flat — and this stage turns it
+   * over, exactly as `ResolvedSubgraph` explains for a flowchart: a frame
+   * and the box inside it must not be able to disagree about which holds
+   * which.
+   */
+  parentId: string | null;
+}
+
+/**
+ * A `subgraph` cluster after model resolution: given the id the renderer
+ * and a `timeline:` entry address it by, and pointed at the block enclosing
+ * it.
+ *
+ * **The id is generated, not authored**, exactly as `ResolvedSubgraph`'s
+ * and `ResolvedClassNamespace`'s are, and for this kind the argument is
+ * sharper than for those: measured (mermaid 11.17.2), two blocks may be
+ * written with the *same* name and both are recorded, so the author's word
+ * is not even unique among clusters. ADR-0010 settles the spelling —
+ * `${kind}:${n}`, minted by `generatedId`.
+ *
+ * ⚠️ **And ADR-0010's separating argument does not reach this kind**, which
+ * is why `reportIdCollisions` exists: a *quoted* ER entity name may contain
+ * anything, so `"subgraph:1"` is a legal entity id (measured) and can
+ * collide with this one. The check is what holds the invariant that the
+ * spelling holds for the other four kinds. That is the registration
+ * `ResolvedSubgraph`'s own doc comment asks a future ER cluster to make,
+ * and this is it.
+ *
+ * Flat and in **pre-order** — the order the author wrote the `subgraph`
+ * keywords down the page — for the two reasons `ResolvedSubgraph` gives:
+ * layout wants one cluster per entry with a parent to point at, and an
+ * author counting keywords is what numbers them. Note that Mermaid's own
+ * `getSubGraphs()` is in *closing* order instead; the two differ the moment
+ * a block nests, and only the membership rule below reads that order.
+ *
+ * Membership is not here: it is on `ResolvedErEntity.parentId`.
+ */
+export interface ResolvedErSubgraph {
+  id: string;
+  /** The text the frame draws — the block's title, carried through. */
+  label: string;
+  /** The cluster this one is nested in, or `null` at the top level. */
+  parentId: string | null;
+  /**
+   * This cluster's own rank direction, carried straight through from
+   * `ErSubgraph.direction`, or `null` when it wrote none.
+   *
+   * ⚠️ **`null` is not "the document's direction" and must not be turned
+   * into one here.** `layoutDirectedGraph` gives a cluster with no
+   * direction of its own but a *directed* ancestor the graph's own
+   * `rankdir` (`rankdirFor`), which is both what Mermaid means and what
+   * makes the engine expand it; writing the document's direction in at this
+   * stage would hand every cluster a `rankdir` and lose that distinction.
+   */
+  direction: Direction | null;
 }
 
 /**
@@ -3063,6 +3222,13 @@ export interface ErModel {
   entities: ResolvedErEntity[];
   /** The relationships, in source order and each with an id of its own. */
   relationships: ResolvedErRelationship[];
+  /**
+   * Every `subgraph` cluster the document declared, flattened into the
+   * order the author wrote the keywords — outermost before the blocks
+   * nested inside it, which is also the order the frames must be drawn in,
+   * a frame being painted behind what it groups.
+   */
+  subgraphs: ResolvedErSubgraph[];
   /**
    * Each styled entity's accepted declarations, already flattened by the
    * shared `resolveStyles` — one entry per entity that ended up with at
@@ -3264,9 +3430,41 @@ export interface PositionedErRelationship {
  * relationships plus the resolved timeline, ready for
  * `renderErDiagramToSVG`.
  */
+/**
+ * An ER `subgraph` cluster with a layout-assigned frame enclosing everything
+ * inside it — its own entity boxes and, when it nests, the whole of each
+ * frame beneath it, title strip included.
+ *
+ * The shape `PositionedSubgraph` and `PositionedClassNamespace` already
+ * have, because it is the same figure: a labelled box drawn *behind* what it
+ * groups, which is exactly what `--markup` reports Mermaid drawing for an ER
+ * cluster too — a `g.cluster` holding a `<rect>` and a `g.cluster-label`.
+ * A type of its own rather than a shared one, for the reason
+ * `PositionedSubgraph` gives about the class diagram's: these kinds do not
+ * share types across the boundary, and collapsing them would be the first
+ * time.
+ */
+export interface PositionedErSubgraph {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Where the frame's title is drawn: centred in the strip above its contents. */
+  labelAnchor: Point;
+}
+
 export interface PositionedErDiagram {
   entities: PositionedErEntity[];
   relationships: PositionedErRelationship[];
+  /**
+   * The cluster frames, in the model's order — outermost before the frames
+   * nested inside them, which is also the order they must be drawn in: a
+   * frame is painted behind what it groups, so an inner frame drawn first
+   * would be hidden by the outer one.
+   */
+  subgraphs: PositionedErSubgraph[];
   timeline: ResolvedTimeline;
   width: number;
   height: number;

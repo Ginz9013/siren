@@ -919,6 +919,35 @@ function erEntities(result: SirenRenderResult): string[] {
 }
 
 /**
+ * One ER cluster frame's four sides, keyed by the **title** drawn on it.
+ *
+ * By the title rather than by `data-siren-id`, for the reason `subgraphBox`
+ * gives about a flowchart's: a cluster's id is generated (`subgraph:1`)
+ * precisely so that it cannot be spelled by anything the author wrote, and
+ * the title is what the author *did* write — so a row can ask about it
+ * without encoding a numbering rule the corpus has no business pinning.
+ */
+function erSubgraphBox(
+  result: SirenRenderResult,
+  title: string,
+): { top: number; bottom: number; left: number; right: number } {
+  const group = elements(result, "g.siren-er-subgraph").find(
+    (g) => g.querySelector("text.siren-er-subgraph-label")?.textContent === title,
+  );
+  const frame = group?.querySelector("rect.siren-er-subgraph-frame");
+  if (frame === undefined || frame === null) {
+    throw new Error(`no ER cluster titled "${title}" was drawn`);
+  }
+  const number = (name: string) => Number(frame.getAttribute(name));
+  return {
+    top: number("y"),
+    bottom: number("y") + number("height"),
+    left: number("x"),
+    right: number("x") + number("width"),
+  };
+}
+
+/**
  * The rectangle one ER entity is drawn in, in the edges-of-the-box shape
  * `stateRect` and `subgraphBox` already use, so the shared containment and
  * overlap rules serve this kind too.
@@ -5178,16 +5207,263 @@ line2\`"]`,
         CUSTOMER ||--o{ ORDER : places
       end
       WAREHOUSE`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "ER genuinely has clusters. Measured: `getSubGraphs()` answers with " +
       "one entry — `{id:\"sales\", title:\"sales\", nodes:[\"CUSTOMER\",\"ORDER\"], " +
       "dir:\"LR\", classes:[], cssStyles:[]}` — while `getEntities()` reports " +
       "all three entities flat, so membership lives on the **cluster** and " +
       "not on the entity. The `dir` is the cluster's own rank direction, " +
-      "independent of the document's, which is the half a flowchart " +
-      "subgraph already needed `layoutDirectedGraph` to place. A whole " +
-      "construct rather than a spelling. Ticket `01M395S26`.",
+      "independent of the document's — `getDirection()` stays `TB` for this " +
+      "very source — which is the half a flowchart subgraph already needed " +
+      "`layoutDirectedGraph` to place. A whole construct rather than a " +
+      "spelling.\n\n" +
+      "Rendered by mermaid with `--markup` it is a `g.cluster` holding a " +
+      "`<rect>` and a `g.cluster-label`: the same two elements a flowchart " +
+      "subgraph draws, which is why Siren draws the same figure here under " +
+      "this kind's own `siren-er-subgraph` classes. Both endpoints of a " +
+      "relationship written inside the block are members of it (measured — " +
+      "`nodes:[\"CUSTOMER\",\"ORDER\"]` for exactly these two lines), and " +
+      "`WAREHOUSE` outside it belongs to no block.",
+    assert: (result) => {
+      // All three boxes are drawn, flat, exactly as `getEntities()` reports
+      // them — a cluster groups entities, it does not consume them.
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+        "WAREHOUSE[WAREHOUSE]",
+      ]);
+      expectSame("the relationship drawn", erRelationships(result), [
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      ]);
+
+      // The frame, read off the picture by the title the author wrote.
+      const frame = erSubgraphBox(result, "sales");
+      expectSame("the frame holds CUSTOMER", encloses(frame, erEntityRect(result, "CUSTOMER")), true);
+      expectSame("the frame holds ORDER", encloses(frame, erEntityRect(result, "ORDER")), true);
+      // And nothing else: `WAREHOUSE` is outside every block, so a frame
+      // reaching it would be membership invented out of nothing.
+      expectSame(
+        "the frame does not hold WAREHOUSE",
+        encloses(frame, erEntityRect(result, "WAREHOUSE")),
+        false,
+      );
+
+      // ⚠️ **The block's own `direction LR`, read as geometry and not as a
+      // field.** The document is `TB`, and a relationship puts its two
+      // entities on consecutive ranks — so `LR` is what puts `ORDER` to the
+      // right of `CUSTOMER` rather than below it. A cluster that silently
+      // took the document's direction would draw every figure asserted
+      // above and report nothing; this one line is what tells the two
+      // pictures apart.
+      const customer = erEntityRect(result, "CUSTOMER");
+      const order = erEntityRect(result, "ORDER");
+      expectSame("ORDER is beside CUSTOMER, not below it", customer.right <= order.left, true);
+    },
+  },
+  {
+    id: "er-subgraph-title",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1["Order pipeline"]
+        CUSTOMER ||--o{ ORDER : places
+      end`,
+    status: "supported",
+    meaning:
+      "The titled spelling of a cluster header. Measured (mermaid 11.17.2), " +
+      "`subgraph s1[\"My Title\"]` answers `{id:\"s1\", title:\"My Title\"}` and " +
+      "`subgraph s1 [Bracket Title]` answers `title:\"Bracket Title\"` — so " +
+      "the brackets carry the drawn text, the quotes inside them are " +
+      "optional, and the **id stays the bare name**. `subgraph s1[a   b]` " +
+      "answers `\"a b\"`, because Mermaid's `subgraphTitle` is a list of " +
+      "words joined with one space.\n\n" +
+      "⚠️ **Two boundaries this row exists to hold.** A bare `subgraph` " +
+      "with no name at all is a *parse error* here (\"Expecting " +
+      "'UNICODE_TEXT', 'NUM', 'ENTITY_NAME', 'DECIMAL_NUM', 'ENTITY_ONE', " +
+      "got 'NEWLINE'\"), unlike a flowchart's, which mints `subGraph0`; and " +
+      "the header owns its line — `subgraph s1 A end` and `subgraph s1;` " +
+      "are both parse errors, because the grammar is `SUBGRAPH entityName " +
+      "separator` and the separator has to be a newline.",
+    assert: (result) => {
+      // The drawn title is the author's, and the id it is addressed by is
+      // not — which is the whole of what the brackets change.
+      const frame = erSubgraphBox(result, "Order pipeline");
+      expectSame(
+        "the frame holds both entities",
+        encloses(frame, erEntityRect(result, "CUSTOMER")) &&
+          encloses(frame, erEntityRect(result, "ORDER")),
+        true,
+      );
+      expectSame("the entities drawn", erEntities(result), [
+        "CUSTOMER[CUSTOMER]",
+        "ORDER[ORDER]",
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-nested",
+    kind: "er",
+    source: `erDiagram
+      subgraph outer
+        direction LR
+        subgraph inner
+          A ||--|| B : r
+        end
+        C
+      end`,
+    status: "supported",
+    meaning:
+      "A cluster inside a cluster, with the **outer** one carrying the " +
+      "`direction` — the shape that drew an entire NaN diagram with zero " +
+      "diagnostics before `01M2XJWM4` (`UnplacedNodesError` names it by " +
+      "id). Measured, mermaid accepts it: `getSubGraphs()` answers " +
+      "`[{id:\"inner\", nodes:[\"A\",\"B\"]}, {id:\"outer\", " +
+      "nodes:[\"inner\",\"C\"], dir:\"LR\"}]` — in *closing* order, with the " +
+      "inner block listed as a member of the outer one — and `getData()` " +
+      "reports `inner` carrying `parentId:\"outer\"`.\n\n" +
+      "A frame that declares no `direction` of its own is laid out in the " +
+      "**document's**, not in the enclosing frame's — the rule " +
+      "`fc-subgraph-direction-nested` measured for the flowchart, which " +
+      "`rankdirFor` holds for every kind that goes through " +
+      "`layoutDirectedGraph`. This row is ER's copy of it, and it is here " +
+      "because the ticket that brought ER clusters had to find out whether " +
+      "`UnplacedNodesError` fires on this document. It does not.",
+    assert: (result) => {
+      const outer = erSubgraphBox(result, "outer");
+      const inner = erSubgraphBox(result, "inner");
+      expectSame("inner holds A", encloses(inner, erEntityRect(result, "A")), true);
+      expectSame("inner holds B", encloses(inner, erEntityRect(result, "B")), true);
+      expectSame("outer holds inner", encloses(outer, inner), true);
+      expectSame("outer holds C", encloses(outer, erEntityRect(result, "C")), true);
+      // `inner` declares no direction, so `A` and `B` take the document's
+      // `TB` and stack — `outer`'s `LR` reaching them is the wrong picture
+      // this line tells from the right one.
+      const a = erEntityRect(result, "A");
+      const b = erEntityRect(result, "B");
+      expectSame("B below A — inner lays out in the document's TB", a.bottom <= b.top, true);
+    },
+  },
+  {
+    id: "er-subgraph-duplicate-member",
+    kind: "er",
+    source: `erDiagram
+      subgraph outer
+        A
+        subgraph inner
+          A
+          B
+        end
+      end
+      A ||--|| B : r`,
+    status: "supported",
+    meaning:
+      "An entity named inside two blocks. Measured: Mermaid's `makeUniq` " +
+      "runs inside `addSubGraph`, which fires at the closing `end`, and it " +
+      "drops a name some already-closed block has taken — so " +
+      "`getSubGraphs()` answers `inner` holding `[\"A\",\"B\"]` and `outer` " +
+      "holding only `[\"inner\"]`. **The inner block keeps it, although the " +
+      "outer one was opened first**, because the rule is closing order and " +
+      "not opening order. Mermaid says so only in a `log.warn`, so nothing " +
+      "in the picture reports it and nothing here does either.\n\n" +
+      "Resolving membership in the order the keywords were written would " +
+      "put `A` in `outer`, draw a perfectly good picture, and report " +
+      "nothing — which is why this is a row and not a comment.",
+    assert: (result) => {
+      const outer = erSubgraphBox(result, "outer");
+      const inner = erSubgraphBox(result, "inner");
+      const a = erEntityRect(result, "A");
+      // `A` is inside `inner`, which is inside `outer` — so being inside
+      // `outer` proves nothing on its own, and the inner frame is what the
+      // claim rests on.
+      expectSame("inner holds A", encloses(inner, a), true);
+      expectSame("outer holds inner", encloses(outer, inner), true);
+    },
+  },
+  {
+    id: "er-subgraph-entity-name",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      s1 ||--|| B : r`,
+    status: "rejected",
+    meaning:
+      "A name worn by an entity and by a cluster at once — and **the silent " +
+      "mis-render ER clusters arrive with**, which is why it has a row of " +
+      "its own rather than living inside `er-subgraph`.\n\n" +
+      "Measured (mermaid 11.17.2): the relationship production calls " +
+      "`addEntity` on both endpoints unconditionally and only then asks " +
+      "`subGraphLookup.has(...)`, so this document records a phantom entity " +
+      "`entity-s1-1` that `getData()` throws away and hands the edge the " +
+      "**cluster** `s1` as its start — `getData.edges` answers " +
+      "`{start:\"s1\", end:\"entity-B-2\"}` with no entity node for `s1` at " +
+      "all. A bare `s1` after the block records the same phantom and " +
+      "`getData()` drops it just the same, and writing the relationship " +
+      "*above* the block leaves the edge pointing at a node `getData()` " +
+      "does not carry. In every one of them Mermaid draws **no box** for " +
+      "`s1`: the frame has taken the name.\n\n" +
+      "Every reading Siren's parser has is an ordinary entity, so it would " +
+      "draw that box — a third figure beside the frame, with nothing in the " +
+      "picture to notice. Refused by name instead, at the header, because " +
+      "the construct is the *sharing* and neither half is wrong alone. " +
+      "Its exit is implementation: an endpoint that resolves to a frame, " +
+      "which `layoutDirectedGraph` already routes through a representative " +
+      "member (`fc-subgraph-edge` is the flowchart's row for it).",
+  },
+  {
+    id: "er-subgraph-style",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      style s1 fill:#f96`,
+    status: "rejected",
+    meaning:
+      "⚠️ **A cluster is a legal `style` target in this kind**, measured " +
+      "and not assumed — which is the opposite of a relationship, whose id " +
+      "reaches nothing at all (`er-style-target-colon`). Mermaid's ER " +
+      "`addCssStyles` looks up `this.entities.get(id)` **and** " +
+      "`this.subGraphLookup.get(id)`, and this very document answers " +
+      "`getSubGraphs() -> [{id:\"s1\", …, cssStyles:[\"fill:#f96\"]}]`.\n\n" +
+      "`01M395S26` implements the cluster and leaves its paint to a ticket " +
+      "of its own, so the directive is refused by name: dropped instead, it " +
+      "would go in silence — `resolveStyles` drops an unknown target " +
+      "exactly as Mermaid does — and a frame Mermaid fills would come out " +
+      "unfilled with nothing to notice.\n\n" +
+      "**Order-sensitive, and the refusal reads the order.** A `style s1` " +
+      "written *above* the block reaches `addCssStyles` before " +
+      "`addSubGraph` has registered the name and paints nothing at all " +
+      "(measured — `cssStyles` comes back empty), which is the same picture " +
+      "Siren draws by dropping it; that document is not refused.",
+  },
+  {
+    id: "er-subgraph-class",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      classDef urgent fill:#f96
+      class s1 urgent`,
+    status: "rejected",
+    meaning:
+      "The row above's construct under the other keyword, and a row of its " +
+      "own for the reason `er-style-class-statement` is one beside " +
+      "`er-style-statement`: `style\\b` and `classDef\\b` switch Mermaid's " +
+      "lexer into a condition that runs to the newline while `class\\b` " +
+      "switches nothing, so the two are not one idea however alike they " +
+      "look.\n\n" +
+      "Measured, `setClass` reaches `this.subGraphLookup` exactly as " +
+      "`addCssStyles` does: this document answers `getSubGraphs() -> " +
+      "[{id:\"s1\", classes:[\"urgent\"], …}]` and `getData()` carries " +
+      "`cssClasses:\"urgent\"` on the group node. Refused by name for the " +
+      "same reason, and paid off by the same ticket.\n\n" +
+      "The third spelling is **not** a gap: `subgraph s1:::urgent` is a " +
+      "parse error in Mermaid (\"Expecting 'EOF', 'NEWLINE', 'SQS', " +
+      "'SEMI', got 'STYLE_SEPARATOR'\"), so there is nothing there to " +
+      "implement.",
   },
   {
     id: "er-style-statement",

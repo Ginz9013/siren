@@ -10,15 +10,22 @@ CUSTOMER["Customer Account"] {
   string email UK,FK
 }
 
-ORDER {
-  int number PK
-  string status
-}
+%% A cluster: a frame around the entities inside it, with a rank direction
+%% of its own. The document above is LR; these two stack, because a block's
+%% `direction` governs its own members and leaves the document's alone.
+subgraph fulfilment
+  direction TB
 
-LINE-ITEM {
-  int quantity
-  int price
-}
+  ORDER {
+    int number PK
+    string status
+  }
+
+  LINE-ITEM {
+    int quantity
+    int price
+  }
+end
 
 PRODUCT
 WAREHOUSE

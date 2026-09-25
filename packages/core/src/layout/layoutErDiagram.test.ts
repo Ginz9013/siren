@@ -23,8 +23,9 @@ const measuredWidth = (text: string) => fakeMeasurer.measure(text).width;
 
 const model = (...names: string[]): ErModel => ({
   direction: "TB",
-  entities: names.map((name) => ({ id: name, label: name, attributes: [] })),
+  entities: names.map((name) => ({ id: name, label: name, attributes: [], parentId: null })),
   relationships: [],
+  subgraphs: [],
   styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
@@ -34,8 +35,9 @@ const model = (...names: string[]): ErModel => ({
 /** One entity carrying `attributes`, and nothing else in the diagram. */
 const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel => ({
   direction: "TB",
-  entities: [{ id: name, label: name, attributes }],
+  entities: [{ id: name, label: name, attributes, parentId: null }],
   relationships: [],
+  subgraphs: [],
   styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
@@ -76,8 +78,10 @@ const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
     id,
     label: id,
     attributes: [],
+    parentId: null,
   })),
   relationships: [relationship],
+  subgraphs: [],
   styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
@@ -534,5 +538,152 @@ describe("layoutErDiagram carries the author's styling to the box that wears it"
       text: [{ property: "fill", value: "#fff" }],
     });
     expect(styleOf("CUSTOMER")).toEqual({ frame: [], text: [] });
+  });
+});
+
+/**
+ * `subgraph` clusters, placed: a frame around what each block holds, its
+ * members inside it, and its own rank direction governing how they are
+ * arranged.
+ *
+ * Every assertion here is a **relationship between coordinates** — inside,
+ * outside, beside, below — and never a number read back out of a run. The
+ * cluster's `direction` in particular is checked by where the boxes landed
+ * rather than by any field, because dropping it produces a complete picture
+ * with nothing in it to notice (the failure `layoutErDiagram`'s header
+ * already records for the document's own `direction`).
+ */
+describe("layoutErDiagram places subgraph clusters", () => {
+  /** A frame's box, or a thrown explanation naming what was placed instead. */
+  const frameOf = (laidOut: PositionedErDiagram, id: string) => {
+    const frame = laidOut.subgraphs.find((candidate) => candidate.id === id);
+    if (frame === undefined) {
+      throw new Error(
+        `no frame "${id}" was placed; the layout placed ${laidOut.subgraphs
+          .map((candidate) => candidate.id)
+          .join(", ")}`,
+      );
+    }
+    return {
+      left: frame.x,
+      right: frame.x + frame.width,
+      top: frame.y,
+      bottom: frame.y + frame.height,
+    };
+  };
+
+  type Box = { left: number; right: number; top: number; bottom: number };
+  const encloses = (outer: Box, inner: Box) =>
+    outer.left <= inner.left &&
+    outer.right >= inner.right &&
+    outer.top <= inner.top &&
+    outer.bottom >= inner.bottom;
+
+  /** Two entities in one `LR` cluster, one outside it, and a relationship joining two. */
+  const grouped: ErModel = {
+    direction: "TB",
+    entities: [
+      { id: "A", label: "A", attributes: [], parentId: "subgraph:1" },
+      { id: "B", label: "B", attributes: [], parentId: "subgraph:1" },
+      { id: "C", label: "C", attributes: [], parentId: null },
+    ],
+    relationships: [
+      {
+        id: "A:B",
+        from: "A",
+        to: "B",
+        fromCardinality: "onlyOne",
+        toCardinality: "zeroOrMore",
+        line: "identifying",
+        label: "r",
+      },
+    ],
+    subgraphs: [{ id: "subgraph:1", label: "sales", parentId: null, direction: "LR" }],
+    styles: [],
+    timeline: { totalSteps: 0, entries: [] },
+    accTitle: null,
+    accDescr: null,
+  };
+
+  it("draws a frame enclosing its members and nothing else", () => {
+    const laidOut = layoutErDiagram(grouped, options);
+    const frame = frameOf(laidOut, "subgraph:1");
+
+    expect(encloses(frame, boxOf(laidOut.entities, "A"))).toBe(true);
+    expect(encloses(frame, boxOf(laidOut.entities, "B"))).toBe(true);
+    // `C` belongs to no block, so the frame must not reach it. Asserted as
+    // "not enclosed" rather than "to the right of", because which side the
+    // engine puts it on is the engine's business and this is not.
+    expect(encloses(frame, boxOf(laidOut.entities, "C"))).toBe(false);
+    // And the frame is inside the canvas it is drawn on: a frame grows up
+    // and left of the box the core placed, so a layout that did not shift
+    // for it would report a negative coordinate, off the canvas.
+    expect(frame.left).toBeGreaterThanOrEqual(0);
+    expect(frame.top).toBeGreaterThanOrEqual(0);
+    expect(frame.right).toBeLessThanOrEqual(laidOut.width);
+    expect(frame.bottom).toBeLessThanOrEqual(laidOut.height);
+  });
+
+  it("lays a cluster's members out in the cluster's own direction, not the document's", () => {
+    // The document is `TB` and the block is `LR`, so `A` and `B` — which a
+    // relationship puts on consecutive ranks — are side by side rather than
+    // one above the other. Nothing but geometry says which of the two
+    // happened: a cluster silently taking the document's direction draws
+    // every figure this test names and reports nothing.
+    const laidOut = layoutErDiagram(grouped, options);
+    const a = boxOf(laidOut.entities, "A");
+    const b = boxOf(laidOut.entities, "B");
+
+    expect(a.right).toBeLessThanOrEqual(b.left);
+
+    // The control, so the assertion above cannot pass by accident on a
+    // layout that ranks left-to-right whatever it is told: with the block's
+    // own direction removed, the two fall back to the document's `TB`.
+    const inherited = layoutErDiagram(
+      {
+        ...grouped,
+        subgraphs: [{ id: "subgraph:1", label: "sales", parentId: null, direction: null }],
+      },
+      options,
+    );
+    const inheritedA = boxOf(inherited.entities, "A");
+    const inheritedB = boxOf(inherited.entities, "B");
+    expect(inheritedA.bottom).toBeLessThanOrEqual(inheritedB.top);
+  });
+
+  it("puts a nested frame wholly inside the frame that holds it", () => {
+    // The shape that drew an entire `NaN` diagram with no diagnostic before
+    // `01M2XJWM4` (`UnplacedNodesError` names it): a cluster carrying a
+    // direction of its own with another cluster as a direct child. The
+    // engine compensates now, and this is ER's copy of the check the
+    // flowchart's `fc-subgraph-direction-nested` row already makes.
+    const laidOut = layoutErDiagram(
+      {
+        ...grouped,
+        entities: [
+          { id: "A", label: "A", attributes: [], parentId: "subgraph:2" },
+          { id: "B", label: "B", attributes: [], parentId: "subgraph:2" },
+          { id: "C", label: "C", attributes: [], parentId: "subgraph:1" },
+        ],
+        subgraphs: [
+          { id: "subgraph:1", label: "outer", parentId: null, direction: "LR" },
+          { id: "subgraph:2", label: "inner", parentId: "subgraph:1", direction: null },
+        ],
+      },
+      options,
+    );
+
+    const outer = frameOf(laidOut, "subgraph:1");
+    const inner = frameOf(laidOut, "subgraph:2");
+    expect(encloses(inner, boxOf(laidOut.entities, "A"))).toBe(true);
+    expect(encloses(inner, boxOf(laidOut.entities, "B"))).toBe(true);
+    expect(encloses(outer, inner)).toBe(true);
+    expect(encloses(outer, boxOf(laidOut.entities, "C"))).toBe(true);
+    // `inner` declares no direction of its own, so its members take the
+    // **document's** `TB` and not `outer`'s `LR` — the rule `rankdirFor`
+    // holds, and the one the flowchart row measured against Mermaid.
+    const a = boxOf(laidOut.entities, "A");
+    const b = boxOf(laidOut.entities, "B");
+    expect(a.bottom).toBeLessThanOrEqual(b.top);
   });
 });
