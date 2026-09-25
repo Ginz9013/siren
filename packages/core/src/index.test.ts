@@ -6943,13 +6943,21 @@ describe("render() — an ER diagram, end to end", () => {
     // so naming it here would be a refusal of a construct this kind reads.
     //
     // `direction LR` has left it outright — it ranks the diagram now — and
-    // the alias has left it in the quoted spelling only. What is left of the
-    // alias is Mermaid's **bracketless** one, measured to record the same
-    // `alias` field (`A[Unquoted]` reports `alias="Unquoted"`) and still not
-    // read here.
+    // **the alias has now left it in both spellings**: `A[Unquoted]` records
+    // the same `alias` field the quoted one does and is read here too, so
+    // what is left of that construct is a *narrower alphabet* rather than a
+    // missing feature. `CUSTOMER[Customer Account]` — two words — is a
+    // Mermaid parse error, and the honest answer to it is the generic
+    // unrecognized-line message rather than a refusal by name, which would
+    // tell an author a construct is unimplemented when their document is
+    // simply malformed.
+    //
+    // The `u` case is spelled in **both** cases, because Mermaid's lexer
+    // rules are all `/i` and a refusal that read only the small one told an
+    // author of the shouted document the wrong thing.
     const cases: [string, string][] = [
       ["A u--o{ B : x", 'the "u" (MD_PARENT) relationship cardinality'],
-      ["CUSTOMER[Customer Account]", "an entity alias written without quotes"],
+      ["A U--o{ B : x", 'the "u" (MD_PARENT) relationship cardinality'],
     ];
 
     for (const [line, name] of cases) {
@@ -7136,7 +7144,7 @@ describe("render() — an ER diagram, end to end", () => {
     );
   });
 
-  it("drives examples/er-reveal.srn's timeline through both of this kind's addressable targets \u2014 an entity and a relationship \u2014 with next(), prev() and reset()", () => {
+  it("drives examples/er-reveal.srn's timeline through all three of this kind's addressable targets \u2014 an entity, a relationship and a `subgraph` cluster \u2014 with next(), prev() and reset()", () => {
     const { result } = renderEr(readExample("er-reveal"));
 
     // Zero diagnostics of any severity: a relationship left drawn after an
@@ -7152,14 +7160,15 @@ describe("render() — an ER diagram, end to end", () => {
         .map((el) => el.getAttribute("data-siren-id"))
         .sort();
 
-    // Exactly the five elements with an `enter` action start hidden, across
-    // both kinds an author can address here.
+    // Exactly the six elements with an `enter` action start hidden, across
+    // all three kinds an author can address here.
     expect(pendingIds()).toEqual([
       "CUSTOMER",
       "CUSTOMER:ORDER",
       "LINE-ITEM",
       "ORDER",
       "ORDER:LINE-ITEM",
+      "subgraph:1",
     ]);
 
     const entity = (id: string) =>
@@ -7171,6 +7180,16 @@ describe("render() — an ER diagram, end to end", () => {
     const lineItem = entity("LINE-ITEM");
     const places = relationship("CUSTOMER:ORDER");
     const contains = relationship("ORDER:LINE-ITEM");
+    const cluster = svg.querySelector('g.siren-er-subgraph[data-siren-id="subgraph:1"]')!;
+
+    // \u26a0\ufe0f **A cluster's id is not its name** (ADR-0010), and the document's
+    // own text is what says so: the frame is *titled* `fulfilment` and is
+    // *addressed* as `subgraph:1`. Asserted here rather than left to the
+    // enumeration test above, which only filters `error` \u2014 a target that
+    // resolved to nothing would be a warning and would slip through it.
+    expect(cluster.querySelector("text.siren-er-subgraph-label")!.textContent).toBe(
+      "fulfilment",
+    );
 
     // Step 1: an entity enters — under the name its **author** wrote, while
     // its box draws the alias. The two parting is the whole point of
@@ -7191,7 +7210,14 @@ describe("render() — an ER diagram, end to end", () => {
     expect(places.classList.contains("siren-pending")).toBe(false);
     expect(places.classList.contains("siren-enter-fade")).toBe(true);
 
-    controller.next(); // step 3 — LINE-ITEM and the relationship into it
+    // Step 3: the **third** target kind — the frame itself enters, beside
+    // the entity it comes to hold and the relationship into it. A cluster is
+    // a drawn element with an id of its own, so it animates exactly as the
+    // other two do.
+    controller.next();
+    expect(cluster.classList.contains("siren-pending")).toBe(false);
+    expect(cluster.classList.contains("siren-enter-fade")).toBe(true);
+    expect(lineItem.classList.contains("siren-enter-slide-right")).toBe(true);
 
     // Step 4: a highlight on an entity that is already on screen.
     controller.next();
@@ -7223,6 +7249,7 @@ describe("render() — an ER diagram, end to end", () => {
       "LINE-ITEM",
       "ORDER",
       "ORDER:LINE-ITEM",
+      "subgraph:1",
     ]);
     expect(places.classList.contains("siren-highlight-glow")).toBe(false);
   });
