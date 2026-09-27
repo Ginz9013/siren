@@ -10,6 +10,7 @@ import type {
 } from "../contracts";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
+import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -120,9 +121,7 @@ const END_SHAPES = {
  */
 export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", String(graph.width));
-  svg.setAttribute("height", String(graph.height));
-  svg.setAttribute("viewBox", `0 0 ${graph.width} ${graph.height}`);
+  sizeCanvas(svg, graph.width, graph.height);
 
   // Every id this SVG mints is namespaced by one freshly drawn token. See
   // `mintIdScope`: a marker id is a *document*-wide name, not an SVG-wide

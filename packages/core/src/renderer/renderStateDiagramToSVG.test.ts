@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PositionedStateDiagram } from "../contracts";
 import { renderStateDiagramToSVG } from "./renderStateDiagramToSVG";
+import { CANVAS_GUTTER } from "./sizeCanvas";
 
 const DIAGRAM: PositionedStateDiagram = {
   states: [
@@ -65,9 +66,12 @@ describe("renderStateDiagramToSVG", () => {
   it("sizes the svg from the laid-out diagram", () => {
     const svg = renderStateDiagramToSVG(DIAGRAM);
 
-    expect(svg.getAttribute("width")).toBe("200");
-    expect(svg.getAttribute("height")).toBe("180");
-    expect(svg.getAttribute("viewBox")).toBe("0 0 200 180");
+    // The layout's extent plus `CANVAS_GUTTER` on every side, the
+    // gutter taken into the viewBox's origin — see `sizeCanvas`.
+    const g = CANVAS_GUTTER;
+    expect(svg.getAttribute("width")).toBe(String(200 + g * 2));
+    expect(svg.getAttribute("height")).toBe(String(180 + g * 2));
+    expect(svg.getAttribute("viewBox")).toBe(`${-g} ${-g} ${200 + g * 2} ${180 + g * 2}`);
   });
 
   it("draws one siren-state group per state, wearing its id, around a frame at its box and its label", () => {

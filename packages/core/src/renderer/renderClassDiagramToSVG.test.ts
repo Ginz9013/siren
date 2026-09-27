@@ -9,6 +9,7 @@ import type {
   PositionedClassNote,
   PositionedClassRelationship,
 } from "../contracts";
+import { CANVAS_GUTTER } from "./sizeCanvas";
 
 /**
  * Hand-built class box with no compartments — a bare `class Animal`, laid
@@ -250,9 +251,12 @@ describe("renderClassDiagramToSVG", () => {
   it("sizes the root svg from the diagram's own dimensions", () => {
     const svg = renderClassDiagramToSVG(buildDiagram([buildClass()]));
 
-    expect(svg.getAttribute("width")).toBe("400");
-    expect(svg.getAttribute("height")).toBe("300");
-    expect(svg.getAttribute("viewBox")).toBe("0 0 400 300");
+    // The layout's extent plus `CANVAS_GUTTER` on every side, the
+    // gutter taken into the viewBox's origin — see `sizeCanvas`.
+    const g = CANVAS_GUTTER;
+    expect(svg.getAttribute("width")).toBe(String(400 + g * 2));
+    expect(svg.getAttribute("height")).toBe(String(300 + g * 2));
+    expect(svg.getAttribute("viewBox")).toBe(`${-g} ${-g} ${400 + g * 2} ${300 + g * 2}`);
   });
 
   it("renders one identified group per class, holding a frame rect at the class's box", () => {

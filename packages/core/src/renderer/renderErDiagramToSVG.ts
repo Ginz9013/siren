@@ -8,6 +8,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
+import { sizeCanvas } from "./sizeCanvas";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -106,9 +107,7 @@ function pointsToPathData(points: Point[]): string {
  */
 export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", String(diagram.width));
-  svg.setAttribute("height", String(diagram.height));
-  svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
+  sizeCanvas(svg, diagram.width, diagram.height);
 
   // Every marker id below is namespaced by this one freshly drawn token —
   // see `mintIdScope`. Two ER diagrams on one page would otherwise share

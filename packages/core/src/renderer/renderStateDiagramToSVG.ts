@@ -6,6 +6,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
+import { sizeCanvas } from "./sizeCanvas";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -56,9 +57,7 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  */
 export function renderStateDiagramToSVG(diagram: PositionedStateDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", String(diagram.width));
-  svg.setAttribute("height", String(diagram.height));
-  svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
+  sizeCanvas(svg, diagram.width, diagram.height);
 
   const scope = mintIdScope();
   svg.appendChild(buildDefs(scope));
