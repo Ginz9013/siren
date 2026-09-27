@@ -5,7 +5,7 @@
     <title>Siren — sequence diagram demo</title>
     <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
     <link rel="stylesheet" href="./demo-chrome.css" />
-    <link rel="stylesheet" href="./theme-dark-override.css" />
+    <script src="./theme-toggle.js"></script>
   </head>
   <body>
     <div class="page-header">
@@ -117,21 +117,7 @@
       const fullStatusEl = document.getElementById("full-status");
       const fullNextBtn = document.getElementById("full-next");
       const fullResetBtn = document.getElementById("full-reset");
-      const themeBtn = document.getElementById("theme-btn");
 
-      // Proves the design tokens in packages/core/src/theme/default.css are
-      // genuinely swappable via plain CSS: this only ever toggles an
-      // attribute, demos/theme-dark-override.css does the actual
-      // re-theming by redeclaring the same --siren-* custom properties.
-      themeBtn.addEventListener("click", () => {
-        const isDark = document.body.dataset.sirenTheme === "dark";
-        if (isDark) {
-          delete document.body.dataset.sirenTheme;
-        } else {
-          document.body.dataset.sirenTheme = "dark";
-        }
-        themeBtn.textContent = `Theme: ${isDark ? "Light" : "Dark"}`;
-      });
 
       // jsdom-safe fixed-width-per-character estimate is fine for tests,
       // but this is a real browser: measure labels with a real <canvas> 2D

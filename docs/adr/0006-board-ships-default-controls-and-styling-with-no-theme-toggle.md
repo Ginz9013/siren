@@ -14,7 +14,7 @@ use (deduplicated across instances), and the default control bar can be turned o
 (`controls: false`) or fully replaced (`controls: (board) => ({ element, destroy? })`) so the
 built-in default doesn't lock a consumer in. The control bar does not include a Theme/dark-mode
 toggle: `@siren/core` doesn't ship an official dark theme (ADR-0004 defines exactly one token set;
-`demos/theme-dark-override.css` explicitly documents itself as demonstration scaffolding, not a
+`demos/theme-dark-override.css` (since removed, see ADR-0011) explicitly documents itself as demonstration scaffolding, not a
 second real theme) — a Theme button on a component with no theme to switch to would be misleading,
 so theming stays entirely the consumer's own concern in v1.
 
