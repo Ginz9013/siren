@@ -272,11 +272,11 @@
  *    who wants them to differ still can — by scoping an override to the
  *    selectors below.
  *  - A *new* color token declared in `:root` here would silently defeat any
- *    override scoped lower than `:root` (the demos' `[data-siren-theme=
- *    "dark"]` sits on `<body>`, see demos/theme-dark-override.css). Custom
- *    properties substitute against the element the declaration sits on, so
- *    `--siren-x: var(--siren-node-fill)` written in `:root` freezes the
- *    *light* value at `:root` and inherits it down past the override. Naming
+ *    override scoped lower than `:root` (a subtree pinned with
+ *    `data-theme="light"`, or a consumer's own override on a container).
+ *    Custom properties substitute against the element the declaration sits
+ *    on, so `--siren-x: var(--siren-node-fill)` written in `:root` freezes
+ *    the *light* value at `:root` and inherits it down past the override. Naming
  *    the base token directly in the rule instead resolves it on the diagram
  *    element itself, below the override, so dark mode just works. Only
  *    color-independent tokens (dash pattern, font sizes, opacities) are safe

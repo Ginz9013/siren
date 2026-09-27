@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>Siren — 全範例一覽</title>
     <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
-    <link rel="stylesheet" href="./theme-dark-override.css" />
+    <script src="./theme-toggle.js"></script>
     <style>
       /*
        * Deliberately does NOT link demo-chrome.css: that file is written for
@@ -23,12 +23,12 @@
         flex-direction: column;
         overflow: hidden;
         font-family: system-ui, sans-serif;
-        background: #f7f7fa;
-        color: #1a1a2e;
+        background: #f8f6fc;
+        color: #1d1730;
       }
-      body[data-siren-theme="dark"] {
-        background: #14141c;
-        color: #e8e8f0;
+      :root[data-theme="dark"] body {
+        background: #14111d;
+        color: #ece8f8;
         color-scheme: dark;
       }
 
@@ -39,7 +39,7 @@
         align-items: baseline;
         gap: 0.75rem 1.5rem;
         padding: 0.85rem 1.25rem;
-        border-bottom: 1px solid rgba(128, 128, 150, 0.35);
+        border-bottom: 1px solid rgba(111, 106, 132, 0.35);
       }
       header h1 {
         margin: 0;
@@ -55,13 +55,13 @@
         font-weight: 600;
         opacity: 1;
       }
-      body[data-siren-theme="dark"] #summary.bad {
+      :root[data-theme="dark"] body #summary.bad {
         color: #ff8a7a;
       }
       button {
         font: inherit;
         padding: 0.3rem 0.75rem;
-        border: 1px solid rgba(128, 128, 150, 0.5);
+        border: 1px solid rgba(111, 106, 132, 0.5);
         border-radius: 6px;
         background: transparent;
         color: inherit;
@@ -79,7 +79,7 @@
         width: 270px;
         overflow-y: auto;
         padding: 0.75rem;
-        border-right: 1px solid rgba(128, 128, 150, 0.35);
+        border-right: 1px solid rgba(111, 106, 132, 0.35);
       }
       nav h2 {
         font-size: 0.72rem;
@@ -103,11 +103,11 @@
         font-size: 0.85rem;
       }
       .pick:hover {
-        background: rgba(128, 128, 150, 0.14);
+        background: rgba(111, 106, 132, 0.14);
       }
       .pick[aria-current="true"] {
-        background: rgba(90, 120, 255, 0.18);
-        border-color: rgba(90, 120, 255, 0.55);
+        background: rgba(109, 63, 214, 0.18);
+        border-color: rgba(109, 63, 214, 0.55);
         font-weight: 600;
       }
       .pick .name {
@@ -132,15 +132,15 @@
         line-height: 1.5;
       }
       .badge.static {
-        background: rgba(128, 128, 150, 0.2);
+        background: rgba(111, 106, 132, 0.2);
         opacity: 0.75;
       }
       .badge.animated {
-        background: rgba(90, 120, 255, 0.22);
-        color: #2a3fa8;
+        background: rgba(109, 63, 214, 0.22);
+        color: #5a31b4;
       }
-      body[data-siren-theme="dark"] .badge.animated {
-        color: #b9c4ff;
+      :root[data-theme="dark"] body .badge.animated {
+        color: #b69cff;
       }
       .mark.ok {
         color: #2e9e5b;
@@ -165,7 +165,7 @@
         align-items: baseline;
         gap: 1rem;
         padding: 0.6rem 1rem;
-        border-bottom: 1px solid rgba(128, 128, 150, 0.25);
+        border-bottom: 1px solid rgba(111, 106, 132, 0.25);
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.85rem;
       }
@@ -187,7 +187,7 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.78rem;
         white-space: pre-wrap;
-        border-top: 1px solid rgba(128, 128, 150, 0.25);
+        border-top: 1px solid rgba(111, 106, 132, 0.25);
       }
       #notes:empty {
         display: none;
@@ -200,10 +200,10 @@
         background: rgba(214, 154, 20, 0.14);
         color: #7a5500;
       }
-      body[data-siren-theme="dark"] #notes.error {
+      :root[data-theme="dark"] body #notes.error {
         color: #ff9b8d;
       }
-      body[data-siren-theme="dark"] #notes.warning {
+      :root[data-theme="dark"] body #notes.warning {
         color: #f0c35a;
       }
       .source {
@@ -216,7 +216,7 @@
     <header>
       <h1>Siren — 全範例一覽</h1>
       <span id="summary">檢查中…</span>
-      <button id="theme-btn" type="button">主題：淺色</button>
+      <button id="theme-btn" type="button" data-labels="主題：淺色|主題：深色">主題：淺色</button>
     </header>
 
     <div class="body">
@@ -520,12 +520,6 @@
 
       show(entries[0]);
 
-      document.getElementById("theme-btn").addEventListener("click", () => {
-        const isDark = document.body.dataset.sirenTheme === "dark";
-        if (isDark) delete document.body.dataset.sirenTheme;
-        else document.body.dataset.sirenTheme = "dark";
-        document.getElementById("theme-btn").textContent = `主題：${isDark ? "淺色" : "深色"}`;
-      });
     </script>
   </body>
 </html>
