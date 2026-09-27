@@ -2,10 +2,50 @@ import type { Board } from "./createBoard";
 
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/*
+ * Icon paths below are copied from Lucide (https://lucide.dev) rather than
+ * taken as a dependency, so board keeps depending on @siren/core alone.
+ *
+ * ISC License
+ *
+ * Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as
+ * part of Feather (MIT). All other copyright (c) for Lucide are held by
+ * Lucide Contributors 2022.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+ * SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+ * IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+const ICONS = {
+  /** Lucide `chevron-left` */
+  prev: ["m15 18-6-6 6-6"],
+  /** Lucide `chevron-right` */
+  next: ["m9 18 6-6-6-6"],
+  /** Lucide `rotate-ccw` */
+  reset: ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"],
+  /** Lucide `scan` */
+  resetView: [
+    "M3 7V5a2 2 0 0 1 2-2h2",
+    "M17 3h2a2 2 0 0 1 2 2v2",
+    "M21 17v2a2 2 0 0 1-2 2h-2",
+    "M7 21H5a2 2 0 0 1-2-2v-2",
+  ],
+} satisfies Record<string, string[]>;
 
 /**
  * Board's built-in Prev/Next/Reset control bar — the default value of
- * `BoardOptions.controls`. Reads `board.controller` at click time rather
+ * `BoardOptions.controls`. Its buttons are icon-only; each carries its name
+ * as `aria-label` and `title` instead of visible text. Reads `board.controller` at click time rather
  * than capturing it once, so it keeps working across `setSource` calls that
  * replace the underlying controller. Turn it off with `controls: false`, or
  * replace it with any other `ControlsFactory` (see ADR-0006).
@@ -15,20 +55,47 @@ export function createDefaultControls(board: Board): { element: HTMLElement; des
   bar.className = CONTROLS_CLASS;
 
   bar.append(
-    makeButton("Prev", () => board.controller?.prev()),
-    makeButton("Next", () => board.controller?.next()),
-    makeButton("Reset", () => board.controller?.reset()),
-    makeButton("Reset view", () => board.resetView()),
+    makeButton("Prev", ICONS.prev, () => board.controller?.prev()),
+    makeButton("Next", ICONS.next, () => board.controller?.next()),
+    makeButton("Reset", ICONS.reset, () => board.controller?.reset()),
+    makeButton("Reset view", ICONS.resetView, () => board.resetView()),
   );
 
   return { element: bar };
 }
 
-function makeButton(label: string, onClick: () => void): HTMLButtonElement {
+function makeButton(label: string, iconPaths: string[], onClick: () => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = BUTTON_CLASS;
-  button.textContent = label;
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.append(makeIcon(iconPaths));
   button.addEventListener("click", onClick);
   return button;
+}
+
+/** A 24×24 stroke icon drawn in `currentColor`, so it follows the button's hover color. */
+function makeIcon(paths: string[]): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [name, value] of Object.entries({
+    viewBox: "0 0 24 24",
+    width: "18",
+    height: "18",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "2",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+    focusable: "false",
+  })) {
+    svg.setAttribute(name, value);
+  }
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
 }
