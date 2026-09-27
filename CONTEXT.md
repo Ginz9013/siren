@@ -139,7 +139,10 @@ redeclaring these in their own CSS, not by passing a JS theme object — see
 come in a light and a dark palette: dark follows the system's `prefers-color-scheme` unless the
 page pins `<html data-theme="light|dark">`, and any element carrying `data-theme="light"` keeps its
 subtree light inside a dark page — see
-[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md).
+[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md). `@siren/board`'s
+`--siren-board-*` properties are **chrome tokens**, not design tokens: they color board's control
+bar and error banner, live in board's injected stylesheet, and follow the same light/dark selectors
+(ADR-0006 keeps board's chrome out of core's theme).
 **One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
 for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
 `.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the
