@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToSVG } from "./renderToSVG";
 import type { PositionedEdge, PositionedGraph } from "../contracts";
+import { CANVAS_GUTTER } from "./sizeCanvas";
 
 /**
  * `A --> B`'s decomposition — a solid line, an arrow on the to-end only,
@@ -857,9 +858,12 @@ describe("renderToSVG", () => {
     const svg = renderToSVG(buildFixture());
 
     // Fixture: width: 80, height: 240.
-    expect(svg.getAttribute("width")).toBe("80");
-    expect(svg.getAttribute("height")).toBe("240");
-    expect(svg.getAttribute("viewBox")).toBe("0 0 80 240");
+    // The layout's extent plus `CANVAS_GUTTER` on every side, the
+    // gutter taken into the viewBox's origin — see `sizeCanvas`.
+    const g = CANVAS_GUTTER;
+    expect(svg.getAttribute("width")).toBe(String(80 + g * 2));
+    expect(svg.getAttribute("height")).toBe(String(240 + g * 2));
+    expect(svg.getAttribute("viewBox")).toBe(`${-g} ${-g} ${80 + g * 2} ${240 + g * 2}`);
   });
 
   it("centers each node's text within its rect instead of leaving it at the default (0,0)", () => {

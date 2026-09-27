@@ -10,6 +10,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { mintIdScope } from "./mintIdScope";
+import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -100,9 +101,7 @@ const DASH_PATTERN = "6,4";
  */
 export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", String(diagram.width));
-  svg.setAttribute("height", String(diagram.height));
-  svg.setAttribute("viewBox", `0 0 ${diagram.width} ${diagram.height}`);
+  sizeCanvas(svg, diagram.width, diagram.height);
 
   // Every marker id below is namespaced by this one freshly drawn token —
   // see `mintIdScope`. Four fixed ids here rather than the flowchart's one,

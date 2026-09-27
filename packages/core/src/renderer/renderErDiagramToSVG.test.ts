@@ -5,6 +5,7 @@ import type {
   PositionedErRelationship,
 } from "../contracts";
 import { renderErDiagramToSVG } from "./renderErDiagramToSVG";
+import { CANVAS_GUTTER } from "./sizeCanvas";
 
 const diagram = (
   entities: PositionedErDiagram["entities"],
@@ -154,9 +155,12 @@ describe("renderErDiagramToSVG", () => {
   it("sizes the root svg from the bounds layout reported", () => {
     const svg = renderErDiagramToSVG(diagram([CUSTOMER], { width: 400, height: 100 }));
 
-    expect(svg.getAttribute("width")).toBe("400");
-    expect(svg.getAttribute("height")).toBe("100");
-    expect(svg.getAttribute("viewBox")).toBe("0 0 400 100");
+    // The layout's extent plus `CANVAS_GUTTER` on every side, the
+    // gutter taken into the viewBox's origin — see `sizeCanvas`.
+    const g = CANVAS_GUTTER;
+    expect(svg.getAttribute("width")).toBe(String(400 + g * 2));
+    expect(svg.getAttribute("height")).toBe(String(100 + g * 2));
+    expect(svg.getAttribute("viewBox")).toBe(`${-g} ${-g} ${400 + g * 2} ${100 + g * 2}`);
   });
 
   it("draws one box per entity, at the box layout placed", () => {
@@ -431,7 +435,9 @@ describe("renderErDiagramToSVG", () => {
     const svg = renderErDiagramToSVG(diagram([], { width: 0, height: 0 }));
 
     expect(svg.querySelectorAll("g.siren-er-entity")).toHaveLength(0);
-    expect(svg.getAttribute("viewBox")).toBe("0 0 0 0");
+    expect(svg.getAttribute("viewBox")).toBe(
+      `${-CANVAS_GUTTER} ${-CANVAS_GUTTER} ${CANVAS_GUTTER * 2} ${CANVAS_GUTTER * 2}`,
+    );
   });
 
   it("puts the accessible title in a <title> and the description in a <desc>, each wired to the root", () => {
