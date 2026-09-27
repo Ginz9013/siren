@@ -49,7 +49,7 @@ describe("createBoard", () => {
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
 
-    const svg = container.querySelector("svg");
+    const svg = container.querySelector(".siren-board-viewport svg");
     expect(svg).not.toBeNull();
     expect(svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
   });
@@ -76,7 +76,7 @@ describe("createBoard", () => {
 
     const board = createBoard(container, { measureText: FAKE_MEASURER });
 
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector(".siren-board-viewport svg")).toBeNull();
     expect(board.controller).toBeNull();
     expect(board.diagnostics).toEqual([]);
   });
@@ -87,7 +87,7 @@ describe("createBoard", () => {
 
     board.setSource(VALID_SOURCE);
 
-    expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector(".siren-board-viewport svg")).not.toBeNull();
     expect(board.controller).not.toBeNull();
     expect(board.diagnostics).toEqual([]);
   });
@@ -95,12 +95,12 @@ describe("createBoard", () => {
   it("keeps the last successful diagram and controller visible when a later setSource fails to parse, and shows an error banner", () => {
     const container = document.createElement("div");
     const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
-    const svgBeforeFailure = container.querySelector("svg");
+    const svgBeforeFailure = container.querySelector(".siren-board-viewport svg");
     const controllerBeforeFailure = board.controller;
 
     board.setSource("this is not a valid siren document");
 
-    expect(container.querySelector("svg")).toBe(svgBeforeFailure);
+    expect(container.querySelector(".siren-board-viewport svg")).toBe(svgBeforeFailure);
     expect(board.controller).toBe(controllerBeforeFailure);
     expect(board.diagnostics.some((d) => d.severity === "error")).toBe(true);
     expect(container.querySelector(".siren-board-error")).not.toBeNull();
@@ -163,8 +163,16 @@ A[Different] --> B[End]
 
     const bar = container.querySelector(".siren-board-controls")!;
     expect(bar).not.toBeNull();
-    const buttonLabels = Array.from(bar.querySelectorAll("button")).map((b) => b.textContent);
-    expect(buttonLabels).toEqual(["Prev", "Next", "Reset", "Reset view"]);
+    const buttons = Array.from(bar.querySelectorAll("button"));
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Prev", "Next", "Reset", "Reset view"]);
+    expect(buttons.map((b) => b.title)).toEqual(["Prev", "Next", "Reset", "Reset view"]);
+    for (const button of buttons) {
+      expect(button.textContent).toBe(""); // icon only: no visible text
+      const icons = button.querySelectorAll("svg");
+      expect(icons).toHaveLength(1);
+      expect(icons[0].getAttribute("aria-hidden")).toBe("true");
+      expect(icons[0].getAttribute("stroke")).toBe("currentColor");
+    }
   });
 
   it("controls: false renders no control bar", () => {
@@ -184,9 +192,7 @@ step 1: enter B fade
 `;
     const board = createBoard(container, { source, measureText: FAKE_MEASURER });
 
-    const nextButton = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent === "Next",
-    )!;
+    const nextButton = container.querySelector<HTMLButtonElement>('button[aria-label="Next"]')!;
     nextButton.click();
 
     expect(board.controller!.currentStep).toBe(1);
@@ -207,15 +213,11 @@ step 1: enter B fade
     );
     expect(readViewportTransform(container).scale).not.toBe(1); // sanity: the wheel event actually moved the view
 
-    const nextButton = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent === "Next",
-    )!;
+    const nextButton = container.querySelector<HTMLButtonElement>('button[aria-label="Next"]')!;
     nextButton.click();
     expect(board.controller!.currentStep).toBe(1);
 
-    const resetViewButton = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent === "Reset view",
-    )!;
+    const resetViewButton = container.querySelector<HTMLButtonElement>('button[aria-label="Reset view"]')!;
     resetViewButton.click();
 
     expect(readViewportTransform(container)).toEqual({ offsetX: 0, offsetY: 0, scale: 1 });
@@ -234,9 +236,7 @@ step 1: enter B fade
     const zoomed = readViewportTransform(container);
     expect(zoomed.scale).not.toBe(1); // sanity: the wheel event actually moved the view
 
-    const resetButton = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent === "Reset",
-    )!;
+    const resetButton = container.querySelector<HTMLButtonElement>('button[aria-label="Reset"]')!;
     resetButton.click();
 
     expect(readViewportTransform(container)).toEqual(zoomed);
@@ -559,9 +559,7 @@ step 2: enter C fade
 
     expect(calls).toEqual([]); // no synthetic call on construction
 
-    const nextButton = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent === "Next",
-    )!;
+    const nextButton = container.querySelector<HTMLButtonElement>('button[aria-label="Next"]')!;
     nextButton.click(); // built-in bar trigger
     expect(calls).toEqual([[1, 2]]);
 

@@ -120,8 +120,10 @@ const CSS = `
 }
 
 .siren-board-controls__button {
-  font: inherit;
-  padding: 0.5rem 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
   border: 1px solid var(--siren-board-border);
   border-radius: 8px;
   background: var(--siren-board-surface);
