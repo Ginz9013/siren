@@ -18,8 +18,47 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * mounts/replaces on each `setSource`, receiving the pan/zoom transform —
  * see viewport.ts) and, conditionally, the error banner — a sibling of the
  * viewport so it is never panned or zoomed along with the diagram.
+ *
+ * Every chrome color goes through a `--siren-board-*` token, declared here
+ * rather than in `@siren/core`'s theme (ADR-0006: board owns its chrome).
+ * The values are siren-website's decision 01M3BY1GPP, light and dark, on the
+ * same selectors core uses for its own palette (ADR-0011): dark follows the
+ * system unless the page pins `<html data-theme="light|dark">`, and an
+ * element carrying `data-theme="light"` stays light inside a dark page. The
+ * dark set is written twice because a media query and an attribute selector
+ * cannot share one rule; styles.test.ts keeps the two copies identical.
  */
 const CSS = `
+:root,
+[data-theme="light"] {
+  --siren-board-surface: #ffffff;
+  --siren-board-surface-hover: #f8f6fc;
+  --siren-board-text: #1d1730;
+  --siren-board-border: #e7e2f1;
+  --siren-board-accent: #6d3fd6;
+  --siren-board-danger: #c0264b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --siren-board-surface: #14111d;
+    --siren-board-surface-hover: #1d1929;
+    --siren-board-text: #ece8f8;
+    --siren-board-border: #302a44;
+    --siren-board-accent: #b69cff;
+    --siren-board-danger: #ff8fa3;
+  }
+}
+
+:root[data-theme="dark"] {
+  --siren-board-surface: #14111d;
+  --siren-board-surface-hover: #1d1929;
+  --siren-board-text: #ece8f8;
+  --siren-board-border: #302a44;
+  --siren-board-accent: #b69cff;
+  --siren-board-danger: #ff8fa3;
+}
+
 .siren-board {
   position: relative;
   width: 100%;
@@ -61,8 +100,8 @@ const CSS = `
   padding: 1rem;
   text-align: center;
   font: 14px system-ui, sans-serif;
-  color: #b00020;
-  background: rgba(255, 255, 255, 0.85);
+  color: var(--siren-board-danger);
+  background: color-mix(in srgb, var(--siren-board-surface) 85%, transparent);
 }
 
 .siren-board-controls {
@@ -74,23 +113,26 @@ const CSS = `
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #ccc;
+  background: color-mix(in srgb, var(--siren-board-surface) 90%, transparent);
+  border: 1px solid var(--siren-board-border);
   border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--siren-board-text) 12%, transparent);
 }
 
 .siren-board-controls__button {
   font: inherit;
   padding: 0.5rem 1.25rem;
-  border: 1px solid #333;
+  border: 1px solid var(--siren-board-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--siren-board-surface);
+  color: var(--siren-board-text);
   cursor: pointer;
 }
 
 .siren-board-controls__button:hover {
-  background: #eee;
+  border-color: var(--siren-board-accent);
+  background: var(--siren-board-surface-hover);
+  color: var(--siren-board-accent);
 }
 `;
 
