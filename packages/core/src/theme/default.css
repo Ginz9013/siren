@@ -35,14 +35,22 @@
  * animation of its own, so the browser has nothing to animate.
  */
 
-:root {
-  /* Color tokens */
-  --siren-node-fill: #eef2ff;
-  --siren-node-stroke: #4c51bf;
-  --siren-node-text: #1a1a2e;
-  --siren-edge-stroke: #666;
-  --siren-highlight-color: #f6ad55;
+/*
+ * Color tokens: the violet palette of siren-website's decision 01M3BY1GPP.
+ * Declared on any element pinned with data-theme="light" as well as on the
+ * root, so one subtree can stay light inside a dark page — a custom property
+ * a pin does not redeclare is simply inherited from whatever is above it.
+ */
+:root,
+[data-theme="light"] {
+  --siren-node-fill: #f3efff;
+  --siren-node-stroke: #6d3fd6;
+  --siren-node-text: #1d1730;
+  --siren-edge-stroke: #6f6a84;
+  --siren-highlight-color: #0d9488;
+}
 
+:root {
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
   --siren-font-size: 14px;

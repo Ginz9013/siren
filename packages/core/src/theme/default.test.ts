@@ -929,22 +929,110 @@ describe("default theme coverage of the class renderer", () => {
   });
 });
 
+/**
+ * Puts `default.css` on the document, once, under the same id
+ * `renderThemedSVG` uses, so the two never stack a second copy.
+ */
+function attachDefaultTheme(): void {
+  if (document.getElementById("siren-default-theme") === null) {
+    const style = document.createElement("style");
+    style.id = "siren-default-theme";
+    style.textContent = defaultThemeCss;
+    document.head.appendChild(style);
+  }
+}
+
+/**
+ * The five color tokens as `element` itself resolves them. jsdom resolves a
+ * custom property only on the element that declares it — it neither inherits
+ * one to a child nor evaluates `@media` — so `element` has to be the one a
+ * token block selects: the root, or an element carrying `data-theme`.
+ */
+function colorTokensOn(element: Element): Record<string, string> {
+  const style = getComputedStyle(element);
+  return Object.fromEntries(
+    [
+      "--siren-node-fill",
+      "--siren-node-stroke",
+      "--siren-node-text",
+      "--siren-edge-stroke",
+      "--siren-highlight-color",
+    ].map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]),
+  );
+}
+
+/** The light palette, copied from siren-website's decision 01M3BY1GPP. */
+const LIGHT_PALETTE = {
+  "--siren-node-fill": "#f3efff",
+  "--siren-node-stroke": "#6d3fd6",
+  "--siren-node-text": "#1d1730",
+  "--siren-edge-stroke": "#6f6a84",
+  "--siren-highlight-color": "#0d9488",
+};
+
+describe("default theme's color palette", () => {
+  it("resolves the light violet palette on the root", () => {
+    attachDefaultTheme();
+    expect(colorTokensOn(document.documentElement)).toEqual(LIGHT_PALETTE);
+  });
+
+  it("lets an element pinned with data-theme=\"light\" resolve the light palette itself", () => {
+    attachDefaultTheme();
+    // A subtree pinned light inside a dark page (siren-website's PPT export)
+    // only stays light if the pin redeclares the palette on itself.
+    const pinned = document.createElement("div");
+    pinned.dataset.theme = "light";
+    document.body.appendChild(pinned);
+    try {
+      expect(colorTokensOn(pinned)).toEqual(LIGHT_PALETTE);
+    } finally {
+      pinned.remove();
+    }
+  });
+});
+
 describe("default theme's design tokens", () => {
-  /** The `:root` block's body — where ADR-0004 says every literal belongs. */
-  const tokenBlock = /:root\s*\{([\s\S]*?)\}/.exec(themeRules)?.[1] ?? "";
+  /**
+   * Every rule, as selector and body. A rule nested in `@media` is picked up
+   * with its own selector: the pattern matches innermost braces only.
+   */
+  const rules = [...themeRules.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([whole, selector, body]) => ({
+    whole,
+    selector: selector.trim(),
+    body,
+  }));
+
+  /**
+   * A token block — where ADR-0004 says every literal belongs — is a rule
+   * selecting the root or a data-theme pin and nothing else. There is more
+   * than one: the colors are declared apart from the rest so that a pin can
+   * redeclare them.
+   */
+  const isTokenSelector = (part: string) =>
+    /^(?::root)?(?:\[data-theme="(?:light|dark)"\]|:not\(\[data-theme="light"\]\))?$/.test(part) &&
+    part !== "";
+  const tokenBlocks = rules.filter((rule) =>
+    rule.selector.split(",").every((part) => isTokenSelector(part.trim())),
+  );
 
   it("keeps every color literal inside the token declarations", () => {
-    expect(tokenBlock).not.toBe("");
-    const rules = themeRules.replace(/:root\s*\{[\s\S]*?\}/, "");
+    // Not vacuous: every color token is declared in some token block.
+    const declaredInBlocks = tokenBlocks.map((block) => block.body).join("\n");
+    for (const token of Object.keys(LIGHT_PALETTE)) {
+      expect(declaredInBlocks).toContain(`${token}:`);
+    }
+    const outside = tokenBlocks.reduce((css, block) => css.replace(block.whole, ""), themeRules);
 
     // Per ADR-0004 the tokens are the single source of truth for the diagram's
     // colors; a literal in a rule is a value no consumer can override.
-    const literals = rules.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g) ?? [];
+    const literals = outside.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g) ?? [];
     expect(literals).toEqual([]);
   });
 
   it("declares every token it references", () => {
-    const declared = new Set(tokenBlock.match(/--siren-[\w-]+(?=\s*:)/g) ?? []);
+    const declared = new Set(
+      tokenBlocks.flatMap((block) => block.body.match(/--siren-[\w-]+(?=\s*:)/g) ?? []),
+    );
     const referenced = new Set(
       (themeRules.match(/var\(\s*(--siren-[\w-]+)/g) ?? []).map((use) =>
         use.replace(/^var\(\s*/, ""),
