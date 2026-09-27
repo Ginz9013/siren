@@ -50,6 +50,30 @@
   --siren-highlight-color: #0d9488;
 }
 
+/*
+ * The dark palette, from the same decision. It follows the system unless the
+ * page pins a theme with <html data-theme="light|dark">. It is written twice
+ * because a media query and an attribute selector cannot share one rule; the
+ * two copies must stay identical, and default.test.ts checks that they do.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --siren-node-fill: #2a2144;
+    --siren-node-stroke: #b69cff;
+    --siren-node-text: #ece8f8;
+    --siren-edge-stroke: #8e88a3;
+    --siren-highlight-color: #2dd4bf;
+  }
+}
+
+:root[data-theme="dark"] {
+  --siren-node-fill: #2a2144;
+  --siren-node-stroke: #b69cff;
+  --siren-node-text: #ece8f8;
+  --siren-edge-stroke: #8e88a3;
+  --siren-highlight-color: #2dd4bf;
+}
+
 :root {
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;

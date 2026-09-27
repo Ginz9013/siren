@@ -4,6 +4,8 @@ status: accepted
 
 # The default theme is plain CSS custom properties, shipped as part of `@siren/core`
 
+> ADR-0011 ships the light and dark variants deferred below.
+
 Diagram styling (colors, stroke widths, font, motion timing) was scattered as hardcoded values
 across a demo-only stylesheet, with no way for any consumer besides this repo's own demos to get
 consistent default styling or override it predictably. `packages/core/src/theme/default.css` is

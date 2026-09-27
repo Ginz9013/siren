@@ -970,6 +970,15 @@ const LIGHT_PALETTE = {
   "--siren-highlight-color": "#0d9488",
 };
 
+/** The dark palette, from the same decision. */
+const DARK_PALETTE = {
+  "--siren-node-fill": "#2a2144",
+  "--siren-node-stroke": "#b69cff",
+  "--siren-node-text": "#ece8f8",
+  "--siren-edge-stroke": "#8e88a3",
+  "--siren-highlight-color": "#2dd4bf",
+};
+
 describe("default theme's color palette", () => {
   it("resolves the light violet palette on the root", () => {
     attachDefaultTheme();
@@ -988,6 +997,51 @@ describe("default theme's color palette", () => {
     } finally {
       pinned.remove();
     }
+  });
+
+  it("resolves the dark violet palette on a root pinned with data-theme=\"dark\"", () => {
+    attachDefaultTheme();
+    document.documentElement.dataset.theme = "dark";
+    try {
+      expect(colorTokensOn(document.documentElement)).toEqual(DARK_PALETTE);
+    } finally {
+      delete document.documentElement.dataset.theme;
+    }
+  });
+
+  it("keeps a subtree pinned light inside a dark root light", () => {
+    attachDefaultTheme();
+    document.documentElement.dataset.theme = "dark";
+    const pinned = document.createElement("div");
+    pinned.dataset.theme = "light";
+    document.body.appendChild(pinned);
+    try {
+      expect(colorTokensOn(pinned)).toEqual(LIGHT_PALETTE);
+    } finally {
+      pinned.remove();
+      delete document.documentElement.dataset.theme;
+    }
+  });
+
+  it("follows a dark system preference with the same dark palette, unless the page pins itself light", () => {
+    // jsdom evaluates no `@media`, so this reads the stylesheet: exactly one
+    // rule inside `prefers-color-scheme: dark`, selecting the root when it is
+    // not pinned light, declaring what the data-theme="dark" rule declares.
+    const declarations = (body: string) =>
+      body
+        .split(";")
+        .map((declaration) => declaration.trim().replace(/\s+/g, " "))
+        .filter((declaration) => declaration !== "")
+        .sort();
+    const media = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{([\s\S]*?\})\s*\}/.exec(themeRules);
+    expect(media).not.toBeNull();
+    const inner = [...media![1].matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    expect(inner.map(([, selector]) => selector.trim())).toEqual([':root:not([data-theme="light"])']);
+
+    const pinnedDark = /:root\[data-theme="dark"\]\s*\{([^{}]*)\}/.exec(themeRules);
+    expect(pinnedDark).not.toBeNull();
+    expect(declarations(inner[0][2])).toEqual(declarations(pinnedDark![1]));
+    expect(declarations(pinnedDark![1])).toHaveLength(Object.keys(DARK_PALETTE).length);
   });
 });
 
