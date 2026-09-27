@@ -135,7 +135,11 @@ remain the right words for those two things themselves), timeline reference, ani
 A `--siren-*` CSS custom property in `packages/core/src/theme/default.css` — the single source of
 truth for the diagram's default colors, sizing, and motion timing. Consumers theme by
 redeclaring these in their own CSS, not by passing a JS theme object — see
-[ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md).
+[ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md). The five color tokens
+come in a light and a dark palette: dark follows the system's `prefers-color-scheme` unless the
+page pins `<html data-theme="light|dark">`, and any element carrying `data-theme="light"` keeps its
+subtree light inside a dark page — see
+[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md).
 **One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
 for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
 `.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the

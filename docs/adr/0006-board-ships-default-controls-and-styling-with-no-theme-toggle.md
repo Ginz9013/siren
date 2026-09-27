@@ -4,6 +4,8 @@ status: accepted
 
 # `@siren/board`'s default control bar and chrome styling are built in, JS-delivered, and replaceable — no theme toggle in v1
 
+> ADR-0011 ships core's dark palette, which removes this ADR's premise; its no-toggle decision stands, for the reason given there.
+
 `@siren/board`'s `createBoard()` ships a default Prev/Next/Reset control bar and its own chrome
 CSS out of the box, so a consumer gets a fully working, styled diagram with one function call — no
 separate `<link>` tag to remember, unlike `@siren/core`'s theme, which ADR-0004 deliberately ships
