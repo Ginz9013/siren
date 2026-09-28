@@ -1514,7 +1514,7 @@ describe("a subgraph in the graph model", () => {
     // A frame nobody can name would be a decision by omission. Board 2's
     // rule is that a diagram kind gains animation by tagging drawn elements
     // with the ids the timeline uses, and a namespace already resolves this
-    // way — so `step 1: enter subgraph:1 fade` has to resolve rather than be
+    // way — so `enter subgraph:1 fade` has to resolve rather than be
     // dropped as an unknown target.
     const document = grouped([
       { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },

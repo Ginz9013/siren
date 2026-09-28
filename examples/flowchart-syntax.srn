@@ -47,9 +47,9 @@ Layout --> Render; Render --> Output["Done, at last"];
 %% it wears the id an author would have given it by writing the line out
 %% longhand, so the timeline can name it.
 timeline:
-  step 1: enter Parse fade, enter Ingest-Parse fade
-  step 2: enter Check fade, enter Parse-Check fade
-  step 3: enter Model slide-top, enter Style slide-bottom, enter Check-Model fade, enter Check-Style fade
-  step 4: enter Layout fade, enter Model-Layout fade, enter Style-Layout fade
-  step 5: enter Render fade, enter Layout-Render fade
-  step 6: enter Output fade, enter Render-Output fade
+  enter Parse fade, enter Ingest-Parse fade
+  enter Check fade, enter Parse-Check fade
+  enter Model slide-top, enter Style slide-bottom, enter Check-Model fade, enter Check-Style fade
+  enter Layout fade, enter Model-Layout fade, enter Style-Layout fade
+  enter Render fade, enter Layout-Render fade
+  enter Output fade, enter Render-Output fade

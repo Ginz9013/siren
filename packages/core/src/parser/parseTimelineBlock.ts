@@ -21,16 +21,15 @@ import type {
  * change for flowcharts, and the class parser gets the identical vocabulary
  * rather than an approximation of it.
  *
- * The same argument covers the block's *body* — skip the blanks, measure each
- * line's column, hand it to the grammar, collect what comes back — which had
- * grown a copy in each of the three parsers. `parseTimelineBody` and
- * `parseTimelineBodyLine` are that loop, written once. What stays with each
+ * The same argument covers the block's *body* — skip the blanks, number and
+ * measure each line, hand it to the grammar, collect what comes back — which
+ * had grown a copy in each of the three parsers. `parseTimelineBody` is that
+ * loop, written once. What stays with each
  * parser is only what differs: where the block starts, and what a diagnostic
  * inside it costs that kind's document.
  */
 
 const TIMELINE_HEADER_RE = /^timeline:\s*$/;
-const TIMELINE_ENTRY_RE = /^step\s+(\d+):\s*(.+)$/;
 // A verb, a target id, and an optional trailing effect token (unhighlight
 // takes none; every other verb requires one — validated below, not here).
 const TIMELINE_ACTION_RE = /^(\S+)\s+(\S+)(?:\s+(\S+))?$/;
@@ -70,38 +69,31 @@ export interface TimelineLineResult {
 }
 
 /**
- * Parses one line inside a `timeline:` block — `step 2: enter Duck fade,
- * highlight Animal glow` — into its actions.
+ * Parses one line inside a `timeline:` block — `enter Duck fade, highlight
+ * Animal glow` — into the actions of step `step`.
+ *
+ * The line carries no step number of its own: ADR-0012 makes a line's step its
+ * place in the block, which the caller counts. So the whole line is the action
+ * list, and a retired `enter Duck fade` is simply an action nobody
+ * recognizes.
  *
  * A malformed action costs itself and nothing else: the others on the same
  * line are still returned, alongside a diagnostic for the one that failed.
  *
- * The step's own `:` is the only one the grammar consumes; what follows is
- * split on whitespace. A target id may therefore contain a colon of its own,
- * which is what lets `step 1: enter namespace:1 fade` address the ids
- * `buildClassModel` assigns namespaces and notes.
+ * Each action is split on whitespace and nothing else, so a target id may
+ * contain a colon, which is what lets `enter namespace:1 fade` address the
+ * ids `buildClassModel` assigns namespaces and notes.
  */
 function parseTimelineLine(
   line: string,
+  step: number,
   lineNumber: number,
   column: number,
 ): TimelineLineResult {
   const entries: TimelineEntry[] = [];
   const diagnostics: Diagnostic[] = [];
 
-  const entryMatch = TIMELINE_ENTRY_RE.exec(line);
-  if (entryMatch === null) {
-    diagnostics.push({
-      severity: "error",
-      message: `Unrecognized timeline line: "${line}"`,
-      line: lineNumber,
-      column,
-    });
-    return { entries, diagnostics };
-  }
-
-  const step = Number.parseInt(entryMatch[1], 10);
-  const actions = entryMatch[2].split(",").map((part) => part.trim());
+  const actions = line.split(",").map((part) => part.trim());
 
   for (const action of actions) {
     const actionMatch = TIMELINE_ACTION_RE.exec(action);
@@ -166,30 +158,17 @@ function parseTimelineLine(
 }
 
 /**
- * Parses one raw line of a `timeline:` block's body — indentation and all.
- *
- * This is the half of the block every diagram kind repeats: a blank line
- * contributes nothing, and any other line is measured for its column and sent
- * through the grammar above. A caller keeps only the decision that is its own
- * — where the block starts, and what a diagnostic inside it costs the
- * document.
- */
-function parseTimelineBodyLine(
-  rawLine: string,
-  lineNumber: number,
-): TimelineLineResult {
-  const line = rawLine.trim();
-  if (line.length === 0) {
-    return { entries: [], diagnostics: [] };
-  }
-  const column = rawLine.length - rawLine.trimStart().length + 1;
-  return parseTimelineLine(line, lineNumber, column);
-}
-
-/**
  * Drains a `timeline:` block's body — every line from `startIndex` to the end
  * of the document, since the block is a one-way switch that no statement can
  * close.
+ *
+ * This is the half of the block every diagram kind repeats: a blank line
+ * contributes nothing, and any other line is the next step (ADR-0012),
+ * measured for its column and sent through the grammar above. A line counts
+ * as a step whether or not its actions parse, so fixing a typo never
+ * renumbers the lines after it. A caller keeps only the decision that is its
+ * own — where the block starts, and what a diagnostic inside it costs the
+ * document.
  *
  * Line numbers come from each line's index in `lines`, so a caller hands over
  * the whole document and the index just past its `timeline:` header rather
@@ -201,9 +180,16 @@ export function parseTimelineBody(
 ): TimelineLineResult {
   const entries: TimelineEntry[] = [];
   const diagnostics: Diagnostic[] = [];
+  let step = 0;
 
   for (let index = startIndex; index < lines.length; index++) {
-    const lineResult = parseTimelineBodyLine(lines[index], index + 1);
+    const rawLine = lines[index];
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+
+    step++;
+    const column = rawLine.length - rawLine.trimStart().length + 1;
+    const lineResult = parseTimelineLine(line, step, index + 1, column);
     entries.push(...lineResult.entries);
     diagnostics.push(...lineResult.diagnostics);
   }

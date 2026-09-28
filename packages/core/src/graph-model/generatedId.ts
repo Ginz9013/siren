@@ -26,9 +26,9 @@
  * separator to drift.
  *
  * The cost is that an author addressing one of these in a `timeline:` block
- * writes `step 1: enter namespace:1 fade`. That parses: the timeline action
- * grammar takes everything after the step's own colon and splits it on
- * whitespace, so a colon inside the id is read as part of the id.
+ * writes `enter namespace:1 fade`. That parses: the timeline action
+ * grammar splits an action on whitespace and nothing else, so a colon
+ * inside the id is read as part of the id.
  */
 export function generatedId(kind: string, n: number): string {
   return `${kind}${ID_SEPARATOR}${n}`;

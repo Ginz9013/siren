@@ -211,9 +211,10 @@ export interface SirenEdge {
 }
 
 /**
- * One `step N: <verb> <id> [<effect>]` entry from the `timeline:` block.
- * `effect` is present for `enter`/`exit`/`highlight` and absent for
- * `unhighlight`.
+ * One `<verb> <id> [<effect>]` action from the `timeline:` block. `step` is
+ * never written: it is the place of the action's line among the block's
+ * non-blank lines, counting from 1 (ADR-0012). `effect` is present for
+ * `enter`/`exit`/`highlight` and absent for `unhighlight`.
  */
 export interface TimelineEntry {
   kind: TimelineActionKind;

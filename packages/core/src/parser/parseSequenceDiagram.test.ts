@@ -853,8 +853,8 @@ describe("parseSequenceDiagram", () => {
   participant B
   A->>B: hi
 timeline:
-  step 1: enter A fade
-  step 2: highlight B glow
+  enter A fade
+  highlight B glow
 `;
 
     const { document, diagnostics } = parseSequenceDiagram(source);
@@ -947,9 +947,9 @@ timeline:
   participant A
   A->>A: hi
 timeline:
-  step 1: wiggle A fade
-  step 2: enter A
-  step 3: unhighlight A glow
+  wiggle A fade
+  enter A
+  unhighlight A glow
 `;
 
     const { document, diagnostics } = parseSequenceDiagram(source);

@@ -151,11 +151,11 @@ note "Drawn from the keeper's ledger"
 click Duck href "https://example.com/duck" "Ducks are birds"
 
 timeline:
-step 1: enter Duck fade
-step 2: enter Animal-Duck slide-left
-step 3: enter namespace:1 fade, enter note:1 fade
-step 4: highlight Duck outline
-step 5: highlight Animal-Duck glow
+enter Duck fade
+enter Animal-Duck slide-left
+enter namespace:1 fade, enter note:1 fade
+highlight Duck outline
+highlight Animal-Duck glow
 `;
 
 /**
@@ -458,9 +458,9 @@ subgraph Outer
 end
 
 timeline:
-step 1: enter B fade, enter A-B fade
-step 2: highlight B outline
-step 3: highlight C glow
+enter B fade, enter A-B fade
+highlight B outline
+highlight C glow
 `;
 
 describe("default theme coverage of the flowchart renderer", () => {

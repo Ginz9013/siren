@@ -1282,7 +1282,7 @@ describe("parseErDiagram reads the timeline block", () => {
     // *where the block starts*, and a fifth copy of the entry grammar would
     // be a fifth chance for a verb to drift.
     const document = documentOf(
-      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n\ntimeline:\n  step 1: enter ORDER fade\n",
+      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n\ntimeline:\n  enter ORDER fade\n",
     );
 
     expect(document.timeline).toEqual({
@@ -1302,7 +1302,7 @@ describe("parseErDiagram reads the timeline block", () => {
     expect(documentOf("erDiagram\n  CUSTOMER\n").timeline).toBeNull();
   });
 
-  it("costs the whole document when a line inside the block is not a step entry", () => {
+  it("costs the whole document when a line inside the block is not a timeline action", () => {
     // The rule every kind keeps: a diagnostic inside the block is an error
     // like any other, so nothing half-animated reaches the next stage.
     const { document, diagnostics } = parseErDiagram(
@@ -1310,7 +1310,7 @@ describe("parseErDiagram reads the timeline block", () => {
     );
 
     expect(document).toBeNull();
-    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized timeline line: "nonsense"']);
+    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized timeline action: "nonsense"']);
   });
 
   it("opens the timeline even while an attribute block is still open, and names the unclosed block", () => {
@@ -1320,7 +1320,7 @@ describe("parseErDiagram reads the timeline block", () => {
     // an author who forgot a `}` is told about the brace they forgot rather
     // than about an "attribute" they never wrote.
     const { document, diagnostics } = parseErDiagram(
-      "erDiagram\n  CUSTOMER {\n    string name\n\ntimeline:\n  step 1: enter CUSTOMER fade\n",
+      "erDiagram\n  CUSTOMER {\n    string name\n\ntimeline:\n  enter CUSTOMER fade\n",
     );
 
     expect(document).toBeNull();
@@ -1335,7 +1335,7 @@ describe("parseErDiagram reads the timeline block", () => {
     // first would drain the rest of the file and then report an empty
     // document, pointing at line 1 for a fault on line 1 with the wrong
     // reason.
-    const { document, diagnostics } = parseErDiagram("timeline:\n  step 1: enter A fade\n");
+    const { document, diagnostics } = parseErDiagram("timeline:\n  enter A fade\n");
 
     expect(document).toBeNull();
     expect(diagnostics.map((d) => d.message)).toEqual([
@@ -1888,7 +1888,7 @@ describe("parseErDiagram reads subgraph clusters", () => {
     // is no `end` left to come — and reporting nothing would let a
     // document Mermaid refuses draw a frame around everything above it.
     expect(
-      refusalsFor("erDiagram\n  subgraph s1\n    A\n\ntimeline:\n  step 1: enter A fade\n"),
+      refusalsFor("erDiagram\n  subgraph s1\n    A\n\ntimeline:\n  enter A fade\n"),
     ).toEqual(['Unclosed erDiagram subgraph block: "subgraph s1"']);
     // Both kinds of block left open are named, each at its own header — an
     // attribute block and a cluster are different mistakes.

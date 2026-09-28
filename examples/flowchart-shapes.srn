@@ -104,12 +104,12 @@ Flag --> Prep
 %% animation classes sit on the enclosing `<g>`, so the controller drives
 %% fourteen shapes without knowing that shapes exist.
 timeline:
-  step 1: enter Start fade, enter Intake fade, enter Start-Intake fade
-  step 2: enter Prep fade, enter Intake-Prep fade
-  step 3: enter Check fade, enter Prep-Check fade
-  step 4: enter Parse fade, enter Check-Parse fade
-  step 5: enter Review slide-bottom, enter Check-Review fade, enter Entry slide-bottom, enter Review-Entry fade
-  step 6: enter Hop fade, enter Entry-Hop fade, enter Hop-Parse fade
-  step 7: enter Retry slide-top, enter Check-Retry fade, enter Flag slide-top, enter Retry-Flag fade, enter Flag-Prep fade
-  step 8: enter Store fade, enter Parse-Store fade, enter Render fade, enter Store-Render fade
-  step 9: enter Log fade, enter Render-Log fade, enter Done fade, enter Log-Done fade
+  enter Start fade, enter Intake fade, enter Start-Intake fade
+  enter Prep fade, enter Intake-Prep fade
+  enter Check fade, enter Prep-Check fade
+  enter Parse fade, enter Check-Parse fade
+  enter Review slide-bottom, enter Check-Review fade, enter Entry slide-bottom, enter Review-Entry fade
+  enter Hop fade, enter Entry-Hop fade, enter Hop-Parse fade
+  enter Retry slide-top, enter Check-Retry fade, enter Flag slide-top, enter Retry-Flag fade, enter Flag-Prep fade
+  enter Store fade, enter Parse-Store fade, enter Render fade, enter Store-Render fade
+  enter Log fade, enter Render-Log fade, enter Done fade, enter Log-Done fade

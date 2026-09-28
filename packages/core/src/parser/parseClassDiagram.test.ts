@@ -869,11 +869,11 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     const source = `classDiagram
   Animal <|-- Duck
 timeline:
-step 1: enter Animal fade
-step 2: enter Duck slide-left, enter Animal-Duck fade
-step 3: highlight Duck glow
-step 4: unhighlight Duck
-step 5: exit Animal slide-top
+enter Animal fade
+enter Duck slide-left, enter Animal-Duck fade
+highlight Duck glow
+unhighlight Duck
+exit Animal slide-top
 `;
 
     const { document, diagnostics } = parseOk(source);
@@ -901,8 +901,8 @@ step 5: exit Animal slide-top
   }
   note "Drawn from the ledger"
 timeline:
-step 1: enter namespace:1 fade
-step 2: enter note:1 fade
+enter namespace:1 fade
+enter note:1 fade
 `;
 
     const { document, diagnostics } = parseOk(source);
@@ -918,7 +918,7 @@ step 2: enter note:1 fade
     const source = `classDiagram
   class Animal
 timeline:
-step 1: wibble Animal fade
+wibble Animal fade
 `;
 
     const { document, diagnostics } = parseClassDiagram(source);

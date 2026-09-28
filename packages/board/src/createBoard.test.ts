@@ -188,7 +188,7 @@ A[Different] --> B[End]
     const source = `flowchart TD
 A[Start] --> B[End]
 timeline:
-step 1: enter B fade
+enter B fade
 `;
     const board = createBoard(container, { source, measureText: FAKE_MEASURER });
 
@@ -203,7 +203,7 @@ step 1: enter B fade
     const source = `flowchart TD
 A[Start] --> B[End]
 timeline:
-step 1: enter B fade
+enter B fade
 `;
     const board = createBoard(container, { source, measureText: FAKE_MEASURER });
     const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
@@ -547,8 +547,8 @@ step 1: enter B fade
 A[Start] --> B[Middle]
 B --> C[End]
 timeline:
-step 1: enter B fade
-step 2: enter C fade
+enter B fade
+enter C fade
 `;
     const calls: Array<[number, number]> = [];
     const board = createBoard(container, {

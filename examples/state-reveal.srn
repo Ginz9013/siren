@@ -16,10 +16,10 @@ Working --> Done : finished
 Done --> [*]
 
 timeline:
-  step 1: enter Idle fade
-  step 2: enter Idle-Working fade, enter Working slide-top
-  step 3: enter Fetching fade, enter Saving fade, enter Fetching-Saving fade
-  step 4: highlight Working outline
-  step 5: enter Working-Done fade, enter Done slide-right, unhighlight Working
-  step 6: highlight Idle-Working glow, enter Done-end:1 fade
-  step 7: unhighlight Idle-Working, exit Idle slide-left, exit start:1-Idle slide-left, exit Idle-Working slide-left
+  enter Idle fade
+  enter Idle-Working fade, enter Working slide-top
+  enter Fetching fade, enter Saving fade, enter Fetching-Saving fade
+  highlight Working outline
+  enter Working-Done fade, enter Done slide-right, unhighlight Working
+  highlight Idle-Working glow, enter Done-end:1 fade
+  unhighlight Idle-Working, exit Idle slide-left, exit start:1-Idle slide-left, exit Idle-Working slide-left
