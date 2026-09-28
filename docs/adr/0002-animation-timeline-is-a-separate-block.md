@@ -27,3 +27,11 @@ definition stays free of animation concerns.
 v1 implements only `step N: enter <id> fade`. This is expected to change once `exit`, `highlight`,
 and slide effects are designed — the syntax inside the block is provisional, the decision to keep
 it in its own block is not.
+
+## Amendment (the syntax inside the block)
+
+The paragraph above called the syntax inside the block provisional, and it has now been settled:
+[ADR-0012](0012-a-timeline-line-is-a-step-and-its-number-is-implicit.md) drops the `step N:`
+prefix, so each non-blank line is one step and its number is its place in the block. The decision
+this ADR records — the timeline lives in its own block, apart from the diagram's structural
+definition — is unchanged; only the provisional part it named moved.

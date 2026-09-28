@@ -89,10 +89,11 @@ than the paragraph above promises, and it owes its ids a collision check rather 
 in the same board that first made those ids addressable, so no document could have named them
 before.
 
-An author addressing a generated element writes a colon inside the id — `step 1: enter loop:1
-fade`. The timeline grammar already supports this: `parseTimelineLine` consumes only the step's own
-colon and splits the remainder on whitespace, so a colon inside a target id is read as part of the
-id. This ADR is why that behavior is load-bearing rather than incidental.
+An author addressing a generated element writes a colon inside the id — `enter loop:1
+fade`. The timeline grammar already supports this: `parseTimelineLine` splits an action on
+whitespace and nothing else, so a colon inside a target id is read as part of the id. (When this
+was written a line also began `step N:`, whose colon the grammar consumed first; ADR-0012 removed
+that prefix, and the argument here is unchanged by it.) This ADR is why that behavior is load-bearing rather than incidental.
 
 A new diagram kind gets this for free by calling `generatedId`, and gets it wrong only by choosing
 not to. `resolveTimeline`'s dedupe key also uses a colon internally, for an unrelated purpose; it
