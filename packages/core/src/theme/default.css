@@ -1374,3 +1374,25 @@
     drop-shadow(0 0 8px var(--siren-highlight-color));
   transition: filter var(--siren-highlight-duration) ease-out;
 }
+
+/*
+ * `glow` also takes the stroke to the highlight color, at the stroke's own
+ * width — `outline` is the one that thickens it. Left at its base color, the
+ * frame sits between the fill and the light as a pale ring (in the dark
+ * palette the node stroke is a light lavender), which reads as a white halo
+ * under the glow rather than as the shape's own edge. Same targets as the
+ * `outline` rules above, since the stroke lives on the same inner elements.
+ */
+.siren-node.siren-highlight-glow .siren-node-frame,
+.siren-edge.siren-highlight-glow,
+.siren-subgraph.siren-highlight-glow .siren-subgraph-frame,
+.siren-class.siren-highlight-glow .siren-class-frame,
+.siren-relationship.siren-highlight-glow .siren-relationship-line,
+.siren-state.siren-highlight-glow .siren-state-region,
+.siren-state.siren-highlight-glow .siren-state-start,
+.siren-state.siren-highlight-glow .siren-state-bar,
+.siren-state.siren-highlight-glow .siren-state-end,
+.siren-transition.siren-highlight-glow .siren-transition-line {
+  stroke: var(--siren-highlight-color);
+  transition: stroke var(--siren-highlight-duration) ease-out;
+}
