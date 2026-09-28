@@ -78,24 +78,28 @@ Resetting the view (`board.resetView()`) never changes the current step; resetti
 _Avoid_: viewport, camera, zoom level (say "view" for the combined pan+zoom state)
 
 **Timeline block**:
-The `timeline:` section of a Siren document. Lists step entries that assign animation actions to
-timeline targets by id. Deliberately separate from the diagram's structural definition — see
+The `timeline:` section of a Siren document. Each non-blank line is one step, and lists the
+timeline actions that fire on it, naming timeline targets by id. Deliberately separate from the diagram's structural definition — see
 [ADR-0002](docs/adr/0002-animation-timeline-is-a-separate-block.md).
 A document declares it at most once. `timeline:` opens the block and nothing closes it: every
 remaining line of the document belongs to it. A second `timeline:` is therefore a line *inside*
-the block, not a new one, and since it is not a step entry all three diagram kinds report the same
-error-severity diagnostic for it — `Unrecognized timeline line: "timeline:"` — which costs the
-whole document, exactly as any other unrecognized line in the block does.
+the block, not a new one, and since it is not a timeline action all three diagram kinds report the
+same error-severity diagnostic for it — `Unrecognized timeline action: "timeline:"` — which costs
+the whole document, exactly as any other unrecognized line in the block does.
 _Avoid_: animation block, timeline section
 
 **Step**:
-A positive integer named in a timeline block. Steps reveal in ascending order via
-`controller.next()`. Anything the timeline block never mentions is visible from the
-start (implicit "step 0").
+One non-blank line of a timeline block. Its number is never written: it is the line's place among
+the block's non-blank lines, counting from 1 (see
+[ADR-0012](docs/adr/0012-a-timeline-line-is-a-step-and-its-number-is-implicit.md)). A line counts
+whether or not its actions parse, so fixing a typo never renumbers the lines after it. Steps
+reveal in written order via `controller.next()`. Anything the timeline block never mentions is
+visible from the start (implicit "step 0").
 _Avoid_: frame, stage
 
 **Timeline action**:
-One `step N: <verb> <id> [<effect>]` entry in a timeline block. Four verbs: `enter`/`exit`
+One `<verb> <id> [<effect>]` entry on a step's line; a line holds one or more, separated by
+commas. Four verbs: `enter`/`exit`
 (effect: `fade` or a directional `slide-{left,right,top,bottom}`), `highlight` (effect: `outline`
 or `glow` — cumulative, multiple targets can be highlighted at once, a second `highlight` on the
 same target replaces its effect rather than requiring `unhighlight` first), `unhighlight` (no
