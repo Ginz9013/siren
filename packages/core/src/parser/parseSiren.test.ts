@@ -51,8 +51,8 @@ describe("parseSiren", () => {
   B --> C[End]
 
 timeline:
-  step 1: enter B fade
-  step 2: enter C fade
+  enter B fade
+  enter C fade
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
@@ -753,10 +753,10 @@ classDef hot fill:#fdd
   A --> B[Process]
 
 timeline:
-  step 1: enter B fade
-  step 2: exit A slide-left
-  step 3: highlight A-B outline
-  step 4: unhighlight A-B
+  enter B fade
+  exit A slide-left
+  highlight A-B outline
+  unhighlight A-B
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
@@ -777,14 +777,14 @@ timeline:
   A --> B[Process]
 
 timeline:
-  step 1: enter B slide-left
-  step 2: enter B slide-right
-  step 3: enter B slide-top
-  step 4: enter B slide-bottom
-  step 5: exit B slide-left
-  step 6: exit B slide-right
-  step 7: exit B slide-top
-  step 8: exit B slide-bottom
+  enter B slide-left
+  enter B slide-right
+  enter B slide-top
+  enter B slide-bottom
+  exit B slide-left
+  exit B slide-right
+  exit B slide-top
+  exit B slide-bottom
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
@@ -809,8 +809,8 @@ timeline:
   A --> B[Process]
 
 timeline:
-  step 1: highlight A-B outline
-  step 2: highlight A-B glow
+  highlight A-B outline
+  highlight A-B glow
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
@@ -828,7 +828,7 @@ timeline:
   A[Start]
 
 timeline:
-  step 1: enter A outline
+  enter A outline
 `;
     expect(() => parseSiren(source1)).not.toThrow();
     const result1 = parseSiren(source1);
@@ -840,7 +840,7 @@ timeline:
   A --> B[Process]
 
 timeline:
-  step 1: highlight A-B slide-left
+  highlight A-B slide-left
 `;
     expect(() => parseSiren(source2)).not.toThrow();
     const result2 = parseSiren(source2);
@@ -854,7 +854,7 @@ timeline:
   A --> B[Process]
 
 timeline:
-  step 1: unhighlight A-B outline
+  unhighlight A-B outline
 `;
     expect(() => parseSiren(source)).not.toThrow();
     const { document, diagnostics } = parseSiren(source);
@@ -1084,19 +1084,19 @@ classDiagram
       flowchart: `flowchart TD
   A[Start]
 timeline:
-  step 1: enter A fade
+  enter A fade
   timeline:
 `,
       class: `classDiagram
   Animal <|-- Duck
 timeline:
-  step 1: enter Animal fade
+  enter Animal fade
   timeline:
 `,
       sequence: `sequenceDiagram
   participant A as Alice
 timeline:
-  step 1: enter A fade
+  enter A fade
   timeline:
 `,
     };
@@ -1104,7 +1104,7 @@ timeline:
     const expected: Diagnostic[] = [
       {
         severity: "error",
-        message: 'Unrecognized timeline line: "timeline:"',
+        message: 'Unrecognized timeline action: "timeline:"',
         line: 5,
         column: 3,
       },

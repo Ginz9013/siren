@@ -674,8 +674,8 @@ describe("parseStateDiagram", () => {
         "    Idle --> Busy\n" +
         "  }\n" +
         "timeline:\n" +
-        "  step 1: enter Idle fade\n" +
-        "  step 2: enter Idle-Busy fade, highlight Outer outline\n",
+        "  enter Idle fade\n" +
+        "  enter Idle-Busy fade, highlight Outer outline\n",
     );
 
     expect(document.timeline).not.toBeNull();
@@ -697,7 +697,7 @@ describe("parseStateDiagram", () => {
 
   it("costs the whole document when a line inside the `timeline:` block is malformed", () => {
     const { document, diagnostics } = parseStateDiagram(
-      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  step 1: wobble Idle fade\n",
+      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  wobble Idle fade\n",
     );
 
     expect(document).toBeNull();

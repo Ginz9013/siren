@@ -10,7 +10,7 @@ describe("parseTimelineBody", () => {
       "  A --> B",
       "",
       "timeline:",
-      "    step 1: enter Duck fade",
+      "    enter Duck fade",
     ];
 
     const { entries, diagnostics } = parseTimelineBody(lines, 6);
@@ -29,7 +29,7 @@ describe("parseTimelineBody", () => {
   });
 
   it("contributes neither an entry nor a diagnostic for a blank line", () => {
-    const lines = ["timeline:", "", "  step 1: enter A fade", "   \t "];
+    const lines = ["timeline:", "", "  enter A fade", "   \t "];
 
     expect(parseTimelineBody(lines, 1)).toEqual({
       entries: [
@@ -51,9 +51,9 @@ describe("parseTimelineBody", () => {
       "flowchart TD",
       "  A[Start]",
       "timeline:",
-      "  step 1: enter A fade",
+      "  enter A fade",
       "",
-      "    step 2: exit A slide-top",
+      "    exit A slide-top",
     ];
 
     const { entries, diagnostics } = parseTimelineBody(lines, 3);
@@ -79,25 +79,52 @@ describe("parseTimelineBody", () => {
     ]);
   });
 
-  it("keeps the entries around a bad line, and reports one error per bad line", () => {
+  it("numbers each non-blank line as the next step, in the order written, with a blank line taking no number", () => {
     const lines = [
       "timeline:",
-      "  step 1: enter A fade",
-      "  nonsense",
-      "  step 2: exit A slide-top",
-      "  step 3: enter B wobble",
+      "  enter A fade, enter B fade",
+      "",
+      "",
+      "  highlight A outline",
+      "  unhighlight A, exit B fade",
     ];
 
     const { entries, diagnostics } = parseTimelineBody(lines, 1);
 
-    expect(entries.map((entry) => `${entry.kind} ${entry.targetId}`)).toEqual([
-      "enter A",
-      "exit A",
+    expect(diagnostics).toEqual([]);
+    expect(entries.map((entry) => `${entry.step} ${entry.kind} ${entry.targetId}`)).toEqual([
+      "1 enter A",
+      "1 enter B",
+      "2 highlight A",
+      "3 unhighlight A",
+      "3 exit B",
+    ]);
+  });
+
+  it("keeps the entries around a bad line, reports one error per bad line, and still counts a bad line as a step", () => {
+    const lines = [
+      "timeline:",
+      "  enter A fade",
+      "  nonsense",
+      "  exit A slide-top",
+      "  enter B wobble",
+      "  highlight B glow",
+    ];
+
+    const { entries, diagnostics } = parseTimelineBody(lines, 1);
+
+    // `nonsense` is step 2 and `enter B wobble` is step 4 even though neither
+    // produced an entry: a line's step is its place in the block, so fixing a
+    // typo never renumbers the lines after it.
+    expect(entries.map((entry) => `${entry.step} ${entry.kind} ${entry.targetId}`)).toEqual([
+      "1 enter A",
+      "3 exit A",
+      "5 highlight B",
     ]);
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized timeline line: "nonsense"',
+        message: 'Unrecognized timeline action: "nonsense"',
         line: 3,
         column: 3,
       },
@@ -106,6 +133,29 @@ describe("parseTimelineBody", () => {
         message:
           'Unknown enter effect "wobble" (expected one of: fade, slide-left, slide-right, slide-top, slide-bottom)',
         line: 5,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("rejects the retired `step N:` prefix rather than reading a step number from it", () => {
+    const lines = ["timeline:", "  step 1: enter A fade", "  step 2: A"];
+
+    const { entries, diagnostics } = parseTimelineBody(lines, 1);
+
+    expect(entries).toEqual([]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized timeline action: "step 1: enter A fade"',
+        line: 2,
+        column: 3,
+      },
+      {
+        severity: "error",
+        message:
+          'Unrecognized timeline verb "step" (expected "enter", "exit", "highlight", or "unhighlight")',
+        line: 3,
         column: 3,
       },
     ]);

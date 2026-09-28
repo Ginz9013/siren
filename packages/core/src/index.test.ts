@@ -82,8 +82,8 @@ const sameDrawing = (markup: string): string =>
 const VALID_SOURCE = `flowchart TD
 A[Start] --> B[End]
 timeline:
-step 1: enter A fade
-step 2: enter B fade
+enter A fade
+enter B fade
 `;
 
 /** A document exercising all four timeline verbs plus a slide-* effect, across 5 steps. */
@@ -91,11 +91,11 @@ const ALL_VERBS_SOURCE = `flowchart TD
 A[Start] --> B[Middle]
 B --> C[End]
 timeline:
-step 1: enter A slide-left
-step 2: enter B fade
-step 3: highlight A outline
-step 4: exit A fade
-step 5: unhighlight B
+enter A slide-left
+enter B fade
+highlight A outline
+exit A fade
+unhighlight B
 `;
 
 describe("render", () => {
@@ -184,8 +184,8 @@ describe("render", () => {
 A[Start] --> B[Middle]
 B --> C[End]
 timeline:
-step 1: enter B fade
-step 2: enter C fade
+enter B fade
+enter C fade
 `;
 
     const result = render(source, container);
@@ -217,21 +217,21 @@ step 2: enter C fade
 A[Start] --> B[Middle]
 B --> C[End]
 timeline:
-step 1: enter B fade
-step 2: enter C fade
+enter B fade
+enter C fade
 `,
       `classDiagram
 Animal <|-- Duck
 timeline:
-step 1: enter Duck fade
-step 2: enter Animal-Duck slide-left
+enter Duck fade
+enter Animal-Duck slide-left
 `,
       `sequenceDiagram
 participant A
 participant B
 A->>B: Hello
 timeline:
-  step 1: enter A fade
+  enter A fade
 `,
     ];
 
@@ -288,7 +288,7 @@ A[Start] --> B[End]
     const source = `flowchart TD
 A[Start] --> B[End]
 timeline:
-step 1: enter GHOST fade
+enter GHOST fade
 `;
 
     let result: SirenRenderResult | undefined;
@@ -345,8 +345,8 @@ A[Same] --> B[Same]
 A[Start] --> B[Middle]
 B --> C[End]
 timeline:
-step 1: enter B fade
-step 2: enter C fade
+enter B fade
+enter C fade
 `;
 
     const result = render(source, container);
@@ -1128,10 +1128,10 @@ Animal <|-- Duck
     const source = `classDiagram
 Animal <|-- Duck
 timeline:
-step 1: enter Duck fade
-step 2: enter Animal-Duck slide-left
-step 3: highlight Duck glow
-step 4: unhighlight Duck
+enter Duck fade
+enter Animal-Duck slide-left
+highlight Duck glow
+unhighlight Duck
 `;
 
     const result = render(source, container);
@@ -1438,8 +1438,8 @@ note "the rest of the document still renders"
     const source = `flowchart TD
 A[Start] --> B[End]
 timeline:
-step 1: highlight B outline
-step 2: enter B fade
+highlight B outline
+enter B fade
 `;
 
     let result: SirenRenderResult | undefined;
@@ -2332,7 +2332,7 @@ participant A
 participant B
 A->>B: Hello
 timeline:
-  step 1: enter A fade
+  enter A fade
 `;
 
     const result = render(source, container);
@@ -2375,7 +2375,7 @@ participant A
 participant B
 A->>B: Hello
 timeline:
-  step 1: exit A fade
+  exit A fade
 `;
 
     const result = render(source, container);
@@ -2430,7 +2430,7 @@ participant B
 A->>B: Hello
 destroy B
 timeline:
-  step 1: highlight B outline
+  highlight B outline
 `;
 
     const result = render(source, container);
@@ -2463,7 +2463,7 @@ box Blue Storefront
 end
 A->>B: Hello
 timeline:
-  step 1: enter box:1 fade
+  enter box:1 fade
 `;
 
     const result = render(source, container);
@@ -2515,8 +2515,8 @@ loop retry
   end
 end
 timeline:
-  step 1: highlight loop:1 outline
-  step 2: highlight alt:1 glow
+  highlight loop:1 outline
+  highlight alt:1 glow
 `;
 
     const result = render(source, container);
@@ -2569,7 +2569,7 @@ timeline:
     // Drift guard: the source above is read from examples/sequence-full.srn
     // on disk, not from an inline copy, so editing the example changes what
     // this test renders. The marker is the example's own final timeline step.
-    expect(source).toContain("step 7: exit box:1 fade");
+    expect(source).toContain("exit box:1 fade");
 
     const result = render(source, container);
 
@@ -2690,7 +2690,7 @@ timeline:
 A{Is it ready?} --> B[Ship it]
 style A fill:#f00
 timeline:
-step 1: enter A fade
+enter A fade
 `;
 
     const result = render(source, container);
@@ -2880,7 +2880,7 @@ step 1: enter A fade
 ${spelling} --> B[Ship it]
 style A fill:#f00
 timeline:
-step 1: enter A fade
+enter A fade
 `,
         container,
       );
@@ -3028,7 +3028,7 @@ step 1: enter A fade
 ${spelling} --> B[Ship it]
 style A fill:#f00
 timeline:
-step 1: enter A fade
+enter A fade
 `,
         container,
       );
@@ -3168,7 +3168,7 @@ step 1: enter A fade
 ${spelling} --> B[Ship it]
 style A fill:#f00
 timeline:
-step 1: enter A fade
+enter A fade
 `,
         container,
       );
@@ -3470,7 +3470,7 @@ style Escapes fill:u\\72 l(#evil),stroke:#c00
 A[Start] --> B[End]
 style B fill:#fdd
 timeline:
-step 1: enter B fade
+enter B fade
 `;
 
     const result = render(source, container);
@@ -3959,7 +3959,7 @@ linkStyle 0 stroke:url(#evil),stroke-width:4px
 A[Start] --> B[End]
 linkStyle 0 stroke:#f00
 timeline:
-step 1: enter A-B fade
+enter A-B fade
 `;
 
     const result = render(source, container);
@@ -5141,7 +5141,7 @@ Alice-)Bob: open
 A[Start] <-.-> B[End]
 linkStyle 0 stroke:#f00
 timeline:
-step 1: enter A-B fade
+enter A-B fade
 `,
       container,
     );
@@ -5291,7 +5291,7 @@ linkStyle 0 stroke:#f00,color:#0f0
 A -->|yes| B
 
 timeline:
-step 1: enter A-B fade
+enter A-B fade
 `,
       container,
     );
@@ -5464,8 +5464,8 @@ subgraph Ingest
 end
 
 timeline:
-step 1: enter subgraph:1 fade
-step 2: highlight subgraph:1 outline
+enter subgraph:1 fade
+highlight subgraph:1 outline
 `,
       container,
     );
@@ -5945,10 +5945,10 @@ describe("render() — a state diagram, end to end", () => {
         "    Working --> Done\n" +
         "  }\n" +
         "timeline:\n" +
-        "  step 1: enter Idle fade\n" +
-        "  step 2: enter Idle-Outer fade, enter Outer slide-top\n" +
-        "  step 3: highlight Outer outline, highlight Idle-Outer glow\n" +
-        "  step 4: unhighlight Outer, exit Idle-Outer fade\n",
+        "  enter Idle fade\n" +
+        "  enter Idle-Outer fade, enter Outer slide-top\n" +
+        "  highlight Outer outline, highlight Idle-Outer glow\n" +
+        "  unhighlight Outer, exit Idle-Outer fade\n",
     );
 
     expect(result.diagnostics).toEqual([]);
@@ -6008,7 +6008,7 @@ describe("render() — a state diagram, end to end", () => {
     // Not a fourth target kind: `start:1` is an id like any other by the
     // time the timeline is resolved, so it is addressable for free.
     const { result } = renderState(
-      "stateDiagram-v2\n  [*] --> Idle\ntimeline:\n  step 1: enter start:1 fade\n",
+      "stateDiagram-v2\n  [*] --> Idle\ntimeline:\n  enter start:1 fade\n",
     );
 
     expect(result.diagnostics).toEqual([]);
@@ -6020,7 +6020,7 @@ describe("render() — a state diagram, end to end", () => {
 
   it("warns — without dropping anything — when a transition stays visible after a state it joins exits", () => {
     const { result } = renderState(
-      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  step 1: exit Running fade\n",
+      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  exit Running fade\n",
     );
 
     expect(result.diagnostics.map((d) => d.severity)).toEqual(["warning"]);
@@ -6031,7 +6031,7 @@ describe("render() — a state diagram, end to end", () => {
 
   it("reports a timeline entry naming an id no state or transition carries, and renders nothing", () => {
     const { result } = renderState(
-      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  step 1: enter Ghost fade\n",
+      "stateDiagram-v2\n  Idle --> Running\ntimeline:\n  enter Ghost fade\n",
     );
 
     // An unresolvable target is error-severity, and `render()` returns no
@@ -7296,8 +7296,8 @@ subgraph sales
 end
 
 timeline:
-step 1: enter subgraph:1 fade
-step 2: highlight subgraph:1 outline
+enter subgraph:1 fade
+highlight subgraph:1 outline
 `);
     expect(result.diagnostics).toEqual([]);
 

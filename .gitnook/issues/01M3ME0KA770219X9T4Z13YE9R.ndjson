@@ -1,0 +1,6 @@
+{"id":"01M3ME0KA7XMMY0M749D1MXZCW","t":1,"a":"83a1","op":"create","title":"docs: 隱含 step 的 ADR-0012、ADR-0002 Amendment 與 CONTEXT.md 條目"}
+{"id":"01M3ME0KAT6YKYDNMGH5H44J1Q","t":2,"a":"83a1","op":"set","k":"description","v":"被「timeline: 一行一步」那張 grammar 票擋住。\n\n## 寫入範圍\n- 新增 `docs/adr/0012-…md`：一行一步、step 隱含。理由：舊寫法的重複（默默合併）、跳號（空步）、亂序都不報錯；插入一步要重新編號。\n- `docs/adr/0002-…md`：依 ADR-0001 前例加 `## Amendment` 指向 ADR-0012（ADR-0002 的決定未被推翻，它自己就說 block 內語法是暫定的）。\n- `docs/adr/0010-…md:92` 的範例。\n- `CONTEXT.md`：**Timeline block**（第二個 `timeline:` 的訊息）、**Step**、**Timeline action** 三個條目。\n- 複查 `demos/sequence-diagram.html` 的說明文字（「at step 4:」是敘述，編號不變應仍正確）。"}
+{"id":"01M3ME0KATB70PWR69KH99W2JR","t":3,"a":"83a1","op":"label.add","v":"docs"}
+{"id":"01M3ME0SM2B5M79ZR3J6RMD58E","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
+{"id":"01M3ME0SXHEFDHK7MD4CPBVT1P","t":5,"a":"83a1","op":"comment","body":"Blocked by 01M3ME0JTHH1B8E5E76RV55RCP (grammar)."}
+{"id":"01M3ME5VRPH3GY3BGNXE90GN3S","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}

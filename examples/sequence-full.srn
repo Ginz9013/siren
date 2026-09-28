@@ -58,10 +58,10 @@ destroy Ledger
 Web-->>Shopper: Email receipt
 
 timeline:
-  step 1: enter box:1 fade, enter Shopper-Web slide-left
-  step 2: highlight Web-Orders glow
-  step 3: unhighlight Web-Orders, highlight loop:1 outline
-  step 4: enter Retry slide-top, enter Web-Retry slide-bottom
-  step 5: exit Retry slide-top, exit Web-Retry slide-right
-  step 6: unhighlight loop:1, highlight rect:1 outline
-  step 7: exit box:1 fade
+  enter box:1 fade, enter Shopper-Web slide-left
+  highlight Web-Orders glow
+  unhighlight Web-Orders, highlight loop:1 outline
+  enter Retry slide-top, enter Web-Retry slide-bottom
+  exit Retry slide-top, exit Web-Retry slide-right
+  unhighlight loop:1, highlight rect:1 outline
+  exit box:1 fade

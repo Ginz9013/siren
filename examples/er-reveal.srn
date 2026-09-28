@@ -26,9 +26,9 @@ subgraph fulfilment
 end
 
 timeline:
-  step 1: enter CUSTOMER fade
-  step 2: enter ORDER slide-top, enter CUSTOMER:ORDER fade
-  step 3: enter subgraph:1 fade, enter LINE-ITEM slide-right, enter ORDER:LINE-ITEM fade
-  step 4: highlight CUSTOMER outline
-  step 5: highlight CUSTOMER:ORDER glow, unhighlight CUSTOMER
-  step 6: exit ORDER:LINE-ITEM fade, exit LINE-ITEM slide-right
+  enter CUSTOMER fade
+  enter ORDER slide-top, enter CUSTOMER:ORDER fade
+  enter subgraph:1 fade, enter LINE-ITEM slide-right, enter ORDER:LINE-ITEM fade
+  highlight CUSTOMER outline
+  highlight CUSTOMER:ORDER glow, unhighlight CUSTOMER
+  exit ORDER:LINE-ITEM fade, exit LINE-ITEM slide-right

@@ -77,10 +77,10 @@ classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
 cssClass "Player,Artwork" external
 
 timeline:
-  step 1: enter namespace:1 fade
-  step 2: enter Track slide-top, enter Podcast slide-bottom
-  step 3: enter Media-Track fade, enter Media-Podcast fade
-  step 4: enter Playable fade, enter Track-Playable slide-left
-  step 5: enter note:2 fade, highlight Shelf outline
-  step 6: highlight Listener-Media glow, unhighlight Shelf
-  step 7: unhighlight Listener-Media, exit note:2 slide-right
+  enter namespace:1 fade
+  enter Track slide-top, enter Podcast slide-bottom
+  enter Media-Track fade, enter Media-Podcast fade
+  enter Playable fade, enter Track-Playable slide-left
+  enter note:2 fade, highlight Shelf outline
+  highlight Listener-Media glow, unhighlight Shelf
+  unhighlight Listener-Media, exit note:2 slide-right

@@ -14,25 +14,25 @@ flowchart TB
   Publish --> End[Done]
 
 timeline:
-  step 1: enter Start fade
-  step 2: enter Fetch slide-top, enter Start-Fetch fade
-  step 3: enter Validate slide-left, enter Fetch-Validate slide-right
-  step 4: enter BranchA slide-right, enter Validate-BranchA slide-top
-  step 5: enter BranchB slide-bottom, enter Validate-BranchB slide-bottom
-  step 6: highlight BranchA outline, highlight BranchB outline
-  step 7: unhighlight BranchA, unhighlight BranchB
-  step 8: enter Merge fade, enter BranchA-Merge fade, enter BranchB-Merge slide-left
-  step 9: highlight Merge glow, highlight BranchA-Merge glow
-  step 10: exit Start slide-top, exit Fetch slide-left, exit Start-Fetch fade, exit Fetch-Validate slide-top
-  step 11: unhighlight Merge, unhighlight BranchA-Merge
-  step 12: enter Transform slide-right, enter Merge-Transform fade
-  step 13: exit BranchA slide-bottom, exit BranchA-Merge fade, exit Validate-BranchA slide-right
-  step 14: exit BranchB slide-right, exit BranchB-Merge slide-top, exit Validate-BranchB slide-bottom
-  step 15: enter Cache fade, enter Transform-Cache slide-left
-  step 16: enter Notify slide-top, enter Transform-Notify slide-bottom
-  step 17: highlight Cache outline, highlight Notify glow
-  step 18: enter Publish fade, enter Cache-Publish fade, enter Notify-Publish fade
-  step 19: unhighlight Cache, unhighlight Notify
-  step 20: enter End slide-left, enter Publish-End fade
-  step 21: highlight End glow
-  step 22: highlight Publish-End outline
+  enter Start fade
+  enter Fetch slide-top, enter Start-Fetch fade
+  enter Validate slide-left, enter Fetch-Validate slide-right
+  enter BranchA slide-right, enter Validate-BranchA slide-top
+  enter BranchB slide-bottom, enter Validate-BranchB slide-bottom
+  highlight BranchA outline, highlight BranchB outline
+  unhighlight BranchA, unhighlight BranchB
+  enter Merge fade, enter BranchA-Merge fade, enter BranchB-Merge slide-left
+  highlight Merge glow, highlight BranchA-Merge glow
+  exit Start slide-top, exit Fetch slide-left, exit Start-Fetch fade, exit Fetch-Validate slide-top
+  unhighlight Merge, unhighlight BranchA-Merge
+  enter Transform slide-right, enter Merge-Transform fade
+  exit BranchA slide-bottom, exit BranchA-Merge fade, exit Validate-BranchA slide-right
+  exit BranchB slide-right, exit BranchB-Merge slide-top, exit Validate-BranchB slide-bottom
+  enter Cache fade, enter Transform-Cache slide-left
+  enter Notify slide-top, enter Transform-Notify slide-bottom
+  highlight Cache outline, highlight Notify glow
+  enter Publish fade, enter Cache-Publish fade, enter Notify-Publish fade
+  unhighlight Cache, unhighlight Notify
+  enter End slide-left, enter Publish-End fade
+  highlight End glow
+  highlight Publish-End outline

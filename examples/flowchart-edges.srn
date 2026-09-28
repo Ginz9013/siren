@@ -166,18 +166,18 @@ linkStyle 6 stroke:#15803d,color:#15803d
 %% class rather than as an inline declaration precisely so that an outline
 %% highlight can beat them on the same element.
 timeline:
-  step 1: enter subgraph:1 fade, enter Commit fade, enter Compile fade, enter Commit-Compile fade
-  step 2: enter Artifact fade, enter Compile-Artifact fade
-  step 3: enter subgraph:2 fade, enter subgraph:3 slide-top, enter Unit fade, enter Lint fade
-  step 4: enter Artifact-Unit fade, enter Unit-Lint fade
-  step 5: enter Integration fade, enter Unit-Integration fade, enter Lint-Integration fade
-  step 6: enter Gate fade, enter Integration-Gate fade
-  step 7: highlight Integration-Gate outline
-  step 8: unhighlight Integration-Gate, enter Halt slide-left, enter Integration-Halt fade
-  step 9: enter Rollback slide-left, enter Halt-Rollback fade, enter Audit fade, enter Gate-Audit fade, enter Halt-Audit fade
-  step 10: enter Deploy fade, enter Gate-Deploy fade
-  step 11: enter Notify slide-right, enter Gate-Notify fade, enter Digest slide-right, enter Notify-Digest fade
-  step 12: enter Monitor fade, enter Deploy-Monitor fade, enter Dashboard fade, enter Monitor-Dashboard fade, enter Digest-Dashboard fade
-  step 13: highlight Gate-Deploy outline, highlight Digest-Dashboard outline
-  step 14: unhighlight Gate-Deploy, unhighlight Digest-Dashboard, enter Cleanup fade, enter Deploy-Cleanup fade
-  step 15: enter Archive fade, enter Deploy-Archive fade
+  enter subgraph:1 fade, enter Commit fade, enter Compile fade, enter Commit-Compile fade
+  enter Artifact fade, enter Compile-Artifact fade
+  enter subgraph:2 fade, enter subgraph:3 slide-top, enter Unit fade, enter Lint fade
+  enter Artifact-Unit fade, enter Unit-Lint fade
+  enter Integration fade, enter Unit-Integration fade, enter Lint-Integration fade
+  enter Gate fade, enter Integration-Gate fade
+  highlight Integration-Gate outline
+  unhighlight Integration-Gate, enter Halt slide-left, enter Integration-Halt fade
+  enter Rollback slide-left, enter Halt-Rollback fade, enter Audit fade, enter Gate-Audit fade, enter Halt-Audit fade
+  enter Deploy fade, enter Gate-Deploy fade
+  enter Notify slide-right, enter Gate-Notify fade, enter Digest slide-right, enter Notify-Digest fade
+  enter Monitor fade, enter Deploy-Monitor fade, enter Dashboard fade, enter Monitor-Dashboard fade, enter Digest-Dashboard fade
+  highlight Gate-Deploy outline, highlight Digest-Dashboard outline
+  unhighlight Gate-Deploy, unhighlight Digest-Dashboard, enter Cleanup fade, enter Deploy-Cleanup fade
+  enter Archive fade, enter Deploy-Archive fade

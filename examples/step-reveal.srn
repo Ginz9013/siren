@@ -5,10 +5,10 @@ flowchart TB
   C --> D[Publish]
 
 timeline:
-  step 1: enter B fade, enter A-B fade
-  step 2: enter C fade, enter B-C fade
-  step 3: enter D fade, enter C-D fade
-  step 4: highlight B outline
-  step 5: highlight D glow, unhighlight B
-  step 6: exit B slide-left, exit A-B slide-left, exit B-C slide-left, unhighlight D
-  step 7: exit C-D slide-top
+  enter B fade, enter A-B fade
+  enter C fade, enter B-C fade
+  enter D fade, enter C-D fade
+  highlight B outline
+  highlight D glow, unhighlight B
+  exit B slide-left, exit A-B slide-left, exit B-C slide-left, unhighlight D
+  exit C-D slide-top
