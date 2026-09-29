@@ -208,7 +208,7 @@ the user it hasn't been validated.
 | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `Expected "flowchart TB", ... found "..."`                  | The first line must be one of the five headers. Remove front matter.    |
 | `Unrecognized <kind> line: "..."`                           | That syntax isn't supported. Rewrite it with a supported form from references/syntax.md. |
-| `Message references undeclared participant "X"`             | Declare `participant X` (or `actor X`) before its first message.        |
+| `create participant "X" comes after "X" is already used`     | Move the `create` above the first line that names X.                    |
 | `timeline: references unknown id "X"`                       | Check the id against `--ids`. Use the node id, not its label.           |
 | `"highlight" on "X" at step N comes before it becomes visible` | Move the action to or after X's `enter` step.                        |
 | `edge "A-B" remains visible after its endpoint "B" exits`   | Add `exit A-B <effect>` at or before B's exit step.                     |

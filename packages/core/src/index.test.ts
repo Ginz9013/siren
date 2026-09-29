@@ -495,7 +495,7 @@ A->>B: first message
     expect(Number(lifeline.getAttribute("y2"))).toBe(bottomBand.bottom);
   });
 
-  it("produces an error diagnostic for a sequenceDiagram message referencing an undeclared participant, without throwing", () => {
+  it("creates the participant a sequenceDiagram message names without declaring it, as Mermaid does", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant A
@@ -507,11 +507,8 @@ A->>GHOST: Hello
       result = render(source, container);
     }).not.toThrow();
 
-    expect(
-      result!.diagnostics.some(
-        (d) => d.severity === "error" && d.message.includes("GHOST"),
-      ),
-    ).toBe(true);
+    expect(result!.diagnostics).toEqual([]);
+    expect(result!.svg!.querySelector('g.siren-participant[data-siren-id="GHOST"]')).not.toBeNull();
   });
 
   it("renders every .srn document in examples/ with no error diagnostics, naming the offending file when one fails", () => {
@@ -7735,5 +7732,108 @@ rect rgb(240, 248, 255)
   A->>B: shaded
 end`,
     );
+  });
+});
+
+describe("render() — a sequence participant is created on first mention, as in Mermaid", () => {
+  /** The lanes left to right, read off the lifelines' x positions. */
+  function lanes(source: string): { diagnostics: string[]; lanes: string[]; labels: Record<string, string> } {
+    const result = render(source, document.createElement("div"));
+    const lifelines = Array.from(result.svg?.querySelectorAll("line.siren-lifeline") ?? []);
+    const labels: Record<string, string> = {};
+    for (const group of Array.from(result.svg?.querySelectorAll("g.siren-participant") ?? [])) {
+      labels[group.getAttribute("data-siren-id")!] = group.querySelector("text")?.textContent ?? "";
+    }
+    return {
+      diagnostics: result.diagnostics.map((d) => d.message),
+      lanes: lifelines
+        .sort((a, b) => Number(a.getAttribute("x1")) - Number(b.getAttribute("x1")))
+        .map((line) => line.getAttribute("data-siren-id")!),
+      labels,
+    };
+  }
+
+  it("draws a diagram that declares no participant at all, in the order they are mentioned", () => {
+    const result = render(
+      `sequenceDiagram
+A->>B: hi
+B-->>A: ok`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(lanes(`sequenceDiagram\nA->>B: hi\nB-->>A: ok`).lanes).toEqual(["A", "B"]);
+    expect(
+      Array.from(result.svg!.querySelectorAll("g.siren-message")).map((g) => g.getAttribute("data-siren-id")),
+    ).toEqual(["A-B", "B-A"]);
+  });
+
+  it("orders lanes by first mention, declared or not, block bodies included", () => {
+    // Measured against Mermaid 11.17.2: `participant B` then `A->>B` gives
+    // B, A; a first mention inside a loop or alt is placed where it occurs.
+    expect(lanes(`sequenceDiagram\nparticipant B\nA->>B: hi`)).toMatchObject({ diagnostics: [], lanes: ["B", "A"] });
+    expect(
+      lanes(`sequenceDiagram
+participant P
+loop again
+  Q->>R: x
+end
+alt yes
+  S->>P: y
+else no
+  T->>P: z
+end
+participant U`),
+    ).toMatchObject({ diagnostics: [], lanes: ["P", "Q", "R", "S", "T", "U"] });
+  });
+
+  it("creates a participant first named by a note, activate, deactivate or destroy", () => {
+    // Measured against Mermaid 11.17.2: a note on an undeclared Z creates Z,
+    // `activate Z` creates Z, and `destroy X` on an only-mentioned X is kept.
+    const result = lanes(`sequenceDiagram
+participant A
+note right of Z: aside
+activate Y
+A->>Y: call
+deactivate Y
+A->>X: bye
+destroy X`);
+
+    expect(result).toMatchObject({ diagnostics: [], lanes: ["A", "Z", "Y", "X"] });
+  });
+
+  it("applies a later declaration's label and kind without moving the lane", () => {
+    // Measured against Mermaid 11.17.2: `A->>B` then `participant B as Bee`
+    // keeps A, B and labels B `Bee`; `actor B as Bee` also makes it an actor.
+    expect(lanes(`sequenceDiagram\nA->>B: x\nparticipant B as Bee`)).toMatchObject({
+      diagnostics: [],
+      lanes: ["A", "B"],
+      labels: { A: "A", B: "Bee" },
+    });
+
+    const result = render(`sequenceDiagram\nA->>B: x\nactor B as Bee`, document.createElement("div"));
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg!.querySelector('g.siren-participant[data-siren-id="B"] circle')).not.toBeNull();
+  });
+
+  it("still refuses to create a participant that was already mentioned", () => {
+    // Measured against Mermaid 11.17.2: `A->>X` then `create participant X`
+    // is a parse error — an id cannot name two actors.
+    const result = render(`sequenceDiagram\nA->>X: x\ncreate participant X\nA->>X: y`, document.createElement("div"));
+
+    expect(result.diagnostics).toMatchObject([
+      { severity: "error", line: 3 },
+    ]);
+    expect(result.diagnostics[0].message).toContain('"X"');
+  });
+
+  it("lets the timeline name an implicitly created participant", () => {
+    const result = render(`sequenceDiagram\nA->>B: hi\n\ntimeline:\n  enter B fade, enter A-B fade`, document.createElement("div"));
+
+    expect(result.diagnostics).toEqual([]);
+    const b = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="B"]'));
+    expect(b().every((el) => el.classList.contains("siren-pending"))).toBe(true);
+    result.controller!.next();
+    expect(b().every((el) => el.classList.contains("siren-enter-fade"))).toBe(true);
   });
 });

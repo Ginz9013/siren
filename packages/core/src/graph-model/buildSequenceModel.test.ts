@@ -87,7 +87,7 @@ describe("buildSequenceModel", () => {
     ]);
   });
 
-  it("drops a message referencing an undeclared participant, reports an error diagnostic, and still resolves every other statement", () => {
+  it("creates the participant a message names without declaring it, after the declared lanes, with no diagnostic", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -124,13 +124,12 @@ describe("buildSequenceModel", () => {
     const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
-    expect(messages.map((s) => s.message.id)).toEqual(["A-B"]);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]!.severity).toBe("error");
-    expect(diagnostics[0]!.message).toContain("does-not-exist");
+    expect(messages.map((s) => s.message.id)).toEqual(["A-does-not-exist", "A-B"]);
+    expect(model.participants.map((p) => p.id)).toEqual(["A", "B", "does-not-exist"]);
+    expect(diagnostics).toEqual([]);
   });
 
-  it("drops a message referencing a participant declared later in the statement order, even though it is declared somewhere in the document", () => {
+  it("keeps a message naming a participant declared later, and the lane where it was first named", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -160,13 +159,12 @@ describe("buildSequenceModel", () => {
     const messages = model.statements.filter(
       (s): s is Extract<typeof s, { kind: "message" }> => s.kind === "message",
     );
-    expect(messages).toHaveLength(0);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]!.severity).toBe("error");
-    expect(diagnostics[0]!.message).toContain("B");
+    expect(messages.map((s) => s.message.id)).toEqual(["A-B"]);
+    expect(model.participants.map((p) => p.id)).toEqual(["A", "B"]);
+    expect(diagnostics).toEqual([]);
   });
 
-  it("drops a destroy statement referencing an undeclared participant and reports an error diagnostic", () => {
+  it("creates a participant first named by a destroy, whose lifeline ends there", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -183,10 +181,9 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model.statements.some((s) => s.kind === "destroy")).toBe(false);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]!.severity).toBe("error");
-    expect(diagnostics[0]!.message).toContain("does-not-exist");
+    expect(model.statements.some((s) => s.kind === "destroy")).toBe(true);
+    expect(model.participants.find((p) => p.id === "does-not-exist")?.destroyedAt).not.toBeNull();
+    expect(diagnostics).toEqual([]);
   });
 
   it("resolves activate/deactivate into their own statements, minting a generated activation id", () => {
@@ -289,7 +286,7 @@ describe("buildSequenceModel", () => {
     expect(diagnostics[0]!.message.toLowerCase()).toContain("no open activation");
   });
 
-  it("drops an activate/deactivate referencing an undeclared participant and reports an error diagnostic", () => {
+  it("creates a participant first named by an activate", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -303,10 +300,9 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model.statements).toEqual([]);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]!.severity).toBe("error");
-    expect(diagnostics[0]!.message).toContain("does-not-exist");
+    expect(model.statements.map((s) => s.kind)).toEqual(["activate"]);
+    expect(model.participants.map((p) => p.id)).toEqual(["does-not-exist"]);
+    expect(diagnostics).toEqual([]);
   });
 
   it("resolves a note into a generated note:n id, carrying its placement, span and text through unchanged", () => {
@@ -361,7 +357,7 @@ describe("buildSequenceModel", () => {
     expect(noteIds).toEqual(["note:1", "note:2"]);
   });
 
-  it("drops a note referencing an undeclared participant and reports an error diagnostic", () => {
+  it("creates a participant first named by a note", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -378,10 +374,9 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model.statements.some((s) => s.kind === "note")).toBe(false);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]!.severity).toBe("error");
-    expect(diagnostics[0]!.message).toContain("does-not-exist");
+    expect(model.statements.some((s) => s.kind === "note")).toBe(true);
+    expect(model.participants.map((p) => p.id)).toEqual(["A", "does-not-exist"]);
+    expect(diagnostics).toEqual([]);
   });
 
   it("passes title through unchanged and assigns sequential autonumbers to messages between autonumber and autonumber off", () => {
@@ -653,7 +648,7 @@ describe("buildSequenceModel", () => {
     expect(new Set(parStatement.block.touchedParticipantIds)).toEqual(new Set(["C", "D"]));
   });
 
-  it("drops a message inside a block body referencing an undeclared participant, reporting the same diagnostic a top-level message would", () => {
+  it("creates a participant first named inside a block body, as a top-level message would", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -685,10 +680,9 @@ describe("buildSequenceModel", () => {
     const loopBlock = model.statements.find(
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!.block;
-    expect(loopBlock.branches[0]!.statements).toEqual([]);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]!.severity).toBe("error");
-    expect(diagnostics[0]!.message).toContain("does-not-exist");
+    expect(loopBlock.branches[0]!.statements.map((s) => s.kind)).toEqual(["message"]);
+    expect(model.participants.map((p) => p.id)).toEqual(["A", "does-not-exist"]);
+    expect(diagnostics).toEqual([]);
   });
 
   it("passes a rect block's color string through unvalidated", () => {
@@ -945,7 +939,7 @@ describe("buildSequenceModel", () => {
     expect(diagnostics[0]!.line).toBe(2);
   });
 
-  it("rejects a message and a destroy that reference a create-declared participant before its create statement", () => {
+  it("rejects a create statement for a participant a message and a destroy already named, keeping the lane they created", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -967,16 +961,17 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model.statements.map((s) => s.kind)).toEqual(["participant", "participant"]);
+    expect(model.statements.map((s) => s.kind)).toEqual(["participant", "message", "destroy"]);
     expect(model.participants[1]).toEqual({
       id: "B",
       label: "B",
       participantKind: "participant",
-      origin: "created",
-      createdAt: 2,
-      destroyedAt: null,
+      origin: "declared",
+      createdAt: 0,
+      destroyedAt: 3,
     });
-    expect(diagnostics.map((d) => d.severity)).toEqual(["error", "error"]);
+    expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
+    expect(diagnostics[0]!.message).toContain("create participant");
   });
 
   it("makes a participant declared inside a block's body visible to a later sibling statement after the block ends (order-sensitive, threaded through recursion)", () => {

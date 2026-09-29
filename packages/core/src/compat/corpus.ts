@@ -872,6 +872,13 @@ function participants(result: SirenRenderResult): string[] {
   return [...new Set(elements(result, "g.siren-participant").map(idOf))];
 }
 
+/** The sequence lanes left to right, read off the lifelines' x positions. */
+function laneOrder(result: SirenRenderResult): string[] {
+  return elements(result, "line.siren-lifeline")
+    .sort((a, b) => Number(a.getAttribute("x1")) - Number(b.getAttribute("x1")))
+    .map(idOf);
+}
+
 /** Every sequence message as `id: label`, in draw order. */
 function messages(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-message").map(
@@ -3366,6 +3373,60 @@ line2\`"]`,
         group?.querySelector("title")?.textContent,
         "Dashboard",
       );
+    },
+  },
+  {
+    id: "seq-implicit-participants",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      B-->>A: ok`,
+    status: "supported",
+    meaning:
+      "A participant nothing declares is created where it is first named — " +
+      "measured against Mermaid 11.17.2: two participant lanes, A then B, " +
+      "and both messages. The most common way sequence diagrams are written.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["A", "B"]);
+      expectSame("messages", messages(result), ["A-B: hi", "B-A: ok"]);
+    },
+  },
+  {
+    id: "seq-implicit-mixed-order",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant P
+      loop again
+        Q->>R: x
+      end
+      alt yes
+        S->>P: y
+      else no
+        T->>P: z
+      end`,
+    status: "supported",
+    meaning:
+      "Lanes follow first mention, declaration or reference alike, block " +
+      "bodies included — measured against Mermaid 11.17.2: P, Q, R, S, T.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["P", "Q", "R", "S", "T"]);
+    },
+  },
+  {
+    id: "seq-declare-after-use",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: x
+      actor B as Bee`,
+    status: "supported",
+    meaning:
+      "A declaration after the first mention applies its label and kind to " +
+      "the existing lane without moving it — measured against Mermaid " +
+      "11.17.2: A, B, with B drawn as the actor Bee.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["A", "B"]);
+      expectSame("B's label", texts(result, 'g.siren-participant[data-siren-id="B"] text')[0], "Bee");
+      expectSame("B is an actor", drew(result, 'g.siren-participant[data-siren-id="B"] circle'), true);
     },
   },
   {
