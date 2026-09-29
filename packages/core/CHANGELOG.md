@@ -1,0 +1,49 @@
+# Changelog
+
+All notable changes to `siren-core` are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+While the version is 0.x, a minor release may contain breaking changes.
+
+## [Unreleased]
+
+## [0.1.0] - Unreleased
+
+First public release.
+
+### Added
+
+- `render(source, container, options?)`, which parses a Siren document, draws it into a
+  container as SVG, and returns the `<svg>`, an `AnimationController` and every
+  `Diagnostic`.
+- Five diagram types, written in Mermaid syntax:
+  - **Flowchart** (`flowchart` / `graph`): four directions, fourteen node shapes, every
+    arrow form, edge labels, subgraphs (with their own direction), Markdown labels, and
+    `accTitle` / `accDescr`.
+  - **Sequence diagram**: participants and actors, every message arrow, `autonumber`,
+    control-flow blocks (`loop`, `alt`, `opt`, `par`, `critical`, `break`, `rect`),
+    create/destroy, `box` groupings, activations, notes and links.
+  - **Class diagram**: members, generics, annotations, relationships with
+    multiplicities, lollipop interfaces, namespaces, notes and direction.
+  - **State diagram** (`stateDiagram-v2`): `[*]` start and end, descriptions, composite
+    states, concurrent regions, choice, fork and join, notes and direction.
+  - **ER diagram**: entities, relationships with cardinality markers, attribute tables,
+    aliases and direction.
+- The `timeline:` block. Each non-blank line is one step, with `enter` and `exit`
+  (`fade`, `slide-left`, `slide-right`, `slide-top`, `slide-bottom`), `highlight`
+  (`outline`, `glow`) and `unhighlight` actions that target any node, edge, class,
+  participant, message, block, state or entity by id.
+- `AnimationController` with `next()`, `prev()` and `reset()`. `prev()` restores each
+  earlier step exactly.
+- Author styling as in Mermaid: `classDef`, `class`, `:::name`, `style` and `linkStyle`.
+- Click interactions: `click ... href` becomes a link, and `click ... call fn()` is
+  passed to the `onClick` option without running any function named in the document.
+- A `measureText` option for sizing labels with real text metrics.
+- `siren-core/theme.css`, with light and dark palettes and `--siren-*` custom
+  properties for colors, text, lines, shapes and motion.
+- Diagnostics with severity, line and column, for every problem in a document.
+  Constructs that aren't implemented yet are rejected with an error instead of being
+  drawn incorrectly.
+- ES module build with bundled TypeScript declarations, and a self-contained
+  `dist/siren-core.js` for use without a bundler.
