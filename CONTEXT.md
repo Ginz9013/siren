@@ -416,9 +416,12 @@ cluster (that is the dagre-side word `layoutDirectedGraph` uses for the mechanis
 `<rect>`, one of the two elements a subgraph is drawn with)
 
 **Participant**:
-One vertical lane in a sequence diagram, declared explicitly as `participant X` (drawn as a box)
-or `actor X` (drawn as a stick figure). Lanes order left-to-right by first declaration. Never
-created implicitly by being mentioned in a message — an undeclared reference is a diagnostic.
+One vertical lane in a sequence diagram, declared as `participant X` (drawn as a box) or
+`actor X` (drawn as a stick figure), or created implicitly, as a box labelled with its id, by the
+first message, note, `activate`, `deactivate` or `destroy` that names it. Lanes order left to
+right by first mention, declaration or reference alike; a declaration after the first mention
+gives the lane its label and kind without moving it (see
+[ADR-0013](docs/adr/0013-sequence-participants-are-created-on-first-mention.md)).
 _Avoid_: actor (that is one of the two shapes a participant takes, not a synonym), lane, column,
 node
 

@@ -13,6 +13,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 - A flowchart click's tooltip is drawn: the node shows it on hover, as a class
   diagram's and a sequence diagram's already do. It was parsed but never drawn.
 
+### Changed
+
+- A sequence-diagram participant nothing declares is created where it is first named, as
+  in Mermaid, instead of being an error that dropped the message. Lanes run in the order
+  participants are first named, and a later `participant X as Label` sets the label
+  without moving the lane. A `create participant X` after X was already named is still
+  an error.
+
 ### Fixed
 
 - A `timeline:` block can name a sequence diagram's notes (`note:1`, ...) and activation

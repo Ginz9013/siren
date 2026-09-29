@@ -134,8 +134,11 @@ flowchart LR
 Header: `sequenceDiagram`. Keywords (`participant`, `note`, `loop`, `end`, ...) may be
 written in any case, as in Mermaid.
 
-**Declare every participant** with `participant` or `actor` before its first message.
-Siren reports an undeclared participant as an error, even though Mermaid allows it.
+A participant you don't declare is created where it is first named, labeled with its id.
+Lanes run left to right in the order participants are first named, so declare them up
+front when you want a specific order or a label (`participant A as Alice`). A declaration
+after the first mention still sets the label and kind, but doesn't move the lane.
+`create participant X` must come before anything else names X.
 
 ```
 sequenceDiagram
@@ -349,7 +352,6 @@ These fail with an error. Rewrite them or leave them out.
   `gitGraph` or `journey`.
 - YAML front matter (`---` ... `---`) before the header.
 - Flowchart shape syntax `A@{ shape: ... }`. Use the bracket shapes instead.
-- Sequence diagram: messages to undeclared participants.
 - State diagram: `style` statements.
 - ER diagram: the `u` cardinality (`u--o{`), styling a relationship or subgraph, the
   `:::` shorthand on an entity, `classDef default`, a multi-line `accDescr { ... }`, and

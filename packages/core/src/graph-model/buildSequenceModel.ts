@@ -39,16 +39,22 @@ type BlockStatement =
 
 /**
  * Mutable resolution state threaded by reference through the whole
- * (recursive) statement tree, so that order-sensitive rules — the
- * explicit-reference rule, message-pair-repeat counting, autonumbering, and
- * block-id counters — operate on the flattened document order rather than
- * resetting at each block boundary. A `participant` statement declared
- * inside a block's body must become visible to later statements anywhere in
- * the document, exactly as a top-level `participant` statement already is.
+ * (recursive) statement tree, so that order-sensitive rules — lane order by
+ * first mention, message-pair-repeat counting, autonumbering, and block-id
+ * counters — operate on the flattened document order rather than resetting
+ * at each block boundary. A participant first named inside a block's body
+ * takes its lane there, exactly as a top-level first mention does.
  */
 interface ResolutionState {
   diagnostics: Diagnostic[];
-  declaredSoFar: Set<string>;
+  /** Every participant id some statement has named so far (ADR-0013). */
+  mentionedSoFar: Set<string>;
+  /**
+   * Every participant id in the order it was first named — by a declaration
+   * or by any statement referring to it. This is the lane order: Mermaid
+   * places a lane where its participant is first mentioned.
+   */
+  mentionOrder: string[];
   seenPairCounts: Map<string, number>;
   blockCounters: Map<string, number>;
   /** How many activations are currently open on each participant's lifeline — the validity check `deactivate` needs. */
@@ -110,7 +116,8 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const state: ResolutionState = {
     diagnostics,
-    declaredSoFar: new Set<string>(),
+    mentionedSoFar: new Set<string>(),
+    mentionOrder: [],
     seenPairCounts: new Map<string, number>(),
     blockCounters: new Map<string, number>(),
     openActivationCounts: new Map<string, number>(),
@@ -124,6 +131,15 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   const boxes = resolveBoxes(document, diagnostics);
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
+
+  // Lanes in first-mention order. A declared participant no statement names
+  // (only a hand-built document can have one) keeps its place after them.
+  const mentioned = new Set(state.mentionOrder);
+  const lanes = [
+    ...state.mentionOrder.map((id) => participantsById.get(id)!),
+    ...participants.filter((p) => !mentioned.has(p.id)),
+  ];
+  participants.splice(0, participants.length, ...lanes);
 
   // A timeline target is a participant, a message, a control-flow block, a
   // box grouping, a note or an activation bar — exactly the six things
@@ -176,16 +192,15 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
  * Resolves the document's `box` groupings to `box:${n}` ids, 1-based in
  * declaration order.
  *
- * Boxes group *declarations*, not statements: they live in the preamble
- * alongside the participant list rather than at a position in the statement
- * tree, so the explicit-reference rule applies to them against the declared
- * participants as a whole, not against the order-sensitive `declaredSoFar`
- * set the statement walk maintains — there is no statement position at
- * which to say a box came "before" a declaration.
+ * Boxes group *declarations*, not statements: a `box` body may only hold
+ * `participant`/`actor` lines, so a participant created by a mention is never
+ * in one (ADR-0013), and every member the parser hands over is declared. The
+ * check below guards the model's own contract — a document built by hand
+ * can still name an undeclared member — rather than anything an author can
+ * write.
  *
- * An unresolvable member is dropped from the box and the box itself kept,
- * the same partial-failure tolerance an invalid message gets: the remaining
- * members still describe a grouping worth rendering.
+ * An unresolvable member is dropped from the box and the box itself kept:
+ * the remaining members still describe a grouping worth rendering.
  */
 function resolveBoxes(document: SequenceDocument, diagnostics: Diagnostic[]): ResolvedSequenceBox[] {
   const declaredIds = new Set(document.participants.map((p) => p.id));
@@ -205,6 +220,33 @@ function resolveBoxes(document: SequenceDocument, diagnostics: Diagnostic[]): Re
 
     return { id, color: box.color, label: box.label, participantIds };
   });
+}
+
+/**
+ * Records that a statement named participant `id`, creating the participant
+ * if nothing has declared it: Mermaid creates a lane on first mention, with
+ * the id as its label.
+ */
+function mention(
+  id: string,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  state: ResolutionState,
+): void {
+  if (!participantsById.has(id)) {
+    const participant: ResolvedSequenceParticipant = {
+      id,
+      label: id,
+      participantKind: "participant",
+      origin: "declared",
+      createdAt: 0,
+      destroyedAt: null,
+    };
+    participantsById.set(id, participant);
+  }
+  if (!state.mentionedSoFar.has(id)) {
+    state.mentionedSoFar.add(id);
+    state.mentionOrder.push(id);
+  }
 }
 
 function resolveStatements(
@@ -227,14 +269,20 @@ function resolveStatements(
     }
 
     if (statement.kind === "participant") {
-      // Explicit-reference rule (spec.md Domain decisions: "'earlier'
-      // meaning earlier in the flattened statement order") — accumulated
-      // incrementally, by mutating the shared `declaredSoFar` set, not
-      // pre-seeded from the full document.participants list. This also
-      // means a participant declared inside a block body becomes visible
-      // to later sibling/parent statements the same way, since the set is
-      // threaded by reference through the recursive block walk below.
-      state.declaredSoFar.add(statement.id);
+      // `create` starts a lifeline, so it has to come first: once a statement
+      // has named X, X already has a lane from the top. Mermaid rejects this
+      // document outright ("It is not possible to have actors with the same
+      // id"); the `create` alone is dropped here, and X keeps the lane it has.
+      if (statement.origin === "created" && state.mentionedSoFar.has(statement.id)) {
+        state.diagnostics.push({
+          severity: "error",
+          message: `create participant "${statement.id}" comes after "${statement.id}" is already used; a created participant must be created before it is first named`,
+          line: statement.line,
+          column: statement.column,
+        });
+        continue;
+      }
+      mention(statement.id, participantsById, state);
       const participant = participantsById.get(statement.id);
       // participantsById is built from the same document.participants list
       // every participant statement's id is drawn from, so this is always
@@ -250,18 +298,7 @@ function resolveStatements(
     }
 
     if (statement.kind === "destroy") {
-      // Explicit-reference rule applies to `destroy` too — including to a
-      // `create`d participant destroyed above its own `create` statement,
-      // since `declaredSoFar` only gains the id at that statement.
-      if (!state.declaredSoFar.has(statement.id)) {
-        state.diagnostics.push({
-          severity: "error",
-          message: `destroy references undeclared participant "${statement.id}"`,
-          line: statement.line,
-          column: statement.column,
-        });
-        continue;
-      }
+      mention(statement.id, participantsById, state);
       // A lifeline can only end once: a second `destroy` has no truncation
       // point left to name, so it is an error and is dropped, keeping the
       // first one's extent.
@@ -283,25 +320,8 @@ function resolveStatements(
     }
 
     if (statement.kind === "message") {
-      // Explicit-reference rule: a message referencing a participant id
-      // with no earlier `participant`/`create participant` statement is an
-      // error diagnostic. That message alone is dropped — everything else
-      // still resolves (partial-failure tolerance, matching flowchart's
-      // "drop the bad entry, keep going" discipline). Applies the same way
-      // whether the message sits at top level or inside a block's body.
       const referencedIds = [...new Set([statement.from, statement.to])];
-      const missingIds = referencedIds.filter((id) => !state.declaredSoFar.has(id));
-      if (missingIds.length > 0) {
-        for (const id of missingIds) {
-          state.diagnostics.push({
-            severity: "error",
-            message: `Message references undeclared participant "${id}"`,
-            line: statement.line,
-            column: statement.column,
-          });
-        }
-        continue;
-      }
+      for (const id of referencedIds) mention(id, participantsById, state);
 
       const pairKey = `${statement.from}->${statement.to}`;
       const occurrence = (state.seenPairCounts.get(pairKey) ?? 0) + 1;
@@ -350,15 +370,7 @@ function resolveStatements(
     }
 
     if (statement.kind === "activate") {
-      if (!state.declaredSoFar.has(statement.id)) {
-        state.diagnostics.push({
-          severity: "error",
-          message: `activate references undeclared participant "${statement.id}"`,
-          line: statement.line,
-          column: statement.column,
-        });
-        continue;
-      }
+      mention(statement.id, participantsById, state);
       state.openActivationCounts.set(
         statement.id,
         (state.openActivationCounts.get(statement.id) ?? 0) + 1,
@@ -372,15 +384,7 @@ function resolveStatements(
     }
 
     if (statement.kind === "deactivate") {
-      if (!state.declaredSoFar.has(statement.id)) {
-        state.diagnostics.push({
-          severity: "error",
-          message: `deactivate references undeclared participant "${statement.id}"`,
-          line: statement.line,
-          column: statement.column,
-        });
-        continue;
-      }
+      mention(statement.id, participantsById, state);
       // Matches Mermaid's own rejection ("Trying to inactivate an inactive
       // participant") — a `deactivate` with nothing open is dropped rather
       // than drawing a bar with no start, the same partial-failure
@@ -403,20 +407,7 @@ function resolveStatements(
     }
 
     if (statement.kind === "note") {
-      // Explicit-reference rule, same as a message's two ends.
-      const referencedIds = [...new Set([statement.from, statement.to])];
-      const missingIds = referencedIds.filter((id) => !state.declaredSoFar.has(id));
-      if (missingIds.length > 0) {
-        for (const id of missingIds) {
-          state.diagnostics.push({
-            severity: "error",
-            message: `note references undeclared participant "${id}"`,
-            line: statement.line,
-            column: statement.column,
-          });
-        }
-        continue;
-      }
+      for (const id of new Set([statement.from, statement.to])) mention(id, participantsById, state);
 
       state.noteCounter += 1;
       ++state.position;
@@ -472,7 +463,7 @@ function resolveBlock(
       // alt/par/critical branch labels ("else"/"and"/"option" conditions)
       // pass through unchanged; each branch's body resolves independently
       // (its own nested block-id/participant-reference state is still the
-      // shared `state`, since block ids and the explicit-reference rule are
+      // shared `state`, since block ids and lane order by first mention are
       // both document-order-wide, not branch-scoped).
       branchInputs = statement.branches;
       break;
