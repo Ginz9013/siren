@@ -1,5 +1,5 @@
 /**
- * Cross-module type contracts for @siren/core.
+ * Cross-module type contracts for siren-core.
  *
  * This file holds every interface type shared between the parser, graph
  * model, layout, renderer, animation runtime, and public API modules. It is

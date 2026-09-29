@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# The default theme is plain CSS custom properties, shipped as part of `@siren/core`
+# The default theme is plain CSS custom properties, shipped as part of `siren-core`
 
 > ADR-0011 ships the light and dark variants deferred below.
 
@@ -11,8 +11,8 @@ across a demo-only stylesheet, with no way for any consumer besides this repo's 
 consistent default styling or override it predictably. `packages/core/src/theme/default.css` is
 now the single design-token source of truth — CSS custom properties (`--siren-node-fill`,
 `--siren-highlight-color`, `--siren-slide-duration`, etc.) that any consumer overrides by
-redeclaring them in their own CSS, exposed via `@siren/core`'s `package.json` `exports` map
-(`@siren/core/theme.css`) so it travels with the package rather than living only in this repo's
+redeclaring them in their own CSS, exposed via `siren-core`'s `package.json` `exports` map
+(`siren-core/theme.css`) so it travels with the package rather than living only in this repo's
 demos.
 
 ## Considered Options

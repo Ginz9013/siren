@@ -1,13 +1,13 @@
 /*
  * Page chrome shared by demos/step-reveal.html and demos/complex-showcase.html
  * — page layout, header/status text, the theme toggle, and the flex slot
- * @siren/board mounts into. The full-bleed canvas sizing and floating
+ * siren-board mounts into. The full-bleed canvas sizing and floating
  * Prev/Next/Reset bar used to live here but are now board's own injected
  * chrome (packages/board/src/styles.ts, ADR-0006) — both demos migrated
- * onto @siren/board, so this file no longer needs to hand-roll them. None
+ * onto siren-board, so this file no longer needs to hand-roll them. None
  * of this is diagram styling either; the diagram's own visual design system
  * lives in packages/core/src/theme/default.css and ships as part of
- * @siren/core (see ADR-0004) — every demo page links both files.
+ * siren-core (see ADR-0004) — every demo page links both files.
  */
 
 /*
@@ -64,7 +64,7 @@ h1 {
 
 /*
  * Row pairing the page title with the theme toggle — the one button that
- * stays page-owned once @siren/board takes over Prev/Next/Reset (ADR-0006:
+ * stays page-owned once siren-board takes over Prev/Next/Reset (ADR-0006:
  * board never sets data-theme; it only reads it, per ADR-0011). Kept out
  * of board's own floating bottom bar so the two don't collide.
  */
@@ -123,7 +123,7 @@ h1 {
 }
 
 /*
- * Slot for @siren/board: fills whatever vertical space the header text above
+ * Slot for siren-board: fills whatever vertical space the header text above
  * it doesn't use. Everything inside — full-bleed SVG scaling, the floating
  * Prev/Next/Reset bar — is board's own injected chrome (see
  * packages/board/src/styles.ts, ADR-0006); this page only needs to give the

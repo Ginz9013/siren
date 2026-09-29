@@ -6,7 +6,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 /*
  * Icon paths below are copied from Lucide (https://lucide.dev) rather than
- * taken as a dependency, so board keeps depending on @siren/core alone.
+ * taken as a dependency, so board keeps depending on siren-core alone.
  *
  * ISC License
  *

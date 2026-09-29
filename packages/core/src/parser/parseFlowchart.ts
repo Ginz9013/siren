@@ -151,7 +151,7 @@ const ID_RUN = String.raw`\w+(?:\.+-?\w*)*`;
  * names is decided by *both* leaning characters, and a label is free to
  * contain either of them. Mermaid 11.17.2 reads `A[/a\b/]` as a
  * `lean_right` labelled `a\b` and `A[\a/\]` as a `lean_left` labelled `a/`
- * (`pnpm --filter @siren/core probe`), so it is the closing pair that ends
+ * (`pnpm --filter siren-core probe`), so it is the closing pair that ends
  * the label, which is what `LABEL_CONTENT`'s backtracking gives here.
  *
  * A one-character label keeps board 4's length rule for free: `A[/]` cannot

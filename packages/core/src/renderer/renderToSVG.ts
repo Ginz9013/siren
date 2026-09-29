@@ -382,7 +382,7 @@ function buildEdgeLabel(edge: PositionedEdge): SVGTextElement | null {
   // reach this renderer and be dropped, because an edge had no text; the
   // question of whether it should paint the label an edge now has was left
   // for its own decision, and the decision was settled by rendering the
-  // document in Mermaid (`pnpm --filter @siren/core probe --paint`).
+  // document in Mermaid (`pnpm --filter siren-core probe --paint`).
   // Mermaid paints it — `<text style="fill:#f00 !important">` on the very
   // label this element is — so dropping it was a silent mis-render.
   //

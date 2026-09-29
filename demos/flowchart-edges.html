@@ -47,10 +47,10 @@
     <!--
       Same mechanism as demos/flowchart-shapes.html and
       demos/flowchart-styling.html: imports the real Vite library build of
-      @siren/board, and loads its example document via fetch() from
+      siren-board, and loads its example document via fetch() from
       examples/flowchart-edges.srn (not inlined), so the page and
       packages/core/src/index.test.ts read the same bytes. Run
-      `pnpm --filter @siren/core build && pnpm --filter @siren/board build`
+      `pnpm --filter siren-core build && pnpm --filter siren-board build`
       first. Must be served over http(s) — file:// will fail fetch() due to
       CORS.
 
@@ -61,7 +61,7 @@
       moves with its line without the controller knowing there are two
       elements wearing one id (ADR-0009).
 
-      @siren/board owns rendering, the text measurer, the Prev/Next/Reset
+      siren-board owns rendering, the text measurer, the Prev/Next/Reset
       control bar, full-bleed sizing and error display — see ADR-0005 and
       ADR-0006. This page keeps only what board deliberately doesn't own:
       fetching the source, the theme toggle, and the summary line below.

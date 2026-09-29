@@ -1,11 +1,11 @@
-import type { TextMeasurer } from "@siren/core";
+import type { TextMeasurer } from "siren-core";
 
 const PADDING_X = 24;
 const LINE_HEIGHT = 32;
 const FONT = "14px system-ui, sans-serif";
 
 /**
- * Real, DOM-based text measurer for the browser — `@siren/core`'s own
+ * Real, DOM-based text measurer for the browser — `siren-core`'s own
  * default measurer deliberately avoids `canvas` to stay usable under jsdom
  * (see `packages/core/src/index.ts`). This is board's default instead,
  * equivalent to the one both demo pages used to hand-roll. Not exercised by

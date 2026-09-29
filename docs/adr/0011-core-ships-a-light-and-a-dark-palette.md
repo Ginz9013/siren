@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# `@siren/core`'s default theme ships a light and a dark palette, and the page picks between them
+# `siren-core`'s default theme ships a light and a dark palette, and the page picks between them
 
 The default theme's colors are now the violet palette of siren-website's decision `01M3BY1GPP`,
 chosen so a Siren diagram is never mistaken for a Mermaid one, and `default.css` declares it
@@ -38,6 +38,6 @@ second, narrower switch that could disagree with the page's.
 - A page that sets `data-theme` for its own reasons now also switches the diagram's palette.
   That is intended; a page that wants the diagram fixed pins a subtree with `data-theme="light"`
   or redeclares the tokens.
-- `@siren/board` follows the same selectors for its own chrome tokens, per ADR-0006's split: core
+- `siren-board` follows the same selectors for its own chrome tokens, per ADR-0006's split: core
   does not know board's chrome exists.
 - Core still declares no page background and no `color-scheme`; those remain the page's.

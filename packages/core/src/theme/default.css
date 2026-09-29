@@ -1,8 +1,8 @@
 /*
- * @siren/core's default theme.
+ * siren-core's default theme.
  *
  * This is the diagram's visual design system, shipped as part of
- * `@siren/core` (see ADR-0004) — every renderer/consumer of this package
+ * `siren-core` (see ADR-0004) — every renderer/consumer of this package
  * (this repo's demos, and later the playground/VSCode extension) can rely
  * on the same default appearance by loading this one file, and override any
  * of it by redeclaring the `--siren-*` custom properties below in their own
