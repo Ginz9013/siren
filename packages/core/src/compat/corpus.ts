@@ -3292,6 +3292,163 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "seq-case-note",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      Note LEFT OF A: left
+      NOTE Right Of A: right
+      note Over A,B: both`,
+    status: "supported",
+    meaning:
+      "`note` and its position words are read in any case (measured: `Note`, " +
+      "`NOTE`, `note LEFT OF`, `note Right of`, `note Over`), and the note is " +
+      "drawn on the side the words name — `LEFT OF` on the left.",
+    assert: (result) => {
+      expectSame("every note is drawn", texts(result, "text.siren-note-text"), [
+        "left",
+        "right",
+        "both",
+      ]);
+      const lifeline = elements(result, 'line.siren-lifeline[data-siren-id="A"]')[0];
+      const lifelineX = Number(lifeline.getAttribute("x1"));
+      const frames = elements(result, "rect.siren-note-frame");
+      const left = frames[0];
+      const right = frames[1];
+      expectSame(
+        "LEFT OF ends left of A's lifeline",
+        Number(left.getAttribute("x")) + Number(left.getAttribute("width")) <= lifelineX,
+        true,
+      );
+      expectSame("Right Of starts right of A's lifeline", Number(right.getAttribute("x")) >= lifelineX, true);
+    },
+  },
+  {
+    id: "seq-case-participant",
+    kind: "sequence",
+    source: `sequenceDiagram
+      Participant A AS Alice
+      ACTOR B
+      A->>B: Hello`,
+    status: "supported",
+    meaning:
+      "`participant`, `actor` and `as` are read in any case (measured: " +
+      "`Participant`, `PARTICIPANT B AS Bee`, `Actor`, `ACTOR`); the id and " +
+      "the label keep the case the author wrote.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B"]);
+      expectSame("A is drawn under its alias", texts(result, 'g.siren-participant[data-siren-id="A"] text'), [
+        "Alice",
+        "Alice",
+      ]);
+      expectSame("B is an actor", drew(result, 'g.siren-participant[data-siren-id="B"] circle'), true);
+    },
+  },
+  {
+    id: "seq-case-blocks",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      Loop every minute
+        A->>B: poll
+      End
+      ALT fresh
+        B-->>A: data
+      Else stale
+        B-->>A: marker
+      END
+      Opt warm
+        A->>B: hint
+      end
+      Par one
+        A->>B: task
+      And two
+        B->>A: task
+      end
+      Critical lock
+        A->>B: take
+      Option timeout
+        B-->>A: busy
+      end
+      Break fatal
+        B--xA: abort
+      end
+      Rect rgb(240, 248, 255)
+        A->>B: shaded
+      End`,
+    status: "supported",
+    meaning:
+      "Every block keyword and its terminators are read in any case " +
+      "(measured: `Loop … End`, `ALT … Else … END`, `Opt`, `Par`/`And`, " +
+      "`Critical`/`Option`, `Break`, `Rect`).",
+    assert: (result) => {
+      expectSame("blocks", blocks(result), [
+        "loop:loop:1",
+        "alt:alt:1",
+        "opt:opt:1",
+        "par:par:1",
+        "critical:critical:1",
+        "break:break:1",
+        "rect:rect:1",
+      ]);
+    },
+  },
+  {
+    id: "seq-case-lifecycle",
+    kind: "sequence",
+    source: `sequenceDiagram
+      Box Aqua Front
+        participant A
+      End
+      participant B
+      AutoNumber
+      A->>B: one
+      ACTIVATE B
+      B-->>A: two
+      Deactivate B
+      AUTONUMBER OFF
+      Create participant C
+      A->>C: three
+      DESTROY C`,
+    status: "supported",
+    meaning:
+      "`box`, `autonumber` (and `autonumber off`), `activate`, `deactivate`, " +
+      "`create` and `destroy` are read in any case (measured: `Box … END`, " +
+      "`Autonumber`, `AUTONUMBER`, `Activate`, `DEACTIVATE`, `Create " +
+      "participant`, `Destroy`).",
+    assert: (result) => {
+      expectSame("the box grouping is drawn", drew(result, 'g.siren-box[data-siren-id="box:1"]'), true);
+      expectSame("the two numbered messages", texts(result, "text.siren-autonumber"), ["1", "2"]);
+      expectSame("one activation bar", elements(result, "rect.siren-activation-bar").length, 1);
+      expectSame("C is created", participants(result), ["A", "B", "C"]);
+      expectSame("C is destroyed", drew(result, 'path.siren-destroy-mark[data-siren-id="C"]'), true);
+    },
+  },
+  {
+    id: "seq-case-title-link",
+    kind: "sequence",
+    source: `sequenceDiagram
+      TITLE Checkout
+      AccTitle: Checkout flow
+      participant A
+      Link A: Home @ https://example.com`,
+    status: "supported",
+    meaning:
+      "`title`, `accTitle` and `link` are read in any case (measured: `Title`, " +
+      "`TITLE`, `AccTitle:`, `Link`, `LINK`).",
+    assert: (result) => {
+      expectSame("the title is drawn", texts(result, "text.siren-title"), ["Checkout"]);
+      expectSame("the accessible title", svgOf(result).querySelector(":scope > title")?.textContent, "Checkout flow");
+      expectSame(
+        "A links to the url",
+        svgOf(result).querySelector("a.siren-link")?.getAttribute("href"),
+        "https://example.com",
+      );
+    },
+  },
   // -------------------------------------------------------------------------
   // stateDiagram
   // -------------------------------------------------------------------------

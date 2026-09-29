@@ -38,12 +38,12 @@ const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
  * spelling stays owned by the shared timeline grammar.
  */
 const TIMELINE_TERMINATOR = "timeline:";
-const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/;
-const TITLE_RE = /^title\s+(.+)$/;
+const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/i;
+const TITLE_RE = /^title\s+(.+)$/i;
 /** `accTitle: text` — screen-reader-only, distinct from the visible `title` above. The colon is required. */
-const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
+const ACC_TITLE_RE = /^accTitle:\s*(.+)$/i;
 /** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
-const LINK_RE = /^link\s+(\w+):\s*(.+?)\s*@\s*(\S+)$/;
+const LINK_RE = /^link\s+(\w+):\s*(.+?)\s*@\s*(\S+)$/i;
 /** The lone participant id argument of a `destroy` statement. */
 const DESTROY_ID_RE = /^(\w+)$/;
 
@@ -141,8 +141,8 @@ const ACTIVATION_MESSAGE_RE = new RegExp(
   `^(\\w+)(${ARROW_ALTERNATION})([+-])(\\w+)\\s*:\\s*(.*)$`,
 );
 /** `activate X` / `deactivate X` — the long form of the same activation bar. */
-const ACTIVATE_RE = /^activate\s+(\w+)$/;
-const DEACTIVATE_RE = /^deactivate\s+(\w+)$/;
+const ACTIVATE_RE = /^activate\s+(\w+)$/i;
+const DEACTIVATE_RE = /^deactivate\s+(\w+)$/i;
 /**
  * `note over A,B: text` / `note over A: text` / `note right of A: text` /
  * `note left of A: text`. The participant-list group is `[\w,]+` rather
@@ -150,7 +150,7 @@ const DEACTIVATE_RE = /^deactivate\s+(\w+)$/;
  * `left of` name exactly one, and splitting on `,` after the match reads
  * either shape without two regexes.
  */
-const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/;
+const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/i;
 
 /** Mutable cursor + accumulators threaded through the recursive-descent body parser. */
 interface ParserState {
@@ -177,12 +177,16 @@ interface KeywordMatch {
  * Matches `line` against a leading keyword, requiring a word boundary (the
  * keyword alone, or the keyword followed by whitespace) so e.g. `"opt"`
  * never matches `"option"` and `"and"` never matches `"actor"`.
+ *
+ * The keyword is matched in any case, as Mermaid matches it (`Loop`, `END`);
+ * the rest of the line keeps the author's own case, since it is a label.
  */
 function matchLeadingKeyword(line: string, keyword: string): KeywordMatch {
-  if (line === keyword) {
+  const lowered = line.toLowerCase();
+  if (lowered === keyword) {
     return { matched: true, rest: "" };
   }
-  if (line.startsWith(`${keyword} `)) {
+  if (lowered.startsWith(`${keyword} `)) {
     return { matched: true, rest: line.slice(keyword.length + 1).trim() };
   }
   return { matched: false, rest: "" };
@@ -258,7 +262,9 @@ function declareParticipant(
   column: number,
 ): SequenceParticipantStatement {
   const [, kindWord, id, alias] = declMatch;
-  const participantKind = kindWord as SequenceParticipantKind;
+  // `Participant` and `ACTOR` are Mermaid's spellings too: the keyword is
+  // read in any case, and only the id and label keep the author's.
+  const participantKind = kindWord.toLowerCase() as SequenceParticipantKind;
   const label = alias !== undefined ? alias.trim() : id;
 
   if (state.participantIds.has(id)) {
@@ -404,13 +410,14 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
       continue;
     }
 
-    if (line === "autonumber") {
+    // Compared lowercased: Mermaid reads `Autonumber` and `AUTONUMBER OFF` too.
+    if (line.toLowerCase() === "autonumber") {
       statements.push({ kind: "autonumberOn", line: lineNumber, column });
       state.index++;
       continue;
     }
 
-    if (line === "autonumber off") {
+    if (line.toLowerCase() === "autonumber off") {
       statements.push({ kind: "autonumberOff", line: lineNumber, column });
       state.index++;
       continue;
@@ -478,8 +485,12 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     if (noteMatch !== null) {
       const [, keyword, participantList, text] = noteMatch;
       const ids = participantList.split(",").map((id) => id.trim());
+      // Mermaid reads the keyword and its position words in any case
+      // (`Note LEFT OF A` draws on the left), so the position is lowercased
+      // before it is read.
+      const position = keyword.toLowerCase();
       const placement: SequenceNotePlacement =
-        keyword === "over" ? "over" : keyword === "right of" ? "right" : "left";
+        position === "over" ? "over" : position === "right of" ? "right" : "left";
       statements.push({
         kind: "note",
         placement,

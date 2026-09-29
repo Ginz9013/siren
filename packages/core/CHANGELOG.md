@@ -16,6 +16,9 @@ While the version is 0.x, a minor release may contain breaking changes.
   (both rows, the lifeline and the destroy mark), messages, blocks including `rect`,
   box groupings and activation bars. It used to change nothing. `glow` now also takes
   those targets' strokes to the highlight color, as it does in the other diagram types.
+- Sequence-diagram keywords are read in any case, as in Mermaid: `Note LEFT OF A`,
+  `Participant A AS Alice`, `Loop` ... `End`, `ACTIVATE`, `Autonumber` and the rest.
+  Only lowercase was accepted, and any other spelling rejected the whole diagram.
 
 ## [0.1.0] - Unreleased
 
