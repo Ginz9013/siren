@@ -188,6 +188,17 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // not the picture.
     g.setAttribute("data-siren-shape", node.shape);
 
+    // First child, before the frame: SVG surfaces a `<title>` as the hover
+    // tooltip only when it is its parent's first child element — the same
+    // convention the class and sequence renderers follow for their clicks.
+    const tooltip = node.interaction?.tooltip ?? null;
+    if (tooltip !== null) {
+      const title = document.createElementNS(SVG_NS, "title");
+      // textContent, never innerHTML — a tooltip is author input like any label.
+      title.textContent = tooltip;
+      g.appendChild(title);
+    }
+
     const frames = buildNodeFrames(node);
     // The drawn shape carries a class of its own, mirroring the class
     // diagram's `<rect class="siren-class-frame">`. The theme selects it

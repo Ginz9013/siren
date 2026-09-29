@@ -2754,6 +2754,82 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-click-bare-href-tooltip",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start]
+      click A "https://example.com" "Open it"`,
+    status: "supported",
+    meaning:
+      "`click A \"url\" \"tip\"` — the bare shorthand with a tooltip. Measured " +
+      "against Mermaid 11.17.2: accepted, the node is clickable and carries " +
+      "`title=\"tip\"`, exactly as `click A href \"url\" \"tip\"`. Siren " +
+      "draws the tooltip as the node group's leading <title>.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector("a.siren-link");
+      if (link === null) throw new Error("no <a class=\"siren-link\"> was drawn");
+      expectSame("the href", link.getAttribute("href"), "https://example.com");
+      expectSame("the target", link.getAttribute("target"), null);
+      const group = link.querySelector('g.siren-node[data-siren-id="A"]');
+      expectSame("it wraps the node", group !== null, true);
+      expectSame(
+        "the tooltip, as the node's leading <title>",
+        group?.firstElementChild?.tagName === "title" ? group.firstElementChild.textContent : null,
+        "Open it",
+      );
+    },
+  },
+  {
+    id: "fc-click-bare-href-target",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start]
+      click A "https://example.com" _blank`,
+    status: "supported",
+    meaning:
+      "`click A \"url\" _blank` — the bare shorthand with a target. Measured " +
+      "against Mermaid 11.17.2 (securityLevel loose): `<a href=\"url\" " +
+      "target=\"_blank\">`, as the href form draws.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector("a.siren-link");
+      if (link === null) throw new Error("no <a class=\"siren-link\"> was drawn");
+      expectSame("the href", link.getAttribute("href"), "https://example.com");
+      expectSame("the target", link.getAttribute("target"), "_blank");
+      const group = link.querySelector('g.siren-node[data-siren-id="A"]');
+      expectSame("it wraps the node", group !== null, true);
+      expectSame(
+        "the tooltip, as the node's leading <title>",
+        group?.firstElementChild?.tagName === "title" ? group.firstElementChild.textContent : null,
+        null,
+      );
+    },
+  },
+  {
+    id: "fc-click-bare-href-tooltip-target",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start]
+      click A "https://example.com" "Open it" _blank`,
+    status: "supported",
+    meaning:
+      "`click A \"url\" \"tip\" _blank` — tooltip and target together. " +
+      "Measured against Mermaid 11.17.2: identical to `click A href \"url\" " +
+      "\"tip\" _blank`.",
+    assert: (result) => {
+      const link = svgOf(result).querySelector("a.siren-link");
+      if (link === null) throw new Error("no <a class=\"siren-link\"> was drawn");
+      expectSame("the href", link.getAttribute("href"), "https://example.com");
+      expectSame("the target", link.getAttribute("target"), "_blank");
+      const group = link.querySelector('g.siren-node[data-siren-id="A"]');
+      expectSame("it wraps the node", group !== null, true);
+      expectSame(
+        "the tooltip, as the node's leading <title>",
+        group?.firstElementChild?.tagName === "title" ? group.firstElementChild.textContent : null,
+        "Open it",
+      );
+    },
+  },
+  {
     id: "fc-acc-title",
     kind: "flowchart",
     source: `flowchart TB
