@@ -1,0 +1,4 @@
+{"id":"01M3NNNE65JHSBBY2RSSBDPZEH","t":1,"a":"83a1","op":"create","title":"sequence: link 指向只被提及（隱式建立）的 participant 仍被拒絕"}
+{"id":"01M3NNNE6FXQ0W0J4TJKMGS9YH","t":2,"a":"83a1","op":"set","k":"description","v":"board sequence-flowchart-gaps 的 spec review 發現（ADR-0013 之後）。`A->>B: x` 再 `link B: Docs @ https://x.com` 得到 `click \"B\" references a target that does not exist`：buildSequenceModel 在走訪 statements（隱式建立 participant）之前就用宣告過的 participants 解析 interactions。修法應是把 resolveInteractions 移到走訪之後。實作前先量 Mermaid 11.17.2 對這份文件的行為（link 指向未宣告 participant 是否建立它、順序為何）。"}
+{"id":"01M3NNNE6FAXSEB11E49DAFPVN","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M3NNNE6FB9NJ7A11HAPZ85SK","t":4,"a":"83a1","op":"label.add","v":"sequence"}
