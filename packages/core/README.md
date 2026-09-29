@@ -207,6 +207,8 @@ connection is named by the ids at its two ends.
 | Sequence  | Participant / actor                | `Client`                        |
 |           | Message                            | `Client-Server`                 |
 |           | `loop`, `alt`, `rect`, `box`, ...  | `loop:1`, `rect:1`, `box:1`, ...  |
+|           | Note                               | `note:1`, `note:2`, ...         |
+|           | Activation bar                     | `activation:1`, ... in the order bars open |
 | Class     | Class                              | `Order`                         |
 |           | Relationship                       | `Order-LineItem`                |
 |           | Namespace / note                   | `namespace:1`, `note:1`, ...    |
@@ -305,11 +307,12 @@ Mermaid's `click` syntax works in flowcharts and class diagrams:
 ```
 flowchart LR
   A[Docs] --> B[API]
-  click A href "https://example.com/docs"
+  click A href "https://example.com/docs" "Read the docs" _blank
   click B call showDetails("api")
 ```
 
-An `href` becomes a normal link. For `call`, Siren never looks up or runs the named
+An `href` becomes a normal link, with an optional tooltip and target; `href` itself may be
+left out (`click A "https://..."`). A tooltip shows when the reader hovers the element. For `call`, Siren never looks up or runs the named
 function. It passes the name to `onClick`, and your code decides what happens:
 
 ```js

@@ -1,6 +1,6 @@
 {
   "name": "siren-board",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A drop-in player for Siren diagrams: renders a .srn document with built-in step controls, pan and zoom, and real browser text measurement.",
   "keywords": [
     "siren",
