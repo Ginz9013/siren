@@ -1369,6 +1369,42 @@
     stroke-width var(--siren-highlight-duration) ease-out;
 }
 
+/*
+ * The sequence diagram's own `outline` rules. A participant is one target
+ * drawn several times under one id (ADR-0009) — a box or actor figure in each
+ * participant row, the lifeline, and the destroy mark — so every one of them
+ * is outlined together. The row's shapes carry no class of their own, which
+ * is why they are selected by element inside `.siren-participant`. The
+ * lifeline keeps its dash: only its color and width change.
+ *
+ * A message outlines its line and not its arrowhead: the markers live in
+ * `<defs>`, shared by every message, where the highlight class on one
+ * message's `<g>` does not reach — the same reason a flowchart edge's
+ * arrowhead keeps its color.
+ *
+ * A block's frame and dividers are selected as *children*: blocks nest, and a
+ * descendant selector would outline every block inside the one highlighted.
+ * A `rect` block has no frame at all — only its fill, unstroked — so its
+ * outline strokes that fill rather than adding an element for it.
+ */
+.siren-participant.siren-highlight-outline rect,
+.siren-participant.siren-highlight-outline circle,
+.siren-participant.siren-highlight-outline line,
+.siren-lifeline.siren-highlight-outline,
+.siren-destroy-mark.siren-highlight-outline,
+.siren-message.siren-highlight-outline .siren-message-arrow,
+.siren-block.siren-highlight-outline > .siren-block-frame,
+.siren-block.siren-highlight-outline > .siren-block-divider,
+.siren-block.siren-highlight-outline > .siren-block-fill,
+.siren-box.siren-highlight-outline .siren-box-background,
+.siren-activation-bar.siren-highlight-outline {
+  stroke: var(--siren-highlight-color);
+  stroke-width: var(--siren-highlight-stroke-width);
+  transition:
+    stroke var(--siren-highlight-duration) ease-out,
+    stroke-width var(--siren-highlight-duration) ease-out;
+}
+
 .siren-highlight-glow {
   filter: drop-shadow(0 0 4px var(--siren-highlight-color))
     drop-shadow(0 0 8px var(--siren-highlight-color));
@@ -1393,6 +1429,25 @@
 .siren-state.siren-highlight-glow .siren-state-bar,
 .siren-state.siren-highlight-glow .siren-state-end,
 .siren-transition.siren-highlight-glow .siren-transition-line {
+  stroke: var(--siren-highlight-color);
+  transition: stroke var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * The same recolor for the sequence targets, on the same shapes their
+ * `outline` rules above name — except a `rect` block's fill, which has no
+ * stroke to recolor and is marked by the glow alone.
+ */
+.siren-participant.siren-highlight-glow rect,
+.siren-participant.siren-highlight-glow circle,
+.siren-participant.siren-highlight-glow line,
+.siren-lifeline.siren-highlight-glow,
+.siren-destroy-mark.siren-highlight-glow,
+.siren-message.siren-highlight-glow .siren-message-arrow,
+.siren-block.siren-highlight-glow > .siren-block-frame,
+.siren-block.siren-highlight-glow > .siren-block-divider,
+.siren-box.siren-highlight-glow .siren-box-background,
+.siren-activation-bar.siren-highlight-glow {
   stroke: var(--siren-highlight-color);
   transition: stroke var(--siren-highlight-duration) ease-out;
 }
