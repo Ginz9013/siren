@@ -12,6 +12,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 - A `timeline:` block can name a sequence diagram's notes (`note:1`, ...) and activation
   bars (`activation:1`, ...). They were drawn with these ids but rejected as unknown.
+- `highlight ... outline` is visible on every sequence-diagram target: participants
+  (both rows, the lifeline and the destroy mark), messages, blocks including `rect`,
+  box groupings and activation bars. It used to change nothing. `glow` now also takes
+  those targets' strokes to the highlight color, as it does in the other diagram types.
 
 ## [0.1.0] - Unreleased
 

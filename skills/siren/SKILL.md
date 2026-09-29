@@ -89,8 +89,8 @@ the left, and `exit X slide-left` leaves toward the left. The same holds for `-r
 `-top` (above) and `-bottom` (below).
 
 `outline` recolors and thickens a shape's border or a line. `glow` adds a colored halo
-and recolors the border at its normal width. In sequence diagrams only `glow` is
-visible at the moment: `outline` is accepted but draws nothing.
+and recolors the border at its normal width. A connection's arrowhead keeps its color
+under both.
 
 ### Rules the renderer enforces
 

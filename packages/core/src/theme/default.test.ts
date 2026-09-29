@@ -463,6 +463,151 @@ highlight B outline
 highlight C glow
 `;
 
+/**
+ * Every stroked shape that belongs to one timeline target: the carrier itself
+ * when it is a shape, otherwise the shapes inside it that no nested target
+ * claims (a block's frame and dividers, not the messages it wraps).
+ */
+function strokedShapesOf(carrier: Element): Element[] {
+  const shapes = "rect, circle, line, path";
+  if (carrier.matches(shapes)) {
+    return [carrier];
+  }
+  return Array.from(carrier.querySelectorAll(shapes)).filter(
+    (shape) => shape.closest("[data-siren-id]") === carrier,
+  );
+}
+
+/**
+ * What `highlight <id> outline` does to every shape of that target, as a list
+ * of the shapes it failed on — empty when every one of them takes the
+ * highlight color and width, and gets its own stroke back once the class is
+ * removed.
+ */
+function outlineFailures(svg: SVGSVGElement, id: string): string[] {
+  const carriers = Array.from(svg.querySelectorAll(`[data-siren-id="${id}"]`));
+  if (carriers.length === 0) {
+    return [`no element carries data-siren-id="${id}"`];
+  }
+
+  const failures: string[] = [];
+  for (const carrier of carriers) {
+    const shapes = strokedShapesOf(carrier);
+    if (shapes.length === 0) {
+      failures.push(`${describeElement(carrier)}: no stroked shape`);
+    }
+    for (const shape of shapes) {
+      const before = getComputedStyle(shape);
+      const beforeStroke = before.stroke;
+      const beforeDash = before.strokeDasharray;
+
+      carrier.classList.add("siren-highlight-outline");
+      const after = getComputedStyle(shape);
+      const afterStroke = after.stroke;
+      const afterWidth = after.strokeWidth;
+      const afterDash = after.strokeDasharray;
+      carrier.classList.remove("siren-highlight-outline");
+
+      if (!afterStroke.includes("--siren-highlight-color")) {
+        failures.push(`${describeElement(shape)}: stroke ${JSON.stringify(afterStroke)}`);
+      }
+      if (!afterWidth.includes("--siren-highlight-stroke-width")) {
+        failures.push(`${describeElement(shape)}: stroke-width ${JSON.stringify(afterWidth)}`);
+      }
+      if (afterDash !== beforeDash) {
+        failures.push(`${describeElement(shape)}: dash changed to ${JSON.stringify(afterDash)}`);
+      }
+      if (getComputedStyle(shape).stroke !== beforeStroke) {
+        failures.push(`${describeElement(shape)}: stroke not restored`);
+      }
+    }
+  }
+  return failures;
+}
+
+describe("default theme's outline on sequence-diagram targets", () => {
+  it("outlines a participant everywhere it is drawn: both rows, the lifeline, and the destroy mark", () => {
+    const svg = renderThemedSVG(EVERY_FEATURE);
+
+    // Web is a box participant; Shopper an actor (circle and lines); Retry is
+    // created and destroyed, so it also wears a destroy mark.
+    expect(outlineFailures(svg, "Web")).toEqual([]);
+    expect(outlineFailures(svg, "Shopper")).toEqual([]);
+    expect(outlineFailures(svg, "Retry")).toEqual([]);
+  });
+
+  it("outlines a message's line, solid or dotted, keeping its dash", () => {
+    const svg = renderThemedSVG(EVERY_FEATURE);
+
+    expect(outlineFailures(svg, "Shopper-Web")).toEqual([]);
+    expect(outlineFailures(svg, "Web-Shopper")).toEqual([]);
+  });
+
+  it("outlines a framed block's frame and dividers, not the messages it wraps", () => {
+    const svg = renderThemedSVG(EVERY_FEATURE);
+
+    // alt:1 has an `else` divider; loop:1 wraps it, and neither outline may
+    // reach the messages inside (strokedShapesOf leaves nested targets out,
+    // and this checks the nested message is untouched).
+    expect(outlineFailures(svg, "alt:1")).toEqual([]);
+    expect(outlineFailures(svg, "loop:1")).toEqual([]);
+
+    const loop = svg.querySelector('[data-siren-id="loop:1"]')!;
+    const nested = [
+      loop.querySelector(".siren-message-arrow")!,
+      loop.querySelector('[data-siren-id="alt:1"] .siren-block-frame')!,
+    ];
+    const before = nested.map((shape) => getComputedStyle(shape).stroke);
+    loop.classList.add("siren-highlight-outline");
+    const during = nested.map((shape) => getComputedStyle(shape).stroke);
+    loop.classList.remove("siren-highlight-outline");
+    expect(during).toEqual(before);
+  });
+
+  it("outlines a rect block, which has no frame, by stroking its fill", () => {
+    const svg = renderThemedSVG(EVERY_FEATURE);
+
+    const fill = svg.querySelector('[data-siren-id="rect:1"] > .siren-block-fill')!;
+    expect(getComputedStyle(fill).stroke).toBe("none");
+    expect(outlineFailures(svg, "rect:1")).toEqual([]);
+  });
+
+  it("outlines a box grouping's background and an activation bar", () => {
+    const svg = renderThemedSVG(EVERY_FEATURE);
+
+    expect(outlineFailures(svg, "box:1")).toEqual([]);
+    expect(outlineFailures(svg, "activation:1")).toEqual([]);
+  });
+
+  it("takes every outlined shape's stroke to the highlight color under glow too, at its own width", () => {
+    // The glow half of commit 37ea2c5, for the sequence targets: left at its
+    // base color, a frame sits under the glow as a pale ring. A rect block is
+    // left out: it has no stroke to recolor, and the glow alone marks it.
+    const svg = renderThemedSVG(EVERY_FEATURE);
+
+    const failures: string[] = [];
+    for (const id of ["Web", "Shopper", "Retry", "Shopper-Web", "alt:1", "box:1", "activation:1"]) {
+      for (const carrier of Array.from(svg.querySelectorAll(`[data-siren-id="${id}"]`))) {
+        for (const shape of strokedShapesOf(carrier)) {
+          const width = getComputedStyle(shape).strokeWidth;
+          carrier.classList.add("siren-highlight-glow");
+          const after = getComputedStyle(shape);
+          const afterStroke = after.stroke;
+          const afterWidth = after.strokeWidth;
+          carrier.classList.remove("siren-highlight-glow");
+          if (!afterStroke.includes("--siren-highlight-color")) {
+            failures.push(`${id} ${describeElement(shape)}: stroke ${JSON.stringify(afterStroke)}`);
+          }
+          if (afterWidth !== width) {
+            failures.push(`${id} ${describeElement(shape)}: width changed to ${JSON.stringify(afterWidth)}`);
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+});
+
 describe("default theme coverage of the flowchart renderer", () => {
   it("has a rule selecting every class the flowchart renderer emits", () => {
     const emitted = emittedSirenClasses(renderThemedSVG(EVERY_FLOWCHART_FEATURE));
