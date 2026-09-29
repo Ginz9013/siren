@@ -49,6 +49,12 @@ import "siren-core/theme.css";
 createBoard(document.getElementById("board"), { source });
 ```
 
+## Writing Siren with AI
+
+[`skills/siren`](./skills/siren) is an agent skill that teaches AI coding agents to
+write, edit and validate `.srn` documents. It works with any agent that supports the
+Agent Skills format. See [`skills/`](./skills) for installation.
+
 ## Examples and demos
 
 - [`examples/`](./examples): `.srn` documents for every diagram type, with timelines.
@@ -68,6 +74,7 @@ createBoard(document.getElementById("board"), { source });
 ```
 packages/core    siren-core: parser → graph model → layout → SVG renderer → animation
 packages/board   siren-board: the player built on siren-core
+skills/          agent skill for writing Siren documents with AI
 examples/        sample Siren documents
 demos/           HTML pages that render the examples
 docs/adr/        architecture decision records
