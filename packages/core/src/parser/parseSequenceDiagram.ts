@@ -373,8 +373,8 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         state.index++;
         continue;
       }
-      // No check that the id was declared — that's the explicit-reference
-      // rule, enforced by `buildSequenceModel`, not here.
+      // No check that the id was declared: an undeclared id is a participant
+      // created by this mention, which `buildSequenceModel` resolves (ADR-0013).
       statements.push({ kind: "destroy", id: idMatch[1], line: lineNumber, column });
       state.index++;
       continue;

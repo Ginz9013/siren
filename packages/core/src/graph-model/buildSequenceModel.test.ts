@@ -105,7 +105,7 @@ describe("buildSequenceModel", () => {
           kind: "message",
           from: "A",
           to: "does-not-exist",
-          text: "bad",
+          text: "to a participant nobody declared",
           arrow: { line: "solid", head: "filled" },
         },
         {

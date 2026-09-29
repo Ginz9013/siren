@@ -182,7 +182,8 @@ function layoutNote(
 }
 
 /**
- * Computes participant lane x-positions (first-declaration order, sized
+ * Computes participant lane x-positions (`model.participants` order — first
+ * mention, ADR-0013 — sized
  * from measured label width) and their box `width`/`height`. `top`/`bottom`
  * are filled in afterward, once the statement walk has found the diagram's
  * full vertical extent and any `create`/`destroy` row that truncates this

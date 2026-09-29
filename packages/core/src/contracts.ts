@@ -415,10 +415,13 @@ export interface ParseResult {
 export type SequenceParticipantKind = "participant" | "actor";
 
 /**
- * Whether a participant's lifeline begins from the preamble (declared
- * before the first statement, box/icon rendered at both top and bottom of
- * the lifeline) or from a `create` statement partway through the diagram
- * (lifeline starts at that point, no top box/icon).
+ * Whether a participant's lifeline runs from the diagram's top (`declared`:
+ * box/icon rendered at both top and bottom of the lifeline) or begins at a
+ * `create` statement partway through the diagram (`created`: lifeline starts
+ * at that point, no top box/icon). A participant created by a mention rather
+ * than a declaration (ADR-0013) runs from the top too, so it is `declared`
+ * here: the value names where the lifeline starts, not whether a
+ * `participant` line was written.
  */
 export type SequenceParticipantOrigin = "declared" | "created";
 
@@ -449,7 +452,9 @@ export interface SequenceArrow {
  * A `participant X [as Label]` / `actor X [as Label]` declaration, as it
  * appears in `SequenceDocument.participants` — a flat list in
  * first-declaration order, populated by both preamble declarations and
- * `create` statements. Use the corresponding `SequenceParticipantStatement`
+ * `create` statements. This is not the lane order: `SequenceModel.participants`
+ * adds the participants created by a mention and orders all of them by first
+ * mention (ADR-0013). Use the corresponding `SequenceParticipantStatement`
  * (found at this id's declaring position in `statements`) to tell which.
  */
 export interface SequenceParticipantDecl {
@@ -817,6 +822,10 @@ export interface SequenceModel {
   title: string | null;
   /** Carried through unchanged from `SequenceDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
   accTitle: string | null;
+  /**
+   * Every lane, declared or created by a mention, in first-mention order —
+   * the left-to-right order the layout draws them in (ADR-0013).
+   */
   participants: ResolvedSequenceParticipant[];
   boxes: ResolvedSequenceBox[];
   statements: ResolvedSequenceStatement[];

@@ -236,7 +236,7 @@ describe("parseSequenceDiagram", () => {
     expect(message!.kind === "message" && message!.to).toBe("A");
   });
 
-  it("does not reject a message referencing an undeclared participant id — that's buildSequenceModel's job", () => {
+  it("parses a message naming an undeclared participant id as a plain message — creating the participant is buildSequenceModel's job", () => {
     const source = `sequenceDiagram
   A->>B: no prior declaration of A or B
 `;
