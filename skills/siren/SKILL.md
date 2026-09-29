@@ -111,10 +111,6 @@ visible at the moment: `outline` is accepted but draws nothing.
   sequence block or box animates only its own frame and label. The nodes, messages or
   states inside keep their own timeline, so enter and exit them explicitly, usually in
   the same step as the container.
-- **Some elements can't be animated yet.** Sequence-diagram notes and activation bars
-  appear in `--ids` but the timeline rejects them, so they are always visible from
-  step 0. Don't place them inside a block that enters later; fold the text into a
-  message instead.
 - **Highlights persist** until `unhighlight`. Several targets can be highlighted at
   once. A new `highlight` on the same target replaces its effect.
 - **Ids must exist.** An id that isn't in the diagram is an error.
@@ -134,7 +130,8 @@ order.
 |           | Message                              | `Alice-Bob` for `Alice->>Bob` (sender first) |
 |           | Block                                | `loop:1`, `alt:1`, `opt:1`, `par:1`, `critical:1`, `break:1`, `rect:1`, numbered per keyword |
 |           | Box grouping                         | `box:1`, `box:2`, ...                      |
-|           | Note, activation bar                 | not animatable yet                         |
+|           | Note                                 | `note:1`, `note:2`, ... in source order    |
+|           | Activation bar                       | `activation:1`, ... numbered as each bar opens |
 | Class     | Class                                | `Order`                                    |
 |           | Relationship                         | `Left-Right` as written: `Media <|-- Track` is `Media-Track` |
 |           | Namespace, note                      | `namespace:1`, `note:1`, ...               |
