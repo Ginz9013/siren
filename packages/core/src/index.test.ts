@@ -7514,3 +7514,170 @@ highlight subgraph:1 outline
     ).toBe("fill:#f96");
   });
 });
+
+describe("render() — sequence-diagram keywords are case-insensitive, as in Mermaid", () => {
+  /**
+   * The drawn picture as data: every element's tag, classes, timeline id and
+   * own text. Marker ids are left out on purpose — they are minted fresh per
+   * render (mintIdScope), so two renders of one document differ there and
+   * nowhere else.
+   */
+  function picture(source: string): { diagnostics: string[]; elements: string[] } {
+    const result = render(source, document.createElement("div"));
+    const elements = Array.from(result.svg?.querySelectorAll("*") ?? []).map((el) => {
+      const ownText = Array.from(el.childNodes)
+        .filter((node) => node.nodeType === 3)
+        .map((node) => node.textContent)
+        .join("");
+      return [
+        el.tagName,
+        el.getAttribute("class") ?? "",
+        el.getAttribute("data-siren-id") ?? "",
+        ["x", "y", "x1", "x2", "width"].map((a) => el.getAttribute(a) ?? "").join(","),
+        ownText,
+      ].join(" | ");
+    });
+    return { diagnostics: result.diagnostics.map((d) => d.message), elements };
+  }
+
+  function expectSamePicture(upper: string, lower: string): void {
+    const expected = picture(lower);
+    expect(expected.diagnostics).toEqual([]);
+    expect(expected.elements.length).toBeGreaterThan(0);
+    expect(picture(upper)).toEqual(expected);
+  }
+
+  it("reads Note and its position words in any case, on the side they name", () => {
+    expectSamePicture(
+      `sequenceDiagram
+participant A
+participant B
+A->>B: hi
+Note LEFT OF A: left
+NOTE Right Of B: right
+note Over A,B: both`,
+      `sequenceDiagram
+participant A
+participant B
+A->>B: hi
+note left of A: left
+note right of B: right
+note over A,B: both`,
+    );
+  });
+
+  it("reads Participant, Actor and AS in any case, keeping the id's and label's own case", () => {
+    expectSamePicture(
+      `sequenceDiagram
+Participant Alice AS Al
+ACTOR Bob as Bobby
+Alice->>Bob: hi`,
+      `sequenceDiagram
+participant Alice as Al
+actor Bob as Bobby
+Alice->>Bob: hi`,
+    );
+  });
+
+  it("reads activate, deactivate, autonumber, create and destroy in any case", () => {
+    const doc = (activate: string, deactivate: string, autonumber: string, off: string, create: string, destroy: string) =>
+      `sequenceDiagram
+participant A
+participant B
+${autonumber}
+A->>B: one
+${activate} B
+B-->>A: two
+${deactivate} B
+${off}
+${create} participant C
+A->>C: three
+${destroy} C`;
+    expectSamePicture(
+      doc("ACTIVATE", "Deactivate", "AutoNumber", "AUTONUMBER OFF", "Create", "DESTROY"),
+      doc("activate", "deactivate", "autonumber", "autonumber off", "create", "destroy"),
+    );
+  });
+
+  it("reads title, accTitle and link in any case, keeping their text's own case", () => {
+    const doc = (title: string, accTitle: string, link: string) =>
+      `sequenceDiagram
+${title} Checkout Flow
+${accTitle}: Screen Reader Title
+participant A
+${link} A: Home Page @ https://example.com
+A->>A: self`;
+    expectSamePicture(doc("TITLE", "AccTitle", "Link"), doc("title", "accTitle", "link"));
+  });
+
+  it("reads every block keyword and its terminators in any case", () => {
+    expectSamePicture(
+      `sequenceDiagram
+BOX Aqua Front
+  participant Z
+End
+participant A
+participant B
+Loop every minute
+  A->>B: poll
+  ALT fresh
+    B-->>A: data
+  Else stale
+    B-->>A: marker
+  End
+End
+OPT warm
+  A->>B: hint
+End
+Par one
+  A->>B: task
+AND two
+  B->>A: task
+End
+Critical lock
+  A->>B: take
+OPTION timeout
+  B-->>A: busy
+End
+Break fatal
+  B--xA: abort
+End
+RECT rgb(240, 248, 255)
+  A->>B: shaded
+End`,
+      `sequenceDiagram
+box Aqua Front
+  participant Z
+end
+participant A
+participant B
+loop every minute
+  A->>B: poll
+  alt fresh
+    B-->>A: data
+  else stale
+    B-->>A: marker
+  end
+end
+opt warm
+  A->>B: hint
+end
+par one
+  A->>B: task
+and two
+  B->>A: task
+end
+critical lock
+  A->>B: take
+option timeout
+  B-->>A: busy
+end
+break fatal
+  B--xA: abort
+end
+rect rgb(240, 248, 255)
+  A->>B: shaded
+end`,
+    );
+  });
+});

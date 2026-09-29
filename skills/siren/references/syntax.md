@@ -130,7 +130,8 @@ flowchart LR
 
 ## Sequence diagram
 
-Header: `sequenceDiagram`.
+Header: `sequenceDiagram`. Keywords (`participant`, `note`, `loop`, `end`, ...) may be
+written in any case, as in Mermaid.
 
 **Declare every participant** with `participant` or `actor` before its first message.
 Siren reports an undeclared participant as an error, even though Mermaid allows it.
@@ -194,8 +195,7 @@ from the request.
 - `activate X` and `deactivate X`. The timeline names activation bars `activation:1`,
   `activation:2`, ... in the order they open, across all participants.
 - Notes: `note right of X: text`, `note left of X: text`, `note over X,Y: text`.
-  Write `note` in lowercase. The timeline names notes `note:1`, `note:2`, ... in
-  source order.
+  The timeline names notes `note:1`, `note:2`, ... in source order.
 - `create participant X` / `create actor X` starts a lifeline mid-diagram, and
   `destroy X` ends it.
 - `link X: Label @ https://...` adds a link to a participant.
@@ -348,7 +348,7 @@ These fail with an error. Rewrite them or leave them out.
   `gitGraph` or `journey`.
 - YAML front matter (`---` ... `---`) before the header.
 - Flowchart shape syntax `A@{ shape: ... }`. Use the bracket shapes instead.
-- Sequence diagram: messages to undeclared participants, and `Note` with a capital `N`.
+- Sequence diagram: messages to undeclared participants.
 - State diagram: `style` statements.
 - ER diagram: the `u` cardinality (`u--o{`), styling a relationship or subgraph, the
   `:::` shorthand on an entity, `classDef default`, a multi-line `accDescr { ... }`, and
