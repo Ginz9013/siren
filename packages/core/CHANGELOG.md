@@ -8,6 +8,11 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- A flowchart click's tooltip is drawn: the node shows it on hover, as a class
+  diagram's and a sequence diagram's already do. It was parsed but never drawn.
+
 ### Fixed
 
 - A `timeline:` block can name a sequence diagram's notes (`note:1`, ...) and activation
@@ -19,6 +24,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 - Sequence-diagram keywords are read in any case, as in Mermaid: `Note LEFT OF A`,
   `Participant A AS Alice`, `Loop` ... `End`, `ACTIVATE`, `Autonumber` and the rest.
   Only lowercase was accepted, and any other spelling rejected the whole diagram.
+- The flowchart shorthand `click X "url"` takes an optional tooltip and target, as the
+  `click X href "url"` form does. With either, the line was rejected.
 
 ## [0.1.0] - Unreleased
 

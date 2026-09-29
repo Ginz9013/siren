@@ -5700,6 +5700,62 @@ click C href "https://example.com/finish"
     expect(confirm.getAttribute("data-siren-click")).toBe("confirmOrder");
     expect(confirm.getAttribute("data-siren-click-arg")).toBe("42");
   });
+
+  it("draws a click tooltip as the node group's leading <title>, for href and call alike", () => {
+    const result = render(
+      `flowchart TB
+A --> B --> C
+click A href "https://example.com/docs" "Open the <docs>"
+click B call showDetails("b") "Show details"
+click C href "https://example.com"
+`,
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const leadingTitle = (id: string) => {
+      const first = result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"]`)!.firstElementChild;
+      return first?.tagName === "title" ? first.textContent : null;
+    };
+    // The text is the author's, verbatim: `<docs>` stays text, not markup.
+    expect(leadingTitle("A")).toBe("Open the <docs>");
+    expect(leadingTitle("B")).toBe("Show details");
+    // No tooltip written, no <title> drawn.
+    expect(result.svg!.querySelector('g.siren-node[data-siren-id="C"] title')).toBeNull();
+  });
+
+  it("reads the bare-URL shorthand with a tooltip, a target, or both, exactly as the href form", () => {
+    const linkOf = (clickLine: string) => {
+      const result = render(`flowchart TB\nB\n${clickLine}\n`, document.createElement("div"));
+      const link = result.svg?.querySelector("a.siren-link");
+      const group = link?.querySelector('g.siren-node[data-siren-id="B"]');
+      return {
+        diagnostics: result.diagnostics.map((d) => d.message),
+        href: link?.getAttribute("href") ?? null,
+        target: link?.getAttribute("target") ?? null,
+        rel: link?.getAttribute("rel") ?? null,
+        tooltip: group?.querySelector("title")?.textContent ?? null,
+      };
+    };
+
+    for (const [shorthand, full] of [
+      [`click B "https://x.com" "tip"`, `click B href "https://x.com" "tip"`],
+      [`click B "https://x.com" _blank`, `click B href "https://x.com" _blank`],
+      [`click B "https://x.com" "tip" _blank`, `click B href "https://x.com" "tip" _blank`],
+    ]) {
+      const expected = linkOf(full);
+      expect(expected.diagnostics).toEqual([]);
+      expect(expected.href).toBe("https://x.com");
+      expect(linkOf(shorthand)).toEqual(expected);
+    }
+  });
+
+  it("still refuses a shorthand whose quoted value is not a link, tooltip and target or not", () => {
+    const result = render(`flowchart TB\nB\nclick B "javascript:alert(1)" "tip" _blank\n`, document.createElement("div"));
+
+    expect(result.svg?.querySelector("a.siren-link") ?? null).toBeNull();
+    expect(result.diagnostics.map((d) => d.severity)).toContain("error");
+  });
 });
 
 describe("render() — a state diagram, end to end", () => {

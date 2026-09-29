@@ -124,7 +124,8 @@ flowchart LR
 ```
 
 - `click X href "url"` takes an optional tooltip and an optional target
-  (`_blank`, `_self`, `_top`, `_parent`). The shorthand `click X "url"` takes neither.
+  (`_blank`, `_self`, `_top`, `_parent`). The shorthand `click X "url"` leaves out
+  `href` and takes the same tooltip and target. A tooltip shows on hover.
 - `call` hands the function name and argument to the host page's `onClick` handler.
   Siren never runs it. `click X fn` is shorthand for `click X call fn()`.
 
