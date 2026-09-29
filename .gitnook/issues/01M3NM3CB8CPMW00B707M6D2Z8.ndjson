@@ -1,0 +1,4 @@
+{"id":"01M3NM3CB8TVBHWWBHVC2K43XV","t":1,"a":"83a1","op":"create","title":"compat: 其他四種圖表的關鍵字大小寫尚未量測"}
+{"id":"01M3NM3CBJ9R9G9ZSJ47EWEK1R","t":2,"a":"83a1","op":"set","k":"description","v":"board sequence-flowchart-gaps 把 sequence 的關鍵字改為不分大小寫（01M3NK0CB）。flowchart、class、state、ER 的關鍵字（subgraph/end、classDef、click、style、direction、namespace、note…）Mermaid 是否也不分大小寫、Siren 是否只收小寫，尚未量測。先量再決定是否開票。"}
+{"id":"01M3NM3CBJK6TWPW6VYBZ35HC4","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M3NM3CBJVQ00X960G2NP1PZM","t":4,"a":"83a1","op":"label.add","v":"tooling"}
