@@ -854,11 +854,11 @@ end
     const result = render(readExample("sequence-full"), container);
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    // The example's own `timeline:` block, seven steps of it. What those steps
+    // The example's own `timeline:` block, eight steps of it. What those steps
     // drive is asserted by the timeline test at the end of this file; here it
     // is only pinned so that a structural change to the example cannot quietly
     // drop it.
-    expect(result.controller!.totalSteps).toBe(7);
+    expect(result.controller!.totalSteps).toBe(8);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
     const svg = result.svg!;
@@ -2325,6 +2325,76 @@ A->>B: Hello
     expect(result.controller!.currentStep).toBe(0);
   });
 
+  it("lets a timeline name a sequence note, which starts hidden and enters on its step", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+note right of B: Thinking
+timeline:
+  enter note:1 fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(1);
+
+    const note = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="note:1"]'));
+    expect(note().length).toBeGreaterThan(0);
+    expect(note().map((el) => el.classList.contains("siren-pending"))).toEqual(note().map(() => true));
+
+    controller.next();
+
+    expect(note().map((el) => el.classList.contains("siren-enter-fade"))).toEqual(note().map(() => true));
+    expect(note().map((el) => el.classList.contains("siren-pending"))).toEqual(note().map(() => false));
+  });
+
+  it("lets a timeline name a sequence activation bar by its generated id", () => {
+    const container = document.createElement("div");
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>+B: Hello
+B-->>-A: Hi
+timeline:
+  highlight activation:1 glow
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const bar = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="activation:1"]'));
+    expect(bar().length).toBeGreaterThan(0);
+    expect(bar().map((el) => el.classList.contains("siren-highlight-glow"))).toEqual(bar().map(() => false));
+
+    result.controller!.next();
+
+    expect(bar().map((el) => el.classList.contains("siren-highlight-glow"))).toEqual(bar().map(() => true));
+  });
+
+  it("still reports a note or activation id the diagram does not have as unknown", () => {
+    const source = `sequenceDiagram
+participant A
+participant B
+A->>+B: Hello
+note over A: Only one note
+B-->>-A: Hi
+timeline:
+  enter note:9 fade
+  highlight activation:9 glow
+`;
+
+    const result = render(source, document.createElement("div"));
+
+    expect(result.diagnostics.map((d) => d.message)).toEqual([
+      'timeline: references unknown id "note:9"',
+      'timeline: references unknown id "activation:9"',
+    ]);
+  });
+
   it("drives every element carrying a sequence participant's id — both participant rows and the lifeline — from one timeline entry", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
@@ -2562,14 +2632,14 @@ timeline:
   });
 
 
-  it("drives examples/sequence-full.srn's timeline through all four addressable kinds — a box grouping, a message, a control-flow block and a participant — with zero diagnostics, next(), prev() and reset()", () => {
+  it("drives examples/sequence-full.srn's timeline through five addressable kinds — a box grouping, a message, a control-flow block, a participant and a note — with zero diagnostics, next(), prev() and reset()", () => {
     const container = document.createElement("div");
     const source = readExample("sequence-full");
 
     // Drift guard: the source above is read from examples/sequence-full.srn
     // on disk, not from an inline copy, so editing the example changes what
     // this test renders. The marker is the example's own final timeline step.
-    expect(source).toContain("exit box:1 fade");
+    expect(source).toContain("enter note:1 fade");
 
     const result = render(source, container);
 
@@ -2578,7 +2648,7 @@ timeline:
     // which is why `Retry` and the one message touching it exit together.
     expect(result.diagnostics).toEqual([]);
     const controller = result.controller!;
-    expect(controller.totalSteps).toBe(7);
+    expect(controller.totalSteps).toBe(8);
 
     const pendingIds = () =>
       Array.from(result.svg!.querySelectorAll(".siren-pending"))
@@ -2596,6 +2666,7 @@ timeline:
       "Shopper-Web",
       "Web-Retry",
       "box:1",
+      "note:1",
     ]);
 
     const boxGroup = result.svg!.querySelector('[data-siren-id="box:1"]')!;
@@ -2604,6 +2675,7 @@ timeline:
     const loopBlock = result.svg!.querySelector('[data-siren-id="loop:1"]')!;
     const rectBlock = result.svg!.querySelector('[data-siren-id="rect:1"]')!;
     const scheduleRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry"]')!;
+    const receiptNote = result.svg!.querySelector('[data-siren-id="note:1"]')!;
     const retryElements = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="Retry"]'));
     expect(retryElements()).toHaveLength(3);
 
@@ -2653,15 +2725,24 @@ timeline:
 
     // Step 7: the box grouping exits.
     controller.next();
-    expect(controller.currentStep).toBe(7);
     expect(boxGroup.classList.contains("siren-exit-fade")).toBe(true);
 
+    // Step 8: a note enters, named by its generated id.
+    controller.next();
+    expect(controller.currentStep).toBe(8);
+    expect(receiptNote.classList.contains("siren-pending")).toBe(false);
+    expect(receiptNote.classList.contains("siren-enter-fade")).toBe(true);
+
     // Stepping back undoes exactly the last step.
+    controller.prev();
+    expect(receiptNote.classList.contains("siren-pending")).toBe(true);
+    expect(boxGroup.classList.contains("siren-exit-fade")).toBe(true);
+
     controller.prev();
     expect(boxGroup.classList.contains("siren-exit-fade")).toBe(false);
     expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(true);
 
-    // And reset returns all four kinds to their initial state.
+    // And reset returns all five kinds to their initial state.
     controller.reset();
     expect(controller.currentStep).toBe(0);
     expect(pendingIds()).toEqual([
@@ -2671,6 +2752,7 @@ timeline:
       "Shopper-Web",
       "Web-Retry",
       "box:1",
+      "note:1",
     ]);
     expect(loopBlock.classList.contains("siren-highlight-outline")).toBe(false);
     expect(rectBlock.classList.contains("siren-highlight-outline")).toBe(false);

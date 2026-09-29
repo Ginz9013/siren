@@ -56,6 +56,7 @@ rect rgb(240, 248, 255)
 end
 destroy Ledger
 Web-->>Shopper: Email receipt
+note over Shopper,Web: The receipt arrives by email
 
 timeline:
   enter box:1 fade, enter Shopper-Web slide-left
@@ -65,3 +66,4 @@ timeline:
   exit Retry slide-top, exit Web-Retry slide-right
   unhighlight loop:1, highlight rect:1 outline
   exit box:1 fade
+  enter note:1 fade

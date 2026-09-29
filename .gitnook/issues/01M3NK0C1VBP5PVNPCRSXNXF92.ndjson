@@ -4,3 +4,5 @@
 {"id":"01M3NK0C24R1T1V712Q2JW07VM","t":4,"a":"83a1","op":"label.add","v":"timeline"}
 {"id":"01M3NK901KF0DMYGAN1J391ZF4","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M3NM3B277JASYJPNBNK6WMC8","t":6,"a":"83a1","op":"comment","body":"排入 board `.scratch/sequence-flowchart-gaps`，ticket `01-sequence-note-activation-timeline.md`（依序第 1 張，共 5 張）。spec：`.scratch/sequence-flowchart-gaps/spec.md`。範例 sequence-full.srn 新增的 note 步驟加在現有七步之後，不改動 demo 文字引用的 step 編號。"}
+{"id":"01M3NM3RWGHS89BQDTCT6FZHGS","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M3NMBC3P15HSF9AZTXWCXD65","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

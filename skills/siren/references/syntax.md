@@ -191,10 +191,11 @@ from the request.
   `rect <color>`. Close every block with `end`. Blocks can nest. The timeline ids are
   `loop:1`, `alt:1`, and so on, numbered per keyword.
 - `box <color> <label>` ... `end` groups participant declarations (`box:1`, ...).
-- `activate X` and `deactivate X`.
+- `activate X` and `deactivate X`. The timeline names activation bars `activation:1`,
+  `activation:2`, ... in the order they open, across all participants.
 - Notes: `note right of X: text`, `note left of X: text`, `note over X,Y: text`.
-  Write `note` in lowercase. Notes and activation bars can't be animated yet, so
-  they are visible from step 0.
+  Write `note` in lowercase. The timeline names notes `note:1`, `note:2`, ... in
+  source order.
 - `create participant X` / `create actor X` starts a lifeline mid-diagram, and
   `destroy X` ends it.
 - `link X: Label @ https://...` adds a link to a participant.

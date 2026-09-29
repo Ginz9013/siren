@@ -4,6 +4,7 @@ import type {
   ResolvedSequenceBox,
   ResolvedSequenceBranch,
   ResolvedSequenceMessage,
+  ResolvedSequenceNote,
   ResolvedSequenceParticipant,
   ResolvedSequenceStatement,
   SequenceAltStatement,
@@ -124,11 +125,12 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
 
-  // A timeline target is a participant, a message, a control-flow block or
-  // a box grouping — exactly the four things `renderSequenceToSVG` stamps
-  // `data-siren-id` on, and so exactly the things an author can see and
-  // might want to animate. A destroy mark is not a fifth: it carries its
-  // participant's id, so it moves with the participant (ADR-0009).
+  // A timeline target is a participant, a message, a control-flow block, a
+  // box grouping, a note or an activation bar — exactly the six things
+  // `renderSequenceToSVG` stamps `data-siren-id` on, and so exactly the
+  // things an author can see and might want to animate. A destroy mark is not
+  // a seventh: it carries its participant's id, so it moves with the
+  // participant (ADR-0009).
   //
   // The rules themselves live in `resolveTimeline`, shared with the
   // flowchart and class models. Nothing about dropping an unknown id or
@@ -513,7 +515,7 @@ function resolveBlock(
 
 /**
  * Walks the resolved statement tree rooted at `statements` in document order,
- * calling `visit` for each message and each block.
+ * calling `visit` for each message, block, note and `activate` statement.
  *
  * Recursive, and that is the whole point: blocks nest to any depth and a
  * message is more often written inside one than at the top level, so anything
@@ -535,11 +537,21 @@ function walkStatements(
   visit: {
     message?: (message: ResolvedSequenceMessage) => void;
     block?: (block: ResolvedSequenceBlock) => void;
+    note?: (note: ResolvedSequenceNote) => void;
+    activate?: (activationId: string) => void;
   },
 ): void {
   for (const statement of statements) {
     if (statement.kind === "message") {
       visit.message?.(statement.message);
+      continue;
+    }
+    if (statement.kind === "note") {
+      visit.note?.(statement.note);
+      continue;
+    }
+    if (statement.kind === "activate") {
+      visit.activate?.(statement.activationId);
       continue;
     }
     if (statement.kind === "block") {
@@ -553,7 +565,9 @@ function walkStatements(
 
 /**
  * Every id a `timeline:` block may name from the statement tree: each
- * message's, and each control-flow block's.
+ * message's, each control-flow block's, each note's and each activation
+ * bar's. An activation bar's id is minted when its `activate` resolves, so
+ * that statement is where the bar is found; its `deactivate` carries none.
  */
 function collectStatementIds(
   statements: readonly ResolvedSequenceStatement[],
@@ -562,6 +576,8 @@ function collectStatementIds(
   walkStatements(statements, {
     message: (message) => into.add(message.id),
     block: (block) => into.add(block.id),
+    note: (note) => into.add(note.id),
+    activate: (activationId) => into.add(activationId),
   });
 }
 

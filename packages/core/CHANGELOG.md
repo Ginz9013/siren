@@ -8,6 +8,11 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- A `timeline:` block can name a sequence diagram's notes (`note:1`, ...) and activation
+  bars (`activation:1`, ...). They were drawn with these ids but rejected as unknown.
+
 ## [0.1.0] - Unreleased
 
 First public release.
