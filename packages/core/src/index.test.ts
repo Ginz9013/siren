@@ -2793,7 +2793,7 @@ enter A fade
    * the outline **Mermaid** draws for it — read off mermaid 11.17.2's own
    * polygon vertices (`hexagon`, `lean_right`, `lean_left`, `trapezoid`,
    * `inv_trapezoid`, `rect_left_inv_arrow` in its shape sources) and
-   * translated into positions, with `pnpm --filter @siren/core probe`
+   * translated into positions, with `pnpm --filter siren-core probe`
    * confirming which of those shapes each spelling names. Measured, not
    * remembered — the rule this repo's compatibility work runs on, and the
    * one thing ticket 02 was required to do and left no record of.
@@ -2925,7 +2925,7 @@ enter A fade
    * Which spelling names which shape is measured, not remembered: mermaid
    * 11.17.2 reads `A(Round)` as `type="round"`, `A([Stadium])` as
    * `type="stadium"` and `A[[Subroutine]]` as `type="subroutine"`
-   * (`pnpm --filter @siren/core probe`).
+   * (`pnpm --filter siren-core probe`).
    *
    * `drawn` is handed the frame elements and the label's own measured box,
    * and asserts both halves at once: the shape is there, and the label is
@@ -3073,7 +3073,7 @@ enter A fade
    * Which spelling names which shape is measured, not remembered: mermaid
    * 11.17.2 reads `A((Circle))` as `type="circle"`, `A(((Double)))` as
    * `type="doublecircle"` and `A[(DB)]` as `type="cylinder"`
-   * (`pnpm --filter @siren/core probe`).
+   * (`pnpm --filter siren-core probe`).
    *
    * `drawn` is handed the frame elements and the label's own measured box
    * and asserts both halves at once: the shape is there, and the label is
@@ -5237,7 +5237,7 @@ A[Start] -->|yes| B[End]
     // recorded so that whoever took the decision would meet a fact rather
     // than a surprise.
     //
-    // The fact, measured with `pnpm --filter @siren/core probe --paint`
+    // The fact, measured with `pnpm --filter siren-core probe --paint`
     // against mermaid 11.17.2: Mermaid paints the label. It emits
     // `<text style="fill:#ff0000 !important">` on the label of the edge
     // `linkStyle 0 color:#ff0000` names when it draws labels as SVG text,
@@ -6732,7 +6732,7 @@ const unmeasurable = (): TextMeasurer & { asked: string[] } =>
   measurerAnswering({ width: NaN, height: NaN });
 
 /**
- * `measureText` is the consumer's code, and a real one can fail: `@siren/board`
+ * `measureText` is the consumer's code, and a real one can fail: `siren-board`
  * measures with a live `<canvas>` 2D context, which answers `NaN` when the
  * context could not be obtained or the font is not loaded yet. Whatever that
  * answer is, it arrives here as a size, and `Diagnostic`'s contract — returned
@@ -6799,7 +6799,7 @@ describe("render() — a consumer measurer that cannot measure text", () => {
 
   it("lets nothing escape render() for any of the four kinds", () => {
     // `Diagnostic`'s contract, stated directly: a consumer calling `render()`
-    // handles a returned diagnostic, and `@siren/board`'s `setSource` has no
+    // handles a returned diagnostic, and `siren-board`'s `setSource` has no
     // `try` around this call at all — a throw here bypasses its own error
     // banner entirely and reaches the page as an unhandled exception.
     for (const source of Object.values(measurableSources)) {

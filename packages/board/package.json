@@ -1,21 +1,54 @@
 {
-  "name": "@siren/board",
-  "version": "0.0.1",
-  "private": true,
+  "name": "siren-board",
+  "version": "0.1.0",
+  "description": "A drop-in player for Siren diagrams: renders a .srn document with built-in step controls, pan and zoom, and real browser text measurement.",
+  "keywords": [
+    "siren",
+    "mermaid",
+    "diagram",
+    "animation",
+    "step-reveal",
+    "presentation",
+    "player",
+    "svg"
+  ],
+  "author": "kouhei",
   "license": "MIT",
+  "homepage": "https://github.com/Ginz9013/siren/tree/main/packages/board#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ginz9013/siren.git",
+    "directory": "packages/board"
+  },
+  "bugs": {
+    "url": "https://github.com/Ginz9013/siren/issues"
+  },
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "vite build"
+    "build": "vite build && vite build --mode standalone && node ../../scripts/build-types.mjs",
+    "prepublishOnly": "pnpm test && pnpm build"
   },
   "dependencies": {
-    "@siren/core": "workspace:*"
+    "siren-core": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",

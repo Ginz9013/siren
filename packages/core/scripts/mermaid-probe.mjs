@@ -5,11 +5,11 @@
  *     A[(DB)] --> B'
  *     node packages/core/scripts/mermaid-probe.mjs some-diagram.mmd
  *     cat some-diagram.mmd | node packages/core/scripts/mermaid-probe.mjs -
- *     pnpm --filter @siren/core probe some-diagram.mmd
+ *     pnpm --filter siren-core probe some-diagram.mmd
  *     node packages/core/scripts/mermaid-probe.mjs --paint --source 'flowchart TB
  *     A -->|yes| B
  *     linkStyle 0 stroke:#00ff00,color:#ff0000'
- *     pnpm --filter @siren/core probe --paint some-diagram.mmd
+ *     pnpm --filter siren-core probe --paint some-diagram.mmd
  *
  * Two things to know before pointing it at an `examples/*.srn` file, both
  * measured the hard way:
@@ -168,7 +168,7 @@ function installLayoutStubs(dom) {
  * The document to probe: a file path, `--source <text>`, or `-` for stdin.
  *
  * A bare `--` is dropped first. `pnpm run` forwards it verbatim rather than
- * eating it, so the habitual `pnpm --filter @siren/core probe -- --paint`
+ * eating it, so the habitual `pnpm --filter siren-core probe -- --paint`
  * otherwise arrives here as a request to read a file called `--`, and the
  * measurement fails with an `ENOENT` that says nothing about the mistake.
  */

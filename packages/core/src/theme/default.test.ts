@@ -930,7 +930,7 @@ describe("default theme coverage of the class renderer", () => {
 });
 
 /*
- * The palette checks below have a twin in @siren/board's src/styles.test.ts,
+ * The palette checks below have a twin in siren-board's src/styles.test.ts,
  * which asks the same questions of board's chrome tokens. The two packages
  * share no test utilities, so a change to how one reads a token block
  * belongs in the other too.

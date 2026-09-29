@@ -53,17 +53,17 @@ measurement of both pictures in the row, never with an assertion that ours looks
 **Siren document**:
 A plain-text file containing Mermaid-compatible diagram syntax (flowchart, etc.) plus an optional
 timeline block describing how elements animate. The single self-contained artifact an author
-writes and a renderer consumes — copy the whole document, paste it wherever `@siren/core` is
+writes and a renderer consumes — copy the whole document, paste it wherever `siren-core` is
 loaded, and it renders. Convention: `.srn` file extension.
 _Avoid_: Siren file, Siren spec, animation file
 
-**Core renderer** (`@siren/core`):
+**Core renderer** (`siren-core`):
 The parser, graph model, layout engine, SVG renderer, and animation runtime, published as one npm
 package. Does not include the VS Code extension, the website, or the playground — those are
 separate projects.
 _Avoid_: the library, the engine (ambiguous — say which stage: parser, layout, renderer, ...)
 
-**Board** (`@siren/board`):
+**Board** (`siren-board`):
 A mounted, browser-only wrapper around one core-renderer `render()` call — owns a container's DOM,
 its own chrome styling, and the `AnimationController` lifecycle across source changes. A consumer
 of the core renderer (see [ADR-0005](docs/adr/0005-board-is-a-separate-package-that-owns-calling-render.md)),
@@ -143,7 +143,7 @@ redeclaring these in their own CSS, not by passing a JS theme object — see
 come in a light and a dark palette: dark follows the system's `prefers-color-scheme` unless the
 page pins `<html data-theme="light|dark">`, and any element carrying `data-theme="light"` keeps its
 subtree light inside a dark page — see
-[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md). `@siren/board`'s
+[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md). `siren-board`'s
 `--siren-board-*` properties are **chrome tokens**, not design tokens: they color board's control
 bar and error banner, live in board's injected stylesheet, and follow the same light/dark selectors
 (ADR-0006 keeps board's chrome out of core's theme).

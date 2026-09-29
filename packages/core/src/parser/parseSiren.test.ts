@@ -330,7 +330,7 @@ timeline:
   });
 
   it("reads `A{text}` as a rhombus, and every other node spelling as a rect", () => {
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A{Is it ready?}` is `type="diamond" text="Is it ready?"`, `B[Done]`
     // is `type="square"`, and a bare `C` names no type at all — the default
     // rectangle. The braces are syntax, so they are no more part of the
@@ -359,7 +359,7 @@ timeline:
     // while `A["a-->b"]` worked — two spellings of one idea disagreeing
     // about what a label is.
     //
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A{a-->b} --> C` is a diamond labelled `a-->b` with one edge to `C`,
     // `A{a;b}` and `A{a&b}` are diamonds labelled `a;b` and `a&b`, and
     // `A{{a-->b}} --> C` is the same for the hexagon — which is why the
@@ -394,7 +394,7 @@ timeline:
     // `A>Flag]` reached a plain "Unrecognized flowchart line" rather than a
     // named refusal, and now it draws instead.
     //
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A>Flag]` is `type="odd" text="Flag"`, `A>a>b]` is `odd` labelled
     // `a>b` — so a `>` inside the label is ordinary text — and `A>]` is a
     // parse error.
@@ -443,7 +443,7 @@ timeline:
     // way round: it is what lets the two brace spellings be told apart at
     // all, since `\{…\}` can never reach across an inner brace.
     //
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A{{Hexagon}}` is `type="hexagon" text="Hexagon"`, `B{"a}}b"}}`
     // written as `{{"a}}b"}}` is a hexagon labelled `a}}b` — a fenced brace
     // is a label character here exactly as a fenced `]` is — and `A{{a}b}}`
@@ -488,7 +488,7 @@ timeline:
   });
 
   it("reads `A(text)`, `A([text])` and `A[[text]]` as the round, stadium and subroutine spellings", () => {
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A(Round)` is `type="round"`, `B([Stadium])` is `type="stadium"` and
     // `C[[Subroutine]]` is `type="subroutine"`, each labelled with the text
     // inside its punctuation. The same probe reads `A(Round) --> B([Stadium])
@@ -541,7 +541,7 @@ classDef hot fill:#fdd
     // cylinder is the same question one bracket family over — `A[(DB)]`
     // against `A[DB]`.
     //
-    // Measured, not remembered (`pnpm --filter @siren/core probe`, mermaid
+    // Measured, not remembered (`pnpm --filter siren-core probe`, mermaid
     // 11.17.2): `A((Circle))` is `type="circle"`, `A(((Double)))` is
     // `type="doublecircle"` and `A[(DB)]` is `type="cylinder"`, each
     // labelled with the text inside its punctuation and none of the
@@ -592,7 +592,7 @@ classDef hot fill:#fdd
     // while `A[a-->b]` and `A{a-->b}` worked. Three spellings of one idea
     // disagreeing about what a label is.
     //
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A(a-->b)` is a round node labelled `a-->b`, and `A([a-->b])` and
     // `A[[a-->b]]` are the stadium and the subroutine labelled the same
     // way — the last two already worked, since their square brackets were
@@ -626,7 +626,7 @@ classDef hot fill:#fdd
   });
 
   it("reads the four slanted `A[<open>text<close>]` spellings as the two parallelograms and the two trapezoids", () => {
-    // Measured against mermaid 11.17.2 (`pnpm --filter @siren/core probe`):
+    // Measured against mermaid 11.17.2 (`pnpm --filter siren-core probe`):
     // `A[/Para/]` is `type="lean_right"`, `B[\Alt\]` is `type="lean_left"`,
     // `C[/Trap\]` is `type="trapezoid"` and `D[\TrapAlt/]` is
     // `type="inv_trapezoid"`. Four spellings that differ only in which way
@@ -1781,7 +1781,7 @@ describe("the arrow token an edge is written with", () => {
 
   it("reads the line out of what the token is drawn with, and the ends out of its markers", () => {
     // One row per spelling, each naming the `type`/`stroke` mermaid 11.17.2
-    // recorded for it (`pnpm --filter @siren/core probe`). Written as a
+    // recorded for it (`pnpm --filter siren-core probe`). Written as a
     // table because the point is that thirteen spellings are three axes:
     // every row below is a *combination*, and none of them is a special
     // case in the parser.
@@ -1841,7 +1841,7 @@ describe("the arrow token an edge is written with", () => {
   });
 
   it("reads a dotted arrow written without its leading dash, on either end", () => {
-    // The short dotted spellings, measured with `pnpm --filter @siren/core
+    // The short dotted spellings, measured with `pnpm --filter siren-core
     // probe` against mermaid 11.17.2: `A .-> B` is `type="arrow_point"
     // stroke="dotted" length=1` and `A .- B` is the `arrow_open` of the
     // same. Both are documents Mermaid draws, so the absolute condition
@@ -1890,7 +1890,7 @@ describe("the arrow token an edge is written with", () => {
   });
 
   it("composes the short dotted body with every end and every length, and refuses the two spellings Mermaid will not draw", () => {
-    // The whole family, measured with `pnpm --filter @siren/core probe`
+    // The whole family, measured with `pnpm --filter siren-core probe`
     // against mermaid 11.17.2 before a character of the pattern moved.
     // Written as one table because the point is that dropping the leading
     // dash is a property of the *body* and composes with everything else:
@@ -2108,7 +2108,7 @@ describe("the label an edge carries", () => {
   });
 
   it("lets an inline label close with the short dotted body, and does not let one open with it", () => {
-    // Both halves measured with `pnpm --filter @siren/core probe` against
+    // Both halves measured with `pnpm --filter siren-core probe` against
     // mermaid 11.17.2, and they do not answer alike — which is the reason
     // to measure rather than to reason from symmetry.
     //

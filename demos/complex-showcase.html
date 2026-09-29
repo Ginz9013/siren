@@ -32,7 +32,7 @@
 
     <!--
       Same mechanism as demos/step-reveal.html: imports the real Vite library
-      build of @siren/board, loads its example document via fetch() from
+      build of siren-board, loads its example document via fetch() from
       examples/complex-showcase.srn (not inlined). Must be served over
       http(s) — file:// will fail fetch() due to CORS. Every next()/prev()
       transition in this document was already verified programmatically
@@ -40,7 +40,7 @@
       step) before this page was written — this page is for visual
       confirmation, not first discovery of correctness.
 
-      @siren/board owns rendering, the text measurer, the Prev/Next/Reset
+      siren-board owns rendering, the text measurer, the Prev/Next/Reset
       control bar, full-bleed sizing, and error display — see ADR-0005 and
       ADR-0006, and .scratch/siren-board-slice/spec.md. This page keeps only
       what board deliberately doesn't own: fetching the source, and the

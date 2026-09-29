@@ -44,10 +44,10 @@
 
     <!--
       Same mechanism as demos/step-reveal.html and demos/complex-showcase.html:
-      imports the real Vite library build of @siren/board, and loads its
+      imports the real Vite library build of siren-board, and loads its
       example document via fetch() from examples/flowchart-styling.srn (not
       inlined), so the page and packages/core/src/index.test.ts read the same
-      bytes. Run `pnpm --filter @siren/core build && pnpm --filter @siren/board
+      bytes. Run `pnpm --filter siren-core build && pnpm --filter siren-board
       build` first. Must be served over http(s) — file:// will fail fetch()
       due to CORS.
 
@@ -58,7 +58,7 @@
       nothing. Pan and zoom are unaffected: they belong to board's viewport
       layer (ADR-0007), not to the bar.
 
-      @siren/board owns rendering, the text measurer, full-bleed sizing and
+      siren-board owns rendering, the text measurer, full-bleed sizing and
       error display — see ADR-0005 and ADR-0006. This page keeps only what
       board deliberately doesn't own: fetching the source, the theme toggle,
       and the summary line below.

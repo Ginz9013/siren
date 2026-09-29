@@ -4,7 +4,7 @@ import { createBoard } from "./createBoard";
 const FAKE_MEASURER = { measure: () => ({ width: 80, height: 32 }) };
 
 /*
- * The palette checks here have a twin in @siren/core's
+ * The palette checks here have a twin in siren-core's
  * src/theme/default.test.ts, which asks the same questions of the diagram's
  * palette. The two packages share no test utilities, so a change to how one
  * reads a token block belongs in the other too.

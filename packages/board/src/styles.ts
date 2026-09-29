@@ -20,7 +20,7 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * viewport so it is never panned or zoomed along with the diagram.
  *
  * Every chrome color goes through a `--siren-board-*` token, declared here
- * rather than in `@siren/core`'s theme (ADR-0006: board owns its chrome).
+ * rather than in `siren-core`'s theme (ADR-0006: board owns its chrome).
  * The values are siren-website's decision 01M3BY1GPP, light and dark, on the
  * same selectors core uses for its own palette (ADR-0011): dark follows the
  * system unless the page pins `<html data-theme="light|dark">`, and an

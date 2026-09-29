@@ -154,7 +154,7 @@ Digest <-.-> Dashboard
 %% paints the line and the arrowhead minted for its colour, and `color` paints
 %% the label, so the edge that says "green" is green. That second half was
 %% this board's open question, and it was settled by measurement rather than
-%% by taste: `pnpm --filter @siren/core probe --paint` shows mermaid 11.17.2
+%% by taste: `pnpm --filter siren-core probe --paint` shows mermaid 11.17.2
 %% writing `fill:#15803d !important` onto the label's own `<text>` for this
 %% very document, so dropping it would have been a silent mis-render.
 linkStyle 6 stroke:#15803d,color:#15803d

@@ -1,5 +1,5 @@
-import { render } from "@siren/core";
-import type { AnimationController, Diagnostic, TextMeasurer } from "@siren/core";
+import { render } from "siren-core";
+import type { AnimationController, Diagnostic, TextMeasurer } from "siren-core";
 import { ensureStylesInjected } from "./styles";
 import { createCanvasTextMeasurer } from "./textMeasurer";
 import { createDefaultControls } from "./defaultControls";
@@ -26,7 +26,7 @@ export interface BoardOptions {
 }
 
 /**
- * A mounted, self-contained wrapper around one `@siren/core` `render()` call
+ * A mounted, self-contained wrapper around one `siren-core` `render()` call
  * — see ADR-0005 for why this owns calling `render()` itself rather than
  * wrapping an already-rendered result, and CONTEXT.md's "Board" entry.
  */

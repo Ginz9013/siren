@@ -18,13 +18,13 @@
     <div id="siren-container"></div>
 
     <!--
-      Imports the real Vite library build of @siren/board
+      Imports the real Vite library build of siren-board
       (packages/board/dist/siren-board.js), never source files — per ticket
-      07's acceptance criteria (original for @siren/core, now the same rule
-      for @siren/board). Run `pnpm --filter @siren/core build && pnpm
-      --filter @siren/board build` first.
+      07's acceptance criteria (original for siren-core, now the same rule
+      for siren-board). Run `pnpm --filter siren-core build && pnpm
+      --filter siren-board build` first.
 
-      @siren/board owns rendering, the text measurer, the Prev/Next/Reset
+      siren-board owns rendering, the text measurer, the Prev/Next/Reset
       control bar, full-bleed sizing, and error display — see ADR-0005 and
       ADR-0006, and .scratch/siren-board-slice/spec.md. This page is left
       with only the things board deliberately doesn't own: fetching the

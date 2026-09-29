@@ -12,7 +12,7 @@
  * else draws from.
  *
  * A random token rather than a counter, deliberately. A module-level counter
- * is only unique per *module instance*: two copies of `@siren/core` on one
+ * is only unique per *module instance*: two copies of `siren-core` on one
  * page — an ordinary outcome of a dependency tree, and of a dual ESM/CJS
  * build — each start at 1 and collide, which is precisely the bug this
  * exists to prevent. A token drawn per call has no such shared state to
