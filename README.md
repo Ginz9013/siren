@@ -35,6 +35,9 @@ error instead of being drawn incorrectly.
 | [`siren-core`](./packages/core)   | Parser, layout, SVG renderer and animation controller. Start here for the syntax and the API. |
 | [`siren-board`](./packages/board) | A drop-in browser player with step controls, pan and zoom.                        |
 
+Each package records its releases in its own `CHANGELOG.md`
+([core](./packages/core/CHANGELOG.md), [board](./packages/board/CHANGELOG.md)).
+
 ```sh
 npm install siren-board siren-core
 ```
@@ -105,8 +108,10 @@ Publish with `pnpm`, not `npm`. `pnpm publish` rewrites `siren-board`'s
 `workspace:^` dependency to a real version range.
 
 1. Update `version` in both `packages/*/package.json`.
-2. Log in with `npm login` if needed.
-3. Publish:
+2. In each package's `CHANGELOG.md`, move the entries under `[Unreleased]` into a new
+   section for the version, dated with the release day.
+3. Log in with `npm login` if needed.
+4. Publish:
 
    ```sh
    pnpm -r publish --access public
