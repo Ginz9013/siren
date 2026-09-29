@@ -1,0 +1,4 @@
+{"id":"01M3NM3C62H79A9A21G6Z4SQWE","t":1,"a":"83a1","op":"create","title":"probe: box 文件全部被誤報為 Mermaid 拒絕（jsdom 的 Option 沒裝成 global）"}
+{"id":"01M3NM3C6DKHX54K6AJZNR7ZAX","t":2,"a":"83a1","op":"set","k":"description","v":"board sequence-flowchart-gaps 量測時發現。`mermaid-probe.mjs` 對任何含 `box` 的文件報 `Option is not defined`，看起來像 MERMAID REJECTS THIS。Mermaid 解析 box 顏色需要 `Option`；把 \"Option\" 加進 probe 安裝到 globalThis 的 jsdom 名單後 box 正常解析（已驗證）。另注意 jsdom 下 box 顏色可能被判為 transparent，需另外確認。"}
+{"id":"01M3NM3C6DVJ013WSWKBDKPQ2Z","t":3,"a":"83a1","op":"label.add","v":"tooling"}
+{"id":"01M3NM3C6D2AJJKPXV2JD9RHY9","t":4,"a":"83a1","op":"label.add","v":"sequence"}

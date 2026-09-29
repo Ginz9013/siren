@@ -1,0 +1,4 @@
+{"id":"01M3NM3BZJR1WE7KVKM7SSN2DB","t":1,"a":"83a1","op":"create","title":"sequence: links A: {json} 完全不支援"}
+{"id":"01M3NM3BZYAN313BQ6CR7DRS1E","t":2,"a":"83a1","op":"set","k":"description","v":"board sequence-flowchart-gaps 量測時發現。mermaid 11.17.2 接受 `links A: {\"Home\": \"https://x.com\"}`（A.links = {Home: url}）；Siren 只有單一 `link A: Label @ url`，`links` 落到 Unrecognized sequenceDiagram line。"}
+{"id":"01M3NM3BZYPG2B35Y31Z976JJD","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M3NM3BZY1TT7X9HVE2PSH6DB","t":4,"a":"83a1","op":"label.add","v":"sequence"}
