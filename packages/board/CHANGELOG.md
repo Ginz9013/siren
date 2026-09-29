@@ -8,7 +8,18 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.1] - 2026-09-29
+
+Requires `siren-core` ^0.1.1.
+
+### Changed
+
+- Built against `siren-core` 0.1.1, and `dist/siren-board.js`, which bundles it, includes
+  that release's fixes. See the
+  [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#011---2026-09-29).
+  The board's own API and behavior are unchanged.
+
+## [0.1.0] - 2026-09-29
 
 First public release. Requires `siren-core` ^0.1.0.
 

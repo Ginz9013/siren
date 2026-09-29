@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-29
+
 ### Added
 
 - A flowchart click's tooltip is drawn: the node shows it on hover, as a class
@@ -35,7 +37,7 @@ While the version is 0.x, a minor release may contain breaking changes.
 - The flowchart shorthand `click X "url"` takes an optional tooltip and target, as the
   `click X href "url"` form does. With either, the line was rejected.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-09-29
 
 First public release.
 
