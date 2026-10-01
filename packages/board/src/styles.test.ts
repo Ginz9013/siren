@@ -6,8 +6,9 @@ const FAKE_MEASURER = { measure: () => ({ width: 80, height: 32 }) };
 /*
  * The palette checks here have a twin in siren-core's
  * src/theme/default.test.ts, which asks the same questions of the diagram's
- * palette. The two packages share no test utilities, so a change to how one
- * reads a token block belongs in the other too.
+ * palette: one palette, one `:root` block, no light/dark switch (ADR-0014).
+ * The two packages share no test utilities, so a change to how one reads a
+ * token block belongs in the other too.
  */
 
 /** Creates a board, which injects board's chrome stylesheet, and returns that stylesheet's text. */
@@ -18,19 +19,19 @@ function injectedChromeCss(): string {
 
 /**
  * The six chrome tokens as `element` itself resolves them. jsdom resolves a
- * custom property only on the element that declares it — it neither inherits
- * one to a child nor evaluates `@media` — so `element` has to be the one a
- * token block selects: the root, or an element carrying `data-theme`.
+ * custom property only on the element that declares it and does not inherit
+ * one to a child, so `element` has to be the one the token block selects:
+ * the root.
  */
 function chromeTokensOn(element: Element): Record<string, string> {
   const style = getComputedStyle(element);
   return Object.fromEntries(
-    Object.keys(LIGHT_CHROME).map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]),
+    Object.keys(CHROME).map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]),
   );
 }
 
 /** siren-website's neutrals and accent, from its decision 01M3BY1GPP. */
-const LIGHT_CHROME = {
+const CHROME = {
   "--siren-board-surface": "#ffffff",
   "--siren-board-surface-hover": "#f8f6fc",
   "--siren-board-text": "#1d1730",
@@ -39,57 +40,29 @@ const LIGHT_CHROME = {
   "--siren-board-danger": "#c0264b",
 };
 
-/** The same decision's dark column. */
-const DARK_CHROME = {
-  "--siren-board-surface": "#14111d",
-  "--siren-board-surface-hover": "#1d1929",
-  "--siren-board-text": "#ece8f8",
-  "--siren-board-border": "#302a44",
-  "--siren-board-accent": "#b69cff",
-  "--siren-board-danger": "#ff8fa3",
-};
-
 describe("board chrome's color tokens", () => {
-  it("resolves the light chrome palette on the root", () => {
+  it("resolves the chrome palette on the root", () => {
     injectedChromeCss();
-    expect(chromeTokensOn(document.documentElement)).toEqual(LIGHT_CHROME);
+    expect(chromeTokensOn(document.documentElement)).toEqual(CHROME);
   });
 
-  it("resolves the dark chrome palette on a root pinned dark, and keeps a subtree pinned light inside it light", () => {
-    injectedChromeCss();
-    document.documentElement.dataset.theme = "dark";
-    const pinned = document.createElement("div");
-    pinned.dataset.theme = "light";
-    document.body.appendChild(pinned);
-    try {
-      expect(chromeTokensOn(document.documentElement)).toEqual(DARK_CHROME);
-      expect(chromeTokensOn(pinned)).toEqual(LIGHT_CHROME);
-    } finally {
-      pinned.remove();
-      delete document.documentElement.dataset.theme;
-    }
-  });
-
-  it("follows a dark system preference with the same dark palette, unless the page pins itself light", () => {
-    // jsdom evaluates no `@media`, so this reads the stylesheet: exactly one
-    // rule inside `prefers-color-scheme: dark`, selecting the root when it is
-    // not pinned light, declaring what the data-theme="dark" rule declares.
+  it("declares one chrome palette in one :root block, with no light/dark switch", () => {
+    // ADR-0014: board's chrome follows core's shape. One set of values, one
+    // entry point, and no selector that picks a palette on the page's behalf —
+    // a consumer who wants dark chrome redeclares these six themselves, under
+    // a selector of their own. Asserted on the whole stylesheet, comments
+    // included: the words naming a switch that no longer exists belong nowhere
+    // in it.
     const css = injectedChromeCss();
-    const declarations = (body: string) =>
-      body
-        .split(";")
-        .map((declaration) => declaration.trim().replace(/\s+/g, " "))
-        .filter((declaration) => declaration !== "")
-        .sort();
-    const media = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{([\s\S]*?\})\s*\}/.exec(css);
-    expect(media).not.toBeNull();
-    const inner = [...media![1].matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-    expect(inner.map(([, selector]) => selector.trim())).toEqual([':root:not([data-theme="light"])']);
+    expect(css).not.toMatch(/data-theme/);
+    expect(css).not.toMatch(/prefers-color-scheme/);
 
-    const pinnedDark = /:root\[data-theme="dark"\]\s*\{([^{}]*)\}/.exec(css);
-    expect(pinnedDark).not.toBeNull();
-    expect(declarations(inner[0][2])).toEqual(declarations(pinnedDark![1]));
-    expect(declarations(pinnedDark![1])).toHaveLength(Object.keys(DARK_CHROME).length);
+    const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    const tokenBlocks = rules.filter(([, , body]) => /--siren-board-[\w-]+\s*:/.test(body));
+    expect(tokenBlocks.map(([, selector]) => selector.trim())).toEqual([":root"]);
+    for (const token of Object.keys(CHROME)) {
+      expect(tokenBlocks[0][2]).toContain(`${token}:`);
+    }
   });
 
   it("colors the control bar and error banner only through its tokens", () => {
@@ -99,9 +72,8 @@ describe("board chrome's color tokens", () => {
       selector: selector.trim(),
       body,
     }));
-    const isTokenSelector = (part: string) =>
-      part !== "" &&
-      /^(?::root)?(?:\[data-theme="(?:light|dark)"\]|:not\(\[data-theme="light"\]\))?$/.test(part);
+    // ADR-0014 left `:root` as the only selector a token block can have.
+    const isTokenSelector = (part: string) => part === ":root";
     const tokenBlocks = rules.filter((rule) =>
       rule.selector.split(",").every((part) => isTokenSelector(part.trim())),
     );

@@ -21,42 +21,21 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  *
  * Every chrome color goes through a `--siren-board-*` token, declared here
  * rather than in `siren-core`'s theme (ADR-0006: board owns its chrome).
- * The values are siren-website's decision 01M3BY1GPP, light and dark, on the
- * same selectors core uses for its own palette (ADR-0011): dark follows the
- * system unless the page pins `<html data-theme="light|dark">`, and an
- * element carrying `data-theme="light"` stays light inside a dark page. The
- * dark set is written twice because a media query and an attribute selector
- * cannot share one rule; styles.test.ts keeps the two copies identical.
+ * The values are siren-website's decision 01M3BY1GPP, and there is one set of
+ * them, in one `:root` block — the same shape core's theme has (ADR-0014).
+ * Board picks no palette on the page's behalf: nothing below reads the
+ * reader's system color preference or any theme attribute, so a consumer who
+ * wants dark chrome redeclares these six tokens under a selector of their own,
+ * exactly as they would core's five. demos/theme-dark.css does both at once.
  */
 const CSS = `
-:root,
-[data-theme="light"] {
+:root {
   --siren-board-surface: #ffffff;
   --siren-board-surface-hover: #f8f6fc;
   --siren-board-text: #1d1730;
   --siren-board-border: #e7e2f1;
   --siren-board-accent: #6d3fd6;
   --siren-board-danger: #c0264b;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --siren-board-surface: #14111d;
-    --siren-board-surface-hover: #1d1929;
-    --siren-board-text: #ece8f8;
-    --siren-board-border: #302a44;
-    --siren-board-accent: #b69cff;
-    --siren-board-danger: #ff8fa3;
-  }
-}
-
-:root[data-theme="dark"] {
-  --siren-board-surface: #14111d;
-  --siren-board-surface-hover: #1d1929;
-  --siren-board-text: #ece8f8;
-  --siren-board-border: #302a44;
-  --siren-board-accent: #b69cff;
-  --siren-board-danger: #ff8fa3;
 }
 
 .siren-board {
