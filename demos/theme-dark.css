@@ -1,0 +1,38 @@
+/*
+ * The demos' second theme — a consumer's file, not a package's.
+ *
+ * Neither siren-core nor siren-board picks a palette for the page: each ships
+ * one set of tokens and nothing that reads a system preference or a theme
+ * attribute (ADR-0014). A page that wants a second theme declares it, which is
+ * all this file is: core's five color tokens and board's six chrome tokens,
+ * redeclared with the dark column of siren-website's decision 01M3BY1GPP,
+ * under the attribute the demos' own switch sets (theme-toggle.js pins
+ * `<html data-theme>`; nothing in either package reads it).
+ *
+ * It is deliberately copyable: another consumer can take this file as-is,
+ * keep the selector or swap it for `@media (prefers-color-scheme: dark)` or
+ * their own app's theme class, and get a dark diagram and a dark control bar
+ * together. Both READMEs point here for exactly that reason.
+ *
+ * The page's *own* chrome (`--demo-*`: page background, body text, borders)
+ * is not here — it lives with the rest of the page's styling in
+ * demo-chrome.css, and gallery.html has its own. The split is by owner: what
+ * is Siren's to theme can be copied to any consumer, what is this page's
+ * cannot.
+ */
+:root[data-theme="dark"] {
+  /* siren-core's diagram tokens. */
+  --siren-node-fill: #2a2144;
+  --siren-node-stroke: #b69cff;
+  --siren-node-text: #ece8f8;
+  --siren-edge-stroke: #8e88a3;
+  --siren-highlight-color: #2dd4bf;
+
+  /* siren-board's chrome tokens. */
+  --siren-board-surface: #14111d;
+  --siren-board-surface-hover: #1d1929;
+  --siren-board-text: #ece8f8;
+  --siren-board-border: #302a44;
+  --siren-board-accent: #b69cff;
+  --siren-board-danger: #ff8fa3;
+}
