@@ -18,13 +18,13 @@ function injectedChromeCss(): string {
 }
 
 /**
- * The six chrome tokens as `element` itself resolves them. jsdom resolves a
- * custom property only on the element that declares it and does not inherit
- * one to a child, so `element` has to be the one the token block selects:
- * the root.
+ * The six chrome tokens as the root itself resolves them. The root, and not
+ * some element inside the board, because jsdom resolves a custom property
+ * only on the element that declares it and does not inherit one to a child —
+ * and since ADR-0014 the one token block selects `:root` and nothing else.
  */
-function chromeTokensOn(element: Element): Record<string, string> {
-  const style = getComputedStyle(element);
+function chromeTokensOnRoot(): Record<string, string> {
+  const style = getComputedStyle(document.documentElement);
   return Object.fromEntries(
     Object.keys(CHROME).map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]),
   );
@@ -43,7 +43,7 @@ const CHROME = {
 describe("board chrome's color tokens", () => {
   it("resolves the chrome palette on the root", () => {
     injectedChromeCss();
-    expect(chromeTokensOn(document.documentElement)).toEqual(CHROME);
+    expect(chromeTokensOnRoot()).toEqual(CHROME);
   });
 
   it("declares one chrome palette in one :root block, with no light/dark switch", () => {

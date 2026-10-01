@@ -1096,13 +1096,13 @@ function attachDefaultTheme(): void {
 }
 
 /**
- * The five color tokens as `element` itself resolves them. jsdom resolves a
- * custom property only on the element that declares it and does not inherit
- * one to a child, so `element` has to be the one the token block selects:
- * the root.
+ * The five color tokens as the root itself resolves them. The root, and not
+ * some element inside the diagram, because jsdom resolves a custom property
+ * only on the element that declares it and does not inherit one to a child —
+ * and since ADR-0014 the one token block selects `:root` and nothing else.
  */
-function colorTokensOn(element: Element): Record<string, string> {
-  const style = getComputedStyle(element);
+function colorTokensOnRoot(): Record<string, string> {
+  const style = getComputedStyle(document.documentElement);
   return Object.fromEntries(
     [
       "--siren-node-fill",
@@ -1126,7 +1126,7 @@ const PALETTE = {
 describe("default theme's color palette", () => {
   it("resolves the violet palette on the root", () => {
     attachDefaultTheme();
-    expect(colorTokensOn(document.documentElement)).toEqual(PALETTE);
+    expect(colorTokensOnRoot()).toEqual(PALETTE);
   });
 
   it("names no light/dark switch anywhere in the stylesheet", () => {
@@ -1140,7 +1140,6 @@ describe("default theme's color palette", () => {
     expect(defaultThemeCss).not.toMatch(/data-theme/);
     expect(defaultThemeCss).not.toMatch(/prefers-color-scheme/);
   });
-
 });
 
 describe("default theme's design tokens", () => {

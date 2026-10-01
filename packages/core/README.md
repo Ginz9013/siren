@@ -58,8 +58,8 @@ once.
 - **Errors, not guesses**: problems come back as diagnostics with line and column numbers.
   Siren doesn't throw on a bad document, and it doesn't draw a construct it can't draw
   correctly.
-- **Themeable**: one stylesheet of CSS custom properties, with light and dark palettes
-  built in.
+- **Themeable**: one stylesheet of CSS custom properties — one palette, declared once, and
+  a second theme is a few lines of your own CSS.
 - **TypeScript types included**.
 
 ## Concepts
