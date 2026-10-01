@@ -40,7 +40,7 @@ createBoard(document.getElementById("board"), { source });
   editor.
 - **Error display**: when a document fails to render, the board keeps the last good
   diagram on screen and shows an error banner over it.
-- **Light and dark**: the chrome follows `prefers-color-scheme`, like the diagram theme.
+- **Themeable chrome**: six CSS custom properties color the bar and the banner — one set, overridable like the diagram theme's.
 - **TypeScript types included**.
 
 ## siren-board or siren-core?
@@ -300,8 +300,27 @@ needs no extra stylesheet. Restyle it with these custom properties:
 }
 ```
 
-Like the diagram theme, the chrome follows `prefers-color-scheme`, and
-`<html data-theme="light">` or `<html data-theme="dark">` pins one palette.
+Like the diagram theme, the chrome is one palette and picks none for you. For dark
+chrome, redeclare the six under a selector of your own — a media query, your app's own
+theme attribute, a container:
+
+```css
+@media (prefers-color-scheme: dark) {
+  :root {
+    --siren-board-surface: #14111d;
+    --siren-board-surface-hover: #1d1929;
+    --siren-board-text: #ece8f8;
+    --siren-board-border: #302a44;
+    --siren-board-accent: #b69cff;
+    --siren-board-danger: #ff8fa3;
+  }
+}
+```
+
+Those are the chrome's own dark values. The repo's
+[`demos/theme-dark.css`](https://github.com/Ginz9013/siren/blob/main/demos/theme-dark.css)
+declares them alongside `siren-core`'s five, so the diagram and the chrome switch
+together — copy it and you have a dark theme for both.
 
 For deeper changes, target the classes `.siren-board-controls` and
 `.siren-board-controls__button`, or pass your own `controls`.
