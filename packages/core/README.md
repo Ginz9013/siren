@@ -335,13 +335,43 @@ rules that hide elements before their step and play the transitions.
 import "siren-core/theme.css";
 ```
 
-### Dark mode
+### A second theme (dark, high-contrast, print)
 
-The theme has a light palette and a dark palette. By default it follows the reader's
-`prefers-color-scheme`. To pin one, set `data-theme` on `<html>`:
+The theme is one palette. Siren never picks one for you: nothing in `theme.css` reads
+`prefers-color-scheme` or any attribute on the page, so a second theme is yours to declare
+and yours to decide when it applies. Redeclare the five color tokens under whatever
+selector fits — a media query, a theme attribute your app already sets, a container class:
 
-```html
-<html data-theme="dark">
+```css
+/* Follow the reader's system preference... */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --siren-node-fill: #2a2144;
+    --siren-node-stroke: #b69cff;
+    --siren-node-text: #ece8f8;
+    --siren-edge-stroke: #8e88a3;
+    --siren-highlight-color: #2dd4bf;
+  }
+}
+
+/* ...or let your own theme switch decide, on any element you like. */
+[data-theme="dark"] {
+  --siren-node-fill: #2a2144;
+  /* ...the same five. */
+}
+```
+
+Those are Siren's own dark values, and the repo's
+[`demos/theme-dark.css`](https://github.com/Ginz9013/siren/blob/main/demos/theme-dark.css)
+is this done in full — the five above plus `siren-board`'s six chrome tokens — ready to
+copy.
+
+Scoping the override lower than `:root` works the same way, which is how one diagram on a
+page differs from the rest — declare it on the container you pass to `render()`, and the
+tokens are inherited by the SVG inside it:
+
+```css
+#intro-diagram { --siren-node-fill: #ffffff; }
 ```
 
 ### Custom colors, fonts and timing
@@ -365,9 +395,6 @@ Override any `--siren-*` custom property in your own CSS:
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |
 | Motion    | `--siren-fade-duration`, `--siren-slide-duration`, `--siren-slide-distance`, `--siren-highlight-duration`          |
-
-The token names are the same in both palettes. To override a token in dark mode as well,
-declare it under the same selectors that `theme.css` uses.
 
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.

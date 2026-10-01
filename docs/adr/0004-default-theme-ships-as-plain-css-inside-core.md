@@ -4,7 +4,10 @@ status: accepted
 
 # The default theme is plain CSS custom properties, shipped as part of `siren-core`
 
-> ADR-0011 ships the light and dark variants deferred below.
+> The light/dark variants deferred below were shipped by ADR-0011 and then removed by
+> [ADR-0014](0014-the-default-theme-ships-one-palette.md): built-in theme variants are now a
+> deliberate *no*, not a deferral. The token structure this ADR establishes is unchanged, and
+> is now the whole of the theme's interface.
 
 Diagram styling (colors, stroke widths, font, motion timing) was scattered as hardcoded values
 across a demo-only stylesheet, with no way for any consumer besides this repo's own demos to get

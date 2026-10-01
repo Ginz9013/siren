@@ -1076,9 +1076,10 @@ describe("default theme coverage of the class renderer", () => {
 
 /*
  * The palette checks below have a twin in siren-board's src/styles.test.ts,
- * which asks the same questions of board's chrome tokens. The two packages
- * share no test utilities, so a change to how one reads a token block
- * belongs in the other too.
+ * which asks the same questions of board's chrome tokens: one palette, one
+ * `:root` block, no light/dark switch (ADR-0014). The two packages share no
+ * test utilities, so a change to how one reads a token block belongs in the
+ * other too.
  */
 
 /**
@@ -1096,9 +1097,9 @@ function attachDefaultTheme(): void {
 
 /**
  * The five color tokens as `element` itself resolves them. jsdom resolves a
- * custom property only on the element that declares it — it neither inherits
- * one to a child nor evaluates `@media` — so `element` has to be the one a
- * token block selects: the root, or an element carrying `data-theme`.
+ * custom property only on the element that declares it and does not inherit
+ * one to a child, so `element` has to be the one the token block selects:
+ * the root.
  */
 function colorTokensOn(element: Element): Record<string, string> {
   const style = getComputedStyle(element);
@@ -1113,8 +1114,8 @@ function colorTokensOn(element: Element): Record<string, string> {
   );
 }
 
-/** The light palette, copied from siren-website's decision 01M3BY1GPP. */
-const LIGHT_PALETTE = {
+/** The one palette, copied from siren-website's decision 01M3BY1GPP. */
+const PALETTE = {
   "--siren-node-fill": "#f3efff",
   "--siren-node-stroke": "#6d3fd6",
   "--siren-node-text": "#1d1730",
@@ -1122,79 +1123,24 @@ const LIGHT_PALETTE = {
   "--siren-highlight-color": "#0d9488",
 };
 
-/** The dark palette, from the same decision. */
-const DARK_PALETTE = {
-  "--siren-node-fill": "#2a2144",
-  "--siren-node-stroke": "#b69cff",
-  "--siren-node-text": "#ece8f8",
-  "--siren-edge-stroke": "#8e88a3",
-  "--siren-highlight-color": "#2dd4bf",
-};
-
 describe("default theme's color palette", () => {
-  it("resolves the light violet palette on the root", () => {
+  it("resolves the violet palette on the root", () => {
     attachDefaultTheme();
-    expect(colorTokensOn(document.documentElement)).toEqual(LIGHT_PALETTE);
+    expect(colorTokensOn(document.documentElement)).toEqual(PALETTE);
   });
 
-  it("lets an element pinned with data-theme=\"light\" resolve the light palette itself", () => {
-    attachDefaultTheme();
-    // A subtree pinned light inside a dark page (siren-website's PPT export)
-    // only stays light if the pin redeclares the palette on itself.
-    const pinned = document.createElement("div");
-    pinned.dataset.theme = "light";
-    document.body.appendChild(pinned);
-    try {
-      expect(colorTokensOn(pinned)).toEqual(LIGHT_PALETTE);
-    } finally {
-      pinned.remove();
-    }
+  it("names no light/dark switch anywhere in the stylesheet", () => {
+    // ADR-0014: the theme is one palette with one entry point. A consumer who
+    // wants a second one redeclares these tokens under a selector of their own
+    // choosing, so nothing here may read `data-theme` or
+    // `prefers-color-scheme` — reading either would make Siren pick a palette
+    // on the consumer's behalf again, which is the mechanism that was removed.
+    // Asserted against the whole file, comments included: the words naming a
+    // switch that no longer exists belong nowhere in it.
+    expect(defaultThemeCss).not.toMatch(/data-theme/);
+    expect(defaultThemeCss).not.toMatch(/prefers-color-scheme/);
   });
 
-  it("resolves the dark violet palette on a root pinned with data-theme=\"dark\"", () => {
-    attachDefaultTheme();
-    document.documentElement.dataset.theme = "dark";
-    try {
-      expect(colorTokensOn(document.documentElement)).toEqual(DARK_PALETTE);
-    } finally {
-      delete document.documentElement.dataset.theme;
-    }
-  });
-
-  it("keeps a subtree pinned light inside a dark root light", () => {
-    attachDefaultTheme();
-    document.documentElement.dataset.theme = "dark";
-    const pinned = document.createElement("div");
-    pinned.dataset.theme = "light";
-    document.body.appendChild(pinned);
-    try {
-      expect(colorTokensOn(pinned)).toEqual(LIGHT_PALETTE);
-    } finally {
-      pinned.remove();
-      delete document.documentElement.dataset.theme;
-    }
-  });
-
-  it("follows a dark system preference with the same dark palette, unless the page pins itself light", () => {
-    // jsdom evaluates no `@media`, so this reads the stylesheet: exactly one
-    // rule inside `prefers-color-scheme: dark`, selecting the root when it is
-    // not pinned light, declaring what the data-theme="dark" rule declares.
-    const declarations = (body: string) =>
-      body
-        .split(";")
-        .map((declaration) => declaration.trim().replace(/\s+/g, " "))
-        .filter((declaration) => declaration !== "")
-        .sort();
-    const media = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{([\s\S]*?\})\s*\}/.exec(themeRules);
-    expect(media).not.toBeNull();
-    const inner = [...media![1].matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-    expect(inner.map(([, selector]) => selector.trim())).toEqual([':root:not([data-theme="light"])']);
-
-    const pinnedDark = /:root\[data-theme="dark"\]\s*\{([^{}]*)\}/.exec(themeRules);
-    expect(pinnedDark).not.toBeNull();
-    expect(declarations(inner[0][2])).toEqual(declarations(pinnedDark![1]));
-    expect(declarations(pinnedDark![1])).toHaveLength(Object.keys(DARK_PALETTE).length);
-  });
 });
 
 describe("default theme's design tokens", () => {
@@ -1210,21 +1156,35 @@ describe("default theme's design tokens", () => {
 
   /**
    * A token block — where ADR-0004 says every literal belongs — is a rule
-   * selecting the root or a data-theme pin and nothing else. There is more
-   * than one: the colors are declared apart from the rest so that a pin can
-   * redeclare them.
+   * selecting `:root` and nothing else. ADR-0014 left exactly one selector
+   * able to be one, so this no longer has to know about theme pins.
    */
-  const isTokenSelector = (part: string) =>
-    /^(?::root)?(?:\[data-theme="(?:light|dark)"\]|:not\(\[data-theme="light"\]\))?$/.test(part) &&
-    part !== "";
+  const isTokenSelector = (part: string) => part === ":root";
   const tokenBlocks = rules.filter((rule) =>
     rule.selector.split(",").every((part) => isTokenSelector(part.trim())),
   );
 
+  it("declares every token in one block, so a consumer has one entry point", () => {
+    // ADR-0014: colors used to be declared apart from the rest so a theme pin
+    // could redeclare them alone. With the pin gone there is no reason for a
+    // second block, and a consumer reading this file to find what they may
+    // override should find all of it in one place.
+    expect(tokenBlocks.map((block) => block.selector)).toEqual([":root"]);
+
+    const declared = tokenBlocks[0].body.match(/--siren-[\w-]+(?=\s*:)/g) ?? [];
+    for (const token of Object.keys(PALETTE)) {
+      expect(declared).toContain(token);
+    }
+    // The non-color tokens live there too, not in a block of their own.
+    for (const token of ["--siren-font-family", "--siren-node-border-radius", "--siren-fade-duration"]) {
+      expect(declared).toContain(token);
+    }
+  });
+
   it("keeps every color literal inside the token declarations", () => {
     // Not vacuous: every color token is declared in some token block.
     const declaredInBlocks = tokenBlocks.map((block) => block.body).join("\n");
-    for (const token of Object.keys(LIGHT_PALETTE)) {
+    for (const token of Object.keys(PALETTE)) {
       expect(declaredInBlocks).toContain(`${token}:`);
     }
     const outside = tokenBlocks.reduce((css, block) => css.replace(block.whole, ""), themeRules);

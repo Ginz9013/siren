@@ -36,45 +36,26 @@
  */
 
 /*
- * Color tokens: the violet palette of siren-website's decision 01M3BY1GPP.
- * Declared on any element pinned with data-theme="light" as well as on the
- * root, so one subtree can stay light inside a dark page — a custom property
- * a pin does not redeclare is simply inherited from whatever is above it.
+ * The tokens: everything a consumer may redeclare, in one block, which is the
+ * whole of this file's styling interface (ADR-0014). The colors used to be
+ * declared apart from the rest so that a theme pin could redeclare them
+ * alone; there is one palette now and no pin, so there is one entry point.
+ *
+ * One palette, and only one: a consumer who wants a second — dark,
+ * high-contrast, print — redeclares the five color tokens under a selector of
+ * their own and owns when it applies. The theme never picks for them, which is
+ * why nothing in this file reads the reader's system color preference or any
+ * theme attribute on the page — see packages/core/README.md for the worked
+ * example, and demos/theme-dark.css for one that runs.
  */
-:root,
-[data-theme="light"] {
+:root {
+  /* Color tokens: the violet palette of siren-website's decision 01M3BY1GPP. */
   --siren-node-fill: #f3efff;
   --siren-node-stroke: #6d3fd6;
   --siren-node-text: #1d1730;
   --siren-edge-stroke: #6f6a84;
   --siren-highlight-color: #0d9488;
-}
 
-/*
- * The dark palette, from the same decision. It follows the system unless the
- * page pins a theme with <html data-theme="light|dark">. It is written twice
- * because a media query and an attribute selector cannot share one rule; the
- * two copies must stay identical, and default.test.ts checks that they do.
- */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --siren-node-fill: #2a2144;
-    --siren-node-stroke: #b69cff;
-    --siren-node-text: #ece8f8;
-    --siren-edge-stroke: #8e88a3;
-    --siren-highlight-color: #2dd4bf;
-  }
-}
-
-:root[data-theme="dark"] {
-  --siren-node-fill: #2a2144;
-  --siren-node-stroke: #b69cff;
-  --siren-node-text: #ece8f8;
-  --siren-edge-stroke: #8e88a3;
-  --siren-highlight-color: #2dd4bf;
-}
-
-:root {
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
   --siren-font-size: 14px;
@@ -97,15 +78,12 @@
   --siren-edge-thick-stroke-width: calc(var(--siren-stroke-width) * 2);
   --siren-lifeline-dash: 4 4;
   /* A dotted edge (`A -.-> B`). Its own token rather than the lifeline's or
-     the note connector's, which belong to other diagram kinds, and safe to
-     freeze at :root for the reason given below them: a dash pattern carries
-     no light/dark value. The pattern matches a dotted sequence message, the
-     nearest thing in the codebase to the same idea. */
+     the note connector's, which belong to other diagram kinds. The pattern
+     matches a dotted sequence message, the nearest thing in the codebase to
+     the same idea. */
   --siren-edge-dash: 4 3;
   /* A note's connector is dashed, as UML draws one — its own token rather than
-     the lifeline's, which belongs to a different diagram kind. Declaring it
-     here is safe where a *color* token would not be: a dash pattern carries no
-     light/dark value, so freezing it at `:root` costs nothing. */
+     the lifeline's, which belongs to a different diagram kind. */
   --siren-note-link-dash: 4 4;
   /* A box groups participants drawn on top of it, so it reads as a tint. */
   --siren-box-fill-opacity: 0.35;
@@ -272,15 +250,14 @@
  *    who wants them to differ still can — by scoping an override to the
  *    selectors below.
  *  - A *new* color token declared in `:root` here would silently defeat any
- *    override scoped lower than `:root` (a subtree pinned with
- *    `data-theme="light"`, or a consumer's own override on a container).
- *    Custom properties substitute against the element the declaration sits
- *    on, so `--siren-x: var(--siren-node-fill)` written in `:root` freezes
- *    the *light* value at `:root` and inherits it down past the override. Naming
- *    the base token directly in the rule instead resolves it on the diagram
- *    element itself, below the override, so dark mode just works. Only
- *    color-independent tokens (dash pattern, font sizes, opacities) are safe
- *    to declare above and are declared there.
+ *    override a consumer scopes lower than `:root` — on a container, a single
+ *    diagram, a section of the page. Custom properties substitute against the
+ *    element the declaration sits on, so `--siren-x: var(--siren-node-fill)`
+ *    written in `:root` freezes the default value there and inherits it down
+ *    past the override. Naming the base token directly in the rule instead
+ *    resolves it on the diagram element itself, below the override, so the
+ *    override reaches it. Only color-independent tokens (dash pattern, font
+ *    sizes, opacities) are safe to declare above and are declared there.
  */
 
 /* Shared type for the sequence and class diagrams' grouping elements; the
@@ -485,8 +462,8 @@
  * extended with class-diagram-specific ones (a class box *is* a node, a
  * relationship *is* an edge), and every one of them is named at the point of
  * use rather than aliased into a new `--siren-*` declared in `:root`, which
- * would freeze its light value above the demos' `<body>`-scoped dark
- * override.
+ * would freeze its value there and defeat any override a consumer scopes
+ * lower.
  */
 
 /*
@@ -688,7 +665,7 @@
  * extended with state-diagram-specific ones (a state *is* a node, a
  * transition *is* an edge), and each is named at the point of use rather
  * than aliased into a new `--siren-*` in `:root`, which would freeze its
- * light value above the demos' `<body>`-scoped dark override.
+ * value there and defeat any override a consumer scopes lower.
  */
 
 /*
@@ -1149,8 +1126,8 @@
  * The same bargain the class and state blocks above strike: the flowchart's
  * color tokens are reused rather than extended with ER-specific ones (an
  * entity *is* a node), and each is named at the point of use rather than
- * aliased into a new `--siren-*` in `:root`, which would freeze its light
- * value above the demos' `<body>`-scoped dark override.
+ * aliased into a new `--siren-*` in `:root`, which would freeze its value
+ * there and defeat any override a consumer scopes lower.
  */
 
 /*

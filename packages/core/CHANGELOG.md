@@ -8,6 +8,17 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- **The theme ships one palette, and a second one is yours.** `theme.css` no longer follows
+  `prefers-color-scheme` and no longer reads `data-theme`: it declares one set of token values,
+  in one `:root` block. A reader on a dark system sees that one palette unless your page says
+  otherwise. To get the previous dark colors back, redeclare the five color tokens under a
+  selector of your own — the README has the values and a worked example, and `demos/theme-dark.css`
+  in the repo is the whole thing, ready to copy. Pinning a subtree with `data-theme="light"` is
+  gone too; scope your own override to that subtree instead, which works for any palette rather
+  than only for light. See ADR-0014.
+
 ## [0.1.1] - 2026-09-29
 
 ### Added
