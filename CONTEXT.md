@@ -139,14 +139,23 @@ remain the right words for those two things themselves), timeline reference, ani
 A `--siren-*` CSS custom property in `packages/core/src/theme/default.css` — the single source of
 truth for the diagram's default colors, sizing, and motion timing. Consumers theme by
 redeclaring these in their own CSS, not by passing a JS theme object — see
-[ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md). The five color tokens
-come in a light and a dark palette: dark follows the system's `prefers-color-scheme` unless the
-page pins `<html data-theme="light|dark">`, and any element carrying `data-theme="light"` keeps its
-subtree light inside a dark page — see
-[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md). `siren-board`'s
-`--siren-board-*` properties are **chrome tokens**, not design tokens: they color board's control
-bar and error banner, live in board's injected stylesheet, and follow the same light/dark selectors
-(ADR-0006 keeps board's chrome out of core's theme).
+[ADR-0004](docs/adr/0004-default-theme-ships-as-plain-css-inside-core.md). **There is one set of
+values, declared once, in one `:root` block** — colors, type, sizing and motion together — and
+that block is the whole of the theme's styling interface. Siren never picks a palette on the
+page's behalf: nothing in the file reads the reader's system color preference or any theme
+attribute, so **a second theme is the consumer's**, made by redeclaring tokens under a selector
+they choose and apply when they decide — see
+[ADR-0014](docs/adr/0014-the-default-theme-ships-one-palette.md), which supersedes
+[ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md)'s light/dark switch, and
+`demos/theme-dark.css` for that done in full. `siren-board`'s `--siren-board-*` properties are
+**chrome tokens**, not design tokens: they color board's control bar and error banner, live in
+board's injected stylesheet, and have the same shape — one set, one `:root` block (ADR-0006 keeps
+board's chrome out of core's theme).
+One consequence is worth stating because it is the reason a rule below exists: a color token is
+always named at its point of use, never aliased into a new `--siren-*` in `:root`. A custom
+property substitutes against the element its declaration sits on, so an alias in `:root` freezes
+the value there and inherits it down past any override a consumer scoped lower — on a container,
+on one diagram, on a section of the page.
 **One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
 for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
 `.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the
@@ -165,7 +174,8 @@ would have lost the one thing that distinguishes it. The price is that the token
 *how* round `A(Round)` is; that is a proportion, and it is the renderer's. So a consumer
 redeclaring this token changes rectangles and subroutines and nothing else — which is a documented
 token silently narrowing its reach, and the reason it is written down here.
-_Avoid_: CSS variable, theme variable
+_Avoid_: CSS variable, theme variable, dark mode, 主題切換 (there is no switch to name: one set of
+values, and a second theme is a consumer's own CSS)
 
 **Id scope**:
 The `__` plus exactly eight characters that every id *inside* one rendered SVG is suffixed with —

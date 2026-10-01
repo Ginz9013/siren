@@ -1,8 +1,13 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # `siren-core`'s default theme ships a light and a dark palette, and the page picks between them
+
+> Superseded by [ADR-0014](0014-the-default-theme-ships-one-palette.md): the theme ships one
+> palette, and a second one is the consumer's to declare. The violet values chosen here are
+> still the theme's; the light/dark switch described below is gone, as is the dark set's home
+> in this repo's packages. Kept as the record of why the switch existed.
 
 The default theme's colors are now the violet palette of siren-website's decision `01M3BY1GPP`,
 chosen so a Siren diagram is never mistaken for a Mermaid one, and `default.css` declares it
