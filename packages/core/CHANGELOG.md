@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-02
+
 ### Changed
 
 - **The theme ships one palette, and a second one is yours.** `theme.css` no longer follows

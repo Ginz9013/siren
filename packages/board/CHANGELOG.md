@@ -8,6 +8,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-02
+
+Requires `siren-core` ^0.2.0.
+
 ### Changed
 
 - **The chrome ships one palette.** The injected stylesheet no longer follows
@@ -16,6 +20,10 @@ While the version is 0.x, a minor release may contain breaking changes.
   For dark chrome, redeclare them under a selector of your own — the README has the values, and
   `demos/theme-dark.css` in the repo does it for the chrome and the diagram at once. This follows
   `siren-core`'s theme, which changed the same way; see ADR-0014.
+- Built against `siren-core` 0.2.0, and `dist/siren-board.js`, which bundles it, carries that
+  release's theme. A page that relied on either package following `prefers-color-scheme` has to
+  declare both sets itself; see the
+  [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#020---2026-10-02).
 
 ## [0.1.1] - 2026-09-29
 

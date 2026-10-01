@@ -114,7 +114,9 @@ Bug reports and pull requests are welcome.
 Publish with `pnpm`, not `npm`. `pnpm publish` rewrites `siren-board`'s
 `workspace:^` dependency to a real version range.
 
-1. Update `version` in both `packages/*/package.json`.
+1. Update `version` in both `packages/*/package.json`. The two move together: `siren-board`
+   depends on `siren-core`, so a core release gets a board release of the same version, and
+   board's changelog section names the core version it requires.
 2. In each package's `CHANGELOG.md`, move the entries under `[Unreleased]` into a new
    section for the version, dated with the release day.
 3. Log in with `npm login` if needed.
@@ -125,6 +127,8 @@ Publish with `pnpm`, not `npm`. `pnpm publish` rewrites `siren-board`'s
    ```
 
 Each package's `prepublishOnly` script runs its tests and build before it is published.
+`LICENSE` is copied into each package so it travels in the tarball; npm only picks up the one
+beside the `package.json` it is publishing, not the repository root's.
 
 ## License
 
