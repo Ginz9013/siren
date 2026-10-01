@@ -3,11 +3,14 @@
  * a plain script in <head>, so the pin lands before the first paint and a
  * dark system never flashes the light palette.
  *
- * It only pins <html data-theme>, the one attribute core's palette, board's
- * chrome tokens (both ADR-0011) and demo-chrome.css all read. Pinned on load
- * from the system preference rather than left unset, so the button always
- * states the theme actually showing. A page labels the button in its own
- * language with data-labels="<light>|<dark>".
+ * It only pins <html data-theme>. That attribute is the demos' own convention,
+ * read only by the demos' own CSS — theme-dark.css for Siren's tokens,
+ * demo-chrome.css and gallery.html's inline styles for the page's. Neither
+ * siren-core nor siren-board knows it exists: each ships one palette and
+ * switches nothing by itself (ADR-0014), which is why the second theme is a
+ * file in this directory. Pinned on load from the system preference rather
+ * than left unset, so the button always states the theme actually showing. A
+ * page labels the button in its own language with data-labels="<light>|<dark>".
  */
 (() => {
   const root = document.documentElement;

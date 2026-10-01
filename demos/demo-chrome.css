@@ -13,10 +13,13 @@
 /*
  * The page's own colors: siren-website's neutrals from its decision
  * 01M3BY1GPP, so a demo reads like the site its diagrams are drawn for, in
- * both themes. Page chrome, not design tokens — core's palette and board's
- * chrome tokens switch on the same <html data-theme> (ADR-0011) without
- * reading any of these. Each demo pins data-theme on load (theme-toggle.js),
- * so the dark set only needs its pinned form.
+ * both themes. Page chrome, not design tokens — and what makes these the
+ * page's rather than Siren's is that a consumer could not reuse them: they
+ * color this layout's header, body and borders. Siren's own tokens are
+ * redeclared for dark in theme-dark.css instead, which any consumer can copy
+ * whole (ADR-0014: neither package switches palettes by itself). Both files
+ * key off the same <html data-theme> that theme-toggle.js pins on load, so
+ * the dark set only needs its pinned form.
  */
 :root {
   --demo-page: #f8f6fc;
@@ -64,8 +67,9 @@ h1 {
 
 /*
  * Row pairing the page title with the theme toggle — the one button that
- * stays page-owned once siren-board takes over Prev/Next/Reset (ADR-0006:
- * board never sets data-theme; it only reads it, per ADR-0011). Kept out
+ * stays page-owned once siren-board takes over Prev/Next/Reset (ADR-0006
+ * keeps a Theme button out of board's control bar, and ADR-0014 leaves board
+ * with no palette to switch to anyway: the theme is this page's). Kept out
  * of board's own floating bottom bar so the two don't collide.
  */
 .page-header {
