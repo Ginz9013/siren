@@ -12,7 +12,9 @@
  * It is deliberately copyable: another consumer can take this file as-is,
  * keep the selector or swap it for `@media (prefers-color-scheme: dark)` or
  * their own app's theme class, and get a dark diagram and a dark control bar
- * together. Both READMEs point here for exactly that reason.
+ * together. That is what packages/core/README.md's "A second theme" section
+ * and packages/board/README.md's Theming section describe, and both point
+ * here as the worked example.
  *
  * The page's *own* chrome (`--demo-*`: page background, body text, borders)
  * is not here — it lives with the rest of the page's styling in

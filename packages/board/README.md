@@ -40,7 +40,8 @@ createBoard(document.getElementById("board"), { source });
   editor.
 - **Error display**: when a document fails to render, the board keeps the last good
   diagram on screen and shows an error banner over it.
-- **Themeable chrome**: six CSS custom properties color the bar and the banner — one set, overridable like the diagram theme's.
+- **Themeable chrome**: six CSS custom properties color the bar and the banner — one set,
+  overridable like the diagram theme's.
 - **TypeScript types included**.
 
 ## siren-board or siren-core?
@@ -280,7 +281,8 @@ type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): voi
 ## Styling
 
 The diagram is styled by `siren-core/theme.css`. See
-[Theming](https://www.npmjs.com/package/siren-core#theming) for its tokens and dark mode.
+[Theming](https://www.npmjs.com/package/siren-core#theming) for its tokens, and for making a
+second theme out of them.
 
 The board's own chrome (control bar and error banner) is injected automatically, so it
 needs no extra stylesheet. Restyle it with these custom properties:
