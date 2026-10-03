@@ -13,7 +13,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { readLabel } from "../label/readLabel";
+import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
@@ -694,11 +694,13 @@ export function parseStateDiagram(source: string): ParseResult {
   ): Label => {
     const [start] = match.indices![group]!;
     const { label, problems } = readLabel(match[group]!, { dialect: "html" });
-    for (const { severity, message, offset } of problems) {
-      diagnostics.push({ severity, message, line: lineNumber, column: column + start + offset });
-      if (severity === "error") {
-        sawError = true;
-      }
+    const reported = labelDiagnostics(problems, (offset) => ({
+      line: lineNumber,
+      column: column + start + offset,
+    }));
+    diagnostics.push(...reported.diagnostics);
+    if (reported.hasError) {
+      sawError = true;
     }
     return label;
   };

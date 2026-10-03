@@ -92,6 +92,27 @@ describe("readLabel's Markdown string", () => {
     expect(styledRows("**md**<br/>x", true)).toEqual(["md(b)", "x"]);
   });
 
+  // Mermaid's HTML labels, measured in 11.17.2 (`scripts/mermaid-probe.mjs`,
+  // the label's own markup): `a * b * c` is `<p>a * b * c</p>`, no `<em>`.
+  it("leaves a `*` with a space after it as a character, not an italic run", () => {
+    expect(styledRows("a * b * c", true)).toEqual(["a * b * c"]);
+  });
+
+  // Measured the same way: `<p>*a *</p>`, `<p>**a **</p>`, and
+  // `<p><em>a * b</em></p>` — the spaced star inside is a character, and the
+  // pair closes at the next star with no space before it.
+  it("closes a pair only at a star with no space before it", () => {
+    expect(styledRows("*a *", true)).toEqual(["*a *"]);
+    expect(styledRows("**a **", true)).toEqual(["**a **"]);
+    expect(styledRows("*a * b*", true)).toEqual(["a * b(i)"]);
+  });
+
+  // `<p>** a**</p>`, measured: a `**` with a space after it opens neither a
+  // bold pair nor, through its second star, an italic one.
+  it("opens nothing at a `**` with a space after it", () => {
+    expect(styledRows("** a**", true)).toEqual(["** a**"]);
+  });
+
   it("leaves `**` alone when the label is not a Markdown string", () => {
     expect(styledRows("**md**", false)).toEqual(["**md**"]);
   });

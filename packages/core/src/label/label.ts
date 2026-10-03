@@ -148,11 +148,27 @@ export function plainRun(text: string): LabelRun {
  * one place only.
  */
 export function isPlain(run: LabelRun): boolean {
-  const neutral = plainRun(run.text);
-  return (Object.keys(neutral) as (keyof LabelRun)[]).every(
+  return sameProperties(run, plainRun(run.text));
+}
+
+/**
+ * Whether two runs carry the same value on every property but their text —
+ * so that `<b>a</b><strong>b</strong>` reads as one bold run, and a tag that
+ * sets nothing a run can show leaves a plain label plain.
+ */
+export function sameProperties(a: LabelRun, b: LabelRun): boolean {
+  return (Object.keys(a) as (keyof LabelRun)[]).every(
     // `fontSize` is the one object-valued property; JSON compares it by value.
-    (key) => JSON.stringify(run[key]) === JSON.stringify(neutral[key]),
+    (key) => key === "text" || JSON.stringify(a[key]) === JSON.stringify(b[key]),
   );
+}
+
+/**
+ * The scale `run` is drawn at relative to the size around it, or `null`
+ * when the author wrote an absolute size, which no scale describes.
+ */
+export function relativeScale(run: LabelRun): number | null {
+  return "scale" in run.fontSize ? run.fontSize.scale : null;
 }
 
 /**

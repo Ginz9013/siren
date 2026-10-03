@@ -319,8 +319,9 @@ drawn as something else. Its own board, and it reuses all of this.
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds
 the `labelBox` layout measured it into, which the node's shape was sized to hold. The fenced
 `` A["`**bold**`"] `` Markdown string is one spelling of a label rather than a second field: a quoted
-label whose content is itself fenced in backticks is read by the same reader with `**`/`*` and real
-line breaks switched on. A line break inside the fence is real Mermaid too: its lexer reads a quoted
+label whose content is itself fenced in backticks is read by the same reader, its `**`/`*` pairs and
+real line breaks read as the tags they stand for (`<strong>`, `<em>`, `<br>`), which is what Mermaid
+does with it. A line break inside the fence is real Mermaid too: its lexer reads a quoted
 label across physical source lines when the closing quote has not been reached yet, so the
 flowchart parser joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`)
 before anything else reads them — the one place this grammar is not read one physical line at a
@@ -347,14 +348,18 @@ draws as SVG in both modes. A class **member** is not a label at all: Mermaid es
 modes, so it is kept as written. A **row break** is `<br>` in any case, with or without attributes
 and a closing `/` — `<br>`, `<br/>`, `<br />`, `<BR>` and `<br class="x">` all break a row, the last
 because Mermaid's HTML labels keep it as an element, though its own `/<br\s*\/?>/gi` does not match
-it. `<br>` came first; the rest of the vocabulary arrives tag by tag, each with its row in the
-compatibility corpus (`src/compat/labelCorpus.ts`).
+it. The text-styling tags are read too — `b` `strong`, `i` `em` `cite` `dfn` `var`, `u` `ins`, `s`
+`strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup` and `q` — nested and misnested
+as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
+its `**`/`*` stack with tags the author wrote. The rest of the vocabulary arrives tag by tag, each
+with its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
 
 One module owns all of it, `packages/core/src/label/`: `readLabel` reads the source into a `Label`
 and reports **problems** at character offsets, which the parser turns into diagnostics at the
 author's own line and column (an error refuses the document, as an unrecognized line does);
 `layoutLabel` measures it into a `LabelBox` — a row as tall as its tallest run, the label its rows
-stacked, a bold run at the regular weight (a deliberate simplification, not a gap); `drawLabel`
+stacked, a bold run at the regular weight and a monospace run in the regular font (a deliberate
+simplification, not a gap); `drawLabel`
 draws it at the box's centre. A label of one row holding one plain run — nearly every label — is
 drawn as the `<text>`'s own `textContent`, exactly as before labels had rows; anything else is one
 `<tspan class="siren-label-row">` per row with one `<tspan>` per run inside it, which is the
@@ -615,14 +620,17 @@ it was first written, and the model is left with *identification* alone.
 
 What it does carry is **descriptions**, and that is an array rather than a string because they
 **accumulate**: measured (mermaid 11.17.2), `s : first` followed by `s : second` reports
-`descriptions=["first","second"]`, so a second description is a second line of text and not a
-correction of the first. The two spellings — `Idle : waiting` and `state "waiting" as Idle` — are
+`descriptions=["first","second"]`, so a second description is drawn beneath the first and is not a
+correction of it. Each description is a **Label** (below), so one description may hold several rows
+of its own. The two spellings — `Idle : waiting` and `state "waiting" as Idle` — are
 **one construct written two ways**, and `as` is not the rename it looks like: measured, both land in
 the same `descriptions` array and neither touches the id, so `Idle` is still what a transition
 names. Which spelling was written is therefore recorded nowhere, the same call `graph` versus
 `flowchart` gets. A described state draws its descriptions *in place of* its id, with a
-`.siren-state-divider` closing the title row once there are two or more — the compartment line a
-class box already draws, and the one Mermaid draws as `line.divider`.
+`.siren-state-divider` under every row of the first description — the **title label** — once there
+are two or more descriptions: the compartment line a class box already draws, and the one Mermaid
+draws as `line.divider`. Descriptions, notes, transition labels and a composite's quoted title are
+all Labels read in the `html` dialect, because Mermaid draws every one of them as HTML (measured).
 _Avoid_: node (flowchart vocabulary), status, step (that is the timeline's word for a reveal
 position), box (say "frame" for the drawn `<rect>`)
 
