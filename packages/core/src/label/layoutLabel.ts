@@ -34,7 +34,10 @@ import type { Label, LabelBox, LabelBoxRow, LabelRun } from "./label";
  * Bold runs are measured at the regular weight, a simplification the
  * Markdown labels this replaces already made and the board keeps: a
  * pixel-exact width would have to know every weight the measurer's font
- * draws, and nothing downstream needs the box to be that exact.
+ * draws, and nothing downstream needs the box to be that exact. A monospace
+ * run (`<code>` and its kin) is measured in the regular font for the same
+ * reason: `TextMeasurer` measures in one font, and asking it about a second
+ * would widen an interface every consumer implements.
  *
  * Pure: no call leaves anything behind but the measurer's own.
  */

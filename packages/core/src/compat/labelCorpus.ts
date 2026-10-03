@@ -55,6 +55,33 @@ export function labelRows(text: Element | null): string[] {
   );
 }
 
+/**
+ * One drawn label's runs, row after row, each as its text followed by
+ * `[name=value]` for every one of `attributes` its `<tspan>` carries — the
+ * reader for the rows below whose picture is a property `labelRows` does not
+ * spell (an underline, a font size, a baseline shift).
+ *
+ * A label drawn as bare `textContent` reads as one run with no attributes,
+ * which is exactly what a styling tag that stopped being read would draw.
+ */
+function labelRuns(text: Element | null, ...attributes: string[]): string[] {
+  if (text === null) {
+    return [];
+  }
+  const runs = Array.from(text.querySelectorAll(":scope > tspan.siren-label-row > tspan"));
+  if (runs.length === 0) {
+    return [text.textContent ?? ""];
+  }
+  return runs.map(
+    (run) =>
+      (run.textContent ?? "") +
+      attributes
+        .filter((name) => run.hasAttribute(name))
+        .map((name) => `[${name}=${run.getAttribute(name)}]`)
+        .join(""),
+  );
+}
+
 /** The `<text>` a flowchart node's label was drawn in, or `null`. */
 function nodeText(result: SirenRenderResult, id: string): Element | null {
   if (result.svg === null) {
@@ -131,6 +158,194 @@ export const LABEL_CASES: readonly CompatCase[] = [
       "meaning anything.",
     assert: (result) => {
       expectRows("label rows", labelRows(nodeText(result, "A")), ["md(b)", "x"]);
+    },
+  },
+  {
+    id: "label-bold",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x <b>b</b> <strong>s</strong>]`,
+    status: "supported",
+    meaning:
+      "`<b>` and `<strong>` draw their text bold: Mermaid's default HTML labels " +
+      "show `font-weight: bold` (measured in headless Chrome against 11.17.2). " +
+      "Siren used to draw the tags' own characters.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["x b(b) s(b)"]);
+    },
+  },
+  {
+    id: "label-italic",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[<i>i</i><em>e</em><cite>c</cite><dfn>d</dfn><var>v</var>]`,
+    status: "supported",
+    meaning:
+      "`<i>`, `<em>`, `<cite>`, `<dfn>` and `<var>` all draw their text " +
+      "italic — five names for one picture, `font-style: italic` (measured " +
+      "against 11.17.2).",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["iecdv(i)"]);
+    },
+  },
+  {
+    id: "label-underline",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x <u>u</u><ins>i</ins>]`,
+    status: "supported",
+    meaning:
+      "`<u>` and `<ins>` draw their text underlined (measured against 11.17.2).",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "text-decoration"), [
+        "x ",
+        "ui[text-decoration=underline]",
+      ]);
+    },
+  },
+  {
+    id: "label-strikethrough",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x <s>s</s><strike>k</strike><del>d</del>]`,
+    status: "supported",
+    meaning:
+      "`<s>`, `<strike>` and `<del>` draw a line through their text " +
+      "(measured against 11.17.2).",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "text-decoration"), [
+        "x ",
+        "skd[text-decoration=line-through]",
+      ]);
+    },
+  },
+  {
+    id: "label-monospace",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x <code>c</code><kbd>k</kbd><samp>s</samp><tt>t</tt>]`,
+    status: "supported",
+    meaning:
+      "`<code>`, `<kbd>`, `<samp>` and `<tt>` draw their text in `monospace` " +
+      "(measured against 11.17.2). Siren measures such a run at its regular " +
+      "font, as it measures a bold one at the regular weight.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "font-family"), [
+        "x ",
+        "ckst[font-family=monospace]",
+      ]);
+    },
+  },
+  {
+    id: "label-font-size",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x <small>s</small><big>b</big>]`,
+    status: "supported",
+    meaning:
+      "`<small>` draws its text at × 0.833 of the size around it and `<big>` " +
+      "at × 1.2 (measured against 11.17.2). Siren draws the scale relative to " +
+      "its own font size, in `em`.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "font-size"), [
+        "x ",
+        "s[font-size=0.833em]",
+        "b[font-size=1.2em]",
+      ]);
+    },
+  },
+  {
+    id: "label-sub-sup",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[H<sub>2</sub>O x<sup>2</sup>]`,
+    status: "supported",
+    meaning:
+      "`<sub>` and `<sup>` draw their text at × 0.833, below and above the " +
+      "baseline (measured against 11.17.2; the shift, 0.314 and 0.475 of the " +
+      "run's own size, measured in headless Chrome). Siren shifts the run with " +
+      "`dy` and shifts the run after it back.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "font-size", "dy"), [
+        "H",
+        "2[font-size=0.833em][dy=0.314em]",
+        "O x[dy=-0.2616em]",
+        "2[font-size=0.833em][dy=-0.475em]",
+      ]);
+    },
+  },
+  {
+    id: "label-quote",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[say <q>hi</q>]`,
+    status: "supported",
+    meaning:
+      "`<q>` draws its text between `“` and `”` (measured against 11.17.2): " +
+      "the browser generates the marks, so they are part of what the reader " +
+      "sees and of the label's flattened text.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["say “hi”"]);
+    },
+  },
+  {
+    id: "label-nested",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[<b>a <i>b</i></b>]`,
+    status: "supported",
+    meaning:
+      "Nested tags stack: `b` inside `<b>…<i>b</i>…</b>` is bold and italic, " +
+      "as each tag is an independent property in Mermaid's picture.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a (b)b(bi)"]);
+    },
+  },
+  {
+    id: "label-misnested",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[<b>a<i>b</b>c</i>d]`,
+    status: "supported",
+    meaning:
+      "Misnested tags draw what the browser's HTML parser makes of them, " +
+      "which is what Mermaid hands it: `<b>a<i>b</b>c</i>d` becomes " +
+      "`<b>a<i>b</i></b><i>c</i>d` (measured in 11.17.2's HTML labels), so " +
+      "`c` stays italic after the bold has ended. No diagnostic, as Mermaid " +
+      "gives none.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a(b)b(bi)c(i)d"]);
+    },
+  },
+  {
+    id: "label-markdown-nested",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`**a <i>b</i> *c***\`"]`,
+    status: "supported",
+    meaning:
+      "A Markdown string's `**` and `*` stack with each other and with tags: " +
+      "Mermaid turns the string into HTML (`**` into `<strong>`, `*` into " +
+      "`<em>`) before the browser reads it — `<strong>a <i>b</i> <em>c</em></strong>`, " +
+      "measured against 11.17.2 — so `b` and `c` are bold and italic.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a (b)b(bi) (b)c(bi)"]);
+    },
+  },
+  {
+    id: "label-markdown-bold-across-br",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`**a<br>b**\`"]`,
+    status: "supported",
+    meaning:
+      "A `**` pair in a Markdown string stays bold across a `<br>` between " +
+      "its stars: Mermaid's HTML labels show `<strong>a<br>b</strong>` " +
+      "(measured against 11.17.2, and its SVG labels agree), a bold `a` over " +
+      "a bold `b`. Siren used to split the rows first and draw both halves' " +
+      "stars as characters.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a(b)", "b(b)"]);
     },
   },
 ];

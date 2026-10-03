@@ -53,4 +53,20 @@ describe("layoutLabel", () => {
       { x: 53, width: 32 },
     ]);
   });
+
+  it("makes a row holding a <big> run taller, and the run wider, by its scale", () => {
+    const { label } = readLabel("a<br>x<big>bb</big>", { dialect: "html" });
+
+    const box = layoutLabel(label, paddedMeasurer);
+
+    // Row 2: `x` at 8px, then `bb` at 16px × 1.2; as tall as one line × 1.2.
+    const [first, second] = box.rows;
+    expect(first!.height).toBe(24);
+    expect(second!.height).toBeCloseTo(28.8);
+    expect(second!.runs[1]!.x).toBe(13);
+    expect(second!.runs[1]!.width).toBeCloseTo(19.2);
+    expect(second!.width).toBeCloseTo(10 + 8 + 19.2);
+    expect(second!.y).toBeCloseTo(24 + 14.4);
+    expect(box.height).toBeCloseTo(52.8);
+  });
 });
