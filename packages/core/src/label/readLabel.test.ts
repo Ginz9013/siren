@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LabelRun } from "./label";
 import { readLabel } from "./readLabel";
+import { readLabelAt } from "./readLabelAt";
 
 /** Each row of a label as the text it draws, run texts concatenated. */
 function rowTexts(source: string, markdown = false): string[] {
@@ -292,5 +293,24 @@ describe("readLabel's nested and misnested tags", () => {
     expect(flagged("**a<br>b**", true)).toEqual(["a(b)", "b(b)"]);
     expect(flagged("x **a<br>b** y", true)).toEqual(["x a(b)", "b(b) y"]);
     expect(flagged("**a\nb**", true)).toEqual(["a(b)", "b(b)"]);
+  });
+});
+
+describe("readLabelAt", () => {
+  it("reads the label a match group holds, in the dialect it is given", () => {
+    const match = /^note: (.*)$/d.exec("note: a<br><b>b</b>")!;
+
+    const read = readLabelAt(match, 1, { line: 3, column: 5 }, "html");
+
+    expect(read.label.text).toBe("a\nb");
+    expect(read.label.rows[1]![0]!.bold).toBe(true);
+    expect(read.diagnostics).toEqual([]);
+    expect(read.hasError).toBe(false);
+  });
+
+  it("leaves tags other than a break as characters in the sequence dialect", () => {
+    const match = /^(.*)$/d.exec("<b>b</b>")!;
+
+    expect(readLabelAt(match, 1, { line: 1, column: 1 }, "sequence").label.text).toBe("<b>b</b>");
   });
 });

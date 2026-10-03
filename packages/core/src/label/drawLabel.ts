@@ -86,13 +86,25 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  * markup.
  *
  * `backgrounds` are what a run's background paint needs drawn under the
- * text: one `<rect>` per run that has one, over the place `box` measured for
- * the run, the height of its row. A marked run's is
+ * text: one `<rect>` per run that has one, as wide as `box` measured the
+ * run and as tall as the run's *own* line — one measured line times its
+ * scale, not its row — centred on the row's centre and moved with a
+ * `sub`/`sup` shift. That is CSS's rule, not a measurement: an inline
+ * element paints its background over its own inline box, which follows the
+ * element's font size and vertical-align, not over the line box around it.
+ * The shift is taken as a fraction of the run's line rather than of its
+ * font size, which `drawLabel` does not know (the theme sets it), so a
+ * shifted rect moves further than its glyphs by the ratio of the two. A
+ * marked run's is
  * `<rect class="siren-label-mark">`, filled by the theme with
  * `--siren-label-mark-fill`. Its width is the measurer's, so it can miss the
  * glyphs a browser actually draws by a few pixels — the same approximation
  * every label box already makes. The caller inserts them before the
  * `<text>`, since document order is paint order.
+ *
+ * `className`, when given, is the `<text>`'s `class` — the name each
+ * renderer gives the construct's label (`siren-note-text`,
+ * `siren-edge-label`, …) for the theme to reach it by.
  *
  * Builds elements and attaches none of them; where they go is the caller's.
  */
@@ -100,12 +112,16 @@ export function drawLabel(
   label: Label,
   box: LabelBox,
   anchor: { x: number; y: number },
+  className?: string,
 ): DrawnLabel {
   const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
   text.setAttribute("x", String(anchor.x));
   text.setAttribute("y", String(anchor.y));
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("dominant-baseline", "middle");
+  if (className !== undefined) {
+    text.setAttribute("class", className);
+  }
 
   const soleRun = label.rows.length === 1 && label.rows[0]!.length === 1 ? label.rows[0]![0]! : null;
   if (soleRun !== null && isPlain(soleRun)) {
@@ -125,20 +141,27 @@ export function drawLabel(
     // edge is half its own width left of the anchor, and every run's `x` in
     // the box counts from there.
     const left = anchor.x - measured.width / 2;
-    const band = { y: top + measured.y - measured.height / 2, height: measured.height };
+    const centre = top + measured.y;
+    // One line at the base size: a row is as tall as its tallest run, and
+    // every run is one measured line times its scale (`layoutLabel`).
+    const line = measured.height / Math.max(...runs.map((run) => relativeScale(run) ?? 1));
     // How far below the row's baseline the text position is, in the
     // `<text>` element's font size; every row starts at its absolute `y`,
     // so at zero.
     let shift = 0;
     runs.forEach((run, runIndex) => {
+      const scale = relativeScale(run) ?? 1;
       if (run.mark) {
         const place = measured.runs[runIndex]!;
-        const rect = backgroundRect({ x: left + place.x, width: place.width, ...band });
+        const height = line * scale;
+        // The run's own line, shifted as its text is — by the same fraction,
+        // of the line rather than of a font size nothing here knows.
+        const y = centre + BASELINE_SHIFT[run.baseline] * height - height / 2;
+        const rect = backgroundRect({ x: left + place.x, width: place.width, y, height });
         rect.setAttribute("class", "siren-label-mark");
         backgrounds.push(rect);
       }
       const element = document.createElementNS(SVG_NS, "tspan");
-      const scale = relativeScale(run) ?? 1;
       const target = BASELINE_SHIFT[run.baseline] * scale;
       // `em` in a `dy` is the run's own size, so the distance is divided by it.
       const dy = numeral((target - shift) / scale);
@@ -177,9 +200,7 @@ export function drawLabel(
 }
 
 /**
- * A `<rect>` covering one run's place in its row: as wide as the run was
- * measured, as tall as the row — the line box a browser paints an inline
- * element's background over. Unpainted: what fills it, a theme class or an
+ * A `<rect>` at `place`, unpainted: what fills it, a theme class or an
  * author's color, is the caller's.
  */
 function backgroundRect(place: { x: number; y: number; width: number; height: number }): SVGElement {

@@ -42,8 +42,10 @@
  * alone; there is one palette now and no pin, so there is one entry point.
  *
  * One palette, and only one: a consumer who wants a second — dark,
- * high-contrast, print — redeclares the five color tokens under a selector of
- * their own and owns when it applies. The theme never picks for them, which is
+ * high-contrast, print — redeclares the five palette tokens under a selector
+ * of their own and owns when it applies, and may redeclare the `<mark>` pair
+ * after them (`--siren-label-mark-fill`, `--siren-label-mark-text`), which
+ * sits outside the palette but is a token all the same. The theme never picks for them, which is
  * why nothing in this file reads the reader's system color preference or any
  * theme attribute on the page — see packages/core/README.md for the worked
  * example, and demos/theme-dark.css for one that runs.

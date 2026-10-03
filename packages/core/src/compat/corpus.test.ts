@@ -1349,8 +1349,18 @@ const SILENTLY_WRONG = 2;
  * labelled `to`, `one`, `many`, `1abc` and `end` for five documents Mermaid
  * refuses outright. The alphabet is a lexer question and was answered as
  * one (`readsAsOneEntityName`).
+ *
+ * **9 → 10: a member written down for the first time.** Case (2) above.
+ * The label board's round-3 review measured two class members Mermaid draws
+ * as literal characters (`+int <b>id</b>`, `+x<br class="y">z` — escaped in
+ * both label modes, `--html`) and Siren refuses as unrecognized, and wrote
+ * them down as `cls-member-tags-literal-rejected`. Nothing broke: both were
+ * refused before the row existed, `cls-member-tags-literal`'s two spellings
+ * still draw, and `silently-wrong` does not move. Never measured until now
+ * because the ticket that made members literal measured the two spellings
+ * it fixed, not the ones it left.
  */
-const REJECTED = 9;
+const REJECTED = 10;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

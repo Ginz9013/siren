@@ -13,7 +13,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { labelDiagnostics, readLabel } from "../label/readLabel";
+import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
@@ -667,17 +667,12 @@ export function parseStateDiagram(source: string): ParseResult {
 
   /**
    * Reads the label one capture group of a statement's match holds, and
-   * turns whatever `readLabel` found in it into diagnostics at the line and
-   * column of the character each problem is about.
-   *
-   * Every label this parser reads is a capture of one of its own patterns
-   * over the trimmed line, each compiled with the `d` flag, so where the
-   * label begins in the line is the group's own index and nothing is
-   * re-derived by searching the text for itself — and a state diagram's
-   * statement never spans physical lines, so a position in the line is a
-   * column once the line's own indent (`column`) is added. The same
-   * conversion `parseFlowchart`'s `reportLabelProblems` makes, without the
-   * line-break walk only a Markdown string there needs.
+   * records its diagnostics (`readLabelAt`): every label this parser reads
+   * is a capture of one of its own patterns over the trimmed line, each
+   * compiled with the `d` flag, and a state diagram's statement never spans
+   * physical lines, so the line's own indent (`column`) is all the position
+   * it needs — without the line-break walk only a flowchart's Markdown
+   * string needs (`parseFlowchart`'s `reportLabelProblems`).
    *
    * Read in the full `html` dialect wherever it is called: measured (mermaid
    * 11.17.2, `--paint`, `htmlLabels: true`), a description, a transition
@@ -692,17 +687,12 @@ export function parseStateDiagram(source: string): ParseResult {
     lineNumber: number,
     column: number,
   ): Label => {
-    const [start] = match.indices![group]!;
-    const { label, problems } = readLabel(match[group]!, { dialect: "html" });
-    const reported = labelDiagnostics(problems, (offset) => ({
-      line: lineNumber,
-      column: column + start + offset,
-    }));
-    diagnostics.push(...reported.diagnostics);
-    if (reported.hasError) {
+    const read = readLabelAt(match, group, { line: lineNumber, column }, "html");
+    diagnostics.push(...read.diagnostics);
+    if (read.hasError) {
       sawError = true;
     }
-    return label;
+    return read.label;
   };
 
   /**

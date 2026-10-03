@@ -60,6 +60,23 @@ describe("drawLabel", () => {
     ]);
   });
 
+  it("puts the class it is given on the <text>, plain or in rows, and none when given none", () => {
+    const fakeBox = (source: string) => {
+      const { label } = readLabel(source, { dialect: "html" });
+      return { label, box: layoutLabel(label, fakeMeasurer) };
+    };
+    const plain = fakeBox("Start");
+    const rows = fakeBox("a<br>b");
+
+    expect(drawLabel(plain.label, plain.box, { x: 0, y: 0 }, "siren-note-text").text.getAttribute("class")).toBe(
+      "siren-note-text",
+    );
+    expect(drawLabel(rows.label, rows.box, { x: 0, y: 0 }, "siren-note-text").text.getAttribute("class")).toBe(
+      "siren-note-text",
+    );
+    expect(drawLabel(plain.label, plain.box, { x: 0, y: 0 }).text.hasAttribute("class")).toBe(false);
+  });
+
   it("builds elements without attaching them anywhere", () => {
     const { text } = drawn("a<br>b");
 
@@ -124,9 +141,9 @@ describe("drawLabel", () => {
     ]);
   });
 
-  // Mermaid draws a `<mark>` on a yellow background exactly as wide and as
-  // tall as its text's line box (measured); SVG text has no background, so
-  // it is a rect behind the text, wherever the box measured the run.
+  // Mermaid draws a `<mark>` on a yellow background (measured). SVG text
+  // has no background, so it is a rect behind the text, wherever the box
+  // measured the run.
   it("puts one rect behind a marked run, at the run's place in its row, and none behind any other", () => {
     // 8px a character plus 16px of the measurer's own padding, 20px a line:
     // the second row, `x mm`, is 8 + 16 + 16 + 8 = 48 wide, centred on
@@ -151,6 +168,43 @@ describe("drawLabel", () => {
         rect.getAttribute("height"),
       ]),
     ).toEqual([["rect", "siren-label-mark", "100", "50", "16", "20"]]);
+  });
+
+  // Not measured: derived from CSS, where an inline element's background
+  // covers its own inline box — one line of its own font size — and not the
+  // line box of the row around it. A `<big>` beside the mark makes the row
+  // 1.2 lines tall; the mark's rect stays one line (20px), centred on the
+  // row's centre.
+  it("makes a marked run's rect one line of its own size tall, however tall its row is", () => {
+    const { label } = readLabel("<big>B</big><mark>m</mark>", { dialect: "html" });
+
+    const { backgrounds } = drawLabel(label, layoutLabel(label, fakeMeasurer), { x: 100, y: 50 });
+
+    // The row is 24px tall, centred on y=50; the rect is 20px, 40 to 60.
+    expect(backgrounds.map((rect) => [rect.getAttribute("y"), rect.getAttribute("height")])).toEqual([
+      ["40", "20"],
+    ]);
+  });
+
+  // Not measured either: a `sub`/`sup` element's inline box moves with its
+  // text, so its background does. The rect is shifted by the same fraction
+  // `dy` shifts the text by (0.314 down, 0.475 up), taken of the run's own
+  // line rather than its font size, which `drawLabel` does not know.
+  it("moves a marked sub or sup run's rect with the run's shift", () => {
+    const rectOf = (source: string) => {
+      const { label } = readLabel(source, { dialect: "html" });
+      const [rect] = drawLabel(label, layoutLabel(label, fakeMeasurer), { x: 100, y: 50 }).backgrounds;
+      return [Number(rect!.getAttribute("y")), Number(rect!.getAttribute("height"))];
+    };
+
+    // A 0.833 run's line is 16.66px; centred on the row's y=50 it would
+    // start at 41.67. A sub moves it down 0.314 × 16.66 = 5.231, a sup up
+    // 0.475 × 16.66 = 7.914.
+    const [subY, subHeight] = rectOf("H<sub><mark>2</mark></sub>");
+    expect(subHeight).toBeCloseTo(16.66, 3);
+    expect(subY).toBeCloseTo(46.901, 3);
+    const [supY] = rectOf("x<sup><mark>2</mark></sup>");
+    expect(supY).toBeCloseTo(33.757, 3);
   });
 
   // Mermaid's marked text is black on the yellow, whatever color the label
