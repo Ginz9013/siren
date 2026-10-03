@@ -2020,8 +2020,14 @@ export interface StateNote {
    * The note's text, trimmed — never empty, because `note right of Idle :`
    * with nothing after the colon is a lexical error in Mermaid (measured),
    * not a note carrying a blank line.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015), which the
+   * board had only inferred for this position and which was then measured
+   * (mermaid 11.17.2, `--paint`, `htmlLabels: true`): `note right of s1 :
+   * n<br/>m` draws "n" over "m" and `note left of s2 : p<i>q</i>r` reads
+   * "pqr", the tags honored rather than drawn.
    */
-  text: string;
+  label: Label;
 }
 
 /**
@@ -2077,8 +2083,15 @@ export interface StateDecl {
    * **neither renames the state**, so `state "text" as s` is a description
    * and not an alias. A field saying which spelling was read would be a
    * difference downstream could act on where Mermaid has none.
+   *
+   * **Each description is a label of its own**, read by `readLabel` in the
+   * full `html` dialect (ADR-0015), so `s : a<br/>b` is one description of
+   * two rows. Measured (mermaid 11.17.2, `--markup`): `s1 : a<br/>b` and
+   * `s1 : c<br>d` draw two separate label groups of two rows each, with the
+   * divider between the groups — so the rows a `<br>` makes stay inside the
+   * description that wrote it, and never become descriptions themselves.
    */
-  descriptions: string[];
+  descriptions: Label[];
   /**
    * The composite state whose `{ }` block holds this one, or `null` at the
    * document's own level.
@@ -2180,7 +2193,12 @@ export interface StateTransition {
   from: string | null;
   /** The state this transition enters — `null` for `[*]`, the level's **end** pseudo-state. */
   to: string | null;
-  label: string | null;
+  /**
+   * Read by `readLabel` in the full `html` dialect, so `<br>` breaks a row
+   * here as it does on a flowchart edge (ADR-0015) — measured (mermaid
+   * 11.17.2, `htmlLabels: true`): `s1 --> s2 : t<br/>u` draws "t" over "u".
+   */
+  label: Label | null;
   /**
    * The composite state whose block this transition was written in, or
    * `null` at the document's own level.
@@ -2410,8 +2428,10 @@ export interface ResolvedState {
    * becomes addressing-only. That is the split a flowchart's `A[label]`
    * already draws between the id and the text — measured for a state
    * diagram too (mermaid 11.17.2 draws no `s` once `s : text` is written).
+   *
+   * Each one a `Label`, as `readLabel` read it in the parser.
    */
-  descriptions: string[];
+  descriptions: Label[];
   /**
    * The note written onto this state, or `null` when the author wrote none —
    * carried straight through from `StateDecl.note`, authored text and an
@@ -2439,7 +2459,8 @@ export interface ResolvedStateTransition {
   id: string;
   from: string;
   to: string;
-  label: string | null;
+  /** Carried unchanged from `StateTransition.label`. */
+  label: Label | null;
 }
 
 /**
@@ -2484,15 +2505,23 @@ export interface StateModelResult {
 // ---------------------------------------------------------------------------
 
 /**
- * One row of text drawn inside a state's box: what it says, and the y its
- * text is centred on, in diagram coordinates.
+ * One label drawn inside a state's box — the id, or one description — with
+ * the box `layoutLabel` measured for it and the y that box is centred on, in
+ * diagram coordinates.
  *
- * A row rather than a label, because a described state draws several of
- * them stacked — `PositionedClass`'s member lines in the shape a state's
- * box needs.
+ * A label rather than a row, now that a label has rows of its own: a
+ * description written `a<br/>b` is one of these holding two rows, and a
+ * described state draws several of them stacked — `PositionedClass`'s
+ * member lines in the shape a state's box needs. Measured (mermaid 11.17.2,
+ * `--markup`): each description is its own label group, so the divider
+ * under the first sits below *all* of that description's rows.
+ *
+ * Centred on the box's horizontal middle, which the renderer takes from the
+ * state's own `x`/`width`; only `y` is the label's to report.
  */
-export interface PositionedStateRow {
-  text: string;
+export interface PositionedStateLabel {
+  label: Label;
+  labelBox: LabelBox;
   y: number;
 }
 
@@ -2515,8 +2544,14 @@ export interface PositionedStateRow {
  * for the renderer to act on a second time.
  */
 export interface PositionedStateNote {
-  /** The note's text, exactly as the author wrote it. */
-  text: string;
+  /** The note's label, exactly as `readLabel` read it. */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the note's own was
+   * sized around, padding aside — centred on the note box, which is the
+   * anchor the renderer hands `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -2565,16 +2600,16 @@ export interface PositionedState {
   width: number;
   height: number;
   /**
-   * The text this box draws, top to bottom: the state's descriptions when
-   * it has any, and otherwise the one row its id makes. Empty for a
+   * The labels this box draws, top to bottom: the state's descriptions when
+   * it has any, and otherwise the one label its id makes. Empty for a
    * pseudo-state, which draws a mark and no text at all.
    *
-   * Which of the two the row came from is deliberately not recorded: by
+   * Which of the two a label came from is deliberately not recorded: by
    * here it is simply the text the box holds, the same way a flowchart node
    * arrives at the renderer carrying its label rather than the question of
    * whether the author wrote one.
    */
-  rows: PositionedStateRow[];
+  labels: PositionedStateLabel[];
   /**
    * Author declarations to emit as this state's inline `style` attributes:
    * the frame's on the box (or, for a composite, on the frame rect), the
@@ -2593,8 +2628,9 @@ export interface PositionedState {
    * is drawn as a titled box — the first description above a divider and
    * the rest below it — while one description, or none, gets a plain
    * rounded rect with no divider at all. So this is `null` for every box
-   * with fewer than two rows, and the divider never separates the id from
-   * the descriptions: an id is not drawn once a description exists.
+   * with fewer than two labels, however many rows a `<br>` gave one of
+   * them, and the divider never separates the id from the descriptions: an
+   * id is not drawn once a description exists.
    */
   dividerY: number | null;
   /**
@@ -2616,7 +2652,7 @@ export interface PositionedStateTransition {
   from: string;
   to: string;
   points: Point[];
-  label: string | null;
+  label: Label | null;
   /**
    * Where to draw `label`: the centre of the space layout kept clear for it,
    * or `null` when the transition carries no label and asked for none — the
@@ -2624,6 +2660,13 @@ export interface PositionedStateTransition {
    * there.
    */
   labelAnchor: Point | null;
+  /**
+   * The label as `layoutLabel` measured it — the box the shared core was
+   * asked to keep clear, centred on `labelAnchor` — or `null` exactly when
+   * `label` is. `PositionedEdge.labelBox` carries a flowchart edge's the
+   * same way.
+   */
+  labelBox: LabelBox | null;
 }
 
 /**

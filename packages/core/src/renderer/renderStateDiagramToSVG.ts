@@ -2,9 +2,11 @@ import type {
   Point,
   PositionedState,
   PositionedStateDiagram,
+  PositionedStateLabel,
   PositionedStateTransition,
   StyleProperty,
 } from "../contracts";
+import { drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -25,8 +27,8 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * `<rect class="siren-state-frame">` and the
  * `<text class="siren-state-label">` titling it, plus — for a state the
  * author wrote two or more descriptions on — a
- * `<line class="siren-state-divider">` under that title row and a
- * `<text class="siren-state-description">` for each row below it — or, for the two
+ * `<line class="siren-state-divider">` under that title label and a
+ * `<text class="siren-state-description">` for each label below it — or, for the two
  * pseudo-states `[*]` spells, the filled `<circle class="siren-state-start">`
  * or the `<circle class="siren-state-end">` ring around its
  * `.siren-state-end-inner` disc) and one
@@ -137,33 +139,32 @@ function buildState(state: PositionedState): SVGGElement {
   // one inline would put it out of a consumer's reach — see the design-token
   // entry in CONTEXT.md.
 
-  // The divider before the text, so a row is never drawn under the line it
+  // The divider before the text, so a label is never drawn under the line it
   // sits beside: document order is paint order.
   if (state.dividerY !== null) {
     g.appendChild(buildDivider(state, state.dividerY));
   }
 
-  // The rows, at the y the layout measured each one at. *What* they say was
-  // settled there: a described state's rows are its descriptions and an
+  // The labels, at the y the layout measured each one at. *What* they say
+  // was settled there: a described state's labels are its descriptions and an
   // undescribed one's is its id, and by here they are simply the text this
   // box holds.
   //
-  // The first row titles the box — the id, the one description, or the
-  // first of several — and every row below the divider is a description
-  // row, the split `.siren-class-name` and `.siren-member` already draw so
-  // that a theme can weight the title differently from what follows it.
+  // The first label titles the box — the id, the one description, or the
+  // first of several, with every row a `<br>` gave it — and every label
+  // below the divider is a description, the split `.siren-class-name` and
+  // `.siren-member` already draw so that a theme can weight the title
+  // differently from what follows it.
   //
-  // Every row wears the author's text declarations, not just the title: a
+  // Every label wears the author's text declarations, not just the title: a
   // `class` names the state and not one of its lines, so an author who
   // recolors a box meant its title and its descriptions alike — the same
   // reading `renderClassDiagramToSVG` gives a class's name, annotation and
   // members.
   const centerX = state.x + state.width / 2;
-  state.rows.forEach((row, index) => {
+  state.labels.forEach((planned, index) => {
     const className = index === 0 ? "siren-state-label" : "siren-state-description";
-    const label = buildCenteredText(className, row.text, { x: centerX, y: row.y });
-    applyAuthorStyle(label, state.style.text);
-    g.appendChild(label);
+    appendStateLabel(g, className, planned, centerX, state.style.text);
   });
 
   appendNote(g, state);
@@ -221,12 +222,12 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
   frame.setAttribute("height", String(note.height));
   g.appendChild(frame);
 
-  g.appendChild(
-    buildCenteredText("siren-note-text", note.text, {
-      x: note.x + note.width / 2,
-      y: note.y + note.height / 2,
-    }),
-  );
+  const drawn = drawLabel(note.label, note.labelBox, {
+    x: note.x + note.width / 2,
+    y: note.y + note.height / 2,
+  });
+  drawn.text.setAttribute("class", "siren-note-text");
+  appendLabel(g, drawn);
 }
 
 /**
@@ -245,9 +246,9 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
  * frame is painted differently from a box: `.siren-state-frame` is filled,
  * and a composite drawn with one would hide everything inside it.
  *
- * The title's rows come from layout, which measured them and left room in
+ * The title's label comes from layout, which measured it and left room in
  * the strip; a composite draws no divider, because the line under a
- * described state's title row closes a compartment and what is under this
+ * described state's title label closes a compartment and what is under this
  * strip is the members' own boxes.
  */
 function buildComposite(state: PositionedState): SVGGElement {
@@ -271,13 +272,8 @@ function buildComposite(state: PositionedState): SVGGElement {
   // No `rx` here either — a frame's corner radius is the theme's, for the
   // reason `buildState` gives for a state's box.
   const centerX = state.x + state.width / 2;
-  for (const row of state.rows) {
-    const label = buildCenteredText("siren-composite-label", row.text, {
-      x: centerX,
-      y: row.y,
-    });
-    applyAuthorStyle(label, state.style.text);
-    g.appendChild(label);
+  for (const planned of state.labels) {
+    appendStateLabel(g, "siren-composite-label", planned, centerX, state.style.text);
   }
 
   // A composite carries a note exactly as a state does — measured: mermaid
@@ -333,6 +329,41 @@ function buildRegion(state: PositionedState): SVGGElement {
 }
 
 /**
+ * Draws one of a box's labels — the id, a description, a composite's title —
+ * centred on the box's middle at the y layout measured it at, classed and
+ * styled as that kind of label, and appends it to `g`.
+ *
+ * Every row of a label wears the author's text declarations through the
+ * one `<text>` they are written on: the row tspans inherit them, so a
+ * `class` recolouring a box recolours a description of three rows exactly as
+ * one of one row.
+ */
+function appendStateLabel(
+  g: SVGGElement,
+  className: string,
+  planned: PositionedStateLabel,
+  centerX: number,
+  style: StyleProperty[],
+): void {
+  const drawn = drawLabel(planned.label, planned.labelBox, { x: centerX, y: planned.y });
+  drawn.text.setAttribute("class", className);
+  applyAuthorStyle(drawn.text, style);
+  appendLabel(g, drawn);
+}
+
+/**
+ * Appends a drawn label to `parent`: the elements it paints behind its text
+ * first, then the text, because document order is paint order — the same
+ * order `renderToSVG`'s helper of this name keeps.
+ */
+function appendLabel(parent: Element, drawn: DrawnLabel): void {
+  for (const background of drawn.backgrounds) {
+    parent.appendChild(background);
+  }
+  parent.appendChild(drawn.text);
+}
+
+/**
  * Writes the author's resolved `classDef`/`class` declarations onto
  * `element` as an inline `style` attribute, in declaration order, or leaves
  * the element without one when the author styled nothing.
@@ -379,8 +410,8 @@ function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
  * **No label, for all three.** Measured: Mermaid's `forkJoin` shape sets
  * `node.label = ""` outright, and none of the three groups comes back with a
  * label child where an ordinary state's does. `layoutStateDiagram` has
- * already said so by handing over no rows; this draws none either way, so a
- * row arriving here could not put text on a figure with no room for it.
+ * already said so by handing over no labels; this draws none either way, so
+ * a label arriving here could not put text on a figure with no room for it.
  *
  * **One figure for fork and join, not two.** Measured: both come back as the
  * same path, `M-35 -5 L35 -5 L35 5 L-35 5`, so the two spellings name one
@@ -467,7 +498,7 @@ function buildPseudoState(state: PositionedState): SVGGElement {
 
 /**
  * Builds the `<line class="siren-state-divider">` closing a described
- * state's title row, spanning the frame's full width — the line Mermaid
+ * state's title label, spanning the frame's full width — the line Mermaid
  * draws as `line.divider` inside a `rect.outer.title-state` (measured,
  * 11.17.2), and the same figure a class box's compartment divider is.
  */
@@ -517,16 +548,23 @@ function buildTransition(
   line.setAttribute("marker-end", `url(#${ARROW_MARKER_NAME}${scope})`);
   g.appendChild(line);
 
-  if (transition.label !== null && transition.labelAnchor !== null) {
-    const label = document.createElementNS(SVG_NS, "text");
-    label.setAttribute("class", "siren-transition-label");
-    label.setAttribute("x", String(transition.labelAnchor.x));
-    label.setAttribute("y", String(transition.labelAnchor.y));
-    label.setAttribute("text-anchor", "middle");
-    // textContent, never innerHTML — the hard invariant of every Siren
-    // renderer: a label is author input and must render literally.
-    label.textContent = transition.label;
-    g.appendChild(label);
+  // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
+  // shared core kept clear — like every other label here. That makes this
+  // the one `<text>` in the file to gain `dominant-baseline: middle`: it was
+  // drawn with its *baseline* on the anchor, which sat the text above the
+  // middle of the space reserved for it. Its `x` and `y` attributes are
+  // unchanged for a label of one row; what moves is where the glyphs sit
+  // around them — down by the distance from the alphabetic baseline to the
+  // middle one, half the font's x-height (about 0.26em, some 4px at the
+  // 14px default), so the text is now centred where layout made room.
+  if (
+    transition.label !== null &&
+    transition.labelAnchor !== null &&
+    transition.labelBox !== null
+  ) {
+    const drawn = drawLabel(transition.label, transition.labelBox, transition.labelAnchor);
+    drawn.text.setAttribute("class", "siren-transition-label");
+    appendLabel(g, drawn);
   }
 
   return g;
@@ -570,20 +608,4 @@ function pointsToPathData(points: Point[]): string {
   return points
     .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
     .join(" ");
-}
-
-/**
- * A `<text>` centred on `anchor` in both axes — the shape a box label takes
- * in every Siren renderer, since the layout hands over a centre point rather
- * than a baseline. Text is set with `textContent`, never `innerHTML`.
- */
-function buildCenteredText(className: string, content: string, anchor: Point): SVGTextElement {
-  const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
-  text.setAttribute("class", className);
-  text.setAttribute("x", String(anchor.x));
-  text.setAttribute("y", String(anchor.y));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("dominant-baseline", "middle");
-  text.textContent = content;
-  return text;
 }

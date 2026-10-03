@@ -4084,6 +4084,151 @@ line2\`"]`,
     },
   },
   {
+    id: "st-description-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 : a<br/>b
+      s1 --> s2`,
+    status: "supported",
+    meaning:
+      "`<br>` in a description is a line break: a description is one of the " +
+      "positions ADR-0015 reads with the whole tag vocabulary. Measured " +
+      "(mermaid 11.17.2): with `htmlLabels: true` the label reads `ab`, two " +
+      "rows, and with `--markup` the SVG mode draws two `title-row` tspans. " +
+      "Siren used to draw `a<br/>b` literally. The box is sized for both " +
+      "rows, and one description — however many rows — draws no divider.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-state[data-siren-id="s1"] text.siren-state-label',
+      );
+      expectSame("the description's rows", labelRows(label), ["a", "b"]);
+      const box = stateRect(result, "s1");
+      const rowYs = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${JSON.stringify(box)})`,
+        rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
+        true,
+      );
+      expectSame("one description draws no divider", stateRowGeometry(result, "s1").dividerY, null);
+    },
+  },
+  {
+    id: "st-description-br-accumulates",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 : a<br/>b
+      s1 : c<br>d`,
+    status: "supported",
+    meaning:
+      "Each description is a label of its own, so each may break its own " +
+      "rows. Measured with `--markup` (mermaid 11.17.2): two label groups " +
+      "of two `title-row` tspans each, with `line.divider` **between the " +
+      "groups** — under every row of the first description, not under its " +
+      "first row.",
+    assert: (result) => {
+      const group = 'g.siren-state[data-siren-id="s1"]';
+      const title = svgOf(result).querySelector(`${group} text.siren-state-label`);
+      const description = svgOf(result).querySelector(`${group} text.siren-state-description`);
+      expectSame("the title's rows", labelRows(title), ["a", "b"]);
+      expectSame("the description's rows", labelRows(description), ["c", "d"]);
+      const rowYs = [title, description].flatMap((text) =>
+        Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map((row) =>
+          Number(row.getAttribute("y")),
+        ),
+      );
+      const { dividerY } = stateRowGeometry(result, "s1");
+      expectSame(
+        `the divider sits between b and c (rows at ${JSON.stringify(rowYs)}, divider at ${dividerY})`,
+        dividerY !== null && dividerY > rowYs[1] && dividerY < rowYs[2],
+        true,
+      );
+    },
+  },
+  {
+    id: "st-transition-label-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 --> s2 : a<br/>b`,
+    status: "supported",
+    meaning:
+      "`<br>` in a transition label is a line break, as it is on a " +
+      "flowchart edge. Measured (mermaid 11.17.2, `htmlLabels: true`): " +
+      "`s1 --> s2 : t<br/>u` draws `t` over `u`. Siren used to draw " +
+      "`a<br/>b` literally. Drawn centred on the space layout kept clear for " +
+      "it, which is now the label box's centre rather than its baseline.",
+    assert: (result) => {
+      expectSame(
+        "the label's rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-transition[data-siren-id="s1-s2"] text.siren-transition-label',
+          ),
+        ),
+        ["a", "b"],
+      );
+    },
+  },
+  {
+    id: "st-composite-title-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "a<br/>b" as Outer {
+        First
+      }`,
+    status: "supported",
+    meaning:
+      "`<br>` in a composite's quoted title is a line break. The board had " +
+      "inferred this position rather than measured it, so it was measured " +
+      "(mermaid 11.17.2, `--paint`, `htmlLabels: true`): " +
+      "`state \"c<br/>d\" as X {` titles its cluster `cd`, two rows, and " +
+      "`<b>`/`<i>` are honored there as in a description. The title strip " +
+      "holds both rows, so the member is drawn below them.",
+    assert: (result) => {
+      const title = svgOf(result).querySelector(
+        'g.siren-state[data-siren-id="Outer"] text.siren-composite-label',
+      );
+      expectSame("the title's rows", labelRows(title), ["a", "b"]);
+      const rows = Array.from(title?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      expectSame(
+        `the title's last row is above First (at ${lastRowY}, First's top at ${stateRect(result, "First").top})`,
+        lastRowY < stateRect(result, "First").top,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-note-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 --> s2
+      note right of s1 : a<br/>b`,
+    status: "supported",
+    meaning:
+      "`<br>` in a note is a line break. Like a composite's title, this " +
+      "position was inferred by the board and then measured (mermaid " +
+      "11.17.2, `--paint`, `htmlLabels: true`): `note right of s1 : n<br/>m` " +
+      "reads `nm`, two rows, and `note left of s2 : p<i>q</i>r` reads `pqr` — " +
+      "the full dialect. The note's box is sized for both rows.",
+    assert: (result) => {
+      const text = svgOf(result).querySelector(
+        'g.siren-state[data-siren-id="s1"] text.siren-note-text',
+      );
+      expectSame("the note's rows", labelRows(text), ["a", "b"]);
+      const box = stateNoteRect(result, "s1");
+      const rowYs = Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the note (rows at ${JSON.stringify(rowYs)}, note ${JSON.stringify(box)})`,
+        rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
+        true,
+      );
+    },
+  },
+  {
     id: "st-composite",
     kind: "state",
     source: `stateDiagram-v2
