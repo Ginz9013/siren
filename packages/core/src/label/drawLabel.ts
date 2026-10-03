@@ -1,6 +1,25 @@
-import { isPlain, type Label, type LabelBox } from "./label";
+import { isPlain, type Label, type LabelBox, type LabelRun } from "./label";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * How far a `sub`/`sup` run sits below / above the baseline, as a fraction
+ * of the run's own font size — measured in headless Chrome rather than
+ * recalled: in a 16px line, a 13.33px `<sub>` sits 4.19px below the
+ * baseline and a `<sup>` 6.33px above it. (Chrome derives both from the
+ * size around the run plus 1px, so the fraction drifts by a few hundredths
+ * at other sizes; the 16px one is the picture the board measured at.)
+ *
+ * Drawn as `dy` rather than `baseline-shift`, which Firefox does not
+ * support on SVG text: the shifted run moves the text position, and the run
+ * after it moves it back, so a shift ends with its run — and with its row,
+ * which is placed at an absolute `y`.
+ */
+const BASELINE_SHIFT: Readonly<Record<LabelRun["baseline"], number>> = {
+  normal: 0,
+  sub: 0.314,
+  super: -0.475,
+};
 
 /**
  * A drawn label: the `<text>`, and the elements its runs paint *behind* it,
@@ -39,7 +58,13 @@ export interface DrawnLabel {
  *
  * A run's properties are written only when they are not neutral — no
  * `font-weight="normal"` on a plain run — the omit-the-default convention
- * every conditional attribute in the renderers follows.
+ * every conditional attribute in the renderers follows. Each is the SVG
+ * attribute for the CSS Mermaid's picture shows: `font-weight`,
+ * `font-style`, `text-decoration` (`underline`, `line-through`, or both),
+ * `font-family="monospace"`, and a scaled size as `font-size` in `em`, so
+ * it stays relative to whatever size the theme gives the `<text>`. A
+ * `sub`/`sup` run is shifted with `dy` (see `BASELINE_SHIFT`), the one
+ * relative position in a row.
  *
  * Author text reaches the DOM through `textContent` only, never `innerHTML`:
  * the tags were read into runs by `readLabel`, and nothing here parses
@@ -74,13 +99,38 @@ export function drawLabel(
     row.setAttribute("class", "siren-label-row");
     row.setAttribute("x", String(anchor.x));
     row.setAttribute("y", String(top + box.rows[index]!.y));
+    // How far below the row's baseline the text position is, in the
+    // `<text>` element's font size; every row starts at its absolute `y`,
+    // so at zero.
+    let shift = 0;
     for (const run of runs) {
       const element = document.createElementNS(SVG_NS, "tspan");
+      const scale = "scale" in run.fontSize ? run.fontSize.scale : 1;
+      const target = BASELINE_SHIFT[run.baseline] * scale;
+      // `em` in a `dy` is the run's own size, so the distance is divided by it.
+      const dy = numeral((target - shift) / scale);
+      if (dy !== "0") {
+        element.setAttribute("dy", `${dy}em`);
+      }
+      shift = target;
       if (run.bold) {
         element.setAttribute("font-weight", "bold");
       }
       if (run.italic) {
         element.setAttribute("font-style", "italic");
+      }
+      const decoration = [
+        run.underline ? "underline" : "",
+        run.strikethrough ? "line-through" : "",
+      ].filter((line) => line !== "");
+      if (decoration.length > 0) {
+        element.setAttribute("text-decoration", decoration.join(" "));
+      }
+      if (run.monospace) {
+        element.setAttribute("font-family", "monospace");
+      }
+      if ("scale" in run.fontSize && run.fontSize.scale !== 1) {
+        element.setAttribute("font-size", `${numeral(run.fontSize.scale)}em`);
       }
       element.textContent = run.text;
       row.appendChild(element);
@@ -88,4 +138,14 @@ export function drawLabel(
     text.appendChild(row);
   });
   return { text, backgrounds: [] };
+}
+
+/**
+ * `value` rounded to four decimal places, for an attribute: a scale that
+ * multiplied (`<small><big>` is 0.833 × 1.2) would otherwise be written
+ * with a tail of floating-point digits, which no reader of the SVG wants and
+ * no browser draws differently.
+ */
+function numeral(value: number): string {
+  return String(Number(value.toFixed(4)));
 }
