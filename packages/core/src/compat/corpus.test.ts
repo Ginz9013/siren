@@ -294,7 +294,7 @@ describe("the corpus, case by case", () => {
  * only `fc-text-label-whitespace` — a flowchart parser trim, out of scope
  * for the sequence board that closed the other two.
  *
- * `fc-text-label-whitespace` closed the same way: `labelIn` trims after the
+ * `fc-text-label-whitespace` closed the same way: `labelSpan` trims after the
  * fence is removed, so a padded label draws exactly as Mermaid draws it.
  * 1 - 1 = 0. Every case this constant has ever named is now either
  * `supported` or `rejected` — the destination this policy always pointed at.

@@ -1,6 +1,16 @@
-import type { Label, LabelBox, LabelRun } from "./label";
+import { isPlain, type Label, type LabelBox } from "./label";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * A drawn label: the `<text>`, and the elements its runs paint *behind* it,
+ * which the caller inserts before the `<text>` (document order is paint
+ * order). Neither is attached anywhere yet.
+ */
+export interface DrawnLabel {
+  text: SVGTextElement;
+  backgrounds: SVGElement[];
+}
 
 /**
  * Draws a measured label as one SVG `<text>`, centred on `anchor`, and
@@ -45,16 +55,16 @@ export function drawLabel(
   label: Label,
   box: LabelBox,
   anchor: { x: number; y: number },
-): { text: SVGTextElement; backgrounds: SVGElement[] } {
+): DrawnLabel {
   const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
   text.setAttribute("x", String(anchor.x));
   text.setAttribute("y", String(anchor.y));
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("dominant-baseline", "middle");
 
-  const only = label.rows.length === 1 && label.rows[0]!.length === 1 ? label.rows[0]![0]! : null;
-  if (only !== null && isPlain(only)) {
-    text.textContent = only.text;
+  const soleRun = label.rows.length === 1 && label.rows[0]!.length === 1 ? label.rows[0]![0]! : null;
+  if (soleRun !== null && isPlain(soleRun)) {
+    text.textContent = soleRun.text;
     return { text, backgrounds: [] };
   }
 
@@ -78,26 +88,4 @@ export function drawLabel(
     text.appendChild(row);
   });
   return { text, backgrounds: [] };
-}
-
-/** Whether `run` carries no property at all — every axis at its neutral value. */
-function isPlain(run: LabelRun): boolean {
-  return (
-    !run.bold &&
-    !run.italic &&
-    !run.underline &&
-    !run.strikethrough &&
-    !run.monospace &&
-    run.fontFamily === null &&
-    "scale" in run.fontSize &&
-    run.fontSize.scale === 1 &&
-    run.baseline === "normal" &&
-    run.color === null &&
-    run.background === null &&
-    !run.mark &&
-    run.letterSpacing === null &&
-    run.wordSpacing === null &&
-    run.opacity === null &&
-    run.href === null
-  );
 }

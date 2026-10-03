@@ -103,6 +103,22 @@ export const LABEL_CASES: readonly CompatCase[] = [
   rowBreakCase("label-br-spaced", "<br />"),
   rowBreakCase("label-br-uppercase", "<BR>"),
   {
+    id: "label-br-attributes",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[a<br class="x">b]`,
+    status: "supported",
+    meaning:
+      "A `<br>` carrying attributes is a line break too. Mermaid's own " +
+      "`/<br\\s*\\/?>/gi` does not match it, so its SVG labels draw the tag's " +
+      "characters, but its default HTML labels keep the element and the browser " +
+      "breaks the line (ADR-0015, measured against 11.17.2) — and that is the " +
+      "picture Siren draws. Siren used to draw the tag's own characters.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a", "b"]);
+    },
+  },
+  {
     id: "label-br-markdown",
     kind: "flowchart",
     source: `flowchart TB
