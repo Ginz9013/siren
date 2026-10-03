@@ -1,6 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseClassDiagram } from "./parseClassDiagram";
-import type { ClassDocument, ClassMember, Diagnostic } from "../contracts";
+import type { ClassDocument, ClassMember, Diagnostic, Label } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
+
+/**
+ * The test-only input for the one thing no real tag can exercise yet: how a
+ * problem `readLabel` reports becomes a diagnostic — the device
+ * `parseStateDiagram.test.ts` uses, for the same reason. `readLabel` is the
+ * real one, delegated to unchanged, except that a `⚠` in a label's source
+ * is reported as an error at that character and a `⚑` as a warning, so
+ * where the diagnostic lands can be checked against where the author wrote
+ * the character. No other label here contains either, so every other test
+ * in this file reads labels exactly as production does.
+ */
+vi.mock("../label/readLabel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../label/readLabel")>();
+  return {
+    ...actual,
+    readLabel: (...args: Parameters<typeof actual.readLabel>) => {
+      const read = actual.readLabel(...args);
+      const [source] = args;
+      const problems = [...read.problems];
+      for (const [mark, severity] of [["⚠", "error"], ["⚑", "warning"]] as const) {
+        for (let at = source.indexOf(mark); at !== -1; at = source.indexOf(mark, at + 1)) {
+          problems.push({ severity, message: `test problem ${mark}`, offset: at });
+        }
+      }
+      return { ...read, problems };
+    },
+  };
+});
 
 /**
  * Rebuilds a member's source line from its parsed parts, the way the
@@ -46,6 +75,7 @@ describe("parseClassDiagram", () => {
         id: "Animal",
         generic: null,
         annotation: null,
+        label: null,
         members: [],
         line: 2,
         column: 3,
@@ -310,7 +340,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
         line: "solid",
         fromEnd: "none",
         toEnd: "arrow",
-        label: "places",
+        label: plainLabel("places"),
         fromMultiplicity: "1",
         toMultiplicity: "*",
         sourceLine: 2,
@@ -433,7 +463,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
 
     expect(diagnostics).toEqual([]);
     expect(document.namespaces).toEqual([
-      { id: "BaseShapes", classIds: ["Triangle", "Square"], line: 2, column: 3 },
+      { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"], line: 2, column: 3 },
     ]);
     expect(document.classes.map((c) => c.id)).toEqual(["Triangle", "Square"]);
     expect(document.classes[1].members.map((m) => m.name)).toEqual(["id", "getArea"]);
@@ -465,7 +495,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(diagnostics).toEqual([]);
     expect(document.notes).toEqual([
       {
-        text: "This diagram is a work in progress",
+        label: plainLabel("This diagram is a work in progress"),
         targetId: null,
         line: 2,
         column: 3,
@@ -485,7 +515,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(diagnostics).toEqual([]);
     expect(document.notes).toEqual([
       {
-        text: "can fly, can swim",
+        label: plainLabel("can fly, can swim"),
         targetId: "Duck",
         line: 3,
         column: 3,
@@ -932,6 +962,150 @@ wibble Animal fade
         line: 4,
         column: 1,
       },
+    ]);
+  });
+});
+
+/** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
+
+describe("parseClassDiagram — the places a class diagram writes a label", () => {
+  // Measured (mermaid 11.17.2, `--paint`): `class A["Order<br/>Line"]` draws
+  // "Order" over "Line" in both label modes, the `<br/>` honored rather than
+  // drawn.
+  it("reads a class's bracketed label, so a <br> in it breaks a row", () => {
+    const { document, diagnostics } = parseOk(`classDiagram
+  class Order["Order<br/>Line"]
+  class Plain
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => [c.id, c.label])).toEqual([
+      ["Order", rowsLabel("Order", "Line")],
+      ["Plain", null],
+    ]);
+  });
+
+  // Measured: the label goes after the generic (`class A~T~["Lab"]`), a
+  // space may stand before its `[`, and the block form takes one too.
+  it("reads the label in the block form and after a generic, keeping the generic", () => {
+    const { document, diagnostics } = parseOk(`classDiagram
+  class Registry~T~ ["Kept<br>here"] {
+    +int size
+  }
+`);
+
+    expect(diagnostics).toEqual([]);
+    const [registry] = document.classes;
+    expect(registry.generic).toBe("T");
+    expect(registry.label).toEqual(rowsLabel("Kept", "here"));
+    expect(registry.members.map((m) => m.name)).toEqual(["size"]);
+  });
+
+  // Measured: `A --> B : a<br/>b` draws "a" over "b" (`title="a<br>b"`, two
+  // rows in `--markup`), the tags honored in Mermaid's HTML labels.
+  it("reads a relationship's label, so a <br> in it breaks a row", () => {
+    const { document, diagnostics } = parseOk(`classDiagram
+  Order --> Line : holds<br/>many
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.relationships.map((r) => r.label)).toEqual([rowsLabel("holds", "many")]);
+  });
+
+  // The board inferred this position; measured (mermaid 11.17.2, `--paint`,
+  // `htmlLabels: true`): `note for A "n<br/>m <i>q</i>r"` reads "nm qr" and
+  // draws "n" over "m q r" — the tags honored — and a free note likewise.
+  it("reads a note's text as a label, attached or free", () => {
+    const { document, diagnostics } = parseOk(`classDiagram
+  class Duck
+  note for Duck "can fly<br/>can swim"
+  note "free<br>note"
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.notes.map((n) => n.label)).toEqual([
+      rowsLabel("can fly", "can swim"),
+      rowsLabel("free", "note"),
+    ]);
+  });
+
+  // Not on the board's table of measured places; measured (mermaid 11.17.2,
+  // `--paint`): `namespace Zoo["Big<br/>Zoo <b>x</b>"] {` is accepted, keeps
+  // `Zoo` as the cluster's id, and draws "Big" over "Zoo x" — the tags
+  // honored in HTML labels. A namespace written without one is labelled by
+  // its name downstream, so here it has none.
+  it("reads a namespace's bracketed label, keeping the name it is declared by", () => {
+    const { document, diagnostics } = parseOk(`classDiagram
+  namespace Zoo["Big<br/>Zoo"] {
+    class Lion
+  }
+  namespace Farm {
+    class Cow
+  }
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.namespaces.map((n) => [n.id, n.label, n.classIds])).toEqual([
+      ["Zoo", rowsLabel("Big", "Zoo"), ["Lion"]],
+      ["Farm", null, ["Cow"]],
+    ]);
+  });
+
+  // A member is not a label. Measured (mermaid 11.17.2, `--paint`): Mermaid
+  // escapes a member's text in both label modes, so `+id<br/>int` draws the
+  // characters `+id<br>int` — its own `/<br\s*\/?>/gi` respells every `<br>`
+  // as `<br>` first — and `+<b>id</b> int` draws its tags as written.
+  it("keeps a member's tags as written, respelling a <br> the way Mermaid does", () => {
+    const { document, diagnostics } = parseOk(`classDiagram
+  class Order {
+    +id<br/>int
+    +<b>id</b> int
+  }
+  Order : -a<BR />b
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.flatMap((c) => c.members).map(reconstruct)).toEqual([
+      "+id<br>int",
+      "+<b>id</b> int",
+      "-a<br>b",
+    ]);
+  });
+});
+
+describe("parseClassDiagram — a problem in a label, reported where the author wrote it", () => {
+  it("reports a warning at its line and column in each place a label is read, and keeps the document", () => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram
+  class Order["ab⚑"]
+  Order --> Line : x⚑
+  note "n⚑"
+  namespace Zoo["⚑"] {
+    class Lion
+  }
+`);
+
+    expect(document).not.toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "warning", message: "test problem ⚑", line: 2, column: 18 },
+      { severity: "warning", message: "test problem ⚑", line: 3, column: 21 },
+      { severity: "warning", message: "test problem ⚑", line: 4, column: 10 },
+      { severity: "warning", message: "test problem ⚑", line: 5, column: 18 },
+    ]);
+  });
+
+  it("refuses the whole document for an error in a label, as for an unrecognized line", () => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram
+  note for Lion "lazy ⚠"
+  class Lion
+`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: "test problem ⚠", line: 2, column: 23 },
     ]);
   });
 });

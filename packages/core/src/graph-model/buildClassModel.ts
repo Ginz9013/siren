@@ -5,11 +5,13 @@ import type {
   ClassModel,
   ClassModelResult,
   Diagnostic,
+  Label,
   ResolvedClass,
   ResolvedClassNamespace,
   ResolvedClassNote,
   ResolvedClassRelationship,
 } from "../contracts";
+import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
@@ -118,7 +120,7 @@ interface ClassAccumulator {
 
 function emptyClass(id: string): ClassAccumulator {
   return {
-    resolved: { id, generic: null, annotation: null, members: [], namespaceId: null },
+    resolved: { id, generic: null, annotation: null, label: null, members: [], namespaceId: null },
     memberKeys: new Set<string>(),
   };
 }
@@ -145,6 +147,7 @@ function resolveClasses(
       const created = emptyClass(declaration.id);
       created.resolved.generic = declaration.generic;
       created.resolved.annotation = declaration.annotation;
+      created.resolved.label = declaration.label;
       classesById.set(declaration.id, created);
       addMembers(created, declaration.members);
       continue;
@@ -174,6 +177,21 @@ function resolveClasses(
       declaration,
       diagnostics,
     );
+    // A label is single-valued too, and merges by the same rule, compared
+    // and quoted by its flattened text — what `buildFlowchartModel` does
+    // for a node written with two labels. Mermaid itself keeps the *last*
+    // (measured, 11.17.2: `class A["x"]` then `class A["y"]` draws "y");
+    // this stage's rule for every single-valued attribute is first-seen
+    // with a warning, and a label is not made the one exception.
+    existing.resolved.label = mergeAttribute(
+      existing.resolved.label,
+      declaration.label,
+      "labels",
+      "label",
+      declaration,
+      diagnostics,
+      (label) => label.text,
+    );
   }
 
   // Defensive: an endpoint no declaration covers still gets a class, so a
@@ -201,8 +219,8 @@ function resolveClasses(
  * Resolves the document's `namespace` blocks: each gets the stable
  * `namespace:${n}` id the timeline and the renderer address it by — a
  * 1-based counter in document order, the same convention
- * `buildSequenceModel` gives its blocks — while the name the author wrote
- * becomes the frame's `label`.
+ * `buildSequenceModel` gives its blocks — while the label the author wrote
+ * in brackets, or else the name, becomes the frame's `label`.
  *
  * The `:` separator is load-bearing, not decoration: see `generatedId`.
  *
@@ -258,7 +276,9 @@ function resolveNamespaces(
       classIds.push(classId);
     }
 
-    return { id, label: namespace.id, classIds };
+    // A name is an identifier and has no tag in it to read, so a namespace
+    // written without a label is labelled by its name as one plain run.
+    return { id, label: namespace.label ?? plainLabel(namespace.id), classIds };
   });
 }
 
@@ -350,7 +370,7 @@ function resolveNotes(
 
     notes.push({
       id: generatedId("note", index + 1),
-      text: note.text,
+      label: note.label,
       targetId: note.targetId,
     });
   });
@@ -415,24 +435,28 @@ function assignRelationshipIds(document: ClassDocument): ResolvedClassRelationsh
  * values are a warning rather than an error — both declarations are
  * perfectly well-formed on their own, and the diagram still renders with
  * the first. Mirrors `buildFlowchartModel`'s conflicting-node-label rule.
+ *
+ * `textOf` is what a value is compared and quoted by: the value itself for
+ * a string, the flattened text for a `Label`.
  */
-function mergeAttribute(
-  kept: string | null,
-  incoming: string | null,
+function mergeAttribute<T extends string | Label>(
+  kept: T | null,
+  incoming: T | null,
   plural: string,
   singular: string,
   declaration: ClassDecl,
   diagnostics: Diagnostic[],
-): string | null {
+  textOf: (value: T) => string = String,
+): T | null {
   if (incoming === null) return kept;
   if (kept === null) return incoming;
-  if (kept === incoming) return kept;
+  if (textOf(kept) === textOf(incoming)) return kept;
 
   diagnostics.push({
     severity: "warning",
     message:
       `Class "${declaration.id}" is declared with conflicting ${plural} ` +
-      `("${kept}" vs. "${incoming}"); keeping the first-seen ${singular}.`,
+      `("${textOf(kept)}" vs. "${textOf(incoming)}"); keeping the first-seen ${singular}.`,
     line: declaration.line,
     column: declaration.column,
   });

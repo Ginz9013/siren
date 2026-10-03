@@ -702,8 +702,8 @@ describe("buildGraphModel", () => {
       kind: "class",
       direction: "TB",
       classes: [
-        { id: "Animal", generic: null, annotation: null, members: [] },
-        { id: "Duck", generic: null, annotation: null, members: [] },
+        { id: "Animal", generic: null, annotation: null, label: null, members: [] },
+        { id: "Duck", generic: null, annotation: null, label: null, members: [] },
       ],
       relationships: [
         {

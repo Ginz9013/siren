@@ -11,11 +11,13 @@ import type {
   ClassRelationship,
   ClassRelationshipEnd,
   Diagnostic,
+  Label,
   ParseResult,
   SirenTimeline,
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -29,16 +31,24 @@ import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 const CLASS_HEADER_SPELLINGS = listAcceptedHeaders(["class"]);
 /**
  * A bare `class Animal` declaration, with an optional `~generic~`
- * parameter after the name (`class Square~Shape~`).
+ * parameter after the name (`class Square~Shape~`) and an optional
+ * bracketed label after that (`class Order["Order Line"]`).
  *
  * The generic capture is greedy on purpose: it runs to the *last* `~` on
  * the line, so a nested parameter such as `class Shelf~Map~String, List~int~~~`
  * parses with `Map~String, List~int~~` captured whole rather than being
  * rejected. Nested generics are therefore supported, not diagnosed.
+ *
+ * The label is captured without the padding inside its quotes and must hold
+ * something else: `class A[""]` is a parse error in Mermaid (measured), so
+ * it falls through to this parser's unrecognized-line diagnostic. Measured
+ * too: a space may stand between the name and the `[`, and the label goes
+ * after the generic and never before it (`class A["Lab"]~T~` is a parse
+ * error). Compiled with `d` so the label's own column is the group's index.
  */
-const CLASS_DECL_RE = /^class\s+(\w+)(?:~(.+)~)?\s*$/;
-/** The opening line of a block-form declaration, `class Animal {`. */
-const CLASS_BLOCK_OPEN_RE = /^class\s+(\w+)(?:~(.+)~)?\s*\{$/;
+const CLASS_DECL_RE = /^class\s+(\w+)(?:~(.+)~)?\s*(?:\["\s*([^"]*\S)\s*"\])?\s*$/d;
+/** The opening line of a block-form declaration, `class Animal {`, with the same optional generic and label. */
+const CLASS_BLOCK_OPEN_RE = /^class\s+(\w+)(?:~(.+)~)?\s*(?:\["\s*([^"]*\S)\s*"\])?\s*\{$/d;
 /**
  * A relationship statement: two class names, the relation token between
  * them, an optional quoted multiplicity beside each name, and an optional
@@ -51,9 +61,11 @@ const CLASS_BLOCK_OPEN_RE = /^class\s+(\w+)(?:~(.+)~)?\s*\{$/;
  * Mermaid allows, including each form's mirror image (`--|>` for `<|--`)
  * and two-headed combinations (`<|--|>`), parses without a table of
  * special cases.
+ *
+ * Compiled with `d`, so the label's column is its group's own index.
  */
 const RELATIONSHIP_RE =
-  /^(\w+)(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)\s*(?::\s*(.*))?$/;
+  /^(\w+)(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)\s*(?::\s*(.*))?$/d;
 
 /**
  * An annotation on its own line inside a class block, `<<interface>>`.
@@ -65,19 +77,27 @@ const ANNOTATION_RE = /^<<(.+)>>$/;
 /** The standalone form of the same thing, `<<interface>> Shape`. */
 const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
 
-/** The opening line of a `namespace BaseShapes {` block. */
-const NAMESPACE_OPEN_RE = /^namespace\s+(\w+)\s*\{$/;
+/**
+ * The opening line of a `namespace BaseShapes {` block, with an optional
+ * bracketed label after the name — `namespace Zoo["Big Zoo"] {` — spelled
+ * and bounded exactly as a class's (`CLASS_DECL_RE`), all of it measured
+ * the same way: a space may stand before the `[`, and `[""]` is a parse
+ * error in Mermaid.
+ */
+const NAMESPACE_OPEN_RE = /^namespace\s+(\w+)\s*(?:\["\s*([^"]*\S)\s*"\])?\s*\{$/d;
 
 /**
- * A free note, `note "text"`. Its text is quoted, as Mermaid requires.
+ * A free note, `note "text"`. Its text is quoted, as Mermaid requires, and
+ * read as a label — see `ClassNote.label`. Both note patterns are compiled
+ * with `d`, so the label's column is its group's own index.
  */
-const NOTE_RE = /^note\s+"([^"]*)"$/;
+const NOTE_RE = /^note\s+"([^"]*)"$/d;
 /**
  * A note attached to one class, `note for Duck "text"`. Naming a class
  * here does not declare it — only a relationship does that — so a note for
  * a class that was never declared is `buildClassModel`'s to resolve.
  */
-const NOTE_FOR_RE = /^note\s+for\s+(\w+)\s+"([^"]*)"$/;
+const NOTE_FOR_RE = /^note\s+for\s+(\w+)\s+"([^"]*)"$/d;
 
 /** A `direction TB|BT|LR|RL` statement. */
 
@@ -137,8 +157,20 @@ const CSS_CLASS_RE = /^cssClass\s+"([^"]*)"\s+(\w+)$/;
 
 /** The inline member form, `Bird : +fly()`. */
 const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/;
-/** What a member's own name may look like, once markers and type are off. */
-const MEMBER_NAME_RE = /^[A-Za-z_]\w*$/;
+/**
+ * What a member's own name may look like, once markers and type are off: an
+ * identifier, which a `<br>` (already respelled by `MEMBER_BREAK_RE`) may
+ * stand inside — `+id<br>int` is one name, as Mermaid reads it.
+ */
+const MEMBER_NAME_RE = /^[A-Za-z_]\w*(?:<br>\w*)*$/;
+/**
+ * Mermaid's own row-break pattern, which it applies to a member's text and
+ * then escapes the result rather than reading it as markup — measured
+ * (mermaid 11.17.2, `--paint`, both label modes): `+id<br/>int` and
+ * `+id<BR/>int` both draw the characters `+id<br>int`, while a
+ * `<br class="x">` its pattern does not match is drawn exactly as written.
+ */
+const MEMBER_BREAK_RE = /<br\s*\/?>/gi;
 
 const VISIBILITY_MARKERS = new Set<string>(["+", "-", "#", "~"]);
 const CLASSIFIER_MARKERS = new Set<string>(["*", "$"]);
@@ -194,9 +226,15 @@ function endpointFor(marker: string | undefined): ClassRelationshipEnd {
  * A leading `~` is read as the package-visibility marker, never as the
  * opening of a `~generic~` — that ambiguity is Mermaid's own, and Mermaid
  * resolves it the same way.
+ *
+ * **A member is not a label** (ADR-0015), so nothing here goes through
+ * `readLabel`: Mermaid escapes a member's text in both label modes, and the
+ * one thing it does to it first — respelling `<br/>`, `<br />` and `<BR>`
+ * as `<br>` — is done here too (`MEMBER_BREAK_RE`), so `+id<br/>int` is drawn as the
+ * characters `+id<br>int` and `+<b>id</b> int` as written.
  */
 function parseMember(text: string, line: number, column: number): ClassMember | null {
-  let rest = text.trim();
+  let rest = text.trim().replace(MEMBER_BREAK_RE, "<br>");
 
   let classifier: ClassMemberClassifier | null = null;
   const lastChar = rest.slice(-1);
@@ -419,7 +457,7 @@ export function parseClassDiagram(source: string): ParseResult {
       return;
     }
     declareClass(
-      { id, generic: null, annotation: null, members: [], line, column },
+      { id, generic: null, annotation: null, label: null, members: [], line, column },
       namespaceMembers,
     );
   };
@@ -445,6 +483,41 @@ export function parseClassDiagram(source: string): ParseResult {
       sawError = true;
     }
     return properties;
+  };
+
+  /**
+   * Reads the label one capture group of a statement's match holds, and
+   * turns whatever `readLabel` found in it into diagnostics at the line and
+   * column of the character each problem is about — the conversion
+   * `parseStateDiagram`'s `readLabelIn` makes, for the same reasons: every
+   * label here is a capture of one of this parser's own patterns over the
+   * trimmed line, each compiled with the `d` flag, and no class-diagram
+   * statement holding a label spans physical lines, so a position in the
+   * line is a column once the line's own indent (`column`) is added.
+   *
+   * Read in the full `html` dialect wherever it is called (ADR-0015). Never
+   * called for a member: Mermaid escapes a member's text in both label
+   * modes, so a member is kept as written — see `parseMember`.
+   *
+   * An error costs the whole document, exactly as an unrecognized line does.
+   */
+  const readLabelIn = (
+    match: RegExpExecArray,
+    group: number,
+    lineNumber: number,
+    column: number,
+  ): Label => {
+    const [start] = match.indices![group]!;
+    const { label, problems } = readLabel(match[group]!, { dialect: "html" });
+    const reported = labelDiagnostics(problems, (offset) => ({
+      line: lineNumber,
+      column: column + start + offset,
+    }));
+    diagnostics.push(...reported.diagnostics);
+    if (reported.hasError) {
+      sawError = true;
+    }
+    return label;
   };
 
   /**
@@ -504,14 +577,23 @@ export function parseClassDiagram(source: string): ParseResult {
         sawError = true;
       }
 
-      namespaces.push({ id: namespaceOpenMatch[1], classIds, line: lineNumber, column });
+      namespaces.push({
+        id: namespaceOpenMatch[1],
+        label:
+          namespaceOpenMatch[2] === undefined
+            ? null
+            : readLabelIn(namespaceOpenMatch, 2, lineNumber, column),
+        classIds,
+        line: lineNumber,
+        column,
+      });
       return bodyIndex;
     }
 
     const noteForMatch = NOTE_FOR_RE.exec(line);
     if (noteForMatch !== null) {
       notes.push({
-        text: noteForMatch[2],
+        label: readLabelIn(noteForMatch, 2, lineNumber, column),
         targetId: noteForMatch[1],
         line: lineNumber,
         column,
@@ -521,7 +603,12 @@ export function parseClassDiagram(source: string): ParseResult {
 
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null) {
-      notes.push({ text: noteMatch[1], targetId: null, line: lineNumber, column });
+      notes.push({
+        label: readLabelIn(noteMatch, 1, lineNumber, column),
+        targetId: null,
+        line: lineNumber,
+        column,
+      });
       return startIndex;
     }
 
@@ -643,6 +730,7 @@ export function parseClassDiagram(source: string): ParseResult {
           id,
           generic: null,
           annotation: annotationText.trim(),
+          label: null,
           members: [],
           line: lineNumber,
           column,
@@ -663,7 +751,7 @@ export function parseClassDiagram(source: string): ParseResult {
         rightMarker,
         toMultiplicity,
         to,
-        label,
+        labelSource,
       ] = relationshipMatch;
       const fromEnd = endpointFor(leftMarker);
       const toEnd = endpointFor(rightMarker);
@@ -673,7 +761,13 @@ export function parseClassDiagram(source: string): ParseResult {
         line: lineToken === ".." ? "dashed" : "solid",
         fromEnd,
         toEnd,
-        label: label === undefined || label.trim().length === 0 ? null : label.trim(),
+        // No label means `null`, and so does a `:` with nothing after it. The
+        // capture starts past the padding after the colon, and the line is
+        // already trimmed, so the label is the capture as it stands.
+        label:
+          labelSource === undefined || labelSource.length === 0
+            ? null
+            : readLabelIn(relationshipMatch, 8, lineNumber, column),
         fromMultiplicity: fromMultiplicity ?? null,
         toMultiplicity: toMultiplicity ?? null,
         sourceLine: lineNumber,
@@ -725,6 +819,7 @@ export function parseClassDiagram(source: string): ParseResult {
               id: blockOpenMatch[1],
               generic: blockOpenMatch[2] ?? null,
               annotation: annotationMatch[1].trim(),
+              label: null,
               members: [],
               line: bodyIndex + 1,
               column: bodyRawLine.length - bodyRawLine.trimStart().length + 1,
@@ -767,6 +862,10 @@ export function parseClassDiagram(source: string): ParseResult {
           id: blockOpenMatch[1],
           generic: blockOpenMatch[2] ?? null,
           annotation: null,
+          label:
+            blockOpenMatch[3] === undefined
+              ? null
+              : readLabelIn(blockOpenMatch, 3, lineNumber, column),
           members,
           line: lineNumber,
           column,
@@ -785,6 +884,10 @@ export function parseClassDiagram(source: string): ParseResult {
           id: classDeclMatch[1],
           generic: classDeclMatch[2] ?? null,
           annotation: null,
+          label:
+            classDeclMatch[3] === undefined
+              ? null
+              : readLabelIn(classDeclMatch, 3, lineNumber, column),
           members: [],
           line: lineNumber,
           column,
@@ -815,6 +918,7 @@ export function parseClassDiagram(source: string): ParseResult {
           id,
           generic: null,
           annotation: null,
+          label: null,
           members: [member],
           line: lineNumber,
           column,
