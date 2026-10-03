@@ -315,27 +315,51 @@ Mermaid's v11 `A@{ shape: cyl }` spelling is a second, larger vocabulary of abou
 is unimplemented: a line spelling one is refused as an unrecognized flowchart line rather than
 drawn as something else. Its own board, and it reuses all of this.
 
-**A label may itself carry Markdown formatting**, written as the fenced `` A["`**bold**`"] ``
-spelling — a quoted label whose content is itself fenced in backticks. `SirenNode`/`GraphNode`/
-`PositionedNode` each carry a `labelRuns: LabelRun[][] | null` alongside the plain-string `label`
-they have always had: `null` — the overwhelming common case — means the label carries no
-formatting and `label` alone is authoritative, exactly as before this field existed; non-null only
-for the fenced spelling, one array of `{ text, bold, italic }` runs per line, in source order, with
-`label` still holding the *flattened* plain text (every run's text concatenated, lines joined by
-`\n`) so a reader that has never heard of `labelRuns` — an error message, the redeclaration warning
-— still reads something sensible. Bold and italic are independent axes, not a closed set of
-"styles", matching mermaid 11.17.2's own `font-weight`/`font-style` pair (measured, `htmlLabels:
-false`). A line break inside the fence is real Mermaid too: its lexer reads a quoted label across
-physical source lines when the closing quote has not been reached yet, so the flowchart parser
-joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`) before anything else
-reads them — the one place this grammar is not read one physical line at a time. Layout sizes a
-Markdown-labelled box by its **plain text** (widest line's width, one line-height times line count)
-rather than weighing a bold run's actual glyph width — a deliberate simplification, not a gap — and
-the renderer draws the shape real Mermaid draws for this construct: one `<tspan class=
-"siren-node-label-row">` per line, absolute-positioned to center the block vertically, each holding
-one inner `<tspan>` per run with `font-weight`/`font-style` set only when true.
+**A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
+title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds
+the `labelBox` layout measured it into, which the node's shape was sized to hold. The fenced
+`` A["`**bold**`"] `` Markdown string is one spelling of a label rather than a second field: a quoted
+label whose content is itself fenced in backticks is read by the same reader with `**`/`*` and real
+line breaks switched on. A line break inside the fence is real Mermaid too: its lexer reads a quoted
+label across physical source lines when the closing quote has not been reached yet, so the
+flowchart parser joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`)
+before anything else reads them — the one place this grammar is not read one physical line at a
+time. A node written without a label (`A`, `A:::name`) is labelled with its own id.
 _Avoid_: box, vertex, block, state, "the shape" for one drawn element (a node's frame may be
 several elements — say "frame" for what is drawn and "shape" for which of the fourteen it is)
+
+**Label**:
+What an author wrote in one place a diagram draws text, read as **rows of runs**: each row is one
+drawn line, and each **run** is a stretch of a row's text sharing one set of properties — bold,
+italic, underline, a font size, a color, a link, and the rest of `LabelRun`'s fields, each an
+independent axis with a neutral value. A run with every axis neutral is a **plain run**. A label's
+`text` is its **flattened text** — the runs concatenated, the rows joined by `\n` — for the readers
+that only want a string: a diagnostic quoting the label, the redeclaration warning comparing two.
+What is drawn is the rows.
+
+The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the
+**drawing** stays SVG `<text>`/`<tspan>` with author text through `textContent`, never `innerHTML`
+(ADR-0015). Between them, every HTML tag Mermaid lets through is read into the label's rows and runs —
+drawn, drawn approximately, or refused with a diagnostic — and none is drawn as its literal
+characters. Which tags a place honors is its **dialect**: `html`, the whole vocabulary, for the places
+Mermaid draws as HTML; `sequence`, only `<br>` and entity codes, for sequence text, which Mermaid
+draws as SVG in both modes. A class **member** is not a label at all: Mermaid escapes it in both
+modes, so it is kept as written. `<br>` is Mermaid's `/<br\s*\/?>/gi` — `<br>`, `<br/>`, `<br />`,
+`<BR>` all break a row, and `<br class="x">` does not. `<br>` came first; the rest of the vocabulary
+arrives tag by tag, each with its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
+
+One module owns all of it, `packages/core/src/label/`: `readLabel` reads the source into a `Label`
+and reports **problems** at character offsets, which the parser turns into diagnostics at the
+author's own line and column (an error refuses the document, as an unrecognized line does);
+`layoutLabel` measures it into a `LabelBox` — a row as tall as its tallest run, the label its rows
+stacked, a bold run at the regular weight (a deliberate simplification, not a gap); `drawLabel`
+draws it at the box's centre. A label of one row holding one plain run — nearly every label — is
+drawn as the `<text>`'s own `textContent`, exactly as before labels had rows; anything else is one
+`<tspan class="siren-label-row">` per row with one `<tspan>` per run inside it, which is the
+structure Mermaid's own SVG labels use. What a run paints *behind* its text comes back separately,
+and the renderer puts it before the `<text>`, since document order is paint order.
+_Avoid_: text, caption, string (for the read label — say "flattened text" for the string); line (for
+a drawn row — a Markdown string's *line* break is one way to start a row, `<br>` is another)
 
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,

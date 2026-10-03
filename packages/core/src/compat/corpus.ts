@@ -16,6 +16,7 @@
  * assert that says which picture was drawn.
  */
 import type { SirenRenderResult } from "../contracts";
+import { LABEL_CASES, labelRows } from "./labelCorpus";
 
 /** Which Mermaid diagram kind a case is written in. */
 export type CompatKind = "flowchart" | "class" | "sequence" | "state" | "er";
@@ -97,35 +98,15 @@ function textOf(element: Element): string {
 }
 
 /**
- * A Markdown-labelled node's drawn rows, read off the actual `<tspan>`
- * structure rather than off `textContent` — `textOf` above already proves
- * the *text* survived (concatenating every descendant text node, tspans
- * included), so this is what a `fc-text-*` Markdown row needs beyond that:
- * proof that each row is its own `tspan.siren-node-label-row` and that a
- * bold/italic run actually carries `font-weight`/`font-style`, not merely
- * that the letters are on the page.
- *
- * One string per row, each run's text immediately followed by `(b)`, `(i)`
- * or `(bi)` when that run carries `font-weight:bold`/`font-style:italic` —
- * nothing appended for a plain run, so a row of plain text alone reads as
- * its own text with no decoration, and a failure names the exact run that
- * disagrees rather than a diff of the whole label.
+ * A node's drawn label rows — `labelRows` (in `labelCorpus.ts`) on that
+ * node's `<text>`. `textOf` already proves the *text* survived; this is what
+ * a row about a label's structure needs beyond that: proof that each row is
+ * its own `tspan.siren-label-row` and that a bold/italic run actually
+ * carries `font-weight`/`font-style`, not merely that the letters are on the
+ * page.
  */
-function markdownRows(result: SirenRenderResult, id: string): string[] {
-  const text = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`);
-  if (text === null) {
-    return [];
-  }
-  return Array.from(text.querySelectorAll("tspan.siren-node-label-row")).map((row) =>
-    Array.from(row.querySelectorAll("tspan"))
-      .map((run) => {
-        const flags =
-          (run.getAttribute("font-weight") === "bold" ? "b" : "") +
-          (run.getAttribute("font-style") === "italic" ? "i" : "");
-        return flags === "" ? (run.textContent ?? "") : `${run.textContent}(${flags})`;
-      })
-      .join(""),
-  );
+function nodeLabelRows(result: SirenRenderResult, id: string): string[] {
+  return labelRows(svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`));
 }
 
 /** Every flowchart node as `id[label]`, in draw order. */
@@ -1998,6 +1979,25 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-edge-label-br",
+    kind: "flowchart",
+    source: `flowchart TB
+      A -->|"yes<br/>no"| B`,
+    status: "supported",
+    meaning:
+      "`<br>` in an edge label is a line break, as it is in a node's: the edge " +
+      "label is one of the positions ADR-0015 reads with the whole tag " +
+      "vocabulary, and Mermaid draws `yes` over `no` there in both its HTML " +
+      "and its SVG labels. Siren used to draw `yes<br/>no` literally.",
+    assert: (result) => {
+      expectSame(
+        "label rows",
+        labelRows(svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]')),
+        ["yes", "no"],
+      );
+    },
+  },
+  {
     id: "fc-edge-inline-label",
     kind: "flowchart",
     source: `flowchart TB
@@ -2295,6 +2295,32 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-title-br",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S["a<br/>b"]
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "`<br>` in a subgraph's title is a line break, as it is in a node's " +
+      "label: a title is one of the positions ADR-0015 reads with the whole " +
+      "tag vocabulary, and Mermaid draws `a` over `b` there. Siren used to " +
+      "draw `a<br/>b` literally. The frame's title strip holds both rows, so " +
+      "the node it groups is still drawn below them.",
+    assert: (result) => {
+      const title = svgOf(result).querySelector("g.siren-subgraph text.siren-subgraph-label");
+      expectSame("title rows", labelRows(title), ["a", "b"]);
+      // The title is read back by its flattened text, which `textContent`
+      // concatenates with nothing between the rows.
+      const frame = subgraphBox(result, "ab");
+      expectSame("S encloses A", encloses(frame, nodeBox(result, "A")), true);
+      const rows = Array.from(title?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      expectSame("the title's last row is above A", lastRowY < nodeBox(result, "A").top, true);
+    },
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB
@@ -2484,7 +2510,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       // The plain text still reads right off `textContent` — tspans concatenate.
       expectSame("nodes", nodes(result), ["A[bold]"]);
       // And the run that carries it is drawn bold, not merely spelled "bold".
-      expectSame("markdown rows", markdownRows(result, "A"), ["bold(b)"]);
+      expectSame("label rows", nodeLabelRows(result, "A"), ["bold(b)"]);
     },
   },
   {
@@ -2500,7 +2526,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "measures, independent rather than a second spelling of the same rule.",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[italic]"]);
-      expectSame("markdown rows", markdownRows(result, "A"), ["italic(i)"]);
+      expectSame("label rows", nodeLabelRows(result, "A"), ["italic(i)"]);
     },
   },
   {
@@ -2527,10 +2553,10 @@ line2\`"]`,
       // `textContent` concatenates them with nothing in between (no
       // separator a DOM ever inserts between sibling elements), so the
       // line break these two rows draw is visible in *where* the SVG puts
-      // them, not in this string. `markdownRows` is the assert that reads
+      // them, not in this string. `nodeLabelRows` is the assert that reads
       // that structure; this is only proof the letters themselves made it.
       expectSame("nodes", nodes(result), ["A[line1line2]"]);
-      expectSame("markdown rows", markdownRows(result, "A"), ["line1", "line2"]);
+      expectSame("label rows", nodeLabelRows(result, "A"), ["line1", "line2"]);
     },
   },
 
@@ -6378,4 +6404,9 @@ line2\`"]`,
       "block, so the body's prose is not reported as malformed ER on top of " +
       "the refusal.",
   },
+
+  // -------------------------------------------------------------------------
+  // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`
+  // -------------------------------------------------------------------------
+  ...LABEL_CASES,
 ];

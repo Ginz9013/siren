@@ -1,6 +1,6 @@
 import type {
   GraphModel,
-  GraphNode,
+  LabelBox,
   LayoutOptions,
   NodeShape,
   Point,
@@ -14,6 +14,7 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
+import { layoutLabel } from "../label/layoutLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
 const SUBGRAPH_PADDING = 12;
@@ -79,47 +80,6 @@ export const SHAPE_LEAN = {
 interface Box {
   width: number;
   height: number;
-}
-
-/**
- * The box a node's label measures to, before `boxForLabel` asks the shape
- * what it costs to inscribe it.
- *
- * `node.labelRuns === null` — the overwhelming common case — is completely
- * unchanged: one call to `measureText.measure`, exactly as every node was
- * measured before this field existed.
- *
- * A Markdown label is measured by its **plain text**, one call per line,
- * deliberately not weighing what a bold run's heavier glyphs would actually
- * cost: the ticket that added `labelRuns` chose this simplification outright
- * — a pixel-exact width would have to know the font `measureText` is
- * measuring against for *every* weight it draws, and nothing downstream
- * needs the box to be that exact. Width is the widest line's plain-text
- * measurement, so the box holds every row without clipping any of them
- * sideways; height is one line's own height times how many rows there are,
- * so `layoutGraph`'s block stacks with no gap and no overlap between rows —
- * matching what `renderToSVG` steps by when it draws them.
- *
- * Any line's own measured height stands for "one line's height": both
- * measurers in this codebase (`packages/core/src/index.ts`'s
- * `defaultMeasurer`, and every test's `fakeMeasurer`) return a height that
- * depends on the font, not on the string's content or length, so this never
- * has to guess which of the label's lines is the "representative" one.
- */
-function measureLabelBox(node: GraphNode, measureText: TextMeasurer): Box {
-  if (node.labelRuns === null) {
-    return measureText.measure(node.label);
-  }
-  const lineBoxes = node.labelRuns.map((run) =>
-    measureText.measure(run.map((labelRun) => labelRun.text).join("")),
-  );
-  return {
-    width: Math.max(...lineBoxes.map((box) => box.width)),
-    // `labelRuns` is never an empty array — `parseNodeLabel` always
-    // produces at least one line, even for an empty Markdown string — so
-    // `lineBoxes[0]` is never reached with nothing measured.
-    height: lineBoxes[0]!.height * lineBoxes.length,
-  };
 }
 
 /**
@@ -280,6 +240,26 @@ export function layoutGraph(
   graph: GraphModel,
   options: LayoutOptions,
 ): PositionedGraph {
+  // Each label measured once, here, and carried to the renderer on the
+  // positioned node: the shape is sized around this box, and the rows are
+  // drawn where it says they sit. The renderer has no measurer, so a second
+  // opinion there was never an option.
+  const labelBoxById = new Map(
+    graph.nodes.map((node) => [node.id, layoutLabel(node.label, options.measureText)]),
+  );
+
+  // A subgraph's title is measured once too, for the same two readers: the
+  // cluster size handed to the core below, and the frame grown afterwards.
+  const titleBoxById = new Map(
+    graph.subgraphs.map((subgraph) => [subgraph.id, layoutLabel(subgraph.label, options.measureText)]),
+  );
+
+  const edgeLabelBoxById = new Map(
+    graph.edges.flatMap((edge) =>
+      edge.label === null ? [] : [[edge.id, layoutLabel(edge.label, options.measureText)] as const],
+    ),
+  );
+
   const laidOut = layoutDirectedGraph({
     rankdir: graph.direction,
     nodes: [
@@ -288,7 +268,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...boxForLabel(node.shape, measureLabelBox(node, options.measureText)),
+        ...boxForLabel(node.shape, labelBoxById.get(node.id)!),
         // Grouping, and the only thing about a subgraph the shared core is
         // told. `undefined` rather than `null` when the node is in no
         // subgraph, because the core switches dagre's compound mode on by
@@ -315,7 +295,7 @@ export function layoutGraph(
         // given here; the title's own size is passed anyway, as the smallest
         // the frame could sensibly be — and as what a childless subgraph,
         // which the core lays out as an ordinary box, is drawn at.
-        const label = options.measureText.measure(subgraph.label);
+        const label = titleBoxById.get(subgraph.id)!;
         return {
           id: subgraph.id,
           isCluster: true,
@@ -355,9 +335,7 @@ export function layoutGraph(
       // piece of text in this pipeline goes through, so a long label
       // reserves more room than a short one for the same reason a long node
       // label makes a wider box.
-      ...(edge.label === null
-        ? {}
-        : { label: options.measureText.measure(edge.label) }),
+      ...(edge.label === null ? {} : { label: edgeLabelBoxById.get(edge.id)! }),
     })),
   });
 
@@ -367,7 +345,7 @@ export function layoutGraph(
   // finally described in. `layoutClassDiagram` does exactly this, for
   // exactly this reason.
   const boxInCoreSpaceById = new Map(laidOut.nodes.map((box) => [box.id, box]));
-  const frames = subgraphFrames(graph.subgraphs, graph.nodes, boxInCoreSpaceById, options);
+  const frames = subgraphFrames(graph.subgraphs, graph.nodes, boxInCoreSpaceById, titleBoxById);
 
   // A frame grows outward — up for its title strip, out for its padding — so
   // it can reach above and left of the corner the core laid the graph out
@@ -392,6 +370,7 @@ export function layoutGraph(
       ...shifted(box),
       width: box.width,
       height: box.height,
+      labelBox: labelBoxById.get(node.id)!,
     };
   });
 
@@ -428,6 +407,7 @@ export function layoutGraph(
       // edge that asked for no space has nowhere to draw text, and one
       // state is easier to read than a missing field.
       labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
+      labelBox: edgeLabelBoxById.get(edge.id) ?? null,
     };
   });
 
@@ -488,7 +468,7 @@ function subgraphFrames(
   subgraphs: readonly ResolvedSubgraph[],
   nodes: GraphModel["nodes"],
   boxInCoreSpaceById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
-  options: LayoutOptions,
+  titleBoxById: ReadonlyMap<string, LabelBox>,
 ): PositionedSubgraph[] {
   const nodeIdsByParent = new Map<string, string[]>();
   for (const node of nodes) {
@@ -500,7 +480,7 @@ function subgraphFrames(
   const frameById = new Map<string, PositionedSubgraph>();
 
   for (const subgraph of [...subgraphs].reverse()) {
-    const label = options.measureText.measure(subgraph.label);
+    const label = titleBoxById.get(subgraph.id)!;
     const cluster = boxInCoreSpaceById.get(subgraph.id)!;
 
     const held: { x: number; y: number; width: number; height: number }[] = [
@@ -513,7 +493,7 @@ function subgraphFrames(
     const left = Math.min(cluster.x, ...held.map((box) => box.x - SUBGRAPH_PADDING));
     const top = Math.min(
       cluster.y,
-      // The title strip: padding, the title line, then padding again before
+      // The title strip: padding, the title's rows, then padding again before
       // whatever the frame holds starts.
       ...held.map((box) => box.y - SUBGRAPH_PADDING * 2 - label.height),
     );
@@ -530,6 +510,7 @@ function subgraphFrames(
     frameById.set(subgraph.id, {
       id: subgraph.id,
       label: subgraph.label,
+      labelBox: label,
       x: left,
       y: top,
       width: right - left,

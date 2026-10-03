@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
-import type { Diagnostic, FlowchartDocument } from "../contracts";
+import type { Diagnostic, FlowchartDocument, SirenNode } from "../contracts";
+import { plainRun } from "../label/label";
 
 /**
  * Asserts a `parseFlowchart` call produced a document and narrows it to
@@ -18,6 +19,89 @@ function parseOk(source: string): { document: FlowchartDocument; diagnostics: Di
   return { document, diagnostics };
 }
 
+/**
+ * The ticket's test-only input for the one thing no real tag can exercise
+ * yet: how a problem `readLabel` reports becomes a diagnostic. `readLabel`
+ * is the real one, delegated to unchanged, except that a `⚠` in a label's
+ * source is reported as an error at that character and a `⚑` as a warning —
+ * so where the diagnostic lands can be checked against where the author
+ * wrote the character, in every position a flowchart label can be written.
+ * No real label contains either, so every other test in this file reads
+ * labels exactly as production does.
+ */
+vi.mock("../label/readLabel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../label/readLabel")>();
+  return {
+    ...actual,
+    readLabel: (...args: Parameters<typeof actual.readLabel>) => {
+      const read = actual.readLabel(...args);
+      const [source] = args;
+      const problems = [...read.problems];
+      for (const [mark, severity] of [["⚠", "error"], ["⚑", "warning"]] as const) {
+        for (let at = source.indexOf(mark); at !== -1; at = source.indexOf(mark, at + 1)) {
+          problems.push({ severity, message: `test problem ${mark}`, offset: at });
+        }
+      }
+      return { ...read, problems };
+    },
+  };
+});
+
+/** Each diagnostic as `severity line:column`, for the position tests below. */
+function positions(source: string): string[] {
+  return parseFlowchart(source).diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}`);
+}
+
+describe("a problem in a label, reported where the author wrote it", () => {
+  it("points into a node's label, counting the bracket and the quote fence", () => {
+    // `  A[ab⚠c]` — the ⚠ is the 7th character of line 2.
+    expect(positions("flowchart TB\n  A[ab⚠c]")).toEqual(["error 2:7"]);
+    // `  A[" ab⚠"]` — past the quote fence and the padding it trims.
+    expect(positions('flowchart TB\n  A[" ab⚠"]')).toEqual(["error 2:9"]);
+  });
+
+  it("points at the right endpoint when several on one line carry a label", () => {
+    // `  A[⚠] --> B[x⚠] & C(⚠)`
+    expect(positions("flowchart TB\n  A[⚠] --> B[x⚠] & C(⚠)")).toEqual([
+      "error 2:5",
+      "error 2:15",
+      "error 2:22",
+    ]);
+  });
+
+  it("points into the second statement of a line, not the first", () => {
+    // `  A[a]; B[⚠]`
+    expect(positions("flowchart TB\n  A[a]; B[⚠]")).toEqual(["error 2:11"]);
+  });
+
+  it("points into an edge label, in both spellings", () => {
+    // `  A -->|"x⚠"| B` and `  A -- y⚠ --> B`
+    expect(positions('flowchart TB\n  A -->|"x⚠"| B')).toEqual(["error 2:11"]);
+    expect(positions("flowchart TB\n  A -- y⚠ --> B")).toEqual(["error 2:9"]);
+  });
+
+  it("points into a subgraph title, in each spelling that can carry a tag", () => {
+    // `  subgraph S["a⚠"]` and `  subgraph "b⚠"`
+    expect(positions('flowchart TB\n  subgraph S["a⚠"]\n    A\n  end')).toEqual(["error 2:16"]);
+    expect(positions('flowchart TB\n  subgraph "b⚠"\n    A\n  end')).toEqual(["error 2:14"]);
+  });
+
+  it("points at the physical line a Markdown string's fence carried the problem onto", () => {
+    // The fence opens on line 2 and closes on line 3; `li⚠ne2` is line 3.
+    expect(positions('flowchart TB\n  A["`line1\nli⚠ne2`"]')).toEqual(["error 3:3"]);
+  });
+
+  it("refuses the document for an error and draws it for a warning", () => {
+    expect(parseFlowchart("flowchart TB\n  A[a⚠]").document).toBeNull();
+
+    const warned = parseFlowchart("flowchart TB\n  A[a⚑]");
+    expect(warned.document).not.toBeNull();
+    expect(warned.diagnostics).toEqual([
+      { severity: "warning", message: "test problem ⚑", line: 2, column: 6 },
+    ]);
+  });
+});
+
 describe("a flowchart node's label", () => {
   it("trims the padding around a label, whether or not it is quoted", () => {
     const source = `flowchart TB
@@ -26,19 +110,24 @@ describe("a flowchart node's label", () => {
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => node.label)).toEqual(["padded", "padded"]);
+    expect(document.nodes.map((node) => node.label.text)).toEqual(["padded", "padded"]);
   });
 });
 
+/** A node's label rows, each run cut down to the two axes a Markdown string sets. */
+function markdownRows(node: SirenNode | undefined) {
+  return node?.label.rows.map((row) => row.map(({ text, bold, italic }) => ({ text, bold, italic })));
+}
+
 describe("a flowchart node's Markdown label", () => {
-  it("leaves labelRuns null for an ordinary label", () => {
+  it("reads an ordinary label as one row of one plain run", () => {
     const source = `flowchart TB
   A[Start]`;
 
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes[0]?.labelRuns).toBeNull();
+    expect(document.nodes[0]?.label.rows).toEqual([[plainRun("Start")]]);
   });
 
   it("reads a `**bold**` Markdown string label into one bold run", () => {
@@ -47,8 +136,8 @@ describe("a flowchart node's Markdown label", () => {
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes[0]?.label).toBe("bold");
-    expect(document.nodes[0]?.labelRuns).toEqual([
+    expect(document.nodes[0]?.label.text).toBe("bold");
+    expect(markdownRows(document.nodes[0])).toEqual([
       [{ text: "bold", bold: true, italic: false }],
     ]);
   });
@@ -59,8 +148,8 @@ describe("a flowchart node's Markdown label", () => {
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes[0]?.label).toBe("italic");
-    expect(document.nodes[0]?.labelRuns).toEqual([
+    expect(document.nodes[0]?.label.text).toBe("italic");
+    expect(markdownRows(document.nodes[0])).toEqual([
       [{ text: "italic", bold: false, italic: true }],
     ]);
   });
@@ -71,8 +160,8 @@ describe("a flowchart node's Markdown label", () => {
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes[0]?.label).toBe("line1\nline2");
-    expect(document.nodes[0]?.labelRuns).toEqual([
+    expect(document.nodes[0]?.label.text).toBe("line1\nline2");
+    expect(markdownRows(document.nodes[0])).toEqual([
       [{ text: "line1", bold: false, italic: false }],
       [{ text: "line2", bold: false, italic: false }],
     ]);
@@ -128,7 +217,7 @@ describe("a flowchart node id's alphabet", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.id)).toEqual(["a.b", "c.d", "e.f"]);
-    expect(document.nodes.find((node) => node.id === "a.b")?.label).toBe("Label");
+    expect(document.nodes.find((node) => node.id === "a.b")?.label.text).toBe("Label");
     expect(document.edges).toEqual([expect.objectContaining({ from: "c.d", to: "e.f" })]);
   });
 
@@ -291,7 +380,7 @@ describe("an edge whose endpoint names a subgraph", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.id)).toEqual(["A", "B", "C", "D"]);
-    expect(document.nodes.find((node) => node.id === "A")?.label).toBe("Alpha");
+    expect(document.nodes.find((node) => node.id === "A")?.label.text).toBe("Alpha");
   });
 
   it("takes the block's claim on the name back with the node", () => {
@@ -326,7 +415,7 @@ describe("a flowchart's bare node declarations", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.id)).toEqual(["Orphan", "A", "B"]);
-    expect(document.nodes.find((node) => node.id === "Orphan")?.label).toBe("Orphan");
+    expect(document.nodes.find((node) => node.id === "Orphan")?.label.text).toBe("Orphan");
     expect(document.edges).toEqual([expect.objectContaining({ from: "A", to: "B" })]);
   });
 });

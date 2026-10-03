@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GraphModel, TextMeasurer } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import { plainLabel, plainRun } from "../label/label";
+import { readLabel } from "../label/readLabel";
 import { layoutGraph } from "./layoutGraph";
 
 /** Deterministic fake measurer per the ticket: width = text.length * 8, height = 24. */
@@ -28,9 +30,9 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
   return {
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "C", label: "C", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", label: plainLabel("A"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: plainLabel("B"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "C", label: plainLabel("C"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       { id: "A-B", from: "A", to: "B", ...PLAIN_ARROW, style: { frame: [], text: [] } },
@@ -155,9 +157,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "B", label: "?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "C", label: "Is it ready?", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "A", label: plainLabel("Is it ready?"), shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "B", label: plainLabel("?"), shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "C", label: plainLabel("Is it ready?"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -184,7 +186,7 @@ describe("layoutGraph", () => {
     // above, because it is what a hexagon and a circle will be measured
     // against too.
     const fitsInsideDiamond = (node: (typeof positioned.nodes)[number]) => {
-      const label = fakeMeasurer.measure(node.label);
+      const label = fakeMeasurer.measure(node.label.text);
       return label.width / node.width + label.height / node.height <= 1;
     };
     expect(fitsInsideDiamond(byId.A)).toBe(true);
@@ -235,8 +237,8 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: shapes.flatMap((shape) => [
-        { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: `${shape}-long`, label: plainLabel("A rather long label"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: `${shape}-short`, label: plainLabel("x"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
       ]),
       edges: [],
       subgraphs: [],
@@ -313,10 +315,10 @@ describe("layoutGraph", () => {
       direction: "TB",
       nodes: [
         ...shapes.flatMap((shape) => [
-          { id: `${shape}-long`, label: "A rather long label", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-          { id: `${shape}-short`, label: "x", shape, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+          { id: `${shape}-long`, label: plainLabel("A rather long label"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
+          { id: `${shape}-short`, label: plainLabel("x"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null },
         ]),
-        { id: "rect-long", label: "A rather long label", shape: "rect" as const, style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "rect-long", label: plainLabel("A rather long label"), shape: "rect" as const, style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -377,9 +379,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "short", label: "x", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "long", label: plainLabel("A rather long label"), shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "short", label: plainLabel("x"), shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "rect-long", label: plainLabel("A rather long label"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -414,7 +416,7 @@ describe("layoutGraph", () => {
     // label is within the circle's radius of its centre.
     for (const id of ["long", "short"]) {
       const node = byId[id];
-      const label = fakeMeasurer.measure(node.label);
+      const label = fakeMeasurer.measure(node.label.text);
       expect([id, Math.hypot(label.width / 2, label.height / 2) <= node.width / 2]).toEqual([
         id,
         true,
@@ -440,9 +442,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "short", label: "x", shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "circle-long", label: "A rather long label", shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "long", label: plainLabel("A rather long label"), shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "short", label: plainLabel("x"), shape: "double-circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "circle-long", label: plainLabel("A rather long label"), shape: "circle", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -473,7 +475,7 @@ describe("layoutGraph", () => {
     // within the *inner* radius of the centre.
     for (const id of ["long", "short"]) {
       const node = byId[id];
-      const label = fakeMeasurer.measure(node.label);
+      const label = fakeMeasurer.measure(node.label.text);
       const inner = node.width / 2 - lean * node.height;
       expect([id, Math.hypot(label.width / 2, label.height / 2) <= inner]).toEqual([id, true]);
     }
@@ -510,9 +512,9 @@ describe("layoutGraph", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
-        { id: "long", label: "A rather long label", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "short", label: "x", shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-        { id: "rect-long", label: "A rather long label", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+        { id: "long", label: plainLabel("A rather long label"), shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "short", label: plainLabel("x"), shape: "cylinder", style: { frame: [], text: [] }, parentId: null, interaction: null },
+        { id: "rect-long", label: plainLabel("A rather long label"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
       ],
       edges: [],
       subgraphs: [],
@@ -538,7 +540,7 @@ describe("layoutGraph", () => {
     // the bottom of the lid and the top of the bulge.
     for (const id of ["long", "short"]) {
       const node = byId[id];
-      const label = fakeMeasurer.measure(node.label);
+      const label = fakeMeasurer.measure(node.label.text);
       const r = lean * node.height;
       const top = node.height / 2 - label.height / 2;
       const bottom = node.height / 2 + label.height / 2;
@@ -642,22 +644,18 @@ describe("layoutGraph", () => {
   });
 });
 
-describe("a Markdown-labelled node's box", () => {
-  it("sizes width from the widest line and height from single-line height times line count", () => {
-    // Per the ticket's own simplification: the plain-text approximation,
-    // not exact per-run bold-width measurement. "A" is 1 char (width 8
-    // under `fakeMeasurer`), "BB" is 2 (width 16) — the box takes the wider
-    // line's width and a height of two line-heights.
+describe("a node's box, sized around its label", () => {
+  it("sizes width from the widest row and height from one line height per row", () => {
+    // "A" is 1 char (width 8 under `fakeMeasurer`), "BB" is 2 (width 16) —
+    // the box takes the wider row's width and a height of two line-heights.
+    // Bold is measured at the regular weight, the simplification
+    // `layoutLabel` documents.
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
         {
           id: "A",
-          label: "A\nBB",
-          labelRuns: [
-            [{ text: "A", bold: false, italic: false }],
-            [{ text: "BB", bold: true, italic: false }],
-          ],
+          label: { text: "A\nBB", rows: [[plainRun("A")], [{ ...plainRun("BB"), bold: true }]] },
           shape: "rect",
           style: { frame: [], text: [] },
           parentId: null,
@@ -677,14 +675,13 @@ describe("a Markdown-labelled node's box", () => {
     expect(positioned.nodes[0].height).toBe(48);
   });
 
-  it("measures a labelRuns-null node exactly as before — one call to measureText.measure", () => {
+  it("sizes a one-row plain label exactly as the measurer sizes its text", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
         {
           id: "A",
-          label: "Start",
-          labelRuns: null,
+          label: plainLabel("Start"),
           shape: "rect",
           style: { frame: [], text: [] },
           parentId: null,
@@ -716,8 +713,8 @@ describe("how long an edge holds its endpoints apart", () => {
   const twoNodes = (minLength: number): GraphModel => ({
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", label: plainLabel("A"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: plainLabel("B"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       {
@@ -788,8 +785,8 @@ describe("the room an edge label is given", () => {
   ): GraphModel => ({
     direction,
     nodes: [
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "B", label: "B", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", label: plainLabel("A"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: plainLabel("B"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       {
@@ -797,7 +794,7 @@ describe("the room an edge label is given", () => {
         from: "A",
         to: "B",
         ...PLAIN_ARROW,
-        label,
+        label: label === null ? null : readLabel(label, { dialect: "html" }).label,
         style: { frame: [], text: [] },
       },
     ],
@@ -868,6 +865,16 @@ describe("the room an edge label is given", () => {
     expect(labelled.labelAnchor!.y).toBeGreaterThan(byId.A.y + byId.A.height);
     expect(labelled.labelAnchor!.y).toBeLessThan(byId.B.y);
   });
+
+  it("reserves one line height per row for a label broken with <br>", () => {
+    // `fakeMeasurer`'s line is 24px, so a label of two rows is a 48px box.
+    const [twoRows] = laidOut("yes<br/>no").edges;
+    const [oneRow] = laidOut("yes").edges;
+
+    expect(oneRow.labelBox?.height).toBe(24);
+    expect(twoRows.labelBox?.height).toBe(48);
+    expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
+  });
 });
 
 /**
@@ -901,7 +908,7 @@ describe("a graph with no subgraph", () => {
       rankdir: "TB",
       nodes: graph.nodes.map((node) => ({
         id: node.id,
-        ...fakeMeasurer.measure(node.label),
+        ...fakeMeasurer.measure(node.label.text),
       })),
       edges: graph.edges.map((edge) => ({
         id: edge.id,
@@ -942,11 +949,11 @@ describe("a subgraph's frame", () => {
   /** A node, with everything a layout does not care about spelled once. */
   const node = (id: string, parentId: string | null = null) => ({
     id,
-    label: id,
+    label: plainLabel(id),
     shape: "rect" as const,
     style: { frame: [], text: [] },
     parentId,
-    interaction: null, labelRuns: null,
+    interaction: null,
   });
 
   const edge = (from: string, to: string) => ({
@@ -997,14 +1004,14 @@ describe("a subgraph's frame", () => {
       model(
         [node("A", "subgraph:1"), node("B", "subgraph:1"), node("C")],
         [edge("A", "B"), edge("B", "C")],
-        [{ id: "subgraph:1", label: "Ingest", parentId: null, direction: null }],
+        [{ id: "subgraph:1", label: plainLabel("Ingest"), parentId: null, direction: null }],
       ),
     );
 
     expect(positioned.subgraphs).toHaveLength(1);
     const [frame] = positioned.subgraphs;
     expect(frame.id).toBe("subgraph:1");
-    expect(frame.label).toBe("Ingest");
+    expect(frame.label.text).toBe("Ingest");
 
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
     expect(contains(frame, byId.A)).toBe(true);
@@ -1027,8 +1034,8 @@ describe("a subgraph's frame", () => {
         [node("A", "subgraph:2"), node("B", "subgraph:2"), node("C", "subgraph:1"), node("D")],
         [edge("A", "B"), edge("C", "A"), edge("B", "D")],
         [
-          { id: "subgraph:1", label: "Outer", parentId: null, direction: null },
-          { id: "subgraph:2", label: "Inner", parentId: "subgraph:1", direction: null },
+          { id: "subgraph:1", label: plainLabel("Outer"), parentId: null, direction: null },
+          { id: "subgraph:2", label: plainLabel("Inner"), parentId: "subgraph:1", direction: null },
         ],
       ),
     );
@@ -1056,8 +1063,8 @@ describe("a subgraph's frame", () => {
         [node("A", "subgraph:1"), node("B", "subgraph:1"), node("C", "subgraph:2"), node("D", "subgraph:2")],
         [edge("A", "B"), edge("B", "C"), edge("C", "D")],
         [
-          { id: "subgraph:1", label: "One", parentId: null, direction: null },
-          { id: "subgraph:2", label: "Two", parentId: null, direction: null },
+          { id: "subgraph:1", label: plainLabel("One"), parentId: null, direction: null },
+          { id: "subgraph:2", label: plainLabel("Two"), parentId: null, direction: null },
         ],
       ),
     );
@@ -1098,8 +1105,8 @@ describe("a subgraph's frame", () => {
           },
         ],
         [
-          { id: "subgraph:1", label: "One", parentId: null, direction: null },
-          { id: "subgraph:2", label: "Two", parentId: null, direction: null },
+          { id: "subgraph:1", label: plainLabel("One"), parentId: null, direction: null },
+          { id: "subgraph:2", label: plainLabel("Two"), parentId: null, direction: null },
         ],
       ),
     );
@@ -1135,7 +1142,7 @@ describe("a subgraph's frame", () => {
       model(
         [node("A", "subgraph:1"), node("B", "subgraph:1")],
         [edge("A", "B")],
-        [{ id: "subgraph:1", label: "Ingest", parentId: null, direction: "LR" }],
+        [{ id: "subgraph:1", label: plainLabel("Ingest"), parentId: null, direction: "LR" }],
       ),
     );
 
@@ -1163,7 +1170,7 @@ describe("a subgraph's frame", () => {
       model(
         [node("A", "subgraph:1"), node("B", "subgraph:1")],
         [edge("A", "B")],
-        [{ id: "subgraph:1", label: "Ingest", parentId: null, direction: null }],
+        [{ id: "subgraph:1", label: plainLabel("Ingest"), parentId: null, direction: null }],
       ),
     );
 
@@ -1184,7 +1191,7 @@ describe("a subgraph's frame", () => {
       model(
         [node("A", "subgraph:1"), node("B", "subgraph:1")],
         [edge("A", "B")],
-        [{ id: "subgraph:1", label: "A very long group title indeed", parentId: null, direction: null }],
+        [{ id: "subgraph:1", label: plainLabel("A very long group title indeed"), parentId: null, direction: null }],
       ),
     );
 
@@ -1198,5 +1205,34 @@ describe("a subgraph's frame", () => {
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.y).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it("makes its title strip one line height taller per row a <br> adds", () => {
+    const framed = (title: string) => {
+      const positioned = laidOut(
+        model(
+          [node("A", "subgraph:1")],
+          [],
+          [
+            {
+              id: "subgraph:1",
+              label: readLabel(title, { dialect: "html" }).label,
+              parentId: null,
+              direction: null,
+            },
+          ],
+        ),
+      );
+      const [frame] = positioned.subgraphs;
+      const [a] = positioned.nodes;
+      return { frame: frame!, above: a!.y - frame!.y };
+    };
+
+    const oneRow = framed("ab");
+    const twoRows = framed("a<br/>b");
+
+    // `fakeMeasurer`'s line is 24px: a second row is 24px more strip.
+    expect(twoRows.frame.labelBox.height).toBe(48);
+    expect(twoRows.above - oneRow.above).toBe(24);
   });
 });

@@ -1,7 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToSVG } from "./renderToSVG";
 import type { PositionedEdge, PositionedGraph } from "../contracts";
 import { CANVAS_GUTTER } from "./sizeCanvas";
+import { layoutLabel } from "../label/layoutLabel";
+import { plainLabel, plainRun, type LabelRun } from "../label/label";
+
+/**
+ * A positioned node's `label` and `labelBox` for one plain row of `text`,
+ * measured as layout would measure it — 8px a character, 20px a line. A
+ * fixture about paint or position spreads this rather than spelling a box
+ * out by hand; a test about the label's own rows builds its own.
+ */
+function labelled(text: string) {
+  const label = plainLabel(text);
+  return {
+    label,
+    labelBox: layoutLabel(label, { measure: (t: string) => ({ width: t.length * 8, height: 20 }) }),
+  };
+}
 
 /**
  * `A --> B`'s decomposition — a solid line, an arrow on the to-end only,
@@ -19,6 +35,7 @@ const PLAIN_ARROW = {
   // absent together. A test that *is* about the label sets both.
   label: null,
   labelAnchor: null,
+  labelBox: null,
 } as const;
 
 /**
@@ -29,9 +46,9 @@ function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "A", label: "Start", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "B", label: "Process", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "C", label: "End", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", ...labelled("Start"), x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", ...labelled("Process"), x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "C", ...labelled("End"), x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [
       {
@@ -81,9 +98,9 @@ function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
     nodes: [
-      { id: "X", label: "ExitOnly", x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "Y", label: "HighlightOnly", x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "Z", label: "EntersLater", x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "X", ...labelled("ExitOnly"), x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "Y", ...labelled("HighlightOnly"), x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "Z", ...labelled("EntersLater"), x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ],
     edges: [],
     subgraphs: [],
@@ -207,7 +224,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "Is it ready?",
+          ...labelled("Is it ready?"),
           shape: "rhombus",
           x: 10,
           y: 20,
@@ -215,11 +232,11 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
         {
           id: "B",
-          label: "Done",
+          ...labelled("Done"),
           shape: "rect",
           x: 10,
           y: 200,
@@ -227,7 +244,7 @@ describe("renderToSVG", () => {
           height: 40,
           style: { frame: [], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -301,7 +318,7 @@ describe("renderToSVG", () => {
       direction: "TB",
       nodes: shapes.map((shape) => ({
         id: shape,
-        label: shape,
+        ...labelled(shape),
         shape,
         x: 10,
         y: 20,
@@ -309,7 +326,7 @@ describe("renderToSVG", () => {
         height: 60,
         style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
         parentId: null,
-        interaction: null, labelRuns: null,
+        interaction: null,
       })),
       edges: [],
       subgraphs: [],
@@ -424,7 +441,7 @@ describe("renderToSVG", () => {
       direction: "TB",
       nodes: (["round", "stadium", "subroutine", "rect"] as const).map((shape) => ({
         id: shape,
-        label: shape,
+        ...labelled(shape),
         shape,
         x: 10,
         y: 20,
@@ -432,7 +449,7 @@ describe("renderToSVG", () => {
         height: 60,
         style: { frame: [], text: [] },
         parentId: null,
-        interaction: null, labelRuns: null,
+        interaction: null,
       })),
       edges: [],
       subgraphs: [],
@@ -498,7 +515,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "Stadium",
+          ...labelled("Stadium"),
           shape: "stadium",
           x: 10,
           y: 20,
@@ -506,7 +523,7 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -539,7 +556,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "Subroutine",
+          ...labelled("Subroutine"),
           shape: "subroutine",
           x: 10,
           y: 20,
@@ -547,7 +564,7 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -616,7 +633,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "Circle",
+          ...labelled("Circle"),
           shape: "circle",
           x: 10,
           y: 20,
@@ -624,7 +641,7 @@ describe("renderToSVG", () => {
           height: 200,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -670,7 +687,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "Double",
+          ...labelled("Double"),
           shape: "double-circle",
           x: 10,
           y: 20,
@@ -678,7 +695,7 @@ describe("renderToSVG", () => {
           height: 160,
           style: { frame: [{ property: "fill", value: "#fdd" }], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -737,7 +754,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "DB",
+          ...labelled("DB"),
           shape: "cylinder",
           x: 10,
           y: 20,
@@ -745,7 +762,7 @@ describe("renderToSVG", () => {
           height: 160,
           style: { frame: [{ property: "fill", value: "#f00" }], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -814,7 +831,7 @@ describe("renderToSVG", () => {
       nodes: [
         {
           id: "A",
-          label: "Is it ready?",
+          ...labelled("Is it ready?"),
           shape: "rhombus",
           x: 0,
           y: 0,
@@ -822,11 +839,11 @@ describe("renderToSVG", () => {
           height: 60,
           style: { frame: [], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
         {
           id: "B",
-          label: "Done",
+          ...labelled("Done"),
           shape: "rect",
           x: 0,
           y: 100,
@@ -834,7 +851,7 @@ describe("renderToSVG", () => {
           height: 40,
           style: { frame: [], text: [] },
           parentId: null,
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -881,7 +898,7 @@ describe("renderToSVG", () => {
 
   it("renders a label containing markup-looking text as literal textContent, never as parsed markup", () => {
     const graph = buildFixture();
-    graph.nodes[0]!.label = "<script>alert(1)</script>";
+    Object.assign(graph.nodes[0]!, labelled("<script>alert(1)</script>"));
 
     const svg = renderToSVG(graph);
 
@@ -1278,7 +1295,7 @@ describe("the label drawn on an edge", () => {
     // The anchor comes from layout and is used as given — a renderer that
     // recomputed a mid-point from `points` would put the text across the
     // line rather than in the space made beside it.
-    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+    const svg = drawLabelled({ ...labelled("yes"), labelAnchor: { x: 55, y: 60 } });
     const text = svg.querySelector("text.siren-edge-label")!;
 
     expect(text.textContent).toBe("yes");
@@ -1295,7 +1312,7 @@ describe("the label drawn on an edge", () => {
     // would mean a consumer restyling class-diagram relationship labels
     // silently restyled every flowchart edge label too, which is the
     // consequence a theming contract must not have (ADR-0004).
-    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+    const svg = drawLabelled({ ...labelled("yes"), labelAnchor: { x: 55, y: 60 } });
 
     expect(svg.querySelectorAll(".siren-relationship-label")).toHaveLength(0);
     expect(svg.querySelectorAll(".siren-edge-label")).toHaveLength(1);
@@ -1314,7 +1331,7 @@ describe("the label drawn on an edge", () => {
     // A timeline target is an id, not an element (ADR-0009): `exit A-B fade`
     // has to take the label with the line it is written on, exactly as a
     // sequence participant's several drawn elements move together.
-    const svg = drawLabelled({ label: "yes", labelAnchor: { x: 55, y: 60 } });
+    const svg = drawLabelled({ ...labelled("yes"), labelAnchor: { x: 55, y: 60 } });
 
     expect(
       Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
@@ -1342,7 +1359,7 @@ describe("renderToSVG — a subgraph", () => {
       nodes: [
         {
           id: "A",
-          label: "Start",
+          ...labelled("Start"),
           shape: "rect",
           x: 40,
           y: 60,
@@ -1350,7 +1367,7 @@ describe("renderToSVG — a subgraph", () => {
           height: 40,
           style: { frame: [], text: [] },
           parentId: "subgraph:1",
-          interaction: null, labelRuns: null,
+          interaction: null,
         },
       ],
       edges: [],
@@ -1365,7 +1382,7 @@ describe("renderToSVG — a subgraph", () => {
   const oneFrame = [
     {
       id: "subgraph:1",
-      label: "Ingest",
+      ...labelled("Ingest"),
       x: 20,
       y: 20,
       width: 140,
@@ -1470,17 +1487,22 @@ describe("renderToSVG's accTitle/accDescr", () => {
 });
 
 describe("a Markdown-labelled node's drawn text", () => {
+  /** `labelled`, for a label of several rows of runs rather than one plain one. */
+  function rowsLabelled(rows: LabelRun[][]) {
+    const label = { text: rows.map((row) => row.map((run) => run.text).join("")).join("\n"), rows };
+    return {
+      label,
+      labelBox: layoutLabel(label, { measure: (t: string) => ({ width: t.length * 8, height: 20 }) }),
+    };
+  }
+
   function markdownFixture(): PositionedGraph {
     return {
       direction: "TB",
       nodes: [
         {
           id: "A",
-          label: "bold\nplain",
-          labelRuns: [
-            [{ text: "bold", bold: true, italic: false }],
-            [{ text: "plain", bold: false, italic: false }],
-          ],
+          ...rowsLabelled([[{ ...plainRun("bold"), bold: true }], [plainRun("plain")]]),
           x: 0,
           y: 0,
           width: 80,
@@ -1501,10 +1523,10 @@ describe("a Markdown-labelled node's drawn text", () => {
     };
   }
 
-  it("draws one tspan.siren-node-label-row per line, each carrying that line's text", () => {
+  it("draws one tspan.siren-label-row per line, each carrying that line's text", () => {
     const svg = renderToSVG(markdownFixture());
 
-    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-node-label-row');
+    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-label-row');
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toBe("bold");
     expect(rows[1]!.textContent).toBe("plain");
@@ -1513,44 +1535,119 @@ describe("a Markdown-labelled node's drawn text", () => {
   it("sets font-weight=bold only on a bold run, and omits it on a plain run", () => {
     const svg = renderToSVG(markdownFixture());
 
-    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-node-label-row');
+    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-label-row');
     const boldRun = rows[0]!.querySelector("tspan")!;
-    const plainRun = rows[1]!.querySelector("tspan")!;
+    const unstyledRun = rows[1]!.querySelector("tspan")!;
     expect(boldRun.getAttribute("font-weight")).toBe("bold");
     expect(boldRun.getAttribute("font-style")).toBeNull();
-    expect(plainRun.getAttribute("font-weight")).toBeNull();
-    expect(plainRun.getAttribute("font-style")).toBeNull();
+    expect(unstyledRun.getAttribute("font-weight")).toBeNull();
+    expect(unstyledRun.getAttribute("font-style")).toBeNull();
   });
 
   it("sets font-style=italic only on an italic run, and centers the block's rows around the node's own center", () => {
     const graph = markdownFixture();
     graph.nodes[0] = {
       ...graph.nodes[0],
-      labelRuns: [
-        [{ text: "italic", bold: false, italic: true }],
-        [{ text: "plain", bold: false, italic: false }],
-      ],
+      ...rowsLabelled([[{ ...plainRun("italic"), italic: true }], [plainRun("plain")]]),
     };
 
     const svg = renderToSVG(graph);
 
-    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-node-label-row');
+    const rows = svg.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-label-row');
     const italicRun = rows[0]!.querySelector("tspan")!;
     expect(italicRun.getAttribute("font-style")).toBe("italic");
     expect(italicRun.getAttribute("font-weight")).toBeNull();
 
-    // node.y + node.height/2 == 20; two rows of height 20 each (40/2),
-    // spread symmetrically above and below that center.
+    // node.y + node.height/2 == 20; two rows of height 20 each, spread
+    // symmetrically above and below that center.
     const rowYs = Array.from(rows).map((row) => Number(row.getAttribute("y")));
     expect(rowYs[0]).toBe(10);
     expect(rowYs[1]).toBe(30);
   });
 
-  it("draws an ordinary (labelRuns: null) node's text as a plain textContent, with no row tspans", () => {
+  it("draws a one-row plain label as the text's own textContent, with no row tspans", () => {
     const svg = renderToSVG(buildFixture());
 
     const text = svg.querySelector('g.siren-node[data-siren-id="A"] text')!;
     expect(text.textContent).toBe("Start");
-    expect(text.querySelectorAll("tspan.siren-node-label-row")).toHaveLength(0);
+    expect(text.querySelectorAll("tspan.siren-label-row")).toHaveLength(0);
+  });
+});
+
+/**
+ * No tag `readLabel` honors yet paints behind its text, so `drawLabel` never
+ * hands back a background — but where the renderer puts one is this file's
+ * contract, not the label module's, and it is fixed now so that the tickets
+ * adding `<mark>` and `background-color` only have to draw. The real
+ * `drawLabel` is delegated to unchanged, except that a label whose text
+ * holds `▨` comes back with one `<rect class="test-background">`.
+ */
+vi.mock("../label/drawLabel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../label/drawLabel")>();
+  return {
+    ...actual,
+    drawLabel: (...args: Parameters<typeof actual.drawLabel>) => {
+      const drawn = actual.drawLabel(...args);
+      if (!args[0].text.includes("▨")) {
+        return drawn;
+      }
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("class", "test-background");
+      return { ...drawn, backgrounds: [rect] };
+    },
+  };
+});
+
+describe("what a label paints behind its text", () => {
+  /** Whether `parent` holds a test background, and it comes before `text` — document order is paint order. */
+  function paintedBehind(parent: Element, text: Element | null): boolean {
+    const children = Array.from(parent.children);
+    const background = parent.querySelector(":scope > rect.test-background");
+    return (
+      background !== null &&
+      text !== null &&
+      text.parentElement === parent &&
+      children.indexOf(background) < children.indexOf(text)
+    );
+  }
+
+  it("goes into the node's group, before its text", () => {
+    const graph = buildFixture();
+    Object.assign(graph.nodes[0]!, labelled("▨ Start"));
+
+    const svg = renderToSVG(graph);
+
+    const group = svg.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(paintedBehind(group, group.querySelector(":scope > text"))).toBe(true);
+  });
+
+  it("goes before an edge's label", () => {
+    const graph = buildFixture();
+    const [first] = graph.edges;
+    graph.edges = [{ ...first!, ...labelled("▨ yes"), labelAnchor: { x: 55, y: 60 } }];
+
+    const svg = renderToSVG(graph);
+
+    expect(paintedBehind(svg, svg.querySelector("text.siren-edge-label"))).toBe(true);
+  });
+
+  it("goes into a subgraph's group, before its title", () => {
+    const graph = buildFixture();
+    graph.subgraphs = [
+      {
+        id: "subgraph:1",
+        ...labelled("▨ Ingest"),
+        x: 20,
+        y: 20,
+        width: 140,
+        height: 100,
+        labelAnchor: { x: 90, y: 38 },
+      },
+    ];
+
+    const svg = renderToSVG(graph);
+
+    const group = svg.querySelector("g.siren-subgraph")!;
+    expect(paintedBehind(group, group.querySelector("text.siren-subgraph-label"))).toBe(true);
   });
 });

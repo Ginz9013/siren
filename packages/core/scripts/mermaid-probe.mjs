@@ -90,9 +90,16 @@
  * puts a label in a `<foreignObject>`, where it is HTML and `color` is the
  * property that paints it; `htmlLabels: false` puts it in an SVG `<text>`,
  * where `color` names no paint at all and Mermaid emits `fill` instead.
- * Siren draws SVG text, so the second is the comparable measurement, but a
- * mode that reported only one would make Mermaid's own translation look like
- * a quirk of this script.
+ *
+ * **`htmlLabels: true` is the picture Siren is held to; `htmlLabels: false`
+ * is the reference for its DOM structure** (ADR-0015). The default is what a
+ * reader sees on mermaid.live, in GitHub and in every host that keeps
+ * Mermaid's settings, so what a label *shows* — which tags break a row, bold
+ * a run, or vanish — is measured there. Siren still draws labels as SVG
+ * `<text>`, so how a label is *built* — a `<tspan>` per row, one per run
+ * inside it — is read off the SVG mode, which is also the mode `--markup`
+ * prints. The two disagree (`htmlLabels: false` draws `<b>` as its literal
+ * characters), and a mode that reported only one would hide exactly that.
  *
  * **Geometry from this mode is meaningless.** jsdom performs no layout, so
  * `getBBox` and friends are stubbed with a fixed box purely to let Mermaid's
@@ -547,12 +554,14 @@ function paintLine(dom, element) {
 const LABEL_MECHANISMS = [
   {
     htmlLabels: false,
-    title: "paint, with labels as SVG `<text>` (`htmlLabels: false` — the form Siren draws)",
+    title:
+      "paint, with labels as SVG `<text>` (`htmlLabels: false` — the reference for Siren's DOM structure)",
     labels: "text",
   },
   {
     htmlLabels: true,
-    title: "paint, with labels as HTML in a `<foreignObject>` (`htmlLabels: true` — Mermaid's default)",
+    title:
+      "paint, with labels as HTML in a `<foreignObject>` (`htmlLabels: true` — Mermaid's default, the picture Siren is held to)",
     labels: "foreignObject span[class]",
   },
 ];
