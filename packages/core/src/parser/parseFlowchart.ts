@@ -19,7 +19,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { plainLabel } from "../label/label";
-import { readLabel, type ReadLabelResult } from "../label/readLabel";
+import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -1583,18 +1583,17 @@ export function parseFlowchart(source: string): ParseResult {
    * a label Siren cannot draw as written is not drawn some other way.
    */
   const reportLabelProblems = (problems: LabelProblem[], statement: Statement, at: number) => {
-    for (const { severity, message, offset } of problems) {
+    const reported = labelDiagnostics(problems, (offset) => {
       const before = statement.text.slice(0, at + offset);
       const lastBreak = before.lastIndexOf("\n");
-      diagnostics.push({
-        severity,
-        message,
+      return {
         line: statement.line + before.split("\n").length - 1,
         column: lastBreak === -1 ? statement.column + before.length : before.length - lastBreak,
-      });
-      if (severity === "error") {
-        sawError = true;
-      }
+      };
+    });
+    diagnostics.push(...reported.diagnostics);
+    if (reported.hasError) {
+      sawError = true;
     }
   };
 

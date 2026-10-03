@@ -1,4 +1,13 @@
-import { plainRun, type Label, type LabelDialect, type LabelProblem, type LabelRun } from "./label";
+import type { Diagnostic } from "../contracts";
+import {
+  plainRun,
+  relativeScale,
+  sameProperties,
+  type Label,
+  type LabelDialect,
+  type LabelProblem,
+  type LabelRun,
+} from "./label";
 
 /**
  * One tag: `<`, an optional `/`, a name, then optionally whitespace and
@@ -53,8 +62,9 @@ const monospace: RunStyle = (run) => {
  */
 function scaled(factor: number): RunStyle {
   return (run) => {
-    if ("scale" in run.fontSize) {
-      run.fontSize = { scale: run.fontSize.scale * factor };
+    const scale = relativeScale(run);
+    if (scale !== null) {
+      run.fontSize = { scale: scale * factor };
     }
   };
 }
@@ -73,10 +83,42 @@ function shifted(baseline: "sub" | "super"): RunStyle {
 }
 
 /**
- * What each text-styling tag sets on the runs inside it, by lower-case tag
- * name — the `html` dialect's styling vocabulary.
+ * What one tag in the vocabulary does — every fact about it in one entry, so
+ * that teaching `readLabel` a tag is adding one entry to `HTML_TAGS`.
+ */
+interface TagRule {
+  /** What the tag sets on each run inside it; absent for a tag that sets nothing. */
+  style?: RunStyle;
+  /**
+   * Whether the HTML parser calls it a **formatting** element — one it
+   * reopens after a misnested end tag closed it early (the "active
+   * formatting elements" of the HTML standard's tree construction). Any
+   * other element a misnested end tag closes for good.
+   */
+  formatting: boolean;
+  /**
+   * Text the browser draws on each side of the tag's content, as its
+   * `::before`/`::after` generated content. Generated content takes the
+   * element's own style, so each mark is read as text inside the tag, and is
+   * part of the label's flattened text, because the reader sees it.
+   */
+  marks?: { open: string; close: string };
+}
+
+/** A formatting element that sets `style`. */
+function formatting(style: RunStyle): TagRule {
+  return { style, formatting: true };
+}
+
+/** An ordinary (not formatting) element that sets `style`. */
+function ordinary(style: RunStyle): TagRule {
+  return { style, formatting: false };
+}
+
+/**
+ * The `html` dialect's tag vocabulary, by lower-case tag name.
  *
- * Every entry is a measurement: Mermaid 11.17.2 at its default settings, in
+ * Every style is a measurement: Mermaid 11.17.2 at its default settings, in
  * headless Chrome (the board's "measured picture" table), draws `b` and
  * `strong` with `font-weight: bold`, and `i` `em` `cite` `dfn` `var` with
  * `font-style: italic` — five names for one picture, because the browser's
@@ -84,41 +126,36 @@ function shifted(baseline: "sub" | "super"): RunStyle {
  * underline, `s` `strike` `del` with a line through, `code` `kbd` `samp`
  * `tt` in `monospace`, `small` at × 0.833 of the size around it and `big` at
  * × 1.2, `sub`/`sup` at × 0.833, below / above the baseline, and `q` as its
- * text between `“` and `”` (see `QUOTE_MARKS`).
+ * text between `“` and `”`.
+ *
+ * Which are formatting elements is the HTML standard's list: `b` `big`
+ * `code` `em` `i` `s` `small` `strike` `strong` `tt` `u`.
  */
-const STYLE_TAGS: Readonly<Record<string, RunStyle>> = {
-  b: bold,
-  strong: bold,
-  i: italic,
-  em: italic,
-  cite: italic,
-  dfn: italic,
-  var: italic,
-  u: underline,
-  ins: underline,
-  s: strikethrough,
-  strike: strikethrough,
-  del: strikethrough,
-  code: monospace,
-  kbd: monospace,
-  samp: monospace,
-  tt: monospace,
-  small: scaled(0.833),
-  big: scaled(1.2),
-  sub: shifted("sub"),
-  sup: shifted("super"),
-  q: () => {},
+const HTML_TAGS: Readonly<Record<string, TagRule>> = {
+  b: formatting(bold),
+  strong: formatting(bold),
+  i: formatting(italic),
+  em: formatting(italic),
+  cite: ordinary(italic),
+  dfn: ordinary(italic),
+  var: ordinary(italic),
+  u: formatting(underline),
+  ins: ordinary(underline),
+  s: formatting(strikethrough),
+  strike: formatting(strikethrough),
+  del: ordinary(strikethrough),
+  code: formatting(monospace),
+  kbd: ordinary(monospace),
+  samp: ordinary(monospace),
+  tt: formatting(monospace),
+  small: formatting(scaled(0.833)),
+  big: formatting(scaled(1.2)),
+  sub: ordinary(shifted("sub")),
+  sup: ordinary(shifted("super")),
+  // Sets nothing on a run; draws `“` and `”` round its text (measured), so
+  // `<b><q>yo</q></b>` is one bold run `“yo”`.
+  q: { formatting: false, marks: { open: "\u201c", close: "\u201d" } },
 };
-
-/**
- * `q` sets nothing on a run; what it draws is a quote mark on each side of
- * its text, `“` and `”` (measured), which the browser's default stylesheet
- * generates as the element's `::before`/`::after` content. Generated content
- * takes the element's own style, so each mark is read as text inside the
- * `q` — `<b><q>yo</q></b>` is one bold run `“yo”` — and is part of the
- * label's flattened text, because the reader sees it.
- */
-const QUOTE_MARKS = { open: "\u201c", close: "\u201d" } as const;
 
 /**
  * What reading one label gave: the label, and what the author has to be
@@ -127,6 +164,32 @@ const QUOTE_MARKS = { open: "\u201c", close: "\u201d" } as const;
 export interface ReadLabelResult {
   label: Label;
   problems: LabelProblem[];
+}
+
+/**
+ * The diagnostics for the problems `readLabel` found in one label, each at
+ * the line and column `positionOf` gives for its offset, and whether any of
+ * them is an error.
+ *
+ * Every parser reading labels needs this conversion, and only the position
+ * arithmetic differs between them — where in the document the label's
+ * offsets count from, and whether a label can span physical lines — so that
+ * is the one thing a parser hands in. An error costs the whole document,
+ * exactly as an unrecognized line does: a label Siren cannot draw as written
+ * is not drawn some other way, which is why the caller is told.
+ */
+export function labelDiagnostics(
+  problems: readonly LabelProblem[],
+  positionOf: (offset: number) => { line: number; column: number },
+): { diagnostics: Diagnostic[]; hasError: boolean } {
+  return {
+    diagnostics: problems.map(({ severity, message, offset }) => ({
+      severity,
+      message,
+      ...positionOf(offset),
+    })),
+    hasError: problems.some((problem) => problem.severity === "error"),
+  };
 }
 
 /**
@@ -169,6 +232,20 @@ export function readLabel(
  * sharing a doubled star, and the italic pass goes over its output so that
  * a `*` pair inside a bold one is still read.
  *
+ * **A pair opens at stars with no whitespace after them and closes at stars
+ * with none before them** — the whitespace half of CommonMark's flanking
+ * rule, which is what Mermaid's Markdown reader applies. Measured in
+ * 11.17.2's HTML labels: `a * b * c`, `*a *`, `**a **` and `** a**` are drawn
+ * as written, stars and all, and `*a * b*` is one italic `a * b`. An italic
+ * star may not sit against another star either, so the second star of a
+ * `**` that opened nothing (`** a**`) or closed nothing (`**a **`) does not
+ * pair on its own.
+ *
+ * Not the whole of CommonMark, and so not the whole of Mermaid's reading:
+ * its punctuation half is not applied (`x**(a)**y` is drawn as written in
+ * Mermaid, and bold here), nor `_`/`__` emphasis (`_a_` is italic in
+ * Mermaid, measured, and drawn as written here).
+ *
  * Mermaid's *SVG* labels read a Markdown string differently — word by word,
  * and an italic run inside a bold one loses the bold — but that mode is the
  * DOM reference, not the picture (ADR-0015).
@@ -176,31 +253,9 @@ export function readLabel(
 function markdownAsTags(source: string): string {
   return source
     .replace(/\n/g, "<br>")
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.*?)\*/g, "<em>$1</em>");
+    .replace(/\*\*(?!\s)(.*?)(?<!\s)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(?![\s*])(.*?)(?<![\s*])\*/g, "<em>$1</em>");
 }
-
-/**
- * The tags among `STYLE_TAGS` that the HTML parser calls **formatting**
- * elements — the ones it reopens after a misnested end tag closed them early
- * (the "active formatting elements" of the HTML standard's tree
- * construction). The other styling tags (`cite` `dfn` `var` `ins` `del`
- * `kbd` `samp` `sub` `sup` `q`) are ordinary elements, which a misnested end
- * tag closes for good.
- */
-const FORMATTING_TAGS: ReadonlySet<string> = new Set([
-  "b",
-  "big",
-  "code",
-  "em",
-  "i",
-  "s",
-  "small",
-  "strike",
-  "strong",
-  "tt",
-  "u",
-]);
 
 /**
  * Reads the tags in `source` into rows of runs.
@@ -232,7 +287,7 @@ const FORMATTING_TAGS: ReadonlySet<string> = new Set([
  * A tag whose name the dialect does not know stays in the text, as written.
  */
 function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
-  const vocabulary: Readonly<Record<string, RunStyle>> = dialect === "html" ? STYLE_TAGS : {};
+  const vocabulary: Readonly<Record<string, TagRule>> = dialect === "html" ? HTML_TAGS : {};
   const rows: LabelRun[][] = [];
   let row: LabelRun[] = [];
   let open: string[] = [];
@@ -244,7 +299,7 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
     }
     const run = plainRun(text);
     for (const name of stack) {
-      vocabulary[name]!(run);
+      vocabulary[name]!.style?.(run);
     }
     const last = row[row.length - 1];
     if (last !== undefined && sameProperties(last, run)) {
@@ -260,12 +315,13 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
    */
   const close = (index: number): void => {
     for (let depth = open.length - 1; depth >= index; depth--) {
-      if (open[depth] === "q") {
-        emit(QUOTE_MARKS.close, open.slice(0, depth + 1));
+      const marks = vocabulary[open[depth]!]!.marks;
+      if (marks !== undefined) {
+        emit(marks.close, open.slice(0, depth + 1));
       }
     }
     const inside = open.slice(index + 1);
-    open = [...open.slice(0, index), ...inside.filter((name) => FORMATTING_TAGS.has(name))];
+    open = [...open.slice(0, index), ...inside.filter((name) => vocabulary[name]!.formatting)];
   };
 
   let lastIndex = 0;
@@ -285,8 +341,9 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
       row = [];
     } else if (!closing) {
       open.push(name);
-      if (name === "q") {
-        emit(QUOTE_MARKS.open);
+      const marks = vocabulary[name]!.marks;
+      if (marks !== undefined) {
+        emit(marks.open);
       }
     } else if (open.lastIndexOf(name) !== -1) {
       close(open.lastIndexOf(name));
@@ -298,18 +355,6 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
   }
   rows.push(row.length === 0 ? [plainRun("")] : row);
   return rows;
-}
-
-/**
- * Whether two runs carry the same value on every property but their text —
- * so that `<b>a</b><strong>b</strong>` is one bold run, and a tag that sets
- * nothing a run can show leaves a plain label plain.
- */
-function sameProperties(a: LabelRun, b: LabelRun): boolean {
-  return (Object.keys(a) as (keyof LabelRun)[]).every(
-    // `fontSize` is the one object-valued property; JSON compares it by value.
-    (key) => key === "text" || JSON.stringify(a[key]) === JSON.stringify(b[key]),
-  );
 }
 
 /** A label of these rows, with the flattened `text` every plain-string reader takes. */

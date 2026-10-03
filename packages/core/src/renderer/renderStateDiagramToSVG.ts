@@ -6,7 +6,7 @@ import type {
   PositionedStateTransition,
   StyleProperty,
 } from "../contracts";
-import { drawLabel, type DrawnLabel } from "../label/drawLabel";
+import { appendLabel, drawLabel } from "../label/drawLabel";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -349,18 +349,6 @@ function appendStateLabel(
   drawn.text.setAttribute("class", className);
   applyAuthorStyle(drawn.text, style);
   appendLabel(g, drawn);
-}
-
-/**
- * Appends a drawn label to `parent`: the elements it paints behind its text
- * first, then the text, because document order is paint order — the same
- * order `renderToSVG`'s helper of this name keeps.
- */
-function appendLabel(parent: Element, drawn: DrawnLabel): void {
-  for (const background of drawn.backgrounds) {
-    parent.appendChild(background);
-  }
-  parent.appendChild(drawn.text);
 }
 
 /**

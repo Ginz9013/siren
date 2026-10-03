@@ -1,4 +1,4 @@
-import { isPlain, type Label, type LabelBox, type LabelRun } from "./label";
+import { isPlain, relativeScale, type Label, type LabelBox, type LabelRun } from "./label";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -23,12 +23,25 @@ const BASELINE_SHIFT: Readonly<Record<LabelRun["baseline"], number>> = {
 
 /**
  * A drawn label: the `<text>`, and the elements its runs paint *behind* it,
- * which the caller inserts before the `<text>` (document order is paint
- * order). Neither is attached anywhere yet.
+ * which go before the `<text>` (document order is paint order —
+ * `appendLabel` attaches both in that order). Neither is attached anywhere
+ * yet.
  */
 export interface DrawnLabel {
   text: SVGTextElement;
   backgrounds: SVGElement[];
+}
+
+/**
+ * Appends a drawn label to `parent`: what its runs paint behind the text
+ * first, then the `<text>` itself, since document order is paint order. The
+ * one place that order is written, for every renderer and every label.
+ */
+export function appendLabel(parent: Element, drawn: DrawnLabel): void {
+  for (const background of drawn.backgrounds) {
+    parent.appendChild(background);
+  }
+  parent.appendChild(drawn.text);
 }
 
 /**
@@ -105,7 +118,7 @@ export function drawLabel(
     let shift = 0;
     for (const run of runs) {
       const element = document.createElementNS(SVG_NS, "tspan");
-      const scale = "scale" in run.fontSize ? run.fontSize.scale : 1;
+      const scale = relativeScale(run) ?? 1;
       const target = BASELINE_SHIFT[run.baseline] * scale;
       // `em` in a `dy` is the run's own size, so the distance is divided by it.
       const dy = numeral((target - shift) / scale);
@@ -129,8 +142,8 @@ export function drawLabel(
       if (run.monospace) {
         element.setAttribute("font-family", "monospace");
       }
-      if ("scale" in run.fontSize && run.fontSize.scale !== 1) {
-        element.setAttribute("font-size", `${numeral(run.fontSize.scale)}em`);
+      if (scale !== 1) {
+        element.setAttribute("font-size", `${numeral(scale)}em`);
       }
       element.textContent = run.text;
       row.appendChild(element);

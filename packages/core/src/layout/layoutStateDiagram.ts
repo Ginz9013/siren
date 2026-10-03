@@ -655,7 +655,6 @@ function planStateBox(
     return { ...box, labels: [], dividerY: null };
   }
 
-  const widths: number[] = [];
   const planned: PositionedStateLabel[] = [];
   let bottom = STATE_PADDING_Y;
   let dividerY: number | null = null;
@@ -675,14 +674,13 @@ function planStateBox(
       dividerY = bottom;
       bottom += STATE_PADDING_Y;
     }
-    const labelBox = layoutLabel(label, options.measureText);
-    widths.push(labelBox.width);
-    planned.push({ label, labelBox, y: bottom + labelBox.height / 2 });
-    bottom += labelBox.height;
+    const placed = placeLabel(label, bottom, options);
+    planned.push(placed);
+    bottom += placed.labelBox.height;
   });
 
   return {
-    width: Math.max(...widths) + STATE_PADDING_X * 2,
+    width: Math.max(...planned.map((placed) => placed.labelBox.width)) + STATE_PADDING_X * 2,
     height: bottom + STATE_PADDING_Y,
     labels: planned,
     dividerY,
@@ -706,23 +704,31 @@ function planStateBox(
  * the members' own boxes.
  */
 function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
-  const widths: number[] = [];
   const planned: PositionedStateLabel[] = [];
   let bottom = COMPOSITE_PADDING;
 
   for (const label of labels) {
-    const labelBox = layoutLabel(label, options.measureText);
-    widths.push(labelBox.width);
-    planned.push({ label, labelBox, y: bottom + labelBox.height / 2 });
-    bottom += labelBox.height;
+    const placed = placeLabel(label, bottom, options);
+    planned.push(placed);
+    bottom += placed.labelBox.height;
   }
 
   return {
-    width: Math.max(...widths) + COMPOSITE_PADDING * 2,
+    width: Math.max(...planned.map((placed) => placed.labelBox.width)) + COMPOSITE_PADDING * 2,
     height: bottom + COMPOSITE_PADDING,
     labels: planned,
     dividerY: null,
   };
+}
+
+/**
+ * `label` measured and placed with its top edge at `top` — the step every
+ * stack of labels in a state's box repeats: the caller moves `top` down by
+ * the label's height for the next one.
+ */
+function placeLabel(label: Label, top: number, options: LayoutOptions): PositionedStateLabel {
+  const labelBox = layoutLabel(label, options.measureText);
+  return { label, labelBox, y: top + labelBox.height / 2 };
 }
 
 /**

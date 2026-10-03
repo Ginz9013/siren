@@ -7,7 +7,7 @@ import type {
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
-import { drawLabel, type DrawnLabel } from "../label/drawLabel";
+import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -449,19 +449,6 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
   appendLabel(g, title);
 
   return g;
-}
-
-/**
- * Appends a drawn label to `parent`: what its runs paint behind the text
- * first, then the `<text>` itself, since document order is paint order.
- * The one place that order is written, for the node, edge and subgraph
- * labels alike.
- */
-function appendLabel(parent: Element, drawn: DrawnLabel): void {
-  for (const background of drawn.backgrounds) {
-    parent.appendChild(background);
-  }
-  parent.appendChild(drawn.text);
 }
 
 /**

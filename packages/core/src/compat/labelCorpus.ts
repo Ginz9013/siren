@@ -348,4 +348,19 @@ export const LABEL_CASES: readonly CompatCase[] = [
       expectRows("label rows", labelRows(nodeText(result, "A")), ["a(b)", "b(b)"]);
     },
   },
+  {
+    id: "label-markdown-spaced-star",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`a * b * c\`"]`,
+    status: "supported",
+    meaning:
+      "A `*` with a space after it opens nothing in a Markdown string: Mermaid's " +
+      "HTML labels show `a * b * c` as written, stars and all (measured against " +
+      "11.17.2), as CommonMark's flanking rule says. Siren used to pair the two " +
+      "stars, drop them, and draw ` b ` in italics.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a * b * c"]);
+    },
+  },
 ];
