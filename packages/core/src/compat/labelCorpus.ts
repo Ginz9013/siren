@@ -363,4 +363,44 @@ export const LABEL_CASES: readonly CompatCase[] = [
       expectRows("label rows", labelRows(nodeText(result, "A")), ["a * b * c"]);
     },
   },
+  {
+    id: "label-mark",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x y <mark>m</mark>]`,
+    status: "supported",
+    meaning:
+      "`<mark>` draws its text black on a yellow `#ff0` background (measured " +
+      "against 11.17.2). Siren draws a rect behind the run, painted with " +
+      "`--siren-label-mark-fill`, and the run's text with " +
+      "`--siren-label-mark-text`. The rect is as wide as the measurer says the " +
+      "run is, which can differ from the glyphs the browser really draws by a " +
+      "few pixels.",
+    assert: (result) => {
+      const text = nodeText(result, "A");
+      expectRows("label runs", labelRuns(text, "class"), [
+        "x y ",
+        "m[class=siren-label-mark-text]",
+      ]);
+      const rects = Array.from(
+        text?.parentElement?.querySelectorAll("rect.siren-label-mark") ?? [],
+      );
+      if (rects.length !== 1) {
+        throw new Error(`expected one mark rect, got ${rects.length}`);
+      }
+      const rect = rects[0]!;
+      // Behind the text: document order is paint order.
+      if (rect.nextElementSibling !== text) {
+        throw new Error("the mark rect is not drawn just before the label's <text>");
+      }
+      // Behind `m`, the last of five characters: wholly right of the centre.
+      const centre = Number(text!.getAttribute("x"));
+      if (!(Number(rect.getAttribute("x")) > centre && Number(rect.getAttribute("width")) > 0)) {
+        throw new Error(
+          `the mark rect (x=${rect.getAttribute("x")}, width=${rect.getAttribute("width")}) ` +
+            `is not behind the marked run, right of the centre at ${centre}`,
+        );
+      }
+    },
+  },
 ];

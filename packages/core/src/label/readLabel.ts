@@ -52,6 +52,9 @@ const strikethrough: RunStyle = (run) => {
 const monospace: RunStyle = (run) => {
   run.monospace = true;
 };
+const marked: RunStyle = (run) => {
+  run.mark = true;
+};
 
 /**
  * A tag drawing its text at `factor` times the size around it. Nested, the
@@ -125,8 +128,9 @@ function ordinary(style: RunStyle): TagRule {
  * default stylesheet gives all five the same rule — `u` and `ins` with an
  * underline, `s` `strike` `del` with a line through, `code` `kbd` `samp`
  * `tt` in `monospace`, `small` at × 0.833 of the size around it and `big` at
- * × 1.2, `sub`/`sup` at × 0.833, below / above the baseline, and `q` as its
- * text between `“` and `”`.
+ * × 1.2, `sub`/`sup` at × 0.833, below / above the baseline, `q` as its
+ * text between `“` and `”`, and `mark` as black text on a yellow `#ff0`
+ * background — paint the theme owns, so a run says only that it is marked.
  *
  * Which are formatting elements is the HTML standard's list: `b` `big`
  * `code` `em` `i` `s` `small` `strike` `strong` `tt` `u`.
@@ -152,6 +156,7 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   big: formatting(scaled(1.2)),
   sub: ordinary(shifted("sub")),
   sup: ordinary(shifted("super")),
+  mark: ordinary(marked),
   // Sets nothing on a run; draws `“` and `”` round its text (measured), so
   // `<b><q>yo</q></b>` is one bold run `“yo”`.
   q: { formatting: false, marks: { open: "\u201c", close: "\u201d" } },
