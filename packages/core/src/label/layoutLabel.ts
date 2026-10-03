@@ -11,7 +11,11 @@ import type { Label, LabelBox, LabelBoxRow, LabelRun } from "./label";
  * sitting beside another run: summing two runs' answers would pad the row
  * twice. So the padding is asked for directly — what the measurer answers
  * for `""` is, by definition, what it adds to every string — and counted
- * once per row, half on each side. A run's own width is its answer less
+ * once per row, half on each side. That assumes a measurer whose padding
+ * does not depend on the text it measures, which both measurers in this
+ * repo satisfy (a constant added to the measured width); one that padded
+ * some strings more than others would get run widths off by the
+ * difference. A run's own width is its answer less
  * that padding. For the overwhelmingly common label, one row of one plain
  * run, the row's width therefore comes out *exactly* the measurer's answer
  * for the text, the number every label was sized with before rows existed.

@@ -1,14 +1,32 @@
 import { plainRun, type Label, type LabelDialect, type LabelProblem, type LabelRun } from "./label";
 
 /**
- * A row break: Mermaid's own `/<br\s*\/?>/gi`, measured (ADR-0015). So
- * `<br>`, `<br/>`, `<br />` and `<BR>` all break a row, and `<br class="x">`
- * does not — the pattern has no room for an attribute, and what Mermaid
- * does not break on, neither does Siren.
+ * A row break: the tag name `br`, in any case, then optionally whitespace
+ * and attributes, then an optional `/`, then `>`. So `<br>`, `<br/>`,
+ * `<br />`, `<BR>` and `<br class="x">` all break a row, and `<brx>` does
+ * not. An attribute value in quotes may hold a `>` without ending the tag.
  *
- * The same in both dialects: it is the one tag a sequence diagram honors.
+ * Wider than Mermaid's own `/<br\s*\/?>/gi`, deliberately (ADR-0015): that
+ * pattern is its SVG-mode rule and has no room for an attribute, but in its
+ * default HTML labels DOMPurify keeps `<BR class="x">` as an element and the
+ * browser breaks the line (measured), and that picture is the one Siren
+ * draws.
+ *
+ * Read the same in both dialects: it is the one tag a sequence diagram
+ * honors. Mermaid draws sequence text in SVG mode only, where its narrower
+ * pattern is the picture, so the ticket wiring the `sequence` dialect has to
+ * decide whether an attribute-carrying `<br>` breaks there too.
  */
-const ROW_BREAK_RE = /<br\s*\/?>/gi;
+const ROW_BREAK_RE = /<br(?:\s(?:[^>"']|"[^"]*"|'[^']*')*)?\/?>/gi;
+
+/**
+ * What reading one label gave: the label, and what the author has to be
+ * told about it, each problem at an offset in the source that was read.
+ */
+export interface ReadLabelResult {
+  label: Label;
+  problems: LabelProblem[];
+}
 
 /**
  * Reads what an author wrote in one label position into a `Label`, and
@@ -25,7 +43,7 @@ const ROW_BREAK_RE = /<br\s*\/?>/gi;
 export function readLabel(
   source: string,
   options: { dialect: LabelDialect; markdown?: boolean },
-): { label: Label; problems: LabelProblem[] } {
+): ReadLabelResult {
   // A Markdown string's real line break is a row break exactly as `<br>`
   // is (measured: `node="A" text="line1\nline2"`, drawn as two rows); an
   // ordinary label cannot carry one at all, so splitting on it there would

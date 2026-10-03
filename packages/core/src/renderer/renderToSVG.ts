@@ -7,7 +7,7 @@ import type {
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
-import { drawLabel } from "../label/drawLabel";
+import { drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -232,13 +232,10 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // was sized around. What the label paints behind its text goes in
     // first, over the frame and under the text, since document order is
     // paint order.
-    const { text, backgrounds } = drawLabel(node.label, node.labelBox, {
+    const drawn = drawLabel(node.label, node.labelBox, {
       x: node.x + node.width / 2,
       y: node.y + node.height / 2,
     });
-    for (const background of backgrounds) {
-      g.appendChild(background);
-    }
     // The other half of the author's declaration. A node draws two things —
     // the frame and this label — and `resolveStyles` already decided which
     // of them each declaration is about, so there is nothing to sort here.
@@ -248,8 +245,8 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // selector exactly as it outranks a class selector, so a
     // `siren-node-label` mirroring `.siren-class-name` would change nothing
     // about where this lands.
-    applyInlineStyle(text, node.style.text);
-    g.appendChild(text);
+    applyInlineStyle(drawn.text, node.style.text);
+    appendLabel(g, drawn);
 
     // The same wrapper the class diagram renderer calls, on the terms
     // ADR-0008 already established for a node's frame: `null` draws nothing
@@ -349,10 +346,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // paint order.
     const drawnLabel = buildEdgeLabel(edge);
     if (drawnLabel !== null) {
-      for (const background of drawnLabel.backgrounds) {
-        svg.appendChild(background);
-      }
-      svg.appendChild(drawnLabel.text);
+      appendLabel(svg, drawnLabel);
     }
   }
 
@@ -375,12 +369,13 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  */
 function buildEdgeLabel(
   edge: PositionedEdge,
-): { text: SVGTextElement; backgrounds: SVGElement[] } | null {
+): DrawnLabel | null {
   if (edge.label === null || edge.labelAnchor === null || edge.labelBox === null) {
     return null;
   }
 
-  const { text, backgrounds } = drawLabel(edge.label, edge.labelBox, edge.labelAnchor);
+  const drawn = drawLabel(edge.label, edge.labelBox, edge.labelAnchor);
+  const { text } = drawn;
   // A sibling of `.siren-relationship-label`, not that class reused. Every
   // `siren-*` name here is the construct's own: a *relationship* belongs to
   // the class diagram and an *edge* to the flowchart, which is why
@@ -406,7 +401,7 @@ function buildEdgeLabel(
   // painted with. This is the same call `renderToSVG` already makes for a
   // node's label, on the same half of the same resolved style.
   applyInlineStyle(text, edge.style.text);
-  return { text, backgrounds };
+  return drawn;
 }
 
 /** The classes one edge's path wears: the name every edge has, plus its line's own. */
@@ -448,19 +443,25 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
   frame.setAttribute("height", String(subgraph.height));
   g.appendChild(frame);
 
-  const { text: title, backgrounds } = drawLabel(
-    subgraph.label,
-    subgraph.labelBox,
-    subgraph.labelAnchor,
-  );
-  title.setAttribute("class", "siren-subgraph-label");
+  const title = drawLabel(subgraph.label, subgraph.labelBox, subgraph.labelAnchor);
+  title.text.setAttribute("class", "siren-subgraph-label");
   // Over the frame and under the title, since document order is paint order.
-  for (const background of backgrounds) {
-    g.appendChild(background);
-  }
-  g.appendChild(title);
+  appendLabel(g, title);
 
   return g;
+}
+
+/**
+ * Appends a drawn label to `parent`: what its runs paint behind the text
+ * first, then the `<text>` itself, since document order is paint order.
+ * The one place that order is written, for the node, edge and subgraph
+ * labels alike.
+ */
+function appendLabel(parent: Element, drawn: DrawnLabel): void {
+  for (const background of drawn.backgrounds) {
+    parent.appendChild(background);
+  }
+  parent.appendChild(drawn.text);
 }
 
 /**

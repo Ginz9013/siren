@@ -19,7 +19,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { plainLabel } from "../label/label";
-import { readLabel } from "../label/readLabel";
+import { readLabel, type ReadLabelResult } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -241,24 +241,17 @@ const FENCED_LABEL_RE = /^"([^"]*)"$/;
 
 /**
  * The label an author wrote inside `[...]`, with the fence removed when
- * there is one, and the padding around it dropped.
+ * there is one, and the padding around it dropped — and **where** in
+ * `content` that label begins, past the quote fence and the padding, so
+ * that a problem `readLabel` finds at some offset in the label can be
+ * pointed at in the author's own line. Every label this parser reads has
+ * its position carried this way, from the statement down to the character.
  *
  * Trimmed whether or not the label was quoted: mermaid 11.17.2 records
  * `text="padded"` for both `A[  padded  ]` and `A["  padded  "]`
  * (`node scripts/mermaid-probe.mjs`, `fc-text-label-whitespace`). Padding a
  * label is how an author lays a document out, not part of what the box
  * says, so it is dropped here rather than drawn.
- */
-function labelIn(content: string): string {
-  return labelSpan(content).text;
-}
-
-/**
- * `labelIn`, saying also **where** in `content` the label it returns
- * begins — past the quote fence and the padding — so that a problem
- * `readLabel` finds at some offset in the label can be pointed at in the
- * author's own line. Every label this parser reads has its position carried
- * this way, from the statement down to the character.
  */
 function labelSpan(content: string): LabelSpan {
   const fenced = FENCED_LABEL_RE.exec(content);
@@ -274,7 +267,7 @@ interface LabelSpan {
 }
 
 /**
- * What is left of a fenced label once `labelIn`'s own quote fence has come
+ * What is left of a fenced label once `labelSpan`'s own quote fence has come
  * off, when that remainder is itself fenced in backticks — Mermaid's
  * Markdown-string spelling: `` A["`**bold**`"] ``. Anchored at both ends,
  * the same rule `FENCED_LABEL_RE` follows: one run spanning everything left,
@@ -290,16 +283,16 @@ interface LabelSpan {
 const MARKDOWN_FENCE_RE = /^`([\s\S]*)`$/;
 
 /**
- * A node label read from bracket content: the fence comes off (`labelIn`),
+ * A node label read from bracket content: the fence comes off (`labelSpan`),
  * and what is left is read by `readLabel` — as a Markdown string when the
  * author wrote the fenced `` "`...`" `` spelling, so `**`/`*` and a real
  * line break mean something there and nowhere else. The one place both
  * spellings are told apart, so a standalone declaration
  * (`readNodeDeclaration`) and an edge endpoint cannot disagree about what a
- * label means, exactly as `labelIn` already keeps them from disagreeing
+ * label means, exactly as `labelSpan` already keeps them from disagreeing
  * about quoting.
  */
-function parseNodeLabel(content: string): ReadLabel {
+function parseNodeLabel(content: string): ReadLabelResult {
   const stripped = labelSpan(content);
   const markdown = MARKDOWN_FENCE_RE.exec(stripped.text);
   return markdown === null
@@ -311,18 +304,12 @@ function parseNodeLabel(content: string): ReadLabel {
       );
 }
 
-/** What reading one label gave: the label, and its problems at offsets in the text it was cut from. */
-interface ReadLabel {
-  label: Label;
-  problems: LabelProblem[];
-}
-
 /**
  * `readLabel` over a span, with each problem's offset moved from the span's
  * own text into whatever the span was cut from — the one place that
  * arithmetic is written, for every label position this parser reads.
  */
-function readLabelAt(span: LabelSpan, options: Parameters<typeof readLabel>[1]): ReadLabel {
+function readLabelAt(span: LabelSpan, options: Parameters<typeof readLabel>[1]): ReadLabelResult {
   const { label, problems } = readLabel(span.text, options);
   return { label, problems: problems.map((problem) => ({ ...problem, offset: problem.offset + span.at })) };
 }
@@ -847,10 +834,10 @@ function readInlineLabelledArrow(token: string): ArrowForm | null {
  * The label an author wrote on an edge, and where in `content` it begins,
  * with the fence removed and the
  * padding dropped — the padding outside the fence and the padding inside it
- * alike, exactly as `labelIn` drops a node's.
+ * alike, exactly as `labelSpan` drops a node's.
  *
  * The outer `.trim()` runs before the fence is read rather than relying on
- * `labelIn`'s own, because it is what lets the fenced pattern match at all
+ * `labelSpan`'s own, because it is what lets the fenced pattern match at all
  * when an author padded outside the quotes — `A -->|  "yes"  | B` has
  * nothing to do with `^"..."$` until the surrounding spaces are gone.
  */
@@ -1161,7 +1148,7 @@ const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
  */
 function readSubgraphTitle(
   tail: string,
-): ({ name: string | null } & ReadLabel) | null {
+): ({ name: string | null } & ReadLabelResult) | null {
   const titled = SUBGRAPH_TITLED_RE.exec(tail);
   if (titled !== null) {
     const content = labelSpan(titled[2]);
@@ -1630,10 +1617,9 @@ export function parseFlowchart(source: string): ParseResult {
    * `label` is bracket content as written, so the fence comes off here —
    * once, for every place a label can appear, which is why `A["x, y"]` on
    * a line of its own and at an edge endpoint cannot disagree about what
-   * the author wrote. `parseNodeLabel` is what removes it now, in place of
-   * the plain `labelIn` this function used to call directly, so a Markdown
-   * label is told apart from an ordinary one in the one place both
-   * spellings already meet.
+   * the author wrote. `parseNodeLabel` is what removes it, through
+   * `labelSpan`, so a Markdown label is told apart from an ordinary one in
+   * the one place both spellings already meet.
    */
   const addNodeAsWritten = (
     { id, label, labelAt, definitionName, shape }: EdgeEndpoint,

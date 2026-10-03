@@ -94,9 +94,16 @@ export type LabelDialect = "html" | "sequence";
  * and run sits.
  *
  * A row's `y` is its **centre**, measured from the top of the box, because
- * that is what `dominant-baseline: middle` reads a `y` as. A run's `x` is
- * its **left edge**, measured from the left edge of its row. `width` and
+ * that is what `dominant-baseline: middle` reads a `y` as. `width` and
  * `height` on the box are what layout reserves for the label.
+ *
+ * A run's `x` is the left edge of its **text**, measured from the left edge
+ * of its row, and a row's left edge is the left edge of the row's `width` —
+ * which includes the measurer's padding, half on each side (see
+ * `layoutLabel`). So a row's first run sits at `x = padding / 2`, not at 0,
+ * and its `width` is the text's own, with no padding in it. A row is drawn
+ * centred, so its left edge is at the box's centre less `row.width / 2`
+ * (not the box's left edge, for any row narrower than the widest).
  */
 export interface LabelBox {
   width: number;
@@ -132,6 +139,20 @@ export function plainRun(text: string): LabelRun {
     opacity: null,
     href: null,
   };
+}
+
+/**
+ * Whether `run` is a **plain run**: every property but its text at the
+ * neutral value `plainRun` states. Derived from `plainRun` rather than
+ * listing the fields again, so a property added to `LabelRun` is neutral in
+ * one place only.
+ */
+export function isPlain(run: LabelRun): boolean {
+  const neutral = plainRun(run.text);
+  return (Object.keys(neutral) as (keyof LabelRun)[]).every(
+    // `fontSize` is the one object-valued property; JSON compares it by value.
+    (key) => JSON.stringify(run[key]) === JSON.stringify(neutral[key]),
+  );
 }
 
 /**

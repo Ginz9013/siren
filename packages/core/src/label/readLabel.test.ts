@@ -16,8 +16,17 @@ describe("readLabel's row breaks", () => {
     });
   }
 
-  it("does not break at a <br> carrying an attribute, which Mermaid's pattern does not match", () => {
-    expect(rowTexts('a<br class="x">b')).toEqual(['a<br class="x">b']);
+  // Mermaid's SVG-mode pattern does not match these, but its default HTML
+  // labels keep `<BR class="x">` as an element and the browser breaks the
+  // line — the picture ADR-0015 holds Siren to.
+  for (const spelling of ['<br class="x">', "<BR CLASS='x' />", "<br\tdata-a=1/>"]) {
+    it(`breaks the row at a <br> carrying attributes, ${spelling}`, () => {
+      expect(rowTexts(`a${spelling}b`)).toEqual(["a", "b"]);
+    });
+  }
+
+  it("does not break at a tag that only begins with br", () => {
+    expect(rowTexts("a<brx>b")).toEqual(["a<brx>b"]);
   });
 
   it("keeps an empty row where a break ends the label", () => {

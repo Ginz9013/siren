@@ -344,9 +344,11 @@ drawn, drawn approximately, or refused with a diagnostic — and none is drawn a
 characters. Which tags a place honors is its **dialect**: `html`, the whole vocabulary, for the places
 Mermaid draws as HTML; `sequence`, only `<br>` and entity codes, for sequence text, which Mermaid
 draws as SVG in both modes. A class **member** is not a label at all: Mermaid escapes it in both
-modes, so it is kept as written. `<br>` is Mermaid's `/<br\s*\/?>/gi` — `<br>`, `<br/>`, `<br />`,
-`<BR>` all break a row, and `<br class="x">` does not. `<br>` came first; the rest of the vocabulary
-arrives tag by tag, each with its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
+modes, so it is kept as written. A **row break** is `<br>` in any case, with or without attributes
+and a closing `/` — `<br>`, `<br/>`, `<br />`, `<BR>` and `<br class="x">` all break a row, the last
+because Mermaid's HTML labels keep it as an element, though its own `/<br\s*\/?>/gi` does not match
+it. `<br>` came first; the rest of the vocabulary arrives tag by tag, each with its row in the
+compatibility corpus (`src/compat/labelCorpus.ts`).
 
 One module owns all of it, `packages/core/src/label/`: `readLabel` reads the source into a `Label`
 and reports **problems** at character offsets, which the parser turns into diagnostics at the
