@@ -42,8 +42,10 @@ about 3,000, 15 of them `<img>`, against roughly 2,500 for `<br>`.
 
 What Mermaid does around the tags is followed too, and each item was measured:
 
-- `<br>` is Mermaid's `/<br\s*\/?>/gi`, so `<br>`, `<br/>`, `<br />` and `<BR>` are one row
-  break and `<br class="x">` is not one.
+- `<br>`, `<br/>`, `<br />` and `<BR>` are one row break, and so is a `<br>` carrying
+  attributes, such as `<br class="x">`. Mermaid's own `/<br\s*\/?>/gi` does not match that
+  last spelling, but it is the SVG mode's rule: in HTML mode DOMPurify keeps the element and
+  the browser breaks the line, so that is the picture.
 - A tag outside the allow-list is dropped and its text kept. `script`, `iframe`, `noscript`,
   `noembed`, `xmp` and `plaintext` are removed together with their content.
 - An attribute DOMPurify removes (`onclick`, a `javascript:` URL) is dropped, and the tag it was
