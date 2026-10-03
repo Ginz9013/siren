@@ -877,10 +877,14 @@ function diagramBounds(
     bottom = Math.max(bottom, y);
   };
 
+  /** Covers a box of `size` centered on `anchor`. */
+  const coverCentered = (size: { width: number; height: number }, anchor: Point) => {
+    cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
+  };
+
   /** Covers a centered run of text drawn at `anchor`. */
   const coverText = (text: string, anchor: Point) => {
-    const size = options.measureText.measure(text);
-    cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
+    coverCentered(options.measureText.measure(text), anchor);
   };
 
   for (const box of [...classes, ...namespaces, ...notes]) {
@@ -894,10 +898,7 @@ function diagramBounds(
   for (const rel of relationships) {
     for (const point of rel.points) cover(point.x, point.y);
     if (rel.labelBox !== null && rel.labelAnchor !== null) {
-      cover(
-        rel.labelAnchor.x + rel.labelBox.width / 2,
-        rel.labelAnchor.y + rel.labelBox.height / 2,
-      );
+      coverCentered(rel.labelBox, rel.labelAnchor);
     }
     if (rel.fromMultiplicity !== null && rel.fromMultiplicityAnchor !== null) {
       coverText(rel.fromMultiplicity, rel.fromMultiplicityAnchor);

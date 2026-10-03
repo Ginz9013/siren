@@ -3235,6 +3235,28 @@ line2\`"]`,
       expectSame("Order's members", members(result, "Order"), ["+id<br>int", "+<b>id</b> int"]);
     },
   },
+  {
+    id: "cls-member-tags-literal-rejected",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +int <b>id</b>
+        +x<br class="y">z
+      }`,
+    status: "rejected",
+    meaning:
+      "The same rule as `cls-member-tags-literal`, in two spellings Siren " +
+      "cannot read yet. Mermaid escapes a member's text in both label modes " +
+      "(measured, mermaid 11.17.2, `--html`: the members' labels are " +
+      "`+int &lt;b&gt;id&lt;/b&gt;` and `+x&lt;br class=\"y\"&gt;z`), so it " +
+      "draws `+int <b>id</b>` and `+x<br class=\"y\">z` as the characters " +
+      "written — and a `<br>` with an attribute is not one of the spellings " +
+      "its `/<br\\s*\\/?>/gi` respells. Siren refuses both as unrecognized " +
+      "members: a member's name is read as an identifier, and `<b>id</b>` " +
+      "after a type, or `x<br class=\"y\">z` with a space inside it, is not " +
+      "one. Its exit is implementation — a member whose text is not a typed " +
+      "identifier kept and drawn verbatim, as Mermaid does.",
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

@@ -222,12 +222,15 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
   frame.setAttribute("height", String(note.height));
   g.appendChild(frame);
 
-  const drawn = drawLabel(note.label, note.labelBox, {
-    x: note.x + note.width / 2,
-    y: note.y + note.height / 2,
-  });
-  drawn.text.setAttribute("class", "siren-note-text");
-  appendLabel(g, drawn);
+  appendLabel(
+    g,
+    drawLabel(
+      note.label,
+      note.labelBox,
+      { x: note.x + note.width / 2, y: note.y + note.height / 2 },
+      "siren-note-text",
+    ),
+  );
 }
 
 /**
@@ -345,8 +348,7 @@ function appendStateLabel(
   centerX: number,
   style: StyleProperty[],
 ): void {
-  const drawn = drawLabel(planned.label, planned.labelBox, { x: centerX, y: planned.y });
-  drawn.text.setAttribute("class", className);
+  const drawn = drawLabel(planned.label, planned.labelBox, { x: centerX, y: planned.y }, className);
   applyAuthorStyle(drawn.text, style);
   appendLabel(g, drawn);
 }
@@ -550,9 +552,10 @@ function buildTransition(
     transition.labelAnchor !== null &&
     transition.labelBox !== null
   ) {
-    const drawn = drawLabel(transition.label, transition.labelBox, transition.labelAnchor);
-    drawn.text.setAttribute("class", "siren-transition-label");
-    appendLabel(g, drawn);
+    appendLabel(
+      g,
+      drawLabel(transition.label, transition.labelBox, transition.labelAnchor, "siren-transition-label"),
+    );
   }
 
   return g;

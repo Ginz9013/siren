@@ -349,8 +349,9 @@ modes, so it is kept as written. A **row break** is `<br>` in any case, with or 
 and a closing `/` — `<br>`, `<br/>`, `<br />`, `<BR>` and `<br class="x">` all break a row, the last
 because Mermaid's HTML labels keep it as an element, though its own `/<br\s*\/?>/gi` does not match
 it. The text-styling tags are read too — `b` `strong`, `i` `em` `cite` `dfn` `var`, `u` `ins`, `s`
-`strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup` and `q` — nested and misnested
-as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
+`strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup`, `q` and `mark` (black text on
+a yellow rect behind the run, through the theme's `--siren-label-mark-text` and
+`--siren-label-mark-fill`) — nested and misnested as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
 its `**`/`*` stack with tags the author wrote. The rest of the vocabulary arrives tag by tag, each
 with its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
 
@@ -531,8 +532,11 @@ One box in a class diagram — the class-diagram counterpart of a flowchart node
 `class` statement (bare, block, or the inline `Animal : +int age` member form) or implicitly by
 being named in a relationship, exactly as `A --> B` creates two flowchart nodes. Its id is the
 declared name, with a generic parameter *not* part of it: `class Registry~T~` has the id
-`Registry` and draws as `Registry<T>`. A second declaration of the same name merges members
-rather than erroring. May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
+`Registry` and draws as `Registry<T>`. It may carry a bracketed `["label"]` after the name and any
+generic (`class Order["Order<br/>Line"]`, also on the block form), drawn in place of the name and
+generic; the label is a **Label** in the `html` dialect, and the name stays the id. A second
+declaration of the same name merges members rather than erroring (a second, different label is
+ignored with a warning — the first one is kept). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
 author-chosen text), drawn in guillemets above the name — an annotation labels the class it
 is written in, unlike a note, which is a box of its own.
 _Avoid_: CSS class (the codebase is full of `siren-*` CSS classes and of these boxes — say
@@ -545,7 +549,10 @@ boxes, so say "the apply-directive" for it), node, entity, box
 One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
 `-` private, `#` protected, `~` package), an optional classifier (`*` abstract, `$` static), a
 name, an optional type, and — for methods — a parameter list and an optional return type.
-Rendered verbatim, as the author spelled it. Attributes and methods draw in two separate
+Rendered verbatim, as the author spelled it: a member is **not** a Label, because Mermaid escapes
+its text in both label modes, so no tag in it is read — the one change made first, as Mermaid makes
+it, is respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those four
+characters. Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
@@ -553,7 +560,7 @@ member" when the kind matters)
 
 **Relationship**:
 A directed edge between two classes, carrying one of Mermaid's nine types, an optional `: label`
-and optional multiplicity strings at each end. Its id follows the flowchart edge convention
+— a **Label** in the `html` dialect — and optional multiplicity strings at each end. Its id follows the flowchart edge convention
 exactly: `${fromId}-${toId}`, then `#2` for a repeat pair. The type is modeled as two axes — a
 `line` (`solid` | `dashed`) and an endpoint marker at each end (`none` | `triangle` |
 `diamondFilled` | `diamondHollow` | `arrow` | `circle`) — whose named compositions are
@@ -583,7 +590,9 @@ one in a graph-shaped diagram — a sequence diagram's **box grouping** bands pa
 its **control-flow block** wraps statements in time. A flowchart's **subgraph** is the fourth and
 draws the same figure deliberately, so a theme or an author who has learned to read one need not
 learn a second vocabulary; that entry lists the four things that are nevertheless not the same,
-starting with nesting, which this construct does not do. Addressable in a `timeline:` block under
+starting with nesting, which this construct does not do. It may carry a bracketed `["label"]` after
+its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
+**Label** in the `html` dialect. Addressable in a `timeline:` block under
 a generated id (`namespace:1`, `namespace:2`, … in source order).
 _Avoid_: package, module, cluster (that is the dagre-side word `layoutDirectedGraph` uses for the
 mechanism, not the authored construct), group, box
@@ -591,7 +600,8 @@ mechanism, not the authored construct), group, box
 **Note**:
 A free-standing annotation box, in either of the two diagram kinds that have one — a class
 diagram's, either attached to one class (`note for Shelf "..."`, drawn with a connector to that
-class's box) or standing alone (`note "..."`); a sequence diagram's `note over A,B`/`note right of
+class's box) or standing alone (`note "..."`), its quoted text a **Label** in the `html` dialect; a
+sequence diagram's `note over A,B`/`note right of
 A`/`note left of A`, modeled as one statement with a `left`/`right`/`over` placement axis (the
 same two/one-axis pattern as `SequenceArrow`/`ClassRelationshipEnd`) rather than three statement
 kinds, and drawn with the class diagram's own `siren-note`/`siren-note-frame`/`siren-note-text`

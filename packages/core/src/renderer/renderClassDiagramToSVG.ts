@@ -180,9 +180,10 @@ function buildRelationship(
     relationship.labelAnchor !== null &&
     relationship.labelBox !== null
   ) {
-    const drawn = drawLabel(relationship.label, relationship.labelBox, relationship.labelAnchor);
-    drawn.text.setAttribute("class", "siren-relationship-label");
-    appendLabel(g, drawn);
+    appendLabel(
+      g,
+      drawLabel(relationship.label, relationship.labelBox, relationship.labelAnchor, "siren-relationship-label"),
+    );
   }
 
   for (const [text, anchor] of [
@@ -456,8 +457,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    * `<text>` they are written on — the row tspans inherit them.
    */
   const appendName = (y: number): void => {
-    const drawn = drawLabel(positionedClass.label, positionedClass.labelBox, { x: centerX, y });
-    drawn.text.setAttribute("class", "siren-class-name");
+    const drawn = drawLabel(positionedClass.label, positionedClass.labelBox, { x: centerX, y }, "siren-class-name");
     applyAuthorStyle(drawn.text, positionedClass.style.text);
     appendLabel(g, drawn);
   };
@@ -522,9 +522,7 @@ function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
   frame.setAttribute("height", String(namespace.height));
   g.appendChild(frame);
 
-  const drawn = drawLabel(namespace.label, namespace.labelBox, namespace.labelAnchor);
-  drawn.text.setAttribute("class", "siren-namespace-label");
-  appendLabel(g, drawn);
+  appendLabel(g, drawLabel(namespace.label, namespace.labelBox, namespace.labelAnchor, "siren-namespace-label"));
   return g;
 }
 
@@ -563,12 +561,15 @@ function buildNote(note: PositionedClassNote): SVGGElement {
   frame.setAttribute("height", String(note.height));
   g.appendChild(frame);
 
-  const drawn = drawLabel(note.label, note.labelBox, {
-    x: note.x + note.width / 2,
-    y: note.y + note.height / 2,
-  });
-  drawn.text.setAttribute("class", "siren-note-text");
-  appendLabel(g, drawn);
+  appendLabel(
+    g,
+    drawLabel(
+      note.label,
+      note.labelBox,
+      { x: note.x + note.width / 2, y: note.y + note.height / 2 },
+      "siren-note-text",
+    ),
+  );
   return g;
 }
 

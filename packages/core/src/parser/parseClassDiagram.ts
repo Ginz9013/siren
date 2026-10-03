@@ -17,7 +17,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { labelDiagnostics, readLabel } from "../label/readLabel";
+import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -29,6 +29,14 @@ import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
  * quietly took `classDiagram-v2` as well.
  */
 const CLASS_HEADER_SPELLINGS = listAcceptedHeaders(["class"]);
+/**
+ * The optional bracketed label a class or a namespace may carry,
+ * `["label"]`, as a pattern fragment with one capture: the label without the
+ * padding inside its quotes, and never empty (`[""]` is a parse error in
+ * Mermaid, measured). Written once for the three patterns that take it.
+ */
+const BRACKETED_LABEL = String.raw`(?:\["\s*([^"]*\S)\s*"\])?`;
+
 /**
  * A bare `class Animal` declaration, with an optional `~generic~`
  * parameter after the name (`class Square~Shape~`) and an optional
@@ -46,9 +54,9 @@ const CLASS_HEADER_SPELLINGS = listAcceptedHeaders(["class"]);
  * after the generic and never before it (`class A["Lab"]~T~` is a parse
  * error). Compiled with `d` so the label's own column is the group's index.
  */
-const CLASS_DECL_RE = /^class\s+(\w+)(?:~(.+)~)?\s*(?:\["\s*([^"]*\S)\s*"\])?\s*$/d;
+const CLASS_DECL_RE = new RegExp(String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}\s*$`, "d");
 /** The opening line of a block-form declaration, `class Animal {`, with the same optional generic and label. */
-const CLASS_BLOCK_OPEN_RE = /^class\s+(\w+)(?:~(.+)~)?\s*(?:\["\s*([^"]*\S)\s*"\])?\s*\{$/d;
+const CLASS_BLOCK_OPEN_RE = new RegExp(String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}\s*\{$`, "d");
 /**
  * A relationship statement: two class names, the relation token between
  * them, an optional quoted multiplicity beside each name, and an optional
@@ -84,7 +92,7 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * the same way: a space may stand before the `[`, and `[""]` is a parse
  * error in Mermaid.
  */
-const NAMESPACE_OPEN_RE = /^namespace\s+(\w+)\s*(?:\["\s*([^"]*\S)\s*"\])?\s*\{$/d;
+const NAMESPACE_OPEN_RE = new RegExp(String.raw`^namespace\s+(\w+)\s*${BRACKETED_LABEL}\s*\{$`, "d");
 
 /**
  * A free note, `note "text"`. Its text is quoted, as Mermaid requires, and
@@ -487,13 +495,11 @@ export function parseClassDiagram(source: string): ParseResult {
 
   /**
    * Reads the label one capture group of a statement's match holds, and
-   * turns whatever `readLabel` found in it into diagnostics at the line and
-   * column of the character each problem is about — the conversion
-   * `parseStateDiagram`'s `readLabelIn` makes, for the same reasons: every
-   * label here is a capture of one of this parser's own patterns over the
-   * trimmed line, each compiled with the `d` flag, and no class-diagram
-   * statement holding a label spans physical lines, so a position in the
-   * line is a column once the line's own indent (`column`) is added.
+   * records its diagnostics (`readLabelAt`): every label here is a capture
+   * of one of this parser's own patterns over the trimmed line, each
+   * compiled with the `d` flag, and no class-diagram statement holding a
+   * label spans physical lines, so the line's own indent (`column`) is all
+   * the position it needs.
    *
    * Read in the full `html` dialect wherever it is called (ADR-0015). Never
    * called for a member: Mermaid escapes a member's text in both label
@@ -507,17 +513,12 @@ export function parseClassDiagram(source: string): ParseResult {
     lineNumber: number,
     column: number,
   ): Label => {
-    const [start] = match.indices![group]!;
-    const { label, problems } = readLabel(match[group]!, { dialect: "html" });
-    const reported = labelDiagnostics(problems, (offset) => ({
-      line: lineNumber,
-      column: column + start + offset,
-    }));
-    diagnostics.push(...reported.diagnostics);
-    if (reported.hasError) {
+    const read = readLabelAt(match, group, { line: lineNumber, column }, "html");
+    diagnostics.push(...read.diagnostics);
+    if (read.hasError) {
       sawError = true;
     }
-    return label;
+    return read.label;
   };
 
   /**

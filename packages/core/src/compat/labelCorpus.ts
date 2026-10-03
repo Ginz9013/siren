@@ -373,9 +373,14 @@ export const LABEL_CASES: readonly CompatCase[] = [
       "`<mark>` draws its text black on a yellow `#ff0` background (measured " +
       "against 11.17.2). Siren draws a rect behind the run, painted with " +
       "`--siren-label-mark-fill`, and the run's text with " +
-      "`--siren-label-mark-text`. The rect is as wide as the measurer says the " +
-      "run is, which can differ from the glyphs the browser really draws by a " +
-      "few pixels.",
+      "`--siren-label-mark-text`. The rect is the run's own inline box, as " +
+      "CSS paints an inline background (derived, not measured): one line of the " +
+      "run's own size tall, not its row's, and moved with a `sub`/`sup` shift. " +
+      "Approximations: its width is the measurer's, which can differ from the " +
+      "glyphs the browser really draws by a few pixels; its height is the " +
+      "measurer's line height, padding and all, not the font's content area; " +
+      "and a `sub`/`sup` rect's shift is a fraction of that line rather than of " +
+      "the font size, so it moves further than its glyphs do.",
     assert: (result) => {
       const text = nodeText(result, "A");
       expectRows("label runs", labelRuns(text, "class"), [
