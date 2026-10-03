@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Direction, StateDocument } from "../contracts";
+import { plainLabel } from "../label/label";
 import { parseStateDiagram } from "../parser/parseStateDiagram";
 import { buildStateModel } from "./buildStateModel";
 
@@ -37,7 +38,9 @@ function document(
     transitions: transitions.map(({ from, to, label }, index) => ({
       from,
       to,
-      label: label ?? null,
+      // A fixture's label is one plain run — what `readLabel` reads any
+      // label with no tag in it as.
+      label: label === undefined || label === null ? null : plainLabel(label),
       parentId: null,
       regionIndex: null,
       sourceLine: index + 2,
@@ -86,7 +89,7 @@ describe("buildStateModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model.states.map((s) => s.id)).toEqual(["Running"]);
     expect(model.transitions).toEqual([
-      { id: "Running-Running", from: "Running", to: "Running", label: "retry" },
+      { id: "Running-Running", from: "Running", to: "Running", label: plainLabel("retry") },
     ]);
   });
 
@@ -98,7 +101,7 @@ describe("buildStateModel", () => {
       ]),
     );
 
-    expect(model.transitions.map((t) => t.label)).toEqual(["start", null]);
+    expect(model.transitions.map((t) => t.label)).toEqual([plainLabel("start"), null]);
   });
 
   it("keeps every declared state, including one no transition names", () => {
@@ -119,13 +122,13 @@ describe("buildStateModel", () => {
     // name in the parser, so no note ever reaches a state with a generated
     // id, and there is nothing here for this stage to decide about it.
     const parsed = document([{ from: "Idle", to: "Busy" }]);
-    parsed.states[0].note = { position: "right of", text: "waiting for work" };
+    parsed.states[0].note = { position: "right of", label: plainLabel("waiting for work") };
 
     const { model, diagnostics } = buildStateModel(parsed);
 
     expect(diagnostics).toEqual([]);
     expect(model.states.map((state) => [state.id, state.note])).toEqual([
-      ["Idle", { position: "right of", text: "waiting for work" }],
+      ["Idle", { position: "right of", label: plainLabel("waiting for work") }],
       ["Busy", null],
     ]);
   });
@@ -189,7 +192,7 @@ describe("buildStateModel", () => {
           id: "Idle",
           kind: "state",
           stereotype: null,
-          descriptions: ["waiting for work", "nothing queued"],
+          descriptions: [plainLabel("waiting for work"), plainLabel("nothing queued")],
           parentId: null,
           regionIndex: null,
           direction: null,
@@ -235,7 +238,7 @@ describe("buildStateModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model.states).toEqual([
       { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
-      { id: "Idle", kind: "state", stereotype: null, descriptions: ["waiting for work", "nothing queued"], parentId: null, direction: null, note: null },
+      { id: "Idle", kind: "state", stereotype: null, descriptions: [plainLabel("waiting for work"), plainLabel("nothing queued")], parentId: null, direction: null, note: null },
       { id: "Busy", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
     ]);
   });

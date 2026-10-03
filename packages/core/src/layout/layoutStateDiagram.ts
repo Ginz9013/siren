@@ -1,11 +1,13 @@
 import type {
   Direction,
+  Label,
+  LabelBox,
   LayoutOptions,
   Point,
   PositionedState,
   PositionedStateDiagram,
   PositionedStateNote,
-  PositionedStateRow,
+  PositionedStateLabel,
   PositionedStateTransition,
   ResolvedState,
   StateModel,
@@ -15,13 +17,15 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
+import { plainLabel } from "../label/label";
+import { layoutLabel } from "../label/layoutLabel";
 
-/** Horizontal padding between a state box's edge and its widest row of text. */
+/** Horizontal padding between a state box's edge and its widest label. */
 const STATE_PADDING_X = 14;
 /**
- * Vertical padding between a state box's edge and its first or last row of
+ * Vertical padding between a state box's edge and its first or last label's
  * text — and, in a box carrying two or more descriptions, between the
- * divider and the rows either side of it, the way a class compartment is
+ * divider and the labels either side of it, the way a class compartment is
  * padded.
  */
 const STATE_PADDING_Y = 8;
@@ -147,12 +151,36 @@ export function layoutStateDiagram(
   );
 
   /**
-   * The states carrying a note, each with the note itself — narrowed here
-   * once so that the three places below that add a node, add an edge and
-   * read the result back all work from the same list.
+   * The states carrying a note, each with the note itself and the box
+   * `layoutLabel` measured for its label — narrowed and measured here once
+   * so that the three places below that add a node, add an edge and read
+   * the result back all work from the same list, and the box the note was
+   * sized around is the one it is drawn with.
    */
   const notedStates = model.states.flatMap((state) =>
-    state.note === null ? [] : [{ state, note: state.note }],
+    state.note === null
+      ? []
+      : [
+          {
+            state,
+            note: state.note,
+            labelBox: layoutLabel(state.note.label, options.measureText),
+          },
+        ],
+  );
+  const noteLabelBoxById = new Map(notedStates.map(({ state, labelBox }) => [state.id, labelBox]));
+
+  /**
+   * Each labelled transition's label as `layoutLabel` measured it, by the
+   * transition's id — measured once, so the box the core keeps clear and the
+   * box the renderer draws in are the same box.
+   */
+  const transitionLabelBoxById = new Map(
+    model.transitions.flatMap((transition) =>
+      transition.label === null
+        ? []
+        : [[transition.id, layoutLabel(transition.label, options.measureText)] as const],
+    ),
   );
 
   const laidOut = layoutDirectedGraph({
@@ -204,15 +232,12 @@ export function layoutStateDiagram(
       // inside a composite is laid out inside that composite's cluster and
       // ends up inside the frame drawn for it, rather than floating outside
       // the block whose state it annotates.
-      ...notedStates.map(({ state, note }) => {
-        const text = options.measureText.measure(note.text);
-        return {
-          id: noteNodeId(state.id),
-          width: text.width + NOTE_PADDING_X * 2,
-          height: text.height + NOTE_PADDING_Y * 2,
-          ...(state.parentId === null ? {} : { parentId: state.parentId }),
-        };
-      }),
+      ...notedStates.map(({ state, labelBox }) => ({
+        id: noteNodeId(state.id),
+        width: labelBox.width + NOTE_PADDING_X * 2,
+        height: labelBox.height + NOTE_PADDING_Y * 2,
+        ...(state.parentId === null ? {} : { parentId: state.parentId }),
+      })),
     ],
     edges: [
       ...model.transitions.map((transition) => ({
@@ -223,7 +248,7 @@ export function layoutStateDiagram(
         // apart for the text, and reports back where that space ended up.
         ...(transition.label === null
           ? {}
-          : { label: options.measureText.measure(transition.label) }),
+          : { label: transitionLabelBoxById.get(transition.id)! }),
       })),
       // The edge that puts the note beside the state it annotates, and whose
       // route is the note's connector. It is never drawn as a transition:
@@ -299,10 +324,10 @@ export function layoutStateDiagram(
       // The plan measured everything from the box's own top edge, before
       // the core knew where the box would go; this is where that box
       // landed.
-      rows: plan.rows.map((row) => ({ text: row.text, y: placed.y + row.y })),
+      labels: plan.labels.map((planned) => ({ ...planned, y: placed.y + planned.y })),
       style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
       dividerY: plan.dividerY === null ? null : placed.y + plan.dividerY,
-      note: placeNote(state, boxById, routeById, frameById, shifted),
+      note: placeNote(state, noteLabelBoxById, boxById, routeById, frameById, shifted),
     };
   });
 
@@ -334,10 +359,11 @@ export function layoutStateDiagram(
       points: points.map(shifted),
       label: transition.label,
       labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
+      labelBox: transitionLabelBoxById.get(transition.id) ?? null,
     };
   });
 
-  const bounds = diagramBounds(states, transitions, options);
+  const bounds = diagramBounds(states, transitions);
 
   return {
     states,
@@ -410,6 +436,7 @@ function levelDirections(model: StateModel): (state: ResolvedState) => Direction
  */
 function placeNote(
   state: ResolvedState,
+  noteLabelBoxById: ReadonlyMap<string, LabelBox>,
   boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
   routeById: ReadonlyMap<string, { points: Point[] }>,
   frameById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
@@ -431,7 +458,8 @@ function placeNote(
   const fromState = state.note.position === "left of" ? [...clipped].reverse() : clipped;
 
   return {
-    text: state.note.text,
+    label: state.note.label,
+    labelBox: noteLabelBoxById.get(state.id)!,
     x: placed.x,
     y: placed.y,
     width: box.width,
@@ -545,8 +573,8 @@ function compositeFrames(
 }
 
 /**
- * A state box measured but not yet placed: its size, and where each row of
- * its text sits relative to its own top edge. Computed before the shared
+ * A state box measured but not yet placed: its size, and where each of its
+ * labels is centred relative to its own top edge. Computed before the shared
  * core runs, because the core needs the size; translated into diagram
  * coordinates once the core has placed the box — the division
  * `layoutClassDiagram` already draws between planning a box and placing it.
@@ -554,7 +582,7 @@ function compositeFrames(
 interface StateBoxPlan {
   width: number;
   height: number;
-  rows: PositionedStateRow[];
+  labels: PositionedStateLabel[];
   dividerY: number | null;
 }
 
@@ -570,7 +598,7 @@ interface StateBoxPlan {
  * A pseudo-state is sized from the disc's radius instead, because its id is
  * generated (`start:1`) and nothing draws it: measuring it would reserve
  * the diagram room for a string no reader ever sees. The figure is a
- * circle, so the box is square and holds no rows.
+ * circle, so the box is square and holds no labels.
  */
 function planStateBox(
   state: ResolvedState,
@@ -579,7 +607,7 @@ function planStateBox(
 ): StateBoxPlan {
   if (state.kind === "start" || state.kind === "end") {
     const size = PSEUDO_STATE_RADIUS * 2;
-    return { width: size, height: size, rows: [], dividerY: null };
+    return { width: size, height: size, labels: [], dividerY: null };
   }
 
   // A concurrent region is a frame with **no title**: measured (mermaid
@@ -597,19 +625,21 @@ function planStateBox(
     return {
       width: COMPOSITE_PADDING * 2,
       height: COMPOSITE_PADDING,
-      rows: [],
+      labels: [],
       dividerY: null,
     };
   }
 
-  const texts = state.descriptions.length === 0 ? [state.id] : state.descriptions;
+  // The id is a label of one plain run: it is `\w+`, so there is no tag in
+  // it for `readLabel` to have read.
+  const labels = state.descriptions.length === 0 ? [plainLabel(state.id)] : state.descriptions;
 
   // Asked *before* the stereotype, because a state can carry both and
   // Mermaid draws the frame: measured, `state X <<choice>>` followed by
   // `state X { A --> B }` comes back as a cluster holding `A` and `B`, not
   // as a diamond.
   if (state.kind === "composite") {
-    return planTitleStrip(texts, options);
+    return planTitleStrip(labels, options);
   }
 
   // A stereotyped state is sized from its figure and draws no text at all —
@@ -622,35 +652,39 @@ function planStateBox(
       state.stereotype === "choice"
         ? { width: CHOICE_RADIUS * 2, height: CHOICE_RADIUS * 2 }
         : forkBarBox(levelDirection);
-    return { ...box, rows: [], dividerY: null };
+    return { ...box, labels: [], dividerY: null };
   }
 
   const widths: number[] = [];
-  const rows: PositionedStateRow[] = [];
+  const planned: PositionedStateLabel[] = [];
   let bottom = STATE_PADDING_Y;
   let dividerY: number | null = null;
 
-  texts.forEach((text, index) => {
-    // The divider closes the title row and opens the compartment the rest
+  labels.forEach((label, index) => {
+    // The divider closes the title label and opens the compartment the rest
     // of the descriptions share — the two-compartment shape a class box is
-    // built from, with one row in the first compartment instead of one
-    // name. Only a box with a second row has one: measured, a single
-    // description is drawn as a plain rounded rect with no line in it.
+    // built from, with one label in the first compartment instead of one
+    // name. Only a box with a second label has one: measured, a single
+    // description is drawn as a plain rounded rect with no line in it,
+    // however many rows its `<br>`s gave it — and a first description of
+    // several rows keeps every one of them above the line (measured,
+    // `--markup`: `s1 : a<br/>b` then `s1 : c<br>d` draws `line.divider`
+    // between the two label groups, not inside the first).
     if (index === 1) {
       bottom += STATE_PADDING_Y;
       dividerY = bottom;
       bottom += STATE_PADDING_Y;
     }
-    const measured = options.measureText.measure(text);
-    widths.push(measured.width);
-    rows.push({ text, y: bottom + measured.height / 2 });
-    bottom += measured.height;
+    const labelBox = layoutLabel(label, options.measureText);
+    widths.push(labelBox.width);
+    planned.push({ label, labelBox, y: bottom + labelBox.height / 2 });
+    bottom += labelBox.height;
   });
 
   return {
     width: Math.max(...widths) + STATE_PADDING_X * 2,
     height: bottom + STATE_PADDING_Y,
-    rows,
+    labels: planned,
     dividerY,
   };
 }
@@ -667,38 +701,38 @@ function planStateBox(
  * composite holding nothing is drawn at, since the core lays a childless
  * cluster out as an ordinary node.
  *
- * No divider: the line under a described state's title row closes a
+ * No divider: the line under a described state's title label closes a
  * compartment, and a frame's title strip is not one — what is below it is
  * the members' own boxes.
  */
-function planTitleStrip(texts: string[], options: LayoutOptions): StateBoxPlan {
+function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   const widths: number[] = [];
-  const rows: PositionedStateRow[] = [];
+  const planned: PositionedStateLabel[] = [];
   let bottom = COMPOSITE_PADDING;
 
-  for (const text of texts) {
-    const measured = options.measureText.measure(text);
-    widths.push(measured.width);
-    rows.push({ text, y: bottom + measured.height / 2 });
-    bottom += measured.height;
+  for (const label of labels) {
+    const labelBox = layoutLabel(label, options.measureText);
+    widths.push(labelBox.width);
+    planned.push({ label, labelBox, y: bottom + labelBox.height / 2 });
+    bottom += labelBox.height;
   }
 
   return {
     width: Math.max(...widths) + COMPOSITE_PADDING * 2,
     height: bottom + COMPOSITE_PADDING,
-    rows,
+    labels: planned,
     dividerY: null,
   };
 }
 
 /**
  * The extent every drawn thing fits inside: state boxes, transition paths,
- * and the text anchored along them.
+ * and the text anchored along them — each label at the box layout already
+ * measured for it, so nothing here asks the measurer again.
  */
 function diagramBounds(
   states: PositionedState[],
   transitions: PositionedStateTransition[],
-  options: LayoutOptions,
 ): { width: number; height: number } {
   let right = 0;
   let bottom = 0;
@@ -720,11 +754,10 @@ function diagramBounds(
 
   for (const transition of transitions) {
     for (const point of transition.points) cover(point.x, point.y);
-    if (transition.label !== null && transition.labelAnchor !== null) {
-      const size = options.measureText.measure(transition.label);
+    if (transition.labelBox !== null && transition.labelAnchor !== null) {
       cover(
-        transition.labelAnchor.x + size.width / 2,
-        transition.labelAnchor.y + size.height / 2,
+        transition.labelAnchor.x + transition.labelBox.width / 2,
+        transition.labelAnchor.y + transition.labelBox.height / 2,
       );
     }
   }

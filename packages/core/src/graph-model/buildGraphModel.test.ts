@@ -1560,7 +1560,7 @@ describe("buildGraphModel — a state document", () => {
       {
         from: "Idle",
         to: "Running",
-        label: "start",
+        label: plainLabel("start"),
         parentId: null,
         regionIndex: null,
         sourceLine: 2,
@@ -1569,7 +1569,7 @@ describe("buildGraphModel — a state document", () => {
       {
         from: "Running",
         to: "Running",
-        label: "retry",
+        label: plainLabel("retry"),
         parentId: null,
         regionIndex: null,
         sourceLine: 3,

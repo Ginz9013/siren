@@ -1,7 +1,37 @@
 import { describe, expect, it } from "vitest";
-import type { PositionedStateDiagram } from "../contracts";
+import type { Label, LabelBox, PositionedStateDiagram } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { renderStateDiagramToSVG } from "./renderStateDiagramToSVG";
 import { CANVAS_GUTTER } from "./sizeCanvas";
+
+/** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
+
+/**
+ * A box for `rowsLabel(...rows)` as a measurer answering 8px a character
+ * and 24px a row, with no padding, would measure it — written out here so
+ * no measurer is involved: the renderer draws what layout reported.
+ */
+const boxOf = (...rows: string[]): LabelBox => ({
+  width: Math.max(...rows.map((row) => row.length * 8)),
+  height: rows.length * 24,
+  rows: rows.map((row, index) => ({
+    y: index * 24 + 12,
+    height: 24,
+    width: row.length * 8,
+    runs: [{ x: 0, width: row.length * 8 }],
+  })),
+});
+
+/** One label of a state's box: `text` as one plain run, centred on `y`. */
+const stateLabel = (text: string, y: number) => ({
+  label: plainLabel(text),
+  labelBox: boxOf(text),
+  y,
+});
 
 const DIAGRAM: PositionedStateDiagram = {
   states: [
@@ -13,7 +43,7 @@ const DIAGRAM: PositionedStateDiagram = {
       y: 20,
       width: 80,
       height: 40,
-      rows: [{ text: "Idle", y: 40 }],
+      labels: [stateLabel("Idle", 40)],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -26,7 +56,7 @@ const DIAGRAM: PositionedStateDiagram = {
       y: 120,
       width: 100,
       height: 40,
-      rows: [{ text: "Running", y: 140 }],
+      labels: [stateLabel("Running", 140)],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -41,8 +71,9 @@ const DIAGRAM: PositionedStateDiagram = {
         { x: 50, y: 60 },
         { x: 60, y: 120 },
       ],
-      label: "start",
+      label: plainLabel("start"),
       labelAnchor: { x: 70, y: 90 },
+      labelBox: boxOf("start"),
     },
     {
       id: "Running-Running",
@@ -55,6 +86,7 @@ const DIAGRAM: PositionedStateDiagram = {
       ],
       label: null,
       labelAnchor: null,
+      labelBox: null,
     },
   ],
   timeline: { totalSteps: 0, entries: [] },
@@ -113,7 +145,8 @@ describe("renderStateDiagramToSVG", () => {
         {
           ...DIAGRAM.states[0],
           note: {
-            text: "waiting for work",
+            label: plainLabel("waiting for work"),
+            labelBox: boxOf("waiting for work"),
             x: 120,
             y: 10,
             width: 60,
@@ -253,7 +286,7 @@ describe("renderStateDiagramToSVG", () => {
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
   states: [
-    { id: "start:1", kind: "start", stereotype: null, x: 40, y: 10, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
+    { id: "start:1", kind: "start", stereotype: null, x: 40, y: 10, width: 14, height: 14, labels: [], style: { frame: [], text: [] }, dividerY: null, note: null },
     {
       id: "Idle",
       kind: "state",
@@ -262,12 +295,12 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
       y: 60,
       width: 80,
       height: 40,
-      rows: [{ text: "Idle", y: 80 }],
+      labels: [stateLabel("Idle", 80)],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
     },
-    { id: "end:1", kind: "end", stereotype: null, x: 40, y: 140, width: 14, height: 14, rows: [], style: { frame: [], text: [] }, dividerY: null, note: null },
+    { id: "end:1", kind: "end", stereotype: null, x: 40, y: 140, width: 14, height: 14, labels: [], style: { frame: [], text: [] }, dividerY: null, note: null },
   ],
   transitions: [
     {
@@ -280,6 +313,7 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
       ],
       label: null,
       labelAnchor: null,
+      labelBox: null,
     },
   ],
   timeline: { totalSteps: 0, entries: [] },
@@ -303,7 +337,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       y: 20,
       width: 160,
       height: 40,
-      rows: [{ text: "waiting for work", y: 40 }],
+      labels: [stateLabel("waiting for work", 40)],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -316,7 +350,7 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       y: 120,
       width: 100,
       height: 40,
-      rows: [{ text: "Plain", y: 140 }],
+      labels: [stateLabel("Plain", 140)],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -329,10 +363,10 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
       y: 220,
       width: 160,
       height: 120,
-      rows: [
-        { text: "title row", y: 240 },
-        { text: "second", y: 290 },
-        { text: "third", y: 320 },
+      labels: [
+        stateLabel("title row", 240),
+        stateLabel("second", 290),
+        stateLabel("third", 320),
       ],
       style: { frame: [], text: [] },
       dividerY: 260,
@@ -481,7 +515,7 @@ const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
       y: 10,
       width: 28,
       height: 28,
-      rows: [],
+      labels: [],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -494,7 +528,7 @@ const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
       y: 100,
       width: 70,
       height: 10,
-      rows: [],
+      labels: [],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -507,7 +541,7 @@ const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
       y: 160,
       width: 10,
       height: 70,
-      rows: [],
+      labels: [],
       style: { frame: [], text: [] },
       dividerY: null,
       note: null,
@@ -590,7 +624,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 10,
           width: 200,
           height: 150,
-          rows: [{ text: "Outer", y: 30 }],
+          labels: [stateLabel("Outer", 30)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -603,7 +637,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 60,
           width: 80,
           height: 40,
-          rows: [{ text: "Idle", y: 80 }],
+          labels: [stateLabel("Idle", 80)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -656,11 +690,12 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 10,
           width: 200,
           height: 150,
-          rows: [{ text: "Outer", y: 30 }],
+          labels: [stateLabel("Outer", 30)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: {
-            text: "about the block",
+            label: plainLabel("about the block"),
+            labelBox: boxOf("about the block"),
             x: 230,
             y: 60,
             width: 90,
@@ -702,7 +737,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 10,
           width: 200,
           height: 150,
-          rows: [{ text: "Outer", y: 30 }],
+          labels: [stateLabel("Outer", 30)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -715,7 +750,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 60,
           width: 80,
           height: 40,
-          rows: [{ text: "Idle", y: 80 }],
+          labels: [stateLabel("Idle", 80)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -732,6 +767,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           ],
           label: null,
           labelAnchor: null,
+          labelBox: null,
         },
       ],
       // Every one of the three kinds given an `enter` at step 1, so a
@@ -772,9 +808,9 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 20,
           width: 80,
           height: 60,
-          rows: [
-            { text: "Busy", y: 35 },
-            { text: "working", y: 65 },
+          labels: [
+            stateLabel("Busy", 35),
+            stateLabel("working", 65),
           ],
           style: {
             frame: [
@@ -794,7 +830,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 120,
           width: 80,
           height: 40,
-          rows: [{ text: "Idle", y: 140 }],
+          labels: [stateLabel("Idle", 140)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -839,7 +875,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           y: 10,
           width: 200,
           height: 150,
-          rows: [{ text: "Outer", y: 30 }],
+          labels: [stateLabel("Outer", 30)],
           style: {
             frame: [{ property: "stroke", value: "#00f" }],
             text: [{ property: "fill", value: "#fff" }],
@@ -883,7 +919,7 @@ describe("renderStateDiagramToSVG, on a concurrent region", () => {
           y: 10,
           width: 300,
           height: 200,
-          rows: [{ text: "Active", y: 30 }],
+          labels: [stateLabel("Active", 30)],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -896,7 +932,7 @@ describe("renderStateDiagramToSVG, on a concurrent region", () => {
           y: 50,
           width: 130,
           height: 140,
-          rows: [],
+          labels: [],
           style: { frame: [], text: [] },
           dividerY: null,
           note: null,
@@ -934,5 +970,127 @@ describe("renderStateDiagramToSVG, on a concurrent region", () => {
     const block = svg.querySelector('g.siren-state[data-siren-id="Active"]')!;
     expect(block.querySelector("rect.siren-composite-frame")).not.toBeNull();
     expect(block.querySelector("rect.siren-state-region")).toBeNull();
+  });
+});
+
+/**
+ * Every label a state diagram draws goes through `drawLabel` (ADR-0015), so
+ * a label of more than one row is one `<tspan class="siren-label-row">` per
+ * row, each at the y its row's centre sits at — the box's top, which is
+ * `anchor.y - height / 2`, plus the row's own `y` in the box.
+ */
+describe("renderStateDiagramToSVG — labels", () => {
+  /** Each row tspan of `text`, as `[its text, its y]`. */
+  const rowsOf = (text: Element | null) =>
+    Array.from(text!.querySelectorAll("tspan.siren-label-row")).map((row) => [
+      row.textContent,
+      row.getAttribute("y"),
+    ]);
+
+  it("draws a description of two rows as two row tspans, centred on the y layout reported", () => {
+    const diagram: PositionedStateDiagram = {
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          labels: [{ label: rowsLabel("a", "b"), labelBox: boxOf("a", "b"), y: 40 }],
+        },
+      ],
+      transitions: [],
+    };
+
+    const label = renderStateDiagramToSVG(diagram).querySelector("text.siren-state-label");
+
+    // Centred on 40: the box's top is 40 - 24 = 16, its rows at 12 and 36.
+    expect(rowsOf(label)).toEqual([
+      ["a", "28"],
+      ["b", "52"],
+    ]);
+  });
+
+  it("draws a transition label of two rows centred on its anchor", () => {
+    const diagram: PositionedStateDiagram = {
+      ...DIAGRAM,
+      transitions: [
+        {
+          ...DIAGRAM.transitions[0],
+          label: rowsLabel("t", "u"),
+          labelBox: boxOf("t", "u"),
+          labelAnchor: { x: 70, y: 90 },
+        },
+      ],
+    };
+
+    const label = renderStateDiagramToSVG(diagram).querySelector("text.siren-transition-label");
+
+    // Centred on the anchor, the centre of the box layout kept clear: the
+    // box's top is 90 - 24 = 66, its rows at 12 and 36.
+    expect(rowsOf(label)).toEqual([
+      ["t", "78"],
+      ["u", "102"],
+    ]);
+    expect(label!.getAttribute("dominant-baseline")).toBe("middle");
+  });
+
+  it("draws a note of two rows centred in its box", () => {
+    const diagram: PositionedStateDiagram = {
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          note: {
+            label: rowsLabel("n", "m"),
+            labelBox: boxOf("n", "m"),
+            x: 120,
+            y: 10,
+            width: 60,
+            height: 64,
+            connector: [
+              { x: 90, y: 40 },
+              { x: 120, y: 42 },
+            ],
+          },
+        },
+      ],
+    };
+
+    const text = renderStateDiagramToSVG(diagram).querySelector("text.siren-note-text");
+
+    // Centred on the box's middle, 10 + 32 = 42: the label's top is 18.
+    expect(rowsOf(text)).toEqual([
+      ["n", "30"],
+      ["m", "54"],
+    ]);
+  });
+
+  it("draws a composite's title of two rows in its strip", () => {
+    const diagram: PositionedStateDiagram = {
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          kind: "composite",
+          labels: [{ label: rowsLabel("c", "d"), labelBox: boxOf("c", "d"), y: 36 }],
+        },
+      ],
+      transitions: [],
+    };
+
+    const title = renderStateDiagramToSVG(diagram).querySelector("text.siren-composite-label");
+
+    expect(rowsOf(title)).toEqual([
+      ["c", "24"],
+      ["d", "48"],
+    ]);
+  });
+
+  it("keeps a label of one plain run as the text's own content, with no row tspans", () => {
+    const svg = renderStateDiagramToSVG(DIAGRAM);
+
+    for (const text of Array.from(svg.querySelectorAll("text"))) {
+      expect(text.querySelector("tspan"), text.textContent!).toBeNull();
+    }
+    expect(svg.querySelector("text.siren-state-label")!.textContent).toBe("Idle");
+    expect(svg.querySelector("text.siren-transition-label")!.textContent).toBe("start");
   });
 });
