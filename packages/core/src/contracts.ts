@@ -1436,6 +1436,16 @@ export interface ClassDecl {
   generic: string | null;
   /** Annotation text without its `<<`/`>>` (`interface`), or `null`. */
   annotation: string | null;
+  /**
+   * The label written in brackets after the name — `class Order["Order
+   * Line"]` — or `null` when the declaration wrote none, in which case the
+   * class draws its id (and generic). Read by `readLabel` in the full
+   * `html` dialect (ADR-0015); measured (mermaid 11.17.2, `--paint`):
+   * `class A["Order<br/>Line"]` draws "Order" over "Line" in both label
+   * modes, and a label replaces the whole drawn name, generic included —
+   * `class A~T~["Lab"]` draws "Lab".
+   */
+  label: Label | null;
   members: ClassMember[];
   line?: number;
   column?: number;
@@ -1484,8 +1494,13 @@ export interface ClassRelationship {
   line: ClassRelationshipLine;
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
-  /** The `: label` text, or `null`. */
-  label: string | null;
+  /**
+   * The `: label`, or `null` — read by `readLabel` in the full `html`
+   * dialect (ADR-0015), so `<br>` breaks a row here as it does on a
+   * flowchart edge. Measured (mermaid 11.17.2, `--paint`): `A --> B :
+   * a<br/>b` draws "a" over "b" in both label modes.
+   */
+  label: Label | null;
   /** The quoted multiplicity next to `from` (`"1"` in `Customer "1" --> "*" Ticket`), or `null`. */
   fromMultiplicity: string | null;
   /** The quoted multiplicity next to `to` (`"*"` in the same example), or `null`. */
@@ -1501,6 +1516,15 @@ export interface ClassRelationship {
  */
 export interface ClassNamespace {
   id: string;
+  /**
+   * The label written in brackets after the name — `namespace Zoo["Big
+   * Zoo"] {` — or `null` when the block wrote none, in which case the frame
+   * is labelled by its name. Read by `readLabel` in the full `html` dialect
+   * (ADR-0015): not on the board's table of measured places, so measured
+   * (mermaid 11.17.2, `--paint`): `namespace Zoo["Big<br/>Zoo <b>x</b>"]`
+   * keeps `Zoo` as the cluster's id and draws "Big" over "Zoo x".
+   */
+  label: Label | null;
   classIds: string[];
   line?: number;
   column?: number;
@@ -1508,7 +1532,14 @@ export interface ClassNamespace {
 
 /** A `note "text"` (free) or `note for X "text"` (attached) statement. */
 export interface ClassNote {
-  text: string;
+  /**
+   * The quoted text, read by `readLabel` in the full `html` dialect
+   * (ADR-0015), which the board had only inferred for this position and
+   * which was then measured (mermaid 11.17.2, `--paint`, `htmlLabels:
+   * true`): `note for A "n<br/>m <i>q</i>r"` draws "n" over "m qr", the tags
+   * honored rather than drawn, and a free note the same.
+   */
+  label: Label;
   /** The class this note is attached to, or `null` for a free note. */
   targetId: string | null;
   line?: number;
@@ -1680,6 +1711,12 @@ export interface ResolvedClass {
   id: string;
   generic: string | null;
   annotation: string | null;
+  /**
+   * The first label any declaration of the class wrote, or `null` when none
+   * did — merged by the rule `annotation` and `generic` are (first-named
+   * wins, a conflict is a warning), compared by flattened text.
+   */
+  label: Label | null;
   members: ClassMember[];
   /** The namespace this class belongs to, or `null` when it belongs to none. */
   namespaceId: string | null;
@@ -1703,7 +1740,8 @@ export interface ResolvedClassRelationship {
   line: ClassRelationshipLine;
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
-  label: string | null;
+  /** Carried unchanged from `ClassRelationship.label`. */
+  label: Label | null;
   fromMultiplicity: string | null;
   toMultiplicity: string | null;
   /**
@@ -1719,14 +1757,19 @@ export interface ResolvedClassRelationship {
 /** A namespace after model resolution: assigned id, membership resolved. */
 export interface ResolvedClassNamespace {
   id: string;
-  label: string;
+  /**
+   * The frame's label: the one written in brackets (`ClassNamespace.label`),
+   * or else the namespace's name as one plain run.
+   */
+  label: Label;
   classIds: string[];
 }
 
 /** A note after model resolution: assigned id, attachment resolved. */
 export interface ResolvedClassNote {
   id: string;
-  text: string;
+  /** Carried unchanged from `ClassNote.label`. */
+  label: Label;
   /** The class this note is attached to, or `null` for a free note. */
   targetId: string | null;
 }
@@ -1816,8 +1859,16 @@ export interface PositionedClassCompartment {
  */
 export interface PositionedClass {
   id: string;
-  /** The class-name text as drawn, including any generic parameter. */
-  name: string;
+  /**
+   * What the name band draws: the class's written label, or else its id with
+   * any generic parameter composed in (`Registry<T>`) as one plain run.
+   */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the name band was
+   * sized around, centred in the part of the band the name takes.
+   */
+  labelBox: LabelBox;
   /** Annotation text without its `<<`/`>>`, or `null`. */
   annotation: string | null;
   x: number;
@@ -1843,9 +1894,19 @@ export interface PositionedClassRelationship {
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
   points: Point[];
-  label: string | null;
-  /** Where the label is drawn; `null` when there is no label. */
+  label: Label | null;
+  /**
+   * Where the label is drawn — the centre of the space the shared core kept
+   * clear for it; `null` when there is no label.
+   */
   labelAnchor: Point | null;
+  /**
+   * The label as `layoutLabel` measured it — the box the core was asked to
+   * keep clear, centred on `labelAnchor` — or `null` exactly when `label`
+   * is. `PositionedStateTransition.labelBox` carries a transition's the same
+   * way.
+   */
+  labelBox: LabelBox | null;
   fromMultiplicity: string | null;
   /** Where the from-end multiplicity is drawn; `null` when there is none. */
   fromMultiplicityAnchor: Point | null;
@@ -1864,7 +1925,12 @@ export interface PositionedClassRelationship {
 /** A namespace with a layout-assigned frame enclosing its member classes. */
 export interface PositionedClassNamespace {
   id: string;
-  label: string;
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the strip along the frame's top
+   * is as tall as all its rows — centred on `labelAnchor`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -1876,7 +1942,13 @@ export interface PositionedClassNamespace {
 /** A note with a layout-assigned box and, when attached, its connector. */
 export interface PositionedClassNote {
   id: string;
-  text: string;
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the note's own was
+   * padded around — centred on the note box, which is the anchor the
+   * renderer hands `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;

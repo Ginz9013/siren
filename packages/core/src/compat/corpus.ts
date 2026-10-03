@@ -3102,6 +3102,139 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "cls-class-label-br",
+    kind: "class",
+    source: `classDiagram
+      class Order["Order<br/>Line"]`,
+    status: "supported",
+    meaning:
+      "`class X[\"label\"]` draws the label in place of the name, and `<br>` in " +
+      "it is a line break: a class label is one of the positions ADR-0015 " +
+      "reads with the whole tag vocabulary. Measured (mermaid 11.17.2, " +
+      "`--paint`): `class A[\"Order<br/>Line\"]` draws `Order` over `Line` in " +
+      "both label modes, and a label replaces the generic too " +
+      "(`class A~T~[\"Lab\"]` draws `Lab`). Siren used to reject the bracket " +
+      "outright. The name band is sized for both rows.",
+    assert: (result) => {
+      const group = 'g.siren-class[data-siren-id="Order"]';
+      const name = svgOf(result).querySelector(`${group} text.siren-class-name`);
+      expectSame("the name's rows", labelRows(name), ["Order", "Line"]);
+      const frame = svgOf(result).querySelector(`${group} rect.siren-class-frame`);
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(name?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-relationship-label-br",
+    kind: "class",
+    source: `classDiagram
+      Order --> Line : holds<br/>many`,
+    status: "supported",
+    meaning:
+      "`<br>` in a relationship's `: label` is a line break, as it is on a " +
+      "flowchart edge. Measured (mermaid 11.17.2, `--paint`): `A --> B : " +
+      "a<br/>b` draws `a` over `b` in both label modes. Siren used to draw " +
+      "`holds<br/>many` literally. Drawn centred on the space layout kept " +
+      "clear for it, which is now the label box's centre rather than its " +
+      "baseline.",
+    assert: (result) => {
+      expectSame(
+        "the label's rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-relationship[data-siren-id="Order-Line"] text.siren-relationship-label',
+          ),
+        ),
+        ["holds", "many"],
+      );
+    },
+  },
+  {
+    id: "cls-note-br",
+    kind: "class",
+    source: `classDiagram
+      class Duck
+      note for Duck "can fly<br/>can swim"`,
+    status: "supported",
+    meaning:
+      "`<br>` in a note is a line break. The board had inferred this position " +
+      "rather than measured it, so it was measured (mermaid 11.17.2, " +
+      "`--paint`, `htmlLabels: true`): `note for A \"n<br/>m <i>q</i>r\"` " +
+      "reads `nm qr`, two rows with the tags honored, and a free note the " +
+      "same. Siren used to draw the note's text literally. The note's box is " +
+      "sized for both rows.",
+    assert: (result) => {
+      const text = svgOf(result).querySelector("g.siren-note text.siren-note-text");
+      expectSame("the note's rows", labelRows(text), ["can fly", "can swim"]);
+      const frame = svgOf(result).querySelector("g.siren-note rect.siren-note-frame");
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the note (rows at ${JSON.stringify(rowYs)}, note ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-namespace-label-br",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo["Big<br/>Zoo"] {
+        class Lion
+      }`,
+    status: "supported",
+    meaning:
+      "`namespace X[\"label\"] {` labels the frame, and `<br>` in it is a line " +
+      "break. Not on the board's table of measured places, so measured " +
+      "(mermaid 11.17.2, `--paint`): `namespace Zoo[\"Big<br/>Zoo <b>x</b>\"] {` " +
+      "keeps `Zoo` as the cluster's id and draws `Big` over `Zoo x`. Siren " +
+      "used to reject the bracket outright. The frame's label strip holds " +
+      "both rows, so the class is drawn below them.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector("g.siren-namespace text.siren-namespace-label");
+      expectSame("the label's rows", labelRows(label), ["Big", "Zoo"]);
+      const rows = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      const lionTop = classBox(result, "Lion").y;
+      expectSame(
+        `the label's last row is above Lion (at ${lastRowY}, Lion's top at ${lionTop})`,
+        lastRowY < lionTop,
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-member-tags-literal",
+    kind: "class",
+    source: `classDiagram
+      class Order {
+        +id<br/>int
+        +<b>id</b> int
+      }`,
+    status: "supported",
+    meaning:
+      "A member is not a label: Mermaid escapes a member's text in both label " +
+      "modes (measured, mermaid 11.17.2, `--paint`), so `+id<br/>int` draws " +
+      "the characters `+id<br>int` — Mermaid's own `/<br\\s*\\/?>/gi` respells " +
+      "the break first — and `+<b>id</b> int` draws its tags as written. Siren " +
+      "used to reject `+id<br/>int` as an unrecognized member.",
+    assert: (result) => {
+      expectSame("Order's members", members(result, "Order"), ["+id<br>int", "+<b>id</b> int"]);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------
