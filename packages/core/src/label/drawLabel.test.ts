@@ -123,4 +123,47 @@ describe("drawLabel", () => {
       [["y", null]],
     ]);
   });
+
+  // Mermaid draws a `<mark>` on a yellow background exactly as wide and as
+  // tall as its text's line box (measured); SVG text has no background, so
+  // it is a rect behind the text, wherever the box measured the run.
+  it("puts one rect behind a marked run, at the run's place in its row, and none behind any other", () => {
+    // 8px a character plus 16px of the measurer's own padding, 20px a line:
+    // the second row, `x mm`, is 8 + 16 + 16 + 8 = 48 wide, centred on
+    // x=100, so it starts at 76 and `mm` at 76 + 8 + 16 = 100. Two 20px rows
+    // centred on y=50 put the second one between 50 and 70.
+    const padded: TextMeasurer = {
+      measure(text: string) {
+        return { width: text.length * 8 + 16, height: 20 };
+      },
+    };
+    const { label } = readLabel("a<br>x <mark>mm</mark>", { dialect: "html" });
+
+    const { backgrounds } = drawLabel(label, layoutLabel(label, padded), { x: 100, y: 50 });
+
+    expect(
+      backgrounds.map((rect) => [
+        rect.tagName,
+        rect.getAttribute("class"),
+        rect.getAttribute("x"),
+        rect.getAttribute("y"),
+        rect.getAttribute("width"),
+        rect.getAttribute("height"),
+      ]),
+    ).toEqual([["rect", "siren-label-mark", "100", "50", "16", "20"]]);
+  });
+
+  // Mermaid's marked text is black on the yellow, whatever color the label
+  // around it is (measured): the theme's `--siren-label-mark-text`, reached
+  // through a class on the run itself so it outranks the color the `<text>`
+  // inherits.
+  it("draws a marked run's text with a class of its own, and no other run with it", () => {
+    const { text } = drawn("x <mark>m</mark>");
+
+    const runs = Array.from(text.querySelectorAll("tspan.siren-label-row > tspan"));
+    expect(runs.map((run) => [run.textContent, run.getAttribute("class")])).toEqual([
+      ["x ", null],
+      ["m", "siren-label-mark-text"],
+    ]);
+  });
 });

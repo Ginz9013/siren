@@ -209,6 +209,16 @@ describe("readLabel's text-styling tags", () => {
     ]);
   });
 
+  // `mark` draws its text black on a yellow `#ff0` background (measured):
+  // paint the theme gives it, so the run says only that it is marked.
+  it("reads <mark> as a marked run", () => {
+    expect(runsOf("x <mark>m</mark> y", "mark")).toEqual([
+      { text: "x ", mark: false },
+      { text: "m", mark: true },
+      { text: " y", mark: false },
+    ]);
+  });
+
   // `q` draws `“` before its text and `”` after it (measured), in the
   // style its text has.
   it("reads <q> as its text between curly quotes", () => {

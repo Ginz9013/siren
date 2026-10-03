@@ -1142,6 +1142,28 @@ describe("default theme's color palette", () => {
   });
 });
 
+describe("default theme's label paint", () => {
+  // Mermaid's default HTML labels draw `<mark>` black on yellow `#ff0`
+  // (measured, the board's table) — the browser's default stylesheet, which
+  // ADR-0015 turns into two tokens a consumer can repaint.
+  it("paints a marked run's background and text through the two mark tokens", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A[x <mark>m</mark>]`);
+
+    const rect = svg.querySelector("rect.siren-label-mark");
+    const run = svg.querySelector("tspan.siren-label-mark-text");
+    if (rect === null || run === null) {
+      throw new Error("no marked run drawn");
+    }
+    expect(getComputedStyle(rect).fill).toBe("var(--siren-label-mark-fill)");
+    expect(getComputedStyle(run).fill).toBe("var(--siren-label-mark-text)");
+
+    const root = getComputedStyle(document.documentElement);
+    expect(root.getPropertyValue("--siren-label-mark-fill").trim()).toBe("#ff0");
+    expect(root.getPropertyValue("--siren-label-mark-text").trim()).toBe("#000");
+  });
+});
+
 describe("default theme's design tokens", () => {
   /**
    * Every rule, as selector and body. A rule nested in `@media` is picked up

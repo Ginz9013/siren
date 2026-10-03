@@ -77,15 +77,22 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  * `font-family="monospace"`, and a scaled size as `font-size` in `em`, so
  * it stays relative to whatever size the theme gives the `<text>`. A
  * `sub`/`sup` run is shifted with `dy` (see `BASELINE_SHIFT`), the one
- * relative position in a row.
+ * relative position in a row. A marked run's text color is the theme's, not
+ * an attribute: it carries `class="siren-label-mark-text"`, which
+ * `default.css` paints with `--siren-label-mark-text`.
  *
  * Author text reaches the DOM through `textContent` only, never `innerHTML`:
  * the tags were read into runs by `readLabel`, and nothing here parses
  * markup.
  *
  * `backgrounds` are what a run's background paint needs drawn under the
- * text — none yet, because no tag the reader honors sets one. The caller
- * inserts them before the `<text>`, since document order is paint order.
+ * text: one `<rect>` per run that has one, over the place `box` measured for
+ * the run, the height of its row. A marked run's is
+ * `<rect class="siren-label-mark">`, filled by the theme with
+ * `--siren-label-mark-fill`. Its width is the measurer's, so it can miss the
+ * glyphs a browser actually draws by a few pixels — the same approximation
+ * every label box already makes. The caller inserts them before the
+ * `<text>`, since document order is paint order.
  *
  * Builds elements and attaches none of them; where they go is the caller's.
  */
@@ -106,17 +113,30 @@ export function drawLabel(
     return { text, backgrounds: [] };
   }
 
+  const backgrounds: SVGElement[] = [];
   const top = anchor.y - box.height / 2;
   label.rows.forEach((runs, index) => {
+    const measured = box.rows[index]!;
     const row = document.createElementNS(SVG_NS, "tspan");
     row.setAttribute("class", "siren-label-row");
     row.setAttribute("x", String(anchor.x));
-    row.setAttribute("y", String(top + box.rows[index]!.y));
+    row.setAttribute("y", String(top + measured.y));
+    // Where the row's measured band starts: it is drawn centred, so its left
+    // edge is half its own width left of the anchor, and every run's `x` in
+    // the box counts from there.
+    const left = anchor.x - measured.width / 2;
+    const band = { y: top + measured.y - measured.height / 2, height: measured.height };
     // How far below the row's baseline the text position is, in the
     // `<text>` element's font size; every row starts at its absolute `y`,
     // so at zero.
     let shift = 0;
-    for (const run of runs) {
+    runs.forEach((run, runIndex) => {
+      if (run.mark) {
+        const place = measured.runs[runIndex]!;
+        const rect = backgroundRect({ x: left + place.x, width: place.width, ...band });
+        rect.setAttribute("class", "siren-label-mark");
+        backgrounds.push(rect);
+      }
       const element = document.createElementNS(SVG_NS, "tspan");
       const scale = relativeScale(run) ?? 1;
       const target = BASELINE_SHIFT[run.baseline] * scale;
@@ -145,12 +165,30 @@ export function drawLabel(
       if (scale !== 1) {
         element.setAttribute("font-size", `${numeral(scale)}em`);
       }
+      if (run.mark) {
+        element.setAttribute("class", "siren-label-mark-text");
+      }
       element.textContent = run.text;
       row.appendChild(element);
-    }
+    });
     text.appendChild(row);
   });
-  return { text, backgrounds: [] };
+  return { text, backgrounds };
+}
+
+/**
+ * A `<rect>` covering one run's place in its row: as wide as the run was
+ * measured, as tall as the row — the line box a browser paints an inline
+ * element's background over. Unpainted: what fills it, a theme class or an
+ * author's color, is the caller's.
+ */
+function backgroundRect(place: { x: number; y: number; width: number; height: number }): SVGElement {
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", String(place.x));
+  rect.setAttribute("y", String(place.y));
+  rect.setAttribute("width", String(place.width));
+  rect.setAttribute("height", String(place.height));
+  return rect;
 }
 
 /**

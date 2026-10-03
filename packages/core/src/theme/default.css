@@ -55,6 +55,13 @@
   --siren-node-text: #1d1730;
   --siren-edge-stroke: #6f6a84;
   --siren-highlight-color: #0d9488;
+  /* What the browser's default stylesheet paints a `<mark>` with in
+     Mermaid's HTML labels (measured): black text on yellow. Not part of the
+     palette above — a marked run looks the same on any of them, as it does
+     in Mermaid — but a token all the same, so a theme can repaint it
+     (ADR-0015). */
+  --siren-label-mark-fill: #ff0;
+  --siren-label-mark-text: #000;
 
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
@@ -136,6 +143,21 @@
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
   fill: var(--siren-node-text);
+}
+
+/*
+ * A marked run in any label (`<mark>`): the rect `drawLabel` puts behind its
+ * text, and the run's own `<tspan>`. The text color is set on the run itself,
+ * not left to inherit, because inherited paint loses to it whatever the
+ * `<text>` around it was given — the theme's text color, or an author's
+ * `style` — which is what the browser does with a `<mark>` too.
+ */
+.siren-label-mark {
+  fill: var(--siren-label-mark-fill);
+}
+
+.siren-label-mark-text {
+  fill: var(--siren-label-mark-text);
 }
 
 /*
