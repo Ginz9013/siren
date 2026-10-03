@@ -80,44 +80,40 @@ export type HighlightEffect = "outline" | "glow";
 export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
 
 /**
- * One run of a Markdown-formatted node label: a stretch of text sharing one
- * combination of bold/italic. Independent axes rather than a closed set of
- * "styles" — matches mermaid 11.17.2's own `font-weight`/`font-style` pair,
- * measured (`htmlLabels: false`, a throwaway `mermaid-probe.mjs`-based
- * script): `**bold**` sets only `font-weight`, `*italic*` sets only
- * `font-style`, and a run written inside both would carry both. This
- * board's own corpus rows never nest the two, so no run either of them
- * produces does in practice, but the shape leaves room for one that does.
+ * The label model — `Label`, its runs, its measured box, and the problems
+ * reading one can raise. Declared in `label/label.ts`, beside the three
+ * functions that read, measure and draw a label, so that the tickets growing
+ * the tag vocabulary (ADR-0015) never have to touch this file; re-exported
+ * here so every other module still finds its cross-module types in one place.
  */
-export interface LabelRun {
-  text: string;
-  bold: boolean;
-  italic: boolean;
-}
+import type { Label, LabelBox } from "./label/label";
+
+export type {
+  Label,
+  LabelBox,
+  LabelBoxRow,
+  LabelDialect,
+  LabelProblem,
+  LabelRun,
+} from "./label/label";
 
 /** A node as declared in source, before graph-model resolution. */
 export interface SirenNode {
   id: string;
-  label: string;
   /**
-   * The label's Markdown runs, one array per line, in source order — or
-   * `null` when the label carries no Markdown formatting, the overwhelming
-   * common case: an ordinary `A[label]` or `A["label"]` never sets this.
+   * The label as `readLabel` read it — rows of runs, with the tags the
+   * author wrote already turned into row breaks and run properties
+   * (ADR-0015). A node written with no label at all is labelled with its
+   * own id, as one plain run.
    *
-   * Non-null only when the author wrote the fenced `` "`...`" `` Markdown-
-   * string spelling — measured, mermaid 11.17.2's own syntax for a label
-   * that may be bold, italic or carry a line break. `label` above still
-   * holds the *flattened* plain text in that case (every run's text
-   * concatenated in order, each line joined by `\n`), so it stays
-   * meaningful to a reader that has never heard of this field — an error
-   * message, a diagnostic quoting a redeclared label.
-   *
-   * Required rather than optional, the same rule `GraphNode.style`/
-   * `parentId`/`interaction` already follow: "no formatting" is a state
-   * every node has, not the absence of a field some nodes carry and others
-   * do not.
+   * Every spelling reads into this one shape: an ordinary `A[label]`, a
+   * quoted `A["label"]`, and the fenced Markdown string
+   * `` A["`**bold**`"] `` whose `**`/`*` and real line breaks are read by
+   * the same function. `label.text` is the flattened plain text, for a
+   * reader that only wants a string — a diagnostic quoting the label, the
+   * redeclaration warning comparing two.
    */
-  labelRuns: LabelRun[][] | null;
+  label: Label;
   /**
    * The shape its bracket spelling named — `"rect"` for a bare `A`, for
    * `A[label]`, and for `A:::name`.
@@ -204,8 +200,12 @@ export interface SirenEdge {
    * follow, arriving at `null` instead of a default because a label has no
    * neutral value to default to — the shape `ClassRelationship.label`
    * already has, for the same reason.
+   *
+   * Read by `readLabel` like a node's, so `<br>` breaks a row here too
+   * (ADR-0015). Never a Markdown string: Mermaid reads one on an edge and
+   * Siren does not yet, which is a gap of its own.
    */
-  label: string | null;
+  label: Label | null;
   sourceLine?: number;
   sourceColumn?: number;
 }
@@ -292,8 +292,12 @@ export interface SirenSubgraph {
    * ADR-0010, because a subgraph may legitimately be named after a node.
    */
   name: string | null;
-  /** The text drawn on the frame. `subgraph Ingest` labels itself. */
-  label: string;
+  /**
+   * The title drawn on the frame, read by `readLabel` like a node's label —
+   * so `<br>` breaks a row here too (ADR-0015). `subgraph Ingest` labels
+   * itself.
+   */
+  label: Label;
   /**
    * The ids of the nodes named directly inside this block, in source order,
    * excluding any a subgraph already claimed.
@@ -978,13 +982,12 @@ export interface PositionedSequenceDiagram {
 /** A node after graph-model resolution (duplicates merged, ids validated). */
 export interface GraphNode {
   id: string;
-  label: string;
   /**
-   * Carried unchanged from `SirenNode.labelRuns` — see that field for what
-   * `null` versus non-null means. `buildFlowchartModel` re-decides nothing
-   * about a label's own text here, the same rule `shape` already follows.
+   * Carried unchanged from `SirenNode.label` — `buildFlowchartModel`
+   * re-decides nothing about a label's own text, the same rule `shape`
+   * already follows.
    */
-  labelRuns: LabelRun[][] | null;
+  label: Label;
   /**
    * The shape this node is drawn as, carried unchanged from the spelling
    * the author used. Required for the same reason `style` is: "no shape"
@@ -1071,8 +1074,8 @@ export interface GraphNode {
  */
 export interface ResolvedSubgraph {
   id: string;
-  /** The text drawn on the frame — the author's title, carried through. */
-  label: string;
+  /** The title drawn on the frame — the author's, carried through. */
+  label: Label;
   /** The subgraph this one is nested in, or `null` at the top level. */
   parentId: string | null;
   /**
@@ -1132,7 +1135,7 @@ export interface GraphEdge {
    * unlike the three axes above: a label is a box dagre has to keep clear,
    * so it changes where the edge goes and not only what is drawn on it.
    */
-  label: string | null;
+  label: Label | null;
   /**
    * Author declarations to emit as this edge's inline `style` attribute, in
    * declaration order, with rejected values already dropped — the same
@@ -1269,6 +1272,15 @@ export interface PositionedNode extends GraphNode {
   y: number;
   width: number;
   height: number;
+  /**
+   * The label as `layoutLabel` measured it: the box the node's shape was
+   * sized to hold, and where each row sits inside it. Centred on the node,
+   * which is the anchor the renderer hands `drawLabel`.
+   *
+   * Reported by layout rather than re-measured by the renderer, which has
+   * no measurer: the rows are drawn where the space for them was reserved.
+   */
+  labelBox: LabelBox;
 }
 
 /** An edge with a layout-assigned point path. */
@@ -1286,6 +1298,11 @@ export interface PositionedEdge extends GraphEdge {
    * the same reason.
    */
   labelAnchor: Point | null;
+  /**
+   * The label as `layoutLabel` measured it — the box dagre was asked to keep
+   * clear, centred on `labelAnchor` — or `null` exactly when `label` is.
+   */
+  labelBox: LabelBox | null;
 }
 
 /**
@@ -1301,7 +1318,9 @@ export interface PositionedEdge extends GraphEdge {
  */
 export interface PositionedSubgraph {
   id: string;
-  label: string;
+  label: Label;
+  /** The title as `layoutLabel` measured it, centred on `labelAnchor`. */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;

@@ -196,7 +196,6 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
       nodesById.set(node.id, {
         id: node.id,
         label: node.label,
-        labelRuns: node.labelRuns,
         shape: node.shape,
         style: unstyled(),
         // Filled in by `resolveSubgraphs`, once the blocks have ids to point
@@ -211,10 +210,10 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
       });
       continue;
     }
-    if (existing.label !== node.label) {
+    if (existing.label.text !== node.label.text) {
       diagnostics.push({
         severity: "warning",
-        message: `Node "${node.id}" is declared with conflicting labels ("${existing.label}" vs. "${node.label}"); keeping the first-seen label.`,
+        message: `Node "${node.id}" is declared with conflicting labels ("${existing.label.text}" vs. "${node.label.text}"); keeping the first-seen label.`,
         line: node.line,
         column: node.column,
       });
