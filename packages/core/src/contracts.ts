@@ -1019,9 +1019,8 @@ export interface PositionedBlock {
   label: PlacedLabel | null;
   /**
    * A `rect`'s fill, as written (`ResolvedSequenceBlock.color`) and never
-   * drawn as text;
-   * `null` for a `rect` written without one and for every other kind. The
-   * shape `PositionedBox.color` has.
+   * drawn as text — a `rect` always has one. `null` for every other kind.
+   * The shape `PositionedBox.color` has.
    */
   color: string | null;
   x: number;

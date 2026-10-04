@@ -10,6 +10,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -176,8 +177,7 @@ function buildRelationship(
   // space reserved for it, the same correction a state diagram's transition
   // label took. Its `x` and `y` are unchanged for a label of one row.
   if (relationship.label !== null) {
-    const { label, labelBox, anchor } = relationship.label;
-    appendLabel(g, drawLabel(label, labelBox, anchor, "siren-relationship-label"));
+    appendLabel(g, drawPlaced(relationship.label, "siren-relationship-label"));
   }
 
   for (const [text, anchor] of [
@@ -516,7 +516,7 @@ function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
   frame.setAttribute("height", String(namespace.height));
   g.appendChild(frame);
 
-  appendLabel(g, drawLabel(namespace.label.label, namespace.label.labelBox, namespace.label.anchor, "siren-namespace-label"));
+  appendLabel(g, drawPlaced(namespace.label, "siren-namespace-label"));
   return g;
 }
 

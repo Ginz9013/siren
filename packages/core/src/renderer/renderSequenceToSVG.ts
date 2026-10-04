@@ -14,6 +14,7 @@ import type {
   SequenceArrowHead,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -197,7 +198,7 @@ function buildBox(box: PositionedBox): SVGGElement {
   g.appendChild(background);
 
   if (box.label !== null) {
-    appendLabel(g, drawLabel(box.label.label, box.label.labelBox, box.label.anchor, "siren-box-label"));
+    appendLabel(g, drawPlaced(box.label, "siren-box-label"));
   }
 
   return g;
@@ -393,7 +394,7 @@ function appendBlockLabel(
     parent.appendChild(empty);
     return;
   }
-  appendLabel(parent, drawLabel(label.label, label.labelBox, label.anchor, "siren-block-label"));
+  appendLabel(parent, drawPlaced(label, "siren-block-label"));
 }
 
 /**
@@ -460,7 +461,7 @@ function buildMessage(message: PositionedMessage, scope: string): SVGGElement {
   // the arrow — so a label of several rows grows upward, away from it.
   appendLabel(
     g,
-    drawLabel(message.label.label, message.label.labelBox, message.label.anchor, "siren-message-label"),
+    drawPlaced(message.label, "siren-message-label"),
   );
 
   if (message.autonumber !== null) {
