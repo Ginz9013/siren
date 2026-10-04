@@ -54,3 +54,46 @@ describe("render() with a label link inside a node link", () => {
     expect(inner?.textContent).toBe("l");
   });
 });
+
+describe("render() with a tag Siren refuses", () => {
+  /** The diagnostics `render()` reports for `source`, and whether it drew anything. */
+  function rendered(source: string) {
+    const result = render(source, document.createElement("div"));
+    return { drawn: result.svg !== null, diagnostics: result.diagnostics };
+  }
+
+  // ADR-0015: a refused layer is an error at the tag, and the document is
+  // not drawn, as an unrecognized line is not.
+  it("refuses the document with an error at the tag's own line and column", () => {
+    const { drawn, diagnostics } = rendered(`flowchart TB
+  A["x <table><tr><td>a</td></tr></table>"] --> B`);
+
+    expect(drawn).toBe(false);
+    expect(diagnostics.map(({ severity, line, column }) => ({ severity, line, column }))).toEqual([
+      { severity: "error", line: 2, column: 8 },
+    ]);
+    expect(diagnostics[0]!.message).toBe(
+      "<table> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw tables.",
+    );
+  });
+
+  it("places the error in a Markdown string on the source line the tag is written on", () => {
+    const { drawn, diagnostics } = rendered(`flowchart TB
+  A["\`**a**
+b <img src='x.png'>\`"]`);
+
+    expect(drawn).toBe(false);
+    expect(diagnostics.map(({ severity, line, column }) => ({ severity, line, column }))).toEqual([
+      { severity: "error", line: 3, column: 3 },
+    ]);
+  });
+
+  // Mermaid draws sequence text in SVG mode, where the tag is its characters.
+  it("draws a sequence message's tag as its characters, with no diagnostic", () => {
+    const { drawn, diagnostics } = rendered(`sequenceDiagram
+  A->>B: a <table> b`);
+
+    expect(drawn).toBe(true);
+    expect(diagnostics).toEqual([]);
+  });
+});

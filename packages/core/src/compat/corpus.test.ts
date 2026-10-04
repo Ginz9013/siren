@@ -1360,7 +1360,7 @@ const SILENTLY_WRONG = 2;
  * because the ticket that made members literal measured the two spellings
  * it fixed, not the ones it left.
  */
-const REJECTED = 10;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
