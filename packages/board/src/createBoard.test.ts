@@ -125,9 +125,14 @@ describe("createBoard", () => {
       onDiagnostics: (diagnostics) => seen.push(diagnostics),
     });
 
-    const sourceWithWarningOnly = `flowchart TD
-A[Start] --> B[End]
-A[Different] --> B[End]
+    // Two different annotations on one class: Mermaid draws only the
+    // first, so Siren draws it too and warns about the one it dropped. (A
+    // flowchart node relabelled used to be the example here, until a later
+    // label became the one drawn, silently, as Mermaid does.)
+    const sourceWithWarningOnly = `classDiagram
+class A
+<<interface>> A
+<<service>> A
 `;
     board.setSource(sourceWithWarningOnly);
 

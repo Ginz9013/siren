@@ -1472,15 +1472,15 @@ describe("buildClassModel", () => {
 });
 
 describe("buildClassModel — labels", () => {
-  it("keeps the first label written for a class, from whichever declaration wrote it", () => {
-    // The implicit declaration a relationship makes comes first and carries
-    // none — the same reason an annotation is first-*named*, not
-    // first-declared.
+  it("keeps a label written for a class through the declarations that write none", () => {
+    // The implicit declaration a relationship makes carries no label, before
+    // or after the one that wrote it; neither one takes the label away.
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [
           classDecl({ id: "Order" }),
           classDecl({ id: "Order", label: rowsLabel("Order", "Line") }),
+          classDecl({ id: "Order" }),
           classDecl({ id: "Plain" }),
         ],
       }),
@@ -1493,7 +1493,10 @@ describe("buildClassModel — labels", () => {
     ]);
   });
 
-  it("warns and keeps the first label when two declarations of one class label it differently", () => {
+  it("takes the last label, silently, when two declarations of one class label it differently", () => {
+    // Mermaid 11.17.2, measured: `class A["x"]` then `class A["y"]` draws
+    // "y" with no diagnostic — unlike a generic or an annotation, where the
+    // first is the one drawn.
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [
@@ -1503,16 +1506,8 @@ describe("buildClassModel — labels", () => {
       }),
     );
 
-    expect(model.classes[0].label).toEqual(plainLabel("x"));
-    expect(diagnostics).toEqual([
-      {
-        severity: "warning",
-        message:
-          'Class "Order" is declared with conflicting labels ("x" vs. "y\nz"); keeping the first-seen label.',
-        line: 3,
-        column: 3,
-      },
-    ]);
+    expect(diagnostics).toEqual([]);
+    expect(model.classes.map((c) => [c.id, c.label])).toEqual([["Order", rowsLabel("y", "z")]]);
   });
 
   it("labels a namespace with the label it wrote, and one that wrote none with its name", () => {

@@ -18,7 +18,7 @@ import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./reso
 
 /**
  * Resolves a parsed `FlowchartDocument` into a validated `GraphModel`:
- * assigns stable edge ids, dedupes nodes (first-label-wins), and resolves
+ * assigns stable edge ids, dedupes nodes (last-label-wins), and resolves
  * every `timeline:` reference against real node/edge ids — dropping
  * unresolved entries (with an error diagnostic) rather than failing the
  * whole graph.
@@ -38,7 +38,7 @@ export function buildFlowchartModel(
 ): { graph: GraphModel; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
 
-  const nodes = resolveNodes(document, diagnostics);
+  const nodes = resolveNodes(document);
   // Before the edges, because an edge endpoint may name a subgraph and the
   // id it names it by is minted here.
   const { subgraphs, idByName } = resolveSubgraphs(document, nodes);
@@ -184,15 +184,15 @@ function unstyled(): AuthorStyle {
   return { frame: [], text: [] };
 }
 
-function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): GraphNode[] {
+function resolveNodes(document: FlowchartDocument): GraphNode[] {
   const nodesById = new Map<string, GraphNode>();
 
   for (const node of document.nodes) {
     const existing = nodesById.get(node.id);
     if (existing === undefined) {
-      // The shape travels with the label, from the same first-seen
-      // declaration: a spelling is read once, in the parser, and this stage
-      // has no business re-deciding what `A{X}` meant.
+      // The shape travels with the label, from the same declaration: a
+      // spelling is read once, in the parser, and this stage has no business
+      // re-deciding what `A{X}` meant.
       nodesById.set(node.id, {
         id: node.id,
         label: node.label,
@@ -210,14 +210,13 @@ function resolveNodes(document: FlowchartDocument, diagnostics: Diagnostic[]): G
       });
       continue;
     }
-    if (existing.label.text !== node.label.text) {
-      diagnostics.push({
-        severity: "warning",
-        message: `Node "${node.id}" is declared with conflicting labels ("${existing.label.text}" vs. "${node.label.text}"); keeping the first-seen label.`,
-        line: node.line,
-        column: node.column,
-      });
-    }
+    // A later declaration's label and shape replace the earlier ones,
+    // silently — the parser's rule, held here as well so a hand-built
+    // document draws what the same nodes parsed would. Mermaid 11.17.2,
+    // measured: `A[x]` then `A[y]` draws "y", and `A[x]` then `A{x}` a
+    // diamond, each with no diagnostic.
+    existing.label = node.label;
+    existing.shape = node.shape;
   }
 
   return [...nodesById.values()];

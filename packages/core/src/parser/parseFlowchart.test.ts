@@ -114,6 +114,27 @@ describe("a flowchart node's label", () => {
   });
 });
 
+/**
+ * A node written with a bracket more than once. Mermaid 11.17.2, measured:
+ * the last bracket is the one drawn — its label *and* its shape (`A[x]` then
+ * `A{x}` is a diamond) — with no diagnostic, while a bare mention changes
+ * neither.
+ */
+describe("a flowchart node declared twice", () => {
+  it("takes the shape of the last bracket, even when the label is the same", () => {
+    const source = `flowchart TB
+  A[x]
+  A{x}`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "x", "rhombus"],
+    ]);
+  });
+});
+
 /** A node's label rows, each run cut down to the two axes a Markdown string sets. */
 function markdownRows(node: SirenNode | undefined) {
   return node?.label.rows.map((row) => row.map(({ text, bold, italic }) => ({ text, bold, italic })));

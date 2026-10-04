@@ -15,7 +15,7 @@
  *
  * `text` is the *flattened* plain text — every run's text concatenated and
  * the rows joined by `\n` — for the readers that only ever needed a string:
- * a diagnostic quoting a label, the redeclaration warning comparing two.
+ * a diagnostic quoting a label.
  * It is derived, never authoritative: what is drawn is `rows`.
  *
  * Never zero rows, and never a row with zero runs. An empty row (`a<br>`

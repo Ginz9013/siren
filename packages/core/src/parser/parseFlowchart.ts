@@ -1558,14 +1558,12 @@ export function parseFlowchart(source: string): ParseResult {
       nodesById.set(id, { id, label, shape, line, column });
       return;
     }
-    if (existing.label.text !== label.text) {
-      diagnostics.push({
-        severity: "warning",
-        message: `Node "${id}" redeclared with a different label ("${existing.label.text}" kept, "${label.text}" ignored)`,
-        line,
-        column,
-      });
-    }
+    // A later bracket replaces an earlier one — its label and its shape
+    // both, silently — and the node keeps the place it was first written in.
+    // Mermaid 11.17.2, measured: `A[x]` then `A[y]` draws "y", and `A[x]`
+    // then `A{x}` draws a diamond, each with no diagnostic. The author's
+    // later word is the one used, so there is no mistake here to warn about.
+    nodesById.set(id, { ...existing, label, shape });
   };
 
   /**
@@ -1606,8 +1604,8 @@ export function parseFlowchart(source: string): ParseResult {
    * written, so where it was written must not be what decides what it does.
    *
    * The label and the definition are independent. A label declares, so a
-   * labelled mention goes through `addNode` and can raise the redeclaration
-   * warning; an unlabelled one only applies, so it declares the node just
+   * labelled mention goes through `addNode` and replaces whatever bracket
+   * came before it; an unlabelled one only applies, so it declares the node just
    * when nothing else has and leaves a label written elsewhere for that id
    * alone. That second rule is ticket 04's, for the standalone `A:::name`,
    * and an edge's bare endpoint has always followed it — they are one rule

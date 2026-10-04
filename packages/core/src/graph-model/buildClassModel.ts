@@ -5,7 +5,6 @@ import type {
   ClassModel,
   ClassModelResult,
   Diagnostic,
-  Label,
   ResolvedClass,
   ResolvedClassNamespace,
   ResolvedClassNote,
@@ -157,7 +156,11 @@ function resolveClasses(
 
     // An annotation and a generic are single-valued, so they cannot be
     // unioned the way members are: the first declaration that names one
-    // wins. First-*named*, not first-declared — the implicit declaration a
+    // wins, as it does in Mermaid 11.17.2 (measured: `class A~T~` then
+    // `class A~U~` keeps `T`; `<<interface>> A` then `<<service>> A` draws
+    // only «interface»). A second, different one is a warning because
+    // Mermaid drops it without a word, which is likely not what the author
+    // meant. First-*named*, not first-declared — the implicit declaration a
     // relationship makes carries neither, and it is usually the one that
     // introduced the class, so taking its nulls would discard whatever the
     // explicit declaration said.
@@ -177,21 +180,16 @@ function resolveClasses(
       declaration,
       diagnostics,
     );
-    // A label is single-valued too, and merges by the same rule, compared
-    // and quoted by its flattened text — what `buildFlowchartModel` does
-    // for a node written with two labels. Mermaid itself keeps the *last*
-    // (measured, 11.17.2: `class A["x"]` then `class A["y"]` draws "y");
-    // this stage's rule for every single-valued attribute is first-seen
-    // with a warning, and a label is not made the one exception.
-    existing.resolved.label = mergeAttribute(
-      existing.resolved.label,
-      declaration.label,
-      "labels",
-      "label",
-      declaration,
-      diagnostics,
-      (label) => label.text,
-    );
+    // A label is single-valued too, but Mermaid does not merge it the way
+    // it merges those two: the *last* label written is the one drawn, with
+    // no diagnostic (measured, 11.17.2: `class A["x"]` then `class A["y"]`
+    // draws "y", while `class A~T~` then `class A~U~` keeps `T` and two
+    // annotations draw only the first). So a later label replaces an
+    // earlier one silently — what `buildFlowchartModel` does for a node
+    // written with two — and a declaration that writes none leaves it alone.
+    if (declaration.label !== null) {
+      existing.resolved.label = declaration.label;
+    }
   }
 
   // Defensive: an endpoint no declaration covers still gets a class, so a
@@ -434,29 +432,26 @@ function assignRelationshipIds(document: ClassDocument): ResolvedClassRelationsh
  * same class: the first non-null value wins, and two different non-null
  * values are a warning rather than an error — both declarations are
  * perfectly well-formed on their own, and the diagram still renders with
- * the first. Mirrors `buildFlowchartModel`'s conflicting-node-label rule.
- *
- * `textOf` is what a value is compared and quoted by: the value itself for
- * a string, the flattened text for a `Label`.
+ * the first. A label is not merged here: Mermaid keeps the last one, so
+ * `resolveClasses` replaces it instead.
  */
-function mergeAttribute<T extends string | Label>(
-  kept: T | null,
-  incoming: T | null,
+function mergeAttribute(
+  kept: string | null,
+  incoming: string | null,
   plural: string,
   singular: string,
   declaration: ClassDecl,
   diagnostics: Diagnostic[],
-  textOf: (value: T) => string = String,
-): T | null {
+): string | null {
   if (incoming === null) return kept;
   if (kept === null) return incoming;
-  if (textOf(kept) === textOf(incoming)) return kept;
+  if (kept === incoming) return kept;
 
   diagnostics.push({
     severity: "warning",
     message:
       `Class "${declaration.id}" is declared with conflicting ${plural} ` +
-      `("${textOf(kept)}" vs. "${textOf(incoming)}"); keeping the first-seen ${singular}.`,
+      `("${kept}" vs. "${incoming}"); keeping the first-seen ${singular}.`,
     line: declaration.line,
     column: declaration.column,
   });

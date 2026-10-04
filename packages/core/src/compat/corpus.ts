@@ -1789,6 +1789,49 @@ export const COMPAT_CASES: readonly CompatCase[] = [
   },
 
   // -------------------------------------------------------------------------
+  // flowchart — a node declared twice
+  // -------------------------------------------------------------------------
+  {
+    id: "fc-node-relabelled",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x] --> B
+      A[y]`,
+    status: "supported",
+    meaning:
+      "A node written with a second, different label is drawn with the " +
+      "**last** one, where it was first written, and with no diagnostic. " +
+      "Measured (mermaid 11.17.2, `node scripts/mermaid-probe.mjs --html`): " +
+      "`A[x]` then `A[y]` records `id=\"A\" text=\"y\"` and draws " +
+      "`<p>y</p>`. Siren used to keep the first label and warn; the later " +
+      "word is the one the author's diagram uses, so there is nothing to " +
+      "warn about. A bare mention (`A --> C` after `A[x]`) changes nothing, " +
+      "in either.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[y]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "fc-node-reshaped",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x]
+      A{x}`,
+    status: "supported",
+    meaning:
+      "The shape follows the same rule as the label: the last bracket " +
+      "written is the shape drawn, even when the label is unchanged. " +
+      "Measured (mermaid 11.17.2): `A[x]` then `A{x}` records " +
+      "`type=\"diamond\"`. Siren used to keep the first shape, silently, " +
+      "because its redeclaration check compared labels only.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[x]"]);
+      expectSame("outline", nodeOutline(result, "A"), "diamond");
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // flowchart — edges
   // -------------------------------------------------------------------------
   {
@@ -3100,6 +3143,31 @@ line2\`"]`,
         texts(result, "text.siren-relationship-interface-label"),
         ["Duck"],
       );
+    },
+  },
+  {
+    id: "cls-class-relabelled",
+    kind: "class",
+    source: `classDiagram
+      class Order["x"]
+      class Order["y"]`,
+    status: "supported",
+    meaning:
+      "A class written with a second, different label is drawn with the " +
+      "**last** one, and with no diagnostic. Measured (mermaid 11.17.2, " +
+      "`node scripts/mermaid-probe.mjs --html`): `class A[\"x\"]` then " +
+      "`class A[\"y\"]` records `label=\"y\"` and draws `<p>y</p>`. Siren " +
+      "used to keep the first label and warn. A label is the exception " +
+      "among a class's single-valued attributes: a second generic or " +
+      "annotation is still dropped with a warning, because Mermaid keeps " +
+      "the first of those (`class A~T~` then `class A~U~` records " +
+      "`type=\"T\"`; two annotations draw only the first).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Order"]);
+      const name = svgOf(result).querySelector(
+        'g.siren-class[data-siren-id="Order"] text.siren-class-name',
+      );
+      expectSame("the name's rows", labelRows(name), ["y"]);
     },
   },
   {

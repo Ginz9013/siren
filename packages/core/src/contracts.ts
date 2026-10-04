@@ -111,8 +111,8 @@ export interface SirenNode {
    * quoted `A["label"]`, and the fenced Markdown string
    * `` A["`**bold**`"] `` whose `**`/`*` and real line breaks are read by
    * the same function. `label.text` is the flattened plain text, for a
-   * reader that only wants a string — a diagnostic quoting the label, the
-   * redeclaration warning comparing two.
+   * reader that only wants a string, such as a diagnostic quoting the
+   * label.
    */
   label: Label;
   /**
@@ -1786,9 +1786,10 @@ export interface ResolvedClass {
   generic: string | null;
   annotation: string | null;
   /**
-   * The first label any declaration of the class wrote, or `null` when none
-   * did — merged by the rule `annotation` and `generic` are (first-named
-   * wins, a conflict is a warning), compared by flattened text.
+   * The last label any declaration of the class wrote, or `null` when none
+   * did. Unlike `annotation` and `generic` (first-named wins, a conflict is
+   * a warning), a later label replaces an earlier one silently — what
+   * Mermaid 11.17.2 draws, measured.
    */
   label: Label | null;
   members: ClassMember[];
