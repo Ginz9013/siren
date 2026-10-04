@@ -30,16 +30,18 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
 };
 
 /**
- * Removes `%%` comments from `source`, keeping one output line per input
- * line so every diagnostic's line number still points at the line the
- * author wrote — in Mermaid's two steps, with its style-line rule
- * (`styleLines`) between them.
+ * The lines of `source` as Mermaid reads them before any diagram's grammar
+ * sees them: its tag quotes rewritten (`tagQuotesRewritten`), its `%%`
+ * comments removed in Mermaid's two steps, and its style-line rule
+ * (`styleLines`) applied between those steps. It keeps one output line per
+ * input line, so every diagnostic's line number still points at the line
+ * the author wrote, and `asWritten` maps what the style-line rule changed
+ * back to the source as written.
  *
- * Comment stripping lives here, in the dispatcher, rather than in each
- * kind's parser: it is one rule for the whole language, and putting it
- * here is what gives every kind the same behavior without five
- * implementations of it. The style-line rule is the same kind of rule, so
- * it lives here too.
+ * These rules live here, in the dispatcher, rather than in each kind's
+ * parser: each is one rule for the whole language, and putting them here
+ * is what gives every kind the same behavior without five implementations
+ * of them.
  *
  * The rule is Mermaid's: a comment runs from the first `%%` on a line to
  * the end of that line, whether the line is nothing but a comment, an
@@ -70,7 +72,7 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
  * comment. Directives are not supported by any Siren parser, so this
  * makes them inert rather than a syntax error.
  */
-function withoutComments(source: string): {
+function asMermaidReads(source: string): {
   lines: string[];
   asWritten: <T>(result: T) => T;
 } {
@@ -89,13 +91,14 @@ function withoutComments(source: string): {
  * Sniffs the first non-blank line of Siren source text and dispatches to
  * `parseFlowchart` (a `flowchart TB|BT|LR|RL` header, or the same header
  * written with Mermaid's original `graph` keyword) or `parseSequenceDiagram`
- * (`sequenceDiagram` header), after stripping `%%` comments from the whole
- * document and applying Mermaid's style-line rule (`withoutComments`).
+ * (`sequenceDiagram` header), after reading the whole document as Mermaid
+ * does — tag quotes, `%%` comments and the style-line rule
+ * (`asMermaidReads`).
  * Never throws on malformed input — an unrecognized header is reported as
  * a diagnostic instead.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, asWritten } = withoutComments(source);
+  const { lines, asWritten } = asMermaidReads(source);
   return asWritten(dispatch(lines));
 }
 

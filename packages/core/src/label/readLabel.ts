@@ -333,10 +333,14 @@ class OpenElements {
     if (removed(stack)) {
       return;
     }
-    this.rows.putText(written, stylesOf(stack), {
+    const text = this.rows.drawnText(written, {
       preservesSpaces: stack.some(({ rule }) => rule.kind === "block" && rule.preservesSpaces),
-      before: () => this.drawMarkers(stack),
     });
+    if (text === "") {
+      return;
+    }
+    this.drawMarkers(stack);
+    this.rows.put(text, stylesOf(stack));
   }
 
   /**
