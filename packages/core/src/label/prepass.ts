@@ -234,8 +234,11 @@ function escapedBy(text: string, backslash: number, opened: ReadonlyMap<string, 
       return undefined;
     }
     const name = tag.name;
-    // A backslash is never inside a tag (`insideTags`), so every tag that
-    // starts before it ends at or before it.
+    // A backslash is never inside a named tag (`insideTags`), and a tag the
+    // label ends inside (`name === null`) ends past its `<` and first letter
+    // (`TAG_SOURCE`'s second alternative), so it never reaches across a `\`
+    // either: every tag that starts before the backslash ends at or before
+    // it.
     if (inVocabulary(name) && (!tag.closing || (opened.get(name) ?? Infinity) <= backslash)) {
       break;
     }

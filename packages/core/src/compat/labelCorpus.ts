@@ -66,7 +66,7 @@ export function labelRows(text: Element | null): string[] {
  * A run drawn inside an `<a>` is read with `[href=…]` before the rest, so a
  * link that stopped being drawn shows in the failure.
  */
-function labelRuns(text: Element | null, ...attributes: string[]): string[] {
+export function labelRuns(text: Element | null, ...attributes: string[]): string[] {
   if (text === null) {
     return [];
   }

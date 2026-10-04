@@ -16,7 +16,7 @@
  * assert that says which picture was drawn.
  */
 import type { SirenRenderResult } from "../contracts";
-import { LABEL_CASES, labelRows } from "./labelCorpus";
+import { LABEL_CASES, labelRows, labelRuns } from "./labelCorpus";
 
 /** Which Mermaid diagram kind a case is written in. */
 export type CompatKind = "flowchart" | "class" | "sequence" | "state" | "er";
@@ -2603,6 +2603,32 @@ line2\`"]`,
     },
   },
 
+  {
+    id: "fc-label-tag-quotes",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<span style="color:red">t</span>"]
+      B["<span style="font-family:'x'">u</span>"]`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So a double-quoted " +
+      "attribute inside a quoted label no longer ends the label's quotes: " +
+      "`A[\"<span style=\"color:red\">t</span>\"]` is a red `t`. And a " +
+      "double-quoted value holding a `'` is cut short by it: " +
+      "`style=\"font-family:'x'\"` becomes `style='font-family:'x''`, whose " +
+      "value is `font-family:` — no family at all. Measured (mermaid 11.17.2, " +
+      "`--html`): `<span style=\"color:red\">t</span>` and " +
+      "`<span style=\"font-family:\">u</span>`. Siren used to draw `\"t\"` and " +
+      "`\"u\"`, quotes and all.",
+    assert: (result) => {
+      const text = (id: string) => svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`);
+      expectSame("A's runs", labelRuns(text("A"), "style"), ["t[style=fill: red]"]);
+      expectSame("B's runs", labelRuns(text("B"), "style", "font-family"), ["u"]);
+    },
+  },
+
   // -------------------------------------------------------------------------
   // flowchart — author styling
   // -------------------------------------------------------------------------
@@ -3338,13 +3364,37 @@ line2\`"]`,
       "cannot read yet. Mermaid escapes a member's text in both label modes " +
       "(measured, mermaid 11.17.2, `--html`: the members' labels are " +
       "`+int &lt;b&gt;id&lt;/b&gt;` and `+x&lt;br class=\"y\"&gt;z`), so it " +
-      "draws `+int <b>id</b>` and `+x<br class=\"y\">z` as the characters " +
-      "written — and a `<br>` with an attribute is not one of the spellings " +
-      "its `/<br\\s*\\/?>/gi` respells. Siren refuses both as unrecognized " +
+      "draws `+int <b>id</b>` and `+x<br class=\"y\">z` as characters — " +
+      "and a `<br>` with an attribute is not one of the spellings its " +
+      "`/<br\\s*\\/?>/gi` respells. Those characters are not quite the ones " +
+      "written: the member's text passes through DOMPurify before it is " +
+      "escaped, and the `\"` is DOMPurify's re-serialization, not the " +
+      "author's quote — Mermaid's whole-document `cleanupText` has already " +
+      "made it `class='y'`. Re-measured (T23): `+x<br class=\"a'b\">z` is " +
+      "drawn `+x<br class=\"a\">z` (the rewrite's `'a'b'` cut short), and " +
+      "`+x<br class = \"y\">z` is drawn `+x<br class=\"y\">z`. Siren refuses both as unrecognized " +
       "members: a member's name is read as an identifier, and `<b>id</b>` " +
       "after a type, or `x<br class=\"y\">z` with a space inside it, is not " +
       "one. Its exit is implementation — a member whose text is not a typed " +
-      "identifier kept and drawn verbatim, as Mermaid does.",
+      "identifier kept and drawn as characters, as Mermaid does, including " +
+      "the tag DOMPurify re-serializes.",
+  },
+  {
+    id: "cls-class-label-tag-quotes",
+    kind: "class",
+    source: `classDiagram
+      class B["<span style="color:red">t</span>"]`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So a class label may " +
+      "hold a double-quoted attribute inside its own quotes. Measured " +
+      "(mermaid 11.17.2): the label is `<span style=\"color:red\">t</span>`.",
+    assert: (result) => {
+      const name = svgOf(result).querySelector('g.siren-class[data-siren-id="B"] text.siren-class-name');
+      expectSame("B's runs", labelRuns(name, "style"), ["t[style=fill: red]"]);
+    },
   },
   // -------------------------------------------------------------------------
   // sequenceDiagram
@@ -4110,6 +4160,30 @@ line2\`"]`,
         `the label's last row is above A (at ${lastRowY}, A's top at ${participantTop})`,
         lastRowY < participantTop,
         true,
+      );
+    },
+  },
+  {
+    id: "seq-message-tag-quotes-across-lines",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: a<b c="d"
+      B->>A: e`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). The stretch is the " +
+      "document's, not one label's: `[^>]*` crosses a line break, so " +
+      "`a<b c=\"d\"`, whose own line has no `>`, is ended by the next line's " +
+      "`->>`. Measured (mermaid 11.17.2): the first message is stored " +
+      "`a<b c='d'`. Siren used to apply the rewrite to one label at a time, " +
+      "and drew `a<b c=\"d\"`.",
+    assert: (result) => {
+      expectSame(
+        "the messages",
+        elements(result, "text.siren-message-label").map((text) => text.textContent),
+        ["a<b c='d'", "e"],
       );
     },
   },
@@ -5435,6 +5509,27 @@ line2\`"]`,
         "start:1-Outer: ",
         "First-Second: ",
       ]);
+    },
+  },
+  {
+    id: "st-label-tag-quotes",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "<span style="color:red">t</span>" as S
+      S --> T : <span style="color:blue">u</span>`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So a state's quoted " +
+      "description may hold a double-quoted attribute. Measured (mermaid " +
+      "11.17.2, `--html`): `<span style=\"color:red\">t</span>` and the " +
+      "transition's `<span style=\"color:blue\">u</span>`.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector('g.siren-state[data-siren-id="S"] text.siren-state-label');
+      expectSame("S's runs", labelRuns(label, "style"), ["t[style=fill: red]"]);
+      const transition = svgOf(result).querySelector("text.siren-transition-label");
+      expectSame("the transition's runs", labelRuns(transition, "style"), ["u[style=fill: blue]"]);
     },
   },
   // -------------------------------------------------------------------------
@@ -7171,6 +7266,34 @@ line2\`"]`,
       "was refused instead. `parseErDiagram` now names it and drains the " +
       "block, so the body's prose is not reported as malformed ER on top of " +
       "the refusal.",
+  },
+
+  {
+    id: "er-label-tag-quotes",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER["<span style="color:red">t</span>"] {
+        string id "<span style="color:red">c</span>"
+      }
+      CUSTOMER ||--o{ ORDER : "<span style="color:red">r</span>"`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So an alias, a comment " +
+      "and a relationship label may each hold a double-quoted attribute " +
+      "inside their own quotes. Measured (mermaid 11.17.2, `--html`): the " +
+      "alias, the comment and the label are each a red " +
+      "`<span style=\"color:red\">`.",
+    assert: (result) => {
+      const group = 'g.siren-er-entity[data-siren-id="CUSTOMER"]';
+      const alias = svgOf(result).querySelector(`${group} text.siren-er-entity-label`);
+      const comment = svgOf(result).querySelector(`${group} text.siren-er-attribute-comment`);
+      const label = svgOf(result).querySelector("text.siren-er-relationship-label");
+      expectSame("the alias's runs", labelRuns(alias, "style"), ["t[style=fill: red]"]);
+      expectSame("the comment's runs", labelRuns(comment, "style"), ["c[style=fill: red]"]);
+      expectSame("the label's runs", labelRuns(label, "style"), ["r[style=fill: red]"]);
+    },
   },
 
   // -------------------------------------------------------------------------
