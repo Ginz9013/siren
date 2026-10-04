@@ -7,6 +7,7 @@ import type {
   PositionedErDiagram,
   TextMeasurer,
 } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { layoutErDiagram } from "./layoutErDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -23,7 +24,12 @@ const measuredWidth = (text: string) => fakeMeasurer.measure(text).width;
 
 const model = (...names: string[]): ErModel => ({
   direction: "TB",
-  entities: names.map((name) => ({ id: name, label: name, attributes: [], parentId: null })),
+  entities: names.map((name) => ({
+    id: name,
+    label: plainLabel(name),
+    attributes: [],
+    parentId: null,
+  })),
   relationships: [],
   subgraphs: [],
   styles: [],
@@ -35,7 +41,7 @@ const model = (...names: string[]): ErModel => ({
 /** One entity carrying `attributes`, and nothing else in the diagram. */
 const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel => ({
   direction: "TB",
-  entities: [{ id: name, label: name, attributes, parentId: null }],
+  entities: [{ id: name, label: plainLabel(name), attributes, parentId: null }],
   relationships: [],
   subgraphs: [],
   styles: [],
@@ -76,7 +82,7 @@ const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
   direction: "TB",
   entities: [relationship.from, relationship.to].map((id) => ({
     id,
-    label: id,
+    label: plainLabel(id),
     attributes: [],
     parentId: null,
   })),
@@ -95,7 +101,7 @@ const CUSTOMER_PLACES_ORDER: ErModel["relationships"][number] = {
   fromCardinality: "onlyOne",
   toCardinality: "zeroOrMore",
   line: "identifying",
-  label: "places",
+  label: plainLabel("places"),
 };
 
 /** The box `id` was placed in, as edges rather than a corner plus a size. */
@@ -147,6 +153,80 @@ describe("layoutErDiagram", () => {
     expect(customer.height).toBeGreaterThan(fakeMeasurer.measure("CUSTOMER").height);
   });
 
+  it("sizes the name row for every row of a two-row label, and carries the box it measured", () => {
+    // `CUSTOMER["Customer<br/>Record"]` draws two rows (ADR-0015; measured,
+    // mermaid 11.17.2, `--html`), so the name row holds two measured lines
+    // — 24 each from the fake measurer — inside the same padding a one-row
+    // name gets: 8 above and 8 below.
+    const twoRows = {
+      text: "Customer\nRecord",
+      rows: [[plainRun("Customer")], [plainRun("Record")]],
+    };
+    const laidOut = layoutErDiagram(
+      {
+        ...modelWithAttributes("C", [
+          { type: "string", name: "a", keys: [], comment: plainLabel("") },
+        ]),
+        entities: [
+          {
+            id: "C",
+            label: twoRows,
+            attributes: [{ type: "string", name: "a", keys: [], comment: plainLabel("") }],
+            parentId: null,
+          },
+          { id: "D", label: twoRows, attributes: [], parentId: null },
+        ],
+      },
+      options,
+    );
+    const [withTable, plain] = laidOut.entities;
+
+    expect(plain.height).toBe(24 * 2 + 8 * 2);
+    expect(tableOf(laidOut, "C").headerDividerY - withTable.y).toBe(24 * 2 + 8 * 2);
+    // As wide as the wider row, "Customer", plus the padding either side.
+    expect(plain.width).toBe(measuredWidth("Customer") + 14 * 2);
+    expect(plain.label).toEqual(twoRows);
+    expect(plain.labelBox.rows.map((row) => row.y)).toEqual([12, 36]);
+  });
+
+  it("sizes an attribute's row for every row of its comment, and carries the box it measured", () => {
+    // `string name "alpha<br/>b"` draws the comment in two rows (ADR-0015;
+    // measured, mermaid 11.17.2, `--html`: `<p>alpha<br>b</p>`), so the
+    // attribute's row holds two measured lines — 24 each from the fake
+    // measurer — inside the 8 above and 8 below a one-line row gets.
+    const twoRows = {
+      text: "alpha\nb",
+      rows: [[plainRun("alpha")], [plainRun("b")]],
+    };
+    const laidOut = layoutErDiagram(
+      modelWithAttributes("E", [{ type: "string", name: "name", keys: [], comment: twoRows }]),
+      options,
+    );
+    const [entity] = laidOut.entities;
+    const table = tableOf(laidOut, "E");
+    const comment = table.rows[0].cells.find((cell) => cell.column === "comment")!;
+
+    // The name row (24 + 8 + 8) and then the one attribute row (48 + 8 + 8).
+    expect(table.headerDividerY - entity.y).toBe(40);
+    expect(entity.height).toBe(40 + 64);
+    expect(comment.y - table.headerDividerY).toBe(32);
+    // The column is as wide as the wider row, "alpha", plus its padding.
+    expect(table.columnDividerXs.length).toBe(2);
+    expect(entity.x + entity.width - table.columnDividerXs[1]).toBe(measuredWidth("alpha") + 14);
+    expect(comment.commentLabel?.label).toEqual(twoRows);
+    expect(comment.commentLabel?.labelBox.height).toBe(48);
+    // Centred on the band its widest row starts at the cell's left edge:
+    // the fake measurer adds no padding, so that is half of "alpha" in.
+    expect(comment.commentLabel?.anchor).toEqual({
+      x: comment.x + measuredWidth("alpha") / 2,
+      y: comment.y,
+    });
+    // The other cells are not labels: type and name are drawn as written.
+    expect(
+      table.rows[0].cells.filter((cell) => cell.column !== "comment").map((c) => c.commentLabel),
+    ).toEqual([null, null]);
+  });
+
   it("lays an attribute out as four columns in Mermaid's own order, under a name row", () => {
     // Measured (mermaid 11.17.2, `--markup`): an entity with attributes is
     // drawn as a table — the name on a row of its own at the top, a rule
@@ -158,8 +238,8 @@ describe("layoutErDiagram", () => {
     // the model holds two of them.
     const laidOut = layoutErDiagram(
       modelWithAttributes("CUSTOMER", [
-        { type: "int", name: "age", keys: ["PK"], comment: "the age" },
-        { type: "string", name: "c", keys: ["UK", "PK"], comment: "both" },
+        { type: "int", name: "age", keys: ["PK"], comment: plainLabel("the age") },
+        { type: "string", name: "c", keys: ["UK", "PK"], comment: plainLabel("both") },
       ]),
       options,
     );
@@ -211,7 +291,9 @@ describe("layoutErDiagram", () => {
     // document says — the stub's answer, not Mermaid's.
     const plain = tableOf(
       layoutErDiagram(
-        modelWithAttributes("E", [{ type: "string", name: "a", keys: [], comment: "" }]),
+        modelWithAttributes("E", [
+          { type: "string", name: "a", keys: [], comment: plainLabel("") },
+        ]),
         options,
       ),
       "E",
@@ -225,8 +307,8 @@ describe("layoutErDiagram", () => {
     const keyed = tableOf(
       layoutErDiagram(
         modelWithAttributes("E", [
-          { type: "string", name: "a", keys: [], comment: "" },
-          { type: "int", name: "b", keys: ["FK"], comment: "" },
+          { type: "string", name: "a", keys: [], comment: plainLabel("") },
+          { type: "int", name: "b", keys: ["FK"], comment: plainLabel("") },
         ]),
         options,
       ),
@@ -242,7 +324,7 @@ describe("layoutErDiagram", () => {
     const commented = tableOf(
       layoutErDiagram(
         modelWithAttributes("E", [
-          { type: "string", name: "a", keys: [], comment: "why" },
+          { type: "string", name: "a", keys: [], comment: plainLabel("why") },
         ]),
         options,
       ),
@@ -265,7 +347,7 @@ describe("layoutErDiagram", () => {
           type: "averyverylongtypename",
           name: "andaverylongattributename",
           keys: ["PK", "FK", "UK"],
-          comment: "a comment longer than everything else on this row",
+          comment: plainLabel("a comment longer than everything else on this row"),
         },
       ]),
       options,
@@ -389,7 +471,7 @@ describe("layoutErDiagram", () => {
     const { entities } = layoutErDiagram(model("CUSTOMER"), options);
 
     expect(entities.map((entity) => [entity.id, entity.label])).toEqual([
-      ["CUSTOMER", "CUSTOMER"],
+      ["CUSTOMER", plainLabel("CUSTOMER")],
     ]);
   });
 
@@ -583,9 +665,9 @@ describe("layoutErDiagram places subgraph clusters", () => {
   const grouped: ErModel = {
     direction: "TB",
     entities: [
-      { id: "A", label: "A", attributes: [], parentId: "subgraph:1" },
-      { id: "B", label: "B", attributes: [], parentId: "subgraph:1" },
-      { id: "C", label: "C", attributes: [], parentId: null },
+      { id: "A", label: plainLabel("A"), attributes: [], parentId: "subgraph:1" },
+      { id: "B", label: plainLabel("B"), attributes: [], parentId: "subgraph:1" },
+      { id: "C", label: plainLabel("C"), attributes: [], parentId: null },
     ],
     relationships: [
       {
@@ -595,15 +677,42 @@ describe("layoutErDiagram places subgraph clusters", () => {
         fromCardinality: "onlyOne",
         toCardinality: "zeroOrMore",
         line: "identifying",
-        label: "r",
+        label: plainLabel("r"),
       },
     ],
-    subgraphs: [{ id: "subgraph:1", label: "sales", parentId: null, direction: "LR" }],
+    subgraphs: [
+      { id: "subgraph:1", label: plainLabel("sales"), parentId: null, direction: "LR" },
+    ],
     styles: [],
     timeline: { totalSteps: 0, entries: [] },
     accTitle: null,
     accDescr: null,
   };
+
+  it("sizes a frame's title strip for every row of a two-row title, and carries the box it measured", () => {
+    // `subgraph s1["sales<br/>team"]` draws its title in two rows (ADR-0015;
+    // measured, mermaid 11.17.2, `--html`: the cluster label is
+    // `<p>sales<br>team</p>`). The strip above the members is 12 of padding,
+    // the title's two 24px lines, and 12 more.
+    const twoRows = { text: "sales\nteam", rows: [[plainRun("sales")], [plainRun("team")]] };
+    const laidOut = layoutErDiagram(
+      {
+        ...grouped,
+        subgraphs: [{ id: "subgraph:1", label: twoRows, parentId: null, direction: "LR" }],
+      },
+      options,
+    );
+    const [frame] = laidOut.subgraphs;
+    const membersTop = Math.min(
+      boxOf(laidOut.entities, "A").top,
+      boxOf(laidOut.entities, "B").top,
+    );
+
+    expect(membersTop - frame.y).toBe(12 + 48 + 12);
+    expect(frame.label).toEqual(twoRows);
+    expect(frame.labelBox.height).toBe(48);
+    expect(frame.labelAnchor.y - frame.y).toBe(12 + 24);
+  });
 
   it("draws a frame enclosing its members and nothing else", () => {
     const laidOut = layoutErDiagram(grouped, options);
@@ -642,7 +751,9 @@ describe("layoutErDiagram places subgraph clusters", () => {
     const inherited = layoutErDiagram(
       {
         ...grouped,
-        subgraphs: [{ id: "subgraph:1", label: "sales", parentId: null, direction: null }],
+        subgraphs: [
+          { id: "subgraph:1", label: plainLabel("sales"), parentId: null, direction: null },
+        ],
       },
       options,
     );
@@ -661,13 +772,18 @@ describe("layoutErDiagram places subgraph clusters", () => {
       {
         ...grouped,
         entities: [
-          { id: "A", label: "A", attributes: [], parentId: "subgraph:2" },
-          { id: "B", label: "B", attributes: [], parentId: "subgraph:2" },
-          { id: "C", label: "C", attributes: [], parentId: "subgraph:1" },
+          { id: "A", label: plainLabel("A"), attributes: [], parentId: "subgraph:2" },
+          { id: "B", label: plainLabel("B"), attributes: [], parentId: "subgraph:2" },
+          { id: "C", label: plainLabel("C"), attributes: [], parentId: "subgraph:1" },
         ],
         subgraphs: [
-          { id: "subgraph:1", label: "outer", parentId: null, direction: "LR" },
-          { id: "subgraph:2", label: "inner", parentId: "subgraph:1", direction: null },
+          { id: "subgraph:1", label: plainLabel("outer"), parentId: null, direction: "LR" },
+          {
+            id: "subgraph:2",
+            label: plainLabel("inner"),
+            parentId: "subgraph:1",
+            direction: null,
+          },
         ],
       },
       options,

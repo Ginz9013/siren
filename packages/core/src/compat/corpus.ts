@@ -5519,6 +5519,95 @@ line2\`"]`,
     },
   },
   {
+    id: "er-alias-br",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER["Customer<br/>Record"]`,
+    status: "supported",
+    meaning:
+      "`<br>` in an entity's alias is a line break: an alias is one of the " +
+      "positions ADR-0015 reads with the whole tag vocabulary. Measured " +
+      "(mermaid 11.17.2, `--html`): `CUSTOMER[\"Customer<br/>Record\"]` is " +
+      "the node label `<p>Customer<br>Record</p>`. Siren used to draw " +
+      "`Customer<br/>Record` literally. The name row is sized for both rows, " +
+      "and the entity is still addressed by its name.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-entity-label',
+      );
+      expectSame("the alias's rows", labelRows(label), ["Customer", "Record"]);
+      const box = erEntityRect(result, "CUSTOMER");
+      const rowYs = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${box.top}..${box.bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "er-relationship-label-br",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "places<br/>many"`,
+    status: "supported",
+    meaning:
+      "`<br>` in a relationship's quoted `: label` is a line break. Measured " +
+      "(mermaid 11.17.2, `--html`): `CUSTOMER ||--o{ ORDER : " +
+      "\"places<br/>many\"` is the edge label `<p>places<br>many</p>`. Siren " +
+      "used to draw `places<br/>many` literally. The layout holds the two " +
+      "ranks far enough apart for both rows.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+      );
+      expectSame("the label's rows", labelRows(label), ["places", "many"]);
+      expectSame(
+        "the two boxes are drawn clear of one another",
+        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        false,
+      );
+    },
+  },
+  {
+    id: "er-attribute-comment-br",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER {
+        string name "a<br/>b"
+      }`,
+    status: "supported",
+    meaning:
+      "`<br>` in an attribute's comment is a line break. Measured (mermaid " +
+      "11.17.2, `--html`): `string name \"a<br/>b\"` is the cell label " +
+      "`<p>a<br>b</p>`. The type and the name beside it are not labels and " +
+      "are drawn as written. Siren used to draw `a<br/>b` literally. The " +
+      "attribute's row is as tall as the comment's two rows.",
+    assert: (result) => {
+      const group = 'g.siren-er-entity[data-siren-id="CUSTOMER"]';
+      const comment = svgOf(result).querySelector(`${group} text.siren-er-attribute-comment`);
+      expectSame("the comment's rows", labelRows(comment), ["a", "b"]);
+      expectSame(
+        "the type and name cells, drawn as written",
+        texts(result, `${group} text.siren-er-attribute-type, ${group} text.siren-er-attribute-name`),
+        ["string", "name"],
+      );
+      const divider = svgOf(result).querySelector(`${group} line.siren-er-entity-divider`);
+      const top = Number(divider?.getAttribute("y1"));
+      const bottom = erEntityRect(result, "CUSTOMER").bottom;
+      const rowYs = Array.from(
+        comment?.querySelectorAll(":scope > tspan.siren-label-row") ?? [],
+      ).map((row) => Number(row.getAttribute("y")));
+      expectSame(
+        `both rows sit in the attribute's row (rows at ${JSON.stringify(rowYs)}, row ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
     id: "er-alias-unquoted",
     kind: "er",
     source: `erDiagram
@@ -6080,6 +6169,39 @@ line2\`"]`,
         "CUSTOMER[CUSTOMER]",
         "ORDER[ORDER]",
       ]);
+    },
+  },
+  {
+    id: "er-subgraph-label-br",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1["Order<br/>pipeline"]
+        CUSTOMER
+      end`,
+    status: "supported",
+    meaning:
+      "`<br>` in a cluster's quoted title is a line break. Measured (mermaid " +
+      "11.17.2, `--html`): `subgraph s1[\"My<br/>Title <b>x</b>\"]` is the " +
+      "cluster label `<p>My<br>Title <b>x</b></p>` — the whole tag " +
+      "vocabulary, read once the title's words are joined with one space. " +
+      "Siren used to draw `Order<br/>pipeline` literally. The strip along " +
+      "the frame's top holds both rows. (An *unquoted* title holding a tag " +
+      "is a parse error in Mermaid and is not this row.)",
+    assert: (result) => {
+      const group = svgOf(result).querySelector('g.siren-er-subgraph[data-siren-id="subgraph:1"]');
+      const title = group?.querySelector("text.siren-er-subgraph-label") ?? null;
+      expectSame("the title's rows", labelRows(title), ["Order", "pipeline"]);
+      const frame = group?.querySelector("rect.siren-er-subgraph-frame");
+      const top = Number(frame?.getAttribute("y"));
+      const member = erEntityRect(result, "CUSTOMER");
+      const rowYs = Array.from(title?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit in the strip above the member (rows at ${JSON.stringify(rowYs)}, strip ${top}..${member.top})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < member.top),
+        true,
+      );
     },
   },
   {

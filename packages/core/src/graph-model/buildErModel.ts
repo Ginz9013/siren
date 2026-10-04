@@ -7,6 +7,7 @@ import type {
   ResolvedErRelationship,
   ResolvedErSubgraph,
 } from "../contracts";
+import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveStyles } from "./resolveStyles";
 import {
@@ -52,10 +53,11 @@ export function buildErModel(document: ErDocument): ErModelResult {
       // the two: measured with `--markup`, the box of
       // `CUSTOMER["Customer Account"]` draws "Customer Account", while the
       // table entry stays keyed on `CUSTOMER` — so the alias replaces the
-      // drawn text and nothing else (see `ResolvedErEntity`).
+      // drawn text and nothing else (see `ResolvedErEntity`). The name is
+      // never read for tags: it is the id, drawn as written.
       byId.set(entity.name, {
         id: entity.name,
-        label: entity.alias ?? entity.name,
+        label: entity.alias ?? plainLabel(entity.name),
         attributes: [...entity.attributes],
         // Filled in by `resolveErSubgraphs` below, which is the only thing
         // that may: a block claims a name, a name does not name a block.
