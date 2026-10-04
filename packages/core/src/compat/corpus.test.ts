@@ -1359,6 +1359,21 @@ const SILENTLY_WRONG = 2;
  * still draw, and `silently-wrong` does not move. Never measured until now
  * because the ticket that made members literal measured the two spellings
  * it fixed, not the ones it left.
+ *
+ * **10 → 14: ADR-0015's refused layers written down for the first time.**
+ * Case (2) above. The label board's T11 wrote one row each for the HTML a
+ * label may hold that Mermaid draws and SVG text cannot — a table, ruby,
+ * `<img>` and a form control (`label-table-rejected`, `label-ruby-rejected`,
+ * `label-img-rejected`, `label-form-control-rejected`) — each refused with
+ * an error-severity diagnostic at its tag. Nothing broke: before T11 Siren
+ * read them as tags outside its vocabulary and drew their text, and no row
+ * recorded them. Its review then measured the layers out of context and
+ * narrowed them: a table part outside a table is ignored by the parser
+ * (`label-stray-table-part`), and seven tags the browser does not show are
+ * removed with their content (`label-hidden-tags`). Both new rows are
+ * `supported`, and each of the four rejected rows still holds a tag that is
+ * refused, so the net is still 14. `silently-wrong` does not move: these
+ * refuse pictures Mermaid draws as written, not wrong ones.
  */
 const REJECTED = 14;
 

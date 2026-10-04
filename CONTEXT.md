@@ -370,22 +370,25 @@ thing in a label Siren warns about rather than drawing or refusing; and `a href`
 the hrefs DOMPurify keeps (an `<a>` whose href it strips is plain text). An author's value that
 could fetch, run script or smuggle a second declaration is dropped silently, under the same rule as
 `style` statements. The 20 tags with no rendering of their own (`abbr`, `time`, `wbr` and the rest)
-draw only their text; `html`, `head` and `body` are dropped and their text kept; and a tag outside
-the vocabulary is dropped and its text kept, as DOMPurify drops it — except `script`, `style`,
-`iframe`, `noscript`, `noembed`, `xmp`, `noframes` and `title` (which DOMPurify's SVG profile keeps
-and the browser hides), removed together with their content, and `plaintext`, removed with
-everything after it. The **refused** tags — a table's 10, ruby's 3, the 22 embedded, form, media
-and interactive ones, and `svg` and `math`, which DOMPurify's SVG and MathML profiles keep — are
-an error at the label's first one, saying what kind of HTML SVG text does not draw; `<img>`'s
-names Mermaid's image shape, `A@{ img: "…" }`. One error per label, because a table writes a
-refused tag per cell and the document is refused at the first. The 34 **block** tags (`p`, `div`, `h1`–`h6`, `pre`,
-`ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each begins and ends a row,
-block edges that meet end it once (no empty row between blocks or at either end of the label), a block
-keeps its font (a heading bold and sized, `pre` monospace with its spaces kept, `address` italic), and
-a list item's row begins with its **marker** — `• `, `◦ ` or `▪ ` by how many lists its bulleted list is
-nested in, or its number in an `ol`, counted from the list's `start` and an item's `value` — while
-margins, indents, `hr`'s rule and `marquee`'s motion are not drawn. They nest and close as the
-HTML parser closes them, inside the `<p>` Mermaid wraps every label in. **Entity codes** — Mermaid's `#name;` and `#NN;` —
+draw only their text; `html`, `head` and `body`, and a table's nine parts (`tr`, `td`, `col` and the
+rest) outside a table, are ignored by the parser and their text kept; and a tag outside the
+vocabulary is dropped and its text kept, as DOMPurify drops it — except `script`, `style`,
+`iframe`, `noscript`, `noembed`, `xmp` and `noframes`, and the eight DOMPurify keeps and the
+browser does not show (`title`, `template`, a closed `dialog`, `datalist`, `rp`, and the void
+`source`, `track` and `area`), removed together with their content, and `plaintext`, removed with
+everything after it. The 21 **refused** tags — `table`, `ruby` and `rt`, the 16 embedded, form,
+media and interactive ones, and `svg` and `math`, which DOMPurify's SVG and MathML profiles keep —
+and an open `dialog` are an error-severity diagnostic at the label's first one, saying what kind of
+HTML SVG text does not draw; `<img>`'s names Mermaid's image shape, `A@{ img: "…" }`. One per
+label, because the first already refuses the document. The 34 **block** tags (`p`, `div`,
+`h1`–`h6`, `pre`, `ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each
+begins and ends a row, block edges that meet end it once (no empty row between blocks or at either
+end of the label), a block keeps its font (a heading bold and sized, `pre` monospace with its spaces
+kept, `address` italic), and a list item's row begins with its **marker** — `• `, `◦ ` or `▪ ` by
+how many lists its bulleted list is nested in, or its number in an `ol`, counted from the list's
+`start` and an item's `value` — while margins, indents, `hr`'s rule and `marquee`'s motion are not
+drawn. They nest and close as the HTML parser closes them, inside the `<p>` Mermaid wraps every
+label in. **Entity codes** — Mermaid's `#name;` and `#NN;` —
 resolve in both dialects as the HTML character references `&name;` and `&#NN;` Mermaid turns them
 into: every name the HTML standard defines (`#copy;` is `©`), an unknown one drawn as the reference
 (`#foo;` draws `&foo;`); the `html` dialect also resolves references the author wrote as HTML

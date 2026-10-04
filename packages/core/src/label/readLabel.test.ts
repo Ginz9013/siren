@@ -1157,81 +1157,52 @@ describe("readLabel's refused tags", () => {
     return readLabel(source, { dialect: "html" }).problems.map((problem) => [problem.severity, problem.offset]);
   }
 
-  // ADR-0015's table layer: SVG text has no table layout, so each of the
-  // ten is an error at the tag, and the document is not drawn.
-  for (const name of ["table", "tr", "td", "th", "thead", "tbody", "tfoot", "caption", "col", "colgroup"]) {
-    it(`refuses <${name}> with an error at the tag`, () => {
-      expect(refusals(`ab <${name}>c`)).toEqual([["error", 3]]);
-    });
+  /** The error-severity diagnostic's message for a refused `<name>`, saying what kind of HTML it is. */
+  function refusal(name: string, kinds: string): string {
+    return `<${name}> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw ${kinds}.`;
   }
 
-  for (const name of ["ruby", "rt", "rp"]) {
-    it(`refuses <${name}> with an error at the tag`, () => {
-      expect(refusals(`ab <${name}>c`)).toEqual([["error", 3]]);
-    });
+  // ADR-0015's refused layers, by what each kind of HTML draws in the
+  // browser that SVG text cannot. `svg` and `math` are outside DOMPurify's
+  // HTML allow-list, but its SVG and MathML profiles keep them (measured:
+  // `a<svg>s</svg>b` and `a<math>m</math>c` reach the browser as written),
+  // so they are not unknown tags whose text is kept.
+  const REFUSED: readonly (readonly [kinds: string, names: readonly string[]])[] = [
+    ["tables", ["table"]],
+    ["ruby annotations", ["ruby", "rt"]],
+    ["images", ["img"]],
+    ["embedded content", ["canvas", "svg", "math"]],
+    [
+      "form controls",
+      [
+        "input", "button", "select", "textarea", "form", "fieldset", "legend", "option", "optgroup", "meter",
+        "progress",
+      ],
+    ],
+    ["media", ["video", "audio"]],
+    ["interactive content", ["details"]],
+  ];
+  for (const [kinds, names] of REFUSED) {
+    for (const name of names) {
+      it(`refuses <${name}> with an error-severity diagnostic at the tag, naming ${kinds}`, () => {
+        const { problems } = readLabel(`ab <${name}>c</${name}>`, { dialect: "html" });
+        expect(problems.map(({ severity, offset }) => [severity, offset])).toEqual([["error", 3]]);
+        expect(problems[0]!.message.startsWith(refusal(name, kinds))).toBe(true);
+      });
+    }
   }
-
-  it("says ruby is HTML Siren does not draw as SVG text", () => {
-    expect(readLabel("<rt>a", { dialect: "html" }).problems[0]!.message).toBe(
-      "<rt> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw ruby annotations.",
-    );
-  });
-
-  // ADR-0015's embedded, form, media and interactive layer: 22 tags.
-  for (const name of [
-    "img", "input", "button", "select", "textarea", "form", "fieldset", "legend", "option", "optgroup", "datalist",
-    "video", "audio", "canvas", "meter", "progress", "area", "source", "track", "template", "details", "dialog",
-  ]) {
-    it(`refuses <${name}> with an error at the tag`, () => {
-      expect(refusals(`ab <${name}>c`)).toEqual([["error", 3]]);
-    });
-  }
-
-  it("names each kind of HTML it refuses in the error", () => {
-    const messageOf = (source: string): string => readLabel(source, { dialect: "html" }).problems[0]!.message;
-    expect(messageOf("<button>a")).toBe(
-      "<button> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw form controls.",
-    );
-    expect(messageOf("<video>")).toBe(
-      "<video> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw media.",
-    );
-    expect(messageOf("<canvas>")).toBe(
-      "<canvas> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw embedded content.",
-    );
-    expect(messageOf("<details>a")).toBe(
-      "<details> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw interactive content.",
-    );
-  });
 
   // ADR-0015: `<img>`'s diagnostic names Mermaid's own image shape.
   it("points <img> at Mermaid's image shape", () => {
     expect(readLabel("<img src='x.png'>", { dialect: "html" }).problems[0]!.message).toBe(
-      "<img> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw images. " +
-        'Draw an image with Mermaid\'s image shape, A@{ img: "…" }, instead.',
+      `${refusal("img", "images")} Draw an image with Mermaid's image shape, A@{ img: "…" }, instead.`,
     );
   });
 
-  // Outside DOMPurify's HTML allow-list, but its SVG and MathML profiles keep
-  // them (measured: `a<svg>s</svg>b` and `a<math>m</math>c` reach the
-  // browser as written), so they are not unknown tags whose text is kept.
-  for (const name of ["svg", "math"]) {
-    it(`refuses <${name}> as embedded content, with an error at the tag`, () => {
-      const { problems } = readLabel(`ab <${name}>c</${name}>`, { dialect: "html" });
-      expect(problems).toEqual([
-        {
-          severity: "error",
-          message: `<${name}> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw embedded content.`,
-          offset: 3,
-        },
-      ]);
-    });
-  }
-
-  // One error per label, at its first refused tag: the error already costs
-  // the document and the label has to be rewritten, and a table writes a
-  // refused tag for every row and cell, which would bury every other
-  // diagnostic.
-  it("reports one error per label, at the first refused start tag", () => {
+  // One error-severity diagnostic per label, at its first refused tag: it
+  // already costs the document and the label has to be rewritten, and one
+  // for every refused tag would bury every other diagnostic.
+  it("reports one error-severity diagnostic per label, at the first refused start tag", () => {
     expect(refusals("a<table><tr><td>b</td><td>c</td></tr></table><img>")).toEqual([["error", 1]]);
   });
 
@@ -1244,13 +1215,13 @@ describe("readLabel's refused tags", () => {
 
   // Mermaid draws sequence text in SVG mode, where every one of these is
   // its characters: drawn as written, and nothing to refuse.
-  it("leaves refused tags as characters in the sequence dialect, with no error", () => {
+  it("leaves refused tags as characters in the sequence dialect, with no diagnostic", () => {
     const { label, problems } = readLabel("a<table>b<img>c<svg>", { dialect: "sequence" });
     expect(label.text).toBe("a<table>b<img>c<svg>");
     expect(problems).toEqual([]);
   });
 
-  it("places the error in a Markdown string at the tag as the author wrote it", () => {
+  it("places the error-severity diagnostic in a Markdown string at the tag as the author wrote it", () => {
     const source = "**a** *b*\nc <ruby>x</ruby>";
 
     const { problems } = readLabel(source, { dialect: "html", markdown: true });
@@ -1258,12 +1229,6 @@ describe("readLabel's refused tags", () => {
     expect(problems.map((problem) => [problem.severity, problem.offset])).toEqual([
       ["error", source.indexOf("<ruby")],
     ]);
-  });
-
-  it("says a table is HTML Siren does not draw as SVG text", () => {
-    expect(readLabel("<table>a", { dialect: "html" }).problems[0]!.message).toBe(
-      "<table> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw tables.",
-    );
   });
 });
 
@@ -1276,5 +1241,81 @@ describe("readLabel's <title>", () => {
     expect(rowTexts("c<title>ti<b>x</b></title>d")).toEqual(["cd"]);
     expect(rowTexts("a<title>tb")).toEqual(["a"]);
     expect(readLabel("c<title>t</title>d", { dialect: "html" }).problems).toEqual([]);
+  });
+});
+
+describe("readLabel's table parts outside a table", () => {
+  // Outside a `table` the HTML parser ignores the start and end tags of a
+  // table's nine parts, so nothing opens or closes at them and their text
+  // is kept (measured, 11.17.2 `--html`: `a<td>x</td>b` and `a<tr>x</tr>b`
+  // are `axb`, `a<col>b` is `ab`, and `<td>a<sub>b</td>c</sub>d` is
+  // `a<sub>bc</sub>d`).
+  it("drops a stray table part and keeps its text, with no diagnostic", () => {
+    const source =
+      "a<tr>1</tr><td>2</td><th>3</th><thead>4</thead><tbody>5</tbody>" +
+      "<tfoot>6</tfoot><caption>7</caption><col>8<colgroup>9</colgroup>b";
+    expect(readLabel(source, { dialect: "html" }).problems).toEqual([]);
+    expect(rowTexts(source)).toEqual(["a123456789b"]);
+  });
+
+  it("closes nothing at a stray table part's end tag", () => {
+    expect(flagged("<td>a<sub>b</td>c</sub>d")).toEqual(["abc(sub)d"]);
+  });
+});
+
+describe("readLabel's tags the browser does not show", () => {
+  // DOMPurify keeps each, and its content is read as elements, but the
+  // browser draws none of it: `template` is inert, and `datalist` and `rp`
+  // are `display: none` (ADR-0015). Measured, 11.17.2 `--html`:
+  // `a<template>t<b>x</b></template>b`, `a<datalist>t<b>x</b></datalist>b`
+  // and `a<rp>t<b>x</b></rp>b` reach the browser as written, and
+  // `a<template>t` is `a<template>t</template>`.
+  it("removes <template>, <datalist> and <rp> with their content, with no diagnostic", () => {
+    const source = "a<template>t<b>x</b></template>b<datalist>t<b>x</b></datalist>c<rp>t<b>x</b></rp>d";
+    expect(readLabel(source, { dialect: "html" }).problems).toEqual([]);
+    expect(rowTexts(source)).toEqual(["abcd"]);
+    expect(rowTexts("a<template>t")).toEqual(["a"]);
+  });
+
+  // An end tag inside a `template` closes nothing opened outside it:
+  // `<b>a<template>c</b>d</template>e` is `<b>a<template>cd</template>e</b>`.
+  // `datalist` and `rp` close at a formatting end tag around them:
+  // `<b>a<datalist>c</b>d</datalist>e` is `<b>a<datalist>c</datalist></b>de`,
+  // and `rp` the same (measured).
+  it("bounds each one's content as the parser does", () => {
+    expect(flagged("<b>a<template>c</b>d</template>e")).toEqual(["ae(b)"]);
+    expect(flagged("<b>a<datalist>c</b>d</datalist>e")).toEqual(["a(b)de"]);
+    expect(flagged("<b>a<rp>c</b>d</rp>e")).toEqual(["a(b)de"]);
+  });
+
+  // Void, so there is no content to remove, and `display: none`: `a<source>b</source>c`
+  // is `a<source>bc`, `track` and `area` the same, and `<sub>a<source>b</sub>c`
+  // is `<sub>a<source>b</sub>c` (measured).
+  it("drops <source>, <track> and <area>, which have no content, with no diagnostic", () => {
+    const source = "a<source>b</source>c<track>d</track>e<area>f</area>g";
+    expect(readLabel(source, { dialect: "html" }).problems).toEqual([]);
+    expect(rowTexts(source)).toEqual(["abcdefg"]);
+    expect(flagged("<sub>a<source>b</sub>c")).toEqual(["ab(sub)c"]);
+  });
+
+  // A closed `dialog` is hidden, and it is a block: its start tag closes the
+  // paragraph around it, so `a<dialog>t<b>x</b></dialog>b` is
+  // `<p>a</p><dialog>t<b>x</b></dialog>b<p></p>` and
+  // `a<dialog>x<div>y</div>z</dialog>b` the same, `a` and `b` on rows of
+  // their own (measured).
+  it("removes a closed <dialog> with its content, as a block, with no diagnostic", () => {
+    const source = "a<dialog>t<b>x</b><div>y</div>z</dialog>b";
+    expect(readLabel(source, { dialect: "html" }).problems).toEqual([]);
+    expect(rowTexts(source)).toEqual(["a", "b"]);
+    expect(rowTexts("a<dialog>t")).toEqual(["a"]);
+  });
+
+  // DOMPurify keeps `open` (measured: `a<dialog open>x</dialog>b` reaches the
+  // browser as `<p>a</p><dialog open="">x</dialog>b<p></p>`), and an open
+  // dialog is drawn, a box SVG text cannot draw: still refused.
+  it("refuses an open <dialog> as interactive content", () => {
+    const { problems } = readLabel("a<dialog open>x</dialog>b", { dialect: "html" });
+    expect(problems.map(({ severity, offset }) => [severity, offset])).toEqual([["error", 1]]);
+    expect(problems[0]!.message).toContain("does not draw interactive content.");
   });
 });

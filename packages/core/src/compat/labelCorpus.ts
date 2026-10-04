@@ -665,6 +665,25 @@ export const LABEL_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "label-hidden-tags",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a<template>t</template>b<datalist>d</datalist>c<rp>r</rp>d<source>e<track>f<area>g"]
+      B["h<dialog>x</dialog>i"]`,
+    status: "supported",
+    meaning:
+      "Seven tags DOMPurify keeps draw nothing in the browser: `template` is " +
+      "inert, a closed `dialog` is hidden, and `datalist`, `rp`, `source`, " +
+      "`track` and `area` are `display: none`. Mermaid's picture of each is " +
+      "blank, so each is removed with its content, as `title` is (ADR-0015; " +
+      "measured against 11.17.2, `--html`: the tags reach the browser as " +
+      "written, and a `dialog`, a block, puts `h` and `i` on rows of their own).",
+    assert: (result) => {
+      expectRows("A's rows", labelRows(nodeText(result, "A")), ["abcdefg"]);
+      expectRows("B's rows", labelRows(nodeText(result, "B")), ["h", "i"]);
+    },
+  },
+  {
     id: "label-entity-codes",
     kind: "flowchart",
     source: `flowchart TB
@@ -843,7 +862,23 @@ export const LABEL_CASES: readonly CompatCase[] = [
     meaning:
       "DOMPurify keeps a table, and Mermaid draws its cells side by side " +
       "(measured against 11.17.2, `--html`: `<table><tbody><tr><td>a</td>…`). " +
-      "SVG text has no table layout, so the ten table tags are refused (ADR-0015).",
+      "SVG text has no table layout, so a table is refused at `<table>` (ADR-0015).",
+  },
+  {
+    id: "label-stray-table-part",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a<td>x</td>b<col>c"]`,
+    status: "supported",
+    meaning:
+      "Outside a `table` the HTML parser ignores a table part's start and end " +
+      "tags (`tr`, `td`, `th`, `thead`, `tbody`, `tfoot`, `caption`, `col`, " +
+      "`colgroup`), so the tag is dropped and its text kept: Mermaid 11.17.2 " +
+      "draws `a<td>x</td>b` as `axb` and `a<col>b` as `ab` (measured, " +
+      "`--html`). Only `table` itself is refused (ADR-0015).",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["axbc"]);
+    },
   },
   {
     id: "label-ruby-rejected",
@@ -852,9 +887,10 @@ export const LABEL_CASES: readonly CompatCase[] = [
       A["<ruby>漢<rt>kan</rt></ruby>"]`,
     status: "rejected",
     meaning:
-      "DOMPurify keeps `ruby`, `rt` and `rp` (measured against 11.17.2, " +
-      "`--html`), and Mermaid draws the annotation small above its base text. " +
-      "SVG text cannot place one run over another, so ruby is refused (ADR-0015).",
+      "DOMPurify keeps `ruby` and `rt` (measured against 11.17.2, `--html`), " +
+      "and Mermaid draws the annotation small above its base text. SVG text " +
+      "cannot place one run over another, so ruby is refused (ADR-0015); `rp` " +
+      "is hidden, and removed with its content.",
   },
   {
     id: "label-img-rejected",
