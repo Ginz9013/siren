@@ -1957,6 +1957,8 @@ describe("parseErDiagram reads subgraph clusters", () => {
   });
 
   it("reads an unquoted title in the name alphabet only, as Mermaid's lexer does", () => {
+    // A unit test, not a corpus row: these titles are not valid Mermaid, and
+    // the corpus holds only valid Mermaid — so this is the refusal's record.
     const refusalsOf = (title: string) =>
       parseErDiagram(`erDiagram\n  subgraph s1[${title}]\n    A\n  end\n`).diagnostics.map(
         (d) => [d.severity, d.line, d.column],

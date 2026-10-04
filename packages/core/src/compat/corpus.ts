@@ -6488,37 +6488,6 @@ line2\`"]`,
       );
     },
   },
-  // ⚠️ **Not valid Mermaid, and here for that reason.** This file's rule is
-  // that a source is valid Mermaid; this row is the exception
-  // `er-name-cardinality-word` already makes — a document Mermaid refuses,
-  // written down because Siren used to draw it. Refusing it costs an author
-  // nothing Mermaid gave them.
-  {
-    id: "er-subgraph-title-unquoted-tag",
-    kind: "er",
-    source: `erDiagram
-      subgraph s1[Order<br/>pipeline]
-        CUSTOMER
-      end`,
-    status: "rejected",
-    meaning:
-      "**The unquoted spelling of `er-subgraph-label-br`, and Mermaid draws " +
-      "nothing for it.** Measured (mermaid 11.17.2): `subgraph s1[My<br/>" +
-      "Title]` is a parse error, \"... got '<'\". An unquoted title is a " +
-      "list of words and each word is a name token — `UNICODE_TEXT`, `NUM`, " +
-      "`ENTITY_NAME`, `DECIMAL_NUM` or `ENTITY_ONE` — so outside a quoted " +
-      "word it holds the name alphabet (`\\w`, `*`, `.`, `-`, anything past " +
-      "ASCII) and spaces, nothing else. Measured one probe per character, " +
-      "every other ASCII punctuation mark is refused the same way: `>`, an " +
-      "unbalanced `\"`, `[`, `{`, `}`, `:`, `#`, `;`, `|`, `,`, `(`, `&`, " +
-      "`%`, `/`, `=`, `'`, `!`, `\\`, a backtick, `@`, `+`, `?`, `$`, `^`, " +
-      "`~`. A quoted word beside a bare one draws (`\"a\" b`, `a\"b\"`).\n\n" +
-      "Siren's header pattern read anything up to the `]`, and once cluster " +
-      "titles became labels it drew this one in two rows — a picture for a " +
-      "document Mermaid draws none for, the one direction the absolute " +
-      "condition rules out. Refused now with an error-severity diagnostic at " +
-      "the title, naming it and saying to quote it.",
-  },
   {
     id: "er-subgraph-nested",
     kind: "er",
