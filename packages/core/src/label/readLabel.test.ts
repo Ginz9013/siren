@@ -898,3 +898,219 @@ describe("readLabel's entity codes", () => {
     ]);
   });
 });
+
+describe("readLabel's block tags", () => {
+  // The board's block layer, less `li` (which begins with a marker) and
+  // `hr` (which has no content). Each is a block in the browser, so its
+  // start and its end each end the line before it: `a<div>b</div>c` is
+  // `<p>a</p><div>b</div>c<p></p>` (measured with `mermaid-probe.mjs --html`
+  // against 11.17.2) — three lines.
+  const blocks = [
+    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "blockquote", "ul", "ol", "dl", "dt",
+    "dd", "section", "article", "address", "aside", "center", "dir", "figcaption", "figure",
+    "footer", "header", "hgroup", "main", "marquee", "menu", "nav", "search", "summary",
+  ];
+  for (const tag of blocks) {
+    it(`begins and ends a row at <${tag}>`, () => {
+      expect(rowTexts(`a<${tag}>b</${tag}>c`)).toEqual(["a", "b", "c"]);
+    });
+  }
+
+  // Two block edges with nothing between them end one line, not two: the
+  // browser draws no empty line where a block begins or ends next to
+  // another, nor at the start or end of the label — `<div><p>a</p></div><div>b</div>`
+  // is two lines. A `<br>` ending a block's last line adds none either
+  // (`<p>a<br></p>b` is two lines), while one before a block begins a line
+  // of its own (`<br><div>a</div>` is an empty line over `a`).
+  it("merges block edges that meet, with no empty row at either end of the label", () => {
+    expect(rowTexts("<div><p>a</p></div><div>b</div>")).toEqual(["a", "b"]);
+    expect(rowTexts("<p>a<br></p>b")).toEqual(["a", "b"]);
+    expect(rowTexts("<br><div>a</div>")).toEqual(["", "a"]);
+  });
+
+  it("reads a label of nothing but empty blocks as one empty row", () => {
+    expect(rowTexts("<div></div><p></p>")).toEqual([""]);
+  });
+
+  // CSS, not a measurement: the browser drops the spaces at either end of a
+  // line, and a line holding only spaces is not drawn, so spaces written
+  // between blocks (`<div>a</div> <div>b</div>`) draw nothing.
+  it("drops the spaces at a block edge, and a row of nothing but spaces between blocks", () => {
+    expect(rowTexts("x <div> a </div> <div>b</div> ")).toEqual(["x", "a", "b"]);
+  });
+
+  // Mermaid hands the browser every label inside a `<p>`, and a block start
+  // tag closes an open `<p>` and everything opened inside it, reopening only
+  // the formatting tags: `<sub>a<div>b</div>c</sub>d` is
+  // `<p><sub>a</sub></p><div>b</div>cd`, `<b>a<div>b</div>c</b>d` is
+  // `<p><b>a</b></p><div><b>b</b></div><b>c</b>d`, and a stray `</p>` ends
+  // that `<p>`: `a</p>b` is `<p>a</p><p></p>b` (measured).
+  it("closes the paragraph Mermaid wraps a label in at the first block", () => {
+    expect(flagged("<sub>a<div>b</div>c</sub>d")).toEqual(["a(sub)", "b", "cd"]);
+    expect(flagged("<b>a<div>b</div>c</b>d")).toEqual(["a(b)", "b(b)", "c(b)d"]);
+    expect(rowTexts("a</p>b")).toEqual(["a", "b"]);
+  });
+
+  // An end tag does not close a block opened inside its element. Any other
+  // end tag is dropped there — `<div>x</div><sub>a<div>b</sub>c</div>d` is
+  // `…<sub>a<div>bc</div>d</sub>` — and a formatting tag's ends at once,
+  // its style leaving the rest of the block, along with the ordinary tags
+  // between it and the block, while formatting tags between stay open:
+  // `<b>a<div>b</b>c</div>d` is `<b>a</b><div><b>b</b>c</div>d`,
+  // `<b>a<sub>s<div></b>c</div>d` is `<b>a<sub>s</sub></b><div><b></b>c</div>d`,
+  // and `<b>a<i>i<div>b</b>c</div>d` is
+  // `<b>a<i>i</i></b><i><div><b>b</b>c</div>d</i>` (each after a
+  // `<div>x</div>` that closed Mermaid's paragraph; measured).
+  it("leaves a block open at an end tag of an element it is inside", () => {
+    expect(flagged("<div>x</div><sub>a<div>b</sub>c</div>d")).toEqual(["x", "a(sub)", "bc(sub)", "d(sub)"]);
+    expect(flagged("<div>x</div><b>a<div>b</b>c</div>d")).toEqual(["x", "a(b)", "b(b)c", "d"]);
+    expect(flagged("<div>x</div><b>a<sub>s<div></b>c</div>d")).toEqual(["x", "a(b)s(bsub)", "c", "d"]);
+    expect(flagged("<div>x</div><b>a<i>i<div>b</b>c</div>d")).toEqual(["x", "a(b)i(bi)", "b(bi)c(i)", "d(i)"]);
+  });
+
+});
+
+/** Each row's runs, as text, then `bold`, then the font-size scale — the heading picture. */
+function headingRuns(source: string): string[][] {
+  const { label } = readLabel(source, { dialect: "html" });
+  return label.rows.map((row) =>
+    row.map((run) => `${run.text} ${run.bold ? "bold" : "regular"} ${"scale" in run.fontSize ? run.fontSize.scale : run.fontSize.absolute}`),
+  );
+}
+
+describe("readLabel's headings", () => {
+  // The board's measured picture: `h1`…`h6` at × 2 / 1.5 / 1.17 / 1 /
+  // 0.83 / 0.67 of the size around them, all bold.
+  it("reads <h1>…<h6> as bold rows at the board's scales", () => {
+    expect(headingRuns("<h1>a</h1><h2>b</h2><h3>c</h3><h4>d</h4><h5>e</h5><h6>f</h6>")).toEqual([
+      ["a bold 2"],
+      ["b bold 1.5"],
+      ["c bold 1.17"],
+      ["d bold 1"],
+      ["e bold 0.83"],
+      ["f bold 0.67"],
+    ]);
+  });
+
+  // A heading's start tag closes a heading that is the current element, and
+  // any heading's end tag closes whichever heading is open:
+  // `<h1>a<h2>b</h2>c</h1>d` is `<h1>a</h1><h2>b</h2>cd` (measured).
+  it("closes an open heading at the next heading, and at any heading's end tag", () => {
+    expect(headingRuns("<h1>a<h2>b</h2>c</h1>d")).toEqual([["a bold 2"], ["b bold 1.5"], ["cd regular 1"]]);
+    expect(headingRuns("<h3>a</h5>b")).toEqual([["a bold 1.17"], ["b regular 1"]]);
+  });
+});
+
+describe("readLabel's blocks with a font of their own", () => {
+  // The board's measured picture: `pre` draws its text in `monospace`, and
+  // `address` in italics.
+  it("reads <pre> as monospace rows and <address> as italic ones", () => {
+    const { label } = readLabel("x<pre>a</pre><address>b</address>", { dialect: "html" });
+    expect(label.rows.map((row) => row.map(({ text, monospace, italic }) => ({ text, monospace, italic })))).toEqual([
+      [{ text: "x", monospace: false, italic: false }],
+      [{ text: "a", monospace: true, italic: false }],
+      [{ text: "b", monospace: false, italic: true }],
+    ]);
+  });
+
+  // `<pre>  a   b  </pre>` reaches the browser as written (measured), and
+  // `pre` keeps every space, where SVG text — like any other HTML — draws a
+  // run of spaces as one and none at the ends of a line. Siren keeps them
+  // as no-break spaces, which SVG does not collapse.
+  it("keeps every space in <pre>, as a no-break space", () => {
+    expect(rowTexts("x<pre>  a   b  </pre>y")).toEqual([
+      "x",
+      "\u00a0\u00a0a\u00a0\u00a0\u00a0b\u00a0\u00a0",
+      "y",
+    ]);
+  });
+});
+
+describe("readLabel's lists", () => {
+  // The board's measured picture: a list item begins with its marker. An
+  // `li` start tag closes an open `li`, so `x<li>a<li>b` is
+  // `<p>x</p><li>a</li><li>b</li>` (measured); outside an `ol` the marker is
+  // a bullet.
+  it("begins each <li> with a bullet, closing the item before it", () => {
+    expect(rowTexts("<ul><li>a</li><li>b</li></ul>")).toEqual(["\u2022 a", "\u2022 b"]);
+    expect(rowTexts("x<li>a<li>b")).toEqual(["x", "\u2022 a", "\u2022 b"]);
+    expect(rowTexts("<ul> <li> a</li> <li>b</li> </ul>")).toEqual(["\u2022 a", "\u2022 b"]);
+  });
+
+  // The marker is the item's own, drawn in the item's style rather than in
+  // that of a tag inside it, as the browser's `::marker` is.
+  it("draws the bullet in the item's style", () => {
+    expect(flagged("<ul><li><b>a</b></li></ul><b><li>c</li></b>")).toEqual(["\u2022 a(b)", "\u2022 c(b)"]);
+  });
+
+  // In an `ol` the marker is the item's number, each `ol` counting from 1,
+  // an item belonging to the innermost list it is in: `<ol><li>a<ol><li>b<li>c</ol><li>d</ol>`
+  // is `<ol><li>a<ol><li>b</li><li>c</li></ol></li><li>d</li></ol>`
+  // (measured). Nested lists are not indented.
+  it("numbers the items of each <ol> from 1, and bullets those of a list inside one", () => {
+    expect(rowTexts("<ol><li>a<li>b</ol><ol><li>c</ol>")).toEqual(["1. a", "2. b", "1. c"]);
+    expect(rowTexts("<ol><li>a<ol><li>b<li>c</ol><li>d</ol>")).toEqual(["1. a", "1. b", "2. c", "2. d"]);
+    expect(rowTexts("<ol><li>a<ul><li>b</ul></ol>")).toEqual(["1. a", "\u2022 b"]);
+  });
+
+  // `<ul><li><p>a</p></li><li></li></ul>` reaches the browser as written
+  // (measured), which puts the first item's marker beside `a`, on the first
+  // line inside it, and still draws the second's on a line of its own.
+  // An `</li>` does not reach past a list opened inside the item:
+  // `<li>a<ul>x</li>y</ul>z` is `<li>a<ul>xy</ul>z</li>` (measured).
+  it("leaves a list open at an </li> inside it", () => {
+    expect(rowTexts("<li>a<ul>x</li>y</ul>z")).toEqual(["\u2022 a", "xy", "z"]);
+  });
+
+  it("draws a marker on its item's first line, and an empty item's on its own", () => {
+    expect(rowTexts("<ul><li><p>a</p></li><li></li></ul>")).toEqual(["\u2022 a", "\u2022"]);
+  });
+});
+
+describe("readLabel's definition lists", () => {
+  // A `dt` or `dd` start tag closes an open `dt` or `dd`, so the stray
+  // `</dt>` after it closes nothing: `<dt>a<dd>b</dt>c` is
+  // `<dt>a</dt><dd>bc</dd>` (measured).
+  it("closes an open <dt> or <dd> at the next of either", () => {
+    expect(rowTexts("<dt>a<dd>b</dt>c")).toEqual(["a", "bc"]);
+    expect(rowTexts("<dl><dd>a<dt>b</dd>c</dl>")).toEqual(["a", "bc"]);
+  });
+});
+
+describe("readLabel's <hr>", () => {
+  // `a<hr>b<hr/>c` is `<p>a</p><hr>b<hr>c` (measured): a void block, which
+  // the board draws as a row edge and nothing else — the rule is not drawn.
+  it("ends the row at <hr>, drawing no rule", () => {
+    expect(rowTexts("a<hr>b<hr/>c</hr>d")).toEqual(["a", "b", "cd"]);
+  });
+});
+
+describe("readLabel's <marquee>", () => {
+  // The board draws `marquee` as static text, a block of its own rows. The
+  // HTML parser makes it a scope boundary: a block inside it does not close
+  // Mermaid's paragraph around it, an end tag inside it closes nothing
+  // outside it, and a formatting tag opened inside it is not reopened after
+  // it. Measured: `<sub>s<marquee>a<div>b</div>c</marquee>d</sub>e` reaches
+  // the browser as written, `<b>x<marquee>a</b>c</marquee>d` is
+  // `<b>x<marquee>ac</marquee>d</b>`, and `<marquee><b>a</marquee>c` is
+  // `<marquee><b>a</b></marquee>c`.
+  it("draws <marquee> as still rows, which tags around it do not reach into", () => {
+    expect(flagged("<sub>s<marquee>a<div>b</div>c</marquee>d</sub>e")).toEqual([
+      "s(sub)",
+      "a(sub)",
+      "b(sub)",
+      "c(sub)",
+      "d(sub)e",
+    ]);
+    expect(flagged("<b>x<marquee>a</b>c</marquee>d")).toEqual(["x(b)", "ac(b)", "d(b)"]);
+    expect(flagged("<marquee><b>a</marquee>c")).toEqual(["a(b)", "c"]);
+  });
+});
+
+describe("readLabel's block tags in the sequence dialect", () => {
+  // Mermaid draws sequence text in SVG mode, where a block tag is its characters.
+  it("leaves block tags as characters", () => {
+    const { label } = readLabel("<div>a</div><li>b", { dialect: "sequence" });
+    expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(["<div>a</div><li>b"]);
+  });
+});

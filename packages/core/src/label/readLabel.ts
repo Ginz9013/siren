@@ -154,7 +154,7 @@ interface TagRule {
   /**
    * Whether its start tag opens nothing, so that its end tag finds nothing
    * of its name to close and is dropped, as the HTML parser drops it: a
-   * **void** element, which has no content (`wbr`), or one the parser
+   * **void** element, which has no content (`wbr`, `hr`), or one the parser
    * ignores inside a label altogether (`html`, `head`, `body`, which belong
    * to the document around it).
    */
@@ -169,6 +169,44 @@ interface TagRule {
    * only its text is removed.
    */
   removesContent?: "raw text" | "rest" | "elements";
+  /**
+   * Whether it is a **block** — the board's block layer, which ADR-0015
+   * approximates: its start and its end each end the row before them, as
+   * the browser ends a line at the edge of a block box.
+   */
+  block?: boolean;
+  /**
+   * For a block: the names of an open element its start tag first closes,
+   * as the HTML parser does — a heading closes a heading only when that is
+   * the element just opened (`"current"`).
+   */
+  closesOpen?: { names: readonly string[]; reach: "current" | "item" };
+  /** For a block whose end tag closes others of its kind: the names it closes — any heading's, any heading. */
+  endsAny?: readonly string[];
+  /**
+   * Whether every space inside it is drawn, as `white-space: pre` draws
+   * them (`pre`). SVG text collapses a run of spaces and drops them at the
+   * ends of a line, as HTML does elsewhere, so each is kept as a no-break
+   * space, which it does not; a tab too, one space wide.
+   */
+  preservesSpaces?: boolean;
+  /**
+   * Whether it is a list item, whose first line begins with its marker
+   * (`li`), and whose end tag closes nothing past a list opened inside it.
+   */
+  listItem?: boolean;
+  /**
+   * For a list: what marks the items in it — a bullet, or the item's number,
+   * counted from 1 in each list. An item outside every list is bulleted.
+   */
+  list?: "bulleted" | "numbered";
+  /**
+   * Whether it walls off the tags open around it, as the HTML parser's
+   * `marquee` does (a "scope" boundary): its start tag closes no `<p>`, an
+   * end tag inside it closes nothing opened outside it, and the formatting
+   * tags opened inside it are not reopened after it.
+   */
+  walled?: boolean;
 }
 
 /**
@@ -323,6 +361,28 @@ function ordinary(style: RunStyle): TagRule {
   return { style, formatting: false };
 }
 
+const HEADINGS = ["h1", "h2", "h3", "h4", "h5", "h6"];
+
+/**
+ * A heading: a block whose text is bold, at `factor` times the size around
+ * it. One heading's start tag closes another that is the current element,
+ * and any heading's end tag closes whichever is open: `<h1>a<h2>b</h2>c</h1>d`
+ * is `<h1>a</h1><h2>b</h2>cd` (measured).
+ */
+function heading(factor: number): TagRule {
+  const sized = scaled(factor);
+  return {
+    formatting: false,
+    block: true,
+    closesOpen: { names: HEADINGS, reach: "current" },
+    endsAny: HEADINGS,
+    style: (run) => {
+      bold(run);
+      sized(run);
+    },
+  };
+}
+
 /**
  * The properties of `<span style>` Siren draws — the board's ten, in its
  * order, which is the order the warning lists them in — by lower-case name: what each
@@ -471,6 +531,12 @@ function spanStyle(attributes: Attributes, warn: (message: string) => void): Run
  *
  * Which are formatting elements is the HTML standard's list: `b` `big`
  * `code` `em` `i` `s` `small` `strike` `strong` `tt` `u`.
+ *
+ * The block layer's fonts are measured the same way: `h1`…`h6` bold at × 2
+ * / 1.5 / 1.17 / 1 / 0.83 / 0.67, `pre` in `monospace`, `address` italic.
+ * What a block also draws and Siren does not — its margins, a list's 40px
+ * indent, `hr`'s rule, `marquee`'s motion — is the approximation ADR-0015
+ * records.
  */
 const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   b: formatting(bold),
@@ -552,6 +618,41 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   // at them and their text is kept: `<body>a<sub>b</body>c</sub>d` is
   // `a<sub>bc</sub>d` (measured). `style`, the fourth tag Mermaid removes,
   // is removed with its content, above.
+  // The block layer, ADR-0015's one approximation: each is a block box in
+  // the browser, and Siren draws it as rows of its own.
+  ...Object.fromEntries(
+    [
+      "p", "div", "blockquote", "dl", "section", "article", "aside", "center",
+      "figcaption", "figure", "footer", "header", "hgroup", "main", "nav", "search", "summary",
+    ].map((name): [string, TagRule] => [name, { formatting: false, block: true }]),
+  ),
+  // `menu` and `dir` are drawn as `ul` is, by the browser's default stylesheet.
+  ...Object.fromEntries(
+    ["ul", "menu", "dir"].map((name): [string, TagRule] => [name, { formatting: false, block: true, list: "bulleted" }]),
+  ),
+  ol: { formatting: false, block: true, list: "numbered" },
+  // Drawn still: `<b>x<marquee>a</b>c</marquee>d` is
+  // `<b>x<marquee>ac</marquee>d</b>` (measured).
+  marquee: { formatting: false, block: true, walled: true },
+  // Either start tag closes an open `dt` or `dd`, as `li` closes an `li`:
+  // `<dt>a<dd>b</dt>c` is `<dt>a</dt><dd>bc</dd>` (measured).
+  dt: { formatting: false, block: true, closesOpen: { names: ["dt", "dd"], reach: "item" } },
+  dd: { formatting: false, block: true, closesOpen: { names: ["dt", "dd"], reach: "item" } },
+  pre: { formatting: false, block: true, style: monospace, preservesSpaces: true },
+  // A void block: `a<hr>b` is `<p>a</p><hr>b` (measured). The rule the
+  // browser draws is not drawn; it is a row edge only.
+  hr: { formatting: false, block: true, opensNothing: true },
+  // An `li` start tag closes an open `li`: `x<li>a<li>b` is
+  // `<p>x</p><li>a</li><li>b</li>` (measured).
+  li: { formatting: false, block: true, closesOpen: { names: ["li"], reach: "item" }, listItem: true },
+  address: { formatting: false, block: true, style: italic },
+  // Bold, at the board's measured scales of the size around them.
+  h1: heading(2),
+  h2: heading(1.5),
+  h3: heading(1.17),
+  h4: heading(1),
+  h5: heading(0.83),
+  h6: heading(0.67),
   html: { formatting: false, opensNothing: true },
   head: { formatting: false, opensNothing: true },
   body: { formatting: false, opensNothing: true },
@@ -774,8 +875,25 @@ function markdownAsTags(source: Tagged): Tagged {
  *   once, and the rest stay closed. So `<b>a<i>b</b>c</i>d` keeps `c`
  *   italic (`<b>a<i>b</i></b><i>c</i>d`), while `<b>a<sub>b</b>c</sub>d`
  *   leaves `c` plain (`<b>a<sub>b</sub></b>cd`). That is the outcome of the
- *   standard's "adoption agency" steps whenever no block element is open
- *   inside the misnested one, which no tag this reader honors is.
+ *   standard's "adoption agency" steps whenever no block is open inside the
+ *   misnested tag.
+ * - With a block open inside it, an end tag does not close the block. A
+ *   formatting tag's ends there, taking the ordinary tags between it and the
+ *   block with it; any other is dropped (`<b>a<div>b</b>c</div>d` →
+ *   `<b>a</b><div><b>b</b>c</div>d`). The parser also takes those ordinary
+ *   tags off the text already in the block, after the fact; this reader
+ *   does not go back, so that text keeps them — an approximation of a
+ *   misnesting no author means.
+ *
+ * **Blocks** (the board's block layer, approximated as ADR-0015 says) end
+ * the row at each edge, and edges that meet end it once: no empty row is
+ * drawn between two blocks or at either end of the label, and the spaces at
+ * a block edge are dropped, as the browser drops them at the ends of a line.
+ * A `<br>` still draws the line it ends, empty or not. Mermaid hands the
+ * browser each label inside a `<p>`, and a block's start tag closes that
+ * `<p>` and every tag opened inside it, reopening the formatting ones in
+ * the block: `<sub>a<div>b</div>c</sub>d` → `<p><sub>a</sub></p><div>b</div>cd`
+ * (measured). A list item's marker is drawn at the start of its first line.
  * - A `q` draws its closing mark where it really closes, early or at the
  *   end of the label, and in its own style rather than the style of a tag
  *   that was open inside it (`<q>a<b>b</q>c</b>d` →
@@ -794,13 +912,40 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
     dialect === "html" ? (HTML_TAGS[name] ?? UNKNOWN_TAG) : undefined;
   const rows: LabelRun[][] = [];
   let row: LabelRun[] = [];
-  let open: OpenTag[] = [];
+  /**
+   * Whether the current row is drawn even with nothing on it: one a `<br>`
+   * began, or the label's first, is a line; one a block edge began is a line
+   * only once something is on it.
+   */
+  let held = true;
+  /**
+   * Whether the current row began at a block edge, where the browser drops
+   * the spaces at either end of a line (CSS's white-space processing). Rows
+   * no block touches keep theirs, as they always have.
+   */
+  let edge = false;
+  // Mermaid hands the browser every label inside a `<p>` of its own (measured:
+  // `x` is `<p>x</p>`), so the label begins inside an open paragraph, which
+  // the first block closes like any other.
+  let open: OpenTag[] = dialect === "html" ? [{ name: "p", rule: HTML_TAGS.p!, style: undefined }] : [];
 
-  /** Appends `text` to the current row, styled by the tags in `stack`. */
-  const emit = (text: string, stack: readonly OpenTag[] = open): void => {
+  /**
+   * Appends `written` to the current row, styled by the tags in `stack`:
+   * its spaces kept inside a `pre`, the spaces that begin a row at a block
+   * edge dropped, and the markers still waiting in `stack` drawn before it.
+   */
+  const emit = (written: string, stack: readonly OpenTag[] = open): void => {
+    const kept = stack.some((tag) => tag.rule.preservesSpaces === true) ? written.replace(/[ \t]/g, "\u00a0") : written;
+    const text = edge && row.length === 0 ? kept.replace(/^[ \t\n]+/, "") : kept;
     if (text === "" || removed(stack)) {
       return;
     }
+    drawMarkers(stack);
+    put(text, stack);
+  };
+
+  /** Appends `text` to the current row as it stands, styled by the tags in `stack`. */
+  const put = (text: string, stack: readonly OpenTag[]): void => {
     const run = plainRun(text);
     for (const tag of stack) {
       tag.style?.(run);
@@ -814,18 +959,111 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   };
 
   /**
+   * Draws the markers of the list items in `stack` that have not drawn one
+   * yet, outermost first, each in its item's own style, as the browser's
+   * `::marker` is drawn. A marker waits for its item's first line, so an
+   * item whose content begins with a block (`<li><p>a</p>`) draws it beside
+   * `a` rather than on a line of its own, as the browser places it; nested
+   * items that begin together draw theirs side by side.
+   */
+  const drawMarkers = (stack: readonly OpenTag[]): void => {
+    stack.forEach((tag, depth) => {
+      if (tag.marker !== undefined) {
+        put(tag.marker, stack.slice(0, depth + 1));
+        tag.marker = undefined;
+      }
+    });
+  };
+
+  /** Ends the row at the edge of a block, if anything is on it. */
+  const boundary = (): void => {
+    trimEnd(row);
+    if (row.length > 0) {
+      rows.push(row);
+      row = [];
+    }
+    held = false;
+    edge = true;
+  };
+
+  /**
    * Closes `open[index]` and every tag opened inside it, innermost first,
    * then reopens the formatting ones among those.
    */
   const close = (index: number): void => {
+    // An item that closes before anything was drawn in it is still a line
+    // with its marker on it.
+    if (open.slice(index).some((tag) => tag.marker !== undefined) && !removed(open)) {
+      drawMarkers(open);
+    }
     for (let depth = open.length - 1; depth >= index; depth--) {
       const marks = open[depth]!.rule.marks;
       if (marks !== undefined) {
         emit(marks.close, open.slice(0, depth + 1));
       }
     }
-    const inside = open.slice(index + 1);
+    const inside = open[index]!.rule.walled === true ? [] : open.slice(index + 1);
     open = [...open.slice(0, index), ...inside.filter((tag) => tag.rule.formatting)];
+  };
+
+  /** Where the tags an end tag or a block can reach begin: at the innermost walled tag, or the bottom. */
+  const floor = (): number => Math.max(0, open.map((tag) => tag.rule.walled === true).lastIndexOf(true));
+
+  /** The innermost open tag named one of `names` that is within reach, or `-1`. */
+  const reachable = (names: readonly string[]): number => {
+    const index = Math.max(...names.map((name) => open.map((tag) => tag.name).lastIndexOf(name)));
+    return index >= floor() ? index : -1;
+  };
+
+  /**
+   * Where the open item `names` closes is, as the HTML parser looks for one
+   * at an `li`, `dt` or `dd` start tag: the innermost open tag, looking past
+   * inline tags and an `address`, `div` or `p`, and stopping at any other
+   * block — so an `li` inside a nested list does not close the item the list
+   * is in. `-1` when there is none.
+   */
+  const openItem = (names: readonly string[]): number => {
+    for (let depth = open.length - 1; depth >= 0; depth--) {
+      const tag = open[depth]!;
+      if (names.includes(tag.name)) {
+        return depth;
+      }
+      if (tag.rule.block === true && !["address", "div", "p"].includes(tag.name)) {
+        return -1;
+      }
+    }
+    return -1;
+  };
+
+  /**
+   * Opens a block: first closes an open `<p>`, as the HTML parser closes one
+   * at a block's start tag, then puts the formatting tags that closed back
+   * inside the block, where the parser reopens them.
+   */
+  const openBlock = (tag: OpenTag): void => {
+    const paragraph = tag.rule.walled === true ? -1 : reachable(["p"]);
+    const reopened = paragraph === -1 ? [] : open.slice(paragraph + 1).filter((each) => each.rule.formatting);
+    if (paragraph !== -1) {
+      close(paragraph);
+      open = open.slice(0, paragraph);
+    }
+    const closes = tag.rule.closesOpen;
+    if (closes !== undefined) {
+      const index = closes.reach === "current" ? open.length - 1 : openItem(closes.names);
+      if (index !== -1 && closes.names.includes(open[index]!.name)) {
+        close(index);
+      }
+    }
+    if (tag.rule.listItem === true) {
+      const list = [...open].reverse().find((each) => each.rule.list !== undefined);
+      if (list?.rule.list === "numbered") {
+        list.items = (list.items ?? 0) + 1;
+        tag.marker = `${list.items}. `;
+      } else {
+        tag.marker = "\u2022 ";
+      }
+    }
+    open.push(...(tag.rule.opensNothing === true ? [] : [tag]), ...reopened);
   };
 
   /**
@@ -872,6 +1110,8 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       }
       rows.push(row.length === 0 ? [plainRun("")] : row);
       row = [];
+      held = true;
+      edge = false;
     } else if (!closing) {
       if (rule.removesContent === "raw text" || rule.removesContent === "rest") {
         const end = new RegExp(`</${name}(?:[\\s/][^>]*)?>`, "gi");
@@ -880,7 +1120,7 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
         TAG_RE.lastIndex = lastIndex;
         continue;
       }
-      if (rule.opensNothing === true) {
+      if (rule.opensNothing === true && rule.block !== true) {
         continue;
       }
       const already = rule.unnested === true ? open.map((tag) => tag.name).lastIndexOf(name) : -1;
@@ -891,14 +1131,43 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       const warn = (message: string): void => {
         problems.push({ severity: "warning", message, offset: at });
       };
-      open.push({ name, rule, style: rule.attributes?.(attributesOf(match[0], name), warn) ?? rule.style });
+      const tag = { name, rule, style: rule.attributes?.(attributesOf(match[0], name), warn) ?? rule.style };
+      if (rule.block === true) {
+        openBlock(tag);
+      } else {
+        open.push(tag);
+      }
       if (rule.marks !== undefined) {
         emit(rule.marks.open);
       }
+      if (rule.block === true) {
+        boundary();
+      }
     } else {
-      const index = open.map((tag) => tag.name).lastIndexOf(name);
-      if (index !== -1) {
+      const names = rule.endsAny ?? [name];
+      const found = reachable(names);
+      // An item's end tag does not reach past a list opened inside the item.
+      const index =
+        rule.listItem === true && open.slice(found + 1).some((tag) => tag.rule.list !== undefined) ? -1 : found;
+      // The first block opened inside it, which its end tag does not close.
+      const block = open.findIndex((tag, depth) => depth > index && tag.rule.block === true);
+      if (index === -1) {
+        // Nothing of its name is open: dropped.
+      } else if (rule.block === true || block === -1) {
         close(index);
+      } else if (rule.formatting) {
+        // The HTML parser's adoption agency, with a block inside: the
+        // formatting tag ends, the ordinary tags between it and the block go
+        // with it, and the block and the formatting tags around it stay.
+        open = open.filter(
+          (tag, depth) => depth !== index && (depth < index || depth >= block || tag.rule.formatting),
+        );
+      }
+      // A block's end tag with nothing of its name open is dropped, but a
+      // stray `</p>` is read as an empty paragraph, whose edges end the row
+      // (measured: `a</p>b` is `<p>a</p><p></p>b`).
+      if (rule.block === true && (index !== -1 || name === "p")) {
+        boundary();
       }
     }
   }
@@ -906,8 +1175,25 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   if (open.length > 0) {
     close(0);
   }
-  rows.push(row.length === 0 ? [plainRun("")] : row);
+  if (edge) {
+    trimEnd(row);
+  }
+  if (row.length > 0 || held || rows.length === 0) {
+    rows.push(row.length === 0 ? [plainRun("")] : row);
+  }
   return rows;
+}
+
+/** Drops the spaces that end `row`, and any run they were all of. */
+function trimEnd(row: LabelRun[]): void {
+  while (row.length > 0) {
+    const last = row[row.length - 1]!;
+    last.text = last.text.replace(/[ \t\n]+$/, "");
+    if (last.text !== "") {
+      return;
+    }
+    row.pop();
+  }
 }
 
 /** Whether a tag in `stack` removes its content, so nothing inside it is drawn. */
@@ -920,6 +1206,10 @@ interface OpenTag {
   name: string;
   rule: TagRule;
   style: RunStyle | undefined;
+  /** A list item's marker, until its first line draws it. */
+  marker?: string | undefined;
+  /** For a numbered list: how many items have opened in it. */
+  items?: number;
 }
 
 /** A label of these rows, with the flattened `text` every plain-string reader takes. */

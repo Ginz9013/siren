@@ -740,4 +740,57 @@ export const LABEL_CASES: readonly CompatCase[] = [
       expectRows("B's rows", labelRows(nodeText(result, "B")), ["a < b"]);
     },
   },
+  {
+    id: "label-block",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a<div>b</div><p>c</p><hr>d<marquee>m</marquee>"]`,
+    status: "supported",
+    meaning:
+      "A block tag (`p`, `div`, `hr`, `marquee` and the rest of the 34) begins " +
+      "and ends a line: Mermaid's label is `<p>a</p><div>b</div><p>c</p><hr>d" +
+      "<marquee>m</marquee>` (measured against 11.17.2), five lines in the " +
+      "browser. Approximated (ADR-0015): Siren draws each block's lines as rows, " +
+      "with no empty row where two block edges meet, but not its margins or " +
+      "indent, not the rule `<hr>` draws, and `<marquee>` stands still. Siren " +
+      "used to drop the tags and draw `abcdm` on one row.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a", "b", "c", "d", "m"]);
+    },
+  },
+  {
+    id: "label-heading",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<h1>T</h1>x<pre>c</pre><address>a</address>"]`,
+    status: "supported",
+    meaning:
+      "A block keeps its own font: `h1`…`h6` are bold at × 2 / 1.5 / 1.17 / 1 / " +
+      "0.83 / 0.67 of the size around them, `pre` is monospace and keeps its " +
+      "spaces, and `address` is italic (measured against 11.17.2). Siren draws " +
+      "each on rows of its own; a heading's margins are not drawn.",
+    assert: (result) => {
+      expectRows(
+        "label runs",
+        labelRuns(nodeText(result, "A"), "font-weight", "font-size", "font-family", "font-style"),
+        ["T[font-weight=bold][font-size=2em]", "x", "c[font-family=monospace]", "a[font-style=italic]"],
+      );
+    },
+  },
+  {
+    id: "label-list",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<ul><li>a</li><li>b</li></ul><ol><li>c</li><li>d</li></ol>"]`,
+    status: "supported",
+    meaning:
+      "A list item begins with its marker: a bullet in a `ul`, its number in an " +
+      "`ol`, each `ol` counting from 1 (measured against 11.17.2). Approximated " +
+      "(ADR-0015): Siren writes the marker as text at the start of the item's " +
+      "row, `• ` or `1. `, and draws neither the 40px indent nor a nested " +
+      "list's own indent.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["\u2022 a", "\u2022 b", "1. c", "2. d"]);
+    },
+  },
 ];
