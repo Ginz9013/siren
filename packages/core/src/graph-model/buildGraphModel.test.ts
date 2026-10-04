@@ -642,18 +642,18 @@ describe("buildGraphModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "hello",
+          label: plainLabel("hello"),
           arrow: { line: "solid", head: "filled" },
         },
       ],

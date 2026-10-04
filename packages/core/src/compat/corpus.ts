@@ -3767,6 +3767,199 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "seq-participant-label-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A as Web<br/>Client
+      A->>A: hi`,
+    status: "supported",
+    meaning:
+      "`<br>` in a participant's alias is a line break. Sequence text is SVG in " +
+      "both of Mermaid's label modes, so ADR-0015 reads it with `<br>` and " +
+      "entity codes only. Measured (mermaid 11.17.2, `--paint`): `participant " +
+      "A as Web<br/>Client` draws `Web` over `Client`, in the top and the " +
+      "bottom row. Siren used to draw `Web<br/>Client` literally. The box is " +
+      "sized for both rows.",
+    assert: (result) => {
+      const group = 'g.siren-participant[data-siren-id="A"]';
+      const labels = Array.from(svgOf(result).querySelectorAll(`${group} text`));
+      expectSame("both rows of the label", labels.map(labelRows), [
+        ["Web", "Client"],
+        ["Web", "Client"],
+      ]);
+      const frame = svgOf(result).querySelector(`${group} rect`);
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(
+        labels[0]?.querySelectorAll(":scope > tspan.siren-label-row") ?? [],
+      ).map((row) => Number(row.getAttribute("y")));
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-message-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: first<br/>second`,
+    status: "supported",
+    meaning:
+      "`<br>` in a message is a line break. Measured (mermaid 11.17.2, " +
+      "`--paint`): `A->>A: x<br/>y` draws `x` over `y`. Siren used to draw " +
+      "`first<br/>second` literally. The rows stand on the arrow, and the " +
+      "message sits a row further down to make room for them.",
+    assert: (result) => {
+      const group = 'g.siren-message[data-siren-id="A-B"]';
+      const label = svgOf(result).querySelector(`${group} text.siren-message-label`);
+      expectSame("the message's rows", labelRows(label), ["first", "second"]);
+      const arrowPath = svgOf(result).querySelector(`${group} path`)?.getAttribute("d") ?? "";
+      const arrowY = Number(/,(-?[\d.]+)/.exec(arrowPath)?.[1]);
+      const rowYs = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows are above the arrow (rows at ${JSON.stringify(rowYs)}, arrow at ${arrowY})`,
+        rowYs.length === 2 && rowYs.every((y) => y < arrowY),
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-message-tags-literal",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: <b>bold</b> msg`,
+    status: "supported",
+    meaning:
+      "Every tag but `<br>` in sequence text is drawn as the characters " +
+      "written: Mermaid draws sequence text as SVG in both label modes, so " +
+      "there the literal tag *is* the picture (ADR-0015). Measured (mermaid " +
+      "11.17.2, `--paint`): `A->>B: <b>bold</b> msg` draws the one `<text>` " +
+      "`<b>bold</b> msg`, not bold.",
+    assert: (result) => {
+      expectSame(
+        "the message is drawn as written",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")),
+        ["<b>bold</b> msg"],
+      );
+    },
+  },
+  {
+    id: "seq-note-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      Note over A: a<br/>b`,
+    status: "supported",
+    meaning:
+      "`<br>` in a note is a line break. Measured (mermaid 11.17.2, " +
+      "`--paint`): `Note over A: a<br/>b` draws `a` over `b`. Siren used to " +
+      "draw `a<br/>b` literally. The note's box is sized for both rows.",
+    assert: (result) => {
+      const text = svgOf(result).querySelector("g.siren-note text.siren-note-text");
+      expectSame("the note's rows", labelRows(text), ["a", "b"]);
+      const frame = svgOf(result).querySelector("g.siren-note rect.siren-note-frame");
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the note (rows at ${JSON.stringify(rowYs)}, note ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-block-condition-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      loop every<br/>day
+        A->>B: hi
+      end
+      alt c1<br/>c2
+        A->>B: z
+      else e1<br/>e2
+        A->>B: w
+      end`,
+    status: "supported",
+    meaning:
+      "`<br>` in a block's condition, and in each branch's, is a line break, " +
+      "and the brackets Mermaid draws around a condition go around all of " +
+      "its rows. Not on the board's table of measured places, so measured " +
+      "(mermaid 11.17.2, `--paint`): `loop every<br/>day` draws `[every` over " +
+      "`day]`, and `alt c1<br/>c2` / `else e1<br/>e2` draw `[c1` over `c2]` " +
+      "and `[e1` over `e2]`. Siren used to draw them literally. The header " +
+      "and the divider are made a row taller, so no message is drawn over a " +
+      "condition.",
+    assert: (result) => {
+      const conditionsOf = (id: string) =>
+        Array.from(
+          svgOf(result).querySelectorAll(
+            `g.siren-block[data-siren-id="${id}"] > text.siren-block-label`,
+          ),
+        );
+      const rowsIn = (id: string) => conditionsOf(id).map(labelRows);
+      expectSame("the loop's condition", rowsIn("loop:1"), [["[every", "day]"]]);
+      expectSame("the alt's conditions", rowsIn("alt:1"), [
+        ["[c1", "c2]"],
+        ["[e1", "e2]"],
+      ]);
+      const lastRowY = (id: string, index: number) => {
+        const label = conditionsOf(id)[index];
+        const rows = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+        return Number(rows[rows.length - 1]?.getAttribute("y"));
+      };
+      const arrowY = (id: string) => {
+        const group = `g.siren-message[data-siren-id="${id}"]`;
+        const path = svgOf(result).querySelector(`${group} path`)?.getAttribute("d") ?? "";
+        return Number(/,(-?[\d.]+)/.exec(path)?.[1]);
+      };
+      expectSame(
+        "each branch's message is below its condition's last row",
+        [
+          arrowY("A-B") > lastRowY("loop:1", 0),
+          arrowY("A-B#2") > lastRowY("alt:1", 0),
+          arrowY("A-B#3") > lastRowY("alt:1", 1),
+        ],
+        [true, true, true],
+      );
+    },
+  },
+  {
+    id: "seq-box-label-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      box Aqua Grp<br/>two
+        participant A
+      end
+      A->>A: hi`,
+    status: "supported",
+    meaning:
+      "`<br>` in a box's label is a line break. Not on the board's table of " +
+      "measured places, so measured (mermaid 11.17.2, `--paint`): `box " +
+      "Grp<br/>two` draws `Grp` over `two`. Siren used to draw `Grp<br/>two` " +
+      "literally. The caption band above the participants holds both rows.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector("g.siren-box text.siren-box-label");
+      expectSame("the label's rows", labelRows(label), ["Grp", "two"]);
+      const rows = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      const participantTop = Number(
+        svgOf(result).querySelector('g.siren-participant[data-siren-id="A"] rect')?.getAttribute("y"),
+      );
+      expectSame(
+        `the label's last row is above A (at ${lastRowY}, A's top at ${participantTop})`,
+        lastRowY < participantTop,
+        true,
+      );
+    },
+  },
   // -------------------------------------------------------------------------
   // stateDiagram
   // -------------------------------------------------------------------------

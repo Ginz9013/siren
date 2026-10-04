@@ -1,5 +1,6 @@
 import type {
   Diagnostic,
+  Label,
   ResolvedSequenceBlock,
   ResolvedSequenceBox,
   ResolvedSequenceBranch,
@@ -19,6 +20,7 @@ import type {
   SequenceRectStatement,
   SequenceStatement,
 } from "../contracts";
+import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
@@ -235,7 +237,7 @@ function mention(
   if (!participantsById.has(id)) {
     const participant: ResolvedSequenceParticipant = {
       id,
-      label: id,
+      label: plainLabel(id),
       participantKind: "participant",
       origin: "declared",
       createdAt: 0,
@@ -359,7 +361,7 @@ function resolveStatements(
         id,
         from: statement.from,
         to: statement.to,
-        text: statement.text,
+        label: statement.label,
         arrow: statement.arrow,
         autonumber: state.autonumbering ? state.autonumberCounter : null,
       };
@@ -418,7 +420,7 @@ function resolveStatements(
           placement: statement.placement,
           from: statement.from,
           to: statement.to,
-          text: statement.text,
+          label: statement.label,
         },
       });
       touched.add(statement.from);
@@ -455,7 +457,7 @@ function resolveBlock(
   // statements do.
   ++state.position;
 
-  let branchInputs: Array<{ label: string | null; body: SequenceStatement[] }>;
+  let branchInputs: Array<{ label: Label | null; body: SequenceStatement[] }>;
   switch (statement.kind) {
     case "alt":
     case "par":
@@ -476,8 +478,9 @@ function resolveBlock(
       // copies it straight to PositionedBlock.label, and
       // renderSequenceToSVG (ticket 09) reads it there for `rect`'s fill.
       // Passed through unvalidated, per this ticket's acceptance criteria —
-      // validating the color string is rendering's concern.
-      branchInputs = [{ label: statement.color, body: statement.body }];
+      // validating the color string is rendering's concern. A plain label,
+      // never one `readLabel` read: it is a color, so nothing in it is a tag.
+      branchInputs = [{ label: plainLabel(statement.color), body: statement.body }];
       break;
     default:
       // loop / opt / break: single implicit branch.
