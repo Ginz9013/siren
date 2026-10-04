@@ -401,6 +401,60 @@ export const LABEL_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "label-markdown-escape",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`a \\*b\\* \\\\ c\\d\`"]`,
+    status: "supported",
+    meaning:
+      "A backslash before ASCII punctuation escapes it in a Markdown string: " +
+      "Mermaid's HTML labels show `a \\*b\\* \\\\ c\\d` as `<p>a *b* \\ c\\d</p>` " +
+      "(measured against 11.17.2) — the escaped stars are " +
+      "characters, not an italic pair, the escaped backslash is one " +
+      "backslash, and one before a letter stays. Siren used to keep every " +
+      "backslash and pair the stars.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a *b* \\ c\\d"]);
+    },
+  },
+  {
+    id: "label-markdown-hard-break",
+    kind: "flowchart",
+    // Flush left, as `fc-text-multiline` is: the line break is the label's own.
+    source: `flowchart TB
+      A["\`a\\
+b\`"]`,
+    status: "supported",
+    meaning:
+      "A backslash at the end of a line in a Markdown string is Markdown's " +
+      "hard line break, and Mermaid hands it to the browser as written, " +
+      "`<p>a\\\\\\nb</p>` with no `<br>` (measured against 11.17.2; two " +
+      "spaces before the line break measure the same, `<p>a  \\nb</p>`). The " +
+      "label's `white-space: nowrap` draws that as `a\\ b` on one row. Siren " +
+      "used to break the row there.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a\\ b"]);
+    },
+  },
+  {
+    id: "label-markdown-paragraphs",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`**a
+
+b**\`"]`,
+    status: "supported",
+    meaning:
+      "A blank line in a Markdown string ends a paragraph: Mermaid's HTML " +
+      "labels show `<p>**a</p><p>b**</p>` (measured against 11.17.2) — two " +
+      "rows with nothing between them, and the stars, split across the two " +
+      "paragraphs, pair with nothing. Siren used to draw an empty row between " +
+      "them and a bold pair across it.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["**a", "b**"]);
+    },
+  },
+  {
     id: "label-mark",
     kind: "flowchart",
     source: `flowchart TB

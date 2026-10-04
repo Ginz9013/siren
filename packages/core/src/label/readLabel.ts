@@ -822,9 +822,10 @@ function hasError(problems: readonly LabelProblem[]): boolean {
  *
  * `source` is the label as the parser found it, with its own syntax — the
  * quote fence, a Markdown string's backticks — already taken off;
- * `markdown` says the backticks were there, so `**`/`*`, `__`/`_` and a
- * real line break mean something. Never throws: any input reads as *some* label, and
- * when `problems` holds an error the caller must not draw it.
+ * `markdown` says the backticks were there, so `**`/`*`, `__`/`_`, a
+ * backslash and a real line break mean something. Never throws: any input
+ * reads as *some* label, and when `problems` holds an error the caller must
+ * not draw it.
  *
  * Pure: the same source and options always read the same label.
  */
@@ -942,17 +943,149 @@ function withoutStyleSemicolons(tagged: Tagged): Tagged {
  * - A tag the author wrote is read whole, so no `_` or `*` inside it pairs:
  *   `<a href='http://x/_a_/'>` keeps its href.
  *
- * A real line break becomes `<br>` after the pairing (measured: `**a⏎b**`
- * is `<strong>a<br>b</strong>`); an ordinary label cannot carry one at all,
- * so rewriting it there would be a rule about nothing. Backslash escapes,
- * code spans and the rest of Markdown's inline syntax are not read.
+ * **A backslash before ASCII punctuation escapes it**: the backslash is
+ * dropped and the character is drawn as written, never a delimiter
+ * (`a \*b\* c` is `<p>a *b* c</p>`, `\\` is `<p>\</p>`); before anything
+ * else a backslash is a character (`a\b`, `\é`). See `unescaped`.
+ *
+ * **A real line break becomes `<br>`** after the pairing (measured: `**a⏎b**`
+ * is `<strong>a<br>b</strong>`, `line1⏎line2` `<p>line1<br>line2</p>`),
+ * except where Markdown reads it otherwise: after two spaces or a backslash
+ * it is a hard break, which Mermaid hands the browser as the characters
+ * written and the browser draws as one space (`hardBreaksJoined`); and a
+ * blank line is a paragraph break, `</p><p>`, which no pair spans
+ * (`BLANK_LINES_RE`). An ordinary label cannot carry a line break at all, so
+ * rewriting it there would be a rule about nothing. Code spans and the rest
+ * of Markdown's inline syntax are not read.
  *
  * Mermaid's *SVG* labels read a Markdown string differently — word by word,
  * and an italic run inside a bold one loses the bold — but that mode is the
  * DOM reference, not the picture (ADR-0015).
  */
 function markdownAsTags(source: Tagged): Tagged {
-  return rewritten(emphasized(source), /\n/g, "<br>");
+  const { tagged, escaped } = unescaped(hardBreaksJoined(source));
+  return rewritten(rewritten(emphasized(tagged, escaped), BLANK_LINES_RE, "<p>"), /\n/g, "<br>");
+}
+
+/**
+ * A blank line, and any more after it, in a Markdown string: a paragraph
+ * break, which Mermaid hands the browser as `</p><p>` (measured: `a⏎⏎b`,
+ * `a⏎⏎⏎b` and `a⏎␣⏎b` are each `<p>a</p><p>b</p>`). A `<p>` start tag
+ * closes the paragraph open before it, as that end tag would.
+ */
+const BLANK_LINES_RE = /\n[ \t]*\n\s*/g;
+
+/**
+ * `tagged` with each of Markdown's hard line breaks — a line break after two
+ * or more spaces, or after a backslash no other backslash escapes — drawn
+ * as the one space the browser draws it as. Mermaid hands the browser a hard
+ * break as the characters written, not as a `<br>` (measured: `a␣␣⏎b` is
+ * `<p>a  \nb</p>`, `a\⏎b` is `<p>a\\\nb</p>`), and the label's
+ * `white-space: nowrap` collapses them into one space on the row: `a b`,
+ * and `a\ b` with its backslash. Before a blank line neither is a hard
+ * break (measured: `a␣␣⏎⏎b` is `<p>a  </p><p>b</p>`, `a\⏎⏎b` is
+ * `<p>a\</p><p>b</p>`).
+ */
+function hardBreaksJoined(tagged: Tagged): Tagged {
+  const notBlank = String.raw`(?![ \t]*(?:\n|$))`;
+  const spaces = new RegExp(String.raw` {2,}\n` + notBlank, "g");
+  const backslash = new RegExp(String.raw`(?<=(?:^|[^\\])(?:\\\\)*)\\\n` + notBlank, "g");
+  return rewritten(rewritten(tagged, spaces, " "), backslash, "\\ ");
+}
+
+/**
+ * `tagged` with Markdown's backslash escapes read: a backslash before an
+ * ASCII punctuation character is dropped, and the character after it is
+ * kept as written — `escaped` holds where each such character now is, so
+ * that it is never a delimiter. A backslash before anything else is a
+ * character, and so is one inside a tag the author wrote.
+ *
+ * Mermaid sanitizes the string before its Markdown reader sees it, so a tag
+ * DOMPurify removes is gone by then, and the backslash before it escapes
+ * whatever came after it (see `escapedBy`).
+ */
+function unescaped(tagged: Tagged): { tagged: Tagged; escaped: ReadonlySet<number> } {
+  const { text } = tagged;
+  const inTag = insideTags(text);
+  let result = "";
+  const origins: number[] = [];
+  const escaped = new Set<number>();
+  const copy = (from: number, to: number): void => {
+    result += text.slice(from, to);
+    origins.push(...tagged.origins.slice(from, to));
+  };
+  let last = 0;
+  for (let index = 0; index < text.length; index++) {
+    const target = text[index] === "\\" && !inTag(index) ? escapedBy(text, index) : undefined;
+    if (target !== undefined) {
+      copy(last, index);
+      copy(index + 1, target);
+      escaped.add(result.length);
+      last = target;
+      index = target;
+    }
+  }
+  copy(last, text.length);
+  origins.push(tagged.origins[text.length]!);
+  return { tagged: { text: result, origins }, escaped };
+}
+
+/**
+ * Where the character the backslash at `backslash` escapes is, or
+ * `undefined` when it is a backslash as written: the next character, when
+ * it is ASCII punctuation — past any tags DOMPurify removes before Mermaid's
+ * Markdown reader runs (measured: `x\<foo>*y*` is `<p>x*y*</p>`, and both
+ * `x\<b\>y` and `x\</b>y` are `<p>x\y</p>`). Those are a tag outside the
+ * vocabulary, and an end tag with no start tag of its name before it; a tag
+ * left unterminated takes the rest of the label with it (`a\<b` is
+ * `<p>a\</p>`). A tag the vocabulary keeps reaches Markdown, so its `<` is
+ * the escaped character, and it is still a tag (`x\<b>y</b>` is
+ * `<p>x<b>y</b></p>`).
+ */
+function escapedBy(text: string, backslash: number): number | undefined {
+  const tag = new RegExp(TAG_RE.source, "iy");
+  let at = backslash + 1;
+  for (;;) {
+    tag.lastIndex = at;
+    const match = tag.exec(text);
+    if (match === null) {
+      break;
+    }
+    if (!match[0].endsWith(">")) {
+      return undefined;
+    }
+    const name = match[2]!.toLowerCase();
+    const opened =
+      match[1] !== "/" ||
+      tagsIn(text.slice(0, backslash)).some(
+        (before) => before[1] !== "/" && before[2]?.toLowerCase() === name,
+      );
+    if (Object.hasOwn(HTML_TAGS, name) && opened) {
+      break;
+    }
+    at = tag.lastIndex;
+  }
+  return ASCII_PUNCTUATION_RE.test(text[at] ?? "") ? at : undefined;
+}
+
+/** One of the ASCII punctuation characters a Markdown backslash escapes. */
+const ASCII_PUNCTUATION_RE = /^[!-/:-@[-`{-~]$/;
+
+/**
+ * Every match of `TAG_RE` in `text`, from its start: `matchAll` would
+ * begin wherever the shared pattern's `lastIndex` was left, which the tag
+ * reader leaves past zero when it stops early at an unterminated tag.
+ */
+function tagsIn(text: string): RegExpExecArray[] {
+  return Array.from(text.matchAll(new RegExp(TAG_RE.source, "gi")));
+}
+
+/** Whether an offset in `text` lies inside a tag the author wrote, which Markdown reads whole. */
+function insideTags(text: string): (index: number) => boolean {
+  const tags = tagsIn(text).map((tag) => [tag.index, tag.index + tag[0].length] as const).filter(
+    ([, end]) => text[end - 1] === ">",
+  );
+  return (index) => tags.some(([start, end]) => start < index && index < end);
 }
 
 /**
@@ -985,11 +1118,17 @@ function unused(run: DelimiterRun): number {
  * `tagged` with its `*`/`_` emphasis paired into `<em>` and `<strong>`, by
  * CommonMark's delimiter-run procedure (see `markdownAsTags`).
  */
-function emphasized(tagged: Tagged): Tagged {
+function emphasized(tagged: Tagged, escaped: ReadonlySet<number>): Tagged {
   const { text } = tagged;
-  const runs = delimiterRuns(text);
-  const openers: DelimiterRun[] = [];
-  for (const run of runs) {
+  const runs = delimiterRuns(text, escaped);
+  const paragraphBreaks = Array.from(text.matchAll(BLANK_LINES_RE), (match) => match.index);
+  const paragraphOf = (run: DelimiterRun): number => paragraphBreaks.filter((at) => at < run.start).length;
+  let openers: DelimiterRun[] = [];
+  for (const [position, run] of runs.entries()) {
+    // No pair spans a paragraph break (measured: `**a⏎⏎b**` is `<p>**a</p><p>b**</p>`).
+    if (position > 0 && paragraphOf(run) !== paragraphOf(runs[position - 1]!)) {
+      openers = [];
+    }
     while (run.canClose && unused(run) > 0) {
       let index = openers.length - 1;
       while (index >= 0 && !pairs(openers[index]!, run)) {
@@ -1063,22 +1202,20 @@ function pairs(opener: DelimiterRun, closer: DelimiterRun): boolean {
  * A tag the author wrote is read whole, as Markdown reads inline HTML, so
  * no run inside one is a delimiter (`<a href='/_a_/'>` keeps its href).
  */
-function delimiterRuns(text: string): DelimiterRun[] {
-  const tags = Array.from(text.matchAll(TAG_RE), (tag) => [tag.index, tag.index + tag[0].length] as const).filter(
-    ([, end]) => text[end - 1] === ">",
-  );
-  const inTag = (index: number): boolean => tags.some(([start, end]) => start < index && index < end);
-  return Array.from(text.matchAll(/\*+|_+/g), (match) => {
-    const before = text[match.index - 1] ?? " ";
-    const after = text[match.index + match[0].length] ?? " ";
+function delimiterRuns(text: string, escaped: ReadonlySet<number>): DelimiterRun[] {
+  const inTag = insideTags(text);
+  const spans = Array.from(text.matchAll(/\*+|_+/g)).flatMap((match) => unescapedSpans(match.index, match[0], escaped));
+  return spans.map(({ start, written }) => {
+    const before = text[start - 1] ?? " ";
+    const after = text[start + written.length] ?? " ";
     const outside = (side: string): boolean => WHITESPACE_RE.test(side) || PUNCTUATION_RE.test(side);
     const leftFlanking = !WHITESPACE_RE.test(after) && (!PUNCTUATION_RE.test(after) || outside(before));
     const rightFlanking = !WHITESPACE_RE.test(before) && (!PUNCTUATION_RE.test(before) || outside(after));
-    const star = match[0][0] === "*";
+    const star = written[0] === "*";
     return {
-      character: match[0][0]!,
-      start: match.index,
-      length: match[0].length,
+      character: written[0]!,
+      start,
+      length: written.length,
       canOpen: leftFlanking && (star || !rightFlanking || PUNCTUATION_RE.test(before)),
       canClose: rightFlanking && (star || !leftFlanking || PUNCTUATION_RE.test(after)),
       closes: [],
@@ -1087,6 +1224,29 @@ function delimiterRuns(text: string): DelimiterRun[] {
       opened: 0,
     };
   }).filter((run) => !inTag(run.start));
+}
+
+/**
+ * The parts of `run`, a run of one delimiter character at `start` in the
+ * text, that no backslash escaped: an escaped character is a character, and
+ * splits the run around it (`\**a**` is `*` then an italic `a` then `*`).
+ */
+function unescapedSpans(
+  start: number,
+  run: string,
+  escaped: ReadonlySet<number>,
+): { start: number; written: string }[] {
+  const spans: { start: number; written: string }[] = [];
+  let from = start;
+  for (let index = start; index <= start + run.length; index++) {
+    if (index === start + run.length || escaped.has(index)) {
+      if (index > from) {
+        spans.push({ start: from, written: run.slice(from - start, index - start) });
+      }
+      from = index + 1;
+    }
+  }
+  return spans;
 }
 
 /** A Unicode whitespace character, as CommonMark's flanking rule counts one. */

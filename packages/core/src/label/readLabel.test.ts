@@ -106,6 +106,39 @@ describe("readLabel's Markdown string", () => {
     expect(styledRows("line1\nline2", true)).toEqual(["line1", "line2"]);
   });
 
+  // Measured in 11.17.2's HTML labels: `a␣␣⏎b` is `<p>a  \nb</p>` and
+  // `a\⏎b` is `<p>a\\\nb</p>` — Markdown's hard line breaks, which Mermaid
+  // hands the browser as the raw characters, no `<br>` — and the label's
+  // `white-space: nowrap` collapses that whitespace into one space. So does
+  // `**a**␣␣⏎b` (`<p><strong>a</strong>  \nb</p>`) and `*a␣␣⏎b*`
+  // (`<p><em>a  \nb</em></p>`). A tab is not one: `a\t⏎b` is `<p>a\t<br>b</p>`.
+  it("draws a line break after two spaces or a backslash on the same row, as one space", () => {
+    expect(styledRows("a  \nb", true)).toEqual(["a b"]);
+    expect(styledRows("a\\\nb", true)).toEqual(["a\\ b"]);
+    expect(styledRows("**a**  \nb", true)).toEqual(["a(b) b"]);
+    expect(styledRows("*a  \nb*", true)).toEqual(["a b(i)"]);
+    expect(styledRows("a\t\nb", true)).toEqual(["a\t", "b"]);
+    // Nor is a backslash another escapes: `a\\⏎b` is `<p>a\<br>b</p>`.
+    expect(styledRows("a\\\\\nb", true)).toEqual(["a\\", "b"]);
+  });
+
+  // Measured: `a⏎⏎b`, `a⏎⏎⏎b` and `a⏎␣⏎b` are each `<p>a</p><p>b</p>` — a
+  // blank line ends a paragraph, and no empty row is drawn between the two —
+  // and `**a⏎⏎b**` is `<p>**a</p><p>b**</p>`: no pair spans paragraphs.
+  it("draws a blank line as a paragraph break, which no pair spans", () => {
+    expect(styledRows("a\n\nb", true)).toEqual(["a", "b"]);
+    expect(styledRows("a\n\n\nb", true)).toEqual(["a", "b"]);
+    expect(styledRows("a\n \nb", true)).toEqual(["a", "b"]);
+    expect(styledRows("**a\n\nb**", true)).toEqual(["**a", "b**"]);
+  });
+
+  // Measured: `a␣␣⏎⏎b` is `<p>a  </p><p>b</p>` and `a\⏎⏎b` is
+  // `<p>a\</p><p>b</p>` — before a blank line neither is a hard break.
+  it("breaks the paragraph at a blank line after two spaces or a backslash", () => {
+    expect(styledRows("a  \n\nb", true)).toEqual(["a", "b"]);
+    expect(styledRows("a\\\n\nb", true)).toEqual(["a\\", "b"]);
+  });
+
   it("breaks a row at <br> alongside the Markdown runs", () => {
     expect(styledRows("**md**<br/>x", true)).toEqual(["md(b)", "x"]);
   });
@@ -176,6 +209,43 @@ describe("readLabel's Markdown string", () => {
       [" ", null, false],
       ["b", null, true],
     ]);
+  });
+
+  // Measured in 11.17.2's HTML labels: `a \*b\* c` is `<p>a *b* c</p>`,
+  // `a \_b\_` is `<p>a _b_</p>`, `\*\*b\*\*` is `<p>**b**</p>`, and
+  // `\**a**` is `<p>*<em>a</em>*</p>`.
+  it("draws a backslash-escaped `*` or `_` as the character alone, never a delimiter", () => {
+    expect(styledRows("a \\*b\\* c", true)).toEqual(["a *b* c"]);
+    expect(styledRows("a \\_b\\_", true)).toEqual(["a _b_"]);
+    expect(styledRows("\\*\\*b\\*\\*", true)).toEqual(["**b**"]);
+    expect(styledRows("\\**a**", true)).toEqual(["*a(i)*"]);
+  });
+
+  // Measured: `x\<b>y</b>` is `<p>x<b>y</b></p>` and `a \< b` is
+  // `<p>a &lt; b</p>`, the backslash dropped; but `x\<foo>*y*` is
+  // `<p>x*y*</p>`, `x\<b\>y` and `x\</b>y` are `<p>x\y</p>`, `a\<b` is
+  // `<p>a\</p>` — Mermaid removes those tags before its Markdown reader runs,
+  // so the backslash meets what came after them. `<b>x\</b>y` is
+  // `<p><b>x</b>y</p>`.
+  it("escapes a `<` only where the tag it begins reaches Markdown, and otherwise what follows that tag", () => {
+    expect(styledRows("x\\<b>y</b>", true)).toEqual(["xy(b)"]);
+    expect(styledRows("a \\< b", true)).toEqual(["a < b"]);
+    expect(styledRows("x\\<foo>*y*", true)).toEqual(["x*y*"]);
+    expect(styledRows("x\\<b\\>y", true)).toEqual(["x\\y"]);
+    expect(styledRows("x\\</b>y", true)).toEqual(["x\\y"]);
+    expect(styledRows("a\\<b", true)).toEqual(["a\\"]);
+    expect(styledRows("<b>x\\</b>y", true)).toEqual(["x(b)y"]);
+  });
+
+  // Measured: `\\` is `<p>\</p>`, `a\\*b*` is `<p>a\<em>b</em></p>`, `\#`
+  // `<p>#</p>`, `\~x` `<p>~x</p>`, `a \&amp; b` `<p>a &amp; b</p>`; and a
+  // backslash before anything but ASCII punctuation is kept: `a\b`, `\a`,
+  // `\é` and `\ a` are drawn as written.
+  it("drops a backslash before any ASCII punctuation, itself included, and keeps every other", () => {
+    expect(styledRows("\\\\", true)).toEqual(["\\"]);
+    expect(styledRows("a\\\\*b*", true)).toEqual(["a\\b(i)"]);
+    expect(styledRows("\\# \\~x a \\&amp; b", true)).toEqual(["# ~x a & b"]);
+    expect(styledRows("a\\b \\a \\é \\ a", true)).toEqual(["a\\b \\a \\é \\ a"]);
   });
 
   it("leaves `**` alone when the label is not a Markdown string", () => {
@@ -611,6 +681,14 @@ describe("readLabel's attribute tags", () => {
 
   it("places it at the tag past paired, unpaired and nested `_` and `*` runs", () => {
     const source = "__a__ _b *c*_ x**(d)**y *e**\n<span style='border:0'>x</span>";
+
+    const { problems } = readLabel(source, { dialect: "html", markdown: true });
+
+    expect(problems.map((problem) => problem.offset)).toEqual([source.indexOf("<span")]);
+  });
+
+  it("places it at the tag past escapes, hard breaks and blank lines", () => {
+    const source = "\\*a\\* \\\\ x\\<foo>*y* c  \nd\\\ne\n\n<span style='border:0'>x</span>";
 
     const { problems } = readLabel(source, { dialect: "html", markdown: true });
 
