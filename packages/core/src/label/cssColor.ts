@@ -18,15 +18,20 @@
 export function isCssColor(value: string): boolean {
   const lowered = value.trim().toLowerCase();
   return (
-    NAMED_COLORS.has(lowered) ||
+    CSS_NAMED_COLORS.has(lowered) ||
     /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(lowered) ||
     /^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(.*\)$/.test(lowered) ||
     /^var\(\s*--[\w-]+\s*(?:,.*)?\)$/.test(lowered)
   );
 }
 
-/** CSS Color 4's named colors, with the two keywords that name a color too. */
-const NAMED_COLORS: ReadonlySet<string> = new Set(
+/**
+ * CSS Color 4's named colors, with the two keywords that name a color too
+ * (`transparent`, `currentcolor`), lower-case: every color written as a
+ * bare word. A sequence `box` header's first word is its color exactly when
+ * it is one of these, as Mermaid's own color test reads it.
+ */
+export const CSS_NAMED_COLORS: ReadonlySet<string> = new Set(
   `transparent currentcolor aliceblue antiquewhite aqua aquamarine azure beige bisque black
    blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral
    cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen

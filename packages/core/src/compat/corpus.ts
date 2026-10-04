@@ -3938,6 +3938,26 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-message-br-after-open-angle",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: x <y <br> z`,
+    status: "supported",
+    meaning:
+      "Only Mermaid's `/<br\\s*\\/?>/gi` breaks sequence text, and every " +
+      "other character is drawn as written, a `<` included, so a `<` that " +
+      "would begin an HTML tag cannot hide the `<br>` after it. Measured " +
+      "(mermaid 11.17.2, `--paint`): `A->>B: x <y <br> z` draws two " +
+      "`<text>` rows, `x <y` and `z`.",
+    assert: (result) => {
+      expectSame(
+        "the message breaks at its <br>",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")).map((row) => row.trim()),
+        ["x <y", "z"],
+      );
+    },
+  },
+  {
     id: "seq-message-entity-codes",
     kind: "sequence",
     source: `sequenceDiagram

@@ -14,8 +14,7 @@ import { nextTag } from "./tags";
 import { attributesOf, htmlRule, refusal, type Attributes, type RunStyle, type TagRule } from "./vocabulary";
 
 /**
- * A row break in the `sequence` dialect: Mermaid's own `/<br\s*\/?>/gi`, one
- * whole tag.
+ * A row break in the `sequence` dialect: Mermaid's own `/<br\s*\/?>/gi`.
  *
  * In the `html` dialect a row break is the name `br`, in any case: `<br>`,
  * `<br/>`, `<br />`, `<BR>`, `<br class="x">` and even `</br>`, which the
@@ -31,7 +30,7 @@ import { attributesOf, htmlRule, refusal, type Attributes, type RunStyle, type T
  * and `<br class="x">` is drawn as its characters (measured:
  * `A->>B: x<br class="x">y` is one `<text>`).
  */
-const SVG_ROW_BREAK_RE = /^<br\s*\/?>$/i;
+const SVG_ROW_BREAK_RE = /<br\s*\/?>/gi;
 
 /**
  * What reading one label gave: the label, and what the author has to be
@@ -92,11 +91,26 @@ export function readLabel(
 ): ReadLabelResult {
   const tagged = prepass(source, { markdown: options.markdown === true });
   const problems: LabelProblem[] = [];
-  const label = labelOf(taggedRows(tagged.text, options.dialect, problems));
+  const label = labelOf(
+    options.dialect === "sequence" ? sequenceRows(tagged.text) : taggedRows(tagged.text, problems),
+  );
   return {
     label,
     problems: problems.map((problem) => ({ ...problem, offset: tagged.origins[problem.offset]! })),
   };
+}
+
+/**
+ * Reads `source` into rows as Mermaid draws sequence text: in SVG mode
+ * only, split into rows by its `/<br\s*\/?>/gi` and by nothing else. Every
+ * other character is drawn as written, a `<` included — no tag is read, so
+ * a `<` that would begin one in HTML cannot hide a row break behind it
+ * (measured: `A->>B: x <y <br> z` draws `x <y` and `z`) — and only
+ * Mermaid's entity codes resolve, because Mermaid escapes the rest of
+ * sequence text, a character reference the author wrote included.
+ */
+function sequenceRows(source: string): LabelRun[][] {
+  return source.split(SVG_ROW_BREAK_RE).map((row) => [plainRun(resolveEntityCodes(row))]);
 }
 
 /**
@@ -147,53 +161,37 @@ export function readLabel(
  *   would, so links never nest: `<a href='x'>1<b>2<a href='y'>3</a>4</b>5`
  *   → `<a href="x">1<b>2</b></a><b><a href="y">3</a>4</b>5`.
  *
- * In the `sequence` dialect every tag but a row break stays in the text, as
- * written.
+ * The `html` dialect's reader: the `sequence` dialect reads no tag at all
+ * (`sequenceRows`).
  */
-function taggedRows(source: string, dialect: LabelDialect, problems: LabelProblem[]): LabelRun[][] {
-  /** What `name` does in this dialect, or `undefined` for a tag left as its characters. */
-  const ruleOf = (name: string): TagRule | undefined => (dialect === "html" ? htmlRule(name) : undefined);
+function taggedRows(source: string, problems: LabelProblem[]): LabelRun[][] {
   const rows = new RowBuilder();
-  const open = new OpenElements(dialect, rows);
+  const open = new OpenElements(rows);
 
   /**
-   * The characters a stretch of source between two tags draws. In the
-   * `html` dialect Mermaid hands the browser its entity codes as character
-   * references, among any the author wrote as such, and the browser
-   * resolves them all. In the `sequence` dialect only the codes resolve:
-   * Mermaid escapes the rest of sequence text, a reference the author wrote
-   * included.
+   * The characters a stretch of source between two tags draws: Mermaid
+   * hands the browser its entity codes as character references, among any
+   * the author wrote as such, and the browser resolves them all.
    */
-  const textOf = (written: string): string =>
-    dialect === "html"
-      ? resolveCharacterReferences(entityCodesAsReferences(written), "text")
-      : resolveEntityCodes(written);
+  const textOf = (written: string): string => resolveCharacterReferences(entityCodesAsReferences(written), "text");
 
   let lastIndex = 0;
   let from = 0;
   for (let tag = nextTag(source, from); tag !== null; tag = nextTag(source, from)) {
     from = tag.end;
     if (tag.name === null) {
-      // A tag the label ends inside. In the `html` dialect it is dropped
-      // with the rest of the label; in the `sequence` dialect it is text.
-      if (dialect === "html") {
-        rows.emit(textOf(source.slice(lastIndex, tag.start)), open.tags);
-        lastIndex = source.length;
-        break;
-      }
-      continue;
+      // A tag the label ends inside, dropped with the rest of the label.
+      rows.emit(textOf(source.slice(lastIndex, tag.start)), open.tags);
+      lastIndex = source.length;
+      break;
     }
     const { closing, name } = tag;
-    // In the `html` dialect a stray `</br>` breaks too, as the HTML parser
-    // reads it as `<br>` (measured: `a</br>b` is `a<br>b`).
-    const isBreak = name === "br" && (dialect === "html" || (!closing && SVG_ROW_BREAK_RE.test(tag.written)));
-    const rule = ruleOf(name);
-    if (!isBreak && rule === undefined) {
-      continue;
-    }
+    // A stray `</br>` breaks too, as the HTML parser reads it as `<br>`
+    // (measured: `a</br>b` is `a<br>b`).
+    const rule = htmlRule(name);
     rows.emit(textOf(source.slice(lastIndex, tag.start)), open.tags);
     lastIndex = tag.end;
-    if (isBreak || rule === undefined) {
+    if (name === "br") {
       if (!removed(open.tags)) {
         rows.lineBreak();
       }
@@ -370,12 +368,12 @@ class OpenElements {
   private open: OpenTag[];
   private readonly rows: RowBuilder;
 
-  constructor(dialect: LabelDialect, rows: RowBuilder) {
+  constructor(rows: RowBuilder) {
     this.rows = rows;
     // Mermaid hands the browser every label inside a `<p>` of its own (measured:
     // `x` is `<p>x</p>`), so the label begins inside an open paragraph, which
     // the first block closes like any other.
-    this.open = dialect === "html" ? [{ name: "p", rule: htmlRule("p"), style: undefined }] : [];
+    this.open = [{ name: "p", rule: htmlRule("p"), style: undefined }];
   }
 
   /** The open tags, outermost first: what styles the text read now. */

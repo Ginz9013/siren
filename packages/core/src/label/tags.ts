@@ -15,11 +15,10 @@
  * `<p>a </p>`). A `<` before anything else is a character: `a < b`, `a <1`
  * and `a</` are drawn as written (measured).
  *
- * It finds every tag-shaped stretch of a label, and which of them mean
- * something is the tag reader's question, not this pattern's: in the `html`
- * dialect every one does, a name outside the vocabulary included; in the
- * `sequence` dialect every one but a row break is left in the text as the
- * characters the author wrote.
+ * It finds every tag-shaped stretch of a label in the `html` dialect, and
+ * every one of them means something there, a name outside the vocabulary
+ * included. The `sequence` dialect never uses it: Mermaid reads no tag in
+ * sequence text, only its `<br>` pattern (`readLabel`'s `sequenceRows`).
  *
  * Never used directly: each search compiles its own instance (`nextTag`),
  * so that no search begins where another left off.

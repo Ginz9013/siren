@@ -791,6 +791,22 @@ describe("parseSequenceDiagram", () => {
     expect(document.boxes.map((b) => b.participantIds)).toEqual([["A"], ["B"], ["C"], ["D"]]);
   });
 
+  // Measured with the probe's `--paint`: `box currentcolor Team` draws the
+  // label `Team`, so Mermaid's color test takes `currentcolor` as the color,
+  // as CSS Color 4 makes it one, where `box banana Team` draws all three
+  // words. The same table answers a label's own `color`.
+  it("reads currentcolor as a box header's color, as CSS does", () => {
+    const { document } = parseOk(`sequenceDiagram
+  box currentcolor Team
+    participant A
+  end
+`);
+
+    expect(document.boxes.map((b) => ({ color: b.color, label: b.label }))).toEqual([
+      { color: "currentcolor", label: plainLabel("Team") },
+    ]);
+  });
+
   it("returns a null document plus an error diagnostic for a box missing its end", () => {
     const source = `sequenceDiagram
   box Purple Group
