@@ -1110,6 +1110,33 @@ describe("parseClassDiagram — a problem in a label, reported where the author 
   });
 });
 
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, not one label. Mermaid
+ * 11.17.2, measured with `--html`.
+ */
+describe("parseClassDiagram — the `;` Mermaid drops from a style line", () => {
+  const labelOf = (source: string) => parseOk(source).document.classes.find((c) => c.id === "A")!.label!.text;
+
+  it("is the label's own last `;` when nothing follows it on the line", () => {
+    // `class A["<b style='x:#1'>r</b> #35;"]` draws `r #35`.
+    expect(labelOf(`classDiagram\n  class A["<b style='x:#1'>r</b> #35;"]`)).toBe("r #35");
+  });
+
+  it("is the statement's trailing `;` when one follows the label", () => {
+    // `class A["<b style='x:#1'>r</b> #35;"];` draws `r #`.
+    expect(labelOf(`classDiagram\n  class A["<b style='x:#1'>r</b> #35;"];`)).toBe("r #");
+  });
+
+  it("leaves a position past it where the author wrote it", () => {
+    // `  class A["<b style='x:#1'>#35;⚑</b>"]`: the ⚑ is the 32nd character.
+    expect(parseClassDiagram(`classDiagram\n  class A["<b style='x:#1'>#35;⚑</b>"]`).diagnostics).toEqual([
+      { severity: "warning", message: "test problem ⚑", line: 2, column: 32 },
+    ]);
+  });
+});
+
 describe("the header a class diagram rejects", () => {
   // Characterization: two accepted spellings joined by a bare `or`, with no
   // comma — the shape a two-item list takes, as against the eight-item one

@@ -93,9 +93,11 @@ export function buildErModel(document: ErDocument): ErModelResult {
   const relationships = assignRelationshipIds(document);
   const subgraphs = resolveErSubgraphs(document.subgraphs, byId);
 
-  // **Two kinds of timeline target: an entity and a relationship**, sharing
-  // one id space exactly as a flowchart's nodes and edges do, so the shared
-  // resolver never has to learn which kind of element an id belongs to.
+  // **Three kinds of timeline target: an entity, a relationship and a
+  // subgraph**, sharing one id space exactly as a flowchart's nodes, edges
+  // and subgraphs do, so the shared resolver never has to learn which kind
+  // of element an id belongs to. A subgraph is named by the id
+  // `resolveErSubgraphs` generates for it (`subgraph:1`), never by its title.
   //
   // An entity is named by the id the *author* wrote, which is what an alias
   // deliberately leaves alone (see `ResolvedErEntity`): renaming a box on

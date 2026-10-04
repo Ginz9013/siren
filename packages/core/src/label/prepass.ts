@@ -7,13 +7,16 @@ import { nextTag, tagsIn } from "./tags";
 import { inVocabulary } from "./vocabulary";
 
 /**
- * What the tag reader reads for `source`: `source` without the `;` Mermaid
- * drops on a style line (`withoutStyleSemicolons`), and, in a Markdown
- * string, with its notation rewritten as the tags it stands for
- * (`markdownAsTags`).
+ * What the tag reader reads for `source`: in a Markdown string, `source`
+ * with its notation rewritten as the tags it stands for (`markdownAsTags`).
+ *
+ * The `;` Mermaid drops from a style line is not dropped here: that rule
+ * reads the whole line a label is written on, so the parsers apply it to
+ * their lines (`styleLines`) before they read a label from one, and
+ * `source` arrives without it.
  */
 export function prepass(source: string, options: { markdown: boolean }): Tagged {
-  const written = withoutStyleSemicolons(untagged(source));
+  const written = untagged(source);
   return options.markdown ? markdownAsTags(written) : written;
 }
 
@@ -76,33 +79,6 @@ function rewritten(tagged: Tagged, pattern: RegExp, replacement: string): Tagged
       to: match.index + match[0].length,
       insert: [{ text: replacement, at: match.index }],
     })),
-  );
-}
-
-/**
- * `tagged` without the `;` Mermaid drops before it reads entity codes: the
- * last one on a line where `style` (or `classDef`), a `:` and then a `#`
- * come before it — its own `/style.*:\S*#.*;/` and `/classDef.*:\S*#.*;/`,
- * meant for a `style` statement's `fill:#f00;`, run over the whole document.
- * So `<span style='color:#0f0;'>` is a color and not the code `#0f0;`
- * (measured: Mermaid hands the browser `style="color:#0f0"`).
- *
- * Mermaid runs it over each line of the document, and a label sees only its
- * own part of one: a `;` after the label on the same line (a statement's
- * trailing `;`) is the one Mermaid drops there, and here the label's own
- * last one is.
- */
-function withoutStyleSemicolons(tagged: Tagged): Tagged {
-  return [/style.*:\S*#.*;/g, /classDef.*:\S*#.*;/g].reduce(
-    (result, pattern) =>
-      edited(
-        result,
-        Array.from(result.text.matchAll(pattern), (match) => {
-          const semicolon = match.index + match[0].length - 1;
-          return { from: semicolon, to: semicolon + 1, insert: [] };
-        }),
-      ),
-    tagged,
   );
 }
 

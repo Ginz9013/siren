@@ -1423,3 +1423,38 @@ describe("parseStateDiagram — a problem in a label, reported where the author 
     ]);
   });
 });
+
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, not one label. Mermaid
+ * 11.17.2, measured with `--html`.
+ */
+describe("parseStateDiagram — the `;` Mermaid drops from a style line", () => {
+  const colors = (label: { rows: { text: string; color: string | null }[][] } | null | undefined) =>
+    label?.rows[0]!.map((run) => [run.text, run.color]);
+
+  it("keeps a color whose `;` is the line's last", () => {
+    // `state "<span style='color:#f00;'>r</span>" as A` draws `color:#f00`.
+    const document = documentOf(`stateDiagram-v2\n  state "<span style='color:#f00;'>r</span>" as A`);
+    expect(colors(document.states.find((state) => state.id === "A")!.descriptions[0])).toEqual([["r", "#f00"]]);
+  });
+
+  it("drops the line's last `;` and not the color's, in a transition label", () => {
+    // `A --> B : <span style='color:#f00;'>r</span> #35;` draws
+    // `<span style="color:&amp;f00;">r</span> #35`.
+    const document = documentOf(`stateDiagram-v2\n  A --> B : <span style='color:#f00;'>r</span> #35;`);
+    const label = document.transitions[0]!.label!;
+    expect(label.text).toBe("r #35");
+    expect(colors(label)).toEqual([["r #35", null]]);
+  });
+
+  it("leaves a position past it where the author wrote it", () => {
+    // `  A --> B : <b style='x:#1'>#35;⚑</b>`: the ⚑ is the 33rd character.
+    expect(
+      parseStateDiagram("stateDiagram-v2\n  A --> B : <b style='x:#1'>#35;⚑</b>").diagnostics.map(
+        (d) => `${d.severity} ${d.line}:${d.column}`,
+      ),
+    ).toEqual(["warning 2:33"]);
+  });
+});

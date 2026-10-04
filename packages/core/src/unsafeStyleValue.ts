@@ -53,7 +53,7 @@ export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
 
   // A value is one declaration's worth of CSS. A `;` inside it can only be
   // an attempt at a second one — the parser splits on the first `:`, so
-  // `fill:#fdd;position:fixed` arrives here as a single value. Whether it
+  // `fill:red;position:fixed` arrives here as a single value. Whether it
   // would actually smuggle depends on how the renderer serializes the
   // attribute; refusing it here means the answer does not matter.
   if (value.includes(";")) {

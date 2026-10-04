@@ -999,16 +999,17 @@ describe("readLabel's entity codes", () => {
     ]);
   });
 
-  // Before it rewrites codes, Mermaid drops the last `;` of a line where
-  // `style`, a `:` and then a `#` come before it (its `/style.*:\S*#.*;/`),
-  // so a lone hex color ending in `;` is a color, not a code — and any other
-  // `#hex;` before it is a code, which the browser cannot read as a color
-  // and drops. Measured: `<span style='color:#0f0;'>` is
-  // `style="color:#0f0"`, and `<span style='color:#f00;background-color:#ff0;'>`
-  // is `style="color:&amp;f00;background-color:#ff0"`.
-  it("keeps a lone hex color in a style, and drops one Mermaid turned into a code", () => {
-    expect(runsOf("<span style='color:#0f0;'>a</span>", "color")).toEqual([{ text: "a", color: "#0f0" }]);
-    expect(runsOf("<span style='color:#f00;background-color:#ff0;'>b</span>", "color", "background")).toEqual([
+  // Mermaid drops the last `;` of a line where `style`, a `:` and then a `#`
+  // come before it (its `/style.*:\S*#.*;/`) — but of the whole line, which
+  // a label is only part of, so the parsers drop it (`styleLines`) and a
+  // label is read as it is handed over: a `#hex;` in it is a code, which the
+  // browser cannot read as a color and drops. Measured:
+  // `<span style='color:#f00;background-color:#ff0;'>` is
+  // `style="color:&amp;f00;background-color:#ff0"`.
+  it("reads a `#hex;` in a style as a code, leaving the style line's `;` to the parsers", () => {
+    expect(runsOf("<span style='color:#0f0'>a</span>", "color")).toEqual([{ text: "a", color: "#0f0" }]);
+    expect(runsOf("<span style='color:#0f0;'>a</span>", "color")).toEqual([{ text: "a", color: null }]);
+    expect(runsOf("<span style='color:#f00;background-color:#ff0'>b</span>", "color", "background")).toEqual([
       { text: "b", color: null, background: "#ff0" },
     ]);
   });

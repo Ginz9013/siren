@@ -1851,6 +1851,7 @@ Plain -- Bare
     const container = document.createElement("div");
     // Every refused spelling in one statement per class, each paired with a
     // legitimate sibling declaration that must survive the rejection.
+    // `Smuggles` is `fill:red`, not a `#` color: a `#` would make it a Mermaid style line, whose last `;` is dropped before the gate sees it.
     const source = `classDiagram
 class Fetches
 class Executes
@@ -1860,7 +1861,7 @@ Fetches -- Executes
 Smuggles -- Escapes
 style Fetches fill:url(#evil),stroke:#c00
 style Executes fill:expression(alert(1)),stroke:#c00
-style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Smuggles fill:red;position:fixed,stroke:#c00
 style Escapes fill:u\\72 l(#evil),stroke:#c00
 `;
 
@@ -3508,12 +3509,13 @@ style Ghost fill:#fdd
 
   it("holds the style-value gate identically for a flowchart: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the class diagram's", () => {
     const container = document.createElement("div");
+    // `Smuggles` is `fill:red`, not a `#` color: a `#` would make it a Mermaid style line, whose last `;` is dropped before the gate sees it.
     const source = `flowchart TD
 Fetches[Fetches] --> Executes[Executes]
 Smuggles[Smuggles] --> Escapes[Escapes]
 style Fetches fill:url(#evil),stroke:#c00
 style Executes fill:expression(alert(1)),stroke:#c00
-style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Smuggles fill:red;position:fixed,stroke:#c00
 style Escapes fill:u\\72 l(#evil),stroke:#c00
 `;
 

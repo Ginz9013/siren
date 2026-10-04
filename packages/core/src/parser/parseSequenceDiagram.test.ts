@@ -1100,3 +1100,36 @@ describe("the labels a sequence diagram reads", () => {
     expect(message!.kind === "message" && message!.label).toEqual(rowsLabel("<b>bold</b> msg"));
   });
 });
+
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, a participant's name
+ * included, not only the text. Sequence text is drawn as SVG, so these were
+ * measured as the message Mermaid 11.17.2 recorded.
+ */
+describe("parseSequenceDiagram — the `;` Mermaid drops from a style line", () => {
+  const labelText = (source: string) => {
+    const [statement] = parseOk(`sequenceDiagram\n${source}`).document.statements;
+    return statement!.kind === "message" || statement!.kind === "note" ? statement!.label.text : null;
+  };
+
+  it("drops the line's last `;` when `style` is in a participant's name", () => {
+    // `styles->>B:#35; a;b` records `ﬂ°°35¶ß ab`: drawn `# ab`.
+    expect(labelText("  styles->>B:#35; a;b")).toBe("# ab");
+  });
+
+  it("drops the line's last `;` from a note", () => {
+    // `Note over A: style x:#35; a;b` records `style x:ﬂ°°35¶ß ab`.
+    expect(labelText("  Note over A: style x:#35; a;b")).toBe("style x:# ab");
+  });
+
+  it("leaves a position past it where the author wrote it", () => {
+    // `  A->>B: style x:#35;⚑`: the ⚑ is the 22nd character.
+    expect(
+      parseSequenceDiagram("sequenceDiagram\n  A->>B: style x:#35;⚑").diagnostics.map(
+        ({ severity, line, column }) => [severity, line, column],
+      ),
+    ).toEqual([["warning", 2, 22]]);
+  });
+});

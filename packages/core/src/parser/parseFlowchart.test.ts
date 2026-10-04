@@ -738,3 +738,35 @@ describe("the header a flowchart rejects", () => {
     );
   });
 });
+
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, not one label. Mermaid
+ * 11.17.2, measured with `--html`.
+ */
+describe("the `;` Mermaid drops from a style line", () => {
+  const nodeLabel = (source: string, id: string) =>
+    parseOk(source).document.nodes.find((node) => node.id === id)!.label;
+
+  it("is the line's last `;`, even when that one trails the statement", () => {
+    // `A["<span style='color:#f00;'>r</span>"];` draws
+    // `<span style="color:&amp;f00;">r</span>`: the dropped `;` is the
+    // statement's, so the color's is still a code, and no color is drawn.
+    const label = nodeLabel(`flowchart TB\n  A["<span style='color:#f00;'>r</span>"];`, "A");
+    expect(label.rows[0]!.map((run) => [run.text, run.color])).toEqual([["r", null]]);
+  });
+
+  it("is taken from a later label on the same line, never the earlier one", () => {
+    // `A[…#f00;…] --> B["#35;"]` draws A uncolored and B as `#35`.
+    const source = `flowchart TB\n  A["<span style='color:#f00;'>r</span>"] --> B["#35;"]`;
+    expect(nodeLabel(source, "A").rows[0]!.map((run) => [run.text, run.color])).toEqual([["r", null]]);
+    expect(nodeLabel(source, "B").text).toBe("#35");
+  });
+
+  it("leaves every position past it where the author wrote it", () => {
+    // `  A["<b style='x:#1'>#35;⚑</b>"] --> C`: the dropped `;` is the 25th
+    // character and the ⚑ the 26th, as written.
+    expect(positions(`flowchart TB\n  A["<b style='x:#1'>#35;⚑</b>"] --> C`)).toEqual(["warning 2:26"]);
+  });
+});
