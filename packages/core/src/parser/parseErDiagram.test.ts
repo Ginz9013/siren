@@ -1942,6 +1942,46 @@ describe("parseErDiagram reads subgraph clusters", () => {
     expect(titleOf('subgraph "My Cluster"')).toBe("My Cluster");
   });
 
+  it("refuses an unquoted title that writes a tag, at the title", () => {
+    // Measured (mermaid 11.17.2): `subgraph s1[My<br/>Title]` is a parse
+    // error, "... got '<'" — an unquoted title is a list of name-like
+    // words, and `<` is none of them. Only the quoted spelling is a label.
+    // `  subgraph s1[` is 14 characters, so the title begins at column 15.
+    const result = parseErDiagram("erDiagram\n  subgraph s1[My<br/>Title]\n    A\n  end\n");
+
+    expect(result.document).toBeNull();
+    expect(result.diagnostics.map((d) => [d.severity, d.line, d.column])).toEqual([
+      ["error", 2, 15],
+    ]);
+    expect(result.diagnostics[0].message).toContain("My<br/>Title");
+  });
+
+  it("reads an unquoted title in the name alphabet only, as Mermaid's lexer does", () => {
+    const refusalsOf = (title: string) =>
+      parseErDiagram(`erDiagram\n  subgraph s1[${title}]\n    A\n  end\n`).diagnostics.map(
+        (d) => [d.severity, d.line, d.column],
+      );
+    // Measured one probe apiece (mermaid 11.17.2): every one of these is a
+    // parse error, "got '>'", "got '\"'", "got 'COLON'", "got 'BRKT'" and so
+    // on — outside a quoted word a title holds name characters and spaces.
+    for (const title of [
+      "a>b", 'a"b', "a[b", "a{b", "a}b", "a:b", "a#b", "a;b", "a|b", "a,b", "a(b)",
+      "a&b", "a%b", "a/b", "a=b", "a'b", "a!b", "a\\b", "a`b", "a@b", "a+b",
+      "a?b", "a$b", "a^b", "a~b", '"a" <b>',
+    ]) {
+      expect(refusalsOf(title), title).toEqual([["error", 2, 15]]);
+    }
+    // Control group, measured alongside and each drawn by Mermaid: the name
+    // alphabet (`\w`, `*`, `.`, `-`, anything past ASCII), several words,
+    // and a quoted word beside a bare one, with or without a space between.
+    for (const title of [
+      "Title", "My Title", "a-b", "a.b", "a*b", "a_b", "é", "1abc", "1.5x",
+      '"a" b', 'a "b"', '"a"b', 'a"b"', '"a""b"', '"a<b>"',
+    ]) {
+      expect(refusalsOf(title), title).toEqual([]);
+    }
+  });
+
   it("nests a block inside the block that was open, and keeps each direction its own", () => {
     // Measured: `getSubGraphs()` answers `[{id:"inner", nodes:["A","B"]},
     // {id:"outer", nodes:["inner","C"], dir:"LR"}]` — in *closing* order,

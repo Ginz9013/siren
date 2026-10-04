@@ -621,12 +621,36 @@ const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
  * text between the brackets, and `s1[a   b]` answers `"a b"` — Mermaid's
  * `subgraphTitle` is a list of words joined with a single space, which is
  * why `readSubgraphTitle` below collapses a run of whitespace instead of
- * carrying it.
+ * carrying it. Unquoted, those words are names — `SUBGRAPH_TITLE_RE` holds
+ * the alphabet, and a title outside it is refused.
  */
 const SUBGRAPH_HEAD_RE = new RegExp(
   `^subgraph\\b\\s*(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*([^\\]\\r\\n]+?)\\s*\\])?$`,
   "diu",
 );
+
+/**
+ * What a header's bracketed title may hold: quoted words, and outside them
+ * nothing but `NAME_SOURCE`'s alphabet and the spaces between words.
+ *
+ * ⚠️ **`SUBGRAPH_HEAD_RE` stays wider on purpose**, so a title outside this
+ * alphabet is still recognized as a header and refused *at the title*,
+ * rather than falling through to the table at the bottom and being told
+ * its whole line is unrecognized. Measured one probe per character (mermaid
+ * 11.17.2): `subgraph s1[My<br/>Title]` is a parse error ("got '<'"), and so
+ * is every other ASCII punctuation mark tried bare in a title — `>`, an
+ * unbalanced `"`, `[`, `{`, `}`, `:`, `#`, `;`, `|`, `,`, `(`, `&`, `%`,
+ * `/`, `=`, `'`, `!`, `\`, `` ` ``, `@`, `+`, `?`, `$`, `^`, `~` — while
+ * `a-b`, `a.b`, `a*b`, `a_b`, `é`, `1abc`, `My Title` and a quoted word
+ * beside a bare one (`"a" b`, `a"b"`, `"a""b"`) all draw. Only the quoted
+ * spelling may carry a tag, which is why `readSubgraphTitle` reads a label
+ * at all: `s1["My<br/>Title"]` is one Mermaid draws.
+ *
+ * Spelled one character per alternative rather than as `NAME_SOURCE`
+ * repeated, so a long title that fails at its last character fails in
+ * linear time instead of trying every way to split its words.
+ */
+const SUBGRAPH_TITLE_RE = /^(?:"[^"\r\n]+"|[\w*.\s-]|[^\x00-\x7F])+$/u;
 
 /**
  * The title a header's brackets drew, read as a label: quotes off if it
@@ -1913,7 +1937,19 @@ export function parseErDiagram(source: string): ParseResult {
       // The title if the header wrote one, otherwise the name — measured,
       // `subgraph s1` answers `title:"s1"`. The name is never read for tags.
       let label = plainLabel(name);
-      if (header[2] !== undefined) {
+      if (header[2] !== undefined && !SUBGRAPH_TITLE_RE.test(header[2])) {
+        report([
+          {
+            severity: "error",
+            message:
+              `Unrecognized erDiagram subgraph title: "${header[2]}" — unquoted, ` +
+              `a title is words of name characters; quote it to write a label, ` +
+              `in "${line}"`,
+            line: lineNumber,
+            column: column + header.indices![2]![0],
+          },
+        ]);
+      } else if (header[2] !== undefined) {
         const title = readSubgraphTitle(header, { line: lineNumber, column });
         label = title.label;
         report(title.diagnostics);
