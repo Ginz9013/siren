@@ -335,7 +335,7 @@ drawn line, and each **run** is a stretch of a row's text sharing one set of pro
 italic, underline, a font size, a color, a link, and the rest of `LabelRun`'s fields, each an
 independent axis with a neutral value. A run with every axis neutral is a **plain run**. A label's
 `text` is its **flattened text** — the runs concatenated, the rows joined by `\n` — for the readers
-that only want a string: a diagnostic quoting the label, the redeclaration warning comparing two.
+that only want a string, such as a diagnostic quoting the label.
 What is drawn is the rows.
 
 The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the

@@ -190,7 +190,10 @@ timeline:
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
-  it("keeps the first label and emits a warning when a node id is redeclared with different bracket text", () => {
+  it("keeps the last label, silently and in the first position, when a node id is redeclared with different bracket text", () => {
+    // Mermaid 11.17.2, measured: `A[x]` then `A[y]` draws "y" and says
+    // nothing — the later declaration is used, so it is not a mistake to
+    // warn about. The node stays where it was first written.
     const source = `flowchart TD
   A[Start]
   A --> B[End]
@@ -199,11 +202,11 @@ timeline:
 
     const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).not.toBeNull();
-    const nodeA = document.nodes.find((n) => n.id === "A");
-    expect(nodeA?.label.text).toBe("Start");
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.line])).toEqual([
+      ["A", "Begin", 2],
+      ["B", "End", 3],
+    ]);
   });
 
   /**
@@ -1325,8 +1328,7 @@ timeline:
 
     // Ticket 04's rule for the standalone bare form, in the edge position:
     // the shorthand applies, and declares only what nothing else has. So B
-    // keeps `End` rather than being redeclared as its own id, and no
-    // redeclaration warning fires.
+    // keeps `End` rather than being relabelled with its own id.
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "A"],
@@ -1656,9 +1658,10 @@ timeline:
     // the refusal being total, not which construct triggers it, and one
     // still-unreadable construct is enough to show that.
     //
-    // The redeclaration warning is what makes "nothing was taken" observable
-    // — `A` already has a label, so if the first endpoint had been declared
-    // before the refusal there would be a warning sitting next to the error.
+    // This used to observe "nothing was taken" through the redeclaration
+    // warning `A[Other]` would have raised. That warning is gone — a later
+    // label replaces an earlier one silently, as in Mermaid 11.17.2 — so the
+    // assertion below now pins only that the refusal is the one diagnostic.
     const unreadable = parseSiren(`flowchart TD
   A[Start]
   A[Other] --> B o--x C

@@ -222,19 +222,20 @@ describe("buildGraphModel", () => {
     expect(diagnostics[0].severity).toBe("error");
   });
 
-  it("carries each node's shape onto the GraphNode, keeping the first-seen one when an id is declared twice", () => {
+  it("carries each node's shape onto the GraphNode, taking the last one when an id is declared twice", () => {
     // The shape is the parser's answer, not this stage's: nothing here
     // re-reads a spelling, so a diamond stays a diamond and a node nobody
     // gave a bracket is the rect it has always been. The redeclaration rule
-    // is the label's own, applied to the shape rather than invented for it.
+    // is the label's own, applied to the shape rather than invented for it —
+    // Mermaid 11.17.2 draws `A{x}` after `A[x]` as a diamond, measured.
     const document: SirenDocument = {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: plainLabel("Is it ready?"), shape: "rhombus" },
-        { id: "B", label: plainLabel("Done"), shape: "rect" },
         { id: "A", label: plainLabel("Is it ready?"), shape: "rect" },
+        { id: "B", label: plainLabel("Done"), shape: "rect" },
+        { id: "A", label: plainLabel("Is it ready?"), shape: "rhombus" },
       ],
       edges: [],
       subgraphs: [],
@@ -254,7 +255,10 @@ describe("buildGraphModel", () => {
     ]);
   });
 
-  it("keeps the first-seen label and warns when a node id is declared twice with conflicting labels", () => {
+  it("keeps the last label, silently and in the first position, when a node id is declared twice with conflicting labels", () => {
+    // The parser's rule, held here too so a hand-built document cannot be
+    // drawn differently from the same nodes parsed: Mermaid 11.17.2 draws
+    // the last label and says nothing.
     const document: SirenDocument = {
       kind: "flowchart",
       interactions: [],
@@ -275,10 +279,9 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph.nodes).toEqual([
-      { id: "A", label: plainLabel("Start"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "A", label: plainLabel("Begin"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics).toEqual([]);
   });
 
   it("sets totalSteps to 0 and leaves every element immediately visible when there is no timeline block", () => {
