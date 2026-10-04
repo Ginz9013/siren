@@ -379,8 +379,10 @@ enter C fade
 
   it("renders a label containing markup-looking text as literal visible text, never as parsed markup", () => {
     const container = document.createElement("div");
+    // Written as Mermaid's entity codes: a bare `<script>` is a tag, and is
+    // removed with its content (ADR-0015); the codes draw its characters.
     const source = `flowchart TD
-A[<script>alert(1)</script>] --> B[End]
+A[#lt;script#gt;alert(1)#lt;/script#gt;] --> B[End]
 `;
 
     const result = render(source, container);
@@ -1984,6 +1986,8 @@ class Duck {
   it("renders markup-looking member, annotation, note, relationship-label, multiplicity and tooltip text as literal visible text, never as parsed markup", () => {
     const container = document.createElement("div");
     const injected = `<script>alert(1)</script>`;
+    // The relationship label and the note are labels, where a bare tag is
+    // read (ADR-0015), so their markup is written as Mermaid's entity codes.
     // A namespace label is deliberately absent from this list: `namespace \w+`
     // is the whole grammar, so a namespace name cannot spell markup in the
     // first place. Every *other* free-text position in a classDiagram is here.
@@ -1993,8 +1997,8 @@ class Sneaky {
   +<b>bold</b> field
 }
 class Plain
-Sneaky "<i>1</i>" --> "<i>*</i>" Plain : <svg onload=alert(1)>
-note for Plain "<iframe src=javascript:alert(1)></iframe>"
+Sneaky "<i>1</i>" --> "<i>*</i>" Plain : #lt;svg onload=alert(1)#gt;
+note for Plain "#lt;iframe src=javascript:alert(1)#gt;#lt;/iframe#gt;"
 click Sneaky call inspect() "<b>tooltip</b>"
 `;
 

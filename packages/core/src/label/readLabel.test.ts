@@ -27,8 +27,25 @@ describe("readLabel's row breaks", () => {
     });
   }
 
+  // `<brx>` is another name, and one outside the vocabulary, so it is
+  // dropped as DOMPurify drops it: `a<brx>b` is `ab` (measured).
   it("does not break at a tag that only begins with br", () => {
-    expect(rowTexts("a<brx>b")).toEqual(["a<brx>b"]);
+    expect(rowTexts("a<brx>b")).toEqual(["ab"]);
+  });
+
+  // Measured (the T5 sequence wiring): Mermaid draws sequence text in SVG
+  // mode only, where its `/<br\s*\/?>/gi` is the rule, so
+  // `A->>B: x<br class="x">y` is one row.
+  it("leaves a <br> carrying attributes as characters in the sequence dialect", () => {
+    const { label } = readLabel('x<br class="x">y<BR/>z', { dialect: "sequence" });
+    expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(['x<br class="x">y', "z"]);
+  });
+
+  // The HTML parser reads a stray `</br>` as `<br>`: `a</br>b` is
+  // `a<br>b` (measured). Before unknown tags were dropped it was drawn as its
+  // characters; dropping it would join the rows.
+  it("breaks the row at </br> in the html dialect", () => {
+    expect(rowTexts("a</br>b")).toEqual(["a", "b"]);
   });
 
   it("keeps an empty row where a break ends the label", () => {
@@ -376,11 +393,13 @@ describe("readLabel's attribute tags", () => {
 
   // `<span style>` keeps its declarations through DOMPurify (measured with
   // `mermaid-probe.mjs --html`), and the board names the ten properties
-  // Siren draws. These six are carried as written.
+  // Siren draws. These six are carried as written. (The hex color is last,
+  // with no `;` after it: `#ff0;` is an entity code — see "readLabel's
+  // entity codes".)
   it("reads <span style>'s color, background, family and spacing as written", () => {
     expect(
       runsOf(
-        "x <span style='color: red; Background-Color:#ff0;font-family:serif;letter-spacing:2px;word-spacing:1em;opacity:0.5'>y</span>",
+        "x <span style='color: red; font-family:serif;letter-spacing:2px;word-spacing:1em;opacity:0.5;Background-Color:#ff0'>y</span>",
         "color",
         "background",
         "fontFamily",
@@ -585,6 +604,191 @@ describe("readLabel's links", () => {
       { text: "3", href: "y", bold: true },
       { text: "4", href: null, bold: true },
       { text: "5", href: null, bold: false },
+    ]);
+  });
+});
+
+describe("readLabel's tags outside the vocabulary", () => {
+  // Measured with `mermaid-probe.mjs --html` against 11.17.2: DOMPurify
+  // drops a tag it does not allow and keeps its text, so
+  // `e<foo>f</foo>g<my-el>h</my-el>i<object>j</object>k` is `efghijk`.
+  it("drops an unknown tag and keeps its text", () => {
+    expect(rowTexts("e<foo>f</foo>g<my-el>h</my-el>i<object>j</object>k")).toEqual(["efghijk"]);
+  });
+
+  // The browser's parser builds the element before DOMPurify drops it, so
+  // its end tag closes what was opened inside it: `<foo>a<sub>b</foo>c</sub>d`
+  // is `a<sub>b</sub>cd` (measured).
+  it("closes the tags opened inside an unknown tag at its end tag", () => {
+    expect(flagged("<foo>a<sub>b</foo>c</sub>d")).toEqual(["ab(sub)cd"]);
+  });
+});
+
+describe("readLabel's tags with no rendering of their own", () => {
+  // ADR-0015's layer of 20: DOMPurify keeps each one and the browser draws
+  // nothing for it but its text.
+  const drawless = [
+    "abbr", "acronym", "bdi", "bdo", "data", "time", "nobr", "label", "output", "blink",
+    "spacer", "content", "decorator", "element", "shadow", "slot", "menuitem", "map", "picture",
+  ];
+  for (const tag of drawless) {
+    it(`draws <${tag}>'s text and nothing else`, () => {
+      expect(flagged(`x<${tag} title='t'>y<b>z</b></${tag}>w`)).toEqual(["xyz(b)w"]);
+    });
+  }
+
+  // `wbr` is a void element: nothing opens, so its end tag closes nothing —
+  // `<wbr><sub>a</wbr>b</sub>c` is `<wbr><sub>ab</sub>c` (measured).
+  it("draws nothing for <wbr>, which closes nothing", () => {
+    expect(flagged("<wbr><sub>a</wbr>b</sub>c<wbr/>d")).toEqual(["ab(sub)cd"]);
+  });
+});
+
+describe("readLabel's tags Mermaid removes", () => {
+  // Inside a label the parser ignores `html`, `head` and `body` start and
+  // end tags alike, so nothing closes at them: `<body>a<sub>b</body>c</sub>d`
+  // and `<html lang=x>a<sub>b</html>c</sub>d` are `a<sub>bc</sub>d`
+  // (measured), and `<head>h</head>` is `h`.
+  it("ignores <html>, <head> and <body>, keeping their text", () => {
+    expect(flagged("<body>a<sub>b</body>c</sub>d")).toEqual(["abc(sub)d"]);
+    expect(flagged("<html lang=x>a<sub>b</html>c</sub>d<head>h</head>")).toEqual(["abc(sub)dh"]);
+  });
+});
+
+describe("readLabel's tags removed with their content", () => {
+  // Measured: DOMPurify removes each of these with everything in it, and
+  // the parser reads their content as raw text up to an end tag of the
+  // same name (any case, then whitespace, `/` or `>`), so a tag inside
+  // them is text too.
+  it("removes <script>, <style>, <iframe>, <noembed>, <xmp> and <noframes> with their content", () => {
+    expect(
+      flagged(
+        "a<script>b<b>c</b></script >d<style>s</style>e<iframe>f</iframe>g" +
+          "<noembed>h</noembed>i<xmp>j</XMP>k<noframes>l</noframes>m",
+      ),
+    ).toEqual(["adegikm"]);
+  });
+
+  // `a<script>b` is `a`, and `a<script>b</scriptx>c</script>d` is `ad`
+  // (measured): only its own end tag ends the content.
+  it("removes to the end of the label when the content is never closed", () => {
+    expect(flagged("a<script>b")).toEqual(["a"]);
+    expect(flagged("a<script>b</scriptx>c</script>d")).toEqual(["ad"]);
+  });
+
+  // `<b>a<script>x</script>b</b>c` is `<b>ab</b>c` (measured).
+  it("leaves the tags around the removed content open", () => {
+    expect(flagged("<b>a<script>x</script>b</b>c")).toEqual(["ab(b)c"]);
+  });
+});
+
+describe("readLabel's <plaintext>", () => {
+  // Nothing ends a `plaintext`'s content, not even its own end tag, and
+  // DOMPurify removes it with that content: `<plaintext>x</plaintext>y` is
+  // empty, and `<b>a</b>b<plaintext>x</plaintext>y<br><b>z</b>` is
+  // `<b>a</b>b`, the row break after it gone too (measured).
+  it("removes everything after <plaintext>", () => {
+    expect(flagged("<b>a</b>b<plaintext>x</plaintext>y<br><b>z</b>")).toEqual(["a(b)b"]);
+  });
+});
+
+describe("readLabel's <noscript>", () => {
+  // DOMPurify parses with scripting off, so a `noscript`'s content is read
+  // as elements — it nests, and a formatting tag misnested with it is
+  // reopened after it — and then removed with it:
+  // `a<noscript>b<noscript>c</noscript>d</noscript>e` is `ae`, and
+  // `a<noscript>b<b>c</noscript>d</b>e` is `a<b>d</b>e` (measured).
+  it("removes <noscript> with its content, read as elements", () => {
+    expect(flagged("a<noscript>b<noscript>c</noscript>d</noscript>e")).toEqual(["ae"]);
+    expect(flagged("a<noscript>b<b>c</noscript>d</b>e")).toEqual(["ad(b)e"]);
+  });
+
+  // `a<noscript>b<br>c</noscript>d` is `ad` (measured): the break went with it.
+  it("removes a row break inside <noscript> too", () => {
+    expect(flagged("a<noscript>b<br>c</noscript>d")).toEqual(["ad"]);
+  });
+});
+
+describe("readLabel's entity codes", () => {
+  // Mermaid's own `#name;` / `#NN;` codes, measured in 11.17.2's HTML labels:
+  // `a#quot;b#amp;c#lt;d#gt;e#35;f` draws `a"b&c<d>e#f`, and a code is
+  // text, never a tag: `#lt;b#gt;x#lt;/b#gt;` draws `<b>x</b>`.
+  it("resolves #quot; #amp; #lt; #gt; and a decimal code to their characters", () => {
+    expect(flagged("a#quot;b#amp;c#lt;d#gt;e#35;f")).toEqual(['a"b&c<d>e#f']);
+    expect(flagged("#lt;b#gt;x#lt;/b#gt;")).toEqual(["<b>x</b>"]);
+  });
+
+  // A code is an HTML character reference by another spelling — Mermaid
+  // turns `#name;` into `&name;` and the browser reads it — so every name
+  // the HTML standard defines resolves, and one it does not is drawn as the
+  // reference the browser was handed: `a#copy;b#foo;c#x41;d#Amp;e` draws
+  // `a©b&foo;c&x41;d&Amp;e` (measured).
+  it("resolves every HTML name, and draws an unknown one with an ampersand", () => {
+    expect(flagged("a#copy;b#foo;c#x41;d#Amp;e#AMP;f#NotEqualTilde;")).toEqual(["a©b&foo;c&x41;d&Amp;e&f\u2242\u0338"]);
+  });
+
+  // A legacy name — one the standard also reads without its `;` — resolves
+  // as the longest prefix of a longer word: `a #ampx; b #notit; c #amp d`
+  // draws `a &x; b ¬it; c #amp d` (measured), the last no code at all.
+  it("resolves a legacy name at the start of a longer code, as the browser does", () => {
+    expect(flagged("a #ampx; b #notit; c #amp d #notin;")).toEqual(["a &x; b ¬it; c #amp d ∉"]);
+  });
+
+  // An attribute value is resolved too, under the parser's attribute rule:
+  // a legacy name with no `;` that runs on into a letter, a digit or `=` is
+  // left as written. `<a href='?a=1#amp;b=2#35;f'>` keeps `?a=1&b=2#f`, and
+  // `<a href='?a&ampx=1&amp=2'>` keeps `?a&ampx=1&amp=2` (measured).
+  it("resolves codes in an attribute value, under the parser's attribute rule", () => {
+    expect(runsOf("<a href='?a=1#amp;b=2#35;f'>x</a><a href='?a&ampx=1&amp=2&lt'>y</a>", "href")).toEqual([
+      { text: "x", href: "?a=1&b=2#f" },
+      { text: "y", href: "?a&ampx=1&amp=2<" },
+    ]);
+  });
+
+  // Before it rewrites codes, Mermaid drops the last `;` of a line where
+  // `style`, a `:` and then a `#` come before it (its `/style.*:\S*#.*;/`),
+  // so a lone hex color ending in `;` is a color, not a code — and any other
+  // `#hex;` before it is a code, which the browser cannot read as a color
+  // and drops. Measured: `<span style='color:#0f0;'>` is
+  // `style="color:#0f0"`, and `<span style='color:#f00;background-color:#ff0;'>`
+  // is `style="color:&amp;f00;background-color:#ff0"`.
+  it("keeps a lone hex color in a style, and drops one Mermaid turned into a code", () => {
+    expect(runsOf("<span style='color:#0f0;'>a</span>", "color")).toEqual([{ text: "a", color: "#0f0" }]);
+    expect(runsOf("<span style='color:#f00;background-color:#ff0;'>b</span>", "color", "background")).toEqual([
+      { text: "b", color: null, background: "#ff0" },
+    ]);
+  });
+
+  // The browser resolves the references an author wrote as HTML too, by its
+  // own rules — with or without a `;`, a number in hex as well — while
+  // Mermaid's rewrite still reaches the `#…;` inside one. Measured:
+  // `a &lt; b &copy; &#35; &foo; &amp` draws `a < b © &# &foo; &`, and
+  // `&#x41;&#65&lt&ltx&notin;&notit;` draws `&&x41;A<<x∉¬it;`.
+  it("resolves character references an author wrote, in the html dialect", () => {
+    expect(flagged("a &lt; b &copy; &#35; &foo; &amp")).toEqual(["a < b © &# &foo; &"]);
+    expect(flagged("&#x41;&#65&lt&ltx&notin;&notit;")).toEqual(["&&x41;A<<x∉¬it;"]);
+    expect(flagged("&#x41 &#65 &#x &#128 &#;")).toEqual(["A A &#x € &#;"]);
+  });
+
+  // Mermaid draws sequence text as SVG, setting the text with its codes
+  // still in its own placeholders, and rewrites those into references in
+  // the SVG markup it returns (its `cleanUpSvgCode`), which the browser then
+  // parses. So a code resolves exactly as in a label, while a reference the
+  // author wrote was escaped with the rest of the text and stays as written,
+  // as every tag but `<br>` does. (Read from Mermaid 11.17.2's source: the
+  // probe prints no sequence text.)
+  it("resolves entity codes in the sequence dialect, and nothing else", () => {
+    const { label } = readLabel("a#quot;b#35;c#copy;d#foo;e#ampx;f&lt;g<b>h</b>#lt;i#gt;", { dialect: "sequence" });
+    expect(label.text).toBe('a"b#c©d&foo;e&x;f&lt;g<b>h</b><i>');
+  });
+
+  // As the parser reads a number: `#0;#55296;#1114112;#128;#150;#9;` draws
+  // `\uFFFD\uFFFD\uFFFD€–` and a tab (measured) — no character, a
+  // surrogate and one past Unicode are the replacement character, and 128–159
+  // are the windows-1252 characters at those bytes.
+  it("resolves a decimal code as the HTML parser does, out-of-range numbers included", () => {
+    expect(flagged("#0;#55296;#1114112;#128;#150;#9;#99999999999999999999;#035;")).toEqual([
+      "\uFFFD\uFFFD\uFFFD€–\t\uFFFD#",
     ]);
   });
 });
