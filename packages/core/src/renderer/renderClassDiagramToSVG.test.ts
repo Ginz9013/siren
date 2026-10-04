@@ -5,6 +5,7 @@ import type {
   ClassRelationshipLine,
   Label,
   LabelBox,
+  PlacedLabel,
   PositionedClass,
   PositionedClassDiagram,
   PositionedClassNamespace,
@@ -40,6 +41,11 @@ const boxOf = (...rows: string[]): LabelBox => ({
 const labelled = (text: string): { label: Label; labelBox: LabelBox } => ({
   label: plainLabel(text),
   labelBox: boxOf(text),
+});
+
+/** A relationship's `label`: `labelled`'s text and box, placed at `anchor`. */
+const placed = (text: string, anchor: { x: number; y: number }): { label: PlacedLabel } => ({
+  label: { label: plainLabel(text), box: boxOf(text), anchor },
 });
 
 /**
@@ -105,8 +111,6 @@ function buildRelationship(
       { x: 260, y: 160 },
     ],
     label: null,
-    labelAnchor: null,
-    labelBox: null,
     fromMultiplicity: null,
     fromMultiplicityAnchor: null,
     toMultiplicity: null,
@@ -441,8 +445,7 @@ describe("renderClassDiagramToSVG", () => {
         [],
         [
           buildRelationship({
-            ...labelled("owns"),
-            labelAnchor: { x: 150, y: 148 },
+            ...placed("owns", { x: 150, y: 148 }),
             fromMultiplicity: "1",
             fromMultiplicityAnchor: { x: 80, y: 96 },
             toMultiplicity: "*",
@@ -571,8 +574,7 @@ describe("renderClassDiagramToSVG", () => {
         ],
         [
           buildRelationship({
-            ...labelled(markup),
-            labelAnchor: { x: 150, y: 148 },
+            ...placed(markup, { x: 150, y: 148 }),
             toMultiplicity: markup,
             toMultiplicityAnchor: { x: 244, y: 152 },
           }),
@@ -796,7 +798,7 @@ describe("renderClassDiagramToSVG", () => {
               },
             }),
           ],
-          [buildRelationship({ ...labelled("owns"), labelAnchor: { x: 70, y: 160 } })],
+          [buildRelationship(placed("owns", { x: 70, y: 160 }))],
         ),
       );
 
@@ -1048,9 +1050,7 @@ describe("renderClassDiagramToSVG — labels of more than one row", () => {
         [buildClass()],
         [
           buildRelationship({
-            label: rowsLabel("holds", "many"),
-            labelBox: boxOf("holds", "many"),
-            labelAnchor: { x: 150, y: 148 },
+            label: { label: rowsLabel("holds", "many"), box: boxOf("holds", "many"), anchor: { x: 150, y: 148 } },
           }),
         ],
       ),

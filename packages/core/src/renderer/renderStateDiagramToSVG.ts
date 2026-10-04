@@ -547,15 +547,9 @@ function buildTransition(
   // around them — down by the distance from the alphabetic baseline to the
   // middle one, half the font's x-height (about 0.26em, some 4px at the
   // 14px default), so the text is now centred where layout made room.
-  if (
-    transition.label !== null &&
-    transition.labelAnchor !== null &&
-    transition.labelBox !== null
-  ) {
-    appendLabel(
-      g,
-      drawLabel(transition.label, transition.labelBox, transition.labelAnchor, "siren-transition-label"),
-    );
+  if (transition.label !== null) {
+    const { label, box, anchor } = transition.label;
+    appendLabel(g, drawLabel(label, box, anchor, "siren-transition-label"));
   }
 
   return g;

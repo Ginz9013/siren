@@ -252,19 +252,12 @@ function buildRelationship(
   }
   g.appendChild(line);
 
-  if (relationship.labelAnchor !== null) {
+  if (relationship.label !== null) {
     // Drawn by `drawLabel` at the anchor the layout reserved room for: one
     // plain row is the `<text>`'s own `textContent`, anything else a row
     // tspan per row (ADR-0015).
-    appendLabel(
-      g,
-      drawLabel(
-        relationship.label,
-        relationship.labelBox,
-        relationship.labelAnchor,
-        "siren-er-relationship-label",
-      ),
-    );
+    const { label, box, anchor } = relationship.label;
+    appendLabel(g, drawLabel(label, box, anchor, "siren-er-relationship-label"));
   }
 
   return g;

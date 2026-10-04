@@ -20,6 +20,16 @@ function labelled(text: string) {
 }
 
 /**
+ * A positioned edge's `label` for one plain row of `text`, placed at
+ * `anchor` — `labelled`'s measurement, with the centre layout would have
+ * reported for it.
+ */
+function placed(text: string, anchor: { x: number; y: number }) {
+  const { label, labelBox } = labelled(text);
+  return { label: { label, box: labelBox, anchor } };
+}
+
+/**
  * `A --> B`'s decomposition — a solid line, an arrow on the to-end only,
  * one rank long — spread into the fixture below, which is about positions
  * and paint rather than about which arrow was written. A test that *is*
@@ -30,12 +40,9 @@ const PLAIN_ARROW = {
   fromEnd: "none",
   toEnd: "arrow",
   minLength: 1,
-  // An unlabelled edge, which is also what makes `labelAnchor` null: layout
-  // reports an anchor only for an edge that asked for space, and the two are
-  // absent together. A test that *is* about the label sets both.
+  // An unlabelled edge: layout places a label only for an edge that asked
+  // for space. A test that *is* about the label sets it.
   label: null,
-  labelAnchor: null,
-  labelBox: null,
 } as const;
 
 /**
@@ -1295,7 +1302,7 @@ describe("the label drawn on an edge", () => {
     // The anchor comes from layout and is used as given — a renderer that
     // recomputed a mid-point from `points` would put the text across the
     // line rather than in the space made beside it.
-    const svg = drawLabelled({ ...labelled("yes"), labelAnchor: { x: 55, y: 60 } });
+    const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
     const text = svg.querySelector("text.siren-edge-label")!;
 
     expect(text.textContent).toBe("yes");
@@ -1312,7 +1319,7 @@ describe("the label drawn on an edge", () => {
     // would mean a consumer restyling class-diagram relationship labels
     // silently restyled every flowchart edge label too, which is the
     // consequence a theming contract must not have (ADR-0004).
-    const svg = drawLabelled({ ...labelled("yes"), labelAnchor: { x: 55, y: 60 } });
+    const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
 
     expect(svg.querySelectorAll(".siren-relationship-label")).toHaveLength(0);
     expect(svg.querySelectorAll(".siren-edge-label")).toHaveLength(1);
@@ -1322,7 +1329,7 @@ describe("the label drawn on an edge", () => {
     // An empty `<text>` is a paintless element the theme has to reach and a
     // node in every consumer's DOM for nothing. The class renderer already
     // returns `null` here rather than an empty element; this is that rule.
-    const svg = drawLabelled({ label: null, labelAnchor: null });
+    const svg = drawLabelled({ label: null });
 
     expect(svg.querySelectorAll("text.siren-edge-label")).toHaveLength(0);
   });
@@ -1331,7 +1338,7 @@ describe("the label drawn on an edge", () => {
     // A timeline target is an id, not an element (ADR-0009): `exit A-B fade`
     // has to take the label with the line it is written on, exactly as a
     // sequence participant's several drawn elements move together.
-    const svg = drawLabelled({ ...labelled("yes"), labelAnchor: { x: 55, y: 60 } });
+    const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
 
     expect(
       Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
@@ -1624,7 +1631,7 @@ describe("what a label paints behind its text", () => {
   it("goes before an edge's label", () => {
     const graph = buildFixture();
     const [first] = graph.edges;
-    graph.edges = [{ ...first!, ...labelled("▨ yes"), labelAnchor: { x: 55, y: 60 } }];
+    graph.edges = [{ ...first!, ...placed("▨ yes", { x: 55, y: 60 }) }];
 
     const svg = renderToSVG(graph);
 

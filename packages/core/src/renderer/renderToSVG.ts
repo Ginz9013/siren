@@ -370,7 +370,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
 function buildEdgeLabel(
   edge: PositionedEdge,
 ): DrawnLabel | null {
-  if (edge.label === null || edge.labelAnchor === null || edge.labelBox === null) {
+  if (edge.label === null) {
     return null;
   }
 
@@ -380,7 +380,7 @@ function buildEdgeLabel(
   // `.siren-edge` and `.siren-relationship-line` are already two names for
   // two connectors. One shared name would mean a consumer restyling class
   // labels silently restyled every flowchart edge label as well.
-  const drawn = drawLabel(edge.label, edge.labelBox, edge.labelAnchor, "siren-edge-label");
+  const drawn = drawLabel(edge.label.label, edge.label.box, edge.label.anchor, "siren-edge-label");
   const { text } = drawn;
   // The same id the path wears — see ADR-0009, and the call site above.
   text.setAttribute("data-siren-id", edge.id);

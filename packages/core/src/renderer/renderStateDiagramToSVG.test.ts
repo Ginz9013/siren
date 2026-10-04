@@ -71,9 +71,7 @@ const DIAGRAM: PositionedStateDiagram = {
         { x: 50, y: 60 },
         { x: 60, y: 120 },
       ],
-      label: plainLabel("start"),
-      labelAnchor: { x: 70, y: 90 },
-      labelBox: boxOf("start"),
+      label: { label: plainLabel("start"), box: boxOf("start"), anchor: { x: 70, y: 90 } },
     },
     {
       id: "Running-Running",
@@ -85,8 +83,6 @@ const DIAGRAM: PositionedStateDiagram = {
         { x: 110, y: 150 },
       ],
       label: null,
-      labelAnchor: null,
-      labelBox: null,
     },
   ],
   timeline: { totalSteps: 0, entries: [] },
@@ -312,8 +308,6 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
         { x: 47, y: 60 },
       ],
       label: null,
-      labelAnchor: null,
-      labelBox: null,
     },
   ],
   timeline: { totalSteps: 0, entries: [] },
@@ -766,8 +760,6 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
             { x: 60, y: 120 },
           ],
           label: null,
-          labelAnchor: null,
-          labelBox: null,
         },
       ],
       // Every one of the three kinds given an `enter` at step 1, so a
@@ -1014,9 +1006,7 @@ describe("renderStateDiagramToSVG — labels", () => {
       transitions: [
         {
           ...DIAGRAM.transitions[0],
-          label: rowsLabel("t", "u"),
-          labelBox: boxOf("t", "u"),
-          labelAnchor: { x: 70, y: 90 },
+          label: { label: rowsLabel("t", "u"), box: boxOf("t", "u"), anchor: { x: 70, y: 90 } },
         },
       ],
     };

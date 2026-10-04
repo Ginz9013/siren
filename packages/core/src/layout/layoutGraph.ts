@@ -403,11 +403,13 @@ export function layoutGraph(
     return {
       ...edge,
       points: points.map(shifted),
-      // `null` rather than absent, matching the label it belongs to: an
-      // edge that asked for no space has nowhere to draw text, and one
-      // state is easier to read than a missing field.
-      labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
-      labelBox: edgeLabelBoxById.get(edge.id) ?? null,
+      // `null` rather than absent: an edge that asked for no space has
+      // nowhere to draw text, and one state is easier to read than a
+      // missing field.
+      label:
+        edge.label === null || route.labelAnchor === undefined
+          ? null
+          : { label: edge.label, box: edgeLabelBoxById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
     };
   });
 

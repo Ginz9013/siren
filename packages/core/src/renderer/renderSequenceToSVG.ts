@@ -1,6 +1,7 @@
 import type {
   Label,
   LabelBox,
+  PlacedLabel,
   PositionedActivation,
   PositionedBlock,
   PositionedBox,
@@ -23,7 +24,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * Horizontal/vertical inset of a block's keyword from the block frame's
  * top-left corner — matches Mermaid's own visual convention of hugging the
  * frame's top-left, not centering. The same inset `layoutSequence` places a
- * condition's first row at (`labelAnchor`), so the keyword shares its line;
+ * condition's first row at (`PositionedBlock.label`'s anchor), so the keyword shares its line;
  * and where a block has no condition, its empty placeholder sits there too.
  */
 const BLOCK_LABEL_PADDING_X = 8;
@@ -314,7 +315,7 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
     g.appendChild(
       buildBlockKeyword(block.kind, block.x + BLOCK_LABEL_PADDING_X, block.y + BLOCK_LABEL_PADDING_Y),
     );
-    appendBlockLabel(g, block, {
+    appendBlockLabel(g, block.label, {
       x: block.x + BLOCK_LABEL_PADDING_X + BLOCK_KEYWORD_WIDTH,
       y: block.y + BLOCK_LABEL_PADDING_Y,
     });
@@ -328,7 +329,7 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
       g.appendChild(line);
 
       if (divider.label !== null) {
-        appendBlockLabel(g, divider, {
+        appendBlockLabel(g, divider.label, {
           x: block.x + BLOCK_LABEL_PADDING_X,
           y: divider.y + BLOCK_LABEL_PADDING_Y,
         });
@@ -363,9 +364,8 @@ function buildBlockFrame(block: PositionedBlock): SVGRectElement {
 /**
  * Builds the filled `<rect class="siren-block-fill">` for a `rect`-kind
  * block: the background-highlight treatment, with no frame border, using
- * the `rect rgb(...)`/`rgba(...)` color Mermaid syntax captured — per the
- * frozen `PositionedBlock` shape, which carries no separate color field —
- * in this block's `label`.
+ * the `rect rgb(...)`/`rgba(...)` color Mermaid syntax captured, which
+ * layout carries as this block's `color`.
  */
 function buildBlockFill(block: PositionedBlock): SVGRectElement {
   const rect = document.createElementNS(SVG_NS, "rect") as SVGRectElement;
@@ -374,14 +374,14 @@ function buildBlockFill(block: PositionedBlock): SVGRectElement {
   rect.setAttribute("y", String(block.y));
   rect.setAttribute("width", String(block.width));
   rect.setAttribute("height", String(block.height));
-  rect.setAttribute("fill", block.label?.text ?? "none");
+  rect.setAttribute("fill", block.color ?? "none");
   return rect;
 }
 
 /**
  * Appends one `<text class="siren-block-label">` — a block's or a divider's
  * condition, already bracketed by layout (`PositionedBlock.label`) — centred
- * on the `labelAnchor` layout gave it, which puts its first row where a
+ * on the anchor layout placed it at, which puts its first row where a
  * one-row condition's always was and grows the rest downward into the band
  * layout made taller for them.
  *
@@ -391,10 +391,10 @@ function buildBlockFill(block: PositionedBlock): SVGRectElement {
  */
 function appendBlockLabel(
   parent: Element,
-  { label, labelBox, labelAnchor }: Pick<PositionedBlock, "label" | "labelBox" | "labelAnchor">,
+  label: PlacedLabel | null,
   placeholder: { x: number; y: number },
 ): void {
-  if (label === null || labelBox === null || labelAnchor === null) {
+  if (label === null) {
     const empty = document.createElementNS(SVG_NS, "text");
     empty.setAttribute("class", "siren-block-label");
     empty.setAttribute("x", String(placeholder.x));
@@ -403,7 +403,7 @@ function appendBlockLabel(
     parent.appendChild(empty);
     return;
   }
-  appendLabel(parent, drawLabel(label, labelBox, labelAnchor, "siren-block-label"));
+  appendLabel(parent, drawLabel(label.label, label.box, label.anchor, "siren-block-label"));
 }
 
 /**
@@ -470,7 +470,7 @@ function buildMessage(message: PositionedMessage, scope: string): SVGGElement {
   // the arrow — so a label of several rows grows upward, away from it.
   appendLabel(
     g,
-    drawLabel(message.label, message.labelBox, message.labelAnchor, "siren-message-label"),
+    drawLabel(message.label.label, message.label.box, message.label.anchor, "siren-message-label"),
   );
 
   if (message.autonumber !== null) {

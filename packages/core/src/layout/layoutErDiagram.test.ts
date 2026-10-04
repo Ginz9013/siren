@@ -128,10 +128,10 @@ const boxOf = (entities: PositionedErDiagram["entities"], id: string) => {
 const labelAnchorOf = (laidOut: PositionedErDiagram, id: string): Point => {
   const relationship = laidOut.relationships.find((candidate) => candidate.id === id);
   if (relationship === undefined) throw new Error(`no relationship "${id}" was routed`);
-  if (relationship.labelAnchor === null) {
+  if (relationship.label === null) {
     throw new Error(`relationship "${id}" reserved no room for its label`);
   }
-  return relationship.labelAnchor;
+  return relationship.label.anchor;
 };
 
 /** Whether `point` is inside `box` or on its boundary. */

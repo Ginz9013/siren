@@ -774,7 +774,7 @@ describe("how long an edge holds its endpoints apart", () => {
  * here rather than against an SVG.
  *
  * The reserved space is `layoutDirectedGraph`'s, unchanged: it has taken an
- * edge label's width and height and returned a `labelAnchor` since the
+ * edge label's width and height and returned a label anchor since the
  * class board, and what was missing was only that a flowchart edge had no
  * label to pass.
  */
@@ -856,14 +856,14 @@ describe("the room an edge label is given", () => {
     const [labelled] = laidOut("yes").edges;
     const [plain] = laidOut(null).edges;
 
-    expect(plain.labelAnchor).toBeNull();
-    expect(labelled.labelAnchor).not.toBeNull();
+    expect(plain.label).toBeNull();
+    expect(labelled.label).not.toBeNull();
     // Somewhere on the way between the two boxes, rather than at the
     // origin: an anchor that defaulted to `{ x: 0, y: 0 }` would draw every
     // label in the corner and still be "not null".
     const byId = Object.fromEntries(laidOut("yes").nodes.map((node) => [node.id, node]));
-    expect(labelled.labelAnchor!.y).toBeGreaterThan(byId.A.y + byId.A.height);
-    expect(labelled.labelAnchor!.y).toBeLessThan(byId.B.y);
+    expect(labelled.label!.anchor.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(labelled.label!.anchor.y).toBeLessThan(byId.B.y);
   });
 
   it("reserves one line height per row for a label broken with <br>", () => {
@@ -871,8 +871,8 @@ describe("the room an edge label is given", () => {
     const [twoRows] = laidOut("yes<br/>no").edges;
     const [oneRow] = laidOut("yes").edges;
 
-    expect(oneRow.labelBox?.height).toBe(24);
-    expect(twoRows.labelBox?.height).toBe(48);
+    expect(oneRow.label?.box.height).toBe(24);
+    expect(twoRows.label?.box.height).toBe(48);
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
   });
 });

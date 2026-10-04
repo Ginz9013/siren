@@ -2,6 +2,7 @@ import type {
   Label,
   LabelBox,
   LayoutOptions,
+  PlacedLabel,
   PositionedBlock,
   PositionedBlockDivider,
   PositionedBox,
@@ -11,7 +12,6 @@ import type {
   PositionedSequenceElement,
   PositionedActivation,
   PositionedNote,
-  Point,
   ResolvedInteraction,
   ResolvedSequenceBlock,
   ResolvedSequenceBox,
@@ -407,27 +407,22 @@ function layoutBlock(
 
   // A condition's rows stack downward from where a one-row condition sits,
   // so each row it adds makes its header or divider band that much taller.
-  const measure = (label: Label | null): LabelBox | null =>
-    label === null ? null : layoutLabel(label, ctx.measureText);
-  const condition =
-    block.kind === "rect"
-      ? (block.branches[0]?.label ?? null)
-      : bracketed(block.branches[0]?.label ?? null);
-  const header = block.kind === "rect" ? null : measure(condition);
-
   const top = startY + BLOCK_MARGIN_TOP;
-  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header, 0);
+  const header =
+    block.kind === "rect"
+      ? null
+      : placeCondition(bracketed(block.branches[0]?.label ?? null), ctx, left + BLOCK_KEYWORD_WIDTH, top);
+  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header?.box ?? null, 0);
 
   const dividers: PositionedBlockDivider[] = [];
   const children: PositionedSequenceElement[] = [];
 
   block.branches.forEach((branch, index) => {
     if (index > 0) {
-      const label = bracketed(branch.label);
-      const labelBox = measure(label);
       y += BLOCK_DIVIDER_TOP_GAP;
-      dividers.push({ label, labelBox, labelAnchor: conditionAnchor(labelBox, left, y), y });
-      y += BLOCK_DIVIDER_HEIGHT + heightBesides(labelBox, 0);
+      const label = placeCondition(bracketed(branch.label), ctx, left, y);
+      dividers.push({ label, y });
+      y += BLOCK_DIVIDER_HEIGHT + heightBesides(label?.box ?? null, 0);
     }
 
     const { elements, endY } = layoutStatements(branch.statements, ctx, y, depth + 1);
@@ -441,9 +436,8 @@ function layoutBlock(
     element: {
       id: block.id,
       kind: block.kind,
-      label: condition,
-      labelBox: header,
-      labelAnchor: conditionAnchor(header, left + BLOCK_KEYWORD_WIDTH, top),
+      label: header,
+      color: block.kind === "rect" ? (block.branches[0]?.label?.text ?? null) : null,
       x: left,
       y: top,
       width: right - left,
@@ -509,20 +503,31 @@ function bracketed(label: Label | null): Label | null {
 }
 
 /**
- * Where a block's or divider's condition is drawn: the centre of its `box`,
- * whose left edge is `BLOCK_LABEL_INSET_X` past `left` and whose first row
- * is centred `BLOCK_LABEL_FIRST_ROW_Y` below `lineY` — the frame's top edge
- * or the divider's line — so a condition of several rows begins where a
- * one-row condition does and grows downward into the band its rows added.
- * `null` for no condition.
+ * A block's or divider's condition, measured and placed: anchored at the
+ * centre of its box, whose left edge is `BLOCK_LABEL_INSET_X` past `left`
+ * and whose first row is centred `BLOCK_LABEL_FIRST_ROW_Y` below `lineY` —
+ * the frame's top edge or the divider's line — so a condition of several
+ * rows begins where a one-row condition does and grows downward into the
+ * band its rows added. `null` for no condition.
  */
-function conditionAnchor(box: LabelBox | null, left: number, lineY: number): Point | null {
-  return box === null
-    ? null
-    : {
-        x: left + BLOCK_LABEL_INSET_X + box.width / 2,
-        y: lineY + BLOCK_LABEL_FIRST_ROW_Y - box.rows[0]!.y + box.height / 2,
-      };
+function placeCondition(
+  label: Label | null,
+  ctx: SequenceLayoutContext,
+  left: number,
+  lineY: number,
+): PlacedLabel | null {
+  if (label === null) {
+    return null;
+  }
+  const box = layoutLabel(label, ctx.measureText);
+  return {
+    label,
+    box,
+    anchor: {
+      x: left + BLOCK_LABEL_INSET_X + box.width / 2,
+      y: lineY + BLOCK_LABEL_FIRST_ROW_Y - box.rows[0]!.y + box.height / 2,
+    },
+  };
 }
 
 /**
@@ -550,9 +555,11 @@ function layoutMessage(
     id: message.id,
     from: message.from,
     to: message.to,
-    label: message.label,
-    labelBox,
-    labelAnchor: { x: (fromX + toX) / 2, y: y - MESSAGE_LABEL_GAP - labelBox.height / 2 },
+    label: {
+      label: message.label,
+      box: labelBox,
+      anchor: { x: (fromX + toX) / 2, y: y - MESSAGE_LABEL_GAP - labelBox.height / 2 },
+    },
     arrow: message.arrow,
     autonumber: message.autonumber,
     y,
