@@ -7,6 +7,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -548,8 +549,7 @@ function buildTransition(
   // middle one, half the font's x-height (about 0.26em, some 4px at the
   // 14px default), so the text is now centred where layout made room.
   if (transition.label !== null) {
-    const { label, labelBox, anchor } = transition.label;
-    appendLabel(g, drawLabel(label, labelBox, anchor, "siren-transition-label"));
+    appendLabel(g, drawPlaced(transition.label, "siren-transition-label"));
   }
 
   return g;

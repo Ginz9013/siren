@@ -527,13 +527,13 @@ function placeCondition(
   if (label === null) {
     return null;
   }
-  const box = layoutLabel(label, ctx.measureText);
+  const labelBox = layoutLabel(label, ctx.measureText);
   return {
     label,
-    labelBox: box,
+    labelBox,
     anchor: {
-      x: left + BLOCK_LABEL_INSET_X + box.width / 2,
-      y: lineY + BLOCK_LABEL_FIRST_ROW_Y - box.rows[0]!.y + box.height / 2,
+      x: left + BLOCK_LABEL_INSET_X + labelBox.width / 2,
+      y: lineY + BLOCK_LABEL_FIRST_ROW_Y - labelBox.rows[0]!.y + labelBox.height / 2,
     },
   };
 }

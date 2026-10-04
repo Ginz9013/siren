@@ -8,6 +8,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -214,7 +215,7 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   // (ADR-0015).
   appendLabel(
     g,
-    drawLabel(subgraph.label.label, subgraph.label.labelBox, subgraph.label.anchor, "siren-er-subgraph-label"),
+    drawPlaced(subgraph.label, "siren-er-subgraph-label"),
   );
 
   return g;
@@ -256,8 +257,7 @@ function buildRelationship(
     // Drawn by `drawLabel` at the anchor the layout reserved room for: one
     // plain row is the `<text>`'s own `textContent`, anything else a row
     // tspan per row (ADR-0015).
-    const { label, labelBox, anchor } = relationship.label;
-    appendLabel(g, drawLabel(label, labelBox, anchor, "siren-er-relationship-label"));
+    appendLabel(g, drawPlaced(relationship.label, "siren-er-relationship-label"));
   }
 
   return g;
@@ -436,7 +436,7 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
           // The comment is a label (ADR-0015), drawn by `drawLabel` at the
           // anchor layout placed so its widest row starts where the column's
           // cells do. One plain row is the `<text>`'s own `textContent`.
-          const drawn = drawLabel(cell.label, cell.labelBox, cell.anchor, className);
+          const drawn = drawPlaced(cell, className);
           applyAuthorStyle(drawn.text, entity.style.text);
           appendLabel(g, drawn);
           continue;
