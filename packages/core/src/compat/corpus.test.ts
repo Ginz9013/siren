@@ -1374,21 +1374,8 @@ const SILENTLY_WRONG = 2;
  * `supported`, and each of the four rejected rows still holds a tag that is
  * refused, so the net is still 14. `silently-wrong` does not move: these
  * refuse pictures Mermaid draws as written, not wrong ones.
- *
- * **14 → 15: a cluster title Mermaid refuses, written down for the first
- * time.** Case (2) above. `er-subgraph-title-unquoted-tag` is
- * `subgraph s1[Order<br/>pipeline]` — the unquoted twin of
- * `er-subgraph-label-br` — which mermaid 11.17.2 refuses ("got '<'") and
- * Siren drew, in two rows, once cluster titles became labels. Never
- * measured until now because the ticket that made titles labels measured
- * the quoted spelling it was implementing, and the header pattern's
- * `[^\]]+` had never been asked which characters Mermaid's word tokens
- * hold. It is refused at the title now. Nothing broke: no `supported` row
- * wrote an unquoted title outside the name alphabet. `silently-wrong` does
- * not move — the wrong picture had no row, so this lands as `rejected`
- * directly rather than leaving `silently-wrong` for it.
  */
-const REJECTED = 15;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

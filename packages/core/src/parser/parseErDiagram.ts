@@ -41,6 +41,12 @@ const ER_HEADERS = listAcceptedHeaders(["er"]);
 const RELATIONSHIP_BODY_ONLY_RE = /^[-.]{2,}$/;
 
 /**
+ * One character of `NAME_SOURCE`'s alphabet, on its own so that
+ * `SUBGRAPH_TITLE_RE` can build from the same alphabet rather than copy it.
+ */
+const NAME_CHAR_SOURCE = "[\\w*.-]|[^\\x00-\\x7F]";
+
+/**
  * A **bare** entity name — one, and the alphabet every pattern below reads
  * one in. A source fragment rather than a `RegExp`, because several patterns
  * embed it and two spellings of one alphabet would be two places to drift.
@@ -59,7 +65,7 @@ const RELATIONSHIP_BODY_ONLY_RE = /^[-.]{2,}$/;
  * guard: adding one would refuse three documents Mermaid draws — and why
  * `readEntityHead` needs `RELATIONSHIP_BODY_ONLY_RE` beside it.
  */
-const NAME_SOURCE = "(?:[\\w*.-]|[^\\x00-\\x7F])+";
+const NAME_SOURCE = `(?:${NAME_CHAR_SOURCE})+`;
 
 /**
  * A **quoted** entity name — the second spelling of a name, and the one that
@@ -638,19 +644,24 @@ const SUBGRAPH_HEAD_RE = new RegExp(
  * rather than falling through to the table at the bottom and being told
  * its whole line is unrecognized. Measured one probe per character (mermaid
  * 11.17.2): `subgraph s1[My<br/>Title]` is a parse error ("got '<'"), and so
- * is every other ASCII punctuation mark tried bare in a title — `>`, an
- * unbalanced `"`, `[`, `{`, `}`, `:`, `#`, `;`, `|`, `,`, `(`, `&`, `%`,
- * `/`, `=`, `'`, `!`, `\`, `` ` ``, `@`, `+`, `?`, `$`, `^`, `~` — while
- * `a-b`, `a.b`, `a*b`, `a_b`, `é`, `1abc`, `My Title` and a quoted word
- * beside a bare one (`"a" b`, `a"b"`, `"a""b"`) all draw. Only the quoted
- * spelling may carry a tag, which is why `readSubgraphTitle` reads a label
- * at all: `s1["My<br/>Title"]` is one Mermaid draws.
+ * is every other ASCII punctuation mark tried bare in a title, while the
+ * name alphabet, several words and a quoted word beside a bare one all
+ * draw — the characters probed each way are listed once, in
+ * `parseErDiagram.test.ts` ("reads an unquoted title in the name alphabet
+ * only"). Only the quoted spelling may carry a tag, which is why
+ * `readSubgraphTitle` reads a label at all: `s1["My<br/>Title"]` is one
+ * Mermaid draws.
  *
- * Spelled one character per alternative rather than as `NAME_SOURCE`
- * repeated, so a long title that fails at its last character fails in
- * linear time instead of trying every way to split its words.
+ * Built from `NAME_CHAR_SOURCE`, one character per alternative, rather than
+ * from `NAME_SOURCE` repeated, so a long title that fails at its last
+ * character fails in linear time instead of trying every way to split its
+ * words. It stays linear because `"` is not in that character class: a
+ * quoted word and a bare character can never start at the same place.
  */
-const SUBGRAPH_TITLE_RE = /^(?:"[^"\r\n]+"|[\w*.\s-]|[^\x00-\x7F])+$/u;
+const SUBGRAPH_TITLE_RE = new RegExp(
+  `^(?:${QUOTED_NAME_SOURCE}|${NAME_CHAR_SOURCE}|\\s)+$`,
+  "u",
+);
 
 /**
  * The title a header's brackets drew, read as a label: quotes off if it
