@@ -1050,7 +1050,7 @@ describe("readLabel's lists", () => {
   it("numbers the items of each <ol> from 1, and bullets those of a list inside one", () => {
     expect(rowTexts("<ol><li>a<li>b</ol><ol><li>c</ol>")).toEqual(["1. a", "2. b", "1. c"]);
     expect(rowTexts("<ol><li>a<ol><li>b<li>c</ol><li>d</ol>")).toEqual(["1. a", "1. b", "2. c", "2. d"]);
-    expect(rowTexts("<ol><li>a<ul><li>b</ul></ol>")).toEqual(["1. a", "\u2022 b"]);
+    expect(rowTexts("<ol><li>a<ul><li>b</ul></ol>")).toEqual(["1. a", "\u25e6 b"]);
   });
 
   // `<ul><li><p>a</p></li><li></li></ul>` reaches the browser as written
@@ -1064,6 +1064,42 @@ describe("readLabel's lists", () => {
 
   it("draws a marker on its item's first line, and an empty item's on its own", () => {
     expect(rowTexts("<ul><li><p>a</p></li><li></li></ul>")).toEqual(["\u2022 a", "\u2022"]);
+  });
+
+  // DOMPurify keeps `start` (measured: `<ol start="3">`, `start="0"`,
+  // `start="-2"` and `start="x"` all reach the browser), and the browser
+  // reads it by the HTML standard's rules for parsing integers: leading
+  // spaces, a sign, then digits, anything after them ignored; a value with
+  // no digits is no start at all, and the list counts from 1.
+  it("counts an <ol>'s items from its start", () => {
+    expect(rowTexts('<ol start="3"><li>a<li>b</ol>')).toEqual(["3. a", "4. b"]);
+    expect(rowTexts('<ol start="0"><li>a<li>b</ol>')).toEqual(["0. a", "1. b"]);
+    expect(rowTexts('<ol start="-2"><li>a</ol>')).toEqual(["-2. a"]);
+    expect(rowTexts("<ol start=+4x><li>a</ol>")).toEqual(["4. a"]);
+    expect(rowTexts('<ol start="x"><li>a</ol>')).toEqual(["1. a"]);
+  });
+
+  // DOMPurify keeps `value` too (measured: `<li value="7">`, `value="q"`,
+  // `value="2.9"`), read by the same rules; the items after one count on
+  // from it. In a `ul` it numbers nothing the browser draws.
+  it("numbers an <li> from its value, and the items after it from there", () => {
+    expect(rowTexts('<ol start="3"><li>a<li value="7">b<li>c</ol>')).toEqual(["3. a", "7. b", "8. c"]);
+    expect(rowTexts('<ol><li value="q">a<li value="2.9">b<li>c</ol>')).toEqual(["1. a", "2. b", "3. c"]);
+    expect(rowTexts('<ul><li value="5">a</ul>')).toEqual(["• a"]);
+  });
+
+  // The browser's default stylesheet: a `ul` inside a `ul` is `circle`, one
+  // inside two is `square`, and deeper ones stay `square`; `menu` and `dir`
+  // are drawn as `ul` is.
+  it("bullets a nested list's items by its depth: disc, circle, then square", () => {
+    expect(rowTexts("<ul><li>a<ul><li>b<ul><li>c<ul><li>d</ul></ul></ul><li>e</ul>")).toEqual([
+      "• a",
+      "◦ b",
+      "▪ c",
+      "▪ d",
+      "• e",
+    ]);
+    expect(rowTexts("<menu><li>a<dir><li>b</dir></menu>")).toEqual(["• a", "◦ b"]);
   });
 });
 

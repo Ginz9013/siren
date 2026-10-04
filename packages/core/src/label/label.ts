@@ -186,7 +186,7 @@ export function relativeScale(run: LabelRun): number | null {
  * The base size an author's absolute px size, and an `em` spacing, is
  * measured against: Siren's default `--siren-font-size`, which
  * `theme/default.test.ts` holds this to. A consumer who changes that token
- * gets boxes sized for 14px around such a run (the board's accepted risk).
+ * gets boxes sized for 14px around such a run (the spec's accepted risk).
  */
 export const BASE_FONT_SIZE_PX = 14;
 
