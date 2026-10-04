@@ -359,7 +359,9 @@ its characters there. The text-styling tags are read too — `b` `strong`, `i` `
 a yellow rect behind the run, through the theme's `--siren-label-mark-text` and
 `--siren-label-mark-fill`) — nested and misnested as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
 its `**`/`*` and `__`/`_` stack with tags the author wrote, paired by CommonMark's emphasis rules as
-Mermaid's Markdown reader pairs them (`x**(a)**y` and `a_b_c` are drawn as written). The tags whose attributes say what they draw are read
+Mermaid's Markdown reader pairs them (`x**(a)**y` and `a_b_c` are drawn as written); a backslash
+before punctuation escapes it (`\*a\*` is drawn `*a*`), a line break after two spaces or a backslash
+is drawn as a space, and a blank line is a paragraph break. The tags whose attributes say what they draw are read
 too: `font` (its `color`, its `size` 1–7 as the scale Mermaid's label measured, and its `face`);
 `span style`, drawing ten properties — `color`, `background-color` (a rect behind the run, as
 `mark`'s), `font-size`, `font-weight`, `font-style`, `font-family`, `text-decoration`,
@@ -408,7 +410,7 @@ drawn as the `<text>`'s own `textContent`, exactly as before labels had rows; an
 structure Mermaid's own SVG labels use. What a run paints *behind* its text comes back separately,
 and the renderer puts it before the `<text>`, since document order is paint order.
 _Avoid_: text, caption, string (for the read label — say "flattened text" for the string); line (for
-a drawn row — a Markdown string's *line* break is one way to start a row, `<br>` is another)
+a drawn row — a Markdown string's plain *line* break is one way to start a row, `<br>` is another)
 
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
