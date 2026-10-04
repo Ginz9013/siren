@@ -1658,20 +1658,25 @@ timeline:
     // the refusal being total, not which construct triggers it, and one
     // still-unreadable construct is enough to show that.
     //
-    // This used to observe "nothing was taken" through the redeclaration
-    // warning `A[Other]` would have raised. That warning is gone — a later
-    // label replaces an earlier one silently, as in Mermaid 11.17.2 — so the
-    // assertion below now pins only that the refusal is the one diagnostic.
+    // "Nothing was taken" is observed through a warning that reading the
+    // first endpoint would raise: on its own, the line
+    // `A[<span style="foo:1">Other</span>] --> B` warns that `<span style>`
+    // ignores "foo". (This used to lean on the redeclaration warning
+    // `A[Other]` raised, until a later label came to replace an earlier one
+    // silently, as in Mermaid 11.17.2.) With the unreadable arrow at the end
+    // of the same line, the refusal must be the only diagnostic — so `A`'s
+    // label was never read.
     const unreadable = parseSiren(`flowchart TD
   A[Start]
-  A[Other] --> B o--x C
+  A[<span style="foo:1">Other</span>] --> B o--x C
 `);
 
     expect(unreadable.document).toBeNull();
     expect(unreadable.diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Siren does not draw the arrow "o--x" yet: "A[Other] --> B o--x C"',
+        message:
+          'Siren does not draw the arrow "o--x" yet: "A[<span style=\"foo:1\">Other</span>] --> B o--x C"',
         line: 3,
         column: 3,
       },
