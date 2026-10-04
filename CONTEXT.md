@@ -372,8 +372,13 @@ could fetch, run script or smuggle a second declaration is dropped silently, und
 `style` statements. The 20 tags with no rendering of their own (`abbr`, `time`, `wbr` and the rest)
 draw only their text; `html`, `head` and `body` are dropped and their text kept; and a tag outside
 the vocabulary is dropped and its text kept, as DOMPurify drops it — except `script`, `style`,
-`iframe`, `noscript`, `noembed`, `xmp` and `noframes`, removed together with their content, and
-`plaintext`, removed with everything after it. The 34 **block** tags (`p`, `div`, `h1`–`h6`, `pre`,
+`iframe`, `noscript`, `noembed`, `xmp`, `noframes` and `title` (which DOMPurify's SVG profile keeps
+and the browser hides), removed together with their content, and `plaintext`, removed with
+everything after it. The **refused** tags — a table's 10, ruby's 3, the 22 embedded, form, media
+and interactive ones, and `svg` and `math`, which DOMPurify's SVG and MathML profiles keep — are
+an error at the label's first one, saying what kind of HTML SVG text does not draw; `<img>`'s
+names Mermaid's image shape, `A@{ img: "…" }`. One error per label, because a table writes a
+refused tag per cell and the document is refused at the first. The 34 **block** tags (`p`, `div`, `h1`–`h6`, `pre`,
 `ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each begins and ends a row,
 block edges that meet end it once (no empty row between blocks or at either end of the label), a block
 keeps its font (a heading bold and sized, `pre` monospace with its spaces kept, `address` italic), and

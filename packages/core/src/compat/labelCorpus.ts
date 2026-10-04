@@ -831,4 +831,54 @@ export const LABEL_CASES: readonly CompatCase[] = [
       expectRows("label rows", labelRows(nodeText(result, "A")), ["\u2022 a", "\u25e6 b", "\u25aa c"]);
     },
   },
+  // ADR-0015's refused layers, one row each for a table, ruby, `<img>` and a
+  // form control. Each is HTML Mermaid draws and SVG text cannot, so Siren
+  // reports an error at the tag rather than drawing its text without it.
+  {
+    id: "label-table-rejected",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<table><tr><td>a</td><td>b</td></tr></table>"]`,
+    status: "rejected",
+    meaning:
+      "DOMPurify keeps a table, and Mermaid draws its cells side by side " +
+      "(measured against 11.17.2, `--html`: `<table><tbody><tr><td>a</td>…`). " +
+      "SVG text has no table layout, so the ten table tags are refused (ADR-0015).",
+  },
+  {
+    id: "label-ruby-rejected",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<ruby>漢<rt>kan</rt></ruby>"]`,
+    status: "rejected",
+    meaning:
+      "DOMPurify keeps `ruby`, `rt` and `rp` (measured against 11.17.2, " +
+      "`--html`), and Mermaid draws the annotation small above its base text. " +
+      "SVG text cannot place one run over another, so ruby is refused (ADR-0015).",
+  },
+  {
+    id: "label-img-rejected",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a <img src='https://example.com/x.png'> b"]`,
+    status: "rejected",
+    meaning:
+      "DOMPurify keeps `<img>` with its `src` (measured against 11.17.2), and " +
+      "Mermaid draws the image inside the label. Refused (ADR-0015), with a " +
+      'diagnostic naming Mermaid\'s own image shape, `A@{ img: "…" }`, which ' +
+      "draws an image as a node rather than inside its text.",
+  },
+  {
+    id: "label-form-control-rejected",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["name <input> <button>go</button>"]`,
+    status: "rejected",
+    meaning:
+      "DOMPurify keeps form controls (measured against 11.17.2, `--html`: " +
+      "`<input>` and `<button>go</button>` reach the browser as written), and " +
+      "Mermaid draws a text box and a button. SVG text draws neither, so the " +
+      "form controls are refused with the rest of the embedded, form, media " +
+      "and interactive layer (ADR-0015).",
+  },
 ];

@@ -1150,3 +1150,131 @@ describe("readLabel's block tags in the sequence dialect", () => {
     expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(["<div>a</div><li>b"]);
   });
 });
+
+describe("readLabel's refused tags", () => {
+  /** The problems reading `source` in the `html` dialect reports, as `[severity, offset]`. */
+  function refusals(source: string): [string, number][] {
+    return readLabel(source, { dialect: "html" }).problems.map((problem) => [problem.severity, problem.offset]);
+  }
+
+  // ADR-0015's table layer: SVG text has no table layout, so each of the
+  // ten is an error at the tag, and the document is not drawn.
+  for (const name of ["table", "tr", "td", "th", "thead", "tbody", "tfoot", "caption", "col", "colgroup"]) {
+    it(`refuses <${name}> with an error at the tag`, () => {
+      expect(refusals(`ab <${name}>c`)).toEqual([["error", 3]]);
+    });
+  }
+
+  for (const name of ["ruby", "rt", "rp"]) {
+    it(`refuses <${name}> with an error at the tag`, () => {
+      expect(refusals(`ab <${name}>c`)).toEqual([["error", 3]]);
+    });
+  }
+
+  it("says ruby is HTML Siren does not draw as SVG text", () => {
+    expect(readLabel("<rt>a", { dialect: "html" }).problems[0]!.message).toBe(
+      "<rt> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw ruby annotations.",
+    );
+  });
+
+  // ADR-0015's embedded, form, media and interactive layer: 22 tags.
+  for (const name of [
+    "img", "input", "button", "select", "textarea", "form", "fieldset", "legend", "option", "optgroup", "datalist",
+    "video", "audio", "canvas", "meter", "progress", "area", "source", "track", "template", "details", "dialog",
+  ]) {
+    it(`refuses <${name}> with an error at the tag`, () => {
+      expect(refusals(`ab <${name}>c`)).toEqual([["error", 3]]);
+    });
+  }
+
+  it("names each kind of HTML it refuses in the error", () => {
+    const messageOf = (source: string): string => readLabel(source, { dialect: "html" }).problems[0]!.message;
+    expect(messageOf("<button>a")).toBe(
+      "<button> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw form controls.",
+    );
+    expect(messageOf("<video>")).toBe(
+      "<video> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw media.",
+    );
+    expect(messageOf("<canvas>")).toBe(
+      "<canvas> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw embedded content.",
+    );
+    expect(messageOf("<details>a")).toBe(
+      "<details> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw interactive content.",
+    );
+  });
+
+  // ADR-0015: `<img>`'s diagnostic names Mermaid's own image shape.
+  it("points <img> at Mermaid's image shape", () => {
+    expect(readLabel("<img src='x.png'>", { dialect: "html" }).problems[0]!.message).toBe(
+      "<img> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw images. " +
+        'Draw an image with Mermaid\'s image shape, A@{ img: "…" }, instead.',
+    );
+  });
+
+  // Outside DOMPurify's HTML allow-list, but its SVG and MathML profiles keep
+  // them (measured: `a<svg>s</svg>b` and `a<math>m</math>c` reach the
+  // browser as written), so they are not unknown tags whose text is kept.
+  for (const name of ["svg", "math"]) {
+    it(`refuses <${name}> as embedded content, with an error at the tag`, () => {
+      const { problems } = readLabel(`ab <${name}>c</${name}>`, { dialect: "html" });
+      expect(problems).toEqual([
+        {
+          severity: "error",
+          message: `<${name}> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw embedded content.`,
+          offset: 3,
+        },
+      ]);
+    });
+  }
+
+  // One error per label, at its first refused tag: the error already costs
+  // the document and the label has to be rewritten, and a table writes a
+  // refused tag for every row and cell, which would bury every other
+  // diagnostic.
+  it("reports one error per label, at the first refused start tag", () => {
+    expect(refusals("a<table><tr><td>b</td><td>c</td></tr></table><img>")).toEqual([["error", 1]]);
+  });
+
+  // Content DOMPurify removes never reaches the browser: `a<noscript><table>t</table></noscript>b`
+  // is `<p>ab</p>` (measured), which Siren draws.
+  it("does not refuse a tag inside content that is removed", () => {
+    expect(refusals("a<noscript><table>t</table></noscript>b<script><img></script>")).toEqual([]);
+    expect(rowTexts("a<noscript><table>t</table></noscript>b")).toEqual(["ab"]);
+  });
+
+  // Mermaid draws sequence text in SVG mode, where every one of these is
+  // its characters: drawn as written, and nothing to refuse.
+  it("leaves refused tags as characters in the sequence dialect, with no error", () => {
+    const { label, problems } = readLabel("a<table>b<img>c<svg>", { dialect: "sequence" });
+    expect(label.text).toBe("a<table>b<img>c<svg>");
+    expect(problems).toEqual([]);
+  });
+
+  it("places the error in a Markdown string at the tag as the author wrote it", () => {
+    const source = "**a** *b*\nc <ruby>x</ruby>";
+
+    const { problems } = readLabel(source, { dialect: "html", markdown: true });
+
+    expect(problems.map((problem) => [problem.severity, problem.offset])).toEqual([
+      ["error", source.indexOf("<ruby")],
+    ]);
+  });
+
+  it("says a table is HTML Siren does not draw as SVG text", () => {
+    expect(readLabel("<table>a", { dialect: "html" }).problems[0]!.message).toBe(
+      "<table> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw tables.",
+    );
+  });
+});
+
+describe("readLabel's <title>", () => {
+  // DOMPurify's SVG profile keeps `<title>`, the parser reads its content as
+  // text up to `</title>` (measured: `c<title>ti<b>x</b></title>d` reaches the
+  // browser as `c<title>ti&lt;b&gt;x&lt;/b&gt;</title>d`, and `a<title>tb` as
+  // `a<title>tb</title>`), and the browser hides it.
+  it("removes <title> together with its content, tags in it included", () => {
+    expect(rowTexts("c<title>ti<b>x</b></title>d")).toEqual(["cd"]);
+    expect(rowTexts("a<title>tb")).toEqual(["a"]);
+    expect(readLabel("c<title>t</title>d", { dialect: "html" }).problems).toEqual([]);
+  });
+});
