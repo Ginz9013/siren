@@ -3158,7 +3158,7 @@ line2\`"]`,
       "`node scripts/mermaid-probe.mjs --html`): `class A[\"x\"]` then " +
       "`class A[\"y\"]` records `label=\"y\"` and draws `<p>y</p>`. Siren " +
       "used to keep the first label and warn. A label is the exception " +
-      "among a class's single-valued attributes: a second generic or " +
+      "among the single-valued properties of a class: a second generic or " +
       "annotation is still dropped with a warning, because Mermaid keeps " +
       "the first of those (`class A~T~` then `class A~U~` records " +
       "`type=\"T\"`; two annotations draw only the first).",
