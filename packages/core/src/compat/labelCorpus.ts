@@ -63,18 +63,24 @@ export function labelRows(text: Element | null): string[] {
  *
  * A label drawn as bare `textContent` reads as one run with no attributes,
  * which is exactly what a styling tag that stopped being read would draw.
+ * A run drawn inside an `<a>` is read with `[href=…]` before the rest, so a
+ * link that stopped being drawn shows in the failure.
  */
 function labelRuns(text: Element | null, ...attributes: string[]): string[] {
   if (text === null) {
     return [];
   }
-  const runs = Array.from(text.querySelectorAll(":scope > tspan.siren-label-row > tspan"));
+  // A linked run sits one level down, inside the `<a>` around it.
+  const runs = Array.from(
+    text.querySelectorAll(":scope > tspan.siren-label-row > tspan, :scope > tspan.siren-label-row > a > tspan"),
+  );
   if (runs.length === 0) {
     return [text.textContent ?? ""];
   }
   return runs.map(
     (run) =>
       (run.textContent ?? "") +
+      (run.parentElement?.tagName === "a" ? `[href=${run.parentElement.getAttribute("href")}]` : "") +
       attributes
         .filter((name) => run.hasAttribute(name))
         .map((name) => `[${name}=${run.getAttribute(name)}]`)
@@ -406,6 +412,155 @@ export const LABEL_CASES: readonly CompatCase[] = [
             `is not behind the marked run, right of the centre at ${centre}`,
         );
       }
+    },
+  },
+{
+    id: "label-font",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <font color='red' face='serif' size='5'>f</font>"]`,
+    status: "supported",
+    meaning:
+      "`<font>` keeps `color`, `face` and `size` through Mermaid's sanitizer " +
+      "(measured against 11.17.2 with `mermaid-probe.mjs --html`), and the " +
+      "browser draws its text in that color and family, at the size the board " +
+      "measured inside a Mermaid label: 1–7 are 12 / 13 / 16 / 18 / 20 / 32 / " +
+      "48px where the text around them is 16px, so `size=\"5\"` is × 1.25. " +
+      "Siren draws the color as the run's fill, the face as its family, and the " +
+      "size as that scale of its own.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "style", "font-family", "font-size"), [
+        "x ",
+        "f[style=fill: red][font-family=serif][font-size=1.25em]",
+      ]);
+    },
+  },
+  {
+    id: "label-span-style",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <span style='color:red;background-color:lime;font-size:28px;font-weight:bold;font-style:italic;font-family:serif;text-decoration:line-through;letter-spacing:2px;word-spacing:3px;opacity:0.5'>s</span>"]`,
+    status: "supported",
+    meaning:
+      "`<span style>` keeps its declarations through Mermaid's sanitizer " +
+      "(measured against 11.17.2), and the browser draws all of them. Siren " +
+      "draws ten properties — these — and warns about any other, naming it " +
+      "(a warning has no corpus status, so that half is asserted in " +
+      "`label/renderLabel.test.ts`). The background is a rect behind the run, " +
+      "as `<mark>`'s is; an absolute size is drawn as written and measured " +
+      "against a 14px base; opacity fades the run's fill.",
+    assert: (result) => {
+      const text = nodeText(result, "A");
+      expectRows(
+        "label runs",
+        labelRuns(
+          text,
+          "style",
+          "font-size",
+          "font-weight",
+          "font-style",
+          "font-family",
+          "text-decoration",
+          "letter-spacing",
+          "word-spacing",
+          "fill-opacity",
+        ),
+        [
+          "x ",
+          "s[style=fill: red][font-size=28px][font-weight=bold][font-style=italic][font-family=serif]" +
+            "[text-decoration=line-through][letter-spacing=2px][word-spacing=3px][fill-opacity=0.5]",
+        ],
+      );
+      const backgrounds = Array.from(text?.parentElement?.querySelectorAll("rect.siren-label-background") ?? []);
+      expectRows(
+        "background rects",
+        backgrounds.map((rect) => `${rect.getAttribute("style")} ${rect.getAttribute("opacity")}`),
+        ["fill: lime 0.5"],
+      );
+    },
+  },
+  {
+    id: "label-link",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <a href='https://example.com' onclick='alert(1)'>l</a>"]`,
+    status: "supported",
+    meaning:
+      "`<a href>` with a scheme Mermaid's sanitizer keeps is a link the reader " +
+      "can follow, drawn blue `#0000ee` and underlined (measured against " +
+      "11.17.2); the sanitizer drops `onclick`. Siren draws an SVG `<a href>` " +
+      "around the run, painted with `--siren-label-link`, and ignores every " +
+      "attribute but `href`.",
+    assert: (result) => {
+      const text = nodeText(result, "A");
+      expectRows("label runs", labelRuns(text, "class", "text-decoration"), [
+        "x ",
+        "l[href=https://example.com][class=siren-label-link][text-decoration=underline]",
+      ]);
+      if (text?.querySelector("[onclick]")) {
+        throw new Error("an onclick attribute reached the drawn label");
+      }
+    },
+  },
+  {
+    id: "label-link-stripped-href",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <a href='javascript:alert(1)'>j</a>"]`,
+    status: "supported",
+    meaning:
+      "A `javascript:` (or `data:`, or any scheme outside DOMPurify's list) " +
+      "href is stripped by Mermaid's sanitizer, leaving an `<a>` with no href " +
+      "(measured against 11.17.2), which the browser draws as plain text — " +
+      "black, not underlined. Siren draws plain text, with no `<a>` at all.",
+    assert: (result) => {
+      const text = nodeText(result, "A");
+      expectRows("label runs", labelRuns(text, "class", "text-decoration"), ["x j"]);
+      if (text?.querySelector("a") !== null) {
+        throw new Error("an <a> was drawn for a stripped href");
+      }
+    },
+  },
+  {
+    id: "label-link-second-a",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<a href='x'>1<b>2<a href='y'>3</a>4</b>5"]`,
+    status: "supported",
+    meaning:
+      "An `<a>` start tag closes an `<a>` still open, and the browser's parser " +
+      "reopens the formatting tags inside it: Mermaid's label holds " +
+      "`<a href=\"x\">1<b>2</b></a><b><a href=\"y\">3</a>4</b>5` (measured " +
+      "against 11.17.2). Siren reads it the same way: links do not nest.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "font-weight"), [
+        "1[href=x]",
+        "2[href=x][font-weight=bold]",
+        "3[href=y][font-weight=bold]",
+        "4[font-weight=bold]",
+        "5",
+      ]);
+    },
+  },
+  {
+    id: "label-link-in-clickable-node",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <a href='https://in.example'>l</a>"]
+      click A href "https://out.example"`,
+    status: "supported",
+    meaning:
+      "A label link in a node that has a `click` link of its own: Mermaid " +
+      "wraps the node in an `<a>` and keeps the label's `<a>` inside it " +
+      "(measured against 11.17.2), so the label's link works on its own text " +
+      "and the node's everywhere else. Siren keeps both.",
+    assert: (result) => {
+      const outer = result.svg?.querySelector('a[href="https://out.example"]') ?? null;
+      const node = outer?.querySelector('g.siren-node[data-siren-id="A"]') ?? null;
+      if (node === null) {
+        throw new Error("the node is not inside its click link's <a>");
+      }
+      expectRows("label runs", labelRuns(node.querySelector("text")), ["x ", "l[href=https://in.example]"]);
     },
   },
 ];

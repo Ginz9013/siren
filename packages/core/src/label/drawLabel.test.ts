@@ -221,3 +221,94 @@ describe("drawLabel", () => {
     ]);
   });
 });
+
+describe("drawLabel's attribute-tag runs", () => {
+  /** Every run tspan in `text`, as its text and the named attributes it carries. */
+  const runAttributes = (text: Element, ...names: string[]) =>
+    Array.from(text.querySelectorAll("tspan.siren-label-row tspan")).map((run) => [
+      run.textContent,
+      ...names.map((name) => run.getAttribute(name)),
+    ]);
+
+  // An author's color is the run's text paint. Written as an inline `style`
+  // rather than a `fill` attribute, because a presentation attribute loses
+  // to every class rule, and the run must win over the theme's paint for
+  // the `<text>` it sits in.
+  it("paints a run the author colored with an inline fill style", () => {
+    const { text } = drawn("x <font color='red'>y</font>");
+
+    expect(runAttributes(text, "style")).toEqual([
+      ["x ", null],
+      ["y", "fill: red"],
+    ]);
+  });
+  it("draws a run's family as written, and monospace as the monospace family", () => {
+    const { text } = drawn("<font face='Georgia, serif'>a</font><code>b</code>c");
+
+    expect(runAttributes(text, "font-family")).toEqual([
+      ["a", "Georgia, serif"],
+      ["b", "monospace"],
+      ["c", null],
+    ]);
+  });
+  // The board: an absolute size the author wrote is drawn as written.
+  it("draws an absolute font size as the author wrote it", () => {
+    const { text } = drawn("<span style='font-size: 28px'>a</span><span style='font-size:large'>b</span>");
+
+    expect(runAttributes(text, "font-size")).toEqual([
+      ["a", "28px"],
+      ["b", "large"],
+    ]);
+  });
+  it("draws a run's letter and word spacing as written", () => {
+    const { text } = drawn("a <span style='letter-spacing: 2px; word-spacing: 0.5em'>b c</span>");
+
+    expect(runAttributes(text, "letter-spacing", "word-spacing")).toEqual([
+      ["a ", null, null],
+      ["b c", "2px", "0.5em"],
+    ]);
+  });
+  // `opacity` does not apply to a `<tspan>` in SVG, so a run's opacity is
+  // its text's `fill-opacity` (decorations are painted with the fill too);
+  // a CSS opacity fades the box's background as well, so its rect fades.
+  it("fades a run's text with fill-opacity, and its background rect with it", () => {
+    const { text, backgrounds } = drawn("a <span style='opacity:0.5'><mark>b</mark></span>");
+
+    expect(runAttributes(text, "fill-opacity", "opacity")).toEqual([
+      ["a ", null, null],
+      ["b", "0.5", null],
+    ]);
+    expect(backgrounds.map((rect) => rect.getAttribute("opacity"))).toEqual(["0.5"]);
+  });
+  // The board: `background-color` reuses `<mark>`'s rect — the run's own
+  // line, where the box measured the run — painted with the author's color,
+  // inline so that no theme rule for a rect inside a node can repaint it.
+  it("puts a rect painted with the author's background color behind the run, where a mark's would be", () => {
+    const { backgrounds: background } = drawn("a <span style='background-color:#f00'>bb</span>");
+    const { backgrounds: mark } = drawn("a <mark>bb</mark>");
+
+    expect(background.map((rect) => [rect.getAttribute("class"), rect.getAttribute("style")])).toEqual([
+      ["siren-label-background", "fill: #f00"],
+    ]);
+    const place = (rect: SVGElement) => ["x", "y", "width", "height"].map((name) => rect.getAttribute(name));
+    expect(place(background[0]!)).toEqual(place(mark[0]!));
+  });
+  // The board: a link is an SVG `<a href>` around its run, inside the row,
+  // and the run is painted with the theme's link color through a class and
+  // underlined, as the browser draws an HTML link (measured: `#0000ee`).
+  it("draws a linked run inside an SVG <a href>, in the link class and underlined", () => {
+    const { text } = drawn("x <a href='https://e.x/p'>l</a>");
+
+    const row = text.querySelector("tspan.siren-label-row")!;
+    expect(Array.from(row.children).map((child) => child.tagName)).toEqual(["tspan", "a"]);
+    const anchor = row.querySelector("a")!;
+    expect(anchor.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(anchor.getAttribute("href")).toBe("https://e.x/p");
+    const run = anchor.querySelector(":scope > tspan")!;
+    expect([run.textContent, run.getAttribute("class"), run.getAttribute("text-decoration")]).toEqual([
+      "l",
+      "siren-label-link",
+      "underline",
+    ]);
+  });
+});

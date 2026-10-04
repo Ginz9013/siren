@@ -69,4 +69,20 @@ describe("layoutLabel", () => {
     expect(second!.y).toBeCloseTo(24 + 14.4);
     expect(box.height).toBeCloseTo(52.8);
   });
+  // The board: an absolute px size is measured as a scale of the default
+  // 14px base, so 28px is twice as wide and tall as the measurer's answer; a
+  // size no number of px describes (`large`) is measured at the base size.
+  it("measures an absolute px size against a 14px base, and any other absolute size at the base", () => {
+    const { label } = readLabel("<span style='font-size:28px'>ab</span><span style='font-size:large'>c</span>", {
+      dialect: "html",
+    });
+
+    const box = layoutLabel(label, paddedMeasurer);
+
+    expect(box.height).toBe(48);
+    expect(box.rows[0]!.runs).toEqual([
+      { x: 5, width: 32 },
+      { x: 37, width: 8 },
+    ]);
+  });
 });

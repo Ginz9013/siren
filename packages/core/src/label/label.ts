@@ -172,6 +172,28 @@ export function relativeScale(run: LabelRun): number | null {
 }
 
 /**
+ * The base size an author's absolute px size is measured against: Siren's
+ * default `--siren-font-size`. A consumer who changes that token gets boxes
+ * sized for 14px around such a run (the board's accepted risk).
+ */
+const BASE_FONT_SIZE_PX = 14;
+
+/**
+ * The factor `run` is *measured* at relative to one measured line: its
+ * scale, or, for an absolute size the author wrote in px, that size over
+ * the 14px base. Any other absolute size (`large`, `1.2rem`) has no number
+ * of px to read and is measured at the base size. `layoutLabel` sizes a run
+ * with this and `drawLabel` places its background with it, so the two agree.
+ */
+export function measuredScale(run: LabelRun): number {
+  if ("scale" in run.fontSize) {
+    return run.fontSize.scale;
+  }
+  const px = /^(\d*\.?\d+)px$/i.exec(run.fontSize.absolute);
+  return px === null ? 1 : Number(px[1]) / BASE_FONT_SIZE_PX;
+}
+
+/**
  * A label of one row holding one plain run — what a node written without a
  * label (`A`, `A:::name`) is labelled with: its own id, which has no tag in
  * it to read.

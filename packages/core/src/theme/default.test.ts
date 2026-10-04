@@ -1162,6 +1162,21 @@ A[x <mark>m</mark>]`);
     expect(root.getPropertyValue("--siren-label-mark-fill").trim()).toBe("#ff0");
     expect(root.getPropertyValue("--siren-label-mark-text").trim()).toBe("#000");
   });
+
+  // Mermaid's default HTML labels draw a link `#0000ee` and underlined
+  // (measured, the board's table) — the browser's default link color, which
+  // ADR-0015 turns into a token a consumer can repaint.
+  it("paints a linked run through the link token", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A["x <a href='https://e.x'>l</a>"]`);
+
+    const run = svg.querySelector("a tspan.siren-label-link");
+    if (run === null) {
+      throw new Error("no linked run drawn");
+    }
+    expect(getComputedStyle(run).fill).toBe("var(--siren-label-link)");
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--siren-label-link").trim()).toBe("#0000ee");
+  });
 });
 
 describe("default theme's design tokens", () => {

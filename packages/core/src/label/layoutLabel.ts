@@ -1,5 +1,5 @@
 import type { TextMeasurer } from "../contracts";
-import type { Label, LabelBox, LabelBoxRow, LabelRun } from "./label";
+import { measuredScale, type Label, type LabelBox, type LabelBoxRow } from "./label";
 
 /**
  * Measures a label: the box it needs, and where each row and run sits in it.
@@ -26,7 +26,8 @@ import type { Label, LabelBox, LabelBoxRow, LabelRun } from "./label";
  * (`render()`'s `UnmeasurableTextError`), not an empty one.
  *
  * **Heights.** A row is as tall as its tallest run, and a run is one
- * measured line height times its font-size scale; the label is its rows
+ * measured line height times its font-size scale (`measuredScale`: an
+ * author's absolute px size counts as a scale of the 14px base); the label is its rows
  * stacked with no gap. Both real measurers answer a height that depends on
  * the font and not on the text, so "one line" is never a guess about which
  * string is representative.
@@ -43,7 +44,7 @@ import type { Label, LabelBox, LabelBoxRow, LabelRun } from "./label";
  */
 export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
   const measured = label.rows.map((row) =>
-    row.map((run) => ({ size: measureText.measure(run.text), scale: scaleOf(run) })),
+    row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run) })),
   );
   const padding = measureText.measure("").width;
 
@@ -66,15 +67,4 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
     height: top,
     rows,
   };
-}
-
-/**
- * The factor a run's size is drawn at relative to Siren's own font size.
- *
- * An absolute size an author wrote is drawn as written, which no measurer
- * here can size yet — it measures at one font — so until a tag can set one
- * it is measured at the base size.
- */
-function scaleOf(run: LabelRun): number {
-  return "scale" in run.fontSize ? run.fontSize.scale : 1;
 }
