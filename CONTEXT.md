@@ -373,7 +373,13 @@ could fetch, run script or smuggle a second declaration is dropped silently, und
 draw only their text; `html`, `head` and `body` are dropped and their text kept; and a tag outside
 the vocabulary is dropped and its text kept, as DOMPurify drops it — except `script`, `style`,
 `iframe`, `noscript`, `noembed`, `xmp` and `noframes`, removed together with their content, and
-`plaintext`, removed with everything after it. **Entity codes** — Mermaid's `#name;` and `#NN;` —
+`plaintext`, removed with everything after it. The 34 **block** tags (`p`, `div`, `h1`–`h6`, `pre`,
+`ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each begins and ends a row,
+block edges that meet end it once (no empty row between blocks or at either end of the label), a block
+keeps its font (a heading bold and sized, `pre` monospace with its spaces kept, `address` italic), and
+a list item's row begins with its **marker** — `• `, or its number in an `ol`, each `ol` counting from
+1 — while margins, indents, `hr`'s rule and `marquee`'s motion are not drawn. They nest and close as the
+HTML parser closes them, inside the `<p>` Mermaid wraps every label in. **Entity codes** — Mermaid's `#name;` and `#NN;` —
 resolve in both dialects as the HTML character references `&name;` and `&#NN;` Mermaid turns them
 into: every name the HTML standard defines (`#copy;` is `©`), an unknown one drawn as the reference
 (`#foo;` draws `&foo;`); the `html` dialect also resolves references the author wrote as HTML
