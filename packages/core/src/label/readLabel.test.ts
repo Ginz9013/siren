@@ -35,11 +35,32 @@ describe("readLabel's row breaks", () => {
 
   // Measured (the T5 sequence wiring): Mermaid draws sequence text in SVG
   // mode only, where its `/<br\s*\/?>/gi` is the rule, so
-  // `A->>B: x<br class="x">y` is one row.
+  // `A->>B: x<br class="x">y` is one row — drawn `x<br class='x'>y`, its
+  // quotes rewritten as every tag-shaped stretch's are (below).
   it("leaves a <br> carrying attributes as characters in the sequence dialect", () => {
     const { label } = readLabel('x<br class="x">y<BR/>z', { dialect: "sequence" });
-    expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(['x<br class="x">y', "z"]);
+    expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(["x<br class='x'>y", "z"]);
   });
+
+  // Measured with the probe (mermaid 11.17.2): before any diagram reads its
+  // text, Mermaid's `cleanupText` rewrites each `="…"` inside a stretch
+  // shaped `<name…>` as `='…'` — `A->>B: a<b c="d">e` is stored and drawn
+  // `a<b c='d'>e` — while a `"` anywhere else, or after `= ` with a space,
+  // or in an end tag, is drawn as written.
+  for (const [source, text] of [
+    ['a<b c="d">e', "a<b c='d'>e"],
+    ['<b c="d" e="f">g "h"', "<b c='d' e='f'>g \"h\""],
+    ['a<1 x="y">z', "a<1 x='y'>z"],
+    ['say "hi"', 'say "hi"'],
+    ['a<b c = "d">e', 'a<b c = "d">e'],
+    ['a</b c="d">e', 'a</b c="d">e'],
+    ['<b c="d>e">f', '<b c="d>e">f'],
+    ['x="y" <b>', 'x="y" <b>'],
+  ] as const) {
+    it(`draws ${source} with Mermaid's quotes in the sequence dialect`, () => {
+      expect(readLabel(source, { dialect: "sequence" }).label.text).toBe(text);
+    });
+  }
 
   // Measured with the probe's `--paint` (mermaid 11.17.2): Mermaid splits
   // sequence text on `/<br\s*\/?>/gi` alone, so a `<` that would begin an

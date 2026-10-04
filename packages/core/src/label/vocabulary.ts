@@ -7,7 +7,7 @@
  * `readLabel`'s.
  */
 import { unsafeStyleValue } from "../unsafeStyleValue";
-import { entityCodesAsReferences, resolveCharacterReferences } from "./characterReferences";
+import { htmlText } from "./characterReferences";
 import { isCssColor } from "./cssColor";
 import { relativeScale, type LabelRun } from "./label";
 
@@ -76,8 +76,16 @@ function shifted(baseline: "sub" | "super"): RunStyle {
 /**
  * What one tag in the vocabulary does — every fact about it in one entry, so
  * that teaching `readLabel` a tag is adding one entry to `HTML_TAGS`.
+ *
+ * An inline tag (`InlineRule`) or a block (`BlockRule`), told apart by
+ * `kind`: what only a block can be — a list, a list item, a `pre` — is a
+ * field of `BlockRule` alone, and every yes-or-no fact is written out, so a
+ * reader tests a value rather than whether an optional flag is there.
  */
-export interface TagRule {
+export type TagRule = InlineRule | BlockRule;
+
+/** What every tag in the vocabulary says, inline or block. */
+interface CommonRule {
   /** What the tag sets on each run inside it; absent for a tag that sets nothing. */
   style?: RunStyle;
   /**
@@ -103,18 +111,19 @@ export interface TagRule {
    */
   marks?: { open: string; close: string };
   /**
-   * Whether its start tag first closes one of its name still open, as its
-   * end tag would — the HTML parser's rule for `a`, which cannot nest.
+   * What its start tag opens:
+   *
+   * - `"element"` — an element, which nests like any other.
+   * - `"unnested element"` — an element that first closes one of its name
+   *   still open, as its end tag would: the HTML parser's rule for `a`,
+   *   which cannot nest.
+   * - `"nothing"` — so that its end tag finds nothing of its name to close
+   *   and is dropped, as the HTML parser drops it: a **void** element, which
+   *   has no content (`wbr`, `hr`), or one the parser ignores inside a label
+   *   altogether (`html`, `head`, `body`, which belong to the document
+   *   around it).
    */
-  unnested?: boolean;
-  /**
-   * Whether its start tag opens nothing, so that its end tag finds nothing
-   * of its name to close and is dropped, as the HTML parser drops it: a
-   * **void** element, which has no content (`wbr`, `hr`), or one the parser
-   * ignores inside a label altogether (`html`, `head`, `body`, which belong
-   * to the document around it).
-   */
-  opensNothing?: boolean;
+  opens: "element" | "unnested element" | "nothing";
   /**
    * For a tag DOMPurify removes together with its content: how the parser
    * reads that content, which decides where it ends. `"raw text"` is read
@@ -126,60 +135,15 @@ export interface TagRule {
    */
   removesContent?: "raw text" | "rest" | "elements";
   /**
-   * Whether it is a **block** — ADR-0015's block layer, which it
-   * approximates: its start and its end each end the row before them, as
-   * the browser ends its line at the edge of a block box.
-   */
-  block?: boolean;
-  /**
-   * For a block: the names of an open element its start tag first closes,
-   * as the HTML parser does — a heading closes a heading only when that is
-   * the element just opened (`"current"`).
-   */
-  closesOpen?: { names: readonly string[]; reach: "current" | "item" };
-  /** For a block whose end tag closes others of its kind: the names it closes — any heading's, any heading. */
-  endsAny?: readonly string[];
-  /**
-   * For a block: whether an `li`, `dt` or `dd` start tag looking for the open
-   * item it closes looks past it, as the HTML parser looks past `address`,
-   * `div` and `p` and stops at any other block.
-   */
-  itemLooksPast?: boolean;
-  /**
-   * For a block: whether its end tag with nothing of its name open still
-   * ends the row, as the HTML parser reads a stray `</p>` as an empty
-   * paragraph (measured: `a</p>b` is `<p>a</p><p></p>b`).
-   */
-  strayEndIsEmpty?: boolean;
-  /**
-   * Whether every space inside it is drawn, as `white-space: pre` draws
-   * them (`pre`). SVG text collapses a run of spaces and drops them at the
-   * ends of a line, as HTML does elsewhere, so each is kept as a no-break
-   * space, which it does not; a tab too, one space wide.
-   */
-  preservesSpaces?: boolean;
-  /**
-   * Whether it is a list item, whose first row begins with its marker
-   * (`li`), and whose end tag closes nothing past a list opened inside it.
-   */
-  listItem?: boolean;
-  /**
-   * For a list: what marks the items in it — a bullet by how many lists the
-   * list is nested in (`BULLETS`), or the item's number, counted from the list's
-   * `start` (1 when it has none) and from an item's own `value`. An item
-   * outside every list is bulleted.
-   */
-  list?: "bulleted" | "numbered";
-  /**
    * Whether it walls off the tags open around it, as the HTML parser's
    * `marquee` does (a "scope" boundary): its start tag closes no `<p>`, an
    * end tag inside it closes nothing opened outside it, and the formatting
    * tags opened inside it are not reopened after it.
    */
-  walled?: boolean;
+  walled: boolean;
   /**
    * For a tag in one of ADR-0015's refused layers: the kind of HTML it is,
-   * which the browser draws and SVG text cannot (`REFUSED_KINDS`), and, for
+   * which the browser draws and SVG text cannot (`sanitizer.ts` names it), and, for
    * a tag refused only when the browser shows it, the attribute that shows
    * it. Mermaid draws it; Siren reports an error-severity problem at the
    * label's first such start tag, and otherwise reads it by the rest of its
@@ -189,26 +153,64 @@ export interface TagRule {
   refused?: { kind: RefusedKind; withAttribute?: string };
 }
 
+/** An inline tag: one that never ends a row by itself. */
+export interface InlineRule extends CommonRule {
+  kind: "inline";
+}
+
+/**
+ * A **block** — ADR-0015's block layer, which it approximates: its start
+ * and its end each end the row before them, as the browser ends its line at
+ * the edge of a block box.
+ */
+export interface BlockRule extends CommonRule {
+  kind: "block";
+  /**
+   * The names of an open element its start tag first closes, as the HTML
+   * parser does — a heading closes a heading only when that is the element
+   * just opened (`"current"`).
+   */
+  closesOpen?: { names: readonly string[]; reach: "current" | "item" };
+  /** For a block whose end tag closes others of its kind: the names it closes — any heading's, any heading. */
+  endsAny?: readonly string[];
+  /**
+   * Whether an `li`, `dt` or `dd` start tag looking for the open item it
+   * closes looks past it, as the HTML parser looks past `address`, `div`
+   * and `p` and stops at any other block.
+   */
+  itemLooksPast: boolean;
+  /**
+   * Whether its end tag with nothing of its name open still ends the row,
+   * as the HTML parser reads a stray `</p>` as an empty paragraph
+   * (measured: `a</p>b` is `<p>a</p><p></p>b`).
+   */
+  strayEndIsEmpty: boolean;
+  /**
+   * Whether every space inside it is drawn, as `white-space: pre` draws
+   * them (`pre`). SVG text collapses a run of spaces and drops them at the
+   * ends of a line, as HTML does elsewhere, so each is kept as a no-break
+   * space, which it does not; a tab too, one space wide.
+   */
+  preservesSpaces: boolean;
+  /**
+   * Whether it is a list item, whose first row begins with its marker
+   * (`li`), and whose end tag closes nothing past a list opened inside it.
+   */
+  listItem: boolean;
+  /**
+   * For a list: what marks the items in it — a bullet by how many lists the
+   * list is nested in (`BULLETS`), or the item's number, counted from the list's
+   * `start` (1 when it has none) and from an item's own `value`. An item
+   * outside every list is bulleted. `null` for any other block.
+   */
+  list: "bulleted" | "numbered" | null;
+}
+
 /**
  * ADR-0015's refused kinds of HTML: tables, ruby, images, embedded content,
  * form controls, media and interactive content.
  */
 export type RefusedKind = "table" | "ruby" | "image" | "embedded" | "form" | "media" | "interactive";
-
-/**
- * How the error-severity problem for a refused tag names its kind — a
- * plural noun, after "does not draw" — and what to write instead, when
- * Mermaid has a way.
- */
-const REFUSED_KINDS: Readonly<Record<RefusedKind, { phrase: string; instead?: string }>> = {
-  table: { phrase: "tables" },
-  ruby: { phrase: "ruby annotations" },
-  image: { phrase: "images", instead: 'Draw an image with Mermaid\'s image shape, A@{ img: "…" }, instead.' },
-  embedded: { phrase: "embedded content" },
-  form: { phrase: "form controls" },
-  media: { phrase: "media" },
-  interactive: { phrase: "interactive content" },
-};
 
 /**
  * One start tag's attributes, by lower-case name; an attribute written with
@@ -237,7 +239,7 @@ export function attributesOf(tag: string, name: string): Attributes {
     const key = match[1]!.toLowerCase();
     if (!attributes.has(key)) {
       const value = match[2] ?? match[3] ?? match[4] ?? "";
-      attributes.set(key, resolveCharacterReferences(entityCodesAsReferences(value), "attribute"));
+      attributes.set(key, htmlText(value, "attribute"));
     }
   }
   return attributes;
@@ -352,19 +354,41 @@ function link(written: string | undefined): RunStyle | undefined {
  */
 const LINK_COLOR = "var(--siren-label-link)";
 
+/**
+ * An inline tag, with what `extra` sets: unless it says otherwise, an
+ * ordinary (not formatting) element that sets nothing.
+ */
+function inline(extra: Partial<Omit<InlineRule, "kind">> = {}): InlineRule {
+  return { kind: "inline", formatting: false, opens: "element", walled: false, ...extra };
+}
+
 /** A formatting element that sets `style`. */
 function formatting(style: RunStyle): TagRule {
-  return { style, formatting: true };
+  return inline({ style, formatting: true });
 }
 
 /** An ordinary (not formatting) element that sets `style`. */
 function ordinary(style: RunStyle): TagRule {
-  return { style, formatting: false };
+  return inline({ style });
 }
 
-/** A block, as `TagRule.block` describes one, with what else `extra` sets. */
-function block(extra: Omit<TagRule, "formatting" | "block"> = {}): TagRule {
-  return { formatting: false, block: true, ...extra };
+/**
+ * A block, as `BlockRule` describes one, with what `extra` sets: unless it
+ * says otherwise, an ordinary element that is no list and no list item.
+ */
+function block(extra: Partial<Omit<BlockRule, "kind">> = {}): BlockRule {
+  return {
+    kind: "block",
+    formatting: false,
+    opens: "element",
+    walled: false,
+    itemLooksPast: false,
+    strayEndIsEmpty: false,
+    preservesSpaces: false,
+    listItem: false,
+    list: null,
+    ...extra,
+  };
 }
 
 const HEADINGS = ["h1", "h2", "h3", "h4", "h5", "h6"];
@@ -566,8 +590,8 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   mark: ordinary(marked),
   // Sets nothing on a run; draws `“` and `”` round its text (measured), so
   // `<b><q>yo</q></b>` is one bold run `“yo”`.
-  q: { formatting: false, marks: { open: "\u201c", close: "\u201d" } },
-  font: {
+  q: inline({ marks: { open: "\u201c", close: "\u201d" } }),
+  font: inline({
     formatting: true,
     attributes: (attributes) => (run) => {
       const color = drawableColor(attributes.get("color"));
@@ -584,12 +608,12 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
         run.monospace = false;
       }
     },
-  },
-  span: { formatting: false, attributes: spanStyle },
+  }),
+  span: inline({ attributes: spanStyle }),
   // A formatting element in the HTML parser's own list, so a misnested end
   // tag reopens it like `b`. Every attribute but `href` is ignored — the
   // sanitizer drops `on*` ones, and none of the rest draws anything.
-  a: { formatting: true, attributes: (attributes) => link(attributes.get("href")), unnested: true },
+  a: inline({ formatting: true, attributes: (attributes) => link(attributes.get("href")), opens: "unnested element" }),
   // ADR-0015's tags with no rendering of their own: DOMPurify keeps each,
   // and the browser draws its text and nothing else. `nobr` is in the HTML
   // parser's formatting list, `wbr` is void.
@@ -597,10 +621,10 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
     [
       "abbr", "acronym", "bdi", "bdo", "data", "time", "label", "output", "blink", "spacer",
       "content", "decorator", "element", "shadow", "slot", "menuitem", "map", "picture",
-    ].map((name): [string, TagRule] => [name, { formatting: false }]),
+    ].map((name): [string, TagRule] => [name, inline()]),
   ),
-  nobr: { formatting: true },
-  wbr: { formatting: false, opensNothing: true },
+  nobr: inline({ formatting: true }),
+  wbr: inline({ opens: "nothing" }),
   // Outside DOMPurify's allow-list and removed with their content, which
   // the parser reads as raw text: `a<script>b<b>c</b></script >d` is `ad`,
   // `a<script>b` is `a`, and `style` is the same (measured). `noframes`
@@ -608,36 +632,36 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   ...Object.fromEntries(
     ["script", "style", "iframe", "noembed", "xmp", "noframes"].map((name): [string, TagRule] => [
       name,
-      { formatting: false, removesContent: "raw text" },
+      inline({ removesContent: "raw text" }),
     ]),
   ),
   // Outside the HTML allow-list, but DOMPurify's SVG profile keeps it, and
   // the parser reads its content as text up to `</title>`:
   // `c<title>ti<b>x</b></title>d` is `c<title>ti&lt;b&gt;x&lt;/b&gt;</title>d`
   // (measured). The browser hides it, so its content goes with it.
-  title: { formatting: false, removesContent: "raw text" },
+  title: inline({ removesContent: "raw text" }),
   // Nothing ends its content, not even `</plaintext>`: `<b>a</b>b<plaintext>x</plaintext>y<br><b>z</b>`
   // is `<b>a</b>b` (measured).
-  plaintext: { formatting: false, removesContent: "rest" },
+  plaintext: inline({ removesContent: "rest" }),
   // DOMPurify parses with scripting off, so its content is elements:
   // `a<noscript>b<noscript>c</noscript>d</noscript>e` is `ae`, and
   // `a<noscript>b<b>c</noscript>d</b>e` is `a<b>d</b>e` (measured).
-  noscript: { formatting: false, removesContent: "elements" },
+  noscript: inline({ removesContent: "elements" }),
   // DOMPurify keeps these, and the parser reads their content as elements,
   // but the browser draws none of it (ADR-0015): `datalist` and `rp` are
   // `display: none`, and close at a formatting end tag around them —
   // `<b>a<datalist>c</b>d</datalist>e` is `<b>a<datalist>c</datalist></b>de`
   // (measured).
-  datalist: { formatting: false, removesContent: "elements" },
-  rp: { formatting: false, removesContent: "elements" },
+  datalist: inline({ removesContent: "elements" }),
+  rp: inline({ removesContent: "elements" }),
   // Inert, and walled as `marquee` is: `<b>a<template>c</b>d</template>e` is
   // `<b>a<template>cd</template>e</b>` (measured).
-  template: { formatting: false, removesContent: "elements", walled: true },
+  template: inline({ removesContent: "elements", walled: true }),
   // Void, so there is nothing in them to remove, and `display: none`:
   // `a<source>b</source>c` is `a<source>bc`, `track` and `area` the same
   // (measured).
   ...Object.fromEntries(
-    ["source", "track", "area"].map((name): [string, TagRule] => [name, { formatting: false, opensNothing: true }]),
+    ["source", "track", "area"].map((name): [string, TagRule] => [name, inline({ opens: "nothing" })]),
   ),
   // Inside a label the parser ignores both tags of each, so nothing closes
   // at them and their text is kept: `<body>a<sub>b</body>c</sub>d` is
@@ -669,7 +693,7 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   pre: block({ style: monospace, preservesSpaces: true }),
   // A void block: `a<hr>b` is `<p>a</p><hr>b` (measured). The rule the
   // browser draws is not drawn; it is a row edge only.
-  hr: block({ opensNothing: true }),
+  hr: block({ opens: "nothing" }),
   // An `li` start tag closes an open `li`: `x<li>a<li>b` is
   // `<p>x</p><li>a</li><li>b</li>` (measured).
   li: block({ closesOpen: { names: ["li"], reach: "item" }, listItem: true }),
@@ -681,9 +705,9 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   h4: heading(1),
   h5: heading(0.83),
   h6: heading(0.67),
-  html: { formatting: false, opensNothing: true },
-  head: { formatting: false, opensNothing: true },
-  body: { formatting: false, opensNothing: true },
+  html: inline({ opens: "nothing" }),
+  head: inline({ opens: "nothing" }),
+  body: inline({ opens: "nothing" }),
   // ADR-0015's refused layers: DOMPurify keeps each (measured), and what the
   // browser draws for it needs a layout SVG text does not have.
   ...refusedLayer("table", ["table"]),
@@ -694,7 +718,7 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   ...Object.fromEntries(
     ["tr", "td", "th", "thead", "tbody", "tfoot", "caption", "col", "colgroup"].map((name): [string, TagRule] => [
       name,
-      { formatting: false, opensNothing: true },
+      inline({ opens: "nothing" }),
     ]),
   ),
   ...refusedLayer("ruby", ["ruby", "rt"]),
@@ -719,7 +743,7 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
 
 /** One refused layer's tags, each refused as `kind` (`TagRule.refused`). */
 function refusedLayer(kind: RefusedKind, names: readonly string[]): Record<string, TagRule> {
-  return Object.fromEntries(names.map((name): [string, TagRule] => [name, { formatting: false, refused: { kind } }]));
+  return Object.fromEntries(names.map((name): [string, TagRule] => [name, inline({ refused: { kind } })]));
 }
 
 /**
@@ -730,14 +754,7 @@ function refusedLayer(kind: RefusedKind, names: readonly string[]): Record<strin
  * its end tag still closes what was opened inside it: `<foo>a<sub>b</foo>c</sub>d`
  * is `a<sub>b</sub>cd` (measured).
  */
-const UNKNOWN_TAG: TagRule = { formatting: false };
-
-/** The error-severity problem's message for a start tag `<name>` of a refused `kind`. */
-export function refusal(name: string, kind: RefusedKind): string {
-  const { phrase, instead } = REFUSED_KINDS[kind];
-  const message = `<${name}> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw ${phrase}.`;
-  return instead === undefined ? message : `${message} ${instead}`;
-}
+const UNKNOWN_TAG: TagRule = inline();
 
 /**
  * What the tag `name` (lower-case) does in the `html` dialect: its entry in

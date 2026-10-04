@@ -2,8 +2,12 @@
  * HTML **character references** — `&name;` and `&#NN;` — read as the
  * browser's HTML parser reads them, which is how Mermaid's entity codes
  * reach its picture: it rewrites `#name;` as `&name;` and `#NN;` as
- * `&#NN;`, and the browser resolves what it was handed (ADR-0015;
- * `readLabel` says which dialect reads what).
+ * `&#NN;`, and the browser resolves what it was handed (ADR-0015).
+ *
+ * The two dialects' text decoding, one function each: `htmlText` is what
+ * the `html` dialect's text and attribute values draw, every reference
+ * resolved; `resolveEntityCodes` is what the `sequence` dialect's text
+ * draws, Mermaid's entity codes and nothing else.
  *
  * Every name the HTML standard defines resolves (`#copy;` is `©`, measured
  * in Mermaid 11.17.2's HTML labels), and an unknown one is left as the
@@ -387,11 +391,21 @@ function resolveNamed(word: string, semicolon: boolean, next: string, context: R
 }
 
 /**
+ * The characters a stretch of `html`-dialect source draws in `context` —
+ * text between two tags, or an attribute value: Mermaid hands the browser
+ * its entity codes as character references, among any the author wrote as
+ * such, and the browser resolves them all.
+ */
+export function htmlText(written: string, context: ReferenceContext): string {
+  return resolveCharacterReferences(entityCodesAsReferences(written), context);
+}
+
+/**
  * Mermaid's entity codes in `text` as the character references Mermaid
  * hands the browser: `#name;` as `&name;`, and `#NN;` as `&#NN;` — its own
  * `/#\w+;/` rewrite, so a code is a word character run (`#a-b;` is not one).
  */
-export function entityCodesAsReferences(text: string): string {
+function entityCodesAsReferences(text: string): string {
   return text.replace(/#(\w+);/g, (_, name: string) => (/^\d+$/.test(name) ? `&#${name};` : `&${name};`));
 }
 
@@ -410,7 +424,7 @@ export function resolveEntityCodes(text: string): string {
  * `x`, with or without its `;` (`&#65` is `A`); a name by `resolveNamed`;
  * and an `&` that starts neither left as it is.
  */
-export function resolveCharacterReferences(text: string, context: ReferenceContext): string {
+function resolveCharacterReferences(text: string, context: ReferenceContext): string {
   return text.replace(
     /&(?:#(?:[xX]([0-9A-Fa-f]+)|(\d+));?|([A-Za-z0-9]+)(;?))/g,
     (

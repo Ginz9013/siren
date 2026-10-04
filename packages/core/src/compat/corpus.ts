@@ -3977,6 +3977,27 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-message-tag-quotes",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: a<b c="d">e say "hi"`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads its text, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `<name\u2026>` as `='\u2026'` (its `cleanupText`), " +
+      "and a `\"` anywhere else is kept. Sequence text reads no tag, so the " +
+      "rewrite is drawn. Measured (mermaid 11.17.2, `--paint`): " +
+      "`A->>B: a<b c=\"d\">e say \"hi\"` draws the one `<text>` " +
+      "`a<b c='d'>e say \"hi\"`.",
+    assert: (result) => {
+      expectSame(
+        "the tag's quotes are rewritten, the rest kept",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")),
+        ["a<b c='d'>e say \"hi\""],
+      );
+    },
+  },
+  {
     id: "seq-note-br",
     kind: "sequence",
     source: `sequenceDiagram

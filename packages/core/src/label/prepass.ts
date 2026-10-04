@@ -3,7 +3,7 @@
  * it — Mermaid's own rewrites of the text it hands the browser, each kept
  * with the offset in what the author wrote that every character came from.
  */
-import { nextTag, tagsIn } from "./tags";
+import { nextTag, tagsIn, type Tag } from "./tags";
 import { inVocabulary } from "./vocabulary";
 
 /**
@@ -182,11 +182,13 @@ function hardBreaksJoined(tagged: Tagged): Tagged {
  */
 function unescaped(tagged: Tagged): { tagged: Tagged; escaped: ReadonlySet<number> } {
   const { text } = tagged;
-  const inTag = insideTags(text);
+  const tags = tagsIn(text);
+  const inTag = insideTags(tags);
+  const opened = startTagEnds(tags);
   const backslashes: Edit[] = [];
   const escaped = new Set<number>();
   for (let index = 0; index < text.length; index++) {
-    const target = text[index] === "\\" && !inTag(index) ? escapedBy(text, index) : undefined;
+    const target = text[index] === "\\" && !inTag(index) ? escapedBy(text, index, opened) : undefined;
     if (target !== undefined) {
       backslashes.push({ from: index, to: index + 1, insert: [] });
       // Where the escaped character is once every backslash up to it is dropped.
@@ -195,6 +197,21 @@ function unescaped(tagged: Tagged): { tagged: Tagged; escaped: ReadonlySet<numbe
     }
   }
   return { tagged: edited(tagged, backslashes), escaped };
+}
+
+/**
+ * For each tag name, where the first start tag of that name in a label
+ * ends, from `tags`, every tag in it: an end tag at or past that offset has
+ * a start tag of its name before it.
+ */
+function startTagEnds(tags: readonly Tag[]): ReadonlyMap<string, number> {
+  const ends = new Map<string, number>();
+  for (const { closing, name, end } of tags) {
+    if (!closing && name !== null && !ends.has(name)) {
+      ends.set(name, end);
+    }
+  }
+  return ends;
 }
 
 /**
@@ -207,18 +224,19 @@ function unescaped(tagged: Tagged): { tagged: Tagged; escaped: ReadonlySet<numbe
  * left unterminated takes the rest of the label with it (`a\<b` is
  * `<p>a\</p>`). A tag the vocabulary keeps reaches Markdown, so its `<` is
  * the escaped character, and it is still a tag (`x\<b>y</b>` is
- * `<p>x<b>y</b></p>`).
+ * `<p>x<b>y</b></p>`). `opened` is where the first start tag of each name
+ * in `text` ends (`startTagEnds`).
  */
-function escapedBy(text: string, backslash: number): number | undefined {
+function escapedBy(text: string, backslash: number, opened: ReadonlyMap<string, number>): number | undefined {
   let at = backslash + 1;
   for (let tag = nextTag(text, at); tag !== null && tag.start === at; tag = nextTag(text, at)) {
     if (tag.name === null) {
       return undefined;
     }
     const name = tag.name;
-    const opened =
-      !tag.closing || tagsIn(text.slice(0, backslash)).some((before) => !before.closing && before.name === name);
-    if (inVocabulary(name) && opened) {
+    // A backslash is never inside a tag (`insideTags`), so every tag that
+    // starts before it ends at or before it.
+    if (inVocabulary(name) && (!tag.closing || (opened.get(name) ?? Infinity) <= backslash)) {
       break;
     }
     at = tag.end;
@@ -229,10 +247,10 @@ function escapedBy(text: string, backslash: number): number | undefined {
 /** One of the ASCII punctuation characters a Markdown backslash escapes. */
 const ASCII_PUNCTUATION_RE = /^[!-/:-@[-`{-~]$/;
 
-/** Whether an offset in `text` lies inside a tag the author wrote, which Markdown reads whole. */
-function insideTags(text: string): (index: number) => boolean {
-  const tags = tagsIn(text).filter((tag) => tag.name !== null);
-  return (index) => tags.some(({ start, end }) => start < index && index < end);
+/** Whether an offset lies inside one of `tags`, those the author wrote, which Markdown reads whole. */
+function insideTags(tags: readonly Tag[]): (index: number) => boolean {
+  const named = tags.filter((tag) => tag.name !== null);
+  return (index) => named.some(({ start, end }) => start < index && index < end);
 }
 
 /**
@@ -356,7 +374,7 @@ function pairs(opener: DelimiterRun, closer: DelimiterRun): boolean {
  * no run inside one is a delimiter (`<a href='/_a_/'>` keeps its href).
  */
 function delimiterRuns(text: string, escaped: ReadonlySet<number>): DelimiterRun[] {
-  const inTag = insideTags(text);
+  const inTag = insideTags(tagsIn(text));
   const spans = Array.from(text.matchAll(/\*+|_+/g)).flatMap((match) => unescapedSpans(match.index, match[0], escaped));
   return spans.map(({ start, written }) => {
     const before = text[start - 1] ?? " ";

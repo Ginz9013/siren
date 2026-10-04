@@ -834,8 +834,9 @@ end
     expect(
       result.svg!.querySelector('g.siren-participant[data-siren-id="A"] text')!.textContent,
     ).toBe("<i>Alpha</i>");
+    // Mermaid's cleanupText rewrites `="…"` inside a tag-shaped stretch as `='…'` (measured, mermaid 11.17.2).
     expect(result.svg!.querySelector("text.siren-block-label")!.textContent).toBe(
-      '[<img src=x onerror="alert(1)">]',
+      "[<img src=x onerror='alert(1)'>]",
     );
     expect(result.svg!.querySelector("text.siren-message-label")!.textContent).toBe(
       '<script>alert("message")</script>',

@@ -18,7 +18,7 @@
  * It finds every tag-shaped stretch of a label in the `html` dialect, and
  * every one of them means something there, a name outside the vocabulary
  * included. The `sequence` dialect never uses it: Mermaid reads no tag in
- * sequence text, only its `<br>` pattern (`readLabel`'s `sequenceRows`).
+ * sequence text, only its `<br>` pattern (`sequenceText.ts`'s `sequenceRows`).
  *
  * Never used directly: each search compiles its own instance (`nextTag`),
  * so that no search begins where another left off.
