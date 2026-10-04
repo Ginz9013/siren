@@ -982,6 +982,12 @@ export interface PositionedBlockDivider {
   label: Label | null;
   /** The box `layoutLabel` measured for `label`, or `null` when there is none. */
   labelBox: LabelBox | null;
+  /**
+   * The centre of `labelBox` — at the frame's left inset, its first row
+   * centred where a one-row condition's is below the line, so further rows
+   * grow downward — or `null` exactly when `labelBox` is.
+   */
+  labelAnchor: Point | null;
   y: number;
 }
 
@@ -1004,6 +1010,12 @@ export interface PositionedBlock {
    * never drawn as text.
    */
   labelBox: LabelBox | null;
+  /**
+   * The centre of `labelBox` — past the block's keyword, its first row
+   * centred where a one-row condition's is, so further rows grow downward —
+   * or `null` exactly when `labelBox` is.
+   */
+  labelAnchor: Point | null;
   x: number;
   y: number;
   width: number;

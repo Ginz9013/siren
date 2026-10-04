@@ -699,4 +699,45 @@ export const LABEL_CASES: readonly CompatCase[] = [
       expectRows("label runs", labelRuns(nodeText(result, "A"), "style"), ["x[style=fill: #0f0]"]);
     },
   },
+  {
+    id: "label-invalid-color",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <span style='background-color: banana'>y</span><font color='banana'>z</font>"]`,
+    status: "supported",
+    meaning:
+      "A `color` or `background-color` that is not CSS color syntax is a " +
+      "declaration the browser drops, so Mermaid paints nothing for it. Siren " +
+      "reads it as unwritten too: no background rect and no fill — where it " +
+      "used to hand `banana` to SVG, which paints an unreadable color as " +
+      "black and so hid the text behind a black rect.",
+    assert: (result) => {
+      const text = nodeText(result, "A");
+      expectRows("label rows", labelRows(text), ["x yz"]);
+      expectRows(
+        "background rects",
+        Array.from(text?.parentElement?.querySelectorAll("rect.siren-label-background") ?? [], (rect) =>
+          String(rect.getAttribute("style")),
+        ),
+        [],
+      );
+    },
+  },
+  {
+    id: "label-unterminated-tag",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["x <y"]
+      B["a < b"]`,
+    status: "supported",
+    meaning:
+      "A `<` followed by a letter opens a tag, and a tag the label ends inside " +
+      "is dropped with everything after its `<`, as the HTML tokenizer drops " +
+      "it: Mermaid 11.17.2 draws `x ` (measured `<p>x </p>`). A `<` before " +
+      "anything else is a character, so `a < b` is drawn as written.",
+    assert: (result) => {
+      expectRows("A's rows", labelRows(nodeText(result, "A")), ["x "]);
+      expectRows("B's rows", labelRows(nodeText(result, "B")), ["a < b"]);
+    },
+  },
 ];

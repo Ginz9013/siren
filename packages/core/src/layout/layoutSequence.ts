@@ -11,6 +11,7 @@ import type {
   PositionedSequenceElement,
   PositionedActivation,
   PositionedNote,
+  Point,
   ResolvedInteraction,
   ResolvedSequenceBlock,
   ResolvedSequenceBox,
@@ -25,6 +26,14 @@ import { layoutLabel } from "../label/layoutLabel";
 const PARTICIPANT_PADDING_X = 16;
 /** Vertical padding added around a participant's measured label. */
 const PARTICIPANT_PADDING_Y = 12;
+/**
+ * Height of an `actor`'s stick figure, which stands above its label: an
+ * actor's row is this plus its label, every row of it, and the renderer
+ * draws the label in the bottom `labelBox.height` of the row and the figure
+ * above it. Twice `PARTICIPANT_PADDING_Y`, so an actor's row is exactly as
+ * tall as a participant's with the same label and the two kinds line up.
+ */
+const ACTOR_FIGURE_HEIGHT = 2 * PARTICIPANT_PADDING_Y;
 /** Minimum horizontal gap between adjacent participant lane boxes. */
 const LANE_GAP = 40;
 /** Left margin before the first participant lane's box. */
@@ -68,6 +77,17 @@ const BLOCK_PADDING_X_FLOOR = 6;
 const BLOCK_MARGIN_TOP = 20;
 /** Vertical space reserved inside a block's frame for its header condition label. */
 const BLOCK_HEADER_HEIGHT = 30;
+/** How far a condition's box begins inside the block frame's left edge (or a divider's). */
+const BLOCK_LABEL_INSET_X = 8;
+/** How far below the frame's top edge (or a divider's line) a condition's first row is centred. */
+const BLOCK_LABEL_FIRST_ROW_Y = 14;
+/**
+ * Room the header leaves for the block's own keyword (`loop`, `alt`, ...)
+ * before its condition: wide enough for `critical`, the longest of the six,
+ * at the block label's font size. The renderer draws the keyword at the
+ * same inset, its centre on the condition's first row.
+ */
+const BLOCK_KEYWORD_WIDTH = 64;
 /** Vertical space reserved for a branch divider line + its condition label (`else`/`and`/`option`). */
 const BLOCK_DIVIDER_HEIGHT = 30;
 /** Vertical gap between a branch's last content and the next branch's divider line. */
@@ -223,7 +243,10 @@ function layoutParticipants(
   for (const decl of model.participants) {
     const labelBox = layoutLabel(decl.label, options.measureText);
     const width = labelBox.width + PARTICIPANT_PADDING_X * 2;
-    const height = labelBox.height + PARTICIPANT_PADDING_Y * 2;
+    const height =
+      decl.participantKind === "actor"
+        ? ACTOR_FIGURE_HEIGHT + labelBox.height
+        : labelBox.height + PARTICIPANT_PADDING_Y * 2;
     const x = nextLeft + width / 2;
 
     participants.push({
@@ -359,38 +382,6 @@ function layoutBlock(
   startY: number,
   depth: number,
 ): { element: PositionedBlock; endY: number } {
-  // A condition's rows stack downward from where a one-row condition sits,
-  // so each row it adds makes its header or divider band that much taller.
-  const measure = (label: Label | null): LabelBox | null =>
-    label === null ? null : layoutLabel(label, ctx.measureText);
-  const condition =
-    block.kind === "rect"
-      ? (block.branches[0]?.label ?? null)
-      : bracketed(block.branches[0]?.label ?? null);
-  const header = block.kind === "rect" ? null : measure(condition);
-
-  const top = startY + BLOCK_MARGIN_TOP;
-  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header, 0);
-
-  const dividers: PositionedBlockDivider[] = [];
-  const children: PositionedSequenceElement[] = [];
-
-  block.branches.forEach((branch, index) => {
-    if (index > 0) {
-      const label = bracketed(branch.label);
-      const labelBox = measure(label);
-      y += BLOCK_DIVIDER_TOP_GAP;
-      dividers.push({ label, labelBox, y });
-      y += BLOCK_DIVIDER_HEIGHT + heightBesides(labelBox, 0);
-    }
-
-    const { elements, endY } = layoutStatements(branch.statements, ctx, y, depth + 1);
-    children.push(...elements);
-    y = endY;
-  });
-
-  const bottom = y + BLOCK_MARGIN_BOTTOM;
-
   const touchedParticipants = block.touchedParticipantIds
     .map((id) => ctx.participantsById.get(id))
     .filter((p): p is PositionedParticipant => p !== undefined);
@@ -414,12 +405,45 @@ function layoutBlock(
       Number.NEGATIVE_INFINITY,
     ) + horizontalPadding;
 
+  // A condition's rows stack downward from where a one-row condition sits,
+  // so each row it adds makes its header or divider band that much taller.
+  const measure = (label: Label | null): LabelBox | null =>
+    label === null ? null : layoutLabel(label, ctx.measureText);
+  const condition =
+    block.kind === "rect"
+      ? (block.branches[0]?.label ?? null)
+      : bracketed(block.branches[0]?.label ?? null);
+  const header = block.kind === "rect" ? null : measure(condition);
+
+  const top = startY + BLOCK_MARGIN_TOP;
+  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header, 0);
+
+  const dividers: PositionedBlockDivider[] = [];
+  const children: PositionedSequenceElement[] = [];
+
+  block.branches.forEach((branch, index) => {
+    if (index > 0) {
+      const label = bracketed(branch.label);
+      const labelBox = measure(label);
+      y += BLOCK_DIVIDER_TOP_GAP;
+      dividers.push({ label, labelBox, labelAnchor: conditionAnchor(labelBox, left, y), y });
+      y += BLOCK_DIVIDER_HEIGHT + heightBesides(labelBox, 0);
+    }
+
+    const { elements, endY } = layoutStatements(branch.statements, ctx, y, depth + 1);
+    children.push(...elements);
+    y = endY;
+  });
+
+  const bottom = y + BLOCK_MARGIN_BOTTOM;
+
   return {
     element: {
       id: block.id,
       kind: block.kind,
       label: condition,
       labelBox: header,
+      labelAnchor: conditionAnchor(header, left + BLOCK_KEYWORD_WIDTH, top),
       x: left,
       y: top,
       width: right - left,
@@ -482,6 +506,23 @@ function bracketed(label: Label | null): Label | null {
   const lastRow = rows[rows.length - 1]!;
   lastRow[lastRow.length - 1]!.text += "]";
   return { text: `[${label.text}]`, rows };
+}
+
+/**
+ * Where a block's or divider's condition is drawn: the centre of its `box`,
+ * whose left edge is `BLOCK_LABEL_INSET_X` past `left` and whose first row
+ * is centred `BLOCK_LABEL_FIRST_ROW_Y` below `lineY` — the frame's top edge
+ * or the divider's line — so a condition of several rows begins where a
+ * one-row condition does and grows downward into the band its rows added.
+ * `null` for no condition.
+ */
+function conditionAnchor(box: LabelBox | null, left: number, lineY: number): Point | null {
+  return box === null
+    ? null
+    : {
+        x: left + BLOCK_LABEL_INSET_X + box.width / 2,
+        y: lineY + BLOCK_LABEL_FIRST_ROW_Y - box.rows[0]!.y + box.height / 2,
+      };
 }
 
 /**

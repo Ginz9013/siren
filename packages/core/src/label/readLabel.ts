@@ -1,6 +1,7 @@
 import type { Diagnostic } from "../contracts";
 import { unsafeStyleValue } from "../unsafeStyleValue";
 import { entityCodesAsReferences, resolveCharacterReferences, resolveEntityCodes } from "./characterReferences";
+import { isCssColor } from "./cssColor";
 import {
   plainRun,
   relativeScale,
@@ -13,10 +14,21 @@ import {
 } from "./label";
 
 /**
- * One tag: `<`, an optional `/`, a name — a letter, then anything up to
- * whitespace, `/` or `>`, as the HTML tokenizer reads one, so `my-el` is a
- * name — then optionally whitespace and attributes, an optional `/`, and
- * `>`. An attribute value in quotes may hold a `>` without ending the tag.
+ * One tag, as the HTML tokenizer reads one: `<`, an optional `/`, a name —
+ * a letter, then anything up to whitespace, `/` or `>`, so `my-el` is a
+ * name — then anything up to the first `>` that is not inside a quoted
+ * attribute value. A value is quoted only when its quote follows the `=`
+ * (`<y a'b>` ends at its `>`), and a `/` anywhere in the tag is part of it
+ * (`<b/x>` and `<b/ >` are both `<b>`; measured).
+ *
+ * Or, its second alternative, the `<` and first letter of a tag that never
+ * ends — one the label ends inside, a quoted value left open included
+ * (no group 2). The tokenizer starts a tag at `<` followed by a letter, or
+ * by `/` and a letter, and drops a tag that reaches the end of its input,
+ * so in the `html` dialect everything from that `<` on is dropped
+ * (measured: `x <y` is `<p>x </p>`, and `a <y z='1> b <i>c</i>` is
+ * `<p>a </p>`). A `<` before anything else is a character: `a < b`, `a <1`
+ * and `a</` are drawn as written (measured).
  *
  * It finds every tag-shaped stretch of a label, and which of them mean
  * something is `readLabel`'s question, not this pattern's: in the `html`
@@ -38,7 +50,7 @@ import {
  * and `<br class="x">` is drawn as its characters (measured:
  * `A->>B: x<br class="x">y` is one `<text>`).
  */
-const TAG_RE = /<(\/?)([a-z][^\s\/>]*)(?:\s(?:[^>"']|"[^"]*"|'[^']*')*)?\/?>/gi;
+const TAG_RE = /<(\/?)([a-z][^\s\/>]*)(?:[^>=]|=\s*(?:"[^"]*"|'[^']*'|(?![\s"'])))*>|<\/?[a-z]/gi;
 
 /** A row break in the `sequence` dialect: Mermaid's own `/<br\s*\/?>/gi`, one whole tag. */
 const SVG_ROW_BREAK_RE = /^<br\s*\/?>$/i;
@@ -229,6 +241,17 @@ function drawableValue(value: string | undefined): string | null {
 const FONT_SIZE_SCALES = [0.75, 0.8125, 1, 1.125, 1.25, 2, 3];
 
 /**
+ * `value` as a color a run may be drawn in, or `null` for one that is not
+ * drawn: one `drawableValue` lets through that is also a CSS color
+ * (`isCssColor`) — a browser drops a color it cannot parse, and so paints
+ * nothing, where SVG would paint its default black.
+ */
+function drawableColor(value: string | undefined): string | null {
+  const drawable = drawableValue(value);
+  return drawable !== null && isCssColor(drawable) ? drawable : null;
+}
+
+/**
  * The scale `<font size="…">` draws at, or `null` for a value that names
  * no size, which the browser treats as unwritten. Read as the HTML
  * standard's "legacy font size": leading whitespace, an optional sign, then
@@ -308,12 +331,18 @@ function ordinary(style: RunStyle): TagRule {
  * browser drops a declaration it cannot parse.
  */
 const SPAN_STYLE_PROPERTIES: Readonly<Record<string, (value: string) => RunStyle | null>> = {
-  color: (value) => (run) => {
-    run.color = value;
-  },
-  "background-color": (value) => (run) => {
-    run.background = value;
-  },
+  color: (value) =>
+    drawableColor(value) === null
+      ? null
+      : (run) => {
+          run.color = value;
+        },
+  "background-color": (value) =>
+    drawableColor(value) === null
+      ? null
+      : (run) => {
+          run.background = value;
+        },
   "font-size": (value) => {
     const relative = /^(\d*\.?\d+)(em|%)$/i.exec(value);
     if (relative === null) {
@@ -471,7 +500,7 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   font: {
     formatting: true,
     attributes: (attributes) => (run) => {
-      const color = drawableValue(attributes.get("color"));
+      const color = drawableColor(attributes.get("color"));
       if (color !== null) {
         run.color = color;
       }
@@ -816,6 +845,16 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   TAG_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = TAG_RE.exec(source)) !== null) {
+    if (match[2] === undefined) {
+      // A tag the label ends inside. In the `html` dialect it is dropped
+      // with the rest of the label; in the `sequence` dialect it is text.
+      if (dialect === "html") {
+        emit(textOf(source.slice(lastIndex, match.index)));
+        lastIndex = source.length;
+        break;
+      }
+      continue;
+    }
     const closing = match[1] === "/";
     const name = match[2]!.toLowerCase();
     // In the `html` dialect a stray `</br>` breaks too, as the HTML parser
