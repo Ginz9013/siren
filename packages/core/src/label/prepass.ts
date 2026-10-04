@@ -11,9 +11,9 @@ import { inVocabulary } from "./vocabulary";
  * with its notation rewritten as the tags it stands for (`markdownAsTags`).
  *
  * The `;` Mermaid drops from a style line is not dropped here: that rule
- * reads the whole line a label is written on, so the parsers apply it to
- * their lines (`styleLines`) before they read a label from one, and
- * `source` arrives without it.
+ * reads the whole line a label is written on, so `parseSiren` applies it
+ * to the whole document (`parser/styleLines`) before any parser reads a
+ * label, and `source` arrives without it.
  */
 export function prepass(source: string, options: { markdown: boolean }): Tagged {
   const written = untagged(source);

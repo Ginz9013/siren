@@ -18,7 +18,6 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { readLabelAt } from "../label/readLabelAt";
-import { styleLines } from "../label/styleLines";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -382,15 +381,6 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * nowhere else.
  */
 export function parseClassDiagram(source: string): ParseResult {
-  const read = styleLines(source);
-  return read.asWritten(parseRead(read.source));
-}
-
-/**
- * `parseClassDiagram`'s reading of `source`, a document as Mermaid parses it
- * (`styleLines`): every position it finds is in that document's lines.
- */
-function parseRead(source: string): ParseResult {
   const lines = source.split(/\r\n|\r|\n/);
   const diagnostics: Diagnostic[] = [];
 

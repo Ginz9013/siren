@@ -20,7 +20,6 @@ import type {
 } from "../contracts";
 import { plainLabel, type SourcePosition } from "../label/label";
 import { readLabelAt, readTextAt } from "../label/readLabelAt";
-import { styleLines } from "../label/styleLines";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
@@ -843,15 +842,6 @@ function parseBranches<TBranch extends { label: Label | null; body: SequenceStat
  * `buildSequenceModel`'s job (ticket 02).
  */
 export function parseSequenceDiagram(source: string): ParseResult {
-  const read = styleLines(source);
-  return read.asWritten(parseRead(read.source));
-}
-
-/**
- * `parseSequenceDiagram`'s reading of `source`, a document as Mermaid parses it
- * (`styleLines`): every position it finds is in that document's lines.
- */
-function parseRead(source: string): ParseResult {
   const lines = source.split(/\r\n|\r|\n/);
   const diagnostics: Diagnostic[] = [];
 

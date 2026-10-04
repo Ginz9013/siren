@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseClassDiagram } from "./parseClassDiagram";
-import type { ClassDocument, ClassMember, Diagnostic, Label } from "../contracts";
+import { parseSiren } from "./parseSiren";
+import type { ClassDocument, ClassMember, Diagnostic, Label, ParseResult } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 
 /**
@@ -50,8 +51,11 @@ function reconstruct(member: ClassMember): string {
  * `ClassDocument`, so tests can read class-diagram fields without
  * repeating the null/union check.
  */
-function parseOk(source: string): { document: ClassDocument; diagnostics: Diagnostic[] } {
-  const { document, diagnostics } = parseClassDiagram(source);
+function parseOk(
+  source: string,
+  parse: (source: string) => ParseResult = parseClassDiagram,
+): { document: ClassDocument; diagnostics: Diagnostic[] } {
+  const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "class") {
     throw new Error(
       `expected a class document, got ${document === null ? "null" : document.kind}` +
@@ -1114,10 +1118,11 @@ describe("parseClassDiagram — a problem in a label, reported where the author 
  * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
  * drops the last `;` of every line where `style` (or `classDef`), a `:` and
  * then a `#` come before it — the whole line, not one label. Mermaid
- * 11.17.2, measured with `--html`.
+ * 11.17.2, measured with `--html`. `parseSiren` applies it to the whole
+ * document, so these read through it.
  */
 describe("parseClassDiagram — the `;` Mermaid drops from a style line", () => {
-  const labelOf = (source: string) => parseOk(source).document.classes.find((c) => c.id === "A")!.label!.text;
+  const labelOf = (source: string) => parseOk(source, parseSiren).document.classes.find((c) => c.id === "A")!.label!.text;
 
   it("is the label's own last `;` when nothing follows it on the line", () => {
     // `class A["<b style='x:#1'>r</b> #35;"]` draws `r #35`.
@@ -1131,7 +1136,7 @@ describe("parseClassDiagram — the `;` Mermaid drops from a style line", () => 
 
   it("leaves a position past it where the author wrote it", () => {
     // `  class A["<b style='x:#1'>#35;⚑</b>"]`: the ⚑ is the 32nd character.
-    expect(parseClassDiagram(`classDiagram\n  class A["<b style='x:#1'>#35;⚑</b>"]`).diagnostics).toEqual([
+    expect(parseSiren(`classDiagram\n  class A["<b style='x:#1'>#35;⚑</b>"]`).diagnostics).toEqual([
       { severity: "warning", message: "test problem ⚑", line: 2, column: 32 },
     ]);
   });

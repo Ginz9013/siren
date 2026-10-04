@@ -7,6 +7,17 @@
  * against these shapes without waiting on each other's internals.
  *
  * Types and JSDoc only — no functions, no logic.
+ *
+ * **Source positions.** Every field that records where in the source the
+ * author wrote something is a 1-based pair spelled with one of exactly two
+ * key pairs: `line`/`column`, or `sourceLine`/`sourceColumn` (the spelling
+ * an edge, a relationship or a transition takes, whose `line` names its
+ * line style instead). Nothing else in a `ParseResult` may be a number
+ * keyed `…Line` or `…Column`. `parseSiren` depends on it: Mermaid's
+ * style-line rule drops a `;` before any parser reads the line, and
+ * `parser/styleLines`'s `asWritten` moves each position back past it by
+ * walking the result for these two pairs — a position spelled any other way
+ * would silently point one character early. `styleLines.test.ts` pins it.
  */
 
 /** Severity of a parse/build-time diagnostic. */

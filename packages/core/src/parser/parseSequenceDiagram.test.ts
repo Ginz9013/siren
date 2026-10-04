@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
-import type { Diagnostic, Label, SequenceDocument } from "../contracts";
+import { parseSiren } from "./parseSiren";
+import type { Diagnostic, Label, ParseResult, SequenceDocument } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 
 // A stand-in for `readLabel` that reports a problem wherever its source holds
@@ -29,8 +30,11 @@ vi.mock("../label/readLabel", async (importOriginal) => {
  * to `SequenceDocument`, so the rest of a test can access sequence-only
  * fields without fighting `SirenDocument`'s discriminated union.
  */
-function parseOk(source: string): { document: SequenceDocument; diagnostics: Diagnostic[] } {
-  const { document, diagnostics } = parseSequenceDiagram(source);
+function parseOk(
+  source: string,
+  parse: (source: string) => ParseResult = parseSequenceDiagram,
+): { document: SequenceDocument; diagnostics: Diagnostic[] } {
+  const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "sequence") {
     throw new Error(
       `expected a sequence document, got ${document === null ? "null" : document.kind}`,
@@ -1106,11 +1110,12 @@ describe("the labels a sequence diagram reads", () => {
  * drops the last `;` of every line where `style` (or `classDef`), a `:` and
  * then a `#` come before it — the whole line, a participant's name
  * included, not only the text. Sequence text is drawn as SVG, so these were
- * measured as the message Mermaid 11.17.2 recorded.
+ * measured as the message Mermaid 11.17.2 recorded. `parseSiren` applies it
+ * to the whole document, so these read through it.
  */
 describe("parseSequenceDiagram — the `;` Mermaid drops from a style line", () => {
   const labelText = (source: string) => {
-    const [statement] = parseOk(`sequenceDiagram\n${source}`).document.statements;
+    const [statement] = parseOk(`sequenceDiagram\n${source}`, parseSiren).document.statements;
     return statement!.kind === "message" || statement!.kind === "note" ? statement!.label.text : null;
   };
 
@@ -1127,7 +1132,7 @@ describe("parseSequenceDiagram — the `;` Mermaid drops from a style line", () 
   it("leaves a position past it where the author wrote it", () => {
     // `  A->>B: style x:#35;⚑`: the ⚑ is the 22nd character.
     expect(
-      parseSequenceDiagram("sequenceDiagram\n  A->>B: style x:#35;⚑").diagnostics.map(
+      parseSiren("sequenceDiagram\n  A->>B: style x:#35;⚑").diagnostics.map(
         ({ severity, line, column }) => [severity, line, column],
       ),
     ).toEqual([["warning", 2, 22]]);

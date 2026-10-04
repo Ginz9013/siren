@@ -2620,6 +2620,27 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-style-style-line-semicolon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start] --> B[End]
+      style A fill:#fdd;position:fixed,stroke:#c00`,
+    status: "supported",
+    meaning:
+      "A `;` inside a `style` statement's list, on a line where a `#` follows " +
+      "the `:`, is the one Mermaid's style-line rule drops before it parses, " +
+      "so the two declarations around it run together: measured (mermaid " +
+      "11.17.2), `A` records `styles=[\"fill:#fddposition:fixed\",\"stroke:#c00\"]`. " +
+      "The `;` never reaches the declaration gate, so nothing is refused or " +
+      "reported; the browser is handed a `fill` it cannot read, and the " +
+      "`stroke` beside it.",
+    assert: (result) => {
+      expectSame("node A's inline style", nodeStyle(result, "A"), "fill:#fddposition:fixed;stroke:#c00");
+      expectSame("node B's inline style", nodeStyle(result, "B"), "");
+      expectSame("no diagnostic", result.diagnostics, []);
+    },
+  },
+  {
     id: "fc-style-classdef",
     kind: "flowchart",
     source: `flowchart TB
