@@ -41,6 +41,32 @@ describe("readLabel's row breaks", () => {
     expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(['x<br class="x">y', "z"]);
   });
 
+  // Measured with the probe's `--paint` (mermaid 11.17.2): Mermaid splits
+  // sequence text on `/<br\s*\/?>/gi` alone, so a `<` that would begin an
+  // HTML tag does not swallow the `<br>` after it — `A->>B: x <y <br> z`
+  // draws `x <y` and `z`, two `<text>` rows.
+  it("breaks the row at a <br> after an unclosed < in the sequence dialect", () => {
+    const { label } = readLabel("x <y <br> z", { dialect: "sequence" });
+    expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(["x <y ", " z"]);
+  });
+
+  // The same rule, measured with `--paint` on each shape a tag scan would
+  // read differently: a `<br>` the scan would take as part of a tag's name,
+  // or of a quoted attribute value, still breaks; a `<` before a space is a
+  // character; an entity code still resolves beside a stray `<`.
+  for (const [source, rows] of [
+    ["a <b>c<br>d", ["a <b>c", "d"]],
+    ["a<b<br>c", ["a<b", "c"]],
+    ['x <y a="<br>"> z', ['x <y a="', '"> z']],
+    ["a < b<br>c", ["a < b", "c"]],
+    ["x #9829; <y <br/> z", ["x ♥ <y ", " z"]],
+  ] as const) {
+    it(`reads ${source} as Mermaid's sequence text does`, () => {
+      const { label } = readLabel(source, { dialect: "sequence" });
+      expect(label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual(rows);
+    });
+  }
+
   // The HTML parser reads a stray `</br>` as `<br>`: `a</br>b` is
   // `a<br>b` (measured). Before unknown tags were dropped it was drawn as its
   // characters; dropping it would join the rows.

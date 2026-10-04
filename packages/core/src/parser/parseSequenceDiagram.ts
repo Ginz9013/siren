@@ -18,6 +18,7 @@ import type {
   SequenceStatement,
   SirenTimeline,
 } from "../contracts";
+import { CSS_NAMED_COLORS } from "../label/cssColor";
 import { plainLabel, type SourcePosition } from "../label/label";
 import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
@@ -59,30 +60,6 @@ const RECT_COLOR_RE = /^(rgba?\([^()]*\))$/;
  * follows it.
  */
 const BOX_HEADER_RE = /^(rgba?\([^()]*\)|#\w+|\w+)(?:\s+(.*))?$/d;
-
-/**
- * The CSS named colors, plus `transparent`. Used only to decide whether a
- * `box` header's first bare word is its color or the start of its label
- * (see `parseBoxHeader`); no color value is ever validated beyond this.
- */
-const CSS_NAMED_COLORS: ReadonlySet<string> = new Set(
-  `transparent aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond
-   blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk
-   crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta
-   darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray
-   darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick
-   floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey
-   honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon
-   lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink
-   lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow
-   lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple
-   mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue
-   mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid
-   palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum
-   powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen
-   seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal
-   thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen`.split(/\s+/),
-);
 
 interface ArrowTokenDef {
   token: string;
