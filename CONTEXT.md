@@ -358,7 +358,8 @@ its characters there. The text-styling tags are read too — `b` `strong`, `i` `
 `strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup`, `q` and `mark` (black text on
 a yellow rect behind the run, through the theme's `--siren-label-mark-text` and
 `--siren-label-mark-fill`) — nested and misnested as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
-its `**`/`*` stack with tags the author wrote. The tags whose attributes say what they draw are read
+its `**`/`*` and `__`/`_` stack with tags the author wrote, paired by CommonMark's emphasis rules as
+Mermaid's Markdown reader pairs them (`x**(a)**y` and `a_b_c` are drawn as written). The tags whose attributes say what they draw are read
 too: `font` (its `color`, its `size` 1–7 as the scale Mermaid's label measured, and its `face`);
 `span style`, drawing ten properties — `color`, `background-color` (a rect behind the run, as
 `mark`'s), `font-size`, `font-weight`, `font-style`, `font-family`, `text-decoration`,

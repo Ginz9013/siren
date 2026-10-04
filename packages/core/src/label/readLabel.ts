@@ -822,8 +822,8 @@ function hasError(problems: readonly LabelProblem[]): boolean {
  *
  * `source` is the label as the parser found it, with its own syntax — the
  * quote fence, a Markdown string's backticks — already taken off;
- * `markdown` says the backticks were there, so `**`/`*` and a real line
- * break mean something. Never throws: any input reads as *some* label, and
+ * `markdown` says the backticks were there, so `**`/`*`, `__`/`_` and a
+ * real line break mean something. Never throws: any input reads as *some* label, and
  * when `problems` holds an error the caller must not draw it.
  *
  * Pure: the same source and options always read the same label.
@@ -859,40 +859,21 @@ function untagged(source: string): Tagged {
   return { text: source, origins: Array.from({ length: source.length + 1 }, (_, index) => index) };
 }
 
-/**
- * `tagged` with every match of `pattern` rewritten: a whole match into
- * `replacement`, or, for a pair `[open, close]`, the match's delimiters —
- * the equal stretches before and after its group 1 — into the two tags,
- * its group 1 kept as it was.
- */
-function rewritten(tagged: Tagged, pattern: RegExp, replacement: string | readonly [string, string]): Tagged {
+/** `tagged` with every match of `pattern` rewritten into `replacement`. */
+function rewritten(tagged: Tagged, pattern: RegExp, replacement: string): Tagged {
   let text = "";
   const origins: number[] = [];
-  const copy = (from: number, to: number): void => {
-    text += tagged.text.slice(from, to);
-    origins.push(...tagged.origins.slice(from, to));
-  };
-  const insert = (inserted: string, at: number): void => {
-    text += inserted;
-    origins.push(...Array.from(inserted, () => tagged.origins[at]!));
-  };
   let last = 0;
   for (const match of tagged.text.matchAll(pattern)) {
-    const start = match.index;
-    const end = start + match[0].length;
-    copy(last, start);
-    if (typeof replacement === "string") {
-      insert(replacement, start);
-    } else {
-      const delimiter = (match[0].length - match[1]!.length) / 2;
-      insert(replacement[0], start);
-      copy(start + delimiter, end - delimiter);
-      insert(replacement[1], end - delimiter);
-    }
-    last = end;
+    text += tagged.text.slice(last, match.index) + replacement;
+    origins.push(
+      ...tagged.origins.slice(last, match.index),
+      ...Array.from(replacement, () => tagged.origins[match.index]!),
+    );
+    last = match.index + match[0].length;
   }
-  copy(last, tagged.text.length);
-  origins.push(tagged.origins[tagged.text.length]!);
+  text += tagged.text.slice(last);
+  origins.push(...tagged.origins.slice(last));
   return { text, origins };
 }
 
@@ -936,37 +917,183 @@ function withoutStyleSemicolons(tagged: Tagged): Tagged {
  * `<strong>a <i>b</i></strong>`, `<strong>bold <em>and</em> still</strong>`
  * and `<strong>a<br>b</strong>`.
  *
- * A real line break becomes `<br>` first (measured: `**a⏎b**` is
- * `<strong>a<br>b</strong>`); an ordinary label cannot carry one at all, so
- * rewriting it there would be a rule about nothing. Then every `**…**`
- * pair, then every `*…*` pair, each the shortest that closes: the bold pass
- * goes first so that `**bold**` is one bold run rather than two italic runs
- * sharing a doubled star, and the italic pass goes over its output so that
- * a `*` pair inside a bold one is still read.
+ * **The stars and underscores pair as CommonMark pairs them**, because
+ * Mermaid's Markdown reader (marked 16) does — every case below measured in
+ * 11.17.2's HTML labels:
  *
- * **A pair opens at stars with no whitespace after them and closes at stars
- * with none before them** — the whitespace half of CommonMark's flanking
- * rule, which is what Mermaid's Markdown reader applies. Measured in
- * 11.17.2's HTML labels: `a * b * c`, `*a *`, `**a **` and `** a**` are drawn
- * as written, stars and all, and `*a * b*` is one italic `a * b`. An italic
- * star may not sit against another star either, so the second star of a
- * `**` that opened nothing (`** a**`) or closed nothing (`**a **`) does not
- * pair on its own.
+ * - `_…_` is italic and `__…__` bold, as `*…*` and `**…**` are, and the
+ *   two characters nest in each other (`**a _b_ c**` is bold with an
+ *   italic `b`) but never pair with each other (`*a_` is drawn as written).
+ * - A run of them opens only with no whitespace after it and closes only
+ *   with none before it: `a * b * c`, `*a *`, `** a**` and `**a⏎**` are
+ *   drawn as written, a line break counting as whitespace, and `*a * b*` is
+ *   one italic `a * b`.
+ * - Against punctuation, a run opens only from the outside of a word:
+ *   `x**(a)**y`, `a**.b**` and `x_(a)_y` are drawn as written, while
+ *   `*(a)*`, `**(a)**`, `(**a**)` and `a.**b**c` are emphasis.
+ * - An underscore inside a word opens and closes nothing: `a_b_c`, `_a_b`,
+ *   `a__b__c` and `x__a__y` are drawn as written, `__a_b__` is a bold
+ *   `a_b`. Stars do pair inside a word: `a*b*c`, `x**a**y`.
+ * - The rule of three: a run that could both open and close does not pair
+ *   with one when their lengths sum to a multiple of three, so `*a**b*` is
+ *   an italic `a**b` and `*foo**bar**baz*` a bold `bar` inside an italic
+ *   word. Leftover delimiters stay characters: `*a**` is an italic `a`
+ *   then `*`, and `***a***` bold italic.
+ * - A tag the author wrote is read whole, so no `_` or `*` inside it pairs:
+ *   `<a href='http://x/_a_/'>` keeps its href.
  *
- * Not the whole of CommonMark, and so not the whole of Mermaid's reading:
- * its punctuation half is not applied (`x**(a)**y` is drawn as written in
- * Mermaid, and bold here), nor `_`/`__` emphasis (`_a_` is italic in
- * Mermaid, measured, and drawn as written here).
+ * A real line break becomes `<br>` after the pairing (measured: `**a⏎b**`
+ * is `<strong>a<br>b</strong>`); an ordinary label cannot carry one at all,
+ * so rewriting it there would be a rule about nothing. Backslash escapes,
+ * code spans and the rest of Markdown's inline syntax are not read.
  *
  * Mermaid's *SVG* labels read a Markdown string differently — word by word,
  * and an italic run inside a bold one loses the bold — but that mode is the
  * DOM reference, not the picture (ADR-0015).
  */
 function markdownAsTags(source: Tagged): Tagged {
-  const broken = rewritten(source, /\n/g, "<br>");
-  const bolded = rewritten(broken, /\*\*(?!\s)(.*?)(?<!\s)\*\*/g, ["<strong>", "</strong>"]);
-  return rewritten(bolded, /\*(?![\s*])(.*?)(?<![\s*])\*/g, ["<em>", "</em>"]);
+  return rewritten(emphasized(source), /\n/g, "<br>");
 }
+
+/**
+ * One run of `*` or `_` in a Markdown string, and what pairing made of it:
+ * as a closer it is used from its left, as an opener from its right, and
+ * each pair it takes part in leaves a tag where its delimiters were.
+ */
+interface DelimiterRun {
+  character: string;
+  start: number;
+  length: number;
+  canOpen: boolean;
+  canClose: boolean;
+  /** The end tags it became as a closer, innermost first, each at the delimiter it stands for. */
+  closes: { tag: string; at: number }[];
+  /** The start tags it became as an opener, innermost first. */
+  opens: { tag: string; at: number }[];
+  /** How many of its delimiters, from its left, closers used. */
+  closed: number;
+  /** How many of its delimiters, from its right, openers used. */
+  opened: number;
+}
+
+/** How many of `run`'s delimiters are still characters. */
+function unused(run: DelimiterRun): number {
+  return run.length - run.closed - run.opened;
+}
+
+/**
+ * `tagged` with its `*`/`_` emphasis paired into `<em>` and `<strong>`, by
+ * CommonMark's delimiter-run procedure (see `markdownAsTags`).
+ */
+function emphasized(tagged: Tagged): Tagged {
+  const { text } = tagged;
+  const runs = delimiterRuns(text);
+  const openers: DelimiterRun[] = [];
+  for (const run of runs) {
+    while (run.canClose && unused(run) > 0) {
+      let index = openers.length - 1;
+      while (index >= 0 && !pairs(openers[index]!, run)) {
+        index--;
+      }
+      if (index < 0) {
+        break;
+      }
+      const opener = openers[index]!;
+      const used = unused(opener) >= 2 && unused(run) >= 2 ? 2 : 1;
+      const [open, close] = used === 2 ? ["<strong>", "</strong>"] : ["<em>", "</em>"];
+      opener.opened += used;
+      opener.opens.push({ tag: open, at: opener.start + opener.length - opener.opened });
+      run.closes.push({ tag: close, at: run.start + run.closed });
+      run.closed += used;
+      // The delimiters between the two can no longer pair, and a spent opener goes too.
+      openers.splice(unused(opener) > 0 ? index + 1 : index);
+    }
+    if (run.canOpen && unused(run) > 0) {
+      openers.push(run);
+    }
+  }
+
+  let result = "";
+  const origins: number[] = [];
+  const copy = (from: number, to: number): void => {
+    result += text.slice(from, to);
+    origins.push(...tagged.origins.slice(from, to));
+  };
+  const insert = (tag: string, at: number): void => {
+    result += tag;
+    origins.push(...Array.from(tag, () => tagged.origins[at]!));
+  };
+  let last = 0;
+  for (const run of runs) {
+    copy(last, run.start);
+    run.closes.forEach(({ tag, at }) => insert(tag, at));
+    copy(run.start + run.closed, run.start + run.length - run.opened);
+    [...run.opens].reverse().forEach(({ tag, at }) => insert(tag, at));
+    last = run.start + run.length;
+  }
+  copy(last, text.length);
+  origins.push(tagged.origins[text.length]!);
+  return { text: result, origins };
+}
+
+/**
+ * Whether `opener` can pair with `closer`: runs of one character, and —
+ * CommonMark's rule of three — when either could both open and close, not
+ * two whose lengths sum to a multiple of three unless both lengths are
+ * multiples of three themselves.
+ */
+function pairs(opener: DelimiterRun, closer: DelimiterRun): boolean {
+  if (opener.character !== closer.character) {
+    return false;
+  }
+  const either = opener.canClose || closer.canOpen;
+  const lengths = opener.length + closer.length;
+  return !either || lengths % 3 !== 0 || (opener.length % 3 === 0 && closer.length % 3 === 0);
+}
+
+/**
+ * Every run of `*` or of `_` in `text`, with whether it can open and close
+ * emphasis: a run is left-flanking when no whitespace follows it and,
+ * if punctuation does, whitespace or punctuation precedes it; right-flanking
+ * is the mirror image. The label's ends count as whitespace. A `*` run
+ * opens when left-flanking and closes when right-flanking; a `_` run inside
+ * a word, both at once, does neither unless punctuation sits on the side it
+ * would open or close from.
+ *
+ * A tag the author wrote is read whole, as Markdown reads inline HTML, so
+ * no run inside one is a delimiter (`<a href='/_a_/'>` keeps its href).
+ */
+function delimiterRuns(text: string): DelimiterRun[] {
+  const tags = Array.from(text.matchAll(TAG_RE), (tag) => [tag.index, tag.index + tag[0].length] as const).filter(
+    ([, end]) => text[end - 1] === ">",
+  );
+  const inTag = (index: number): boolean => tags.some(([start, end]) => start < index && index < end);
+  return Array.from(text.matchAll(/\*+|_+/g), (match) => {
+    const before = text[match.index - 1] ?? " ";
+    const after = text[match.index + match[0].length] ?? " ";
+    const outside = (side: string): boolean => WHITESPACE_RE.test(side) || PUNCTUATION_RE.test(side);
+    const leftFlanking = !WHITESPACE_RE.test(after) && (!PUNCTUATION_RE.test(after) || outside(before));
+    const rightFlanking = !WHITESPACE_RE.test(before) && (!PUNCTUATION_RE.test(before) || outside(after));
+    const star = match[0][0] === "*";
+    return {
+      character: match[0][0]!,
+      start: match.index,
+      length: match[0].length,
+      canOpen: leftFlanking && (star || !rightFlanking || PUNCTUATION_RE.test(before)),
+      canClose: rightFlanking && (star || !leftFlanking || PUNCTUATION_RE.test(after)),
+      closes: [],
+      opens: [],
+      closed: 0,
+      opened: 0,
+    };
+  }).filter((run) => !inTag(run.start));
+}
+
+/** A Unicode whitespace character, as CommonMark's flanking rule counts one. */
+const WHITESPACE_RE = /\s/u;
+
+/** A Unicode punctuation or symbol character, as CommonMark's flanking rule counts one. */
+const PUNCTUATION_RE = /[\p{P}\p{S}]/u;
 
 /**
  * Reads the tags in `source` into rows of runs.

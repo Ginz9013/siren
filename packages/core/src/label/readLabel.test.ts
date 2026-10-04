@@ -131,6 +131,53 @@ describe("readLabel's Markdown string", () => {
     expect(styledRows("** a**", true)).toEqual(["** a**"]);
   });
 
+  // Measured in 11.17.2's HTML labels: `<p><em>a</em></p>`,
+  // `<p><strong>a</strong></p>`, `<p>a_b_c</p>`, `<p>_a_b</p>`,
+  // `<p>a__b__c</p>` and `<p><strong>a_b</strong></p>`.
+  it("reads `_…_` as italic and `__…__` as bold, but not inside a word", () => {
+    expect(styledRows("_a_ __b__", true)).toEqual(["a(i) b(b)"]);
+    expect(styledRows("a_b_c", true)).toEqual(["a_b_c"]);
+    expect(styledRows("_a_b", true)).toEqual(["_a_b"]);
+    expect(styledRows("a__b__c", true)).toEqual(["a__b__c"]);
+    expect(styledRows("__a_b__", true)).toEqual(["a_b(b)"]);
+  });
+
+  // Measured: `<p>x**(a)**y</p>`, `<p>a**.b**</p>`, `<p>x_(a)_y</p>`, and
+  // `<p><em>(a)</em></p>`, `<p><strong>(a)</strong></p>`,
+  // `<p>(<strong>a</strong>)</p>`, `<p><em>(a)</em></p>` for `_(a)_`.
+  it("opens a pair at punctuation only after whitespace or punctuation, and closes one so too", () => {
+    expect(styledRows("x**(a)**y", true)).toEqual(["x**(a)**y"]);
+    expect(styledRows("a**.b**", true)).toEqual(["a**.b**"]);
+    expect(styledRows("x_(a)_y", true)).toEqual(["x_(a)_y"]);
+    expect(styledRows("*(a)* **(a)** (**a**) _(a)_", true)).toEqual(["(a)(i) (a)(b) (a(b)) (a)(i)"]);
+  });
+
+  // Measured: `<p><em>a**b</em></p>`, `<p><strong>a*b</strong></p>`,
+  // `<p><em>foo<strong>bar</strong>baz</em></p>` and `<p><em>a</em>*</p>`.
+  it("does not pair a run that could both open and close with one whose sum of lengths is a multiple of three", () => {
+    expect(styledRows("*a**b*", true)).toEqual(["a**b(i)"]);
+    expect(styledRows("**a*b**", true)).toEqual(["a*b(b)"]);
+    expect(styledRows("*foo**bar**baz*", true)).toEqual(["foo(i)bar(bi)baz(i)"]);
+    expect(styledRows("*a**", true)).toEqual(["a(i)*"]);
+  });
+
+  // Measured: `**a⏎**` is `<p>**a<br>**</p>` — the line break is whitespace
+  // to the stars after it, not the `>` of the `<br>` it becomes.
+  it("does not close a pair at stars that begin a line", () => {
+    expect(styledRows("**a\n**", true)).toEqual(["**a", "**"]);
+  });
+
+  // Measured: `<a href='http://x/_a_/'>l</a>` keeps its href as written,
+  // `<p><a href="http://x/_a_/">l</a></p>` — Markdown reads a tag whole.
+  it("pairs no `_` or `*` inside a tag the author wrote", () => {
+    const { label } = readLabel("<a href='http://x/_a_/'>l</a> *b*", { dialect: "html", markdown: true });
+    expect(label.rows[0]!.map((run) => [run.text, run.href, run.italic])).toEqual([
+      ["l", "http://x/_a_/", false],
+      [" ", null, false],
+      ["b", null, true],
+    ]);
+  });
+
   it("leaves `**` alone when the label is not a Markdown string", () => {
     expect(styledRows("**md**", false)).toEqual(["**md**"]);
   });
@@ -556,6 +603,14 @@ describe("readLabel's attribute tags", () => {
   // for, but a problem is the author's to find in what they wrote.
   it("places a warning in a Markdown string at the tag as the author wrote it", () => {
     const source = "**a** *b*\n<span style='border:0'>x</span>";
+
+    const { problems } = readLabel(source, { dialect: "html", markdown: true });
+
+    expect(problems.map((problem) => problem.offset)).toEqual([source.indexOf("<span")]);
+  });
+
+  it("places it at the tag past paired, unpaired and nested `_` and `*` runs", () => {
+    const source = "__a__ _b *c*_ x**(d)**y *e**\n<span style='border:0'>x</span>";
 
     const { problems } = readLabel(source, { dialect: "html", markdown: true });
 

@@ -370,6 +370,37 @@ export const LABEL_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "label-markdown-underscore",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`_a_ __b__ c_d_e\`"]`,
+    status: "supported",
+    meaning:
+      "A Markdown string's `_` and `__` are emphasis as its `*` and `**` are, " +
+      "except inside a word: Mermaid's HTML labels show " +
+      "`<em>a</em> <strong>b</strong> c_d_e` (measured against 11.17.2). Siren " +
+      "used to draw every underscore as a character.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["a(i) b(b) c_d_e"]);
+    },
+  },
+  {
+    id: "label-markdown-punctuation",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["\`x**(a)**y **(b)**\`"]`,
+    status: "supported",
+    meaning:
+      "Stars against punctuation pair only from the outside of a word: " +
+      "Mermaid's HTML labels show `x**(a)**y <strong>(b)</strong>` (measured " +
+      "against 11.17.2), as the punctuation half of CommonMark's flanking rule " +
+      "says — a `**` between a letter and a `(` cannot open. Siren used to draw " +
+      "both in bold.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["x**(a)**y (b)(b)"]);
+    },
+  },
+  {
     id: "label-mark",
     kind: "flowchart",
     source: `flowchart TB
