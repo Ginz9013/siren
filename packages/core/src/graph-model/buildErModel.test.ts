@@ -6,6 +6,7 @@ import type {
   ErSubgraph,
   StyleDecl,
 } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { buildErModel } from "./buildErModel";
 
 /** An `ErDocument` naming `names`, in the order given, and nothing else. */
@@ -40,7 +41,7 @@ const relates = (
   line: "identifying",
   rightCardinality: "zeroOrMore",
   right,
-  label: "places",
+  label: plainLabel("places"),
   ...overrides,
 });
 
@@ -73,8 +74,8 @@ describe("buildErModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.entities).toEqual([
-      { id: "CUSTOMER", label: "CUSTOMER", attributes: [], parentId: null },
-      { id: "ORDER", label: "ORDER", attributes: [], parentId: null },
+      { id: "CUSTOMER", label: plainLabel("CUSTOMER"), attributes: [], parentId: null },
+      { id: "ORDER", label: plainLabel("ORDER"), attributes: [], parentId: null },
     ]);
   });
 
@@ -97,14 +98,41 @@ describe("buildErModel", () => {
       accTitle: null,
       accDescr: null,
       direction: "TB",
-      entities: [{ name: "CUSTOMER", alias: "Customer Account", attributes: [] }],
+      entities: [{ name: "CUSTOMER", alias: plainLabel("Customer Account"), attributes: [] }],
       relationships: [],
     });
 
     expect(diagnostics).toEqual([]);
     expect(model.entities).toEqual([
-      { id: "CUSTOMER", label: "Customer Account", attributes: [], parentId: null },
+      { id: "CUSTOMER", label: plainLabel("Customer Account"), attributes: [], parentId: null },
     ]);
+  });
+
+  it("draws an alias as the label the parser read, rows and all, and a bare name as a plain label", () => {
+    // ADR-0015: an alias is a label — `CUSTOMER["Customer<br/>Record"]`
+    // draws two rows (measured, mermaid 11.17.2, `--html`). The name an
+    // entity falls back to is never read for tags: it is the id, drawn as
+    // written.
+    const twoRows = {
+      text: "Customer\nRecord",
+      rows: [[plainRun("Customer")], [plainRun("Record")]],
+    };
+    const { model } = buildErModel({
+      kind: "er",
+      subgraphs: [],
+      styles: [],
+      timeline: null,
+      accTitle: null,
+      accDescr: null,
+      direction: "TB",
+      entities: [
+        { name: "CUSTOMER", alias: twoRows, attributes: [] },
+        { name: "A<b>B", alias: null, attributes: [] },
+      ],
+      relationships: [],
+    });
+
+    expect(model.entities.map((entity) => entity.label)).toEqual([twoRows, plainLabel("A<b>B")]);
   });
 
   it("lets the first alias an entity is given win, and a later bare mention not clear it", () => {
@@ -128,9 +156,13 @@ describe("buildErModel", () => {
         accTitle: null,
         accDescr: null,
         direction: "TB",
-        entities: entities.map((entity) => ({ ...entity, attributes: [] })),
+        entities: entities.map(({ name, alias }) => ({
+          name,
+          alias: alias === null ? null : plainLabel(alias),
+          attributes: [],
+        })),
         relationships: [],
-      }).model.entities[0].label;
+      }).model.entities[0].label.text;
 
     expect(first({ name: "A", alias: "x" }, { name: "A", alias: "y" })).toBe("x");
     expect(first({ name: "A", alias: null }, { name: "A", alias: "Second" })).toBe("Second");
@@ -157,7 +189,7 @@ describe("buildErModel", () => {
       type: "string",
       name,
       keys: [],
-      comment: "",
+      comment: plainLabel(""),
     });
     const { model, diagnostics } = buildErModel({
       kind: "er",
@@ -179,11 +211,11 @@ describe("buildErModel", () => {
     expect(model.entities).toEqual([
       {
         id: "CUSTOMER",
-        label: "CUSTOMER",
+        label: plainLabel("CUSTOMER"),
         attributes: [attribute("a"), attribute("b")],
         parentId: null,
       },
-      { id: "ORDER", label: "ORDER", attributes: [], parentId: null },
+      { id: "ORDER", label: plainLabel("ORDER"), attributes: [], parentId: null },
     ]);
   });
 
@@ -222,7 +254,7 @@ describe("buildErModel", () => {
         fromCardinality: "onlyOne",
         toCardinality: "zeroOrMore",
         line: "identifying",
-        label: "places",
+        label: plainLabel("places"),
       },
     ]);
   });
@@ -250,8 +282,8 @@ describe("buildErModel", () => {
     const { model, diagnostics } = buildErModel(
       documentRelating(
         relates("CUSTOMER", "ORDER"),
-        relates("CUSTOMER", "ORDER", { label: "also places" }),
-        relates("ORDER", "LINE-ITEM", { label: "contains" }),
+        relates("CUSTOMER", "ORDER", { label: plainLabel("also places") }),
+        relates("ORDER", "LINE-ITEM", { label: plainLabel("contains") }),
       ),
     );
 
@@ -283,7 +315,7 @@ describe("buildErModel", () => {
         { name: "B", alias: null, attributes: [] },
         { name: "A", alias: null, attributes: [] },
       ],
-      relationships: [relates("A", "B", { label: "first" })],
+      relationships: [relates("A", "B", { label: plainLabel("first") })],
     });
 
     expect(model.entities.map((entity) => entity.id)).toEqual(["ZZZ", "A", "B"]);
@@ -301,11 +333,11 @@ describe("buildErModel", () => {
     // here as well as in the ids.
     const { model } = buildErModel(
       documentRelating(
-        relates("A", "B", { label: "first" }),
+        relates("A", "B", { label: plainLabel("first") }),
         relates("A", "B", {
           leftCardinality: "zeroOrMore",
           rightCardinality: "onlyOne",
-          label: "second",
+          label: plainLabel("second"),
         }),
       ),
     );
@@ -373,7 +405,7 @@ describe("buildErModel", () => {
     // indistinguishable to `querySelectorAll`. Under `:` the line is
     // `LINE:ITEM`, and this asserts the silence is earned rather than the
     // detector being asleep.
-    const document = documentRelating(relates("LINE", "ITEM", { label: "x" }));
+    const document = documentRelating(relates("LINE", "ITEM", { label: plainLabel("x") }));
     document.entities.unshift({ name: "LINE-ITEM", alias: null, attributes: [] });
 
     const { model, diagnostics } = buildErModel(document);
@@ -479,7 +511,7 @@ describe("buildErModel resolves the timeline", () => {
     const document = withTimeline({
       entries: [{ kind: "enter", step: 1, targetId: "email", effect: "fade", line: 6, column: 3 }],
     });
-    document.entities[0].attributes.push({ type: "string", name: "email", keys: [], comment: "" });
+    document.entities[0].attributes.push({ type: "string", name: "email", keys: [], comment: plainLabel("") });
 
     const { model, diagnostics } = buildErModel(document);
 
@@ -627,7 +659,7 @@ describe("buildErModel resolves subgraph clusters", () => {
   });
 
   const block = (overrides: Partial<ErSubgraph> & { name: string }): ErSubgraph => ({
-    label: overrides.name,
+    label: plainLabel(overrides.name),
     direction: null,
     entityNames: [],
     subgraphs: [],
@@ -646,7 +678,7 @@ describe("buildErModel resolves subgraph clusters", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.subgraphs).toEqual([
-      { id: "subgraph:1", label: "sales", parentId: null, direction: "LR" },
+      { id: "subgraph:1", label: plainLabel("sales"), parentId: null, direction: "LR" },
     ]);
     // Membership lands on the entity and nowhere else — the rule
     // `ResolvedSubgraph` states one kind over, so a frame and the box it
@@ -708,8 +740,8 @@ describe("buildErModel resolves subgraph clusters", () => {
 
     // The ids are still minted in the order the keywords were written.
     expect(model.subgraphs).toEqual([
-      { id: "subgraph:1", label: "outer", parentId: null, direction: null },
-      { id: "subgraph:2", label: "inner", parentId: "subgraph:1", direction: null },
+      { id: "subgraph:1", label: plainLabel("outer"), parentId: null, direction: null },
+      { id: "subgraph:2", label: plainLabel("inner"), parentId: "subgraph:1", direction: null },
     ]);
     expect(model.entities.map((entity) => entity.parentId)).toEqual(["subgraph:2"]);
   });

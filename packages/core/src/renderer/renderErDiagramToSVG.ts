@@ -7,6 +7,7 @@ import type {
   PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
+import { appendLabel, drawLabel } from "../label/drawLabel";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -208,14 +209,13 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   frame.setAttribute("height", String(subgraph.height));
   g.appendChild(frame);
 
-  const title = document.createElementNS(SVG_NS, "text");
-  title.setAttribute("class", "siren-er-subgraph-label");
-  title.setAttribute("x", String(subgraph.labelAnchor.x));
-  title.setAttribute("y", String(subgraph.labelAnchor.y));
-  title.setAttribute("text-anchor", "middle");
-  title.setAttribute("dominant-baseline", "middle");
-  title.textContent = subgraph.label;
-  g.appendChild(title);
+  // Drawn by `drawLabel` at the anchor in the title strip: one plain row is
+  // the `<text>`'s own `textContent`, anything else a row tspan per row
+  // (ADR-0015).
+  appendLabel(
+    g,
+    drawLabel(subgraph.label, subgraph.labelBox, subgraph.labelAnchor, "siren-er-subgraph-label"),
+  );
 
   return g;
 }
@@ -253,17 +253,18 @@ function buildRelationship(
   g.appendChild(line);
 
   if (relationship.labelAnchor !== null) {
-    const label = document.createElementNS(SVG_NS, "text");
-    label.setAttribute("class", "siren-er-relationship-label");
-    label.setAttribute("x", String(relationship.labelAnchor.x));
-    label.setAttribute("y", String(relationship.labelAnchor.y));
-    // Presentation attributes rather than theme rules, for the reason
-    // `renderToSVG` gives: CSS would win over them and could drift out of
-    // sync with the anchor the layout computed.
-    label.setAttribute("text-anchor", "middle");
-    label.setAttribute("dominant-baseline", "middle");
-    label.textContent = relationship.label;
-    g.appendChild(label);
+    // Drawn by `drawLabel` at the anchor the layout reserved room for: one
+    // plain row is the `<text>`'s own `textContent`, anything else a row
+    // tspan per row (ADR-0015).
+    appendLabel(
+      g,
+      drawLabel(
+        relationship.label,
+        relationship.labelBox,
+        relationship.labelAnchor,
+        "siren-er-relationship-label",
+      ),
+    );
   }
 
   return g;
@@ -412,18 +413,18 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   const table = entity.attributeTable;
   const nameRowBottom = table === null ? entity.y + entity.height : table.headerDividerY;
 
-  const label = document.createElementNS(SVG_NS, "text");
-  label.setAttribute("class", "siren-er-entity-label");
-  label.setAttribute("x", String(entity.x + entity.width / 2));
-  label.setAttribute("y", String((entity.y + nameRowBottom) / 2));
-  // Presentation attributes rather than theme rules, for the reason
-  // `renderToSVG` gives: CSS would win over them and could drift out of sync
-  // with the centering math above.
-  label.setAttribute("text-anchor", "middle");
-  label.setAttribute("dominant-baseline", "middle");
-  label.textContent = entity.label;
-  applyAuthorStyle(label, entity.style.text);
-  g.appendChild(label);
+  // Drawn by `drawLabel`, centred in the name row: one plain row is the
+  // `<text>`'s own `textContent`, anything else a row tspan per row
+  // (ADR-0015). The author's text style goes on the `<text>`, which every
+  // row inherits it from.
+  const drawn = drawLabel(
+    entity.label,
+    entity.labelBox,
+    { x: entity.x + entity.width / 2, y: (entity.y + nameRowBottom) / 2 },
+    "siren-er-entity-label",
+  );
+  applyAuthorStyle(drawn.text, entity.style.text);
+  appendLabel(g, drawn);
 
   if (table !== null) {
     // The full-width rule under the name row first, then one at each
@@ -437,8 +438,19 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
     }
     for (const row of table.rows) {
       for (const cell of row.cells) {
+        const className = `siren-er-attribute siren-er-attribute-${cell.column}`;
+        if (cell.commentLabel !== null) {
+          // The comment is a label (ADR-0015), drawn by `drawLabel` at the
+          // anchor layout placed so its widest row starts where the column's
+          // cells do. One plain row is the `<text>`'s own `textContent`.
+          const { label, labelBox, anchor } = cell.commentLabel;
+          const drawn = drawLabel(label, labelBox, anchor, className);
+          applyAuthorStyle(drawn.text, entity.style.text);
+          appendLabel(g, drawn);
+          continue;
+        }
         const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("class", `siren-er-attribute siren-er-attribute-${cell.column}`);
+        text.setAttribute("class", className);
         text.setAttribute("x", String(cell.x));
         text.setAttribute("y", String(cell.y));
         // `start`, not `middle`: the layout's `x` is the text's **left
@@ -448,8 +460,8 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
         text.setAttribute("text-anchor", "start");
         text.setAttribute("dominant-baseline", "middle");
         // `textContent` rather than any markup path, the rule every other
-        // renderer here keeps: attribute text is author input and must
-        // render literally.
+        // renderer here keeps: an attribute's type, name and keys are author
+        // input drawn as written, never read for tags.
         text.textContent = cell.text;
         // **Every cell, not just the name.** Measured with `--markup`
         // (mermaid 11.17.2): an author's `color` reaches the name label and

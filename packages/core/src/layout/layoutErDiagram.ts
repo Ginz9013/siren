@@ -2,6 +2,7 @@ import type {
   ErAttribute,
   ErAttributeColumn,
   ErModel,
+  LabelBox,
   LayoutOptions,
   Point,
   PositionedErDiagram,
@@ -12,6 +13,7 @@ import type {
   ResolvedErEntity,
   ResolvedErSubgraph,
 } from "../contracts";
+import { layoutLabel } from "../label/layoutLabel";
 import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
@@ -58,7 +60,7 @@ const COLUMNS: readonly { column: ErAttributeColumn; textOf: (a: ErAttribute) =>
   { column: "type", textOf: (attribute) => attribute.type },
   { column: "name", textOf: (attribute) => attribute.name },
   { column: "keys", textOf: (attribute) => attribute.keys.join(",") },
-  { column: "comment", textOf: (attribute) => attribute.comment },
+  { column: "comment", textOf: (attribute) => attribute.comment.text },
 ];
 
 /**
@@ -98,6 +100,8 @@ function drawnColumns(attributes: readonly ErAttribute[]): typeof COLUMNS {
 interface ErBoxPlan {
   width: number;
   height: number;
+  /** The name as `layoutLabel` measured it. */
+  labelBox: LabelBox;
   table: PositionedErAttributeTable | null;
 }
 
@@ -116,30 +120,42 @@ interface ErBoxPlan {
  */
 function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan {
   const measure = (text: string) => options.measureText.measure(text);
-  const name = measure(entity.label);
-  const nameRowHeight = name.height + ENTITY_PADDING_Y * 2;
-  const nameRowWidth = name.width + ENTITY_PADDING_X * 2;
+  // Every row of the name, stacked: an alias may break into several (ADR-0015).
+  const labelBox = layoutLabel(entity.label, options.measureText);
+  const nameRowHeight = labelBox.height + ENTITY_PADDING_Y * 2;
+  const nameRowWidth = labelBox.width + ENTITY_PADDING_X * 2;
 
   if (entity.attributes.length === 0) {
     // The plain labelled rectangle, unchanged: measured with `--markup`, an
     // entity with no attributes is a `rect.basic.label-container` with its
     // name inside, and Mermaid's `erBox` returns early for it.
-    return { width: nameRowWidth, height: nameRowHeight, table: null };
+    return { width: nameRowWidth, height: nameRowHeight, labelBox, table: null };
   }
 
   const columns = drawnColumns(entity.attributes);
-  const cellTexts = columns.map(({ textOf }) => entity.attributes.map(textOf));
-  const widths = cellTexts.map(
-    (texts) => Math.max(...texts.map((text) => measure(text).width)) + ENTITY_PADDING_X,
+  /**
+   * Each attribute's comment as `layoutLabel` measured it — every row of it,
+   * so a `<br>` in a comment makes its row taller (ADR-0015). The other
+   * columns are one line of literal text, measured as written.
+   */
+  const commentBoxes = entity.attributes.map((attribute) =>
+    layoutLabel(attribute.comment, options.measureText),
+  );
+  const sizeOf = (column: ErAttributeColumn, index: number) =>
+    column === "comment"
+      ? commentBoxes[index]
+      : measure(COLUMNS.find((each) => each.column === column)!.textOf(entity.attributes[index]));
+  const widths = columns.map(
+    ({ column }) =>
+      Math.max(...entity.attributes.map((_, index) => sizeOf(column, index).width)) +
+      ENTITY_PADDING_X,
   );
   const columnsWidth = widths.reduce((sum, width) => sum + width, 0);
   const surplus = Math.max(0, nameRowWidth - columnsWidth);
   const grown = widths.map((width) => width + surplus / widths.length);
 
-  const rowHeights = entity.attributes.map((attribute) => {
-    const tallest = Math.max(
-      ...columns.map(({ textOf }) => measure(textOf(attribute)).height),
-    );
+  const rowHeights = entity.attributes.map((_, index) => {
+    const tallest = Math.max(...columns.map(({ column }) => sizeOf(column, index).height));
     return tallest + ENTITY_PADDING_Y * 2;
   });
 
@@ -157,18 +173,35 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
     const centerY = top + rowHeights[index] / 2;
     top += rowHeights[index];
     return {
-      cells: columns.map(({ column, textOf }, columnIndex) => ({
-        column,
-        text: textOf(attribute),
-        x: columnLefts[columnIndex] + ENTITY_PADDING_X / 2,
-        y: centerY,
-      })),
+      cells: columns.map(({ column, textOf }, columnIndex) => {
+        const x = columnLefts[columnIndex] + ENTITY_PADDING_X / 2;
+        const labelBox = commentBoxes[index];
+        return {
+          column,
+          text: textOf(attribute),
+          x,
+          y: centerY,
+          // Centred so that the widest row's text starts at `x`, where every
+          // cell's in the column does: the box's width holds the measurer's
+          // padding, half each side, and a run's `x` is that half
+          // (`LabelBox`), so the text is the width less twice that.
+          commentLabel:
+            column === "comment"
+              ? {
+                  label: attribute.comment,
+                  labelBox,
+                  anchor: { x: x + labelBox.width / 2 - labelBox.rows[0].runs[0].x, y: centerY },
+                }
+              : null,
+        };
+      }),
     };
   });
 
   return {
     width: left,
     height: top,
+    labelBox,
     table: {
       headerDividerY: nameRowHeight,
       columnDividerXs: columnLefts.slice(1),
@@ -198,6 +231,13 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
 export function layoutErDiagram(model: ErModel, options: LayoutOptions): PositionedErDiagram {
   const planById = new Map(
     model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
+  );
+  /** Each relationship's label as `layoutLabel` measured it, by the relationship's id. */
+  const relationshipLabelBoxById = new Map(
+    model.relationships.map(
+      (relationship) =>
+        [relationship.id, layoutLabel(relationship.label, options.measureText)] as const,
+    ),
   );
 
   const laidOut = layoutDirectedGraph({
@@ -229,7 +269,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       // expand it; writing the document's direction in here would hand
       // every cluster one and lose that distinction (`01M2XJWM4`).
       ...model.subgraphs.map((subgraph) => {
-        const label = options.measureText.measure(subgraph.label);
+        const label = layoutLabel(subgraph.label, options.measureText);
         return {
           id: subgraph.id,
           width: label.width + SUBGRAPH_PADDING * 2,
@@ -255,8 +295,9 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       to: relationship.to,
       // Every ER relationship carries a label — measured, the `: label` is
       // required — so the core is always asked to hold the ranks apart for
-      // one, and it reports back where that space ended up.
-      label: options.measureText.measure(relationship.label),
+      // one, and it reports back where that space ended up. Sized from
+      // every row of the label (ADR-0015), so a `<br>` holds them further.
+      label: relationshipLabelBoxById.get(relationship.id)!,
     })),
   });
 
@@ -295,10 +336,11 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   const entities: PositionedErEntity[] = model.entities.map((entity) => {
     const placed = boxById.get(entity.id)!;
     const box = { ...placed, ...shifted(placed) };
-    const table = planById.get(entity.id)!.table;
+    const { table, labelBox } = planById.get(entity.id)!;
     return {
       id: entity.id,
       label: entity.label,
+      labelBox,
       x: box.x,
       y: box.y,
       width: box.width,
@@ -322,6 +364,16 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
                   ...cell,
                   x: box.x + cell.x,
                   y: box.y + cell.y,
+                  commentLabel:
+                    cell.commentLabel === null
+                      ? null
+                      : {
+                          ...cell.commentLabel,
+                          anchor: {
+                            x: box.x + cell.commentLabel.anchor.x,
+                            y: box.y + cell.commentLabel.anchor.y,
+                          },
+                        },
                 })),
               })),
             },
@@ -339,6 +391,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         toCardinality: relationship.toCardinality,
         line: relationship.line,
         label: relationship.label,
+        labelBox: relationshipLabelBoxById.get(relationship.id)!,
         points: route.points.map(shifted),
         labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
       };
@@ -412,7 +465,9 @@ function subgraphFrames(
   const frameById = new Map<string, PositionedErSubgraph>();
 
   for (const subgraph of [...model.subgraphs].reverse()) {
-    const label = options.measureText.measure(subgraph.label);
+    // Every row of the title, stacked: a `<br>` in it makes the strip taller
+    // (ADR-0015).
+    const label = layoutLabel(subgraph.label, options.measureText);
     const cluster = boxById.get(subgraph.id)!;
 
     const held: { x: number; y: number; width: number; height: number }[] = [
@@ -442,6 +497,7 @@ function subgraphFrames(
     frameById.set(subgraph.id, {
       id: subgraph.id,
       label: subgraph.label,
+      labelBox: label,
       x: left,
       y: top,
       width: right - left,

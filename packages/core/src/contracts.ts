@@ -2809,8 +2809,12 @@ export interface ErEntityDecl {
    * Per mention, like `attributes`: an entity may be named several times and
    * only one of those mentions carry an alias. Which one wins is
    * `buildErModel`'s — measured, the **first non-empty** one does.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015): measured
+   * (mermaid 11.17.2, `--html`), `CUSTOMER["Customer<br/>Record"]` draws
+   * `Customer` over `Record`.
    */
-  alias: string | null;
+  alias: Label | null;
   /**
    * The attributes this *mention* of the entity declared, in source order —
    * empty for a bare name and for either end of a relationship.
@@ -2876,8 +2880,14 @@ export interface ErAttribute {
    * `string x "a" PK` is a parse error, and so is a second comment. A comma
    * inside it is ordinary text (`"x, y"` is one comment), which is the same
    * character that splits `keys` two fields to the left.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015): measured
+   * (mermaid 11.17.2, `--html`), `string name "a<br/>b"` draws `a` over
+   * `b`. No comment written is the empty label — one row, one empty run —
+   * so "wrote none" is `comment.text === ""`. `type` and `name` are never
+   * read for tags: they are drawn as written.
    */
-  comment: string;
+  comment: Label;
 }
 
 /**
@@ -2940,8 +2950,14 @@ export interface ErSubgraph {
    * between them. Mermaid's `subgraphTitle` is a *list of words* joined
    * with a single space, so `s1[a   b]` answers `"a b"` — measured, which
    * is why the run of spaces is collapsed rather than carried.
+   *
+   * Read by `readLabel` in the full `html` dialect once the spaces are
+   * collapsed (ADR-0015): measured (mermaid 11.17.2, `--html`),
+   * `s1["My<br/>Title <b>x</b>"]` is the cluster label
+   * `<p>My<br>Title <b>x</b></p>`. The name standing in for an unwritten
+   * title is a plain label of itself, never read for tags.
    */
-  label: string;
+  label: Label;
   /**
    * This block's own rank direction, or `null` when it wrote none and its
    * members lay out along the document's.
@@ -3166,8 +3182,12 @@ export interface ErRelationshipDecl {
    * `CUSTOMER ||--o{ ORDER` with no colon is a Mermaid parse error
    * ("Expecting 'COLON', 'STYLE_SEPARATOR', got 'NEWLINE'"), so there is no
    * such thing as an unlabelled ER relationship and this is not nullable.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015): measured
+   * (mermaid 11.17.2, `--html`), `: "places<br/>many"` is the edge label
+   * `<p>places<br>many</p>` — two rows.
    */
-  label: string;
+  label: Label;
 }
 
 // ---------------------------------------------------------------------------
@@ -3191,8 +3211,11 @@ export interface ErRelationshipDecl {
 export interface ResolvedErEntity {
   /** The authored name: `data-siren-id`, and the handle everything addresses. */
   id: string;
-  /** The text the box draws. */
-  label: string;
+  /**
+   * What the box draws: the alias the author gave it, or a plain label of
+   * its name, which has no tag in it to read.
+   */
+  label: Label;
   /**
    * Every attribute this entity declared, in source order and **joined
    * across blocks** — measured, an entity that opens two blocks carries both
@@ -3256,8 +3279,8 @@ export interface ResolvedErEntity {
  */
 export interface ResolvedErSubgraph {
   id: string;
-  /** The text the frame draws — the block's title, carried through. */
-  label: string;
+  /** What the frame draws — the block's title, carried through. */
+  label: Label;
   /** The cluster this one is nested in, or `null` at the top level. */
   parentId: string | null;
   /**
@@ -3338,7 +3361,8 @@ export interface ResolvedErRelationship {
   /** The marker drawn against `to`. */
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  label: string;
+  /** What the relationship's label draws, carried through from `ErRelationshipDecl.label`. */
+  label: Label;
 }
 
 /**
@@ -3435,8 +3459,13 @@ export interface ErModelResult {
  */
 export interface PositionedErEntity {
   id: string;
-  /** The text the box draws, carried through from `ResolvedErEntity.label`. */
-  label: string;
+  /** What the box draws, carried through from `ResolvedErEntity.label`. */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the name row was sized
+   * around. The renderer centres it in that row and hands it `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -3541,6 +3570,15 @@ export interface PositionedErAttributeCell {
   x: number;
   /** Vertical centre of the text, the way `PositionedClass`'s member lines are. */
   y: number;
+  /**
+   * The comment as a label — `null` in every other column, whose text is
+   * drawn as written and never read for tags. `labelBox` is what
+   * `layoutLabel` measured, which the row's height and the column's width
+   * were sized from, and `anchor` the centre the renderer hands `drawLabel`:
+   * the band the label's widest row fills starts at `x`, so a one-row
+   * comment's text starts where every cell's in the column does.
+   */
+  commentLabel: { label: Label; labelBox: LabelBox; anchor: Point } | null;
 }
 
 /**
@@ -3558,7 +3596,13 @@ export interface PositionedErRelationship {
   fromCardinality: ErCardinality;
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  label: string;
+  /** What the label draws, carried through from `ResolvedErRelationship.label`. */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the size the layout kept clear
+   * around `labelAnchor`, and what the renderer hands `drawLabel`.
+   */
+  labelBox: LabelBox;
   points: Point[];
   /**
    * Centre of the space the layout kept clear for the label, or `null` when
@@ -3590,7 +3634,13 @@ export interface PositionedErRelationship {
  */
 export interface PositionedErSubgraph {
   id: string;
-  label: string;
+  /** What the frame's title draws, carried through from `ResolvedErSubgraph.label`. */
+  label: Label;
+  /**
+   * The title as `layoutLabel` measured it — the strip along the frame's
+   * top was sized from it, and the renderer hands it `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;

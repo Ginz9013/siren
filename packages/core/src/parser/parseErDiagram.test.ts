@@ -1,6 +1,41 @@
-import { describe, expect, it } from "vitest";
-import type { Direction, ErAttribute, ErDocument } from "../contracts";
+import { describe, expect, it, vi } from "vitest";
+import type { Direction, ErAttribute, ErDocument, Label } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { parseErDiagram } from "./parseErDiagram";
+
+/**
+ * The test-only input for the one thing no real tag can exercise yet: how a
+ * problem `readLabel` reports becomes a diagnostic — the device
+ * `parseClassDiagram.test.ts` uses, for the same reason. `readLabel` is the
+ * real one, delegated to unchanged, except that a `⚠` in a label's source
+ * is reported as an error at that character and a `⚑` as a warning, so
+ * where the diagnostic lands can be checked against where the author wrote
+ * the character. No other label here contains either, so every other test
+ * in this file reads labels exactly as production does.
+ */
+vi.mock("../label/readLabel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../label/readLabel")>();
+  return {
+    ...actual,
+    readLabel: (...args: Parameters<typeof actual.readLabel>) => {
+      const read = actual.readLabel(...args);
+      const [source] = args;
+      const problems = [...read.problems];
+      for (const [mark, severity] of [["⚠", "error"], ["⚑", "warning"]] as const) {
+        for (let at = source.indexOf(mark); at !== -1; at = source.indexOf(mark, at + 1)) {
+          problems.push({ severity, message: `test problem ${mark}`, offset: at });
+        }
+      }
+      return { ...read, problems };
+    },
+  };
+});
+
+/** A label of plain rows, one plain run each — what `<br>` between words reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
 
 /**
  * The parsed document, or a thrown explanation naming what went wrong
@@ -48,8 +83,9 @@ function attributesOf(source: string, name: string): ErAttribute[] {
 }
 
 /**
- * The alias the parser read under the **first** declaration of `name`, or a
- * thrown explanation naming what it did read instead. Narrowed here for the
+ * The alias the parser read under the **first** declaration of `name`, as
+ * its flattened text (`Label.text`), or a thrown explanation naming what it
+ * did read instead. Narrowed here for the
  * reason `attributesOf` is: a test about an alias never reaches for
  * `find(...)!`, and never asserts on `undefined` by accident.
  */
@@ -61,7 +97,7 @@ function aliasOf(source: string, name: string): string | null {
       `no entity named "${name}"; the parser read ${entities.map((e) => e.name).join(", ")}`,
     );
   }
-  return entity.alias;
+  return entity.alias?.text ?? null;
 }
 
 /** The document's rank direction, read through the same narrowing helper. */
@@ -148,7 +184,7 @@ describe("parseErDiagram", () => {
         line: "identifying",
         rightCardinality: "zeroOrMore",
         right: "ORDER",
-        label: "places",
+        label: plainLabel("places"),
       },
     ]);
     // The mirror image of the same relationship. Measured:
@@ -161,7 +197,7 @@ describe("parseErDiagram", () => {
         line: "identifying",
         rightCardinality: "onlyOne",
         right: "CUSTOMER",
-        label: "belongs",
+        label: plainLabel("belongs"),
       },
     ]);
   });
@@ -308,13 +344,13 @@ describe("parseErDiagram", () => {
     const source = "erDiagram\n  A ||--o{ B : two words\n";
 
     expect(namesOf(source)).toEqual(["A", "B", "words"]);
-    expect(relationshipsOf(source).map((r) => r.label)).toEqual(["two"]);
+    expect(relationshipsOf(source).map((r) => r.label.text)).toEqual(["two"]);
 
     // The control: quoted, it really is one label with a space in it and no
     // third box (measured).
     const quoted = 'erDiagram\n  A ||--o{ B : "two words"\n';
     expect(namesOf(quoted)).toEqual(["A", "B"]);
-    expect(relationshipsOf(quoted).map((r) => r.label)).toEqual(["two words"]);
+    expect(relationshipsOf(quoted).map((r) => r.label.text)).toEqual(["two words"]);
   });
 
   it("reads `direction TD` as two entities, because this grammar has no TD", () => {
@@ -400,6 +436,107 @@ describe("parseErDiagram", () => {
 /** The messages the parser reported for `source`. */
 const refusalsFor = (source: string): string[] =>
   parseErDiagram(source).diagnostics.map((d) => d.message);
+
+describe("parseErDiagram — the places an ER diagram reads a label", () => {
+  it("reads an entity's alias as a label, so `<br>` breaks it into rows", () => {
+    // ADR-0015: an alias is drawn by Mermaid's HTML labels. Measured
+    // (mermaid 11.17.2, `--html`): `CUSTOMER["Customer<br/>Record"]` is the
+    // node label `<p>Customer<br>Record</p>` — two rows.
+    const entity = documentOf('erDiagram\n  CUSTOMER["Customer<br/>Record"]\n').entities[0];
+
+    expect(entity.name).toBe("CUSTOMER");
+    expect(entity.alias).toEqual(rowsLabel("Customer", "Record"));
+  });
+
+  it("reads a relationship's label as a label, so `<br>` breaks it into rows", () => {
+    // Measured (mermaid 11.17.2, `--html`): `CUSTOMER ||--o{ ORDER :
+    // "places<br/>many"` is the edge label `<p>places<br>many</p>`.
+    const [relationship] = relationshipsOf(
+      'erDiagram\n  CUSTOMER ||--o{ ORDER : "places<br/>many"\n',
+    );
+
+    expect(relationship.label).toEqual(rowsLabel("places", "many"));
+  });
+
+  it("reads an attribute's comment as a label, so `<br>` breaks it into rows", () => {
+    // Measured (mermaid 11.17.2, `--html`): `string name "a<br/>b"` is the
+    // node label `<p>a<br>b</p>` in the comment's cell.
+    const [attribute] = attributesOf('erDiagram\n  E {\n    string name "a<br/>b"\n  }\n', "E");
+
+    expect(attribute.comment).toEqual(rowsLabel("a", "b"));
+  });
+
+  it("reads a subgraph's quoted title as a label, after joining its words with one space", () => {
+    // Measured (mermaid 11.17.2, `--html`): `subgraph s1["My<br/>Title
+    // <b>x</b>"]` is the cluster label `<p>My<br>Title <b>x</b></p>` — two
+    // rows, the second ending in a bold run. The run of spaces is one space
+    // first, as Mermaid's `subgraphTitle` joins its words.
+    const [subgraph] = documentOf(
+      'erDiagram\n  subgraph s1["My<br/>Title   <b>x</b>"]\n    A\n  end\n',
+    ).subgraphs;
+
+    expect(subgraph.label).toEqual({
+      text: "My\nTitle x",
+      rows: [[plainRun("My")], [plainRun("Title "), { ...plainRun("x"), bold: true }]],
+    });
+  });
+
+  it("reports a problem in a label at the line and column the author wrote it", () => {
+    // `⚑` is the stand-in `readLabel`'s warning (see the `vi.mock` above),
+    // so each diagnostic must land on the `⚑` itself. Columns are 1-based.
+    const placed = (source: string) =>
+      parseErDiagram(source).diagnostics.map(({ severity, line, column }) => [
+        severity,
+        line,
+        column,
+      ]);
+
+    // An alias: `  CUSTOMER["a⚑b"]` — the `⚑` is the 14th character.
+    expect(placed('erDiagram\n  CUSTOMER["a⚑b"]\n')).toEqual([["warning", 2, 14]]);
+    // A relationship's label: `  A ||--o{ B : "x⚑"` — the 18th.
+    expect(placed('erDiagram\n  A ||--o{ B : "x⚑"\n')).toEqual([["warning", 2, 18]]);
+    // A comment on a line of its own inside the block, and one on the line
+    // that opens it: `    string n "c⚑"` (16th) and `  E { string n "c⚑" }`
+    // (18th).
+    expect(placed('erDiagram\n  E {\n    string n "c⚑"\n  }\n')).toEqual([["warning", 3, 16]]);
+    expect(placed('erDiagram\n  E { string n "c⚑" }\n')).toEqual([["warning", 2, 18]]);
+    // A subgraph title, whose run of spaces is read as one: the `⚑` of
+    // `  subgraph s1["a   b⚑"]` is still the 21st character as written.
+    expect(placed('erDiagram\n  subgraph s1["a   b⚑"]\n    A\n  end\n')).toEqual([
+      ["warning", 2, 21],
+    ]);
+  });
+
+  it("refuses the document when a label holds an error, and says where", () => {
+    // `⚠` is the stand-in's error: a label Siren cannot draw as written is
+    // not drawn some other way, so the whole document goes.
+    for (const [source, line, column] of [
+      ['erDiagram\n  CUSTOMER["a⚠b"]\n', 2, 14],
+      ['erDiagram\n  subgraph s1["t⚠"]\n    A\n  end\n', 2, 17],
+    ] as const) {
+      const result = parseErDiagram(source);
+      expect(result.document, source).toBeNull();
+      expect(result.diagnostics.map((d) => [d.severity, d.line, d.column])).toEqual([
+        ["error", line, column],
+      ]);
+    }
+  });
+
+  it("never reads an attribute's type or name as a label", () => {
+    // The two are drawn as written. `⚠` and `⚑` are in the attribute word
+    // alphabet (`À-￿`), and the stand-in `readLabel` reports either as a
+    // problem — so a type or name that reached `readLabel` would answer a
+    // diagnostic here, and a comment that did not would answer none.
+    const source = 'erDiagram\n  E {\n    t⚠ n⚑ "c⚑"\n  }\n';
+
+    expect(attributesOf(source, "E").map(({ type, name }) => [type, name])).toEqual([
+      ["t⚠", "n⚑"],
+    ]);
+    expect(parseErDiagram(source).diagnostics.map((d) => [d.severity, d.message])).toEqual([
+      ["warning", "test problem ⚑"],
+    ]);
+  });
+});
 
 describe("parseErDiagram refuses an unimplemented construct by name", () => {
   it("names the multi-line accDescr block rather than reading an entity out of it", () => {
@@ -536,8 +673,8 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(refusalsFor(source)).toEqual([]);
     expect(namesOf(source)).toEqual(["CUSTOMER", "ORDER"]);
     expect(attributesOf(source, "CUSTOMER")).toEqual([
-      { type: "string", name: "name", keys: [], comment: "" },
-      { type: "int", name: "age", keys: [], comment: "" },
+      { type: "string", name: "name", keys: [], comment: plainLabel("") },
+      { type: "int", name: "age", keys: [], comment: plainLabel("") },
     ]);
     // And an entity that opened no block has none — measured, `attributes`
     // comes back an empty collection for a bare name.
@@ -561,14 +698,14 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(namesOf(oneLine)).toEqual(namesOf(threeLine));
     expect(attributesOf(oneLine, "E")).toEqual(attributesOf(threeLine, "E"));
     expect(attributesOf(oneLine, "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
 
     // Spaces around the braces are the lexer's to skip, so the tight
     // spelling is the same document — measured, `E {string a}` reports the
     // same one attribute.
     expect(attributesOf("erDiagram\n  E {string a}\n", "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
 
     // An **empty** block is an entity with no attributes rather than a
@@ -591,7 +728,7 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(refusalsFor(afterClose)).toEqual([]);
     expect(namesOf(afterClose)).toEqual(["E", "F"]);
     expect(attributesOf(afterClose, "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
     expect(attributesOf(afterClose, "F")).toEqual([]);
 
@@ -602,17 +739,17 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(namesOf(secondOnLine)).toEqual(["A", "B"]);
     expect(attributesOf(secondOnLine, "A")).toEqual([]);
     expect(attributesOf(secondOnLine, "B")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
 
     // Two blocks on one line, each keeping its own attributes.
     const twoBlocks = "erDiagram\n  E { string a } F { string b }\n";
     expect(namesOf(twoBlocks)).toEqual(["E", "F"]);
     expect(attributesOf(twoBlocks, "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
     expect(attributesOf(twoBlocks, "F")).toEqual([
-      { type: "string", name: "b", keys: [], comment: "" },
+      { type: "string", name: "b", keys: [], comment: plainLabel("") },
     ]);
 
     // And a relationship on either side of a block, measured both ways
@@ -629,18 +766,18 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
         line: "identifying",
         rightCardinality: "zeroOrMore",
         right: "B",
-        label: "x",
+        label: plainLabel("x"),
       },
     ]);
     expect(attributesOf(blockThenRelationship, "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
 
     const relationshipThenBlock = "erDiagram\n  A ||--o{ B : x C { string d }\n";
     expect(refusalsFor(relationshipThenBlock)).toEqual([]);
     expect(namesOf(relationshipThenBlock)).toEqual(["A", "B", "C"]);
     expect(attributesOf(relationshipThenBlock, "C")).toEqual([
-      { type: "string", name: "d", keys: [], comment: "" },
+      { type: "string", name: "d", keys: [], comment: plainLabel("") },
     ]);
 
     // The brace is insignificant in the *other* direction too, and this is
@@ -652,15 +789,15 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(refusalsFor(opensMidLine)).toEqual([]);
     expect(namesOf(opensMidLine)).toEqual(["E", "F"]);
     expect(attributesOf(opensMidLine, "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
-      { type: "int", name: "b", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
+      { type: "int", name: "b", keys: [], comment: plainLabel("") },
     ]);
 
     const closesMidLine = "erDiagram\n  E {\n    string a } F\n";
     expect(refusalsFor(closesMidLine)).toEqual([]);
     expect(namesOf(closesMidLine)).toEqual(["E", "F"]);
     expect(attributesOf(closesMidLine, "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
     ]);
     expect(attributesOf(closesMidLine, "F")).toEqual([]);
   });
@@ -681,17 +818,17 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       '    string note "x, y"\n    string plain\n  }\n';
 
     expect(attributesOf(source, "CUSTOMER")).toEqual([
-      { type: "string", name: "c", keys: ["UK", "PK"], comment: "both" },
-      { type: "int", name: "age", keys: ["PK"], comment: "the age" },
-      { type: "string", name: "note", keys: [], comment: "x, y" },
-      { type: "string", name: "plain", keys: [], comment: "" },
+      { type: "string", name: "c", keys: ["UK", "PK"], comment: plainLabel("both") },
+      { type: "int", name: "age", keys: ["PK"], comment: plainLabel("the age") },
+      { type: "string", name: "note", keys: [], comment: plainLabel("x, y") },
+      { type: "string", name: "plain", keys: [], comment: plainLabel("") },
     ]);
 
     // Over-reach control, measured: `x,y` in the *name* position is one
     // name and not two, because `x` is no key and the word rule — whose
     // alphabet contains the comma — then takes the lot.
     expect(attributesOf("erDiagram\n  E {\n    string x,y\n  }\n", "E")).toEqual([
-      { type: "string", name: "x,y", keys: [], comment: "" },
+      { type: "string", name: "x,y", keys: [], comment: plainLabel("") },
     ]);
   });
 
@@ -708,13 +845,13 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       "    a-b c-d\n    a.b c.d\n    中文 名字\n    *x _y\n  }\n";
 
     expect(attributesOf(source, "E")).toEqual([
-      { type: "string(99)", name: "code", keys: [], comment: "" },
-      { type: "int[]", name: "xs", keys: [], comment: "" },
-      { type: "decimal(10,2)", name: "price", keys: [], comment: "" },
-      { type: "a-b", name: "c-d", keys: [], comment: "" },
-      { type: "a.b", name: "c.d", keys: [], comment: "" },
-      { type: "中文", name: "名字", keys: [], comment: "" },
-      { type: "*x", name: "_y", keys: [], comment: "" },
+      { type: "string(99)", name: "code", keys: [], comment: plainLabel("") },
+      { type: "int[]", name: "xs", keys: [], comment: plainLabel("") },
+      { type: "decimal(10,2)", name: "price", keys: [], comment: plainLabel("") },
+      { type: "a-b", name: "c-d", keys: [], comment: plainLabel("") },
+      { type: "a.b", name: "c.d", keys: [], comment: plainLabel("") },
+      { type: "中文", name: "名字", keys: [], comment: plainLabel("") },
+      { type: "*x", name: "_y", keys: [], comment: plainLabel("") },
     ]);
 
     // Several attributes on one line, because Mermaid's grammar is
@@ -722,8 +859,8 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // int b` inside a block reports the same two attributes the two-line
     // spelling does.
     expect(attributesOf("erDiagram\n  E {\n    string a int b\n  }\n", "E")).toEqual([
-      { type: "string", name: "a", keys: [], comment: "" },
-      { type: "int", name: "b", keys: [], comment: "" },
+      { type: "string", name: "a", keys: [], comment: plainLabel("") },
+      { type: "int", name: "b", keys: [], comment: plainLabel("") },
     ]);
   });
 
@@ -745,19 +882,19 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       // Nested, and still one token: `.*` is greedy, so it runs to the last
       // `~` rather than to the first — measured, `map~string,list~int~~`
       // comes back entire, not truncated at `list~int~`.
-      { type: "list~int~", name: "codes", keys: [], comment: "" },
-      { type: "map~string,list~int~~", name: "index", keys: [], comment: "" },
+      { type: "list~int~", name: "codes", keys: [], comment: plainLabel("") },
+      { type: "map~string,list~int~~", name: "index", keys: [], comment: plainLabel("") },
       // The rule is not the type's: measured, `x list~int~` reports
       // `type="x" name="list~int~"`, so a generic is a *word* wherever a
       // word may stand.
-      { type: "x", name: "list~int~", keys: [], comment: "" },
+      { type: "x", name: "list~int~", keys: [], comment: plainLabel("") },
       // ⚠️ A space goes **inside** the delimiters, unlike every other word
       // in this block: `.*` is not `[^\s]*`. Measured, `list~a b~ spaced`
       // is one type and one name, not three words.
-      { type: "list~a b~", name: "spaced", keys: [], comment: "" },
+      { type: "list~a b~", name: "spaced", keys: [], comment: plainLabel("") },
       // And the leading group may be empty — `~x~ headless` reports
       // `type="~x~"`.
-      { type: "~x~", name: "headless", keys: [], comment: "" },
+      { type: "~x~", name: "headless", keys: [], comment: plainLabel("") },
     ]);
 
     // ⚠️ **Greedy to the last tilde on the line**, which is the measurement
@@ -766,19 +903,19 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // not two attributes. Read non-greedily it would be `list~int~ x` plus
     // `y~ z`, which is a different picture.
     expect(attributesOf("erDiagram\n  E {\n    list~int~ x~y~ z\n  }\n", "E")).toEqual([
-      { type: "list~int~ x~y~", name: "z", keys: [], comment: "" },
+      { type: "list~int~ x~y~", name: "z", keys: [], comment: plainLabel("") },
     ]);
     // The control that keeps that greed honest: with no second pair on the
     // line, `list~int~ a string b` is two ordinary attributes.
     expect(attributesOf("erDiagram\n  E {\n    list~int~ a string b\n  }\n", "E")).toEqual([
-      { type: "list~int~", name: "a", keys: [], comment: "" },
-      { type: "string", name: "b", keys: [], comment: "" },
+      { type: "list~int~", name: "a", keys: [], comment: plainLabel("") },
+      { type: "string", name: "b", keys: [], comment: plainLabel("") },
     ]);
 
     // A generic takes keys and a comment like any other type — measured,
     // `list~int~ codes PK "c"` reports all four fields.
     expect(attributesOf('erDiagram\n  E {\n    list~int~ codes PK "c"\n  }\n', "E")).toEqual([
-      { type: "list~int~", name: "codes", keys: ["PK"], comment: "c" },
+      { type: "list~int~", name: "codes", keys: ["PK"], comment: plainLabel("c") },
     ]);
   });
 
@@ -807,8 +944,8 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(
       attributesOf('erDiagram\n  E {\n    string x "has ~ tilde"\n    string y "a~b"\n  }\n', "E"),
     ).toEqual([
-      { type: "string", name: "x", keys: [], comment: "has ~ tilde" },
-      { type: "string", name: "y", keys: [], comment: "a~b" },
+      { type: "string", name: "x", keys: [], comment: plainLabel("has ~ tilde") },
+      { type: "string", name: "y", keys: [], comment: plainLabel("a~b") },
     ]);
   });
 
@@ -827,9 +964,9 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
 
     expect(refusalsFor(source)).toEqual([]);
     expect(attributesOf(source, "E")).toEqual([
-      { type: "string", name: "odd name", keys: [], comment: "" },
+      { type: "string", name: "odd name", keys: [], comment: plainLabel("") },
       // Either position, measured: a backticked word is a word.
-      { type: "odd type", name: "x", keys: [], comment: "" },
+      { type: "odd type", name: "x", keys: [], comment: plainLabel("") },
       // ⚠️ **This is what backticks are for.** Every one of these
       // characters is refused by the block's word alphabet
       // (`[*A-Za-z_À-￿][A-Za-z0-9\-_\[\]().,À-￿*]*`) — a colon, braces, a
@@ -837,25 +974,25 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       // through: `string `a:b{}~"c`` reports `name="a:b{}~\"c"`. Note the
       // brace in particular: it does **not** close the attribute block from
       // inside the quotes.
-      { type: "string", name: 'a:b{}~"c', keys: [], comment: "" },
+      { type: "string", name: 'a:b{}~"c', keys: [], comment: plainLabel("") },
       // And a key word quoted is ordinary text, because the key rule never
       // gets to look: the backtick rule has already switched conditions.
       // Measured, `string `PK`` reports `name="PK"` with **no** key at all,
       // where a bare `string PK` is a parse error.
-      { type: "string", name: "PK", keys: [], comment: "" },
+      { type: "string", name: "PK", keys: [], comment: plainLabel("") },
     ]);
 
     // Keys and a comment still follow a backticked name — measured,
     // `string `x` PK "c"` reports all four fields.
     expect(attributesOf('erDiagram\n  E {\n    string `x` PK "c"\n  }\n', "E")).toEqual([
-      { type: "string", name: "x", keys: ["PK"], comment: "c" },
+      { type: "string", name: "x", keys: ["PK"], comment: plainLabel("c") },
     ]);
 
     // The consequence of the delimiters being token-less rather than part
     // of the word: two backticked runs may touch. Measured, `` `a``b` `` is
     // one attribute — type `a`, name `b` — and not one word called `a``b`.
     expect(attributesOf("erDiagram\n  E {\n    `a``b`\n  }\n", "E")).toEqual([
-      { type: "a", name: "b", keys: [], comment: "" },
+      { type: "a", name: "b", keys: [], comment: plainLabel("") },
     ]);
 
     // And the ordering control between the two constructs this ticket
@@ -864,7 +1001,7 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // backticks intact inside it — not a backticked word. Read the other
     // way round it would be three words and a refusal.
     expect(attributesOf("erDiagram\n  E {\n    list~`a`~ x\n  }\n", "E")).toEqual([
-      { type: "list~`a`~", name: "x", keys: [], comment: "" },
+      { type: "list~`a`~", name: "x", keys: [], comment: plainLabel("") },
     ]);
   });
 
@@ -980,7 +1117,7 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
         line: "identifying",
         rightCardinality: "zeroOrMore",
         right: "ORDER",
-        label: "places",
+        label: plainLabel("places"),
       },
     ]);
 
@@ -1052,7 +1189,7 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     expect(namesOf(source)).toEqual(["CUSTOMER"]);
     expect(aliasOf(source, "CUSTOMER")).toBe("Customer Account");
     expect(attributesOf(source, "CUSTOMER")).toEqual([
-      { type: "string", name: "n", keys: [], comment: "" },
+      { type: "string", name: "n", keys: [], comment: plainLabel("") },
     ]);
   });
 
@@ -1188,11 +1325,11 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     //   A [ Unquoted ]            → the same entity; the lexer skips the spaces
     //   A[Unquoted] ||--o{ B : x  → a **parse error** ("got 'ONLY_ONE'")
     const styled = documentOf("erDiagram\n  A[Unquoted]:::urgent\n");
-    expect(styled.entities.map((e) => [e.name, e.alias])).toEqual([["A", "Unquoted"]]);
+    expect(styled.entities.map((e) => [e.name, e.alias?.text])).toEqual([["A", "Unquoted"]]);
     expect(styled.styles.map((s) => [s.targetIds, s.name])).toEqual([[["A"], "urgent"]]);
 
     expect(attributesOf("erDiagram\n  A[Unquoted] {\n    string n\n  }\n", "A")).toEqual([
-      { type: "string", name: "n", keys: [], comment: "" },
+      { type: "string", name: "n", keys: [], comment: plainLabel("") },
     ]);
     expect(aliasOf("erDiagram\n  A[Unquoted] {\n    string n\n  }\n", "A")).toBe("Unquoted");
 
@@ -1268,7 +1405,7 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // A reader that tried the statement patterns first would lose the row.
     const inBlock = "erDiagram\n  E {\n    direction LR\n  }\n";
     expect(attributesOf(inBlock, "E")).toEqual([
-      { type: "direction", name: "LR", keys: [], comment: "" },
+      { type: "direction", name: "LR", keys: [], comment: plainLabel("") },
     ]);
     expect(directionOf(inBlock)).toBe("TB");
   });
@@ -1593,7 +1730,7 @@ describe("parseErDiagram reads the author's styling statements", () => {
     //   A:::x B              → A is styled and `B` is an ordinary entity
     //   A:::                 → a parse error ("Expecting ... got 'NEWLINE'")
     const aliased = documentOf('erDiagram\n  A["Alias"]:::u\n');
-    expect(aliased.entities.map((e) => [e.name, e.alias])).toEqual([["A", "Alias"]]);
+    expect(aliased.entities.map((e) => [e.name, e.alias?.text])).toEqual([["A", "Alias"]]);
     expect(aliased.styles.map((s) => [s.targetIds, s.name])).toEqual([[["A"], "u"]]);
 
     expect(refusalsFor('erDiagram\n  A:::u["Alias"]\n')).toEqual([
@@ -1601,7 +1738,7 @@ describe("parseErDiagram reads the author's styling statements", () => {
     ]);
 
     expect(attributesOf("erDiagram\n  A:::u {\n    string n\n  }\n", "A")).toEqual([
-      { type: "string", name: "n", keys: [], comment: "" },
+      { type: "string", name: "n", keys: [], comment: plainLabel("") },
     ]);
 
     expect(
@@ -1689,7 +1826,7 @@ describe("parseErDiagram reads subgraph clusters", () => {
     expect(document.subgraphs).toEqual([
       {
         name: "s1",
-        label: "s1",
+        label: plainLabel("s1"),
         direction: "LR",
         entityNames: ["A", "B"],
         subgraphs: [],
@@ -1787,7 +1924,7 @@ describe("parseErDiagram reads subgraph clusters", () => {
   it("reads the bracketed title, in both of its measured spellings", () => {
     const titleOf = (header: string): string => {
       const [block] = documentOf(`erDiagram\n  ${header}\n    A\n  end\n`).subgraphs;
-      return block.label;
+      return block.label.text;
     };
     // Measured one probe apiece: `title:"My Title"`, `title:"Bracket
     // Title"`, and `title:"a b"` — Mermaid's `subgraphTitle` is a list of
@@ -1822,11 +1959,17 @@ describe("parseErDiagram reads subgraph clusters", () => {
     expect(document.subgraphs).toEqual([
       {
         name: "outer",
-        label: "outer",
+        label: plainLabel("outer"),
         direction: "LR",
         entityNames: ["C"],
         subgraphs: [
-          { name: "inner", label: "inner", direction: null, entityNames: ["A", "B"], subgraphs: [] },
+          {
+            name: "inner",
+            label: plainLabel("inner"),
+            direction: null,
+            entityNames: ["A", "B"],
+            subgraphs: [],
+          },
         ],
       },
     ]);
