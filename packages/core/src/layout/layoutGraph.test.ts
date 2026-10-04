@@ -871,8 +871,8 @@ describe("the room an edge label is given", () => {
     const [twoRows] = laidOut("yes<br/>no").edges;
     const [oneRow] = laidOut("yes").edges;
 
-    expect(oneRow.label?.box.height).toBe(24);
-    expect(twoRows.label?.box.height).toBe(48);
+    expect(oneRow.label?.labelBox.height).toBe(24);
+    expect(twoRows.label?.labelBox.height).toBe(48);
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
   });
 });
@@ -1011,7 +1011,7 @@ describe("a subgraph's frame", () => {
     expect(positioned.subgraphs).toHaveLength(1);
     const [frame] = positioned.subgraphs;
     expect(frame.id).toBe("subgraph:1");
-    expect(frame.label.text).toBe("Ingest");
+    expect(frame.label.label.text).toBe("Ingest");
 
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
     expect(contains(frame, byId.A)).toBe(true);
@@ -1022,10 +1022,10 @@ describe("a subgraph's frame", () => {
     // The title is drawn on the frame, above everything the frame holds —
     // not through the first member box. Same strip `layoutClassDiagram`
     // reserves for a namespace's label.
-    expect(frame.labelAnchor.y).toBeGreaterThan(frame.y);
-    expect(frame.labelAnchor.y).toBeLessThan(Math.min(byId.A.y, byId.B.y));
-    expect(frame.labelAnchor.x).toBeGreaterThan(frame.x);
-    expect(frame.labelAnchor.x).toBeLessThan(frame.x + frame.width);
+    expect(frame.label.anchor.y).toBeGreaterThan(frame.y);
+    expect(frame.label.anchor.y).toBeLessThan(Math.min(byId.A.y, byId.B.y));
+    expect(frame.label.anchor.x).toBeGreaterThan(frame.x);
+    expect(frame.label.anchor.x).toBeLessThan(frame.x + frame.width);
   });
 
   it("nests, and the outer frame contains the inner one whole", () => {
@@ -1232,7 +1232,7 @@ describe("a subgraph's frame", () => {
     const twoRows = framed("a<br/>b");
 
     // `fakeMeasurer`'s line is 24px: a second row is 24px more strip.
-    expect(twoRows.frame.labelBox.height).toBe(48);
+    expect(twoRows.frame.label.labelBox.height).toBe(48);
     expect(twoRows.above - oneRow.above).toBe(24);
   });
 });

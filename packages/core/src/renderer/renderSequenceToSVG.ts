@@ -196,18 +196,8 @@ function buildBox(box: PositionedBox): SVGGElement {
   }
   g.appendChild(background);
 
-  if (box.label !== null && box.labelBox !== null) {
-    // The top of the background is the caption band layout reserved above
-    // the participants, as tall as this label — so the label fills it.
-    appendLabel(
-      g,
-      drawLabel(
-        box.label,
-        box.labelBox,
-        { x: box.x + box.width / 2, y: box.y + box.labelBox.height / 2 },
-        "siren-box-label",
-      ),
-    );
+  if (box.label !== null) {
+    appendLabel(g, drawLabel(box.label.label, box.label.labelBox, box.label.anchor, "siren-box-label"));
   }
 
   return g;
@@ -403,7 +393,7 @@ function appendBlockLabel(
     parent.appendChild(empty);
     return;
   }
-  appendLabel(parent, drawLabel(label.label, label.box, label.anchor, "siren-block-label"));
+  appendLabel(parent, drawLabel(label.label, label.labelBox, label.anchor, "siren-block-label"));
 }
 
 /**
@@ -470,7 +460,7 @@ function buildMessage(message: PositionedMessage, scope: string): SVGGElement {
   // the arrow — so a label of several rows grows upward, away from it.
   appendLabel(
     g,
-    drawLabel(message.label.label, message.label.box, message.label.anchor, "siren-message-label"),
+    drawLabel(message.label.label, message.label.labelBox, message.label.anchor, "siren-message-label"),
   );
 
   if (message.autonumber !== null) {

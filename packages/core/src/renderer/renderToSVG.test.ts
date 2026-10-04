@@ -26,7 +26,7 @@ function labelled(text: string) {
  */
 function placed(text: string, anchor: { x: number; y: number }) {
   const { label, labelBox } = labelled(text);
-  return { label: { label, box: labelBox, anchor } };
+  return { label: { label, labelBox, anchor } };
 }
 
 /**
@@ -1389,12 +1389,11 @@ describe("renderToSVG — a subgraph", () => {
   const oneFrame = [
     {
       id: "subgraph:1",
-      ...labelled("Ingest"),
+      ...placed("Ingest", { x: 90, y: 38 }),
       x: 20,
       y: 20,
       width: 140,
       height: 100,
-      labelAnchor: { x: 90, y: 38 },
     },
   ];
 
@@ -1643,12 +1642,11 @@ describe("what a label paints behind its text", () => {
     graph.subgraphs = [
       {
         id: "subgraph:1",
-        ...labelled("▨ Ingest"),
+        ...placed("▨ Ingest", { x: 90, y: 38 }),
         x: 20,
         y: 20,
         width: 140,
         height: 100,
-        labelAnchor: { x: 90, y: 38 },
       },
     ];
 

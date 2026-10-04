@@ -1258,8 +1258,8 @@ describe("layoutStateDiagram — labels", () => {
     const [transition] = laid.transitions;
 
     expect(transition.label).not.toBeNull();
-    expect(transition.label!.box.height).toBe(48);
-    expect(transition.label!.box.width).toBe(32);
+    expect(transition.label!.labelBox.height).toBe(48);
+    expect(transition.label!.labelBox.width).toBe(32);
     // The anchor is the box's centre, so its lower row ends 24 below it.
     expect(laid.height).toBeGreaterThanOrEqual(transition.label!.anchor.y + 24);
   });

@@ -288,6 +288,7 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
                 label: plainLabel("Every minute"),
@@ -379,6 +380,7 @@ describe("layoutSequence", () => {
             id: "alt:1",
             kind: "alt",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
                 label: plainLabel("is valid"),
@@ -479,6 +481,7 @@ describe("layoutSequence", () => {
             kind: "opt",
             // Touches only the outer lanes A and C — B is declared but not referenced.
             touchedParticipantIds: ["A", "C"],
+            color: null,
             branches: [
               {
                 label: plainLabel("maybe"),
@@ -533,18 +536,21 @@ describe("layoutSequence", () => {
       id: "par:1",
       kind: "par",
       touchedParticipantIds: ["B", "C"],
+      color: null,
       branches: [{ label: plainLabel("path 1"), statements: [innermostMessage] }],
     };
     const middle: ResolvedSequenceBlock = {
       id: "alt:1",
       kind: "alt",
       touchedParticipantIds: ["B", "C"],
+      color: null,
       branches: [{ label: plainLabel("ready"), statements: [{ kind: "block", block: innermost }] }],
     };
     const outer: ResolvedSequenceBlock = {
       id: "loop:1",
       kind: "loop",
       touchedParticipantIds: ["A", "B", "C"],
+      color: null,
       branches: [
         {
           label: plainLabel("retry"),
@@ -669,6 +675,7 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B", "C"],
+            color: null,
             branches: [
               {
                 label: plainLabel("outer"),
@@ -680,6 +687,7 @@ describe("layoutSequence", () => {
                       id: "alt:1",
                       kind: "alt",
                       touchedParticipantIds: ["B", "C"],
+                      color: null,
                       branches: [
                         { label: plainLabel("branch 1"), statements: [message("m3", "B", "C", "branch 1 msg")] },
                         { label: plainLabel("branch 2"), statements: [message("m4", "B", "C", "branch 2 msg")] },
@@ -761,6 +769,7 @@ describe("layoutSequence", () => {
             id: "alt:1",
             kind: "alt",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
                 label: plainLabel("branch 1"),
@@ -1099,6 +1108,7 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "C"],
+            color: null,
             branches: [
               {
                 label: plainLabel("each retry"),
@@ -1221,7 +1231,7 @@ describe("layoutSequence", () => {
     const box = positioned.boxes[0];
     expect(box.id).toBe("box:1");
     expect(box.color).toBe("rgb(200, 220, 255)");
-    expect(box.label).toEqual(plainLabel("Service tier"));
+    expect(box.label?.label).toEqual(plainLabel("Service tier"));
 
     const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
 
@@ -1329,6 +1339,7 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
                 label: plainLabel("each retry"),
@@ -1462,8 +1473,8 @@ describe("layoutSequence's labels", () => {
     const [m1, m2] = messagesOf(layoutSequence(model, { measureText: fakeMeasurer }));
 
     expect(m2!.label.anchor.x).toBe((m2!.fromX + m2!.toX) / 2);
-    const top = m2!.label.anchor.y - m2!.label.box.height / 2;
-    const bottom = m2!.label.anchor.y + m2!.label.box.height / 2;
+    const top = m2!.label.anchor.y - m2!.label.labelBox.height / 2;
+    const bottom = m2!.label.anchor.y + m2!.label.labelBox.height / 2;
     expect(bottom).toBeLessThan(m2!.y);
     expect(top).toBeGreaterThan(m1!.y);
   });
@@ -1495,6 +1506,7 @@ describe("layoutSequence's labels", () => {
         id: "alt:1",
         kind: "alt",
         touchedParticipantIds: ["A", "B"],
+        color: null,
         branches: [
           { label: condition, statements: [labelled("m1", rowsLabel("x"))] },
           { label: otherwise, statements: [labelled("m2", rowsLabel("x"))] },
@@ -1519,8 +1531,8 @@ describe("layoutSequence's labels", () => {
     expect(tallDivider.m2.y - tallDivider.block.dividers[0]!.y).toBe(
       plain.m2.y - plain.block.dividers[0]!.y + LINE,
     );
-    expect(tallHeader.block.label?.box.rows).toHaveLength(2);
-    expect(tallDivider.block.dividers[0]!.label?.box.rows).toHaveLength(2);
+    expect(tallHeader.block.label?.labelBox.rows).toHaveLength(2);
+    expect(tallDivider.block.dividers[0]!.label?.labelBox.rows).toHaveLength(2);
   });
 
   it("leaves a box's caption a band as tall as every row of its label", () => {
@@ -1537,7 +1549,9 @@ describe("layoutSequence's labels", () => {
     const two = captionBand(rowsLabel("Grp", "two"));
 
     expect(two.band - one.band).toBe(LINE);
-    expect(two.box.labelBox?.rows).toHaveLength(2);
+    expect(two.box.label?.labelBox.rows).toHaveLength(2);
+    // Centred across the box, its two rows filling the top two lines of it.
+    expect(two.box.label?.anchor).toEqual({ x: two.box.x + two.box.width / 2, y: two.box.y + LINE });
   });
 
   it("anchors a block's and a divider's condition so its first row sits where a one-row condition does, past the keyword in the header", () => {
@@ -1545,6 +1559,7 @@ describe("layoutSequence's labels", () => {
       id: "alt:1",
       kind: "alt",
       touchedParticipantIds: ["A", "B"],
+      color: null,
       branches: [
         { label: rowsLabel("every", "day"), statements: [] },
         { label: rowsLabel("e1"), statements: [] },
@@ -1577,6 +1592,7 @@ describe("layoutSequence's labels", () => {
       id: "alt:1",
       kind: "alt",
       touchedParticipantIds: ["A", "B"],
+      color: null,
       branches: [
         { label: rowsLabel("every", "day"), statements: [] },
         { label: rowsLabel("e1", "e2"), statements: [] },
@@ -1589,7 +1605,7 @@ describe("layoutSequence's labels", () => {
     if (element?.kind !== "block") throw new Error("expected a block");
 
     expect(element.block.label?.label).toEqual(rowsLabel("[every", "day]"));
-    expect(element.block.label?.box.width).toBe("[every".length * 8);
+    expect(element.block.label?.labelBox.width).toBe("[every".length * 8);
     expect(element.block.dividers.map((divider) => divider.label?.label ?? null)).toEqual([
       rowsLabel("[e1", "e2]"),
       null,
@@ -1604,7 +1620,8 @@ describe("layoutSequence's labels", () => {
       id: "rect:1",
       kind: "rect",
       touchedParticipantIds: ["A", "B"],
-      branches: [{ label: rowsLabel("rgb(191, 223, 255)"), statements: [] }],
+      color: "rgb(191, 223, 255)",
+      branches: [{ label: null, statements: [] }],
     };
     const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
 

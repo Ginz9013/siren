@@ -71,7 +71,7 @@ const DIAGRAM: PositionedStateDiagram = {
         { x: 50, y: 60 },
         { x: 60, y: 120 },
       ],
-      label: { label: plainLabel("start"), box: boxOf("start"), anchor: { x: 70, y: 90 } },
+      label: { label: plainLabel("start"), labelBox: boxOf("start"), anchor: { x: 70, y: 90 } },
     },
     {
       id: "Running-Running",
@@ -1006,7 +1006,7 @@ describe("renderStateDiagramToSVG — labels", () => {
       transitions: [
         {
           ...DIAGRAM.transitions[0],
-          label: { label: rowsLabel("t", "u"), box: boxOf("t", "u"), anchor: { x: 70, y: 90 } },
+          label: { label: rowsLabel("t", "u"), labelBox: boxOf("t", "u"), anchor: { x: 70, y: 90 } },
         },
       ],
     };

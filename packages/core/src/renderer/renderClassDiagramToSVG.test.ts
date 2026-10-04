@@ -45,7 +45,7 @@ const labelled = (text: string): { label: Label; labelBox: LabelBox } => ({
 
 /** A relationship's `label`: `labelled`'s text and box, placed at `anchor`. */
 const placed = (text: string, anchor: { x: number; y: number }): { label: PlacedLabel } => ({
-  label: { label: plainLabel(text), box: boxOf(text), anchor },
+  label: { label: plainLabel(text), labelBox: boxOf(text), anchor },
 });
 
 /**
@@ -234,7 +234,7 @@ const MERMAID_RELATIONSHIP_TYPES = [
 
 /**
  * Hand-built namespace frame, laid out around the class fixtures above with
- * its label centered on the strip along its top edge — `labelAnchor` is the
+ * its label centered on the strip along its top edge — `label.anchor` is the
  * label's center point, as `layoutClassDiagram` computes it.
  */
 function buildNamespace(
@@ -242,12 +242,11 @@ function buildNamespace(
 ): PositionedClassNamespace {
   return {
     id: "Zoo",
-    ...labelled("Zoo"),
+    ...placed("Zoo", { x: 154, y: 20 }),
     x: 4,
     y: 6,
     width: 300,
     height: 200,
-    labelAnchor: { x: 154, y: 20 },
     ...overrides,
   };
 }
@@ -667,7 +666,7 @@ describe("renderClassDiagramToSVG", () => {
   it("renders every namespace before the classes, so a frame paints behind its members", () => {
     const svg = renderClassDiagramToSVG({
       ...buildDiagram([buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 20 })]),
-      namespaces: [buildNamespace(), buildNamespace({ id: "Aviary", ...labelled("Aviary") })],
+      namespaces: [buildNamespace(), buildNamespace({ id: "Aviary", ...placed("Aviary", { x: 154, y: 20 }) })],
     });
 
     // SVG has no z-index: what paints behind is whatever comes first in
@@ -1050,7 +1049,7 @@ describe("renderClassDiagramToSVG — labels of more than one row", () => {
         [buildClass()],
         [
           buildRelationship({
-            label: { label: rowsLabel("holds", "many"), box: boxOf("holds", "many"), anchor: { x: 150, y: 148 } },
+            label: { label: rowsLabel("holds", "many"), labelBox: boxOf("holds", "many"), anchor: { x: 150, y: 148 } },
           }),
         ],
       ),
@@ -1069,7 +1068,7 @@ describe("renderClassDiagramToSVG — labels of more than one row", () => {
     const svg = renderClassDiagramToSVG({
       ...buildDiagram([buildClass()]),
       namespaces: [
-        buildNamespace({ label: rowsLabel("Big", "Zoo"), labelBox: boxOf("Big", "Zoo") }),
+        buildNamespace({ label: { label: rowsLabel("Big", "Zoo"), labelBox: boxOf("Big", "Zoo"), anchor: { x: 154, y: 20 } } }),
       ],
     });
 

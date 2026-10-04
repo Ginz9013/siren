@@ -1104,7 +1104,7 @@ describe("layoutClassDiagram", () => {
       expect(diagram.namespaces).toHaveLength(1);
       const frame = diagram.namespaces[0];
       expect(frame.id).toBe("BaseShapes");
-      expect(frame.label).toEqual(plainLabel("BaseShapes"));
+      expect(frame.label.label).toEqual(plainLabel("BaseShapes"));
       // A frame is drawn like every other element, so it stays on the canvas.
       expect(frame.x).toBeGreaterThanOrEqual(0);
       expect(frame.y).toBeGreaterThanOrEqual(0);
@@ -1121,14 +1121,14 @@ describe("layoutClassDiagram", () => {
 
       // The label sits inside the frame and clear of every member box.
       const halfLabel = measuredWidth("BaseShapes") / 2;
-      expect(frame.labelAnchor.x - halfLabel).toBeGreaterThanOrEqual(frame.x);
-      expect(frame.labelAnchor.x + halfLabel).toBeLessThanOrEqual(
+      expect(frame.label.anchor.x - halfLabel).toBeGreaterThanOrEqual(frame.x);
+      expect(frame.label.anchor.x + halfLabel).toBeLessThanOrEqual(
         frame.x + frame.width,
       );
-      expect(frame.labelAnchor.y - LINE_HEIGHT / 2).toBeGreaterThanOrEqual(
+      expect(frame.label.anchor.y - LINE_HEIGHT / 2).toBeGreaterThanOrEqual(
         frame.y,
       );
-      expect(frame.labelAnchor.y + LINE_HEIGHT / 2).toBeLessThanOrEqual(
+      expect(frame.label.anchor.y + LINE_HEIGHT / 2).toBeLessThanOrEqual(
         Math.min(...members.map((box) => box.y)),
       );
     });
@@ -1503,8 +1503,8 @@ describe("layoutClassDiagram", () => {
       }
 
       for (const frame of diagram.namespaces) {
-        const size = fakeMeasurer.measure(frame.label.text);
-        withinBounds(frame.labelAnchor, size.width / 2, size.height / 2);
+        const size = fakeMeasurer.measure(frame.label.label.text);
+        withinBounds(frame.label.anchor, size.width / 2, size.height / 2);
       }
 
       for (const box of diagram.notes) {
@@ -1559,8 +1559,8 @@ describe("layoutClassDiagram", () => {
 
       const routed = twoRows.relationships[0];
       expect(routed.label?.label).toEqual(rowsLabel("holds", "many"));
-      expect(routed.label!.box.height).toBe(LINE_HEIGHT * 2);
-      expect(routed.label!.box.width).toBe(measuredWidth("holds"));
+      expect(routed.label!.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(routed.label!.labelBox.width).toBe(measuredWidth("holds"));
       expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
     });
 
@@ -1576,12 +1576,12 @@ describe("layoutClassDiagram", () => {
       );
 
       const [frame] = diagram.namespaces;
-      expect(frame.label).toEqual(rowsLabel("Big", "Zoo"));
-      expect(frame.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(frame.label.label).toEqual(rowsLabel("Big", "Zoo"));
+      expect(frame.label.labelBox.height).toBe(LINE_HEIGHT * 2);
       // Both rows inside the frame and above the box it frames.
       const lion = classById(diagram, "Lion");
-      expect(frame.labelAnchor.y - frame.labelBox.height / 2).toBeGreaterThanOrEqual(frame.y);
-      expect(frame.labelAnchor.y + frame.labelBox.height / 2).toBeLessThanOrEqual(lion.y);
+      expect(frame.label.anchor.y - frame.label.labelBox.height / 2).toBeGreaterThanOrEqual(frame.y);
+      expect(frame.label.anchor.y + frame.label.labelBox.height / 2).toBeLessThanOrEqual(lion.y);
     });
 
     it("sizes a note's box around every row of its label, and reports the box it measured", () => {

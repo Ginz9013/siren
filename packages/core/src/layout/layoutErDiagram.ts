@@ -384,7 +384,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
             ? null
             : {
                 label: relationship.label,
-                box: relationshipLabelBoxById.get(relationship.id)!,
+                labelBox: relationshipLabelBoxById.get(relationship.id)!,
                 anchor: shifted(route.labelAnchor),
               },
       };
@@ -394,7 +394,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   const subgraphs = frames.map((frame) => ({
     ...frame,
     ...shifted(frame),
-    labelAnchor: shifted(frame.labelAnchor),
+    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
   }));
 
   return {
@@ -489,16 +489,18 @@ function subgraphFrames(
 
     frameById.set(subgraph.id, {
       id: subgraph.id,
-      label: subgraph.label,
-      labelBox: label,
+      label: {
+        label: subgraph.label,
+        labelBox: label,
+        anchor: {
+          x: (left + right) / 2,
+          y: top + SUBGRAPH_PADDING + label.height / 2,
+        },
+      },
       x: left,
       y: top,
       width: right - left,
       height: bottom - top,
-      labelAnchor: {
-        x: (left + right) / 2,
-        y: top + SUBGRAPH_PADDING + label.height / 2,
-      },
     });
   }
 
