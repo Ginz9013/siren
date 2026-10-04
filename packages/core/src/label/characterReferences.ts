@@ -23,7 +23,12 @@
  * Generated from the WHATWG table (2,231 entries: 2,125 names, 106 of them
  * also legacy) as packaged by `entities` 6.0.1, the decoder jsdom's parser
  * uses — the parser `mermaid-probe.mjs` measures through. The standard
- * declares the table will never change.
+ * declares the table will never change. Regenerate it (and nothing else in
+ * this file) with
+ *
+ *     node packages/core/scripts/generate-character-references.mjs
+ *
+ * and add `--check` to confirm the committed table is what it writes.
  */
 const NAMED = `
   *AElig:C6 *AMP:26 *Aacute:C1 Abreve:102 *Acirc:C2 Acy:410 Afr:1D504 *Agrave:C0 Alpha:391

@@ -176,6 +176,14 @@ async function installDomGlobals() {
     "requestAnimationFrame",
     "getComputedStyle",
     "CSSStyleSheet",
+    // A sequence `box` line's color is tested by assigning it to a fresh
+    // `new Option().style` (Mermaid's `parseBoxData`, where `window.CSS` is
+    // missing, as it is in jsdom), so every `box` line threw "Option is not
+    // defined" without it. That fallback compares the value with what jsdom
+    // serializes it as, so write a box color in lower case (`box aqua Grp`):
+    // `box Aqua Grp` reads `Aqua` as part of the label here, where a browser's
+    // `CSS.supports` reads it as a color.
+    "Option",
   ];
   for (const name of names) {
     if (globalThis[name] === undefined) globalThis[name] = dom.window[name];

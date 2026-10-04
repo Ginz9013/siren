@@ -340,9 +340,14 @@ What is drawn is the rows.
 
 The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the
 **drawing** stays SVG `<text>`/`<tspan>` with author text through `textContent`, never `innerHTML`
-(ADR-0015). Between them, every HTML tag Mermaid lets through is read into the label's rows and runs —
-drawn, drawn approximately, or refused with a diagnostic — and none is drawn as its literal
-characters. Which tags a place honors is its **dialect**: `html`, the whole vocabulary, for the places
+(ADR-0015). Between them, in the `html` dialect, every HTML tag Mermaid lets through is read into
+the label's rows and runs — drawn, drawn approximately, or refused with a diagnostic — and none is
+drawn as its literal characters; in the `sequence` dialect every tag but a row break *is* drawn as
+its characters, because that is Mermaid's picture there, and a class member draws all of them so.
+A tag is read as the HTML tokenizer reads one: `<` then a letter (or `/` and a letter) starts it, its
+first `>` outside a quoted value ends it, and one the label ends inside is dropped with everything
+after its `<` (`x <y` draws `x `), while a `<` before anything else is a character (`a < b`). Which
+tags a place honors is its **dialect**: `html`, the whole vocabulary, for the places
 Mermaid draws as HTML; `sequence`, only `<br>` and entity codes, for sequence text, which Mermaid
 draws as SVG in both modes. A class **member** is not a label at all: Mermaid escapes it in both
 modes, so it is kept as written. A **row break** is `<br>` in any case, with or without attributes
@@ -357,7 +362,9 @@ its `**`/`*` stack with tags the author wrote. The tags whose attributes say wha
 too: `font` (its `color`, its `size` 1–7 as the scale Mermaid's label measured, and its `face`);
 `span style`, drawing ten properties — `color`, `background-color` (a rect behind the run, as
 `mark`'s), `font-size`, `font-weight`, `font-style`, `font-family`, `text-decoration`,
-`letter-spacing`, `word-spacing` and `opacity` — and **warning** about any other, naming it, the one
+`letter-spacing`, `word-spacing` and `opacity`, a `color` or `background-color` only when it is
+written in CSS color syntax (a named color, a hex color, a color function or a `var(--…)`; anything
+else, such as `banana`, is dropped as the browser drops it) — and **warning** about any other, naming it, the one
 thing in a label Siren warns about rather than drawing or refusing; and `a href`, drawn as an SVG
 `<a href>` around its run, underlined and painted with the `--siren-label-link` token, for exactly
 the hrefs DOMPurify keeps (an `<a>` whose href it strips is plain text). An author's value that
@@ -501,7 +508,8 @@ _Avoid_: header, top box (ambiguous with a box grouping)
 
 **Message**:
 One `A->>B: text` line in a sequence diagram — an arrow from one participant to another (or to
-itself), carrying label text. Its arrow style is two independent axes: a line (`solid`/`dotted`)
+itself), carrying its text as a **Label** in the `sequence` dialect, its rows stacked upward from the
+arrow, which moves down a row for each row the label adds. Its arrow style is two independent axes: a line (`solid`/`dotted`)
 and an arrowhead (`none`/`filled`/`bidirectionalFilled`/`cross`/`open`), which compose into
 Mermaid's ten arrow forms.
 _Avoid_: edge (that is flowchart vocabulary — messages are ordered in time, edges are not), call,
@@ -526,10 +534,14 @@ A `loop`/`alt`/`opt`/`par`/`critical`/`break`/`rect` region wrapping a run of st
 sequence diagram, nestable to any depth. Drawn as a frame spanning every participant lane its body
 touches, with one divider per extra branch (`else`/`and`/`option`). Its own keyword (`loop`, `alt`,
 …) draws once, on the block's own header — never on a divider, however many branches there are —
-beside the bracket-wrapped condition text (`loop every day` draws the word `loop` and `[every
+beside the bracket-wrapped condition (`loop every day` draws the word `loop` and `[every
 day]`; measured against real Mermaid, which brackets a block's condition the same way whether it
-sits on the header or on a divider). `rect` is the exception: a filled background highlight with no
-frame, no keyword and no label. Addressable in a `timeline:` block under a generated id — its kind,
+sits on the header or on a divider). A condition is a **Label** in the `sequence` dialect: the
+brackets open its first row and close its last (`loop every<br/>day` draws `[every` over `day]`),
+and the header or divider band grows a row for each row it adds, the first row staying where a
+one-row condition sits. `rect` is the exception: a filled background highlight with no frame and no
+keyword; what follows `rect` is its color, carried in the block's `label` field and drawn as the
+fill, never as text. Addressable in a `timeline:` block under a generated id — its kind,
 then a 1-based counter per kind in source order: `loop:1`, `alt:2`, `rect:1`. The colon is
 load-bearing: a participant id is `\w+`, so no message id (`${from}-${to}`) can ever spell one of
 these.
@@ -537,7 +549,9 @@ _Avoid_: block (alone — too vague), group, section, box
 
 **Box grouping**:
 A `box <color> <label> ... end` region wrapping participant declarations, drawn as a colored
-background band behind those lanes for the diagram's full height. Distinct from a control-flow
+background band behind those lanes for the diagram's full height, its label a **Label** in the
+`sequence` dialect drawn across the band's top, above the participant row, which starts lower by
+the tallest box label's every row. Distinct from a control-flow
 block (which wraps messages in time, not participants in space) and from a participant's own box
 shape. Addressable in a `timeline:` block under a generated id (`box:1`, `box:2`, … in declaration
 order); animating it moves the band and its label, never the participants it groups, which are
@@ -620,7 +634,8 @@ A free-standing annotation box, in either of the two diagram kinds that have one
 diagram's, either attached to one class (`note for Shelf "..."`, drawn with a connector to that
 class's box) or standing alone (`note "..."`), its quoted text a **Label** in the `html` dialect; a
 sequence diagram's `note over A,B`/`note right of
-A`/`note left of A`, modeled as one statement with a `left`/`right`/`over` placement axis (the
+A`/`note left of A`, its text a **Label** in the `sequence` dialect and the note as tall as all its
+rows, modeled as one statement with a `left`/`right`/`over` placement axis (the
 same two/one-axis pattern as `SequenceArrow`/`ClassRelationshipEnd`) rather than three statement
 kinds, and drawn with the class diagram's own `siren-note`/`siren-note-frame`/`siren-note-text`
 classes — deliberately reused rather than duplicated, since it is the same idea (a boxed

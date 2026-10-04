@@ -3849,6 +3849,25 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-message-entity-codes",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: x #quot; #35; #hearts; z`,
+    status: "supported",
+    meaning:
+      "Entity codes resolve in sequence text, as in every other label: " +
+      "`#quot;` is `\"`, `#35;` is `#` and `#hearts;` is `♥`. Measured " +
+      "(mermaid 11.17.2, `--paint`): the message draws the one `<text>` " +
+      "`x \" # ♥ z`.",
+    assert: (result) => {
+      expectSame(
+        "the message's codes are resolved",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")),
+        ['x " # \u2665 z'],
+      );
+    },
+  },
+  {
     id: "seq-note-br",
     kind: "sequence",
     source: `sequenceDiagram
@@ -3943,8 +3962,12 @@ line2\`"]`,
     meaning:
       "`<br>` in a box's label is a line break. Not on the board's table of " +
       "measured places, so measured (mermaid 11.17.2, `--paint`): `box " +
-      "Grp<br/>two` draws `Grp` over `two`. Siren used to draw `Grp<br/>two` " +
-      "literally. The caption band above the participants holds both rows.",
+      "aqua Grp<br/>two` and `box Grp<br/>two` both draw `Grp` over `two`. " +
+      "(The probe writes the color in lower case: under jsdom Mermaid tests a " +
+      "box color by how `Option().style` serializes it, so `Aqua` reads as " +
+      "part of the label there, as it does not in a browser.) Siren used to " +
+      "draw `Grp<br/>two` literally. The caption band above the participants " +
+      "holds both rows.",
     assert: (result) => {
       const label = svgOf(result).querySelector("g.siren-box text.siren-box-label");
       expectSame("the label's rows", labelRows(label), ["Grp", "two"]);

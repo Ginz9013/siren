@@ -1540,6 +1540,36 @@ describe("layoutSequence's labels", () => {
     expect(two.box.labelBox?.rows).toHaveLength(2);
   });
 
+  it("anchors a block's and a divider's condition so its first row sits where a one-row condition does, past the keyword in the header", () => {
+    const block: ResolvedSequenceBlock = {
+      id: "alt:1",
+      kind: "alt",
+      touchedParticipantIds: ["A", "B"],
+      branches: [
+        { label: rowsLabel("every", "day"), statements: [] },
+        { label: rowsLabel("e1"), statements: [] },
+        { label: null, statements: [] },
+      ],
+    };
+    const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
+
+    const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
+    if (element?.kind !== "block") throw new Error("expected a block");
+    const { block: positioned } = element;
+    const [divider, bare] = positioned.dividers;
+
+    // The condition's box begins 8 in from the frame — past the 64 reserved
+    // for the keyword in the header — and its first row is centred 14 below
+    // the frame's top, or the divider's line: two rows of 24 put the box's
+    // centre a row lower than one row's.
+    expect(positioned.labelAnchor).toEqual({
+      x: positioned.x + 8 + 64 + "[every".length * 4,
+      y: positioned.y + 14 + LINE / 2,
+    });
+    expect(divider!.labelAnchor).toEqual({ x: positioned.x + 8 + "[e1]".length * 4, y: divider!.y + 14 });
+    expect(bare!.labelAnchor).toBeNull();
+  });
+
   it("brackets a block's condition around all its rows, and measures it as drawn", () => {
     // Measured (mermaid 11.17.2, `--paint`): `loop every<br/>day` draws
     // "[every" over "day]", and `else e1<br/>e2` draws "[e1" over "e2]".

@@ -31,10 +31,26 @@ export function readLabelAt(
   dialect: LabelDialect,
 ): { label: Label; diagnostics: Diagnostic[]; hasError: boolean } {
   const [start] = match.indices![group]!;
-  const { label, problems } = readLabel(match[group]!, { dialect });
+  return readTextAt(match[group]!, { line: at.line, column: at.column + start }, dialect);
+}
+
+/**
+ * Reads the whole of `text` as a label, with its problems already turned
+ * into diagnostics, and whether any is an error — for a label that is not a
+ * capture of a pattern of its own (a sequence block's condition, a box's
+ * label: the rest of a line after its keyword). `at` is where `text` begins
+ * in the document, on one line, so a position in the label is a column once
+ * `at.column` is added.
+ */
+export function readTextAt(
+  text: string,
+  at: SourcePosition,
+  dialect: LabelDialect,
+): { label: Label; diagnostics: Diagnostic[]; hasError: boolean } {
+  const { label, problems } = readLabel(text, { dialect });
   const reported = labelDiagnostics(problems, (offset) => ({
     line: at.line,
-    column: at.column + start + offset,
+    column: at.column + offset,
   }));
   return { label, ...reported };
 }

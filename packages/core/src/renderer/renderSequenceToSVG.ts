@@ -20,18 +20,19 @@ import { wrapInteraction } from "./wrapInteraction";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /**
- * Horizontal/vertical inset for a block's header/branch condition labels
- * from the block frame's top-left corner — matches Mermaid's own visual
- * convention of hugging the frame's top-left, not centering.
+ * Horizontal/vertical inset of a block's keyword from the block frame's
+ * top-left corner — matches Mermaid's own visual convention of hugging the
+ * frame's top-left, not centering. The same inset `layoutSequence` places a
+ * condition's first row at (`labelAnchor`), so the keyword shares its line;
+ * and where a block has no condition, its empty placeholder sits there too.
  */
 const BLOCK_LABEL_PADDING_X = 8;
 const BLOCK_LABEL_PADDING_Y = 14;
 
 /**
- * Horizontal room reserved for a block's own keyword (`loop`, `alt`, ...)
- * before its condition label — a fixed estimate rather than a measurement,
- * since this module never measures text; wide enough for `critical`, the
- * longest of the six keywords, at the block label's font size.
+ * Horizontal room `layoutSequence` leaves for a block's own keyword (`loop`,
+ * `alt`, ...) before its condition — here only to place the empty
+ * placeholder of a header with no condition where the condition would begin.
  */
 const BLOCK_KEYWORD_WIDTH = 64;
 
@@ -41,18 +42,6 @@ const BLOCK_KEYWORD_WIDTH = 64;
  * truncation point.
  */
 const DESTROY_MARK_ARM = 7;
-
-/**
- * Share of an `actor` row's reserved height `[top, top + height]` given to
- * the stick figure, measured from the row's top edge; the remainder is the
- * label's own band. An actor is the one participant shape whose label sits
- * beside its shape rather than inside it, so the row has to be split — drawing
- * the figure across the whole row and hanging the label off its bottom edge
- * (as this did before) printed the label through the figure's legs. 0.6 is
- * roughly Mermaid's own figure-to-label proportion, and leaves the label a
- * band comfortably taller than a line of text at the theme's font size.
- */
-const ACTOR_ICON_BAND_RATIO = 0.6;
 
 /**
  * The `<marker>` shapes an arrowhead can take. `filled` and
@@ -325,13 +314,10 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
     g.appendChild(
       buildBlockKeyword(block.kind, block.x + BLOCK_LABEL_PADDING_X, block.y + BLOCK_LABEL_PADDING_Y),
     );
-    appendBlockLabel(
-      g,
-      block.label,
-      block.labelBox,
-      block.x + BLOCK_LABEL_PADDING_X + BLOCK_KEYWORD_WIDTH,
-      block.y + BLOCK_LABEL_PADDING_Y,
-    );
+    appendBlockLabel(g, block, {
+      x: block.x + BLOCK_LABEL_PADDING_X + BLOCK_KEYWORD_WIDTH,
+      y: block.y + BLOCK_LABEL_PADDING_Y,
+    });
     for (const divider of block.dividers) {
       const line = document.createElementNS(SVG_NS, "line");
       line.setAttribute("class", "siren-block-divider");
@@ -342,13 +328,10 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
       g.appendChild(line);
 
       if (divider.label !== null) {
-        appendBlockLabel(
-          g,
-          divider.label,
-          divider.labelBox,
-          block.x + BLOCK_LABEL_PADDING_X,
-          divider.y + BLOCK_LABEL_PADDING_Y,
-        );
+        appendBlockLabel(g, divider, {
+          x: block.x + BLOCK_LABEL_PADDING_X,
+          y: divider.y + BLOCK_LABEL_PADDING_Y,
+        });
       }
     }
   }
@@ -397,35 +380,30 @@ function buildBlockFill(block: PositionedBlock): SVGRectElement {
 
 /**
  * Appends one `<text class="siren-block-label">` — a block's or a divider's
- * condition, already bracketed by layout (`PositionedBlock.label`) — with
- * its box's left edge at `left` and its first row centred on `firstRowY`, so
- * a condition of several rows begins where a one-row condition always did
- * and grows downward into the band layout made taller for it.
+ * condition, already bracketed by layout (`PositionedBlock.label`) — centred
+ * on the `labelAnchor` layout gave it, which puts its first row where a
+ * one-row condition's always was and grows the rest downward into the band
+ * layout made taller for them.
  *
  * A header with no condition still gets its (empty) element, as it always
- * has: Mermaid draws an invisible placeholder there.
+ * has, at `placeholder` — where a condition would begin: Mermaid draws an
+ * invisible placeholder there.
  */
 function appendBlockLabel(
   parent: Element,
-  label: Label | null,
-  labelBox: LabelBox | null,
-  left: number,
-  firstRowY: number,
+  { label, labelBox, labelAnchor }: Pick<PositionedBlock, "label" | "labelBox" | "labelAnchor">,
+  placeholder: { x: number; y: number },
 ): void {
-  if (label === null || labelBox === null) {
+  if (label === null || labelBox === null || labelAnchor === null) {
     const empty = document.createElementNS(SVG_NS, "text");
     empty.setAttribute("class", "siren-block-label");
-    empty.setAttribute("x", String(left));
-    empty.setAttribute("y", String(firstRowY));
+    empty.setAttribute("x", String(placeholder.x));
+    empty.setAttribute("y", String(placeholder.y));
     empty.setAttribute("text-anchor", "start");
     parent.appendChild(empty);
     return;
   }
-  const anchor = {
-    x: left + labelBox.width / 2,
-    y: firstRowY - labelBox.rows[0]!.y + labelBox.height / 2,
-  };
-  appendLabel(parent, drawLabel(label, labelBox, anchor, "siren-block-label"));
+  appendLabel(parent, drawLabel(label, labelBox, labelAnchor, "siren-block-label"));
 }
 
 /**
@@ -647,16 +625,16 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
   if (participant.participantKind === "actor") {
     g.appendChild(buildActorIcon(participant, top));
 
-    // The figure owns the top of the row and the label owns what is left, so
-    // the two never share pixels; centring the label in that free band (rather
-    // than sitting it on the band's bottom edge) keeps ascenders and
-    // descenders inside the row, exactly as a participant box's label does.
-    const iconBottom = top + participant.height * ACTOR_ICON_BAND_RATIO;
+    // Layout sizes an actor's row as its figure above its label, every row
+    // of it (`layoutSequence`'s `ACTOR_FIGURE_HEIGHT`), so the label owns the
+    // bottom `labelBox.height` of the row and the figure what is above it:
+    // the two never share pixels, and a label of several rows grows the row
+    // downward rather than into the figure's legs.
     appendLabel(
       g,
       drawLabel(participant.label, participant.labelBox, {
         x: participant.x,
-        y: (iconBottom + top + participant.height) / 2,
+        y: top + participant.height - participant.labelBox.height / 2,
       }),
     );
 
@@ -684,15 +662,15 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
 /**
  * Builds the stick-figure icon for an `actor` participant: a head circle,
  * a body line, an arm line, and two leg lines, drawn inside the icon band —
- * the top `ACTOR_ICON_BAND_RATIO` of the participant's layout-assigned row
- * `[top, top + height]`. The rest of the row is the label's band (see
- * `buildParticipant`); drawing the figure across the whole row instead put the
- * label's glyphs straight through the figure's legs.
+ * the part of the participant's layout-assigned row `[top, top + height]`
+ * above its label, which owns the bottom `labelBox.height` of the row (see
+ * `buildParticipant`). The band is as tall for a label of several rows as
+ * for one, so the figure does not grow with its label.
  */
 function buildActorIcon(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   const centerX = participant.x;
-  const iconHeight = participant.height * ACTOR_ICON_BAND_RATIO;
+  const iconHeight = participant.height - participant.labelBox.height;
   const headRadius = Math.max(Math.min(participant.width, iconHeight) / 6, 4);
   const headCenterY = top + headRadius;
   const bodyTopY = headCenterY + headRadius;

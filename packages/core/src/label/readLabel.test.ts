@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LabelRun } from "./label";
 import { readLabel } from "./readLabel";
-import { readLabelAt } from "./readLabelAt";
+import { readLabelAt, readTextAt } from "./readLabelAt";
 
 /** Each row of a label as the text it draws, run texts concatenated. */
 function rowTexts(source: string, markdown = false): string[] {
@@ -332,6 +332,18 @@ describe("readLabelAt", () => {
   });
 });
 
+describe("readTextAt", () => {
+  it("reads a whole text as a label, each problem placed from where the text begins", () => {
+    const read = readTextAt("x <span style='border:0'>y</span>", { line: 2, column: 10 }, "html");
+
+    expect(read.label.text).toBe("x y");
+    expect(read.diagnostics.map(({ severity, line, column }) => ({ severity, line, column }))).toEqual([
+      { severity: "warning", line: 2, column: 12 },
+    ]);
+    expect(read.hasError).toBe(false);
+  });
+});
+
 describe("readLabel's attribute tags", () => {
   // `<font color face>` keep their attributes through DOMPurify (measured
   // with `mermaid-probe.mjs --html` against 11.17.2), and the browser draws
@@ -389,6 +401,56 @@ describe("readLabel's attribute tags", () => {
     expect(
       runsOf("<font color='url(#x)' face='a\\62 c'>x</font><font color='expression(1)'>y</font>", "color", "fontFamily"),
     ).toEqual([{ text: "xy", color: null, fontFamily: null }]);
+  });
+
+  // A color the browser cannot parse is a declaration it drops, so nothing
+  // is painted — not SVG's default black, which hid the text behind a
+  // `background-color: banana`.
+  it("reads a color or background that is not a CSS color as unwritten", () => {
+    expect(
+      runsOf(
+        "<span style='color: banana; background-color: banana'>a</span>" +
+          "<font color='banana'>b</font>" +
+          "<span style='background-color: 12px'>c</span>" +
+          "<font color='#ff000'>d</font>" +
+          "<span style='color: #abcd5'>e</span>",
+        "color",
+        "background",
+      ),
+    ).toEqual([{ text: "abcde", color: null, background: null }]);
+  });
+
+  it.each([
+    "red",
+    "RebeccaPurple",
+    "transparent",
+    "currentColor",
+    "#abc",
+    "#abcd",
+    "#aabbcc",
+    "#aabbccdd",
+    "rgb(1 2 3)",
+    "RGBA(1, 2, 3, 0.5)",
+    "hsl(120deg 50% 50%)",
+    "hsla(120, 50%, 50%, 0.5)",
+    "hwb(120 0% 0%)",
+    "lab(50% 40 59)",
+    "lch(50% 40 59)",
+    "oklab(0.5 0.1 0.1)",
+    "oklch(0.5 0.1 120)",
+    "color(display-p3 1 0 0)",
+    "color-mix(in srgb, red 50%, blue)",
+    "var(--brand)",
+  ])("reads the CSS color %s as written, as a color and as a background", (value) => {
+    // One declaration a span, so that no hex color is followed by a `;`,
+    // which would make it an entity code (see "readLabel's entity codes").
+    expect(
+      runsOf(`<span style='color: ${value}'>a</span><span style='background-color: ${value}'>b</span>`, "color", "background"),
+    ).toEqual([
+      { text: "a", color: value, background: null },
+      { text: "b", color: null, background: value },
+    ]);
+    expect(runsOf(`<font color='${value}'>a</font>`, "color")).toEqual([{ text: "a", color: value }]);
   });
 
   // `<span style>` keeps its declarations through DOMPurify (measured with
@@ -621,6 +683,50 @@ describe("readLabel's tags outside the vocabulary", () => {
   // is `a<sub>b</sub>cd` (measured).
   it("closes the tags opened inside an unknown tag at its end tag", () => {
     expect(flagged("<foo>a<sub>b</foo>c</sub>d")).toEqual(["ab(sub)cd"]);
+  });
+});
+
+describe("readLabel's unterminated tag", () => {
+  // The HTML tokenizer: `<` followed by a letter, or by `/` and a letter,
+  // opens a tag, and a tag the label ends inside is dropped with everything
+  // after its `<`. Measured with `mermaid-probe.mjs --html` against 11.17.2:
+  // `x <y` is `<p>x </p>`, `a </y b` and `a <y z='1` are `<p>a </p>`,
+  // `a <y z='1> b <i>c</i>` is `<p>a </p>` (the quoted value runs to the
+  // end), and `a <b>c<br` is `<p>a <b>c</b></p>`.
+  it.each([
+    ["x <y", "x "],
+    ["a </y b", "a "],
+    ["a <y z='1", "a "],
+    ['a <y z="1', "a "],
+    ["a <y z='1> b <i>c</i>", "a "],
+    ["a <br", "a "],
+  ])("drops the tag %j runs to the end of", (source, drawn) => {
+    expect(rowTexts(source)).toEqual([drawn]);
+  });
+
+  it("closes what is open where the unterminated tag begins", () => {
+    expect(flagged("a <b>c<br")).toEqual(["a c(b)"]);
+  });
+
+  // Not a tag: `a < b` is `<p>a &lt; b</p>`, `a <1` is `<p>a &lt;1</p>`,
+  // `a</` is `<p>a&lt;/</p>` and `a<` is `<p>a&lt;</p>` (measured).
+  it.each(["a < b", "a <1", "a</", "a<"])("draws %j as written", (source) => {
+    expect(rowTexts(source)).toEqual([source]);
+  });
+
+  // The tokenizer ends a tag at its first `>` outside a quoted value, a `/`
+  // anywhere in it included: `a<b/ >c</b>d` is `<p>a<b>c</b>d</p>`,
+  // `a<b/x>c</b>d` is `<p>a<b x="">c</b>d</p>`, and a quote that does not
+  // follow `=` opens no value — `a<y a'b>c` is `<p>ac</p>` (measured).
+  it("ends a tag at its first > outside a quoted value", () => {
+    expect(flagged("a<b/ >c</b>d")).toEqual(["ac(b)d"]);
+    expect(flagged("a<b/x>c</b>d")).toEqual(["ac(b)d"]);
+    expect(rowTexts("a<y a'b>c")).toEqual(["ac"]);
+  });
+
+  // Mermaid draws sequence text in SVG mode, where a `<` is a character.
+  it("leaves an unterminated tag as written in the sequence dialect", () => {
+    expect(readLabel("x <y", { dialect: "sequence" }).label.text).toBe("x <y");
   });
 });
 

@@ -19,7 +19,7 @@ import type {
   SirenTimeline,
 } from "../contracts";
 import { plainLabel, type SourcePosition } from "../label/label";
-import { readLabelAt } from "../label/readLabelAt";
+import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
@@ -219,16 +219,8 @@ function readLabelInto(
   group: number,
   at: SourcePosition,
 ): Label {
-  const read = readLabelAt(match, group, at, "sequence");
-  state.diagnostics.push(...read.diagnostics);
-  if (read.hasError) {
-    state.sawError = true;
-  }
-  return read.label;
+  return recorded(state, readLabelAt(match, group, at, "sequence"));
 }
-
-/** The whole of a non-empty text, as one capture group `readLabelAt` can place. */
-const WHOLE_TEXT_RE = /^(.+)$/d;
 
 /**
  * Reads `text` — the whole of it — as a label, or answers `null` for an
@@ -237,8 +229,16 @@ const WHOLE_TEXT_RE = /^(.+)$/d;
  * where `text` begins in the document.
  */
 function readTextLabel(state: ParserState, text: string, at: SourcePosition): Label | null {
-  const match = WHOLE_TEXT_RE.exec(text);
-  return match === null ? null : readLabelInto(state, match, 1, at);
+  return text === "" ? null : recorded(state, readTextAt(text, at, "sequence"));
+}
+
+/** `read`'s label, its diagnostics recorded onto the document's; an error costs the document. */
+function recorded(state: ParserState, read: ReturnType<typeof readTextAt>): Label {
+  state.diagnostics.push(...read.diagnostics);
+  if (read.hasError) {
+    state.sawError = true;
+  }
+  return read.label;
 }
 
 /**

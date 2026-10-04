@@ -1195,8 +1195,10 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
 
   it("reads an alias in the whole alphabet Mermaid reads one in, and no wider", () => {
     // Measured: the alias is a quoted run of anything but a quote —
-    // `A["a & b <c> d"]` reports `alias="a & b <c> d"`, so the characters a
-    // renderer has to escape are ordinary text here.
+    // `A["a & b #lt;c#gt; d"]` reports `alias="a & b ﬂ°lt¶ßcﬂ°gt¶ß d"` (its
+    // entity codes in Mermaid's own placeholder form) and draws
+    // `<p>a &amp; b &lt;c&gt; d</p>` (`--html`), so the characters a renderer
+    // has to escape are ordinary text here.
     expect(aliasOf('erDiagram\n  A["a & b #lt;c#gt; d"]\n', "A")).toBe("a & b <c> d");
 
     // And `A [ "spaced" ]` is the same entity, because Mermaid's lexer skips

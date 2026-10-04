@@ -38,6 +38,22 @@ const boxOf = (...rows: string[]): LabelBox => ({
   })),
 });
 
+/**
+ * Where `layoutSequence` anchors a block's condition of this `box`, for a
+ * frame whose top-left corner is (`x`, `y`): its box 8 in and past the 64
+ * reserved for the keyword, its first row centred 14 below the top.
+ */
+const headerAnchor = (box: LabelBox, x: number, y: number) => ({
+  x: x + 8 + 64 + box.width / 2,
+  y: y + 14 - box.rows[0]!.y + box.height / 2,
+});
+
+/** The same for a divider's condition, its line at `y` in a frame whose left edge is `x`: no keyword. */
+const dividerAnchor = (box: LabelBox, x: number, y: number) => ({
+  x: x + 8 + box.width / 2,
+  y: y + 14 - box.rows[0]!.y + box.height / 2,
+});
+
 /** Hand-built fixture: one `participant` box lane, one `actor` stick-figure lane, no messages. */
 function buildParticipantsFixture(): PositionedSequenceDiagram {
   const alice: PositionedParticipant = {
@@ -578,6 +594,7 @@ describe("renderSequenceToSVG", () => {
       kind: "loop",
       label: plainLabel("[n < 5]"),
       labelBox: boxOf("[n < 5]"),
+      labelAnchor: headerAnchor(boxOf("[n < 5]"), 40, 50),
       x: 40,
       y: 50,
       width: 200,
@@ -628,13 +645,24 @@ describe("renderSequenceToSVG", () => {
       kind: "alt",
       label: plainLabel("[x == 1]"),
       labelBox: boxOf("[x == 1]"),
+      labelAnchor: headerAnchor(boxOf("[x == 1]"), 20, 30),
       x: 20,
       y: 30,
       width: 240,
       height: 180,
       dividers: [
-        { label: plainLabel("[x == 2]"), labelBox: boxOf("[x == 2]"), y: 90 },
-        { label: plainLabel("[else]"), labelBox: boxOf("[else]"), y: 140 },
+        {
+          label: plainLabel("[x == 2]"),
+          labelBox: boxOf("[x == 2]"),
+          labelAnchor: dividerAnchor(boxOf("[x == 2]"), 20, 90),
+          y: 90,
+        },
+        {
+          label: plainLabel("[else]"),
+          labelBox: boxOf("[else]"),
+          labelAnchor: dividerAnchor(boxOf("[else]"), 20, 140),
+          y: 140,
+        },
       ],
       children: [],
     };
@@ -684,6 +712,7 @@ describe("renderSequenceToSVG", () => {
       kind: "rect",
       label: plainLabel("rgb(191, 223, 255)"),
       labelBox: boxOf("rgb(191, 223, 255)"),
+      labelAnchor: null,
       x: 20,
       y: 60,
       width: 240,
@@ -725,6 +754,7 @@ describe("renderSequenceToSVG", () => {
       kind: "alt",
       label: plainLabel("y > 0"),
       labelBox: boxOf("y > 0"),
+      labelAnchor: headerAnchor(boxOf("y > 0"), 60, 80),
       x: 60,
       y: 80,
       width: 160,
@@ -737,6 +767,7 @@ describe("renderSequenceToSVG", () => {
       kind: "loop",
       label: plainLabel("[n < 5]"),
       labelBox: boxOf("[n < 5]"),
+      labelAnchor: headerAnchor(boxOf("[n < 5]"), 40, 50),
       x: 40,
       y: 50,
       width: 200,
@@ -796,6 +827,7 @@ describe("renderSequenceToSVG", () => {
       kind: "loop",
       label: plainLabel("retrying"),
       labelBox: boxOf("retrying"),
+      labelAnchor: headerAnchor(boxOf("retrying"), 40, 60),
       x: 40,
       y: 60,
       width: 220,
@@ -945,6 +977,7 @@ describe("renderSequenceToSVG", () => {
       kind: "loop",
       label: plainLabel("each retry"),
       labelBox: boxOf("each retry"),
+      labelAnchor: headerAnchor(boxOf("each retry"), 20, 60),
       x: 20,
       y: 60,
       width: 240,
@@ -1013,11 +1046,19 @@ describe("renderSequenceToSVG", () => {
       kind: "alt",
       label: plainLabel("[<b>x == 1</b>]"),
       labelBox: boxOf("[<b>x == 1</b>]"),
+      labelAnchor: headerAnchor(boxOf("[<b>x == 1</b>]"), 20, 30),
       x: 20,
       y: 30,
       width: 240,
       height: 180,
-      dividers: [{ label: plainLabel("[<i>else</i>]"), labelBox: boxOf("[<i>else</i>]"), y: 120 }],
+      dividers: [
+        {
+          label: plainLabel("[<i>else</i>]"),
+          labelBox: boxOf("[<i>else</i>]"),
+          labelAnchor: dividerAnchor(boxOf("[<i>else</i>]"), 20, 120),
+          y: 120,
+        },
+      ],
       children: [],
     };
     const svg = renderSequenceToSVG(buildBlockFixture(block));
@@ -1040,6 +1081,7 @@ describe("renderSequenceToSVG", () => {
       kind: "loop",
       label: null,
       labelBox: null,
+      labelAnchor: null,
       x: 40,
       y: 50,
       width: 200,
@@ -1065,6 +1107,7 @@ describe("renderSequenceToSVG", () => {
         kind,
         label: plainLabel("condition"),
         labelBox: boxOf("condition"),
+        labelAnchor: headerAnchor(boxOf("condition"), 40, 50),
         x: 40,
         y: 50,
         width: 200,
@@ -1102,6 +1145,32 @@ describe("renderSequenceToSVG's labels", () => {
     expect(texts).toHaveLength(4);
     for (const text of texts) {
       expect(rowsOf(text)).toEqual(["Web", "Client"]);
+    }
+  });
+
+  it("draws an actor's label of several rows below its figure, every row inside the actor's row, the figure no taller than for one row", () => {
+    const diagram = buildParticipantsFixture();
+    const bob = diagram.participants[1]!;
+    const oneRowIcon = iconExtentY(
+      renderSequenceToSVG(buildParticipantsFixture()).querySelector('g.siren-participant[data-siren-id="Bob"]')!,
+    );
+    // Layout's row for a label of three 24px rows: each row a one-row
+    // label's row adds is that row's height (50 for one row, so 98 for three).
+    bob.label = rowsLabel("one", "two", "three");
+    bob.labelBox = boxOf("one", "two", "three");
+    bob.height = 50 + 2 * 24;
+
+    const svg = renderSequenceToSVG(diagram);
+
+    const group = svg.querySelector('g.siren-participant[data-siren-id="Bob"]')!;
+    const icon = iconExtentY(group);
+    expect(icon).toEqual(oneRowIcon);
+    const rows = Array.from(group.querySelectorAll("text tspan.siren-label-row"));
+    expect(rows.map((row) => row.textContent)).toEqual(["one", "two", "three"]);
+    for (const row of rows) {
+      const centre = Number(row.getAttribute("y"));
+      expect(centre - 12).toBeGreaterThanOrEqual(icon.max);
+      expect(centre + 12).toBeLessThanOrEqual(bob.height);
     }
   });
 
@@ -1151,11 +1220,19 @@ describe("renderSequenceToSVG's labels", () => {
       kind: "alt",
       label: rowsLabel("[every", "day]"),
       labelBox: boxOf("[every", "day]"),
+      labelAnchor: headerAnchor(boxOf("[every", "day]"), 10, 40),
       x: 10,
       y: 40,
       width: 300,
       height: 200,
-      dividers: [{ label: rowsLabel("[e1", "e2]"), labelBox: boxOf("[e1", "e2]"), y: 140 }],
+      dividers: [
+        {
+          label: rowsLabel("[e1", "e2]"),
+          labelBox: boxOf("[e1", "e2]"),
+          labelAnchor: dividerAnchor(boxOf("[e1", "e2]"), 10, 140),
+          y: 140,
+        },
+      ],
       children: [],
     };
 
@@ -1174,12 +1251,38 @@ describe("renderSequenceToSVG's labels", () => {
     expect(Number(divider!.getAttribute("x")) - "[e1".length * 4).toBe(10 + 8);
   });
 
+  it("draws a block's and a divider's condition centred on the anchor layout gave each", () => {
+    const block: PositionedBlock = {
+      id: "alt:1",
+      kind: "alt",
+      label: plainLabel("[c]"),
+      labelBox: boxOf("[c]"),
+      labelAnchor: { x: 123, y: 77 },
+      x: 10,
+      y: 40,
+      width: 300,
+      height: 200,
+      dividers: [{ label: plainLabel("[e]"), labelBox: boxOf("[e]"), labelAnchor: { x: 45, y: 161 }, y: 140 }],
+      children: [],
+    };
+
+    const texts = Array.from(
+      renderSequenceToSVG(buildBlockFixture(block)).querySelectorAll("text.siren-block-label"),
+    );
+
+    expect(texts.map((text) => [text.getAttribute("x"), text.getAttribute("y")])).toEqual([
+      ["123", "77"],
+      ["45", "161"],
+    ]);
+  });
+
   it("centres a block's keyword on the same line as its condition's first row", () => {
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
       label: rowsLabel("[every", "day]"),
       labelBox: boxOf("[every", "day]"),
+      labelAnchor: headerAnchor(boxOf("[every", "day]"), 10, 40),
       x: 10,
       y: 40,
       width: 300,
