@@ -769,6 +769,104 @@ description statement can name one.
 _Avoid_: initial/final state (they are not states — nothing can describe or style one), start node,
 terminator, `[*]` (that is the spelling, not the thing)
 
+**Entity**:
+One box in an ER diagram — the ER counterpart of a flowchart **node**, a class diagram's **class**
+and a state diagram's **state**. Declared by naming it, bare (`CUSTOMER`) or at either end of an
+**ER relationship**, and a line is a stream of statements rather than one, so `CUSTOMER ORDER` is
+two entities. Its name is its id and is spelled one of two ways: **bare**, in Mermaid's ER name
+alphabet — letters, digits, `_`, `-`, `.`, `*` and any non-ASCII character, so `LINE-ITEM` and
+`中文實體` are each one name, while `end`, `subgraph`, `class`, `style` and `classDef` are refused —
+or **quoted**, `"Customer Account"`, which takes any character but a quote and keeps its spaces.
+Quoting changes the id itself and is not an alias. Named again, it is still one entity, kept where it
+was first named, and the attributes of every block it opens join in order.
+
+It may carry an **alias**, `CUSTOMER["Customer Account"]` or bracketless `CUSTOMER[Account]`,
+drawn in place of the name while the name stays the id — so `data-siren-id` and a `timeline:`
+entry still say `CUSTOMER`. The alias is a **Label** in the `html` dialect; the bracketless
+spelling holds exactly one name, so it can carry no tag. The first alias written wins, and a later
+mention without one does not clear it. An entity with no alias draws its name as written, never
+read for tags. Unlike a state's `state "text" as s`, an alias replaces the drawn name rather than
+adding a description under it.
+_Avoid_: table, node (flowchart vocabulary), class (class-diagram vocabulary), box (say "frame" for
+the drawn `<rect>`), entity code (that is a label's `#name;` character reference — see **Label** —
+and never one of these boxes), label (for the alias)
+
+**Entity attribute**:
+One row in an entity's `{ ... }` block — `type name`, then optional keys, then an optional comment,
+in that order (`string code PK,FK "the code"`). One line may hold several, and the braces belong to
+the line's stream rather than standing on lines of their own: `E { string a }` is the same entity
+as the three-line spelling. The **type** and the **name** are literal: never Labels, drawn exactly
+as written, in a third alphabet of their own — a word that may not begin with a digit, carries
+`()`, `[]` and `,` (`string(99)`, `int[]`), keeps a `~generic~` with its tildes (a class diagram's
+generic is redrawn in angle brackets; this one is not), and may be backticked
+(`` `odd name` ``) to hold any character, the backticks not drawn. The **keys** are `PK`, `FK` and
+`UK`, any case, comma-separated and kept as written, repeats included. The **comment** is the
+quoted string last on the row, and a **Label** in the `html` dialect. An entity's table draws the
+type and name columns always, and its keys and comment columns only when some row of it wrote
+one. An entity attribute has no id: it is not addressable in a `timeline:` block, and animates with
+the entity that owns it.
+_Avoid_: attribute (alone — it is also an SVG attribute and one of a class **member**'s two kinds),
+member (class-diagram vocabulary), field, column (that is the drawn table's), property (that is a
+CSS declaration's)
+
+**ER relationship**:
+A connector between two entities, written `CUSTOMER ||--o{ ORDER : places` — a cardinality at each
+end, a line between them, and a label. Both endpoints are declared by being named, and both join
+the ER subgraph it is written in.
+
+- **Cardinality** — how many of the entity at that end take part, one of four, chosen at each end
+  independently: `onlyOne` (`||`), `zeroOrOne` (`|o`/`o|`), `oneOrMore` (`}|`/`|{`) and
+  `zeroOrMore` (`}o`/`o{`), each also spelled in words or digits (`one`, `zero or one`, `one or more`,
+  `zero or many`, `1+`, …) that mix freely with the punctuation. Drawn as a crow's-foot marker
+  against the entity it is written next to: the glyph touching the box says one or many, the one
+  beyond it mandatory or optional. Mermaid's fifth, `u`, is refused by name — Mermaid draws no
+  figure for it either.
+- **Identifying** or **non-identifying** — the line: `--` or `to` draws it solid, `..`, `.-`, `-.`
+  or `optionally to` dashed.
+- **Label** — required: there is no unlabelled ER relationship. One word or one quoted string —
+  `: two words` labels it `two` and declares a third entity, `words`. A **Label** in the `html`
+  dialect.
+
+Its id is `${from}:${to}`, then `#2` for a repeat pair — a colon where every other kind's connector
+uses a hyphen, because an ER name may itself contain one. A quoted name can still spell any id, so
+two drawn elements sharing one are warned about rather than ruled out. Addressable in a `timeline:`
+block; no author style can reach it.
+_Avoid_: relationship (alone — that is the class diagram's connector, see **Relationship**), edge
+(flowchart vocabulary), transition, association, multiplicity (that is a class relationship's
+end string — say "cardinality"), dashed/solid as the axis's name (say "identifying" — they are how
+it is drawn)
+
+**ER subgraph**:
+A `subgraph sales ... end` block in an ER diagram, drawn as a titled frame around the entities named
+inside it — relationship endpoints included — and laid out as a dagre cluster: the **sixth**
+grouping construct here, drawing deliberately the same figure as a flowchart's **subgraph**, a
+**namespace** and a **composite state**. Its **name** is mandatory and is an entity name in either
+spelling (`subgraph "My Cluster"`; `subgraph My Cluster` unquoted is refused). The header owns its
+line, while `end` is an ordinary statement — `A end` declares `A` and then closes the block.
+
+Its **title** is optional and bracketed: `sales["Sales Team"]` or `sales[Sales Team]`, drawn on the
+frame in place of the name, every run of spaces drawn as one. **Quoted, the title is a Label in the
+`html` dialect. Unquoted, it is words in the entity-name alphabet and nothing else**, so it can carry
+no tag: a title with any other character — `subgraph s1[My<br/>Title]` — is refused at the title, as
+Mermaid refuses it, and quoting it is the way to write a label. A block with no title draws its name
+as written, never read for tags.
+
+It nests and may carry its own `direction`, both as a flowchart's subgraph does. Three things are
+not the same as a flowchart's subgraph, each measured:
+
+- **A name claimed by two blocks belongs to the innermost one**, because Mermaid settles membership
+  as each block closes — not to the first that named it.
+- **Its name is not unique**, since two blocks may share one, so its id is generated
+  (`subgraph:1`, `subgraph:2`, … in the order the keywords open) and that is what a `timeline:`
+  entry addresses.
+- **Nothing may share its name.** An entity named like a block — bare, or as a relationship's
+  endpoint — is refused by name, since Mermaid draws no box for it, and so no relationship can end
+  on the frame. A `style` or `class` naming a block already closed is refused too: Mermaid paints
+  the frame, and painting one is unimplemented.
+_Avoid_: subgraph (alone — that is the flowchart's, see **Subgraph**), cluster (the dagre-side
+word), namespace (class-diagram vocabulary), composite state (state-diagram vocabulary), group,
+frame (that is the drawn `<rect>`)
+
 **Author style**:
 A styling declaration written in the document, emitted as an inline `style` attribute on the
 element it is about. A **local override within one document**, as opposed to a **design token**,
