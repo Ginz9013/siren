@@ -26,24 +26,15 @@ export class RowBuilder {
   private edge = false;
 
   /**
-   * Appends what of `written` the current row draws, styled by each of
-   * `styles` in turn — every space and tab kept as a no-break space when
-   * `preservesSpaces` (inside a `pre`), and the spaces that begin a row at a
-   * block edge dropped — after `before` puts what goes ahead of it on the
-   * row. When nothing of it is drawn, neither is anything `before` puts.
+   * What of `written` the current row draws — every space and tab kept as a
+   * no-break space when `preservesSpaces` (inside a `pre`), and the spaces
+   * that begin a row at a block edge dropped — or `""` when nothing of it is
+   * drawn. It appends nothing, so the caller can put what goes ahead of it
+   * on the row first, and nothing at all when this is `""`.
    */
-  putText(
-    written: string,
-    styles: readonly RunStyle[],
-    { preservesSpaces, before }: { preservesSpaces: boolean; before: () => void },
-  ): void {
-    const kept = preservesSpaces ? written.replace(/[ \t]/g, " ") : written;
-    const text = this.edge && this.row.length === 0 ? kept.replace(/^[ \t\n]+/, "") : kept;
-    if (text === "") {
-      return;
-    }
-    before();
-    this.put(text, styles);
+  drawnText(written: string, { preservesSpaces }: { preservesSpaces: boolean }): string {
+    const kept = preservesSpaces ? written.replace(/[ \t]/g, "\u00a0") : written;
+    return this.edge && this.row.length === 0 ? kept.replace(/^[ \t\n]+/, "") : kept;
   }
 
   /** Appends `text` to the current row as it stands, styled by each of `styles` in turn. */
