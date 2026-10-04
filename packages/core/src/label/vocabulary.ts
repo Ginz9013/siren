@@ -193,17 +193,17 @@ export interface BlockRule extends CommonRule {
    */
   preservesSpaces: boolean;
   /**
-   * Whether it is a list item, whose first row begins with its marker
-   * (`li`), and whose end tag closes nothing past a list opened inside it.
+   * Its part in a list, one field because a block plays at most one:
+   *
+   * - `"item"` — a list item (`li`), whose first row begins with its marker,
+   *   and whose end tag closes nothing past a list opened inside it.
+   * - `"bulleted"` or `"numbered"` — a list, and what marks the items in it:
+   *   a bullet by how many lists the list is nested in (`BULLETS`), or the
+   *   item's number, counted from the list's `start` (1 when it has none) and
+   *   from an item's own `value`. An item outside every list is bulleted.
+   * - `null` — any other block.
    */
-  listItem: boolean;
-  /**
-   * For a list: what marks the items in it — a bullet by how many lists the
-   * list is nested in (`BULLETS`), or the item's number, counted from the list's
-   * `start` (1 when it has none) and from an item's own `value`. An item
-   * outside every list is bulleted. `null` for any other block.
-   */
-  list: "bulleted" | "numbered" | null;
+  listRole: "item" | "bulleted" | "numbered" | null;
 }
 
 /**
@@ -385,8 +385,7 @@ function block(extra: Partial<Omit<BlockRule, "kind">> = {}): BlockRule {
     itemLooksPast: false,
     strayEndIsEmpty: false,
     preservesSpaces: false,
-    listItem: false,
-    list: null,
+    listRole: null,
     ...extra,
   };
 }
@@ -680,8 +679,8 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   p: block({ itemLooksPast: true, strayEndIsEmpty: true }),
   div: block({ itemLooksPast: true }),
   // `menu` and `dir` are drawn as `ul` is, by the browser's default stylesheet.
-  ...Object.fromEntries(["ul", "menu", "dir"].map((name): [string, TagRule] => [name, block({ list: "bulleted" })])),
-  ol: block({ list: "numbered" }),
+  ...Object.fromEntries(["ul", "menu", "dir"].map((name): [string, TagRule] => [name, block({ listRole: "bulleted" })])),
+  ol: block({ listRole: "numbered" }),
   // Drawn still: `<b>x<marquee>a</b>c</marquee>d` is
   // `<b>x<marquee>ac</marquee>d</b>` (measured).
   marquee: block({ walled: true }),
@@ -696,7 +695,7 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   hr: block({ opens: "nothing" }),
   // An `li` start tag closes an open `li`: `x<li>a<li>b` is
   // `<p>x</p><li>a</li><li>b</li>` (measured).
-  li: block({ closesOpen: { names: ["li"], reach: "item" }, listItem: true }),
+  li: block({ closesOpen: { names: ["li"], reach: "item" }, listRole: "item" }),
   address: block({ style: italic, itemLooksPast: true }),
   // Bold, at the spec's measured scales of the size around them.
   h1: heading(2),

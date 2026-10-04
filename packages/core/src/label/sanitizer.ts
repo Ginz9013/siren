@@ -14,15 +14,21 @@ export function removed(stack: readonly { rule: TagRule }[]): boolean {
   return stack.some(({ rule }) => rule.removesContent === "elements");
 }
 
+/** A start tag `<name>` as the sanitizer judges one: its name, the rule it is read by, and its attributes. */
+export interface StartTag {
+  name: string;
+  rule: TagRule;
+  attributes: Attributes;
+}
+
 /**
- * For a start tag `<name>` ending at `after` in `source`, read by `rule`,
- * whose content DOMPurify removes as raw text or as the rest of the label:
- * where in `source` reading resumes — past the tag's own end tag, as the
- * parser ends raw text, or at the end of `source` when there is none or
- * nothing ends it. `null` for any other tag: its content is read as tags
- * like any other.
+ * For a start `tag` ending at `after` in `source`, whose content DOMPurify
+ * removes as raw text or as the rest of the label: where in `source`
+ * reading resumes — past the tag's own end tag, as the parser ends raw
+ * text, or at the end of `source` when there is none or nothing ends it.
+ * `null` for any other tag: its content is read as tags like any other.
  */
-export function removedThrough(source: string, name: string, after: number, rule: TagRule): number | null {
+export function removedThrough(source: string, { name, rule }: StartTag, after: number): number | null {
   if (rule.removesContent === "rest") {
     return source.length;
   }
@@ -35,12 +41,12 @@ export function removedThrough(source: string, name: string, after: number, rule
 }
 
 /**
- * The error-severity problem a start tag `<name>` at `offset`, read by
- * `rule` with `attributes`, costs the label, or `null` when it costs none: a
- * tag in a refused layer does, and one refused only with an attribute the
- * browser shows it by does when that attribute is there.
+ * The error-severity problem a start `tag` at `offset` costs the label, or
+ * `null` when it costs none: a tag in a refused layer does, and one refused
+ * only with an attribute the browser shows it by does when that attribute
+ * is there.
  */
-export function refusalOf(name: string, offset: number, rule: TagRule, attributes: Attributes): LabelProblem | null {
+export function refusalOf({ name, rule, attributes }: StartTag, offset: number): LabelProblem | null {
   const { refused } = rule;
   if (refused === undefined || (refused.withAttribute !== undefined && !attributes.has(refused.withAttribute))) {
     return null;

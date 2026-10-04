@@ -6,6 +6,7 @@ import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseStateDiagram } from "./parseStateDiagram";
 import { styleLines } from "./styleLines";
+import { tagQuotesRewritten } from "./tagQuotes";
 
 /**
  * Every spelling the language accepts, with no kind named here — so this
@@ -59,6 +60,12 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
  * too, whole-line comments go first, then `styleLines`, then end-of-line
  * comments.
  *
+ * Before any of them comes Mermaid's first step, its `cleanupText`
+ * (`tagQuotesRewritten`): it runs over the document as written, comments
+ * included, so a tag-shaped stretch a comment opens can still be ended by a
+ * `>` on a later line. It changes no length and no line break, so it needs
+ * no `asWritten`.
+ *
  * A `%%{init: ...}%%` directive is therefore stripped as an ordinary
  * comment. Directives are not supported by any Siren parser, so this
  * makes them inert rather than a syntax error.
@@ -67,7 +74,7 @@ function withoutComments(source: string): {
   lines: string[];
   asWritten: <T>(result: T) => T;
 } {
-  const wholeLinesBlanked = source
+  const wholeLinesBlanked = tagQuotesRewritten(source)
     .split(/\r\n|\r|\n/)
     .map((line) => (line.trimStart().startsWith("%%") ? "" : line));
   const read = styleLines(wholeLinesBlanked.join("\n"));

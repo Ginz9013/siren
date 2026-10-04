@@ -18,7 +18,7 @@ import { htmlText } from "./characterReferences";
 import type { Label, LabelDialect, LabelProblem, LabelRun, SourcePosition } from "./label";
 import { prepass } from "./prepass";
 import { RowBuilder } from "./rows";
-import { removed, removedThrough, refusalOf } from "./sanitizer";
+import { removed, removedThrough, refusalOf, type StartTag } from "./sanitizer";
 import { sequenceRows } from "./sequenceText";
 import { nextTag } from "./tags";
 import { attributesOf, htmlRule, type Attributes, type BlockRule, type RunStyle, type TagRule } from "./vocabulary";
@@ -178,7 +178,8 @@ function taggedRows(source: string, problems: LabelProblem[]): LabelRun[][] {
         rows.lineBreak();
       }
     } else if (!closing) {
-      const resume = removedThrough(source, name, tag.end, rule);
+      const start: StartTag = { name, rule, attributes: attributesOf(tag.written, name) };
+      const resume = removedThrough(source, start, tag.end);
       if (resume !== null) {
         lastIndex = resume;
         from = resume;
@@ -187,8 +188,8 @@ function taggedRows(source: string, problems: LabelProblem[]): LabelRun[][] {
       // One error-severity problem per label, at its first refused tag: it
       // costs the document either way, and the label has to be rewritten
       // whichever one the author looks at first.
-      const attributes = attributesOf(tag.written, name);
-      const refused = drawn && !hasError(problems) ? refusalOf(name, tag.start, rule, attributes) : null;
+      const { attributes } = start;
+      const refused = drawn && !hasError(problems) ? refusalOf(start, tag.start) : null;
       if (refused !== null) {
         problems.push(refused);
       }
@@ -278,7 +279,7 @@ class OpenElements {
     const found = this.reachable((rule.kind === "block" ? rule.endsAny : undefined) ?? [name]);
     // An item's end tag does not reach past a list opened inside the item.
     const index =
-      rule.kind === "block" && rule.listItem && this.open.slice(found + 1).some(isList) ? -1 : found;
+      rule.kind === "block" && rule.listRole === "item" && this.open.slice(found + 1).some(isList) ? -1 : found;
     // The first block opened inside it, which its end tag does not close.
     const block = this.open.findIndex((tag, depth) => depth > index && tag.rule.kind === "block");
     if (index === -1) {
@@ -329,15 +330,13 @@ class OpenElements {
    * nothing of it is drawn there, at a block edge or inside removed content.
    */
   private draw(written: string, stack: readonly OpenTag[]): void {
-    const text = this.rows.drawable(
-      written,
-      stack.some(({ rule }) => rule.kind === "block" && rule.preservesSpaces),
-    );
-    if (text === "" || removed(stack)) {
+    if (removed(stack)) {
       return;
     }
-    this.drawMarkers(stack);
-    this.rows.put(text, stylesOf(stack));
+    this.rows.putText(written, stylesOf(stack), {
+      preservesSpaces: stack.some(({ rule }) => rule.kind === "block" && rule.preservesSpaces),
+      before: () => this.drawMarkers(stack),
+    });
   }
 
   /**
@@ -407,7 +406,7 @@ class OpenElements {
         this.close(index);
       }
     }
-    if (rule.listItem) {
+    if (rule.listRole === "item") {
       const at = this.open.map(isList).lastIndexOf(true);
       const list = this.open[at];
       if (list !== undefined && listOf(list) === "numbered") {
@@ -419,7 +418,7 @@ class OpenElements {
         tag.marker = `${BULLETS[Math.min(depth, BULLETS.length - 1)]} `;
       }
     }
-    if (rule.list === "numbered") {
+    if (rule.listRole === "numbered") {
       tag.next = htmlInteger(attributes.get("start")) ?? 1;
     }
     this.open.push(...(rule.opens === "nothing" ? [] : [tag]), ...reopened);
@@ -428,7 +427,8 @@ class OpenElements {
 
 /** The kind of list `tag` is, or `null` for a tag that is none. */
 function listOf(tag: OpenTag): "bulleted" | "numbered" | null {
-  return tag.rule.kind === "block" ? tag.rule.list : null;
+  const role = tag.rule.kind === "block" ? tag.rule.listRole : null;
+  return role === "item" ? null : role;
 }
 
 /** Whether `tag` is a list. */

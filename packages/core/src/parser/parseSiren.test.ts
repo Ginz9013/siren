@@ -1676,7 +1676,9 @@ timeline:
       {
         severity: "error",
         message:
-          'Siren does not draw the arrow "o--x" yet: "A[<span style=\"foo:1\">Other</span>] --> B o--x C"',
+          // The line is quoted as it is read: after Mermaid's tag-quote
+          // rewrite (`tagQuotesRewritten`), which made the span's `"` a `'`.
+          'Siren does not draw the arrow "o--x" yet: "A[<span style=\'foo:1\'>Other</span>] --> B o--x C"',
         line: 3,
         column: 3,
       },
@@ -2577,5 +2579,64 @@ describe("the style-line `;` and an end-of-line comment", () => {
     }
     const label = document.states.find((state) => state.id === "A")!.descriptions[0]!;
     expect(label.rows[0]!.map((run) => [run.text, run.color])).toEqual([["r", null]]);
+  });
+});
+
+/**
+ * Mermaid's `cleanupText` (11.17.2, `preprocessDiagram`'s first step): over
+ * the whole document, before any diagram reads a line, each `="…"` inside a
+ * stretch shaped `/<(\w+)([^>]*)>/` becomes `='…'`. The stretch is the
+ * document's, not one label's, so it can run past a line's end to the next
+ * `>` anywhere below.
+ */
+describe("Mermaid's tag-quote rewrite over the whole document", () => {
+  it("rewrites a tag's quotes when the `>` ending its stretch is on a later line", () => {
+    // Measured (probe): `A->>B: a<b c="d"` followed by `B->>A: e` stores
+    // the first message as `a<b c='d'` — the second line's `->>` ends the
+    // stretch.
+    const { document } = parseSiren(`sequenceDiagram\nA->>B: a<b c="d"\nB->>A: e`);
+    if (document === null || document.kind !== "sequence") {
+      throw new Error("expected a sequence document");
+    }
+    expect(document.statements.map((statement) => ("label" in statement ? statement.label?.text : null))).toEqual([
+      "a<b c='d'",
+      "e",
+    ]);
+  });
+
+  // Measured with the probe (mermaid 11.17.2), moved here from the
+  // sequence dialect's reader when the rewrite became the document's: a
+  // message `A->>B: a<b c="d">e` is stored and drawn `a<b c='d'>e`, while a
+  // `"` anywhere else, or after `= ` with a space, or in an end tag, or in a
+  // value the stretch's first `>` cuts short, is drawn as written.
+  for (const [text, drawn] of [
+    ['a<b c="d">e', "a<b c='d'>e"],
+    ['<b c="d" e="f">g "h"', "<b c='d' e='f'>g \"h\""],
+    ['a<1 x="y">z', "a<1 x='y'>z"],
+    ['x<br class="x">y', "x<br class='x'>y"],
+    ['say "hi"', 'say "hi"'],
+    ['a<b c = "d">e', 'a<b c = "d">e'],
+    ['a</b c="d">e', 'a</b c="d">e'],
+    ['<b c="d>e">f', '<b c="d>e">f'],
+    ['x="y" <b>', 'x="y" <b>'],
+  ] as const) {
+    it(`stores the message ${text} with Mermaid's quotes`, () => {
+      const { document } = parseSiren(`sequenceDiagram\nA->>B: ${text}`);
+      if (document === null || document.kind !== "sequence") {
+        throw new Error("expected a sequence document");
+      }
+      const message = document.statements[0]!;
+      expect("label" in message ? message.label?.text : null).toBe(drawn);
+    });
+  }
+
+  it("reads a double-quoted attribute inside a quoted flowchart label as the tag's own", () => {
+    // Measured (`--html`): `A["<span style="color:red">t</span>"]` draws
+    // `<span style="color:red">t</span>` — the rewrite turns the inner
+    // quotes into `'`, so they no longer end the label's fence.
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB\nA["<span style="color:red">t</span>"]`);
+    expect(diagnostics).toEqual([]);
+    const label = document.nodes.find((node) => node.id === "A")!.label;
+    expect(label.rows.map((row) => row.map((run) => [run.text, run.color]))).toEqual([[["t", "red"]]]);
   });
 });

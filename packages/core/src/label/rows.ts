@@ -26,13 +26,24 @@ export class RowBuilder {
   private edge = false;
 
   /**
-   * What of `written` the current row would draw, `""` for nothing: every
-   * space and tab kept as a no-break space when `preservesSpaces` (inside a
-   * `pre`), and the spaces that begin a row at a block edge dropped.
+   * Appends what of `written` the current row draws, styled by each of
+   * `styles` in turn — every space and tab kept as a no-break space when
+   * `preservesSpaces` (inside a `pre`), and the spaces that begin a row at a
+   * block edge dropped — after `before` puts what goes ahead of it on the
+   * row. When nothing of it is drawn, neither is anything `before` puts.
    */
-  drawable(written: string, preservesSpaces: boolean): string {
+  putText(
+    written: string,
+    styles: readonly RunStyle[],
+    { preservesSpaces, before }: { preservesSpaces: boolean; before: () => void },
+  ): void {
     const kept = preservesSpaces ? written.replace(/[ \t]/g, " ") : written;
-    return this.edge && this.row.length === 0 ? kept.replace(/^[ \t\n]+/, "") : kept;
+    const text = this.edge && this.row.length === 0 ? kept.replace(/^[ \t\n]+/, "") : kept;
+    if (text === "") {
+      return;
+    }
+    before();
+    this.put(text, styles);
   }
 
   /** Appends `text` to the current row as it stands, styled by each of `styles` in turn. */
