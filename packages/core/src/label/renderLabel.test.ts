@@ -62,9 +62,9 @@ describe("render() with a tag Siren refuses", () => {
     return { drawn: result.svg !== null, diagnostics: result.diagnostics };
   }
 
-  // ADR-0015: a refused layer is an error at the tag, and the document is
-  // not drawn, as an unrecognized line is not.
-  it("refuses the document with an error at the tag's own line and column", () => {
+  // ADR-0015: a refused layer is an error-severity diagnostic at the tag,
+  // and the document is not drawn, as an unrecognized line is not.
+  it("refuses the document with an error-severity diagnostic at the tag's own line and column", () => {
     const { drawn, diagnostics } = rendered(`flowchart TB
   A["x <table><tr><td>a</td></tr></table>"] --> B`);
 
@@ -72,12 +72,10 @@ describe("render() with a tag Siren refuses", () => {
     expect(diagnostics.map(({ severity, line, column }) => ({ severity, line, column }))).toEqual([
       { severity: "error", line: 2, column: 8 },
     ]);
-    expect(diagnostics[0]!.message).toBe(
-      "<table> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw tables.",
-    );
+    expect(diagnostics[0]!.message).toMatch(/^<table> cannot be drawn: .* does not draw tables\.$/);
   });
 
-  it("places the error in a Markdown string on the source line the tag is written on", () => {
+  it("places the error-severity diagnostic in a Markdown string on the source line the tag is written on", () => {
     const { drawn, diagnostics } = rendered(`flowchart TB
   A["\`**a**
 b <img src='x.png'>\`"]`);

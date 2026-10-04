@@ -76,6 +76,15 @@ What Mermaid does around the tags is followed too, and each item was measured:
   `+id<br/>int` and `+<b>id</b> int` are drawn literally, with `<br/>` spelled `<br>`. Siren
   keeps a member as written.
 
+Two refinements came from measuring the refused layers out of context (T11's review). The HTML
+parser ignores the nine table parts (`tr`, `td`, `th`, `thead`, `tbody`, `tfoot`, `caption`,
+`col`, `colgroup`) anywhere but inside a `table`, so Mermaid draws `a<td>x</td>b` as `axb`; only
+`table` itself is refused, and a stray table part is dropped with its text kept. And seven tags
+DOMPurify keeps draw nothing in a browser (`template` is inert, a closed `dialog` is hidden, and
+`datalist`, `source`, `track`, `area` and `rp` are `display: none`), so Mermaid's picture of them
+is blank: they are removed with their content, as `title` is, instead of refused. A `dialog`
+written with `open` is drawn by the browser, so it stays refused.
+
 ## Considered Options
 
 - **Draw labels in a `<foreignObject>`, as Mermaid's default does** — rejected. It would make

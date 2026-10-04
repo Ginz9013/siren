@@ -222,14 +222,37 @@ interface TagRule {
    */
   walled?: boolean;
   /**
-   * For a tag in one of ADR-0015's refused layers: what the browser draws
-   * for it that SVG text cannot (`kinds`, a plural noun for the error), and
-   * what to write instead, when Mermaid has a way. Mermaid draws it; Siren
-   * reports an error at the label's first such start tag, and otherwise
-   * reads it as an element that draws nothing, as `UNKNOWN_TAG`.
+   * For a tag in one of ADR-0015's refused layers: the kind of HTML it is,
+   * which the browser draws and SVG text cannot (`REFUSED_KINDS`), and, for
+   * a tag refused only when the browser shows it, the attribute that shows
+   * it. Mermaid draws it; Siren reports an error-severity problem at the
+   * label's first such start tag, and otherwise reads it by the rest of its
+   * rule — an element that draws nothing, as `UNKNOWN_TAG`, unless it says
+   * more.
    */
-  refused?: { kinds: string; instead?: string };
+  refused?: { kind: RefusedKind; withAttribute?: string };
 }
+
+/**
+ * ADR-0015's refused kinds of HTML: tables, ruby, images, embedded content,
+ * form controls, media and interactive content.
+ */
+type RefusedKind = "table" | "ruby" | "image" | "embedded" | "form" | "media" | "interactive";
+
+/**
+ * How the error-severity problem for a refused tag names its kind — a
+ * plural noun, after "does not draw" — and what to write instead, when
+ * Mermaid has a way.
+ */
+const REFUSED_KINDS: Readonly<Record<RefusedKind, { phrase: string; instead?: string }>> = {
+  table: { phrase: "tables" },
+  ruby: { phrase: "ruby annotations" },
+  image: { phrase: "images", instead: 'Draw an image with Mermaid\'s image shape, A@{ img: "…" }, instead.' },
+  embedded: { phrase: "embedded content" },
+  form: { phrase: "form controls" },
+  media: { phrase: "media" },
+  interactive: { phrase: "interactive content" },
+};
 
 /**
  * One start tag's attributes, by lower-case name; an attribute written with
@@ -644,6 +667,22 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   // `a<noscript>b<noscript>c</noscript>d</noscript>e` is `ae`, and
   // `a<noscript>b<b>c</noscript>d</b>e` is `a<b>d</b>e` (measured).
   noscript: { formatting: false, removesContent: "elements" },
+  // DOMPurify keeps these, and the parser reads their content as elements,
+  // but the browser draws none of it (ADR-0015): `datalist` and `rp` are
+  // `display: none`, and close at a formatting end tag around them —
+  // `<b>a<datalist>c</b>d</datalist>e` is `<b>a<datalist>c</datalist></b>de`
+  // (measured).
+  datalist: { formatting: false, removesContent: "elements" },
+  rp: { formatting: false, removesContent: "elements" },
+  // Inert, and walled as `marquee` is: `<b>a<template>c</b>d</template>e` is
+  // `<b>a<template>cd</template>e</b>` (measured).
+  template: { formatting: false, removesContent: "elements", walled: true },
+  // Void, so there is nothing in them to remove, and `display: none`:
+  // `a<source>b</source>c` is `a<source>bc`, `track` and `area` the same
+  // (measured).
+  ...Object.fromEntries(
+    ["source", "track", "area"].map((name): [string, TagRule] => [name, { formatting: false, opensNothing: true }]),
+  ),
   // Inside a label the parser ignores both tags of each, so nothing closes
   // at them and their text is kept: `<body>a<sub>b</body>c</sub>d` is
   // `a<sub>bc</sub>d` (measured). `style`, the fourth tag Mermaid removes,
@@ -691,34 +730,40 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   body: { formatting: false, opensNothing: true },
   // ADR-0015's refused layers: DOMPurify keeps each (measured), and what the
   // browser draws for it needs a layout SVG text does not have.
-  ...refusedLayer("tables", ["table", "tr", "td", "th", "thead", "tbody", "tfoot", "caption", "col", "colgroup"]),
-  ...refusedLayer("ruby annotations", ["ruby", "rt", "rp"]),
-  // The embedded, form, media and interactive layer, by what each draws.
-  ...refusedLayer(
-    "images",
-    ["img"],
-    'Draw an image with Mermaid\'s image shape, A@{ img: "…" }, instead.',
+  ...refusedLayer("table", ["table"]),
+  // A table's parts, outside a table, are ignored by the parser as `html`
+  // is, start and end tags alike: `a<td>x</td>b` is `axb`, `a<col>b` is
+  // `ab`, and `<td>a<sub>b</td>c</sub>d` is `a<sub>bc</sub>d` (measured).
+  // Inside one the label is already refused, at `<table>`.
+  ...Object.fromEntries(
+    ["tr", "td", "th", "thead", "tbody", "tfoot", "caption", "col", "colgroup"].map((name): [string, TagRule] => [
+      name,
+      { formatting: false, opensNothing: true },
+    ]),
   ),
+  ...refusedLayer("ruby", ["ruby", "rt"]),
+  // The embedded, form, media and interactive layer, by what each draws.
+  ...refusedLayer("image", ["img"]),
   // `svg` and `math` are outside the HTML allow-list, but DOMPurify's SVG
   // and MathML profiles keep them (measured): in Mermaid an `<svg>` is an
   // empty 300×150 box and a `<math>` is MathML, neither of them text.
-  ...refusedLayer("embedded content", ["canvas", "area", "template", "svg", "math"]),
-  ...refusedLayer("form controls", [
-    "input", "button", "select", "textarea", "form", "fieldset", "legend", "option", "optgroup", "datalist",
-    "meter", "progress",
+  ...refusedLayer("embedded", ["canvas", "svg", "math"]),
+  ...refusedLayer("form", [
+    "input", "button", "select", "textarea", "form", "fieldset", "legend", "option", "optgroup", "meter",
+    "progress",
   ]),
-  ...refusedLayer("media", ["video", "audio", "source", "track"]),
-  ...refusedLayer("interactive content", ["details", "dialog"]),
+  ...refusedLayer("media", ["video", "audio"]),
+  ...refusedLayer("interactive", ["details"]),
+  // A closed `dialog` is hidden, so it is removed with its content, as a
+  // block: `a<dialog>t</dialog>b` is `<p>a</p><dialog>t</dialog>b<p></p>`
+  // (measured). DOMPurify keeps `open`, and an open one is drawn, a box SVG
+  // text cannot draw.
+  dialog: block({ removesContent: "elements", refused: { kind: "interactive", withAttribute: "open" } }),
 };
 
-/** One refused layer's tags, each refused as `kinds` (`TagRule.refused`). */
-function refusedLayer(kinds: string, names: readonly string[], instead?: string): Record<string, TagRule> {
-  return Object.fromEntries(
-    names.map((name): [string, TagRule] => [
-      name,
-      { formatting: false, refused: instead === undefined ? { kinds } : { kinds, instead } },
-    ]),
-  );
+/** One refused layer's tags, each refused as `kind` (`TagRule.refused`). */
+function refusedLayer(kind: RefusedKind, names: readonly string[]): Record<string, TagRule> {
+  return Object.fromEntries(names.map((name): [string, TagRule] => [name, { formatting: false, refused: { kind } }]));
 }
 
 /**
@@ -762,8 +807,13 @@ export function labelDiagnostics(
       message,
       ...positionOf(offset),
     })),
-    hasError: problems.some((problem) => problem.severity === "error"),
+    hasError: hasError(problems),
   };
+}
+
+/** Whether any of `problems` is error-severity, which costs the document. */
+function hasError(problems: readonly LabelProblem[]): boolean {
+  return problems.some((problem) => problem.severity === "error");
 }
 
 /**
@@ -1189,15 +1239,18 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
         TAG_RE.lastIndex = lastIndex;
         continue;
       }
-      // One error per label, at its first refused tag: the error costs the
-      // document either way, and a table would otherwise report every cell.
-      // Inside removed content it is removed too, and costs nothing.
+      // One error-severity problem per label, at its first refused tag: it
+      // costs the document either way, and the label has to be rewritten
+      // whichever one the author looks at first. Inside removed content the
+      // tag is removed too, and costs nothing.
+      const attributes = attributesOf(match[0], name);
       if (
         rule.refused !== undefined &&
+        (rule.refused.withAttribute === undefined || attributes.has(rule.refused.withAttribute)) &&
         !removed(open) &&
-        !problems.some((problem) => problem.severity === "error")
+        !hasError(problems)
       ) {
-        problems.push({ severity: "error", message: refusal(name, rule.refused), offset: match.index });
+        problems.push({ severity: "error", message: refusal(name, rule.refused.kind), offset: match.index });
       }
       if (rule.opensNothing === true && rule.block !== true) {
         continue;
@@ -1210,7 +1263,6 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       const warn = (message: string): void => {
         problems.push({ severity: "warning", message, offset: at });
       };
-      const attributes = attributesOf(match[0], name);
       const tag = { name, rule, style: rule.attributes?.(attributes, warn) ?? rule.style };
       if (rule.block === true) {
         openBlock(tag, attributes);
@@ -1263,10 +1315,11 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   return rows;
 }
 
-/** The error for a start tag `<name>` in a refused layer. */
-function refusal(name: string, refused: NonNullable<TagRule["refused"]>): string {
-  const message = `<${name}> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw ${refused.kinds}.`;
-  return refused.instead === undefined ? message : `${message} ${refused.instead}`;
+/** The error-severity problem's message for a start tag `<name>` of a refused `kind`. */
+function refusal(name: string, kind: RefusedKind): string {
+  const { phrase, instead } = REFUSED_KINDS[kind];
+  const message = `<${name}> cannot be drawn: Siren draws labels as SVG text, not HTML, and does not draw ${phrase}.`;
+  return instead === undefined ? message : `${message} ${instead}`;
 }
 
 /** Drops the spaces that end `row`, and any run they were all of. */
