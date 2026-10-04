@@ -6,7 +6,7 @@
  * A browser drops a declaration whose value it cannot parse, so Mermaid's
  * picture of `background-color: banana` has no background at all; Siren
  * handed the same value to SVG would paint the fallback, black, over the
- * text. So a value that is not a color is read as unwritten, as the board's
+ * text. So a value that is not a color is read as unwritten, as the spec's
  * span-style rule says of every invalid value.
  *
  * Syntax, not meaning: a named color, `transparent`, `currentcolor`, a hex

@@ -748,12 +748,16 @@ export const LABEL_CASES: readonly CompatCase[] = [
     status: "supported",
     meaning:
       "A block tag (`p`, `div`, `hr`, `marquee` and the rest of the 34) begins " +
-      "and ends a line: Mermaid's label is `<p>a</p><div>b</div><p>c</p><hr>d" +
-      "<marquee>m</marquee>` (measured against 11.17.2), five lines in the " +
-      "browser. Approximated (ADR-0015): Siren draws each block's lines as rows, " +
+      "and ends a row: Mermaid's label is `<p>a</p><div>b</div><p>c</p><hr>d" +
+      "<marquee>m</marquee>` (measured against 11.17.2), five of the browser's " +
+      "lines. Approximated (ADR-0015): Siren draws each block's lines as rows, " +
       "with no empty row where two block edges meet, but not its margins or " +
-      "indent, not the rule `<hr>` draws, and `<marquee>` stands still. Siren " +
-      "used to drop the tags and draw `abcdm` on one row.",
+      "indent, not the rule `<hr>` draws, and `<marquee>` stands still; " +
+      "`<center>`'s text is not centred, and where a formatting tag's end tag " +
+      "misnests across a block the HTML parser's adoption agency is applied " +
+      "only to the text after it (`<b>a<sub>s<div>b</b>…`'s `b` is still " +
+      "`sub`, where the parser takes it off). Siren used to drop the tags and " +
+      "draw `abcdm` on one row.",
     assert: (result) => {
       expectRows("label rows", labelRows(nodeText(result, "A")), ["a", "b", "c", "d", "m"]);
     },
@@ -784,13 +788,47 @@ export const LABEL_CASES: readonly CompatCase[] = [
       A["<ul><li>a</li><li>b</li></ul><ol><li>c</li><li>d</li></ol>"]`,
     status: "supported",
     meaning:
-      "A list item begins with its marker: a bullet in a `ul`, its number in an " +
-      "`ol`, each `ol` counting from 1 (measured against 11.17.2). Approximated " +
-      "(ADR-0015): Siren writes the marker as text at the start of the item's " +
-      "row, `• ` or `1. `, and draws neither the 40px indent nor a nested " +
-      "list's own indent.",
+      "A list item begins with its marker: a bullet in a `ul` (and `menu`, " +
+      "`dir`), its number in an `ol`, each `ol` counting from 1 unless it says " +
+      "otherwise (measured against 11.17.2). Approximated (ADR-0015): Siren " +
+      "writes the marker as text at the start of the item's row, `• ` or `1. `, " +
+      "and draws neither the 40px indent nor a nested list's own indent. An " +
+      "`li` outside any list is bulleted too. Not drawn: `type` on a `ul` or " +
+      "`li` (Siren keeps the bullet its depth gives).",
     assert: (result) => {
       expectRows("label rows", labelRows(nodeText(result, "A")), ["\u2022 a", "\u2022 b", "1. c", "2. d"]);
+    },
+  },
+  {
+    id: "label-list-numbering",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<ol start='3'><li>a<li value='7'>b<li>c</ol>"]`,
+    status: "supported",
+    meaning:
+      "DOMPurify keeps `<ol start>` and `<li value>` (measured against 11.17.2), " +
+      "and the browser numbers from them, read as HTML integers: `start` is " +
+      "the first item's number, `value` an item's own, and the items after it " +
+      "count on from it, so this list is `3.`, `7.`, `8.`. Not drawn: " +
+      "`reversed` (Siren still counts up) and `type` on an `ol` or `li` " +
+      "(Siren still writes decimal numbers), both of which DOMPurify keeps.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["3. a", "7. b", "8. c"]);
+    },
+  },
+  {
+    id: "label-list-nested",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<ul><li>a<ul><li>b<ul><li>c</ul></ul></ul>"]`,
+    status: "supported",
+    meaning:
+      "A nested bulleted list takes the browser's default bullet for its " +
+      "depth: `•` (disc), `◦` (circle) inside one list (a `ul` or an `ol`), " +
+      "`▪` (square) inside two or more, as the browser's default stylesheet " +
+      "says. Approximated (ADR-0015): neither list's indent is drawn.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["\u2022 a", "\u25e6 b", "\u25aa c"]);
     },
   },
 ];

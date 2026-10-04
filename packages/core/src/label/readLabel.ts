@@ -170,9 +170,9 @@ interface TagRule {
    */
   removesContent?: "raw text" | "rest" | "elements";
   /**
-   * Whether it is a **block** — the board's block layer, which ADR-0015
+   * Whether it is a **block** — ADR-0015's block layer, which it
    * approximates: its start and its end each end the row before them, as
-   * the browser ends a line at the edge of a block box.
+   * the browser ends its line at the edge of a block box.
    */
   block?: boolean;
   /**
@@ -184,6 +184,18 @@ interface TagRule {
   /** For a block whose end tag closes others of its kind: the names it closes — any heading's, any heading. */
   endsAny?: readonly string[];
   /**
+   * For a block: whether an `li`, `dt` or `dd` start tag looking for the open
+   * item it closes looks past it, as the HTML parser looks past `address`,
+   * `div` and `p` and stops at any other block.
+   */
+  itemLooksPast?: boolean;
+  /**
+   * For a block: whether its end tag with nothing of its name open still
+   * ends the row, as the HTML parser reads a stray `</p>` as an empty
+   * paragraph (measured: `a</p>b` is `<p>a</p><p></p>b`).
+   */
+  strayEndIsEmpty?: boolean;
+  /**
    * Whether every space inside it is drawn, as `white-space: pre` draws
    * them (`pre`). SVG text collapses a run of spaces and drops them at the
    * ends of a line, as HTML does elsewhere, so each is kept as a no-break
@@ -191,13 +203,15 @@ interface TagRule {
    */
   preservesSpaces?: boolean;
   /**
-   * Whether it is a list item, whose first line begins with its marker
+   * Whether it is a list item, whose first row begins with its marker
    * (`li`), and whose end tag closes nothing past a list opened inside it.
    */
   listItem?: boolean;
   /**
-   * For a list: what marks the items in it — a bullet, or the item's number,
-   * counted from 1 in each list. An item outside every list is bulleted.
+   * For a list: what marks the items in it — a bullet by how many lists the
+   * list is nested in (`BULLETS`), or the item's number, counted from the list's
+   * `start` (1 when it has none) and from an item's own `value`. An item
+   * outside every list is bulleted.
    */
   list?: "bulleted" | "numbered";
   /**
@@ -267,7 +281,7 @@ function drawableValue(value: string | undefined): string | null {
 
 /**
  * What `<font size>` 1–7 draws at, as a scale of the size around a label —
- * the board's measured table: 12 / 13 / 16 / 18 / 20 / 32 / 48px where the
+ * the spec's measured table: 12 / 13 / 16 / 18 / 20 / 32 / 48px where the
  * text around them is 16px. A size keyword is not relative to the tag
  * around it, so this replaces a scale rather than multiplying it.
  *
@@ -361,6 +375,11 @@ function ordinary(style: RunStyle): TagRule {
   return { style, formatting: false };
 }
 
+/** A block, as `TagRule.block` describes one, with what else `extra` sets. */
+function block(extra: Omit<TagRule, "formatting" | "block"> = {}): TagRule {
+  return { formatting: false, block: true, ...extra };
+}
+
 const HEADINGS = ["h1", "h2", "h3", "h4", "h5", "h6"];
 
 /**
@@ -371,21 +390,19 @@ const HEADINGS = ["h1", "h2", "h3", "h4", "h5", "h6"];
  */
 function heading(factor: number): TagRule {
   const sized = scaled(factor);
-  return {
-    formatting: false,
-    block: true,
+  return block({
     closesOpen: { names: HEADINGS, reach: "current" },
     endsAny: HEADINGS,
     style: (run) => {
       bold(run);
       sized(run);
     },
-  };
+  });
 }
 
 /**
- * The properties of `<span style>` Siren draws — the board's ten, in its
- * order, which is the order the warning lists them in — by lower-case name: what each
+ * The properties of `<span style>` Siren draws — ADR-0015's ten, in the
+ * spec's order, which is the order the warning lists them in — by lower-case name: what each
  * sets on a run, given a value `drawableValue` let through. A property that
  * cannot read its value answers `null`, and is drawn as unwritten, as the
  * browser drops a declaration it cannot parse.
@@ -519,7 +536,7 @@ function spanStyle(attributes: Attributes, warn: (message: string) => void): Run
  * The `html` dialect's tag vocabulary, by lower-case tag name.
  *
  * Every style is a measurement: Mermaid 11.17.2 at its default settings, in
- * headless Chrome (the board's "measured picture" table), draws `b` and
+ * headless Chrome (the spec's "measured picture" table), draws `b` and
  * `strong` with `font-weight: bold`, and `i` `em` `cite` `dfn` `var` with
  * `font-style: italic` — five names for one picture, because the browser's
  * default stylesheet gives all five the same rule — `u` and `ins` with an
@@ -622,31 +639,34 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   // the browser, and Siren draws it as rows of its own.
   ...Object.fromEntries(
     [
-      "p", "div", "blockquote", "dl", "section", "article", "aside", "center",
+      "blockquote", "dl", "section", "article", "aside", "center",
       "figcaption", "figure", "footer", "header", "hgroup", "main", "nav", "search", "summary",
-    ].map((name): [string, TagRule] => [name, { formatting: false, block: true }]),
+    ].map((name): [string, TagRule] => [name, block()]),
   ),
+  // A stray `</p>` is read as an empty paragraph: `a</p>b` is
+  // `<p>a</p><p></p>b` (measured).
+  p: block({ itemLooksPast: true, strayEndIsEmpty: true }),
+  div: block({ itemLooksPast: true }),
   // `menu` and `dir` are drawn as `ul` is, by the browser's default stylesheet.
-  ...Object.fromEntries(
-    ["ul", "menu", "dir"].map((name): [string, TagRule] => [name, { formatting: false, block: true, list: "bulleted" }]),
-  ),
-  ol: { formatting: false, block: true, list: "numbered" },
+  ...Object.fromEntries(["ul", "menu", "dir"].map((name): [string, TagRule] => [name, block({ list: "bulleted" })])),
+  ol: block({ list: "numbered" }),
   // Drawn still: `<b>x<marquee>a</b>c</marquee>d` is
   // `<b>x<marquee>ac</marquee>d</b>` (measured).
-  marquee: { formatting: false, block: true, walled: true },
+  marquee: block({ walled: true }),
   // Either start tag closes an open `dt` or `dd`, as `li` closes an `li`:
   // `<dt>a<dd>b</dt>c` is `<dt>a</dt><dd>bc</dd>` (measured).
-  dt: { formatting: false, block: true, closesOpen: { names: ["dt", "dd"], reach: "item" } },
-  dd: { formatting: false, block: true, closesOpen: { names: ["dt", "dd"], reach: "item" } },
-  pre: { formatting: false, block: true, style: monospace, preservesSpaces: true },
+  ...Object.fromEntries(
+    ["dt", "dd"].map((name): [string, TagRule] => [name, block({ closesOpen: { names: ["dt", "dd"], reach: "item" } })]),
+  ),
+  pre: block({ style: monospace, preservesSpaces: true }),
   // A void block: `a<hr>b` is `<p>a</p><hr>b` (measured). The rule the
   // browser draws is not drawn; it is a row edge only.
-  hr: { formatting: false, block: true, opensNothing: true },
+  hr: block({ opensNothing: true }),
   // An `li` start tag closes an open `li`: `x<li>a<li>b` is
   // `<p>x</p><li>a</li><li>b</li>` (measured).
-  li: { formatting: false, block: true, closesOpen: { names: ["li"], reach: "item" }, listItem: true },
-  address: { formatting: false, block: true, style: italic },
-  // Bold, at the board's measured scales of the size around them.
+  li: block({ closesOpen: { names: ["li"], reach: "item" }, listItem: true }),
+  address: block({ style: italic, itemLooksPast: true }),
+  // Bold, at the spec's measured scales of the size around them.
   h1: heading(2),
   h2: heading(1.5),
   h3: heading(1.17),
@@ -885,15 +905,15 @@ function markdownAsTags(source: Tagged): Tagged {
  *   does not go back, so that text keeps them — an approximation of a
  *   misnesting no author means.
  *
- * **Blocks** (the board's block layer, approximated as ADR-0015 says) end
+ * **Blocks** (ADR-0015's block layer, approximated as it says) end
  * the row at each edge, and edges that meet end it once: no empty row is
  * drawn between two blocks or at either end of the label, and the spaces at
- * a block edge are dropped, as the browser drops them at the ends of a line.
- * A `<br>` still draws the line it ends, empty or not. Mermaid hands the
+ * a block edge are dropped, as the browser drops them at the ends of its line.
+ * A `<br>` still draws the row it ends, empty or not. Mermaid hands the
  * browser each label inside a `<p>`, and a block's start tag closes that
  * `<p>` and every tag opened inside it, reopening the formatting ones in
  * the block: `<sub>a<div>b</div>c</sub>d` → `<p><sub>a</sub></p><div>b</div>cd`
- * (measured). A list item's marker is drawn at the start of its first line.
+ * (measured). A list item's marker is drawn at the start of its first row.
  * - A `q` draws its closing mark where it really closes, early or at the
  *   end of the label, and in its own style rather than the style of a tag
  *   that was open inside it (`<q>a<b>b</q>c</b>d` →
@@ -914,13 +934,13 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   let row: LabelRun[] = [];
   /**
    * Whether the current row is drawn even with nothing on it: one a `<br>`
-   * began, or the label's first, is a line; one a block edge began is a line
+   * began, or the label's first, is drawn; one a block edge began is drawn
    * only once something is on it.
    */
   let held = true;
   /**
    * Whether the current row began at a block edge, where the browser drops
-   * the spaces at either end of a line (CSS's white-space processing). Rows
+   * the spaces at either end of its line (CSS's white-space processing). Rows
    * no block touches keep theirs, as they always have.
    */
   let edge = false;
@@ -961,9 +981,9 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   /**
    * Draws the markers of the list items in `stack` that have not drawn one
    * yet, outermost first, each in its item's own style, as the browser's
-   * `::marker` is drawn. A marker waits for its item's first line, so an
+   * `::marker` is drawn. A marker waits for its item's first row, so an
    * item whose content begins with a block (`<li><p>a</p>`) draws it beside
-   * `a` rather than on a line of its own, as the browser places it; nested
+   * `a` rather than on a row of its own, as the browser places it; nested
    * items that begin together draw theirs side by side.
    */
   const drawMarkers = (stack: readonly OpenTag[]): void => {
@@ -991,7 +1011,7 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
    * then reopens the formatting ones among those.
    */
   const close = (index: number): void => {
-    // An item that closes before anything was drawn in it is still a line
+    // An item that closes before anything was drawn in it is still a row
     // with its marker on it.
     if (open.slice(index).some((tag) => tag.marker !== undefined) && !removed(open)) {
       drawMarkers(open);
@@ -1028,7 +1048,7 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       if (names.includes(tag.name)) {
         return depth;
       }
-      if (tag.rule.block === true && !["address", "div", "p"].includes(tag.name)) {
+      if (tag.rule.block === true && tag.rule.itemLooksPast !== true) {
         return -1;
       }
     }
@@ -1040,7 +1060,7 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
    * at a block's start tag, then puts the formatting tags that closed back
    * inside the block, where the parser reopens them.
    */
-  const openBlock = (tag: OpenTag): void => {
+  const openBlock = (tag: OpenTag, attributes: Attributes): void => {
     const paragraph = tag.rule.walled === true ? -1 : reachable(["p"]);
     const reopened = paragraph === -1 ? [] : open.slice(paragraph + 1).filter((each) => each.rule.formatting);
     if (paragraph !== -1) {
@@ -1055,13 +1075,19 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       }
     }
     if (tag.rule.listItem === true) {
-      const list = [...open].reverse().find((each) => each.rule.list !== undefined);
+      const at = open.map((each) => each.rule.list !== undefined).lastIndexOf(true);
+      const list = open[at];
       if (list?.rule.list === "numbered") {
-        list.items = (list.items ?? 0) + 1;
-        tag.marker = `${list.items}. `;
+        const number = htmlInteger(attributes.get("value")) ?? list.next ?? 1;
+        list.next = number + 1;
+        tag.marker = `${number}. `;
       } else {
-        tag.marker = "\u2022 ";
+        const depth = open.slice(0, Math.max(0, at)).filter((each) => each.rule.list !== undefined).length;
+        tag.marker = `${BULLETS[Math.min(depth, BULLETS.length - 1)]} `;
       }
+    }
+    if (tag.rule.list === "numbered") {
+      tag.next = htmlInteger(attributes.get("start")) ?? 1;
     }
     open.push(...(tag.rule.opensNothing === true ? [] : [tag]), ...reopened);
   };
@@ -1131,9 +1157,10 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       const warn = (message: string): void => {
         problems.push({ severity: "warning", message, offset: at });
       };
-      const tag = { name, rule, style: rule.attributes?.(attributesOf(match[0], name), warn) ?? rule.style };
+      const attributes = attributesOf(match[0], name);
+      const tag = { name, rule, style: rule.attributes?.(attributes, warn) ?? rule.style };
       if (rule.block === true) {
-        openBlock(tag);
+        openBlock(tag, attributes);
       } else {
         open.push(tag);
       }
@@ -1163,10 +1190,9 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
           (tag, depth) => depth !== index && (depth < index || depth >= block || tag.rule.formatting),
         );
       }
-      // A block's end tag with nothing of its name open is dropped, but a
-      // stray `</p>` is read as an empty paragraph, whose edges end the row
-      // (measured: `a</p>b` is `<p>a</p><p></p>b`).
-      if (rule.block === true && (index !== -1 || name === "p")) {
+      // A block's end tag with nothing of its name open is dropped, unless
+      // the parser reads it as an empty block, whose edges end the row.
+      if (rule.block === true && (index !== -1 || rule.strayEndIsEmpty === true)) {
         boundary();
       }
     }
@@ -1196,6 +1222,26 @@ function trimEnd(row: LabelRun[]): void {
   }
 }
 
+/**
+ * The bullets of a bulleted list, by how many lists of either kind it is
+ * inside: the browser's default stylesheet draws `disc`, `circle` inside one
+ * (`ul ul, ol ul { list-style-type: circle }`), and `square` inside two or
+ * more (`ol ol ul, ol ul ul, ul ol ul, ul ul ul { list-style-type: square }`)
+ * — Chromium's `html.css`, the copy jsdom ships as `default-stylesheet.js`.
+ */
+const BULLETS = ["\u2022", "\u25e6", "\u25aa"];
+
+/**
+ * `value` read by the HTML standard's rules for parsing integers, as the
+ * browser reads `<ol start>` and `<li value>`: leading whitespace, an optional
+ * `-` or `+`, then digits, whatever follows them ignored; `null` for a value
+ * with no digits there, which the browser treats as unwritten.
+ */
+function htmlInteger(value: string | undefined): number | null {
+  const match = value === undefined ? null : /^[\t\n\f\r ]*([+-]?)(\d+)/.exec(value);
+  return match === null ? null : (match[1] === "-" ? -1 : 1) * Number(match[2]);
+}
+
 /** Whether a tag in `stack` removes its content, so nothing inside it is drawn. */
 function removed(stack: readonly OpenTag[]): boolean {
   return stack.some((tag) => tag.rule.removesContent === "elements");
@@ -1206,10 +1252,10 @@ interface OpenTag {
   name: string;
   rule: TagRule;
   style: RunStyle | undefined;
-  /** A list item's marker, until its first line draws it. */
+  /** A list item's marker, until its first row draws it. */
   marker?: string | undefined;
-  /** For a numbered list: how many items have opened in it. */
-  items?: number;
+  /** For a numbered list: the number its next item draws, unless the item gives its own. */
+  next?: number;
 }
 
 /** A label of these rows, with the flattened `text` every plain-string reader takes. */

@@ -69,7 +69,7 @@ describe("layoutLabel", () => {
     expect(second!.y).toBeCloseTo(24 + 14.4);
     expect(box.height).toBeCloseTo(52.8);
   });
-  // The board: an absolute px size is measured as a scale of the default
+  // The spec: an absolute px size is measured as a scale of the default
   // 14px base, so 28px is twice as wide and tall as the measurer's answer; a
   // size no number of px describes (`large`) is measured at the base size.
   it("measures an absolute px size against a 14px base, and any other absolute size at the base", () => {

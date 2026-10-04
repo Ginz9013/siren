@@ -8,7 +8,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * recalled: in a 16px line, a 13.33px `<sub>` sits 4.19px below the
  * baseline and a `<sup>` 6.33px above it. (Chrome derives both from the
  * size around the run plus 1px, so the fraction drifts by a few hundredths
- * at other sizes; the 16px one is the picture the board measured at.)
+ * at other sizes; the 16px one is the picture the spec's measurements were taken at.)
  *
  * Drawn as `dy` rather than `baseline-shift`, which Firefox does not
  * support on SVG text: the shifted run moves the text position, and the run

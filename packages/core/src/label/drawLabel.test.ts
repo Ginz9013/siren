@@ -251,7 +251,7 @@ describe("drawLabel's attribute-tag runs", () => {
       ["c", null],
     ]);
   });
-  // The board: an absolute size the author wrote is drawn as written.
+  // The spec: an absolute size the author wrote is drawn as written.
   it("draws an absolute font size as the author wrote it", () => {
     const { text } = drawn("<span style='font-size: 28px'>a</span><span style='font-size:large'>b</span>");
 
@@ -288,7 +288,7 @@ describe("drawLabel's attribute-tag runs", () => {
     ]);
     expect(backgrounds.map((rect) => rect.getAttribute("opacity"))).toEqual(["0.5"]);
   });
-  // The board: `background-color` reuses `<mark>`'s rect — the run's own
+  // The spec: `background-color` reuses `<mark>`'s rect — the run's own
   // line, where the box measured the run — painted with the author's color,
   // inline so that no theme rule for a rect inside a node can repaint it.
   it("puts a rect painted with the author's background color behind the run, where a mark's would be", () => {
@@ -301,7 +301,7 @@ describe("drawLabel's attribute-tag runs", () => {
     const place = (rect: SVGElement) => ["x", "y", "width", "height"].map((name) => rect.getAttribute(name));
     expect(place(background[0]!)).toEqual(place(mark[0]!));
   });
-  // The board: a link is an SVG `<a href>` around its run, inside the row,
+  // The spec: a link is an SVG `<a href>` around its run, inside the row,
   // and the run is painted with the theme's link color through a class and
   // underlined, as the browser draws an HTML link (measured: `#0000ee`).
   it("draws a linked run inside an SVG <a href>, in the link class and underlined", () => {

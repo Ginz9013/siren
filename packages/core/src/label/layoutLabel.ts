@@ -42,7 +42,7 @@ import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type Label
  * drawn.
  *
  * Bold runs are measured at the regular weight, a simplification the
- * Markdown labels this replaces already made and the board keeps: a
+ * Markdown labels this replaces already made and the spec keeps: a
  * pixel-exact width would have to know every weight the measurer's font
  * draws, and nothing downstream needs the box to be that exact. A monospace
  * run (`<code>` and its kin) is measured in the regular font for the same
