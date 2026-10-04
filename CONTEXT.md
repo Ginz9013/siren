@@ -259,9 +259,9 @@ state a corpus row declares)
 
 **Diagram kind**:
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
-`sequenceDiagram`, `classDiagram`, or `stateDiagram` (`stateDiagram-v2` is the same kind under a
-second spelling, measured: both report the diagram type `stateDiagram`, exactly as
-`classDiagram-v2` does). Carried as `SirenDocument.kind` and dispatched on by
+`sequenceDiagram`, `classDiagram`, `stateDiagram`, or `erDiagram` (`stateDiagram-v2` is the same
+kind under a second spelling, measured: both report the diagram type `stateDiagram`, exactly as
+`classDiagram-v2` does; `erDiagram` has no such second spelling). Carried as `SirenDocument.kind` and dispatched on by
 `parseSiren`, `buildGraphModel`, and `render()`, each of which routes to that kind's own
 parser/model/layout/renderer. `graph` is Mermaid's original spelling of `flowchart` and opens the
 same kind: like `TD`, it is normalized away in `parseDirection`, so no document, model or renderer
@@ -875,12 +875,18 @@ which is the global default for every diagram — the two do not compete, see
 four directives: `style A fill:#fdd` straight onto one node, `classDef name ...` defining a named
 set that applies to nothing on its own, the apply-directive that applies one such set to a list of
 targets, and `linkStyle` — the only one that reaches an **edge**. A class diagram accepts the
-first three. A sequence diagram accepts none, deliberately: Mermaid has no `style` there, so
-adding one would be Siren invention rather than compatibility.
+first three. An ER diagram accepts the first three too, and they reach an **entity** and nothing
+else: an **ER relationship** cannot be styled at all, as in Mermaid, and an **ER subgraph** named
+after its block has closed is refused, since Mermaid paints that frame and Siren does not yet. Nor
+does an ER `classDef default` stand: in Mermaid every ER entity wears that class implicitly, and
+here none does, so it is refused rather than applied to nothing. A sequence diagram accepts none,
+deliberately: Mermaid has no `style` there, so adding one would be Siren invention rather than
+compatibility.
 The apply-directive has two authored spellings and is **one directive**: Mermaid writes
-`class A,B name` in a flowchart and `cssClass "A,B" name` in a class diagram, plus the flowchart
-shorthand `A:::name` (standalone, or on either endpoint of an edge line). All three normalize at
-the parser to one `apply` kind, so nothing downstream branches on which was written — the same
+`class A,B name` in a flowchart and an ER diagram and `cssClass "A,B" name` in a class diagram,
+plus the shorthand `A:::name` — in a flowchart standalone or on either endpoint of an edge line,
+in an ER diagram on an entity's own declaration, after any alias and before any `{`. All three
+normalize at the parser to one `apply` kind, so nothing downstream branches on which was written — the same
 rule that turns `TD` into `TB`. The authored spelling survives only as `authoredAs`, so that a
 diagnostic can quote the keyword the author actually typed and nothing else can act on it.
 **`linkStyle` addresses an edge by declaration index; everything downstream uses the edge id.**
@@ -890,7 +896,8 @@ index never reaches a renderer. `default` is a **fallback tier**, not another de
 covers every edge no specific `linkStyle` named, a specific one wins for the edge it names
 whichever order the two were written in, and the two merge property by property rather than one
 replacing the other.
-`color` reaches label text, in both diagram kinds — the author's spelling, translated once in the
+`color` reaches label text, in every kind that styles — in an ER diagram, an entity's name and
+every cell of its attribute table — the author's spelling, translated once in the
 model to the `fill` that actually paints SVG text. That now includes a flowchart **edge**'s own
 label, which is a `<text>` the same translation lands on; the connection was made once the edge
 had somewhere to put it, and only after measuring that Mermaid makes it too. Every other property
@@ -922,7 +929,10 @@ reaches this concept through `click`. A sequence diagram reaches it through a th
 was added for it: Mermaid's own popup-menu semantics for this directive are not reproducible in a
 static SVG anyway, measured as a `display:none` panel toggled by JS), with `Label` carried as the
 interaction's `tooltip` and drawn as a `<title>` — the same "first child of the group" tooltip
-convention `click`/`link` already use on a class.
+convention `click`/`link` already use on a class. An ER diagram has no interaction target at all:
+Mermaid's ER grammar has no `click`, `link` or `callback`, so `click A href "url"` there is not a
+directive but a stream of entity names — `click`, `A`, `href` and the quoted `url` — and Siren
+reads it the same way rather than inventing the construct.
 
 A flowchart's `click X href "url"` additionally accepts an optional fourth argument, one of
 Mermaid's four `LINK_TARGET` values (`_blank`/`_self`/`_top`/`_parent`, a fixed lexer token —

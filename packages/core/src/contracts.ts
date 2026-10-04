@@ -3403,9 +3403,10 @@ export interface ResolvedErRelationship {
    * impossible in an ER name outright, and a comment that said so would be
    * wrong: a *quoted* name takes any character at all, and both
    * `erDiagram / "CUSTOMER:ORDER" ||--|| X : y` and
-   * `erDiagram / "subgraph:1" ||--|| B : y` parse. Siren refuses quoted
-   * names today (`er-entity-name-quoted`), which is the only reason this
-   * spelling cannot be collided with from a source document right now.
+   * `erDiagram / "subgraph:1" ||--|| B : y` parse. Siren accepts quoted
+   * names too (`er-entity-name-quoted`, supported), so this spelling **can**
+   * be collided with from a source document: `"CUSTOMER:ORDER"` is an
+   * entity whose id is the one `CUSTOMER ||--|| ORDER` mints.
    *
    * So the invariant is **not** held by the separator. It is held by
    * `reportIdCollisions` in `buildErModel`, which compares the ids actually
@@ -3474,10 +3475,11 @@ export interface ErModel {
    */
   styles: ResolvedStyle[];
   /**
-   * The `timeline:` block resolved against this kind's two target kinds —
+   * The `timeline:` block resolved against this kind's three target kinds —
    * an **entity**, by the id its author wrote whatever an alias renamed it
-   * to on screen, and a **relationship**, by the id `buildErModel` assigned
-   * it. An **attribute** is neither: its cells are drawn inside the entity's
+   * to on screen, a **relationship**, by the id `buildErModel` assigned it,
+   * and a **subgraph**, by the id generated for it (`subgraph:1`, …), since
+   * its name need not be unique. An **attribute** is none of them: its cells are drawn inside the entity's
    * `<g>` with no `data-siren-id` of their own, so the box that owns a row
    * is what animates it.
    *
