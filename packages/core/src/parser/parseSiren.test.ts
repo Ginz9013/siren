@@ -893,8 +893,8 @@ timeline:
     const sequenceDocument = document as SequenceDocument;
     expect(sequenceDocument.title).toBe("Order confirmation flow");
     expect(sequenceDocument.participants).toEqual([
-      { id: "A", label: "Alice", participantKind: "participant", line: 3, column: 3 },
-      { id: "B", label: "Bob", participantKind: "actor", line: 4, column: 3 },
+      { id: "A", label: plainLabel("Alice"), participantKind: "participant", line: 3, column: 3 },
+      { id: "B", label: plainLabel("Bob"), participantKind: "actor", line: 4, column: 3 },
     ]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
     expect(messages).toHaveLength(2);
@@ -1025,7 +1025,7 @@ flowchart TD
     expect(sequenceDocument.participants.map((p) => p.id)).toEqual(["A", "B"]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
     expect(messages).toHaveLength(1);
-    expect(messages[0].kind === "message" && messages[0].text).toBe("Sync call");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call");
   });
 
   it("ignores whole-line, indented and trailing %% comments in a class diagram", () => {
@@ -1058,7 +1058,7 @@ classDiagram
 
     expect(diagnostics).toEqual([]);
     const messages = (document as SequenceDocument).statements.filter((s) => s.kind === "message");
-    expect(messages[0].kind === "message" && messages[0].text).toBe("50");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("50");
   });
 
   it("reports an error diagnostic, not a throw, for a document that is only comments", () => {

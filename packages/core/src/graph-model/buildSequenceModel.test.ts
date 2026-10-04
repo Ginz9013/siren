@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { plainLabel } from "../label/label";
 import type { SequenceDocument, SequenceStatement } from "../contracts";
 import { buildSequenceModel } from "./buildSequenceModel";
 
@@ -10,25 +11,25 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "first",
+          label: plainLabel("first"),
           arrow: { line: "solid", head: "filled" },
         },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "second",
+          label: plainLabel("second"),
           arrow: { line: "dotted", head: "none" },
         },
       ],
@@ -53,13 +54,13 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "Alice", participantKind: "participant" },
-        { id: "B", label: "Bob", participantKind: "actor" },
+        { id: "A", label: plainLabel("Alice"), participantKind: "participant" },
+        { id: "B", label: plainLabel("Bob"), participantKind: "actor" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "Alice", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "Bob", participantKind: "actor", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("Alice"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("Bob"), participantKind: "actor", origin: "declared" },
       ],
       timeline: null,
     };
@@ -70,7 +71,7 @@ describe("buildSequenceModel", () => {
     expect(model.participants).toEqual([
       {
         id: "A",
-        label: "Alice",
+        label: plainLabel("Alice"),
         participantKind: "participant",
         origin: "declared",
         createdAt: 0,
@@ -78,7 +79,7 @@ describe("buildSequenceModel", () => {
       },
       {
         id: "B",
-        label: "Bob",
+        label: plainLabel("Bob"),
         participantKind: "actor",
         origin: "declared",
         createdAt: 0,
@@ -94,25 +95,25 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "does-not-exist",
-          text: "to a participant nobody declared",
+          label: plainLabel("to a participant nobody declared"),
           arrow: { line: "solid", head: "filled" },
         },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "good",
+          label: plainLabel("good"),
           arrow: { line: "solid", head: "filled" },
         },
       ],
@@ -136,20 +137,20 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "too early",
+          label: plainLabel("too early"),
           arrow: { line: "solid", head: "filled" },
         },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
       ],
       timeline: null,
     };
@@ -170,10 +171,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "destroy", id: "does-not-exist" },
       ],
       timeline: null,
@@ -192,10 +193,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "activate", id: "A" },
         { kind: "deactivate", id: "A" },
       ],
@@ -218,10 +219,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "activate", id: "A" },
         { kind: "deactivate", id: "A" },
         { kind: "activate", id: "A" },
@@ -244,10 +245,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "activate", id: "A" },
         { kind: "activate", id: "A" },
         { kind: "deactivate", id: "A" },
@@ -268,10 +269,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "deactivate", id: "A", line: 3, column: 1 },
       ],
       timeline: null,
@@ -312,14 +313,14 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "note", placement: "over", from: "A", to: "B", text: "they agree" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "note", placement: "over", from: "A", to: "B", label: plainLabel("they agree") },
       ],
       timeline: null,
     };
@@ -329,7 +330,7 @@ describe("buildSequenceModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model.statements.at(-1)).toEqual({
       kind: "note",
-      note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
+      note: { id: "note:1", placement: "over", from: "A", to: "B", label: plainLabel("they agree") },
     });
   });
 
@@ -339,12 +340,12 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "note", placement: "right", from: "A", to: "A", text: "first" },
-        { kind: "note", placement: "left", from: "A", to: "A", text: "second" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "note", placement: "right", from: "A", to: "A", label: plainLabel("first") },
+        { kind: "note", placement: "left", from: "A", to: "A", label: plainLabel("second") },
       ],
       timeline: null,
     };
@@ -363,11 +364,11 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "note", placement: "over", from: "A", to: "does-not-exist", text: "x" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "note", placement: "over", from: "A", to: "does-not-exist", label: plainLabel("x") },
       ],
       timeline: null,
     };
@@ -386,19 +387,19 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "B", text: "before", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("before"), arrow: { line: "solid", head: "filled" } },
         { kind: "autonumberOn" },
-        { kind: "message", from: "A", to: "B", text: "first", arrow: { line: "solid", head: "filled" } },
-        { kind: "message", from: "B", to: "A", text: "second", arrow: { line: "solid", head: "filled" } },
+        { kind: "message", from: "A", to: "B", label: plainLabel("first"), arrow: { line: "solid", head: "filled" } },
+        { kind: "message", from: "B", to: "A", label: plainLabel("second"), arrow: { line: "solid", head: "filled" } },
         { kind: "autonumberOff" },
-        { kind: "message", from: "A", to: "B", text: "after", arrow: { line: "solid", head: "filled" } },
+        { kind: "message", from: "A", to: "B", label: plainLabel("after"), arrow: { line: "solid", head: "filled" } },
       ],
       timeline: null,
     };
@@ -421,22 +422,22 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
-          label: "first loop",
-          body: [{ kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } }],
+          label: plainLabel("first loop"),
+          body: [{ kind: "message", from: "A", to: "B", label: plainLabel("hi"), arrow: { line: "solid", head: "filled" } }],
         },
         {
           kind: "loop",
-          label: "second loop",
-          body: [{ kind: "message", from: "B", to: "A", text: "bye", arrow: { line: "solid", head: "filled" } }],
+          label: plainLabel("second loop"),
+          body: [{ kind: "message", from: "B", to: "A", label: plainLabel("bye"), arrow: { line: "solid", head: "filled" } }],
         },
       ],
       timeline: null,
@@ -457,7 +458,7 @@ describe("buildSequenceModel", () => {
       kind: "message",
       from: "A",
       to: "B",
-      text: "x",
+      label: plainLabel("x"),
       arrow: { line: "solid", head: "filled" },
     });
     const document: SequenceDocument = {
@@ -466,21 +467,21 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "loop", label: "again", body: [msg()] },
-        { kind: "alt", branches: [{ label: "yes", body: [msg()] }] },
-        { kind: "opt", label: "maybe", body: [msg()] },
-        { kind: "par", branches: [{ label: "fan out", body: [msg()] }] },
-        { kind: "critical", branches: [{ label: "lock", body: [msg()] }] },
-        { kind: "break", label: "boom", body: [msg()] },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "loop", label: plainLabel("again"), body: [msg()] },
+        { kind: "alt", branches: [{ label: plainLabel("yes"), body: [msg()] }] },
+        { kind: "opt", label: plainLabel("maybe"), body: [msg()] },
+        { kind: "par", branches: [{ label: plainLabel("fan out"), body: [msg()] }] },
+        { kind: "critical", branches: [{ label: plainLabel("lock"), body: [msg()] }] },
+        { kind: "break", label: plainLabel("boom"), body: [msg()] },
         { kind: "rect", color: "rgb(0,0,255)", body: [msg()] },
-        { kind: "loop", label: "again again", body: [msg()] },
+        { kind: "loop", label: plainLabel("again again"), body: [msg()] },
       ],
       timeline: null,
     };
@@ -511,23 +512,23 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "alt",
           branches: [
             {
-              label: "success",
-              body: [{ kind: "message", from: "A", to: "B", text: "ok", arrow: { line: "solid", head: "filled" } }],
+              label: plainLabel("success"),
+              body: [{ kind: "message", from: "A", to: "B", label: plainLabel("ok"), arrow: { line: "solid", head: "filled" } }],
             },
             {
-              label: "failure",
-              body: [{ kind: "message", from: "B", to: "A", text: "err", arrow: { line: "solid", head: "filled" } }],
+              label: plainLabel("failure"),
+              body: [{ kind: "message", from: "B", to: "A", label: plainLabel("err"), arrow: { line: "solid", head: "filled" } }],
             },
           ],
         },
@@ -543,7 +544,7 @@ describe("buildSequenceModel", () => {
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!;
 
-    expect(block.block.branches.map((b) => b.label)).toEqual(["success", "failure"]);
+    expect(block.block.branches.map((b) => b.label)).toEqual([plainLabel("success"), plainLabel("failure")]);
     expect(block.block.branches[0]!.statements).toEqual([
       {
         kind: "message",
@@ -551,7 +552,7 @@ describe("buildSequenceModel", () => {
           id: "A-B",
           from: "A",
           to: "B",
-          text: "ok",
+          label: plainLabel("ok"),
           arrow: { line: "solid", head: "filled" },
           autonumber: null,
         },
@@ -564,7 +565,7 @@ describe("buildSequenceModel", () => {
           id: "B-A",
           from: "B",
           to: "A",
-          text: "err",
+          label: plainLabel("err"),
           arrow: { line: "solid", head: "filled" },
           autonumber: null,
         },
@@ -579,27 +580,27 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
-        { id: "C", label: "C", participantKind: "participant" },
-        { id: "D", label: "D", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
+        { id: "C", label: plainLabel("C"), participantKind: "participant" },
+        { id: "D", label: plainLabel("D"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "C", label: "C", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "D", label: "D", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "C", label: plainLabel("C"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "D", label: plainLabel("D"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
-          label: "outer",
+          label: plainLabel("outer"),
           body: [
-            { kind: "message", from: "A", to: "B", text: "top", arrow: { line: "solid", head: "filled" } },
+            { kind: "message", from: "A", to: "B", label: plainLabel("top"), arrow: { line: "solid", head: "filled" } },
             {
               kind: "alt",
               branches: [
                 {
-                  label: "cond",
+                  label: plainLabel("cond"),
                   body: [
                     {
                       kind: "par",
@@ -611,7 +612,7 @@ describe("buildSequenceModel", () => {
                               kind: "message",
                               from: "C",
                               to: "D",
-                              text: "innermost",
+                              label: plainLabel("innermost"),
                               arrow: { line: "solid", head: "filled" },
                             },
                           ],
@@ -654,10 +655,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
           label: null,
@@ -666,7 +667,7 @@ describe("buildSequenceModel", () => {
               kind: "message",
               from: "A",
               to: "does-not-exist",
-              text: "bad",
+              label: plainLabel("bad"),
               arrow: { line: "solid", head: "filled" },
             },
           ],
@@ -692,17 +693,17 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "rect",
           color: "not-a-real-color-value",
-          body: [{ kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } }],
+          body: [{ kind: "message", from: "A", to: "B", label: plainLabel("hi"), arrow: { line: "solid", head: "filled" } }],
         },
       ],
       timeline: null,
@@ -716,7 +717,7 @@ describe("buildSequenceModel", () => {
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!.block;
     expect(block.kind).toBe("rect");
-    expect(block.branches[0]!.label).toBe("not-a-real-color-value");
+    expect(block.branches[0]!.label).toEqual(plainLabel("not-a-real-color-value"));
   });
 
   it("resolves a create-declared participant with origin created and createdAt at its create statement's position", () => {
@@ -726,17 +727,17 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "Bob", participantKind: "actor" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("Bob"), participantKind: "actor" },
       ],
       boxes: [],
       // Resolved-statement positions, 1-based in flattened order:
       //   1 participant A, 2 message A->A, 3 create actor B, 4 message A->B.
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "A", text: "self", arrow: { line: "solid", head: "filled" } },
-        { kind: "participant", id: "B", label: "Bob", participantKind: "actor", origin: "created" },
-        { kind: "message", from: "A", to: "B", text: "hello", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "A", label: plainLabel("self"), arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "B", label: plainLabel("Bob"), participantKind: "actor", origin: "created" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("hello"), arrow: { line: "solid", head: "filled" } },
       ],
       timeline: null,
     };
@@ -747,7 +748,7 @@ describe("buildSequenceModel", () => {
     expect(model.participants).toEqual([
       {
         id: "A",
-        label: "A",
+        label: plainLabel("A"),
         participantKind: "participant",
         origin: "declared",
         createdAt: 0,
@@ -755,7 +756,7 @@ describe("buildSequenceModel", () => {
       },
       {
         id: "B",
-        label: "Bob",
+        label: plainLabel("Bob"),
         participantKind: "actor",
         origin: "created",
         createdAt: 3,
@@ -771,21 +772,21 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       // Resolved-statement positions, 1-based in flattened order:
       //   1 participant A, 2 participant B, 3 loop, 4 message A->B (in the
       //   loop body), 5 destroy B.
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
           label: null,
           body: [
-            { kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } },
+            { kind: "message", from: "A", to: "B", label: plainLabel("hi"), arrow: { line: "solid", head: "filled" } },
           ],
         },
         { kind: "destroy", id: "B" },
@@ -809,12 +810,12 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       // Positions: 1 participant A, 2 destroy A. The second destroy is
       // dropped, so it consumes no position.
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "destroy", id: "A" },
         { kind: "destroy", id: "A", line: 4, column: 1 },
       ],
@@ -838,20 +839,20 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "B", text: "alive", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("alive"), arrow: { line: "solid", head: "filled" } },
         { kind: "destroy", id: "B" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "too late",
+          label: plainLabel("too late"),
           arrow: { line: "solid", head: "filled" },
           line: 7,
           column: 1,
@@ -880,18 +881,18 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
-        { id: "C", label: "C", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
+        { id: "C", label: plainLabel("C"), participantKind: "participant" },
       ],
       boxes: [
-        { color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
+        { color: "rgb(0,0,255)", label: plainLabel("Front end"), participantIds: ["A", "B"] },
         { color: null, label: null, participantIds: ["C"] },
       ],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "C", label: "C", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "C", label: plainLabel("C"), participantKind: "participant", origin: "declared" },
       ],
       timeline: null,
     };
@@ -900,7 +901,7 @@ describe("buildSequenceModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.boxes).toEqual([
-      { id: "box:1", color: "rgb(0,0,255)", label: "Front end", participantIds: ["A", "B"] },
+      { id: "box:1", color: "rgb(0,0,255)", label: plainLabel("Front end"), participantIds: ["A", "B"] },
       { id: "box:2", color: null, label: null, participantIds: ["C"] },
     ]);
   });
@@ -911,18 +912,18 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [
         {
           color: null,
-          label: "Services",
+          label: plainLabel("Services"),
           participantIds: ["A", "does-not-exist"],
           line: 2,
           column: 1,
         },
       ],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
       ],
       timeline: null,
     };
@@ -930,7 +931,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(model.boxes).toEqual([
-      { id: "box:1", color: null, label: "Services", participantIds: ["A"] },
+      { id: "box:1", color: null, label: plainLabel("Services"), participantIds: ["A"] },
     ]);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
@@ -946,15 +947,15 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "B", text: "too early", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("too early"), arrow: { line: "solid", head: "filled" } },
         { kind: "destroy", id: "B" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "created" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "created" },
       ],
       timeline: null,
     };
@@ -964,7 +965,7 @@ describe("buildSequenceModel", () => {
     expect(model.statements.map((s) => s.kind)).toEqual(["participant", "message", "destroy"]);
     expect(model.participants[1]).toEqual({
       id: "B",
-      label: "B",
+      label: plainLabel("B"),
       participantKind: "participant",
       origin: "declared",
       createdAt: 0,
@@ -981,24 +982,24 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
           label: null,
           body: [
-            { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+            { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
           ],
         },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "after the block",
+          label: plainLabel("after the block"),
           arrow: { line: "solid", head: "filled" },
         },
       ],
@@ -1021,18 +1022,18 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "hi",
+          label: plainLabel("hi"),
           arrow: { line: "solid", head: "filled" },
         },
       ],
@@ -1062,10 +1063,10 @@ describe("buildSequenceModel", () => {
       title: null,
       accTitle: null,
       interactions: [],
-      participants: [{ id: "A", label: "A", participantKind: "participant" }],
+      participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
       ],
       timeline: null,
     };
@@ -1083,29 +1084,29 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
-      boxes: [{ color: null, label: "Group", participantIds: ["A", "B"], line: 2, column: 3 }],
+      boxes: [{ color: null, label: plainLabel("Group"), participantIds: ["A", "B"], line: 2, column: 3 }],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "hi",
+          label: plainLabel("hi"),
           arrow: { line: "solid", head: "filled" },
         },
         {
           kind: "loop",
-          label: "retry",
+          label: plainLabel("retry"),
           body: [
             {
               kind: "message",
               from: "B",
               to: "A",
-              text: "ack",
+              label: plainLabel("ack"),
               arrow: { line: "solid", head: "filled" },
             },
           ],
@@ -1140,40 +1141,40 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
-          label: "retry",
+          label: plainLabel("retry"),
           body: [
             {
               kind: "alt",
               branches: [
                 {
-                  label: "ok",
+                  label: plainLabel("ok"),
                   body: [
                     {
                       kind: "message",
                       from: "A",
                       to: "B",
-                      text: "deep",
+                      label: plainLabel("deep"),
                       arrow: { line: "solid", head: "filled" },
                     },
                   ],
                 },
                 {
-                  label: "not ok",
+                  label: plainLabel("not ok"),
                   body: [
                     {
                       kind: "message",
                       from: "B",
                       to: "A",
-                      text: "deeper still",
+                      label: plainLabel("deeper still"),
                       arrow: { line: "solid", head: "filled" },
                     },
                   ],
@@ -1205,15 +1206,15 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "B", text: "first", arrow: { line: "solid", head: "filled" } },
-        { kind: "message", from: "A", to: "B", text: "second", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("first"), arrow: { line: "solid", head: "filled" } },
+        { kind: "message", from: "A", to: "B", label: plainLabel("second"), arrow: { line: "solid", head: "filled" } },
       ],
       timeline: {
         entries: [
@@ -1259,14 +1260,14 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("hi"), arrow: { line: "solid", head: "filled" } },
       ],
       timeline: {
         entries: [{ kind: "exit", step: 2, targetId: "A", effect: "fade", line: 7, column: 3 }],
@@ -1293,7 +1294,7 @@ describe("buildSequenceModel", () => {
         id: "A-B",
         from: "A",
         to: "B",
-        text: "hi",
+        label: plainLabel("hi"),
         arrow: { line: "solid", head: "filled" },
         autonumber: null,
       },
@@ -1308,30 +1309,30 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "loop",
-          label: "retry",
+          label: plainLabel("retry"),
           body: [
             {
               kind: "alt",
               branches: [
                 {
-                  label: "ok",
+                  label: plainLabel("ok"),
                   body: [
-                    { kind: "message", from: "A", to: "B", text: "deep", arrow: { line: "solid", head: "filled" } },
+                    { kind: "message", from: "A", to: "B", label: plainLabel("deep"), arrow: { line: "solid", head: "filled" } },
                   ],
                 },
                 {
-                  label: "not ok",
+                  label: plainLabel("not ok"),
                   body: [
-                    { kind: "message", from: "B", to: "A", text: "deeper still", arrow: { line: "solid", head: "filled" } },
+                    { kind: "message", from: "B", to: "A", label: plainLabel("deeper still"), arrow: { line: "solid", head: "filled" } },
                   ],
                 },
               ],
@@ -1363,14 +1364,14 @@ describe("buildSequenceModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
-        { kind: "message", from: "A", to: "B", text: "hi", arrow: { line: "solid", head: "filled" } },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
+        { kind: "message", from: "A", to: "B", label: plainLabel("hi"), arrow: { line: "solid", head: "filled" } },
       ],
       timeline: {
         entries: [

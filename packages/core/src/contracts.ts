@@ -463,7 +463,14 @@ export interface SequenceArrow {
  */
 export interface SequenceParticipantDecl {
   id: string;
-  label: string;
+  /**
+   * The `as` alias, or the id when none was written. An alias is read by
+   * `readLabel` in the `sequence` dialect (ADR-0015): Mermaid draws sequence
+   * text as SVG in both modes, so `<br>` breaks a row and every other tag is
+   * drawn as written — measured (mermaid 11.17.2, `--paint`): `participant A
+   * as Web<br/>Client` draws "Web" over "Client".
+   */
+  label: Label;
   participantKind: SequenceParticipantKind;
   line?: number;
   column?: number;
@@ -475,7 +482,11 @@ export interface SequenceParticipantDecl {
  */
 export interface SequenceBox {
   color: string | null;
-  label: string | null;
+  /**
+   * Read by `readLabel` in the `sequence` dialect (ADR-0015) — measured
+   * (mermaid 11.17.2, `--paint`): `box Grp<br/>two` draws "Grp" over "two".
+   */
+  label: Label | null;
   participantIds: string[];
   line?: number;
   column?: number;
@@ -486,7 +497,13 @@ export interface SequenceMessageStatement {
   kind: "message";
   from: string;
   to: string;
-  text: string;
+  /**
+   * Read by `readLabel` in the `sequence` dialect (ADR-0015), so `<br>`
+   * breaks a row and every other tag is drawn as written — measured (mermaid
+   * 11.17.2, `--paint`): `A->>A: x<br/>y` draws "x" over "y", and
+   * `A->>B: <b>bold</b> msg` draws its tags literally.
+   */
+  label: Label;
   arrow: SequenceArrow;
   line?: number;
   column?: number;
@@ -500,7 +517,8 @@ export interface SequenceMessageStatement {
 export interface SequenceParticipantStatement {
   kind: "participant";
   id: string;
-  label: string;
+  /** The same label `SequenceParticipantDecl.label` carries. */
+  label: Label;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
   line?: number;
@@ -568,7 +586,11 @@ export interface SequenceNoteStatement {
   placement: SequenceNotePlacement;
   from: string;
   to: string;
-  text: string;
+  /**
+   * Read by `readLabel` in the `sequence` dialect (ADR-0015) — measured
+   * (mermaid 11.17.2, `--paint`): `Note over A: a<br/>b` draws "a" over "b".
+   */
+  label: Label;
   line?: number;
   column?: number;
 }
@@ -590,7 +612,13 @@ export interface SequenceAutonumberOffStatement {
 /** A `loop <label>? ... end` block. */
 export interface SequenceLoopStatement {
   kind: "loop";
-  label: string | null;
+  /**
+   * A block's condition, read by `readLabel` in the `sequence` dialect
+   * (ADR-0015), as every block's and branch's is — measured (mermaid
+   * 11.17.2, `--paint`): `loop every<br/>day` draws "[every" over "day]", the
+   * brackets around the whole condition rather than each row.
+   */
+  label: Label | null;
   body: SequenceStatement[];
   line?: number;
   column?: number;
@@ -598,7 +626,7 @@ export interface SequenceLoopStatement {
 
 /** One branch of an `alt`/`else` block — the first branch is the `alt` condition, the rest are `else`. */
 export interface SequenceAltBranch {
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
 }
 
@@ -613,7 +641,7 @@ export interface SequenceAltStatement {
 /** An `opt <label>? ... end` block. */
 export interface SequenceOptStatement {
   kind: "opt";
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
   line?: number;
   column?: number;
@@ -621,7 +649,7 @@ export interface SequenceOptStatement {
 
 /** One branch of a `par`/`and` block — the first branch is the `par` condition, the rest are `and`. */
 export interface SequenceParBranch {
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
 }
 
@@ -635,7 +663,7 @@ export interface SequenceParStatement {
 
 /** One branch of a `critical`/`option` block — the first branch is the `critical` condition, the rest are `option`. */
 export interface SequenceCriticalBranch {
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
 }
 
@@ -650,7 +678,7 @@ export interface SequenceCriticalStatement {
 /** A `break <label>? ... end` block. */
 export interface SequenceBreakStatement {
   kind: "break";
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
   line?: number;
   column?: number;
@@ -742,7 +770,8 @@ export interface SequenceDocument {
  */
 export interface ResolvedSequenceParticipant {
   id: string;
-  label: string;
+  /** The declaration's label, or a plain one holding the id for a lane created by a mention. */
+  label: Label;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
   /** Flattened-statement-order index the lifeline begins at (0 for a preamble declaration). */
@@ -756,7 +785,8 @@ export interface ResolvedSequenceMessage {
   id: string;
   from: string;
   to: string;
-  text: string;
+  /** Carried unchanged from `SequenceMessageStatement.label`. */
+  label: Label;
   arrow: SequenceArrow;
   /** Sequential autonumber label, or `null` when autonumbering was off for this message. */
   autonumber: number | null;
@@ -764,7 +794,12 @@ export interface ResolvedSequenceMessage {
 
 /** One resolved branch of a block, mirroring `SequenceAltBranch`/`SequenceParBranch`/`SequenceCriticalBranch` post-resolution. */
 export interface ResolvedSequenceBranch {
-  label: string | null;
+  /**
+   * The branch's condition. A `rect` block's one branch carries its color
+   * here instead, as a plain label holding the `rgb()`/`rgba()` text as
+   * written — see `buildSequenceModel`.
+   */
+  label: Label | null;
   statements: ResolvedSequenceStatement[];
 }
 
@@ -806,14 +841,15 @@ export interface ResolvedSequenceNote {
   placement: SequenceNotePlacement;
   from: string;
   to: string;
-  text: string;
+  /** Carried unchanged from `SequenceNoteStatement.label`. */
+  label: Label;
 }
 
 /** A box after graph-model resolution: assigned id. */
 export interface ResolvedSequenceBox {
   id: string;
   color: string | null;
-  label: string | null;
+  label: Label | null;
   participantIds: string[];
 }
 
@@ -851,7 +887,12 @@ export interface SequenceModelResult {
 /** A participant with layout-assigned lane position and lifeline extent. */
 export interface PositionedParticipant {
   id: string;
-  label: string;
+  label: Label;
+  /**
+   * The box `layoutLabel` measured for `label`; the participant's own box is
+   * this plus its padding, so a label of two rows makes a box two rows tall.
+   */
+  labelBox: LabelBox;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
   /** Lane center x-coordinate. */
@@ -871,7 +912,14 @@ export interface PositionedMessage {
   id: string;
   from: string;
   to: string;
-  text: string;
+  label: Label;
+  /** The box `layoutLabel` measured for `label`, which stands on the arrow. */
+  labelBox: LabelBox;
+  /**
+   * The centre of `labelBox`: midway between the arrow's ends, with the
+   * box's bottom just above the arrow, so its rows stack upward from it.
+   */
+  labelAnchor: { x: number; y: number };
   arrow: SequenceArrow;
   autonumber: number | null;
   y: number;
@@ -919,7 +967,9 @@ export type PositionedSequenceElement =
  */
 export interface PositionedNote {
   id: string;
-  text: string;
+  label: Label;
+  /** The box `layoutLabel` measured for `label`; the note is this plus its padding. */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -928,7 +978,10 @@ export interface PositionedNote {
 
 /** A branch divider (used for `else`/`and`/`option`) with layout-assigned position. */
 export interface PositionedBlockDivider {
-  label: string | null;
+  /** The branch's condition as drawn, brackets included (see `PositionedBlock.label`). */
+  label: Label | null;
+  /** The box `layoutLabel` measured for `label`, or `null` when there is none. */
+  labelBox: LabelBox | null;
   y: number;
 }
 
@@ -936,7 +989,21 @@ export interface PositionedBlockDivider {
 export interface PositionedBlock {
   id: string;
   kind: "loop" | "alt" | "opt" | "par" | "critical" | "break" | "rect";
-  label: string | null;
+  /**
+   * The header's condition **as drawn**: wrapped in brackets around all its
+   * rows, as Mermaid draws it (measured, mermaid 11.17.2: `loop every day`
+   * draws `[every day]`, and `loop every<br/>day` draws "[every" over
+   * "day]"), so that what layout measured is what the renderer draws. `null`
+   * for a block written without one. A `rect`'s is its color instead, as
+   * written and never drawn as text (`ResolvedSequenceBranch.label`).
+   */
+  label: Label | null;
+  /**
+   * The box `layoutLabel` measured for the header's `label`, or `null` when
+   * there is none — and for a `rect`, whose `label` is its color and is
+   * never drawn as text.
+   */
+  labelBox: LabelBox | null;
   x: number;
   y: number;
   width: number;
@@ -950,7 +1017,9 @@ export interface PositionedBlock {
 export interface PositionedBox {
   id: string;
   color: string | null;
-  label: string | null;
+  label: Label | null;
+  /** The box `layoutLabel` measured for `label`, or `null` when there is none. */
+  labelBox: LabelBox | null;
   x: number;
   y: number;
   width: number;

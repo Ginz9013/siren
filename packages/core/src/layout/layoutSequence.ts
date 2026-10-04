@@ -1,4 +1,6 @@
 import type {
+  Label,
+  LabelBox,
   LayoutOptions,
   PositionedBlock,
   PositionedBlockDivider,
@@ -17,6 +19,7 @@ import type {
   ResolvedSequenceStatement,
   SequenceModel,
 } from "../contracts";
+import { layoutLabel } from "../label/layoutLabel";
 
 /** Horizontal padding added around a participant's measured label. */
 const PARTICIPANT_PADDING_X = 16;
@@ -26,8 +29,14 @@ const PARTICIPANT_PADDING_Y = 12;
 const LANE_GAP = 40;
 /** Left margin before the first participant lane's box. */
 const LEFT_MARGIN = 20;
-/** Vertical distance between consecutive message rows. */
+/**
+ * Vertical distance between consecutive message rows, for a label of one
+ * row; each row a label adds above that one widens the gap above its arrow
+ * by that row's height (see `layoutStatements`).
+ */
 const MESSAGE_ROW_HEIGHT = 40;
+/** Vertical gap between the bottom of a message's label and its arrow. */
+const MESSAGE_LABEL_GAP = 4;
 /** Horizontal padding added around a note's measured text. */
 const NOTE_PADDING_X = 10;
 /** Vertical padding added around a note's measured text. */
@@ -95,7 +104,7 @@ interface SequenceLayoutContext {
   openActivationsByParticipantId: Map<string, OpenActivation[]>;
   /** Every closed bar, in the order it closed — `layoutSequence` sorts nothing further, since draw order does not depend on it. */
   closedActivations: PositionedActivation[];
-  /** Threaded down for note sizing, the one statement kind `layoutStatements` measures text for. */
+  /** Threaded down for the labels `layoutStatements` measures: a message's and a note's. */
   measureText: LayoutOptions["measureText"];
 }
 
@@ -154,12 +163,12 @@ function closeActivation(
  */
 function layoutNote(
   note: ResolvedSequenceNote,
-  measuredTextWidth: number,
-  height: number,
+  labelBox: LabelBox,
   ctx: SequenceLayoutContext,
   y: number,
 ): PositionedNote {
-  const width = measuredTextWidth + NOTE_PADDING_X * 2;
+  const width = labelBox.width + NOTE_PADDING_X * 2;
+  const height = labelBox.height + NOTE_PADDING_Y * 2;
 
   if (note.placement === "right" || note.placement === "left") {
     const participant = ctx.participantsById.get(note.from);
@@ -169,7 +178,7 @@ function layoutNote(
       note.placement === "right"
         ? laneCenter + laneHalfWidth + NOTE_SIDE_GAP
         : laneCenter - laneHalfWidth - NOTE_SIDE_GAP - width;
-    return { id: note.id, text: note.text, x, y, width, height };
+    return { id: note.id, label: note.label, labelBox, x, y, width, height };
   }
 
   const fromCenter = ctx.laneCenterById.get(note.from) ?? 0;
@@ -178,7 +187,15 @@ function layoutNote(
   const spanRight = Math.max(fromCenter, toCenter);
   const midpoint = (spanLeft + spanRight) / 2;
   const spanWidth = Math.max(spanRight - spanLeft, width);
-  return { id: note.id, text: note.text, x: midpoint - spanWidth / 2, y, width: spanWidth, height };
+  return {
+    id: note.id,
+    label: note.label,
+    labelBox,
+    x: midpoint - spanWidth / 2,
+    y,
+    width: spanWidth,
+    height,
+  };
 }
 
 /**
@@ -204,14 +221,15 @@ function layoutParticipants(
   }
 
   for (const decl of model.participants) {
-    const measured = options.measureText.measure(decl.label);
-    const width = measured.width + PARTICIPANT_PADDING_X * 2;
-    const height = measured.height + PARTICIPANT_PADDING_Y * 2;
+    const labelBox = layoutLabel(decl.label, options.measureText);
+    const width = labelBox.width + PARTICIPANT_PADDING_X * 2;
+    const height = labelBox.height + PARTICIPANT_PADDING_Y * 2;
     const x = nextLeft + width / 2;
 
     participants.push({
       id: decl.id,
       label: decl.label,
+      labelBox,
       participantKind: decl.participantKind,
       origin: decl.origin,
       x,
@@ -247,10 +265,14 @@ function layoutStatements(
 
   for (const statement of statements) {
     if (statement.kind === "message") {
-      y += MESSAGE_ROW_HEIGHT;
+      // A label's rows stack upward from its arrow, so its last row sits
+      // where a one-row label always did and every row above it pushes the
+      // arrow down by its own height.
+      const labelBox = layoutLabel(statement.message.label, ctx.measureText);
+      y += MESSAGE_ROW_HEIGHT + heightBesides(labelBox, labelBox.rows.length - 1);
       elements.push({
         kind: "message",
-        message: layoutMessage(statement.message, ctx.laneCenterById, y),
+        message: layoutMessage(statement.message, labelBox, ctx.laneCenterById, y),
       });
       continue;
     }
@@ -280,14 +302,11 @@ function layoutStatements(
     }
 
     if (statement.kind === "note") {
-      const measured = ctx.measureText.measure(statement.note.text);
-      const height = measured.height + NOTE_PADDING_Y * 2;
+      const labelBox = layoutLabel(statement.note.label, ctx.measureText);
       y += NOTE_ROW_GAP;
-      elements.push({
-        kind: "note",
-        note: layoutNote(statement.note, measured.width, height, ctx, y),
-      });
-      y += height;
+      const note = layoutNote(statement.note, labelBox, ctx, y);
+      elements.push({ kind: "note", note });
+      y += note.height;
       continue;
     }
 
@@ -340,17 +359,29 @@ function layoutBlock(
   startY: number,
   depth: number,
 ): { element: PositionedBlock; endY: number } {
+  // A condition's rows stack downward from where a one-row condition sits,
+  // so each row it adds makes its header or divider band that much taller.
+  const measure = (label: Label | null): LabelBox | null =>
+    label === null ? null : layoutLabel(label, ctx.measureText);
+  const condition =
+    block.kind === "rect"
+      ? (block.branches[0]?.label ?? null)
+      : bracketed(block.branches[0]?.label ?? null);
+  const header = block.kind === "rect" ? null : measure(condition);
+
   const top = startY + BLOCK_MARGIN_TOP;
-  let y = top + BLOCK_HEADER_HEIGHT;
+  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header, 0);
 
   const dividers: PositionedBlockDivider[] = [];
   const children: PositionedSequenceElement[] = [];
 
   block.branches.forEach((branch, index) => {
     if (index > 0) {
+      const label = bracketed(branch.label);
+      const labelBox = measure(label);
       y += BLOCK_DIVIDER_TOP_GAP;
-      dividers.push({ label: branch.label, y });
-      y += BLOCK_DIVIDER_HEIGHT;
+      dividers.push({ label, labelBox, y });
+      y += BLOCK_DIVIDER_HEIGHT + heightBesides(labelBox, 0);
     }
 
     const { elements, endY } = layoutStatements(branch.statements, ctx, y, depth + 1);
@@ -387,7 +418,8 @@ function layoutBlock(
     element: {
       id: block.id,
       kind: block.kind,
-      label: block.branches[0]?.label ?? null,
+      label: condition,
+      labelBox: header,
       x: left,
       y: top,
       width: right - left,
@@ -406,6 +438,7 @@ function layoutBlock(
  */
 function layoutBox(
   box: ResolvedSequenceBox,
+  labelBox: LabelBox | null,
   participantsById: Map<string, PositionedParticipant>,
   top: number,
   bottom: number,
@@ -425,6 +458,7 @@ function layoutBox(
     id: box.id,
     color: box.color,
     label: box.label,
+    labelBox,
     x: left,
     y: top,
     width: right - left,
@@ -432,8 +466,36 @@ function layoutBox(
   };
 }
 
+/**
+ * A block's or branch's condition as Mermaid draws it: in brackets that
+ * open its first row and close its last (measured: `loop every<br/>day`
+ * draws "[every" over "day]"). An empty condition draws nothing at all, not
+ * a pair of brackets around nothing — Mermaid draws an invisible
+ * placeholder there, which here means no label.
+ */
+function bracketed(label: Label | null): Label | null {
+  if (label === null || label.text.length === 0) {
+    return null;
+  }
+  const rows = label.rows.map((row) => row.map((run) => ({ ...run })));
+  rows[0]![0]!.text = `[${rows[0]![0]!.text}`;
+  const lastRow = rows[rows.length - 1]!;
+  lastRow[lastRow.length - 1]!.text += "]";
+  return { text: `[${label.text}]`, rows };
+}
+
+/**
+ * How much taller `box` is than its row `kept` alone: what a label of
+ * several rows adds to a band sized for one, where `kept` is the row that
+ * sits where a one-row label would — and `0` for no label at all.
+ */
+function heightBesides(box: LabelBox | null, kept: number): number {
+  return box === null ? 0 : box.height - box.rows[kept]!.height;
+}
+
 function layoutMessage(
   message: ResolvedSequenceMessage,
+  labelBox: LabelBox,
   laneCenterById: Map<string, number>,
   y: number,
 ): PositionedMessage {
@@ -447,7 +509,9 @@ function layoutMessage(
     id: message.id,
     from: message.from,
     to: message.to,
-    text: message.text,
+    label: message.label,
+    labelBox,
+    labelAnchor: { x: (fromX + toX) / 2, y: y - MESSAGE_LABEL_GAP - labelBox.height / 2 },
     arrow: message.arrow,
     autonumber: message.autonumber,
     y,
@@ -490,9 +554,14 @@ export function layoutSequence(
   const titleHeight = model.title === null ? 0 : TITLE_HEIGHT;
   // A box's background starts at the same edge the top row now does, and its
   // caption is drawn across the top of that background — so the row starts a
-  // caption line lower whenever a labelled box would otherwise be drawn
-  // behind (and hidden by) the participant boxes it groups.
-  const topRowTop = titleHeight + boxCaptionHeight(model, options);
+  // caption lower — by the tallest caption, every row of it — whenever a
+  // labelled box would otherwise be drawn behind (and hidden by) the
+  // participant boxes it groups.
+  const boxLabelBoxes = model.boxes.map((box) =>
+    box.label === null ? null : layoutLabel(box.label, options.measureText),
+  );
+  const topRowTop =
+    titleHeight + boxLabelBoxes.reduce((max, box) => Math.max(max, box?.height ?? 0), 0);
 
   const { elements, endY } = layoutStatements(model.statements, ctx, topRowTop + topRowHeight);
   // The bottom row exists only for participants drawn there — declared and
@@ -529,8 +598,8 @@ export function layoutSequence(
   );
   const rightmostBlockEdge = maxBlockRightEdge(elements);
 
-  const boxes = model.boxes.map((box) =>
-    layoutBox(box, ctx.participantsById, titleHeight, lifelineBottom),
+  const boxes = model.boxes.map((box, index) =>
+    layoutBox(box, boxLabelBoxes[index]!, ctx.participantsById, titleHeight, lifelineBottom),
   );
   const rightmostBoxEdge = boxes.reduce((max, box) => Math.max(max, box.x + box.width), 0);
 
@@ -548,19 +617,6 @@ export function layoutSequence(
       Math.max(rightmostParticipantEdge, rightmostBlockEdge, rightmostBoxEdge) + RIGHT_MARGIN,
     height: lifelineBottom,
   };
-}
-
-/**
- * Height of the tallest box caption in the diagram, or `0` when no box
- * carries a label — the vertical band a box's background needs above the top
- * participant row for its own caption text.
- */
-function boxCaptionHeight(model: SequenceModel, options: LayoutOptions): number {
-  return model.boxes.reduce(
-    (max, box) =>
-      box.label === null ? max : Math.max(max, options.measureText.measure(box.label).height),
-    0,
-  );
 }
 
 /** Finds the rightmost frame edge across every block, recursively including nested children. */
