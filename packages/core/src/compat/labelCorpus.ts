@@ -600,4 +600,103 @@ export const LABEL_CASES: readonly CompatCase[] = [
       expectRows("label runs", labelRuns(node.querySelector("text")), ["x ", "l[href=https://in.example]"]);
     },
   },
+  {
+    id: "label-drawless-tags",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a<abbr title='t'>b</abbr><time>c</time><nobr>d</nobr><wbr>e<bdi><b>f</b></bdi>"]`,
+    status: "supported",
+    meaning:
+      "The 20 tags with no rendering of their own (`abbr`, `acronym`, `bdi`, " +
+      "`bdo`, `data`, `time`, `nobr`, `label`, `output`, `wbr`, `blink`, " +
+      "`spacer`, `content`, `decorator`, `element`, `shadow`, `slot`, " +
+      "`menuitem`, `map`, `picture`) draw their text and nothing else, and a " +
+      "styling tag inside one still draws: DOMPurify keeps each element and " +
+      "the browser has no style for it (ADR-0015, measured against 11.17.2). " +
+      "Siren used to draw the tags' own characters.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["abcdef(b)"]);
+    },
+  },
+  {
+    id: "label-document-tags",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a<html>b</html><head>c</head><body>d</body><style>s</style>e"]`,
+    status: "supported",
+    meaning:
+      "`<html>`, `<head>` and `<body>` are dropped and their text kept, and " +
+      "`<style>` is removed together with its content: inside a label the " +
+      "parser ignores the first three, and DOMPurify removes the fourth " +
+      "(measured against 11.17.2: `abcde`).",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["abcde"]);
+    },
+  },
+  {
+    id: "label-unknown-tags",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["e<foo>f</foo>g<my-el>h</my-el>i<object>j</object>k"]`,
+    status: "supported",
+    meaning:
+      "A tag outside DOMPurify's allow-list is dropped and its text kept: " +
+      "Mermaid 11.17.2 draws `efghijk` (measured). Siren used to draw the " +
+      "tags' own characters.",
+    assert: (result) => {
+      expectRows("label rows", labelRows(nodeText(result, "A")), ["efghijk"]);
+    },
+  },
+  {
+    id: "label-removed-with-content",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a<script>x</script>b<iframe>y</iframe>c<noscript>z</noscript>d<noembed>w</noembed>e<xmp>v</xmp>f"]
+      B["g<plaintext>u</plaintext>h"]`,
+    status: "supported",
+    meaning:
+      "`<script>`, `<iframe>`, `<noscript>`, `<noembed>` and `<xmp>` are " +
+      "removed together with their content, and `<plaintext>` with everything " +
+      "after it, its own end tag included: Mermaid 11.17.2 draws `abcdef` and " +
+      "`g` (measured).",
+    assert: (result) => {
+      expectRows("A's rows", labelRows(nodeText(result, "A")), ["abcdef"]);
+      expectRows("B's rows", labelRows(nodeText(result, "B")), ["g"]);
+    },
+  },
+  {
+    id: "label-entity-codes",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["a#quot;b#amp;c#lt;d#gt;e#35;f#9829;g"]
+      B["#lt;b#gt;x#lt;/b#gt; #copy; #foo;"]`,
+    status: "supported",
+    meaning:
+      "Mermaid's entity codes resolve to their characters: `#name;` is the " +
+      "HTML character reference `&name;` and `#NN;` the code point NN, so A " +
+      "draws `a\"b&c<d>e#f♥g`; a code is text, never a tag, and a name the " +
+      "HTML standard does not define is drawn as the reference the browser " +
+      "was handed, so B draws `<b>x</b> © &foo;` (measured against 11.17.2). " +
+      "Siren used to draw the codes' own characters.",
+    assert: (result) => {
+      expectRows("A's rows", labelRows(nodeText(result, "A")), ['a"b&c<d>e#f\u2665g']);
+      expectRows("B's rows", labelRows(nodeText(result, "B")), ["<b>x</b> © &foo;"]);
+    },
+  },
+  {
+    id: "label-style-hex-color",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<span style='color:#0f0;'>x</span>"]`,
+    status: "supported",
+    meaning:
+      "A hex color ending in `;` inside a label's `style` is a color, not the " +
+      "entity code `#0f0;`: before it reads codes, Mermaid drops the last `;` " +
+      "of a line holding `style`, a `:` and then a `#` (its " +
+      "`/style.*:\\S*#.*;/`), and hands the browser `style=\"color:#0f0\"` " +
+      "(measured against 11.17.2).",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "style"), ["x[style=fill: #0f0]"]);
+    },
+  },
 ];

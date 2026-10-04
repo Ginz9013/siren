@@ -1,5 +1,6 @@
 import type { Diagnostic } from "../contracts";
 import { unsafeStyleValue } from "../unsafeStyleValue";
+import { entityCodesAsReferences, resolveCharacterReferences, resolveEntityCodes } from "./characterReferences";
 import {
   plainRun,
   relativeScale,
@@ -12,29 +13,35 @@ import {
 } from "./label";
 
 /**
- * One tag: `<`, an optional `/`, a name, then optionally whitespace and
- * attributes, an optional `/`, and `>`. An attribute value in quotes may hold
- * a `>` without ending the tag.
+ * One tag: `<`, an optional `/`, a name — a letter, then anything up to
+ * whitespace, `/` or `>`, as the HTML tokenizer reads one, so `my-el` is a
+ * name — then optionally whitespace and attributes, an optional `/`, and
+ * `>`. An attribute value in quotes may hold a `>` without ending the tag.
  *
  * It finds every tag-shaped stretch of a label, and which of them mean
- * something is `readLabel`'s question, not this pattern's: a name outside the
- * vocabulary is left in the text as the characters the author wrote.
+ * something is `readLabel`'s question, not this pattern's: in the `html`
+ * dialect every one does, a name outside the vocabulary included
+ * (`UNKNOWN_TAG`); in the `sequence` dialect every one but a row break is
+ * left in the text as the characters the author wrote.
  *
- * **A row break** is the name `br`, in any case, opened: `<br>`, `<br/>`,
- * `<br />`, `<BR>` and `<br class="x">` all break a row, and `<brx>` is
- * another name. Wider than Mermaid's own `/<br\s*\/?>/gi`, deliberately
- * (ADR-0015): that pattern is its SVG-mode rule and has no room for an
+ * **A row break** is the name `br`, in any case: `<br>`, `<br/>`,
+ * `<br />`, `<BR>`, `<br class="x">` and even `</br>`, which the HTML
+ * parser reads as `<br>`, all break a row, and `<brx>` is another name.
+ * Wider than Mermaid's own `/<br\s*\/?>/gi`, deliberately (ADR-0015): that pattern is its SVG-mode rule and has no room for an
  * attribute, but in its default HTML labels DOMPurify keeps
  * `<BR class="x">` as an element and the browser breaks the line
  * (measured), and that picture is the one Siren draws.
  *
- * A row break reads the same in both dialects: it is the one tag a sequence
- * diagram honors. Mermaid draws sequence text in SVG mode only, where its
- * narrower pattern is the picture, so the ticket wiring the `sequence`
- * dialect has to decide whether an attribute-carrying `<br>` breaks there
- * too.
+ * In the `sequence` dialect a row break is Mermaid's narrower pattern
+ * itself, because Mermaid draws sequence text in SVG mode only, where that
+ * pattern is the picture: `<br>`, `<br/>`, `<br />` and `<BR>` break a row,
+ * and `<br class="x">` is drawn as its characters (measured:
+ * `A->>B: x<br class="x">y` is one `<text>`).
  */
-const TAG_RE = /<(\/?)([a-z][a-z0-9]*)(?:\s(?:[^>"']|"[^"]*"|'[^']*')*)?\/?>/gi;
+const TAG_RE = /<(\/?)([a-z][^\s\/>]*)(?:\s(?:[^>"']|"[^"]*"|'[^']*')*)?\/?>/gi;
+
+/** A row break in the `sequence` dialect: Mermaid's own `/<br\s*\/?>/gi`, one whole tag. */
+const SVG_ROW_BREAK_RE = /^<br\s*\/?>$/i;
 
 /** What one styling tag does to a run it is open around. */
 type RunStyle = (run: LabelRun) => void;
@@ -132,6 +139,24 @@ interface TagRule {
    * end tag would — the HTML parser's rule for `a`, which cannot nest.
    */
   unnested?: boolean;
+  /**
+   * Whether its start tag opens nothing, so that its end tag finds nothing
+   * of its name to close and is dropped, as the HTML parser drops it: a
+   * **void** element, which has no content (`wbr`), or one the parser
+   * ignores inside a label altogether (`html`, `head`, `body`, which belong
+   * to the document around it).
+   */
+  opensNothing?: boolean;
+  /**
+   * For a tag DOMPurify removes together with its content: how the parser
+   * reads that content, which decides where it ends. `"raw text"` is read
+   * as characters up to the tag's own end tag — so a tag inside it is text,
+   * and goes with it — or to the end of the label when there is none;
+   * `"rest"` is everything after the start tag, which nothing ends; and
+   * `"elements"` is read as tags like any other, nested and misnested, and
+   * only its text is removed.
+   */
+  removesContent?: "raw text" | "rest" | "elements";
 }
 
 /**
@@ -147,14 +172,21 @@ type Attributes = ReadonlyMap<string, string>;
  */
 const ATTRIBUTE_RE = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
 
-/** The attributes of `tag`, one whole start tag as `TAG_RE` matched it. */
+/**
+ * The attributes of `tag`, one whole start tag as `TAG_RE` matched it, each
+ * value with its entity codes and character references resolved — Mermaid
+ * rewrites a code in an attribute as it does one in text, and the browser
+ * resolves both (measured: `<a href='?a=1#amp;b=2#35;f'>` keeps
+ * `?a=1&b=2#f`).
+ */
 function attributesOf(tag: string, name: string): Attributes {
   const attributes = new Map<string, string>();
   const rest = tag.slice(1 + name.length, tag.endsWith("/>") ? -2 : -1);
   for (const match of rest.matchAll(ATTRIBUTE_RE)) {
     const key = match[1]!.toLowerCase();
     if (!attributes.has(key)) {
-      attributes.set(key, match[2] ?? match[3] ?? match[4] ?? "");
+      const value = match[2] ?? match[3] ?? match[4] ?? "";
+      attributes.set(key, resolveCharacterReferences(entityCodesAsReferences(value), "attribute"));
     }
   }
   return attributes;
@@ -171,10 +203,16 @@ function attributesOf(tag: string, name: string): Attributes {
  * error, because a browser drawing Mermaid's label drops a value it cannot
  * use and says nothing, and an error would cost the document. An empty
  * value names nothing, and is not drawn either.
+ *
+ * Nor is a value holding an `&`: it is a code Mermaid rewrote and the browser
+ * could not resolve, such as the `#f00;` of `color:#f00;background-color:#ff0;`
+ * (measured: `color:&f00`), which the browser drops as a declaration it
+ * cannot read. Only a family name in quotes could hold an `&` and still be
+ * read, and that is given up for the simpler rule.
  */
 function drawableValue(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? "";
-  return trimmed === "" || unsafeStyleValue(trimmed) !== null ? null : trimmed;
+  return trimmed === "" || trimmed.includes("&") || unsafeStyleValue(trimmed) !== null ? null : trimmed;
 }
 
 /**
@@ -453,7 +491,52 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   // tag reopens it like `b`. Every attribute but `href` is ignored — the
   // sanitizer drops `on*` ones, and none of the rest draws anything.
   a: { formatting: true, attributes: (attributes) => link(attributes.get("href")), unnested: true },
+  // ADR-0015's tags with no rendering of their own: DOMPurify keeps each,
+  // and the browser draws its text and nothing else. `nobr` is in the HTML
+  // parser's formatting list, `wbr` is void.
+  ...Object.fromEntries(
+    [
+      "abbr", "acronym", "bdi", "bdo", "data", "time", "label", "output", "blink", "spacer",
+      "content", "decorator", "element", "shadow", "slot", "menuitem", "map", "picture",
+    ].map((name): [string, TagRule] => [name, { formatting: false }]),
+  ),
+  nobr: { formatting: true },
+  wbr: { formatting: false, opensNothing: true },
+  // Outside DOMPurify's allow-list and removed with their content, which
+  // the parser reads as raw text: `a<script>b<b>c</b></script >d` is `ad`,
+  // `a<script>b` is `a`, and `style` is the same (measured). `noframes`
+  // measured the same, though ADR-0015 does not list it.
+  ...Object.fromEntries(
+    ["script", "style", "iframe", "noembed", "xmp", "noframes"].map((name): [string, TagRule] => [
+      name,
+      { formatting: false, removesContent: "raw text" },
+    ]),
+  ),
+  // Nothing ends its content, not even `</plaintext>`: `<b>a</b>b<plaintext>x</plaintext>y<br><b>z</b>`
+  // is `<b>a</b>b` (measured).
+  plaintext: { formatting: false, removesContent: "rest" },
+  // DOMPurify parses with scripting off, so its content is elements:
+  // `a<noscript>b<noscript>c</noscript>d</noscript>e` is `ae`, and
+  // `a<noscript>b<b>c</noscript>d</b>e` is `a<b>d</b>e` (measured).
+  noscript: { formatting: false, removesContent: "elements" },
+  // Inside a label the parser ignores both tags of each, so nothing closes
+  // at them and their text is kept: `<body>a<sub>b</body>c</sub>d` is
+  // `a<sub>bc</sub>d` (measured). `style`, the fourth tag Mermaid removes,
+  // is removed with its content, above.
+  html: { formatting: false, opensNothing: true },
+  head: { formatting: false, opensNothing: true },
+  body: { formatting: false, opensNothing: true },
 };
+
+/**
+ * What a tag outside `HTML_TAGS` is in the `html` dialect: an element that
+ * draws nothing. DOMPurify drops a tag it does not allow and keeps its text
+ * (measured: `e<foo>f</foo>g<my-el>h</my-el>i<object>j</object>k` is
+ * `efghijk`), but only after the browser's parser has built the element, so
+ * its end tag still closes what was opened inside it: `<foo>a<sub>b</foo>c</sub>d`
+ * is `a<sub>b</sub>cd` (measured).
+ */
+const UNKNOWN_TAG: TagRule = { formatting: false };
 
 /**
  * What reading one label gave: the label, and what the author has to be
@@ -506,7 +589,8 @@ export function readLabel(
   source: string,
   options: { dialect: LabelDialect; markdown?: boolean },
 ): ReadLabelResult {
-  const tagged = options.markdown === true ? markdownAsTags(source) : untagged(source);
+  const written = withoutStyleSemicolons(untagged(source));
+  const tagged = options.markdown === true ? markdownAsTags(written) : written;
   const problems: LabelProblem[] = [];
   const label = labelOf(taggedRows(tagged.text, options.dialect, problems));
   return {
@@ -570,6 +654,34 @@ function rewritten(tagged: Tagged, pattern: RegExp, replacement: string | readon
 }
 
 /**
+ * `tagged` without the `;` Mermaid drops before it reads entity codes: the
+ * last one on a line where `style` (or `classDef`), a `:` and then a `#`
+ * come before it — its own `/style.*:\S*#.*;/` and `/classDef.*:\S*#.*;/`,
+ * meant for a `style` statement's `fill:#f00;`, run over the whole document.
+ * So `<span style='color:#0f0;'>` is a color and not the code `#0f0;`
+ * (measured: Mermaid hands the browser `style="color:#0f0"`).
+ *
+ * Mermaid runs it over each line of the document, and a label sees only its
+ * own part of one: a `;` after the label on the same line (a statement's
+ * trailing `;`) is the one Mermaid drops there, and here the label's own
+ * last one is.
+ */
+function withoutStyleSemicolons(tagged: Tagged): Tagged {
+  let result = tagged;
+  for (const pattern of [/style.*:\S*#.*;/g, /classDef.*:\S*#.*;/g]) {
+    const dropped = new Set(Array.from(result.text.matchAll(pattern), (match) => match.index + match[0].length - 1));
+    result = {
+      text: result.text
+        .split("")
+        .filter((_, index) => !dropped.has(index))
+        .join(""),
+      origins: result.origins.filter((_, index) => !dropped.has(index)),
+    };
+  }
+  return result;
+}
+
+/**
  * A Markdown string's own notation, rewritten as the tags it stands for —
  * which is what Mermaid does with it: its HTML labels turn the string into
  * HTML (`**` into `<strong>`, `*` into `<em>`, a line break into `<br>`) and
@@ -607,8 +719,8 @@ function rewritten(tagged: Tagged, pattern: RegExp, replacement: string | readon
  * and an italic run inside a bold one loses the bold — but that mode is the
  * DOM reference, not the picture (ADR-0015).
  */
-function markdownAsTags(source: string): Tagged {
-  const broken = rewritten(untagged(source), /\n/g, "<br>");
+function markdownAsTags(source: Tagged): Tagged {
+  const broken = rewritten(source, /\n/g, "<br>");
   const bolded = rewritten(broken, /\*\*(?!\s)(.*?)(?<!\s)\*\*/g, ["<strong>", "</strong>"]);
   return rewritten(bolded, /\*(?![\s*])(.*?)(?<![\s*])\*/g, ["<em>", "</em>"]);
 }
@@ -644,17 +756,20 @@ function markdownAsTags(source: string): Tagged {
  *   would, so links never nest: `<a href='x'>1<b>2<a href='y'>3</a>4</b>5`
  *   → `<a href="x">1<b>2</b></a><b><a href="y">3</a>4</b>5`.
  *
- * A tag whose name the dialect does not know stays in the text, as written.
+ * In the `sequence` dialect every tag but a row break stays in the text, as
+ * written.
  */
 function taggedRows(source: string, dialect: LabelDialect, problems: LabelProblem[]): LabelRun[][] {
-  const vocabulary: Readonly<Record<string, TagRule>> = dialect === "html" ? HTML_TAGS : {};
+  /** What `name` does in this dialect, or `undefined` for a tag left as its characters. */
+  const ruleOf = (name: string): TagRule | undefined =>
+    dialect === "html" ? (HTML_TAGS[name] ?? UNKNOWN_TAG) : undefined;
   const rows: LabelRun[][] = [];
   let row: LabelRun[] = [];
   let open: OpenTag[] = [];
 
   /** Appends `text` to the current row, styled by the tags in `stack`. */
   const emit = (text: string, stack: readonly OpenTag[] = open): void => {
-    if (text === "") {
+    if (text === "" || removed(stack)) {
       return;
     }
     const run = plainRun(text);
@@ -675,14 +790,27 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
    */
   const close = (index: number): void => {
     for (let depth = open.length - 1; depth >= index; depth--) {
-      const marks = vocabulary[open[depth]!.name]!.marks;
+      const marks = open[depth]!.rule.marks;
       if (marks !== undefined) {
         emit(marks.close, open.slice(0, depth + 1));
       }
     }
     const inside = open.slice(index + 1);
-    open = [...open.slice(0, index), ...inside.filter((tag) => vocabulary[tag.name]!.formatting)];
+    open = [...open.slice(0, index), ...inside.filter((tag) => tag.rule.formatting)];
   };
+
+  /**
+   * The characters a stretch of source between two tags draws. In the
+   * `html` dialect Mermaid hands the browser its entity codes as character
+   * references, among any the author wrote as such, and the browser
+   * resolves them all. In the `sequence` dialect only the codes resolve:
+   * Mermaid escapes the rest of sequence text, a reference the author wrote
+   * included.
+   */
+  const textOf = (written: string): string =>
+    dialect === "html"
+      ? resolveCharacterReferences(entityCodesAsReferences(written), "text")
+      : resolveEntityCodes(written);
 
   let lastIndex = 0;
   TAG_RE.lastIndex = 0;
@@ -690,17 +818,32 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   while ((match = TAG_RE.exec(source)) !== null) {
     const closing = match[1] === "/";
     const name = match[2]!.toLowerCase();
-    const isBreak = name === "br" && !closing;
-    if (!isBreak && !(name in vocabulary)) {
+    // In the `html` dialect a stray `</br>` breaks too, as the HTML parser
+    // reads it as `<br>` (measured: `a</br>b` is `a<br>b`).
+    const isBreak = name === "br" && (dialect === "html" || (!closing && SVG_ROW_BREAK_RE.test(match[0])));
+    const rule = ruleOf(name);
+    if (!isBreak && rule === undefined) {
       continue;
     }
-    emit(source.slice(lastIndex, match.index));
+    emit(textOf(source.slice(lastIndex, match.index)));
     lastIndex = TAG_RE.lastIndex;
-    if (isBreak) {
+    if (isBreak || rule === undefined) {
+      if (removed(open)) {
+        continue;
+      }
       rows.push(row.length === 0 ? [plainRun("")] : row);
       row = [];
     } else if (!closing) {
-      const rule = vocabulary[name]!;
+      if (rule.removesContent === "raw text" || rule.removesContent === "rest") {
+        const end = new RegExp(`</${name}(?:[\\s/][^>]*)?>`, "gi");
+        end.lastIndex = lastIndex;
+        lastIndex = rule.removesContent === "rest" || end.exec(source) === null ? source.length : end.lastIndex;
+        TAG_RE.lastIndex = lastIndex;
+        continue;
+      }
+      if (rule.opensNothing === true) {
+        continue;
+      }
       const already = rule.unnested === true ? open.map((tag) => tag.name).lastIndexOf(name) : -1;
       if (already !== -1) {
         close(already);
@@ -709,7 +852,7 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       const warn = (message: string): void => {
         problems.push({ severity: "warning", message, offset: at });
       };
-      open.push({ name, style: rule.attributes?.(attributesOf(match[0], name), warn) ?? rule.style });
+      open.push({ name, rule, style: rule.attributes?.(attributesOf(match[0], name), warn) ?? rule.style });
       if (rule.marks !== undefined) {
         emit(rule.marks.open);
       }
@@ -720,7 +863,7 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
       }
     }
   }
-  emit(source.slice(lastIndex));
+  emit(textOf(source.slice(lastIndex)));
   if (open.length > 0) {
     close(0);
   }
@@ -728,9 +871,15 @@ function taggedRows(source: string, dialect: LabelDialect, problems: LabelProble
   return rows;
 }
 
-/** A tag open around the text being read: its name, and what it sets on a run. */
+/** Whether a tag in `stack` removes its content, so nothing inside it is drawn. */
+function removed(stack: readonly OpenTag[]): boolean {
+  return stack.some((tag) => tag.rule.removesContent === "elements");
+}
+
+/** A tag open around the text being read: its name, its rule, and what it sets on a run. */
 interface OpenTag {
   name: string;
+  rule: TagRule;
   style: RunStyle | undefined;
 }
 

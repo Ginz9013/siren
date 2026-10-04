@@ -348,7 +348,8 @@ draws as SVG in both modes. A class **member** is not a label at all: Mermaid es
 modes, so it is kept as written. A **row break** is `<br>` in any case, with or without attributes
 and a closing `/` — `<br>`, `<br/>`, `<br />`, `<BR>` and `<br class="x">` all break a row, the last
 because Mermaid's HTML labels keep it as an element, though its own `/<br\s*\/?>/gi` does not match
-it. The text-styling tags are read too — `b` `strong`, `i` `em` `cite` `dfn` `var`, `u` `ins`, `s`
+it; in the `sequence` dialect that narrower pattern is the picture, so `<br class="x">` is drawn as
+its characters there. The text-styling tags are read too — `b` `strong`, `i` `em` `cite` `dfn` `var`, `u` `ins`, `s`
 `strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup`, `q` and `mark` (black text on
 a yellow rect behind the run, through the theme's `--siren-label-mark-text` and
 `--siren-label-mark-fill`) — nested and misnested as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
@@ -361,7 +362,15 @@ thing in a label Siren warns about rather than drawing or refusing; and `a href`
 `<a href>` around its run, underlined and painted with the `--siren-label-link` token, for exactly
 the hrefs DOMPurify keeps (an `<a>` whose href it strips is plain text). An author's value that
 could fetch, run script or smuggle a second declaration is dropped silently, under the same rule as
-`style` statements. Each tag has its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
+`style` statements. The 20 tags with no rendering of their own (`abbr`, `time`, `wbr` and the rest)
+draw only their text; `html`, `head` and `body` are dropped and their text kept; and a tag outside
+the vocabulary is dropped and its text kept, as DOMPurify drops it — except `script`, `style`,
+`iframe`, `noscript`, `noembed`, `xmp` and `noframes`, removed together with their content, and
+`plaintext`, removed with everything after it. **Entity codes** — Mermaid's `#name;` and `#NN;` —
+resolve in both dialects as the HTML character references `&name;` and `&#NN;` Mermaid turns them
+into: every name the HTML standard defines (`#copy;` is `©`), an unknown one drawn as the reference
+(`#foo;` draws `&foo;`); the `html` dialect also resolves references the author wrote as HTML
+(`&lt;`). Each tag has its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
 
 One module owns all of it, `packages/core/src/label/`: `readLabel` reads the source into a `Label`
 and reports **problems** at character offsets, which the parser turns into diagnostics at the

@@ -1197,7 +1197,7 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // Measured: the alias is a quoted run of anything but a quote —
     // `A["a & b <c> d"]` reports `alias="a & b <c> d"`, so the characters a
     // renderer has to escape are ordinary text here.
-    expect(aliasOf('erDiagram\n  A["a & b <c> d"]\n', "A")).toBe("a & b <c> d");
+    expect(aliasOf('erDiagram\n  A["a & b #lt;c#gt; d"]\n', "A")).toBe("a & b <c> d");
 
     // And `A [ "spaced" ]` is the same entity, because Mermaid's lexer skips
     // whitespace between tokens (measured: `alias="spaced"`).
