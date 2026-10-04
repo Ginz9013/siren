@@ -49,11 +49,22 @@ const underline: RunStyle = (run) => {
 const strikethrough: RunStyle = (run) => {
   run.strikethrough = true;
 };
+/** Monospace replaces a family set around it, as an inner family replaces it. */
 const monospace: RunStyle = (run) => {
   run.monospace = true;
+  run.fontFamily = null;
 };
+/**
+ * A mark paints its own text, which replaces a color from around it, as the
+ * browser's `mark { color: black }` replaces an inherited one; and its own
+ * yellow over the run's inline box, which covers a background from around
+ * it. A color or background set inside the mark is set after this, and wins
+ * in turn — `drawLabel` paints a marked run's background over the mark.
+ */
 const marked: RunStyle = (run) => {
   run.mark = true;
+  run.color = null;
+  run.background = null;
 };
 
 /**
@@ -93,6 +104,14 @@ interface TagRule {
   /** What the tag sets on each run inside it; absent for a tag that sets nothing. */
   style?: RunStyle;
   /**
+   * For a tag whose attributes say what it sets (`font`, `span`, `a`): its
+   * style, read off the attributes of one start tag. Each start tag is read
+   * once, where it opens, and the style it gives is the one every run inside
+   * it takes — reopened, a formatting element keeps its attributes, as the
+   * HTML parser's clone of it does.
+   */
+  attributes?: (attributes: Attributes, warn: (message: string) => void) => RunStyle | undefined;
+  /**
    * Whether the HTML parser calls it a **formatting** element — one it
    * reopens after a misnested end tag closed it early (the "active
    * formatting elements" of the HTML standard's tree construction). Any
@@ -106,6 +125,130 @@ interface TagRule {
    * part of the label's flattened text, because the reader sees it.
    */
   marks?: { open: string; close: string };
+  /**
+   * Whether its start tag first closes one of its name still open, as its
+   * end tag would — the HTML parser's rule for `a`, which cannot nest.
+   */
+  unnested?: boolean;
+}
+
+/**
+ * One start tag's attributes, by lower-case name; an attribute written with
+ * no value is `""`. The first of two with one name is the one kept, as the
+ * HTML parser keeps it.
+ */
+type Attributes = ReadonlyMap<string, string>;
+
+/**
+ * One attribute in a start tag: a name, then optionally `=` and a value in
+ * double quotes, single quotes, or none.
+ */
+const ATTRIBUTE_RE = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+
+/** The attributes of `tag`, one whole start tag as `TAG_RE` matched it. */
+function attributesOf(tag: string, name: string): Attributes {
+  const attributes = new Map<string, string>();
+  const rest = tag.slice(1 + name.length, tag.endsWith("/>") ? -2 : -1);
+  for (const match of rest.matchAll(ATTRIBUTE_RE)) {
+    const key = match[1]!.toLowerCase();
+    if (!attributes.has(key)) {
+      attributes.set(key, match[2] ?? match[3] ?? match[4] ?? "");
+    }
+  }
+  return attributes;
+}
+
+/**
+ * `value` as an author's style value may be drawn, or `null` for one that is
+ * not drawn at all — the run is drawn as though it had not been written.
+ *
+ * A copy of the value half of `rejectStyleProperty` in
+ * `graph-model/resolveStyles.ts`, which is not exported, so that a label's
+ * `style` and `<font>` values are held to the rule every other author style
+ * value is: no `url(` (it fetches) or `expression(` (it runs script), no `;`
+ * (a second declaration riding inside the first) and no `\` (either spelled
+ * as a CSS escape). Read that function for why each is refused; a change to
+ * the rule belongs in both. Refused silently rather than with that
+ * function's error, because a browser drawing Mermaid's label drops a value
+ * it cannot use and says nothing, and an error would cost the document.
+ * An empty value names nothing, and is not drawn either.
+ */
+function drawableValue(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (
+    trimmed === "" ||
+    /url\s*\(/i.test(trimmed) ||
+    /expression\s*\(/i.test(trimmed) ||
+    trimmed.includes(";") ||
+    trimmed.includes("\\")
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+/**
+ * What `<font size>` 1–7 draws at, as a scale of the size around a label —
+ * the board's measured table: 12 / 13 / 16 / 18 / 20 / 32 / 48px where the
+ * text around them is 16px. A size keyword is not relative to the tag
+ * around it, so this replaces a scale rather than multiplying it.
+ *
+ * Size 5 is 20px (× 1.25) because that is what it measured *inside a
+ * Mermaid label*. On a plain page the same tag measures 24px (× 1.5), the
+ * figure most references give; the picture Siren is held to is Mermaid's,
+ * so the label measurement wins. Remeasure before changing it.
+ */
+const FONT_SIZE_SCALES = [0.75, 0.8125, 1, 1.125, 1.25, 2, 3];
+
+/**
+ * The scale `<font size="…">` draws at, or `null` for a value that names
+ * no size, which the browser treats as unwritten. Read as the HTML
+ * standard's "legacy font size": leading whitespace, an optional sign, then
+ * digits; a signed size counts from 3, and either is held to 1–7.
+ */
+function fontSizeScale(value: string | undefined): number | null {
+  const match = value === undefined ? null : /^\s*([+-]?)(\d+)/.exec(value);
+  if (match === null) {
+    return null;
+  }
+  const digits = Number(match[2]);
+  const size = match[1] === "+" ? 3 + digits : match[1] === "-" ? 3 - digits : digits;
+  return FONT_SIZE_SCALES[Math.min(7, Math.max(1, size)) - 1]!;
+}
+
+/**
+ * DOMPurify's `ALLOWED_URI_REGEXP` (3.4.14): an href it keeps names one of
+ * these schemes, or names none — it starts with something other than a
+ * letter, or its leading letters are not followed by a `:`. Measured against
+ * mermaid 11.17.2 with `mermaid-probe.mjs --html`: `https:`, `HTTP:`,
+ * `mailto:`, `ftp:`, `ftps:`, `tel:`, `callto:`, `sms:`, `cid:`, `xmpp:`,
+ * `matrix:`, `#f`, `rel/p?q`, `//h/p` and `""` are kept; `javascript:`,
+ * `data:`, `foo:bar` and `a.b:c` are not.
+ */
+const KEPT_URI_RE = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
+/** What DOMPurify ignores in an href when it tests one: whitespace and controls anywhere. */
+const URI_IGNORED_RE = /[\u0000-\u0020\u00A0\u1680\u180E\u2000-\u2029\u205F\u3000]/g;
+
+/**
+ * What `<a href="…">` sets on its text. An href the sanitizer keeps —
+ * trimmed of the whitespace around it, as it keeps it — makes the text a
+ * link, which the browser draws underlined in the link color; an `<a>`
+ * whose href is stripped, or that has none, is not a link in the browser
+ * (measured: black, no underline), so it sets nothing.
+ */
+function link(written: string | undefined): RunStyle | undefined {
+  const href = written?.trim();
+  // An empty href is kept without the test, as DOMPurify keeps any empty value.
+  if (href === undefined || (href !== "" && !KEPT_URI_RE.test(href.replace(URI_IGNORED_RE, "")))) {
+    return undefined;
+  }
+  // The link's own color replaces one from around it, as `a:link`'s does.
+  return (run) => {
+    run.href = href;
+    run.underline = true;
+    run.color = null;
+  };
 }
 
 /** A formatting element that sets `style`. */
@@ -116,6 +259,132 @@ function formatting(style: RunStyle): TagRule {
 /** An ordinary (not formatting) element that sets `style`. */
 function ordinary(style: RunStyle): TagRule {
   return { style, formatting: false };
+}
+
+/**
+ * The properties of `<span style>` Siren draws — the board's ten, in its
+ * order, which is the order the warning lists them in — by lower-case name: what each
+ * sets on a run, given a value `drawableValue` let through. A property that
+ * cannot read its value answers `null`, and is drawn as unwritten, as the
+ * browser drops a declaration it cannot parse.
+ */
+const SPAN_STYLE_PROPERTIES: Readonly<Record<string, (value: string) => RunStyle | null>> = {
+  color: (value) => (run) => {
+    run.color = value;
+  },
+  "background-color": (value) => (run) => {
+    run.background = value;
+  },
+  "font-size": (value) => {
+    const relative = /^(\d*\.?\d+)(em|%)$/i.exec(value);
+    if (relative === null) {
+      return (run) => {
+        run.fontSize = { absolute: value };
+      };
+    }
+    return scaled(Number(relative[1]) / (relative[2] === "%" ? 100 : 1));
+  },
+  "font-weight": (value) => {
+    const weight = value.toLowerCase();
+    const bolded =
+      weight === "bold" || weight === "bolder"
+        ? true
+        : weight === "normal" || weight === "lighter"
+          ? false
+          : /^\d+$/.test(weight)
+            ? Number(weight) >= 600
+            : null;
+    return bolded === null
+      ? null
+      : (run) => {
+          run.bold = bolded;
+        };
+  },
+  "font-style": (value) => {
+    const style = value.toLowerCase();
+    const slanted = style === "italic" || style.startsWith("oblique") ? true : style === "normal" ? false : null;
+    return slanted === null
+      ? null
+      : (run) => {
+          run.italic = slanted;
+        };
+  },
+  "font-family": (value) => (run) => {
+    run.fontFamily = value;
+    run.monospace = false;
+  },
+  // A decoration is drawn by the box declaring it across all of its text,
+  // and an inner box cannot take it away, so `none` takes nothing away.
+  "text-decoration": (value) => {
+    const lines = value.toLowerCase().split(/\s+/);
+    return (run) => {
+      run.underline ||= lines.includes("underline");
+      run.strikethrough ||= lines.includes("line-through");
+    };
+  },
+  "letter-spacing": (value) => (run) => {
+    run.letterSpacing = value;
+  },
+  "word-spacing": (value) => (run) => {
+    run.wordSpacing = value;
+  },
+  // A box's opacity fades it and everything in it, so an opacity inside
+  // another multiplies. A number or a percentage, held to 0–1, as CSS reads it.
+  opacity: (value) => {
+    const match = /^(\d*\.?\d+)(%?)$/.exec(value);
+    if (match === null) {
+      return null;
+    }
+    const factor = Math.min(1, Number(match[1]) / (match[2] === "%" ? 100 : 1));
+    return (run) => {
+      const around = run.opacity === null ? 1 : Number(run.opacity);
+      run.opacity = String(Number((around * factor).toFixed(4)));
+    };
+  },
+};
+
+/**
+ * What one `<span style="…">` sets: each declaration of a property in
+ * `SPAN_STYLE_PROPERTIES`, in the order written, so a later one wins as it
+ * does in CSS.
+ *
+ * Any other property is not drawn, and is the one thing about a label tag
+ * Siren *warns* about rather than drawing or rejecting: Mermaid draws it,
+ * Siren draws the label without it, and the author is told which, once per
+ * `style` attribute, naming each property it ignored.
+ */
+function spanStyle(attributes: Attributes, warn: (message: string) => void): RunStyle {
+  const styles: RunStyle[] = [];
+  const ignored = new Set<string>();
+  for (const declaration of (attributes.get("style") ?? "").split(";")) {
+    const colon = declaration.indexOf(":");
+    if (colon === -1) {
+      continue;
+    }
+    const property = declaration.slice(0, colon).trim().toLowerCase();
+    const read = SPAN_STYLE_PROPERTIES[property];
+    if (read === undefined) {
+      ignored.add(property);
+      continue;
+    }
+    const value = drawableValue(declaration.slice(colon + 1));
+    const style = value === null ? null : read(value);
+    if (style !== null) {
+      styles.push(style);
+    }
+  }
+  if (ignored.size > 0) {
+    const drawn = Object.keys(SPAN_STYLE_PROPERTIES);
+    warn(
+      `<span style> ignores ${[...ignored].map((name) => `"${name}"`).join(", ")}: ` +
+        `Siren draws only ${drawn.slice(0, -1).join(", ")} and ${drawn[drawn.length - 1]}.`,
+    );
+  }
+  return (run) => {
+    for (const style of styles) {
+      style(run);
+    }
+  };
 }
 
 /**
@@ -160,6 +429,29 @@ const HTML_TAGS: Readonly<Record<string, TagRule>> = {
   // Sets nothing on a run; draws `“` and `”` round its text (measured), so
   // `<b><q>yo</q></b>` is one bold run `“yo”`.
   q: { formatting: false, marks: { open: "\u201c", close: "\u201d" } },
+  font: {
+    formatting: true,
+    attributes: (attributes) => (run) => {
+      const color = drawableValue(attributes.get("color"));
+      if (color !== null) {
+        run.color = color;
+      }
+      const size = fontSizeScale(attributes.get("size"));
+      if (size !== null) {
+        run.fontSize = { scale: size };
+      }
+      const face = drawableValue(attributes.get("face"));
+      if (face !== null) {
+        run.fontFamily = face;
+        run.monospace = false;
+      }
+    },
+  },
+  span: { formatting: false, attributes: spanStyle },
+  // A formatting element in the HTML parser's own list, so a misnested end
+  // tag reopens it like `b`. Every attribute but `href` is ignored — the
+  // sanitizer drops `on*` ones, and none of the rest draws anything.
+  a: { formatting: true, attributes: (attributes) => link(attributes.get("href")), unnested: true },
 };
 
 /**
@@ -213,8 +505,67 @@ export function readLabel(
   source: string,
   options: { dialect: LabelDialect; markdown?: boolean },
 ): ReadLabelResult {
-  const tagged = options.markdown === true ? markdownAsTags(source) : source;
-  return { label: labelOf(taggedRows(tagged, options.dialect)), problems: [] };
+  const tagged = options.markdown === true ? markdownAsTags(source) : untagged(source);
+  const problems: LabelProblem[] = [];
+  const label = labelOf(taggedRows(tagged.text, options.dialect, problems));
+  return {
+    label,
+    problems: problems.map((problem) => ({ ...problem, offset: tagged.origins[problem.offset]! })),
+  };
+}
+
+/**
+ * A label's source as the tag reader reads it, and, for each of its
+ * characters and for its end, the offset in what the author wrote that it
+ * came from — so that a problem found in a Markdown string's rewritten text
+ * is placed where the author can find it. A tag the rewrite inserted takes
+ * the offset of the notation it stands for.
+ */
+interface Tagged {
+  text: string;
+  origins: readonly number[];
+}
+
+/** `source` read as written: every character is its own origin. */
+function untagged(source: string): Tagged {
+  return { text: source, origins: Array.from({ length: source.length + 1 }, (_, index) => index) };
+}
+
+/**
+ * `tagged` with every match of `pattern` rewritten: a whole match into
+ * `replacement`, or, for a pair `[open, close]`, the match's delimiters —
+ * the equal stretches before and after its group 1 — into the two tags,
+ * its group 1 kept as it was.
+ */
+function rewritten(tagged: Tagged, pattern: RegExp, replacement: string | readonly [string, string]): Tagged {
+  let text = "";
+  const origins: number[] = [];
+  const copy = (from: number, to: number): void => {
+    text += tagged.text.slice(from, to);
+    origins.push(...tagged.origins.slice(from, to));
+  };
+  const insert = (inserted: string, at: number): void => {
+    text += inserted;
+    origins.push(...Array.from(inserted, () => tagged.origins[at]!));
+  };
+  let last = 0;
+  for (const match of tagged.text.matchAll(pattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    copy(last, start);
+    if (typeof replacement === "string") {
+      insert(replacement, start);
+    } else {
+      const delimiter = (match[0].length - match[1]!.length) / 2;
+      insert(replacement[0], start);
+      copy(start + delimiter, end - delimiter);
+      insert(replacement[1], end - delimiter);
+    }
+    last = end;
+  }
+  copy(last, tagged.text.length);
+  origins.push(tagged.origins[tagged.text.length]!);
+  return { text, origins };
 }
 
 /**
@@ -255,11 +606,10 @@ export function readLabel(
  * and an italic run inside a bold one loses the bold — but that mode is the
  * DOM reference, not the picture (ADR-0015).
  */
-function markdownAsTags(source: string): string {
-  return source
-    .replace(/\n/g, "<br>")
-    .replace(/\*\*(?!\s)(.*?)(?<!\s)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(?![\s*])(.*?)(?<![\s*])\*/g, "<em>$1</em>");
+function markdownAsTags(source: string): Tagged {
+  const broken = rewritten(untagged(source), /\n/g, "<br>");
+  const bolded = rewritten(broken, /\*\*(?!\s)(.*?)(?<!\s)\*\*/g, ["<strong>", "</strong>"]);
+  return rewritten(bolded, /\*(?![\s*])(.*?)(?<![\s*])\*/g, ["<em>", "</em>"]);
 }
 
 /**
@@ -289,22 +639,26 @@ function markdownAsTags(source: string): string {
  *   that was open inside it (`<q>a<b>b</q>c</b>d` →
  *   `<q>a<b>b</b></q><b>c</b>d`).
  *
+ * - An `<a>` start tag first closes an `<a>` still open, as its end tag
+ *   would, so links never nest: `<a href='x'>1<b>2<a href='y'>3</a>4</b>5`
+ *   → `<a href="x">1<b>2</b></a><b><a href="y">3</a>4</b>5`.
+ *
  * A tag whose name the dialect does not know stays in the text, as written.
  */
-function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
+function taggedRows(source: string, dialect: LabelDialect, problems: LabelProblem[]): LabelRun[][] {
   const vocabulary: Readonly<Record<string, TagRule>> = dialect === "html" ? HTML_TAGS : {};
   const rows: LabelRun[][] = [];
   let row: LabelRun[] = [];
-  let open: string[] = [];
+  let open: OpenTag[] = [];
 
   /** Appends `text` to the current row, styled by the tags in `stack`. */
-  const emit = (text: string, stack: readonly string[] = open): void => {
+  const emit = (text: string, stack: readonly OpenTag[] = open): void => {
     if (text === "") {
       return;
     }
     const run = plainRun(text);
-    for (const name of stack) {
-      vocabulary[name]!.style?.(run);
+    for (const tag of stack) {
+      tag.style?.(run);
     }
     const last = row[row.length - 1];
     if (last !== undefined && sameProperties(last, run)) {
@@ -320,13 +674,13 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
    */
   const close = (index: number): void => {
     for (let depth = open.length - 1; depth >= index; depth--) {
-      const marks = vocabulary[open[depth]!]!.marks;
+      const marks = vocabulary[open[depth]!.name]!.marks;
       if (marks !== undefined) {
         emit(marks.close, open.slice(0, depth + 1));
       }
     }
     const inside = open.slice(index + 1);
-    open = [...open.slice(0, index), ...inside.filter((name) => vocabulary[name]!.formatting)];
+    open = [...open.slice(0, index), ...inside.filter((tag) => vocabulary[tag.name]!.formatting)];
   };
 
   let lastIndex = 0;
@@ -345,13 +699,24 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
       rows.push(row.length === 0 ? [plainRun("")] : row);
       row = [];
     } else if (!closing) {
-      open.push(name);
-      const marks = vocabulary[name]!.marks;
-      if (marks !== undefined) {
-        emit(marks.open);
+      const rule = vocabulary[name]!;
+      const already = rule.unnested === true ? open.map((tag) => tag.name).lastIndexOf(name) : -1;
+      if (already !== -1) {
+        close(already);
       }
-    } else if (open.lastIndexOf(name) !== -1) {
-      close(open.lastIndexOf(name));
+      const at = match.index;
+      const warn = (message: string): void => {
+        problems.push({ severity: "warning", message, offset: at });
+      };
+      open.push({ name, style: rule.attributes?.(attributesOf(match[0], name), warn) ?? rule.style });
+      if (rule.marks !== undefined) {
+        emit(rule.marks.open);
+      }
+    } else {
+      const index = open.map((tag) => tag.name).lastIndexOf(name);
+      if (index !== -1) {
+        close(index);
+      }
     }
   }
   emit(source.slice(lastIndex));
@@ -360,6 +725,12 @@ function taggedRows(source: string, dialect: LabelDialect): LabelRun[][] {
   }
   rows.push(row.length === 0 ? [plainRun("")] : row);
   return rows;
+}
+
+/** A tag open around the text being read: its name, and what it sets on a run. */
+interface OpenTag {
+  name: string;
+  style: RunStyle | undefined;
 }
 
 /** A label of these rows, with the flattened `text` every plain-string reader takes. */

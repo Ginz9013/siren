@@ -1,4 +1,4 @@
-import { isPlain, relativeScale, type Label, type LabelBox, type LabelRun } from "./label";
+import { isPlain, measuredScale, relativeScale, type Label, type LabelBox, type LabelRun } from "./label";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -81,6 +81,23 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  * an attribute: it carries `class="siren-label-mark-text"`, which
  * `default.css` paints with `--siren-label-mark-text`.
  *
+ * What an author wrote (`<font>`, `<span style>`) is drawn as written: a
+ * family as `font-family`, an absolute size as `font-size`, spacing as
+ * `letter-spacing`/`word-spacing`, and opacity as `fill-opacity`, because
+ * `opacity` does not apply to a `<tspan>` (the run's background rects take
+ * `opacity`, as CSS fades a box's background with it). A color is an inline
+ * `style="fill: …"` rather than a `fill` attribute, because a presentation
+ * attribute loses to every class rule and an author's color has to win over
+ * the theme's — the mark's text class included, which is how a color set
+ * inside a `<mark>` shows (`readLabel` clears one set around it).
+ *
+ * A linked run is wrapped in an SVG `<a href>` inside its row, and carries
+ * `class="siren-label-link"`, which `default.css` paints with
+ * `--siren-label-link`; `readLabel` already underlined it. A run both linked
+ * and marked takes the link's class whichever tag was inside the other — the
+ * run cannot say — so `<a><mark>x</mark></a>` draws link-blue where the
+ * browser draws black.
+ *
  * Author text reaches the DOM through `textContent` only, never `innerHTML`:
  * the tags were read into runs by `readLabel`, and nothing here parses
  * markup.
@@ -97,7 +114,9 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  * shifted rect moves further than its glyphs by the ratio of the two. A
  * marked run's is
  * `<rect class="siren-label-mark">`, filled by the theme with
- * `--siren-label-mark-fill`. Its width is the measurer's, so it can miss the
+ * `--siren-label-mark-fill`; an author's `background-color` is the same
+ * rect as `<rect class="siren-label-background">` with an inline fill,
+ * drawn after the mark's so the inner of the two is on top. Its width is the measurer's, so it can miss the
  * glyphs a browser actually draws by a few pixels — the same approximation
  * every label box already makes. The caller inserts them before the
  * `<text>`, since document order is paint order.
@@ -144,21 +163,38 @@ export function drawLabel(
     const centre = top + measured.y;
     // One line at the base size: a row is as tall as its tallest run, and
     // every run is one measured line times its scale (`layoutLabel`).
-    const line = measured.height / Math.max(...runs.map((run) => relativeScale(run) ?? 1));
+    const line = measured.height / Math.max(...runs.map(measuredScale));
     // How far below the row's baseline the text position is, in the
     // `<text>` element's font size; every row starts at its absolute `y`,
     // so at zero.
     let shift = 0;
     runs.forEach((run, runIndex) => {
       const scale = relativeScale(run) ?? 1;
+      // A mark's rect, then the author's: `readLabel` leaves a marked run a
+      // background only when it was set inside the mark, so the inner of the
+      // two is the one on top, as the browser paints them.
+      const paints: ((rect: SVGElement) => void)[] = [];
       if (run.mark) {
+        paints.push((rect) => rect.setAttribute("class", "siren-label-mark"));
+      }
+      const background = run.background;
+      if (background !== null) {
+        paints.push((rect) => {
+          rect.setAttribute("class", "siren-label-background");
+          rect.setAttribute("style", `fill: ${background}`);
+        });
+      }
+      for (const paint of paints) {
         const place = measured.runs[runIndex]!;
-        const height = line * scale;
+        const height = line * measuredScale(run);
         // The run's own line, shifted as its text is — by the same fraction,
         // of the line rather than of a font size nothing here knows.
         const y = centre + BASELINE_SHIFT[run.baseline] * height - height / 2;
         const rect = backgroundRect({ x: left + place.x, width: place.width, y, height });
-        rect.setAttribute("class", "siren-label-mark");
+        paint(rect);
+        if (run.opacity !== null) {
+          rect.setAttribute("opacity", run.opacity);
+        }
         backgrounds.push(rect);
       }
       const element = document.createElementNS(SVG_NS, "tspan");
@@ -184,15 +220,43 @@ export function drawLabel(
       }
       if (run.monospace) {
         element.setAttribute("font-family", "monospace");
+      } else if (run.fontFamily !== null) {
+        element.setAttribute("font-family", run.fontFamily);
       }
-      if (scale !== 1) {
+      if ("absolute" in run.fontSize) {
+        element.setAttribute("font-size", run.fontSize.absolute);
+      } else if (scale !== 1) {
         element.setAttribute("font-size", `${numeral(scale)}em`);
       }
-      if (run.mark) {
+      // A run that is both linked and marked takes the link's paint: the
+      // two runs cannot tell which tag was inside the other, and a link
+      // that stops looking like one is the worse of the two misses.
+      if (run.href !== null) {
+        element.setAttribute("class", "siren-label-link");
+      } else if (run.mark) {
         element.setAttribute("class", "siren-label-mark-text");
       }
+      if (run.letterSpacing !== null) {
+        element.setAttribute("letter-spacing", run.letterSpacing);
+      }
+      if (run.wordSpacing !== null) {
+        element.setAttribute("word-spacing", run.wordSpacing);
+      }
+      if (run.opacity !== null) {
+        element.setAttribute("fill-opacity", run.opacity);
+      }
+      if (run.color !== null) {
+        element.setAttribute("style", `fill: ${run.color}`);
+      }
       element.textContent = run.text;
-      row.appendChild(element);
+      if (run.href === null) {
+        row.appendChild(element);
+      } else {
+        const anchor = document.createElementNS(SVG_NS, "a");
+        anchor.setAttribute("href", run.href);
+        anchor.appendChild(element);
+        row.appendChild(anchor);
+      }
     });
     text.appendChild(row);
   });
