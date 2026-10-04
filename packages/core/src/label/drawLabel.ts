@@ -92,11 +92,12 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  * inside a `<mark>` shows (`readLabel` clears one set around it).
  *
  * A linked run is wrapped in an SVG `<a href>` inside its row, and carries
- * `class="siren-label-link"`, which `default.css` paints with
- * `--siren-label-link`; `readLabel` already underlined it. A run both linked
- * and marked takes the link's class whichever tag was inside the other — the
- * run cannot say — so `<a><mark>x</mark></a>` draws link-blue where the
- * browser draws black.
+ * `class="siren-label-link"` as a hook for a consumer's stylesheet. Its
+ * paint is its color, like any run's: `readLabel` set that to
+ * `var(--siren-label-link)` and underlined it, and a tag inside the link
+ * replaces the color as it would any other — so `<a><mark>x</mark></a>`
+ * draws the mark's black and `<mark><a>x</a></mark>` the link's blue, as
+ * the browser does. A run both linked and marked carries both classes.
  *
  * Author text reaches the DOM through `textContent` only, never `innerHTML`:
  * the tags were read into runs by `readLabel`, and nothing here parses
@@ -228,13 +229,14 @@ export function drawLabel(
       } else if (scale !== 1) {
         element.setAttribute("font-size", `${numeral(scale)}em`);
       }
-      // A run that is both linked and marked takes the link's paint: the
-      // two runs cannot tell which tag was inside the other, and a link
-      // that stops looking like one is the worse of the two misses.
-      if (run.href !== null) {
-        element.setAttribute("class", "siren-label-link");
-      } else if (run.mark) {
-        element.setAttribute("class", "siren-label-mark-text");
+      // A linked run's paint is its color, which `readLabel` set to the link
+      // token, so the class is a hook only; a marked run's class paints its
+      // text, and loses to a color set inside the mark — a link's included.
+      const classes = [run.href !== null ? "siren-label-link" : "", run.mark ? "siren-label-mark-text" : ""].filter(
+        (name) => name !== "",
+      );
+      if (classes.length > 0) {
+        element.setAttribute("class", classes.join(" "));
       }
       if (run.letterSpacing !== null) {
         element.setAttribute("letter-spacing", run.letterSpacing);

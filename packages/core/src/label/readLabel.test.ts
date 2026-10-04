@@ -537,7 +537,8 @@ describe("readLabel's links", () => {
 
   // Measured with `mermaid-probe.mjs --html` against 11.17.2 (DOMPurify's
   // URI rule): these keep their href — the value trimmed of the whitespace
-  // around it — and the browser draws a link, blue and underlined.
+  // around it — and the browser draws a link, blue and underlined: the
+  // run's color is the theme's link token.
   it("keeps an href the sanitizer keeps, trimmed, and underlines the run", () => {
     const kept = [
       "https://x.y",
@@ -559,7 +560,7 @@ describe("readLabel's links", () => {
     ];
     expect(kept.map(linkOf)).toEqual(
       ["https://x.y", "HTTP://x", "https://s", "mailto:a@b", "ftp://x", "ftps://x", "tel:1", "callto:1", "sms:1", "cid:1", "xmpp:1", "matrix:1", "#f", "rel/p?q", "//h/p", ""].map(
-        (href) => ({ text: "x", href, underline: true, color: null }),
+        (href) => ({ text: "x", href, underline: true, color: "var(--siren-label-link)" }),
       ),
     );
   });

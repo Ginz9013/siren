@@ -43,13 +43,13 @@
  *
  * One palette, and only one: a consumer who wants a second — dark,
  * high-contrast, print — redeclares the five palette tokens under a selector
- * of their own and owns when it applies, and may redeclare the `<mark>` pair
- * after them (`--siren-label-mark-fill`, `--siren-label-mark-text`), and the
- * link color (`--siren-label-link`), which sit outside the palette but are
- * tokens all the same. The theme never picks for them, which is
- * why nothing in this file reads the reader's system color preference or any
- * theme attribute on the page — see packages/core/README.md for the worked
- * example, and demos/theme-dark.css for one that runs.
+ * of their own and owns when it applies. The three label-paint tokens
+ * (`--siren-label-mark-fill`, `--siren-label-mark-text`, `--siren-label-link`)
+ * sit outside the palette and may be redeclared the same way. The theme never
+ * picks for them, which is why nothing in this file reads the reader's system
+ * color preference or any theme attribute on the page — see
+ * packages/core/README.md for the worked example, and demos/theme-dark.css
+ * for one that runs.
  */
 :root {
   /* Color tokens: the violet palette of siren-website's decision 01M3BY1GPP. */
@@ -166,9 +166,12 @@
   fill: var(--siren-label-mark-text);
 }
 
-.siren-label-link {
-  fill: var(--siren-label-link);
-}
+/*
+ * No rule for `.siren-label-link`: a linked run is painted by its own inline
+ * `fill: var(--siren-label-link)`, which a mark inside the link replaces, so
+ * a class rule here would repaint that mark blue. The class stays on the run
+ * as a hook.
+ */
 
 /*
  * A subgraph's frame and its title — the flowchart's grouping construct, and

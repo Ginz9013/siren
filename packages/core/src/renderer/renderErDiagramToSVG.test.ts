@@ -112,9 +112,9 @@ const WITH_ATTRIBUTES = {
     rows: [
       {
         cells: [
-          { column: "type" as const, text: "string", x: 17, y: 100, commentLabel: null },
-          { column: "name" as const, text: "c", x: 77, y: 100, commentLabel: null },
-          { column: "keys" as const, text: "UK,PK", x: 137, y: 100, commentLabel: null },
+          { column: "type" as const, text: "string", x: 17, y: 100 },
+          { column: "name" as const, text: "c", x: 77, y: 100 },
+          { column: "keys" as const, text: "UK,PK", x: 137, y: 100 },
         ],
       },
     ],
@@ -241,14 +241,11 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
     // (200, 100), so its 48px of rows run 76..124 and sit on 88 and 112.
     const comment = {
       column: "comment" as const,
-      text: "a\nb",
       x: 196,
       y: 100,
-      commentLabel: {
-        label: rowsLabel("a", "b"),
-        labelBox: boxOf("a", "b"),
-        anchor: { x: 200, y: 100 },
-      },
+      label: rowsLabel("a", "b"),
+      labelBox: boxOf("a", "b"),
+      anchor: { x: 200, y: 100 },
     };
     const svg = renderErDiagramToSVG(
       diagram([

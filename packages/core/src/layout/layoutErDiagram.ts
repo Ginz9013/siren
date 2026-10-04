@@ -7,6 +7,7 @@ import type {
   Point,
   PositionedErDiagram,
   PositionedErEntity,
+  PositionedErAttributeCell,
   PositionedErAttributeTable,
   PositionedErRelationship,
   PositionedErSubgraph,
@@ -141,12 +142,10 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
   const commentBoxes = entity.attributes.map((attribute) =>
     layoutLabel(attribute.comment, options.measureText),
   );
-  const sizeOf = (column: ErAttributeColumn, index: number) =>
-    column === "comment"
-      ? commentBoxes[index]
-      : measure(COLUMNS.find((each) => each.column === column)!.textOf(entity.attributes[index]));
+  const sizeOf = ({ column, textOf }: (typeof COLUMNS)[number], index: number) =>
+    column === "comment" ? commentBoxes[index] : measure(textOf(entity.attributes[index]));
   const widths = columns.map(
-    ({ column }) =>
+    (column) =>
       Math.max(...entity.attributes.map((_, index) => sizeOf(column, index).width)) +
       ENTITY_PADDING_X,
   );
@@ -155,7 +154,7 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
   const grown = widths.map((width) => width + surplus / widths.length);
 
   const rowHeights = entity.attributes.map((_, index) => {
-    const tallest = Math.max(...columns.map(({ column }) => sizeOf(column, index).height));
+    const tallest = Math.max(...columns.map((column) => sizeOf(column, index).height));
     return tallest + ENTITY_PADDING_Y * 2;
   });
 
@@ -173,26 +172,23 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
     const centerY = top + rowHeights[index] / 2;
     top += rowHeights[index];
     return {
-      cells: columns.map(({ column, textOf }, columnIndex) => {
+      cells: columns.map(({ column, textOf }, columnIndex): PositionedErAttributeCell => {
         const x = columnLefts[columnIndex] + ENTITY_PADDING_X / 2;
+        if (column !== "comment") {
+          return { column, text: textOf(attribute), x, y: centerY };
+        }
         const labelBox = commentBoxes[index];
         return {
           column,
-          text: textOf(attribute),
           x,
           y: centerY,
+          label: attribute.comment,
+          labelBox,
           // Centred so that the widest row's text starts at `x`, where every
           // cell's in the column does: the box's width holds the measurer's
           // padding, half each side, and a run's `x` is that half
           // (`LabelBox`), so the text is the width less twice that.
-          commentLabel:
-            column === "comment"
-              ? {
-                  label: attribute.comment,
-                  labelBox,
-                  anchor: { x: x + labelBox.width / 2 - labelBox.rows[0].runs[0].x, y: centerY },
-                }
-              : null,
+          anchor: { x: x + labelBox.width / 2 - labelBox.rows[0].runs[0].x, y: centerY },
         };
       }),
     };
@@ -360,21 +356,13 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
               headerDividerY: box.y + table.headerDividerY,
               columnDividerXs: table.columnDividerXs.map((x) => box.x + x),
               rows: table.rows.map((row) => ({
-                cells: row.cells.map((cell) => ({
-                  ...cell,
-                  x: box.x + cell.x,
-                  y: box.y + cell.y,
-                  commentLabel:
-                    cell.commentLabel === null
-                      ? null
-                      : {
-                          ...cell.commentLabel,
-                          anchor: {
-                            x: box.x + cell.commentLabel.anchor.x,
-                            y: box.y + cell.commentLabel.anchor.y,
-                          },
-                        },
-                })),
+                cells: row.cells.map((cell): PositionedErAttributeCell => {
+                  const x = box.x + cell.x;
+                  const y = box.y + cell.y;
+                  return cell.column === "comment"
+                    ? { ...cell, x, y, anchor: { x: box.x + cell.anchor.x, y: box.y + cell.anchor.y } }
+                    : { ...cell, x, y };
+                }),
               })),
             },
     };

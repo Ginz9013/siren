@@ -543,6 +543,43 @@ export const LABEL_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "label-mark-inside-link",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<a href='https://e.x'><mark>m</mark></a>"]`,
+    status: "supported",
+    meaning:
+      "A `<mark>` inside an `<a>`: the browser paints the text with the " +
+      "innermost element's color, the mark's black, still underlined and still " +
+      "a link, on the mark's yellow (the browser's default stylesheet, as " +
+      "Mermaid 11.17.2's HTML labels draw it). Siren draws the run inside its " +
+      "`<a href>` with the mark's text class and no color of its own, so " +
+      "`--siren-label-mark-text` paints it.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "class", "style", "text-decoration"), [
+        "m[href=https://e.x][class=siren-label-link siren-label-mark-text][text-decoration=underline]",
+      ]);
+    },
+  },
+  {
+    id: "label-link-inside-mark",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<mark><a href='https://e.x'>l</a></mark>"]`,
+    status: "supported",
+    meaning:
+      "An `<a>` inside a `<mark>`: the innermost element is the link, so the " +
+      "browser paints the text link blue `#0000ee`, underlined, on the mark's " +
+      "yellow (Mermaid 11.17.2's HTML labels). Siren paints the run with an " +
+      "inline `var(--siren-label-link)`, which outranks the mark's text class.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "class", "style", "text-decoration"), [
+        "l[href=https://e.x][class=siren-label-link siren-label-mark-text]" +
+          "[style=fill: var(--siren-label-link)][text-decoration=underline]",
+      ]);
+    },
+  },
+  {
     id: "label-link-in-clickable-node",
     kind: "flowchart",
     source: `flowchart TB

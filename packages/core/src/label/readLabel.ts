@@ -1,4 +1,5 @@
 import type { Diagnostic } from "../contracts";
+import { unsafeStyleValue } from "../unsafeStyleValue";
 import {
   plainRun,
   relativeScale,
@@ -7,6 +8,7 @@ import {
   type LabelDialect,
   type LabelProblem,
   type LabelRun,
+  type SourcePosition,
 } from "./label";
 
 /**
@@ -162,29 +164,17 @@ function attributesOf(tag: string, name: string): Attributes {
  * `value` as an author's style value may be drawn, or `null` for one that is
  * not drawn at all — the run is drawn as though it had not been written.
  *
- * A copy of the value half of `rejectStyleProperty` in
- * `graph-model/resolveStyles.ts`, which is not exported, so that a label's
- * `style` and `<font>` values are held to the rule every other author style
- * value is: no `url(` (it fetches) or `expression(` (it runs script), no `;`
- * (a second declaration riding inside the first) and no `\` (either spelled
- * as a CSS escape). Read that function for why each is refused; a change to
- * the rule belongs in both. Refused silently rather than with that
- * function's error, because a browser drawing Mermaid's label drops a value
- * it cannot use and says nothing, and an error would cost the document.
- * An empty value names nothing, and is not drawn either.
+ * Held to the rule every other author style value is (`unsafeStyleValue`,
+ * shared with the styling statements' `resolveStyles`), so that a label's
+ * `style` and `<font>` values cannot fetch, run script, or smuggle in a
+ * second declaration. Refused silently rather than with `resolveStyles`'s
+ * error, because a browser drawing Mermaid's label drops a value it cannot
+ * use and says nothing, and an error would cost the document. An empty
+ * value names nothing, and is not drawn either.
  */
 function drawableValue(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? "";
-  if (
-    trimmed === "" ||
-    /url\s*\(/i.test(trimmed) ||
-    /expression\s*\(/i.test(trimmed) ||
-    trimmed.includes(";") ||
-    trimmed.includes("\\")
-  ) {
-    return null;
-  }
-  return trimmed;
+  return trimmed === "" || unsafeStyleValue(trimmed) !== null ? null : trimmed;
 }
 
 /**
@@ -243,13 +233,24 @@ function link(written: string | undefined): RunStyle | undefined {
   if (href === undefined || (href !== "" && !KEPT_URI_RE.test(href.replace(URI_IGNORED_RE, "")))) {
     return undefined;
   }
-  // The link's own color replaces one from around it, as `a:link`'s does.
+  // The link's own color replaces one from around it, as `a:link`'s does,
+  // and is the run's color like any other, so that a tag inside the link
+  // replaces it in turn: a `<mark>` inside clears it to the mark's black, a
+  // `<font color>` inside sets its own (measured: `<a><mark>x</mark></a>`
+  // is black, `<mark><a>x</a></mark>` link blue).
   return (run) => {
     run.href = href;
     run.underline = true;
-    run.color = null;
+    run.color = LINK_COLOR;
   };
 }
+
+/**
+ * The color a link paints its text with: the theme's link token, which
+ * `default.css` sets to the browser's link blue. A `var()` the author could
+ * not have written — `drawableValue` passes no author value through here.
+ */
+const LINK_COLOR = "var(--siren-label-link)";
 
 /** A formatting element that sets `style`. */
 function formatting(style: RunStyle): TagRule {
@@ -477,7 +478,7 @@ export interface ReadLabelResult {
  */
 export function labelDiagnostics(
   problems: readonly LabelProblem[],
-  positionOf: (offset: number) => { line: number; column: number },
+  positionOf: (offset: number) => SourcePosition,
 ): { diagnostics: Diagnostic[]; hasError: boolean } {
   return {
     diagnostics: problems.map(({ severity, message, offset }) => ({

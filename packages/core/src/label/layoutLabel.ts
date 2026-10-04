@@ -1,5 +1,5 @@
 import type { TextMeasurer } from "../contracts";
-import { measuredScale, type Label, type LabelBox, type LabelBoxRow } from "./label";
+import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type LabelBoxRow, type LabelRun } from "./label";
 
 /**
  * Measures a label: the box it needs, and where each row and run sits in it.
@@ -32,6 +32,15 @@ import { measuredScale, type Label, type LabelBox, type LabelBoxRow } from "./la
  * the font and not on the text, so "one line" is never a guess about which
  * string is representative.
  *
+ * **Spacing.** A run's `letter-spacing` is added once per character and
+ * its `word-spacing` once per space, as CSS adds them, so the box — and a
+ * mark or background rect, which takes the run's measured width — is as
+ * wide as the text drawn with them. A `px` value counts as written; an `em`
+ * value is a multiple of the run's own size, the 14px base times its
+ * `measuredScale`; any other unit (`rem`, `ch`, `%`) or keyword (`normal`)
+ * has no px to read here and is measured as no spacing, though it is still
+ * drawn.
+ *
  * Bold runs are measured at the regular weight, a simplification the
  * Markdown labels this replaces already made and the board keeps: a
  * pixel-exact width would have to know every weight the measurer's font
@@ -44,7 +53,7 @@ import { measuredScale, type Label, type LabelBox, type LabelBoxRow } from "./la
  */
 export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
   const measured = label.rows.map((row) =>
-    row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run) })),
+    row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run), spacing: spacingOf(run) })),
   );
   const padding = measureText.measure("").width;
 
@@ -52,8 +61,8 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
   const rows: LabelBoxRow[] = measured.map((runs) => {
     const height = Math.max(...runs.map(({ size, scale }) => size.height * scale));
     let x = padding / 2;
-    const placed = runs.map(({ size, scale }) => {
-      const run = { x, width: (size.width - padding) * scale };
+    const placed = runs.map(({ size, scale, spacing }) => {
+      const run = { x, width: (size.width - padding) * scale + spacing };
       x += run.width;
       return run;
     });
@@ -67,4 +76,27 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
     height: top,
     rows,
   };
+}
+
+/**
+ * The px a run's spacing adds to its width: its `letter-spacing` once per
+ * character, and its `word-spacing` once per space.
+ */
+function spacingOf(run: LabelRun): number {
+  const fontSize = BASE_FONT_SIZE_PX * measuredScale(run);
+  const characters = Array.from(run.text);
+  const spaces = characters.filter((character) => character === " ").length;
+  return characters.length * spacingPx(run.letterSpacing, fontSize) + spaces * spacingPx(run.wordSpacing, fontSize);
+}
+
+/**
+ * One spacing value in px: as written for `px`, times `fontSize` for `em`,
+ * and 0 for any other unit or keyword, which has no px to read here.
+ */
+function spacingPx(value: string | null, fontSize: number): number {
+  const match = value === null ? null : /^(-?\d*\.?\d+)(px|em)$/i.exec(value);
+  if (match === null) {
+    return 0;
+  }
+  return Number(match[1]) * (match[2]!.toLowerCase() === "em" ? fontSize : 1);
 }

@@ -13,7 +13,7 @@ import type {
   SirenTimeline,
   StyleDecl,
 } from "../contracts";
-import { plainLabel } from "../label/label";
+import { plainLabel, type SourcePosition } from "../label/label";
 import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
@@ -123,7 +123,7 @@ const unquoteName = (name: string): string =>
 function readLabelInto(
   match: RegExpExecArray,
   group: number,
-  at: { line: number; column: number },
+  at: SourcePosition,
   diagnostics: Diagnostic[],
 ): Label {
   const read = readLabelAt(match, group, at, "html");
@@ -440,7 +440,7 @@ const RELATIONSHIP_RE = new RegExp(RELATIONSHIP_SOURCE, "diu");
  */
 function readRelationship(
   text: string,
-  at: { line: number; column: number },
+  at: SourcePosition,
   diagnostics: Diagnostic[],
 ): { decl: ErRelationshipDecl; length: number } | null {
   const match = RELATIONSHIP_RE.exec(text);
@@ -646,7 +646,7 @@ const SUBGRAPH_HEAD_RE = new RegExp(
  */
 function readSubgraphTitle(
   header: RegExpExecArray,
-  at: { line: number; column: number },
+  at: SourcePosition,
 ): { label: Label; diagnostics: Diagnostic[]; hasError: boolean } {
   const raw = header[2]!;
   const written = unquoteName(raw);
@@ -875,7 +875,7 @@ interface ErEntityHead {
  */
 function readEntityHead(
   text: string,
-  at: { line: number; column: number },
+  at: SourcePosition,
   diagnostics: Diagnostic[],
 ): ErEntityHead | null {
   const match = ENTITY_HEAD_RE.exec(text);
@@ -1003,7 +1003,7 @@ interface ErLineReading {
 function readLine(
   line: string,
   openEntity: ErEntityDecl | null,
-  where: { line: number; column: number },
+  where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
 ): ErLineReading | null {
   const entities: ErEntityDecl[] = [];
@@ -1429,7 +1429,7 @@ function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length
  */
 function readAttributes(
   text: string,
-  at: { line: number; column: number },
+  at: SourcePosition,
   diagnostics: Diagnostic[],
 ): { attributes: ErAttribute[]; length: number } | null {
   const tokenized = tokenizeAttributeLine(text);
@@ -1691,6 +1691,17 @@ export function parseErDiagram(source: string): ParseResult {
   const registeredBlocks = new Set<string>();
 
   /**
+   * Adds diagnostics read off one line to the document's, and marks the
+   * document unreadable if any of them is an error.
+   */
+  const report = (reported: readonly Diagnostic[]): void => {
+    diagnostics.push(...reported);
+    if (reported.some((diagnostic) => diagnostic.severity === "error")) {
+      sawError = true;
+    }
+  };
+
+  /**
    * Everything one line's reading contributes, taken in one place so the
    * two callers of `readLine` cannot drift apart about what a line may
    * carry — the in-block caller reads the same statements once its brace
@@ -1708,10 +1719,7 @@ export function parseErDiagram(source: string): ParseResult {
     line: string,
   ): void => {
     entities.push(...reading.entities);
-    diagnostics.push(...reading.diagnostics);
-    if (reading.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      sawError = true;
-    }
+    report(reading.diagnostics);
     // Membership is replayed here rather than written as the line was read,
     // so a line that turned out unreadable claims no members — the
     // all-or-nothing rule `readLine` already keeps for boxes. A name is
@@ -1908,10 +1916,7 @@ export function parseErDiagram(source: string): ParseResult {
       if (header[2] !== undefined) {
         const title = readSubgraphTitle(header, { line: lineNumber, column });
         label = title.label;
-        diagnostics.push(...title.diagnostics);
-        if (title.hasError) {
-          sawError = true;
-        }
+        report(title.diagnostics);
       }
       const opened: ErSubgraph = {
         name,
