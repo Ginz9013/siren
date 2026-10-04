@@ -1,5 +1,5 @@
 import type { Diagnostic } from "../contracts";
-import type { Label, LabelDialect } from "./label";
+import type { Label, LabelDialect, SourcePosition } from "./label";
 import { labelDiagnostics, readLabel } from "./readLabel";
 
 /**
@@ -27,7 +27,7 @@ import { labelDiagnostics, readLabel } from "./readLabel";
 export function readLabelAt(
   match: RegExpExecArray,
   group: number,
-  at: { line: number; column: number },
+  at: SourcePosition,
   dialect: LabelDialect,
 ): { label: Label; diagnostics: Diagnostic[]; hasError: boolean } {
   const [start] = match.indices![group]!;

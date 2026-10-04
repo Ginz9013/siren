@@ -3,6 +3,7 @@ import type {
   ErAttribute,
   ErModel,
   Point,
+  PositionedErAttributeCell,
   PositionedErAttributeTable,
   PositionedErDiagram,
   TextMeasurer,
@@ -68,7 +69,11 @@ const tableOf = (laidOut: PositionedErDiagram, id: string): PositionedErAttribut
 const rowTexts = (table: PositionedErAttributeTable, index: number): string[] =>
   [...table.rows[index].cells]
     .sort((a, b) => a.x - b.x)
-    .map((cell) => `${cell.column}=${cell.text}`);
+    .map((cell) => `${cell.column}=${cellText(cell)}`);
+
+/** What a cell says: a text cell's text, or a comment cell's label flattened. */
+const cellText = (cell: PositionedErAttributeCell): string =>
+  cell.column === "comment" ? cell.label.text : cell.text;
 
 /**
  * A model of exactly the two entities `relationship` joins.
@@ -205,6 +210,7 @@ describe("layoutErDiagram", () => {
     const [entity] = laidOut.entities;
     const table = tableOf(laidOut, "E");
     const comment = table.rows[0].cells.find((cell) => cell.column === "comment")!;
+    if (comment.column !== "comment") throw new Error("no comment cell");
 
     // The name row (24 + 8 + 8) and then the one attribute row (48 + 8 + 8).
     expect(table.headerDividerY - entity.y).toBe(40);
@@ -213,18 +219,18 @@ describe("layoutErDiagram", () => {
     // The column is as wide as the wider row, "alpha", plus its padding.
     expect(table.columnDividerXs.length).toBe(2);
     expect(entity.x + entity.width - table.columnDividerXs[1]).toBe(measuredWidth("alpha") + 14);
-    expect(comment.commentLabel?.label).toEqual(twoRows);
-    expect(comment.commentLabel?.labelBox.height).toBe(48);
+    expect(comment.label).toEqual(twoRows);
+    expect(comment.labelBox.height).toBe(48);
     // Centred on the band its widest row starts at the cell's left edge:
     // the fake measurer adds no padding, so that is half of "alpha" in.
-    expect(comment.commentLabel?.anchor).toEqual({
+    expect(comment.anchor).toEqual({
       x: comment.x + measuredWidth("alpha") / 2,
       y: comment.y,
     });
     // The other cells are not labels: type and name are drawn as written.
     expect(
-      table.rows[0].cells.filter((cell) => cell.column !== "comment").map((c) => c.commentLabel),
-    ).toEqual([null, null]);
+      table.rows[0].cells.filter((cell) => cell.column !== "comment").map((c) => "label" in c),
+    ).toEqual([false, false]);
   });
 
   it("lays an attribute out as four columns in Mermaid's own order, under a name row", () => {
@@ -361,7 +367,7 @@ describe("layoutErDiagram", () => {
       .entries()) {
       expect(cell.x, `${cell.column} starts inside the frame`).toBeGreaterThan(box.left);
       expect(
-        cell.x + fakeMeasurer.measure(cell.text).width,
+        cell.x + fakeMeasurer.measure(cellText(cell)).width,
         `${cell.column} ends before its column does`,
       ).toBeLessThanOrEqual(boundaries[index]);
     }

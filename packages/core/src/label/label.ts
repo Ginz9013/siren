@@ -80,6 +80,17 @@ export interface LabelProblem {
 }
 
 /**
+ * Where something is in the document a parser read: a line and the column
+ * on it, as a `Diagnostic` carries them. What a parser hands `readLabelAt`
+ * as where a label's line begins, and what a label problem's offset is
+ * turned into.
+ */
+export interface SourcePosition {
+  line: number;
+  column: number;
+}
+
+/**
  * Which vocabulary a place reads its label with.
  *
  * `html` is the whole of ADR-0015's vocabulary, which is what every place
@@ -172,11 +183,12 @@ export function relativeScale(run: LabelRun): number | null {
 }
 
 /**
- * The base size an author's absolute px size is measured against: Siren's
- * default `--siren-font-size`. A consumer who changes that token gets boxes
- * sized for 14px around such a run (the board's accepted risk).
+ * The base size an author's absolute px size, and an `em` spacing, is
+ * measured against: Siren's default `--siren-font-size`, which
+ * `theme/default.test.ts` holds this to. A consumer who changes that token
+ * gets boxes sized for 14px around such a run (the board's accepted risk).
  */
-const BASE_FONT_SIZE_PX = 14;
+export const BASE_FONT_SIZE_PX = 14;
 
 /**
  * The factor `run` is *measured* at relative to one measured line: its

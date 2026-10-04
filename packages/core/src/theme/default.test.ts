@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render } from "../index";
+import { BASE_FONT_SIZE_PX } from "../label/label";
 
 /**
  * `default.css`'s own text — the artifact these tests are about.
@@ -1176,6 +1177,30 @@ A["x <a href='https://e.x'>l</a>"]`);
     }
     expect(getComputedStyle(run).fill).toBe("var(--siren-label-link)");
     expect(getComputedStyle(document.documentElement).getPropertyValue("--siren-label-link").trim()).toBe("#0000ee");
+  });
+
+  // The innermost of a link and a mark paints the text (measured): a mark
+  // inside a link draws the mark's black, and nothing in the theme may
+  // repaint it with the link's blue.
+  it("paints a mark inside a link with the mark text token", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A["x <a href='https://e.x'><mark>m</mark></a>"]`);
+
+    const run = svg.querySelector("a tspan.siren-label-mark-text");
+    if (run === null) {
+      throw new Error("no marked linked run drawn");
+    }
+    expect(getComputedStyle(run).fill).toBe("var(--siren-label-mark-text)");
+  });
+
+  // `layoutLabel` measures an author's px size, and an `em` spacing, against
+  // a base it cannot read off the stylesheet; that base is this token's
+  // default, and the two may not drift apart.
+  it("declares the font size label measurement takes as its base", () => {
+    const declared = /--siren-font-size:\s*(\d*\.?\d+)px;/.exec(defaultThemeCss);
+
+    expect(declared?.[1]).toBeDefined();
+    expect(Number(declared![1])).toBe(BASE_FONT_SIZE_PX);
   });
 });
 

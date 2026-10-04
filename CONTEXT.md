@@ -279,8 +279,8 @@ _Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — i
 `layoutDirectedGraph`'s input field name, and nowhere else), TD (say `TB`)
 
 **Graph-shaped diagram**:
-A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class
-diagrams today; state, ER, requirement and C4 when they land. Every one of them sizes its own
+A diagram kind whose layout is a directed graph of boxes and connectors — flowchart, class, state
+and ER diagrams today; requirement and C4 when they land. Every one of them sizes its own
 boxes and labels and then calls `layoutDirectedGraph`, the single place in the codebase that
 imports dagre (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
 and its amendment). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
@@ -352,15 +352,24 @@ it. The text-styling tags are read too — `b` `strong`, `i` `em` `cite` `dfn` `
 `strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup`, `q` and `mark` (black text on
 a yellow rect behind the run, through the theme's `--siren-label-mark-text` and
 `--siren-label-mark-fill`) — nested and misnested as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
-its `**`/`*` stack with tags the author wrote. The rest of the vocabulary arrives tag by tag, each
-with its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
+its `**`/`*` stack with tags the author wrote. The tags whose attributes say what they draw are read
+too: `font` (its `color`, its `size` 1–7 as the scale Mermaid's label measured, and its `face`);
+`span style`, drawing ten properties — `color`, `background-color` (a rect behind the run, as
+`mark`'s), `font-size`, `font-weight`, `font-style`, `font-family`, `text-decoration`,
+`letter-spacing`, `word-spacing` and `opacity` — and **warning** about any other, naming it, the one
+thing in a label Siren warns about rather than drawing or refusing; and `a href`, drawn as an SVG
+`<a href>` around its run, underlined and painted with the `--siren-label-link` token, for exactly
+the hrefs DOMPurify keeps (an `<a>` whose href it strips is plain text). An author's value that
+could fetch, run script or smuggle a second declaration is dropped silently, under the same rule as
+`style` statements. Each tag has its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
 
 One module owns all of it, `packages/core/src/label/`: `readLabel` reads the source into a `Label`
 and reports **problems** at character offsets, which the parser turns into diagnostics at the
 author's own line and column (an error refuses the document, as an unrecognized line does);
 `layoutLabel` measures it into a `LabelBox` — a row as tall as its tallest run, the label its rows
-stacked, a bold run at the regular weight and a monospace run in the regular font (a deliberate
-simplification, not a gap); `drawLabel`
+stacked, an author's px size measured against the 14px base, a run's letter- and word-spacing
+counted into its width, a bold run at the regular weight and a monospace run in the regular font (a
+deliberate simplification, not a gap); `drawLabel`
 draws it at the box's centre. A label of one row holding one plain run — nearly every label — is
 drawn as the `<text>`'s own `textContent`, exactly as before labels had rows; anything else is one
 `<tspan class="siren-label-row">` per row with one `<tspan>` per run inside it, which is the

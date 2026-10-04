@@ -3549,15 +3549,21 @@ export interface PositionedErAttributeRow {
 }
 
 /**
- * One cell of the attribute table: what it says, and where its text starts.
+ * One cell of the attribute table: what it says, and where its text starts —
+ * a **text cell** for the type, name and keys, which are drawn as written,
+ * or a **comment cell**, whose comment is a label (ADR-0015). Told apart by
+ * `column`.
  *
  * `x` is the text's **left edge**, not its centre — cells are left-aligned
  * in their columns, which is measured (Mermaid places each label at its
  * column's left plus half the padding) and is what keeps a column of types
  * reading as a column.
  */
-export interface PositionedErAttributeCell {
-  column: ErAttributeColumn;
+export type PositionedErAttributeCell = PositionedErAttributeTextCell | PositionedErAttributeCommentCell;
+
+/** A type, name or keys cell: one line of literal text, never read for tags. */
+export interface PositionedErAttributeTextCell {
+  column: Exclude<ErAttributeColumn, "comment">;
   /**
    * The text drawn. For `keys` this is the list **re-joined with a comma** —
    * `attribute.keys.join()` is what Mermaid draws, so `UK,PK` reads back as
@@ -3570,15 +3576,23 @@ export interface PositionedErAttributeCell {
   x: number;
   /** Vertical centre of the text, the way `PositionedClass`'s member lines are. */
   y: number;
-  /**
-   * The comment as a label — `null` in every other column, whose text is
-   * drawn as written and never read for tags. `labelBox` is what
-   * `layoutLabel` measured, which the row's height and the column's width
-   * were sized from, and `anchor` the centre the renderer hands `drawLabel`:
-   * the band the label's widest row fills starts at `x`, so a one-row
-   * comment's text starts where every cell's in the column does.
-   */
-  commentLabel: { label: Label; labelBox: LabelBox; anchor: Point } | null;
+}
+
+/**
+ * A comment cell: the comment as a label. `labelBox` is what `layoutLabel`
+ * measured, which the row's height and the column's width were sized from,
+ * and `anchor` the centre the renderer hands `drawLabel`: the band the
+ * label's widest row fills starts at `x`, so a one-row comment's text starts
+ * where every cell's in the column does.
+ */
+export interface PositionedErAttributeCommentCell {
+  column: "comment";
+  x: number;
+  /** Vertical centre of the label, as a text cell's `y` is. */
+  y: number;
+  label: Label;
+  labelBox: LabelBox;
+  anchor: Point;
 }
 
 /**

@@ -268,6 +268,14 @@ describe("drawLabel's attribute-tag runs", () => {
       ["b c", "2px", "0.5em"],
     ]);
   });
+  // The rect is as wide as `layoutLabel` measured the run, spacing and all,
+  // so a spaced-out marked run's yellow reaches the end of its text.
+  it("makes a spaced run's background rect as wide as its measured text and spacing", () => {
+    const { backgrounds } = drawn("<span style='letter-spacing: 2px'><mark>bcd</mark></span>");
+
+    // 3 × 8px of text plus 3 × 2px.
+    expect(backgrounds.map((rect) => rect.getAttribute("width"))).toEqual(["30"]);
+  });
   // `opacity` does not apply to a `<tspan>` in SVG, so a run's opacity is
   // its text's `fill-opacity` (decorations are painted with the fill too);
   // a CSS opacity fades the box's background as well, so its rect fades.
@@ -309,6 +317,26 @@ describe("drawLabel's attribute-tag runs", () => {
       "l",
       "siren-label-link",
       "underline",
+    ]);
+  });
+  // The browser paints a link's text from `a:link`'s color and a mark's from
+  // `mark`'s, and whichever element is innermost wins (measured: black in
+  // `<a><mark>x</mark></a>`, link blue in `<mark><a>x</a></mark>`). So a
+  // link's paint is the run's color, which the inner tag set last.
+  it("paints a linked run with the link token, unless a mark inside the link paints it", () => {
+    const paintOf = (source: string) => {
+      const run = drawn(source).text.querySelector("a > tspan")!;
+      return [run.getAttribute("class"), run.getAttribute("style")];
+    };
+
+    expect(paintOf("<a href='https://e.x'>x</a>")).toEqual(["siren-label-link", "fill: var(--siren-label-link)"]);
+    expect(paintOf("<mark><a href='https://e.x'>x</a></mark>")).toEqual([
+      "siren-label-link siren-label-mark-text",
+      "fill: var(--siren-label-link)",
+    ]);
+    expect(paintOf("<a href='https://e.x'><mark>x</mark></a>")).toEqual([
+      "siren-label-link siren-label-mark-text",
+      null,
     ]);
   });
 });
