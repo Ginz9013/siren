@@ -2085,3 +2085,38 @@ describe("parseErDiagram reads subgraph clusters", () => {
     ]);
   });
 });
+
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, not one label. Mermaid
+ * 11.17.2, measured with `--html`.
+ */
+describe("parseErDiagram — the `;` Mermaid drops from a style line", () => {
+  const aliasColors = (source: string) =>
+    documentOf(source)
+      .entities.find((entity) => entity.name === "A")!
+      .alias!.rows[0]!.map((run) => [run.text, run.color]);
+
+  it("keeps a color whose `;` is the line's last", () => {
+    // `A["<span style='color:#f00;'>r</span>"]` draws `color:#f00`.
+    expect(aliasColors(`erDiagram\n  A["<span style='color:#f00;'>r</span>"]`)).toEqual([["r", "#f00"]]);
+  });
+
+  it("drops a later code's `;` instead, leaving the color a code", () => {
+    // `A["<span style='color:#f00;'>r</span> #35;"]` draws
+    // `<span style="color:&amp;f00;">r</span> #35`.
+    const source = `erDiagram\n  A["<span style='color:#f00;'>r</span> #35;"]`;
+    expect(aliasOf(source, "A")).toBe("r #35");
+    expect(aliasColors(source)).toEqual([["r #35", null]]);
+  });
+
+  it("leaves a position past it where the author wrote it", () => {
+    // `  A["<b style='x:#1'>#35;⚑</b>"]`: the ⚑ is the 26th character.
+    expect(
+      parseErDiagram(`erDiagram\n  A["<b style='x:#1'>#35;⚑</b>"]`).diagnostics.map(
+        ({ severity, line, column }) => [severity, line, column],
+      ),
+    ).toEqual([["warning", 2, 26]]);
+  });
+});

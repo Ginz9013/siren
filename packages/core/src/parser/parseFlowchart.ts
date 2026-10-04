@@ -20,6 +20,7 @@ import type {
 } from "../contracts";
 import { plainLabel } from "../label/label";
 import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
+import { styleLines } from "../label/styleLines";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -659,16 +660,23 @@ const STATEMENT_END = ";";
  *
  * The one place `;` stops separating, and a deliberate divergence from
  * Mermaid rather than an oversight. Mermaid does end the statement there —
- * `style A fill:#fdd;position:fixed,stroke:#c00` leaves it holding
- * `fill:#fdd` and invents a **node** called `position:fixed,stroke:#c00` —
- * which is a silent mis-render, the exact failure mode this board exists to
+ * `style A fill:red;position:fixed,stroke:#c00` leaves it holding
+ * `fill:red` and invents a **node** called `position:fixed,stroke:#c00`
+ * (measured, 11.17.2) — which is a silent mis-render, the exact failure
+ * mode this board exists to
  * remove. Siren instead hands the whole list to `resolveStyles`, whose gate
  * refuses a value containing `;` by name: "would smuggle in a second
  * declaration". Splitting here would delete that diagnostic and quietly
  * apply the half of the value that came first.
  *
  * A `;` that merely *trails* such a statement is still spare, so
- * `classDef hot fill:#fdd;` reads as `classDef hot fill:#fdd` does.
+ * `classDef hot fill:red;` reads as `classDef hot fill:red` does.
+ *
+ * A line where a `#` follows the `:` never gets here with its last `;`:
+ * Mermaid's style-line rule (`styleLines`) has dropped it already, so
+ * `style A fill:#fdd;position:fixed,stroke:#c00` is one declaration,
+ * `fill:#fddposition:fixed`, which is what Mermaid records too (measured,
+ * 11.17.2: `styles=["fill:#fddposition:fixed","stroke:#c00"]`).
  */
 const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
 
@@ -1445,8 +1453,17 @@ function joinMarkdownFences(lines: readonly string[]): string[] {
  * it costs the document, and nothing else about it.
  */
 export function parseFlowchart(source: string): ParseResult {
+  const read = styleLines(source);
+  return read.asWritten(parseRead(read.source));
+}
+
+/**
+ * `parseFlowchart`'s reading of `source`, a document as Mermaid parses it
+ * (`styleLines`): every position it finds is in that document's lines.
+ */
+function parseRead(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
-  const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
+  const lines = joinMarkdownFences(source.split("\n"));
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];

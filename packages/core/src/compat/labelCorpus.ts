@@ -804,6 +804,40 @@ b**\`"]`,
     },
   },
   {
+    id: "label-style-line-trailing-semicolon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<span style='color:#f00;'>r</span>"];`,
+    status: "supported",
+    meaning:
+      "The `;` Mermaid drops from a style line is the line's last, not the " +
+      "label's: here it is the statement's trailing `;`, so the color's " +
+      "`#f00;` is still the entity code it rewrites, the browser is handed " +
+      "`style=\"color:&amp;f00;\"`, and `r` is drawn uncolored (measured " +
+      "against 11.17.2). Siren used to drop the label's own last `;` and draw " +
+      "it red.",
+    assert: (result) => {
+      expectRows("label runs", labelRuns(nodeText(result, "A"), "style"), ["r"]);
+    },
+  },
+  {
+    id: "label-style-line-later-label",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<span style='color:#f00;'>r</span>"] --> B["#35;"]`,
+    status: "supported",
+    meaning:
+      "Two labels on one style line: Mermaid drops the line's last `;`, which " +
+      "is B's, so B draws `#35` and A's color stays a code it cannot read " +
+      "(measured against 11.17.2: `<p>#35</p>` and " +
+      "`<span style=\"color:&amp;f00;\">`). Siren used to drop each label's own " +
+      "last `;`, drawing A red and B as `#`.",
+    assert: (result) => {
+      expectRows("A's runs", labelRuns(nodeText(result, "A"), "style"), ["r"]);
+      expectRows("B's rows", labelRows(nodeText(result, "B")), ["#35"]);
+    },
+  },
+  {
     id: "label-invalid-color",
     kind: "flowchart",
     source: `flowchart TB

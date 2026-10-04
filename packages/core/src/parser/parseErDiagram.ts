@@ -16,6 +16,7 @@ import type {
 import { plainLabel, type SourcePosition } from "../label/label";
 import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { readLabelAt } from "../label/readLabelAt";
+import { styleLines } from "../label/styleLines";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -1624,6 +1625,15 @@ function unimplementedIn(line: string): string | null {
  * a diagnostic and costs the document.
  */
 export function parseErDiagram(source: string): ParseResult {
+  const read = styleLines(source);
+  return read.asWritten(parseRead(read.source));
+}
+
+/**
+ * `parseErDiagram`'s reading of `source`, a document as Mermaid parses it
+ * (`styleLines`): every position it finds is in that document's lines.
+ */
+function parseRead(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
