@@ -46,7 +46,9 @@ What Mermaid does around the tags is followed too, and each item was measured:
   attributes, such as `<br class="x">`. Mermaid's own `/<br\s*\/?>/gi` does not match that
   last spelling, but it is the SVG mode's rule: in HTML mode DOMPurify keeps the element and
   the browser breaks the line, so that is the picture.
-- A tag outside the allow-list is dropped and its text kept. `script`, `iframe`, `noscript`,
+- A tag outside the allow-list is dropped and its text kept. DOMPurify's SVG and MathML
+  profiles also keep `svg`, `math` and `title` (measured): `svg` and `math` are refused like the
+  embedded layer, and `title`, which a browser hides, is removed with its content. `script`, `iframe`, `noscript`,
   `noembed`, `xmp` and `plaintext` are removed together with their content.
 - An attribute DOMPurify removes (`onclick`, a `javascript:` URL) is dropped, and the tag it was
   on is still drawn.
