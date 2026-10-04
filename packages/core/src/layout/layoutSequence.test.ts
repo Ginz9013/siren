@@ -338,7 +338,7 @@ describe("layoutSequence", () => {
     expect(block.x + block.width).toBeGreaterThan(byId.B.x + byId.B.width / 2);
 
     // y-range encloses the header label plus both messages.
-    expect(block.label).toEqual(plainLabel("[Every minute]"));
+    expect(block.label?.label).toEqual(plainLabel("[Every minute]"));
     expect(block.children).toHaveLength(2);
     const [first, second] = block.children as Extract<
       PositionedSequenceElement,
@@ -425,9 +425,9 @@ describe("layoutSequence", () => {
     if (blockElement.kind !== "block") throw new Error("expected block element");
     const block = blockElement.block;
 
-    expect(block.label).toEqual(plainLabel("[is valid]"));
+    expect(block.label?.label).toEqual(plainLabel("[is valid]"));
     expect(block.dividers).toHaveLength(1);
-    expect(block.dividers[0].label).toEqual(plainLabel("[is invalid]"));
+    expect(block.dividers[0].label?.label).toEqual(plainLabel("[is invalid]"));
 
     expect(block.children).toHaveLength(2);
     const [first, second] = block.children as Extract<
@@ -1461,9 +1461,9 @@ describe("layoutSequence's labels", () => {
 
     const [m1, m2] = messagesOf(layoutSequence(model, { measureText: fakeMeasurer }));
 
-    expect(m2!.labelAnchor?.x).toBe((m2!.fromX + m2!.toX) / 2);
-    const top = m2!.labelAnchor.y - m2!.labelBox.height / 2;
-    const bottom = m2!.labelAnchor.y + m2!.labelBox.height / 2;
+    expect(m2!.label.anchor.x).toBe((m2!.fromX + m2!.toX) / 2);
+    const top = m2!.label.anchor.y - m2!.label.box.height / 2;
+    const bottom = m2!.label.anchor.y + m2!.label.box.height / 2;
     expect(bottom).toBeLessThan(m2!.y);
     expect(top).toBeGreaterThan(m1!.y);
   });
@@ -1519,8 +1519,8 @@ describe("layoutSequence's labels", () => {
     expect(tallDivider.m2.y - tallDivider.block.dividers[0]!.y).toBe(
       plain.m2.y - plain.block.dividers[0]!.y + LINE,
     );
-    expect(tallHeader.block.labelBox?.rows).toHaveLength(2);
-    expect(tallDivider.block.dividers[0]!.labelBox?.rows).toHaveLength(2);
+    expect(tallHeader.block.label?.box.rows).toHaveLength(2);
+    expect(tallDivider.block.dividers[0]!.label?.box.rows).toHaveLength(2);
   });
 
   it("leaves a box's caption a band as tall as every row of its label", () => {
@@ -1562,12 +1562,12 @@ describe("layoutSequence's labels", () => {
     // for the keyword in the header — and its first row is centred 14 below
     // the frame's top, or the divider's line: two rows of 24 put the box's
     // centre a row lower than one row's.
-    expect(positioned.labelAnchor).toEqual({
+    expect(positioned.label?.anchor).toEqual({
       x: positioned.x + 8 + 64 + "[every".length * 4,
       y: positioned.y + 14 + LINE / 2,
     });
-    expect(divider!.labelAnchor).toEqual({ x: positioned.x + 8 + "[e1]".length * 4, y: divider!.y + 14 });
-    expect(bare!.labelAnchor).toBeNull();
+    expect(divider!.label?.anchor).toEqual({ x: positioned.x + 8 + "[e1]".length * 4, y: divider!.y + 14 });
+    expect(bare!.label).toBeNull();
   });
 
   it("brackets a block's condition around all its rows, and measures it as drawn", () => {
@@ -1588,12 +1588,31 @@ describe("layoutSequence's labels", () => {
     const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
     if (element?.kind !== "block") throw new Error("expected a block");
 
-    expect(element.block.label).toEqual(rowsLabel("[every", "day]"));
-    expect(element.block.labelBox?.width).toBe("[every".length * 8);
-    expect(element.block.dividers.map((divider) => divider.label)).toEqual([
+    expect(element.block.label?.label).toEqual(rowsLabel("[every", "day]"));
+    expect(element.block.label?.box.width).toBe("[every".length * 8);
+    expect(element.block.dividers.map((divider) => divider.label?.label ?? null)).toEqual([
       rowsLabel("[e1", "e2]"),
       null,
     ]);
+  });
+
+  it("carries a rect block's color as written, and gives it no condition to draw", () => {
+    // `rect rgb(191, 223, 255)`: the syntax puts the color where a condition
+    // would be, and Mermaid paints it as the block's fill rather than
+    // drawing it as text — so it is neither bracketed nor measured.
+    const block: ResolvedSequenceBlock = {
+      id: "rect:1",
+      kind: "rect",
+      touchedParticipantIds: ["A", "B"],
+      branches: [{ label: rowsLabel("rgb(191, 223, 255)"), statements: [] }],
+    };
+    const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
+
+    const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
+    if (element?.kind !== "block") throw new Error("expected a block");
+
+    expect(element.block.color).toBe("rgb(191, 223, 255)");
+    expect(element.block.label).toBeNull();
   });
 });
 

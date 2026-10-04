@@ -357,9 +357,14 @@ export function layoutStateDiagram(
       from: transition.from,
       to: transition.to,
       points: points.map(shifted),
-      label: transition.label,
-      labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
-      labelBox: transitionLabelBoxById.get(transition.id) ?? null,
+      label:
+        transition.label === null || route.labelAnchor === undefined
+          ? null
+          : {
+              label: transition.label,
+              box: transitionLabelBoxById.get(transition.id)!,
+              anchor: shifted(route.labelAnchor),
+            },
     };
   });
 
@@ -760,10 +765,10 @@ function diagramBounds(
 
   for (const transition of transitions) {
     for (const point of transition.points) cover(point.x, point.y);
-    if (transition.labelBox !== null && transition.labelAnchor !== null) {
+    if (transition.label !== null) {
       cover(
-        transition.labelAnchor.x + transition.labelBox.width / 2,
-        transition.labelAnchor.y + transition.labelBox.height / 2,
+        transition.label.anchor.x + transition.label.box.width / 2,
+        transition.label.anchor.y + transition.label.box.height / 2,
       );
     }
   }

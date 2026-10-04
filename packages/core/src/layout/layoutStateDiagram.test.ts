@@ -126,10 +126,9 @@ describe("layoutStateDiagram", () => {
     // reports back where that space ended up; an unlabelled one asks for
     // none and reports no anchor at all, rather than a point nothing is
     // drawn at.
-    expect(laid.transitions[0].label).toEqual(plainLabel("start"));
-    expect(laid.transitions[0].labelAnchor).not.toBeNull();
+    expect(laid.transitions[0].label?.label).toEqual(plainLabel("start"));
+    expect(laid.transitions[0].label?.anchor).toBeDefined();
     expect(laid.transitions[1].label).toBeNull();
-    expect(laid.transitions[1].labelAnchor).toBeNull();
   });
 
   it("routes a self-transition as a loop on its one state, inside the canvas", () => {
@@ -1258,10 +1257,10 @@ describe("layoutStateDiagram — labels", () => {
     const laid = layoutStateDiagram(labelled, options);
     const [transition] = laid.transitions;
 
-    expect(transition.labelBox).not.toBeNull();
-    expect(transition.labelBox!.height).toBe(48);
-    expect(transition.labelBox!.width).toBe(32);
+    expect(transition.label).not.toBeNull();
+    expect(transition.label!.box.height).toBe(48);
+    expect(transition.label!.box.width).toBe(32);
     // The anchor is the box's centre, so its lower row ends 24 below it.
-    expect(laid.height).toBeGreaterThanOrEqual(transition.labelAnchor!.y + 24);
+    expect(laid.height).toBeGreaterThanOrEqual(transition.label!.anchor.y + 24);
   });
 });

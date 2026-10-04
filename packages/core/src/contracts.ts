@@ -86,7 +86,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  * the tag vocabulary (ADR-0015) never have to touch this file; re-exported
  * here so every other module still finds its cross-module types in one place.
  */
-import type { Label, LabelBox } from "./label/label";
+import type { Label, LabelBox, PlacedLabel } from "./label/label";
 
 export type {
   Label,
@@ -95,6 +95,7 @@ export type {
   LabelDialect,
   LabelProblem,
   LabelRun,
+  PlacedLabel,
 } from "./label/label";
 
 /** A node as declared in source, before graph-model resolution. */
@@ -912,14 +913,13 @@ export interface PositionedMessage {
   id: string;
   from: string;
   to: string;
-  label: Label;
-  /** The box `layoutLabel` measured for `label`, which stands on the arrow. */
-  labelBox: LabelBox;
   /**
-   * The centre of `labelBox`: midway between the arrow's ends, with the
-   * box's bottom just above the arrow, so its rows stack upward from it.
+   * The message's text, placed: the box `layoutLabel` measured for it,
+   * which stands on the arrow, and that box's centre — midway between the
+   * arrow's ends, with the box's bottom just above the arrow, so its rows
+   * stack upward from it. Never `null`: every message has a label.
    */
-  labelAnchor: { x: number; y: number };
+  label: PlacedLabel;
   arrow: SequenceArrow;
   autonumber: number | null;
   y: number;
@@ -978,16 +978,14 @@ export interface PositionedNote {
 
 /** A branch divider (used for `else`/`and`/`option`) with layout-assigned position. */
 export interface PositionedBlockDivider {
-  /** The branch's condition as drawn, brackets included (see `PositionedBlock.label`). */
-  label: Label | null;
-  /** The box `layoutLabel` measured for `label`, or `null` when there is none. */
-  labelBox: LabelBox | null;
   /**
-   * The centre of `labelBox` — at the frame's left inset, its first row
-   * centred where a one-row condition's is below the line, so further rows
-   * grow downward — or `null` exactly when `labelBox` is.
+   * The branch's condition as drawn, brackets included (see
+   * `PositionedBlock.label`), placed: the box `layoutLabel` measured for it,
+   * and its centre — at the frame's left inset, its first row centred where
+   * a one-row condition's is below the line, so further rows grow
+   * downward. `null` when the branch has no condition.
    */
-  labelAnchor: Point | null;
+  label: PlacedLabel | null;
   y: number;
 }
 
@@ -999,23 +997,20 @@ export interface PositionedBlock {
    * The header's condition **as drawn**: wrapped in brackets around all its
    * rows, as Mermaid draws it (measured, mermaid 11.17.2: `loop every day`
    * draws `[every day]`, and `loop every<br/>day` draws "[every" over
-   * "day]"), so that what layout measured is what the renderer draws. `null`
-   * for a block written without one. A `rect`'s is its color instead, as
-   * written and never drawn as text (`ResolvedSequenceBranch.label`).
+   * "day]"), so that what layout measured is what the renderer draws —
+   * placed: the box `layoutLabel` measured for it, and its centre, past the
+   * block's keyword, its first row centred where a one-row condition's is,
+   * so further rows grow downward. `null` for a block written without one,
+   * and always for a `rect`, which draws no condition (see `color`).
    */
-  label: Label | null;
+  label: PlacedLabel | null;
   /**
-   * The box `layoutLabel` measured for the header's `label`, or `null` when
-   * there is none — and for a `rect`, whose `label` is its color and is
-   * never drawn as text.
+   * A `rect`'s fill, as written (`ResolvedSequenceBranch.label` — the
+   * syntax puts it where a condition would be) and never drawn as text;
+   * `null` for a `rect` written without one and for every other kind. The
+   * shape `PositionedBox.color` has.
    */
-  labelBox: LabelBox | null;
-  /**
-   * The centre of `labelBox` — past the block's keyword, its first row
-   * centred where a one-row condition's is, so further rows grow downward —
-   * or `null` exactly when `labelBox` is.
-   */
-  labelAnchor: Point | null;
+  color: string | null;
   x: number;
   y: number;
   width: number;
@@ -1365,25 +1360,23 @@ export interface PositionedNode extends GraphNode {
 }
 
 /** An edge with a layout-assigned point path. */
-export interface PositionedEdge extends GraphEdge {
+export interface PositionedEdge extends Omit<GraphEdge, "label"> {
   points: Point[];
   /**
-   * Where to draw `label`: the centre of the space layout kept clear for
-   * it, or `null` when the edge carries no label and asked for none.
+   * `GraphEdge.label`, placed: the text, the box `layoutLabel` measured for
+   * it — the box dagre was asked to keep clear — and the centre of the space
+   * layout kept clear for it. `null` when the edge carries no label and
+   * asked for none.
    *
-   * Reported by the layout rather than computed by the renderer from
-   * `points`, because it is where the *reserved box* ended up — the mid-point
-   * of a route is not the same place, and drawing there would put the text
-   * across the line the space was made beside. The shape a class
-   * diagram's `PositionedClassRelationship.labelAnchor` already has, for
-   * the same reason.
+   * The anchor is reported by the layout rather than computed by the
+   * renderer from `points`, because it is where the *reserved box* ended up
+   * — the mid-point of a route is not the same place, and drawing there
+   * would put the text across the line the space was made beside. Every
+   * other label on a line (`PositionedClassRelationship.label`,
+   * `PositionedStateTransition.label`, …) is a `PlacedLabel` for the same
+   * reason.
    */
-  labelAnchor: Point | null;
-  /**
-   * The label as `layoutLabel` measured it — the box dagre was asked to keep
-   * clear, centred on `labelAnchor` — or `null` exactly when `label` is.
-   */
-  labelBox: LabelBox | null;
+  label: PlacedLabel | null;
 }
 
 /**
@@ -1975,19 +1968,14 @@ export interface PositionedClassRelationship {
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
   points: Point[];
-  label: Label | null;
   /**
-   * Where the label is drawn — the centre of the space the shared core kept
-   * clear for it; `null` when there is no label.
+   * The relationship's label, placed: its text, the box `layoutLabel`
+   * measured for it — the box the core was asked to keep clear — and the
+   * centre of the space the shared core kept clear for it. `null` when
+   * there is no label. `PositionedStateTransition.label` carries a
+   * transition's the same way.
    */
-  labelAnchor: Point | null;
-  /**
-   * The label as `layoutLabel` measured it — the box the core was asked to
-   * keep clear, centred on `labelAnchor` — or `null` exactly when `label`
-   * is. `PositionedStateTransition.labelBox` carries a transition's the same
-   * way.
-   */
-  labelBox: LabelBox | null;
+  label: PlacedLabel | null;
   fromMultiplicity: string | null;
   /** Where the from-end multiplicity is drawn; `null` when there is none. */
   fromMultiplicityAnchor: Point | null;
@@ -2799,27 +2787,20 @@ export interface PositionedState {
   note: PositionedStateNote | null;
 }
 
-/** A transition with a layout-assigned path and, when it carries one, a label anchor. */
+/** A transition with a layout-assigned path and, when it carries one, a placed label. */
 export interface PositionedStateTransition {
   id: string;
   from: string;
   to: string;
   points: Point[];
-  label: Label | null;
   /**
-   * Where to draw `label`: the centre of the space layout kept clear for it,
-   * or `null` when the transition carries no label and asked for none — the
-   * shape `PositionedEdge.labelAnchor` already has, for the reason given
-   * there.
+   * The transition's label, placed: its text, the box `layoutLabel`
+   * measured for it — the box the shared core was asked to keep clear — and
+   * the centre of the space layout kept clear for it. `null` when the
+   * transition carries no label and asked for none — the shape
+   * `PositionedEdge.label` has, for the reason given there.
    */
-  labelAnchor: Point | null;
-  /**
-   * The label as `layoutLabel` measured it — the box the shared core was
-   * asked to keep clear, centred on `labelAnchor` — or `null` exactly when
-   * `label` is. `PositionedEdge.labelBox` carries a flowchart edge's the
-   * same way.
-   */
-  labelBox: LabelBox | null;
+  label: PlacedLabel | null;
 }
 
 /**
@@ -3691,21 +3672,16 @@ export interface PositionedErRelationship {
   fromCardinality: ErCardinality;
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  /** What the label draws, carried through from `ResolvedErRelationship.label`. */
-  label: Label;
-  /**
-   * The label as `layoutLabel` measured it — the size the layout kept clear
-   * around `labelAnchor`, and what the renderer hands `drawLabel`.
-   */
-  labelBox: LabelBox;
   points: Point[];
   /**
-   * Centre of the space the layout kept clear for the label, or `null` when
+   * `ResolvedErRelationship.label`, placed: its text, the box `layoutLabel`
+   * measured for it — the size the layout kept clear — and the centre of
+   * that space, which is what the renderer hands `drawLabel`. `null` when
    * the shared layout core reserved none. Nullable on the same terms as
-   * `PositionedClassRelationship.labelAnchor`, rather than because an ER
+   * `PositionedClassRelationship.label`, rather than because an ER
    * relationship can be unlabelled — measured, it cannot be.
    */
-  labelAnchor: Point | null;
+  label: PlacedLabel | null;
 }
 
 /**

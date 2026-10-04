@@ -378,10 +378,15 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         fromCardinality: relationship.fromCardinality,
         toCardinality: relationship.toCardinality,
         line: relationship.line,
-        label: relationship.label,
-        labelBox: relationshipLabelBoxById.get(relationship.id)!,
         points: route.points.map(shifted),
-        labelAnchor: route.labelAnchor === undefined ? null : shifted(route.labelAnchor),
+        label:
+          route.labelAnchor === undefined
+            ? null
+            : {
+                label: relationship.label,
+                box: relationshipLabelBoxById.get(relationship.id)!,
+                anchor: shifted(route.labelAnchor),
+              },
       };
     },
   );

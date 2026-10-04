@@ -175,15 +175,9 @@ function buildRelationship(
   // *baseline* on the anchor, which sat the text above the middle of the
   // space reserved for it, the same correction a state diagram's transition
   // label took. Its `x` and `y` are unchanged for a label of one row.
-  if (
-    relationship.label !== null &&
-    relationship.labelAnchor !== null &&
-    relationship.labelBox !== null
-  ) {
-    appendLabel(
-      g,
-      drawLabel(relationship.label, relationship.labelBox, relationship.labelAnchor, "siren-relationship-label"),
-    );
+  if (relationship.label !== null) {
+    const { label, box, anchor } = relationship.label;
+    appendLabel(g, drawLabel(label, box, anchor, "siren-relationship-label"));
   }
 
   for (const [text, anchor] of [

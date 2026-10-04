@@ -772,9 +772,14 @@ export function layoutClassDiagram(
         fromEnd: rel.fromEnd,
         toEnd: rel.toEnd,
         points: route.points,
-        label: rel.label,
-        labelAnchor: route.labelAnchor ?? null,
-        labelBox: relationshipLabelBoxById.get(rel.id) ?? null,
+        label:
+          rel.label === null || route.labelAnchor === undefined
+            ? null
+            : {
+                label: rel.label,
+                box: relationshipLabelBoxById.get(rel.id)!,
+                anchor: route.labelAnchor,
+              },
         fromMultiplicity: rel.fromMultiplicity,
         fromMultiplicityAnchor:
           rel.fromMultiplicity === null
@@ -897,8 +902,8 @@ function diagramBounds(
 
   for (const rel of relationships) {
     for (const point of rel.points) cover(point.x, point.y);
-    if (rel.labelBox !== null && rel.labelAnchor !== null) {
-      coverCentered(rel.labelBox, rel.labelAnchor);
+    if (rel.label !== null) {
+      coverCentered(rel.label.box, rel.label.anchor);
     }
     if (rel.fromMultiplicity !== null && rel.fromMultiplicityAnchor !== null) {
       coverText(rel.fromMultiplicity, rel.fromMultiplicityAnchor);

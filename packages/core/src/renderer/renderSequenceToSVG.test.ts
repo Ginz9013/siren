@@ -102,9 +102,7 @@ function buildMessageFixture(arrow: SequenceArrow): PositionedSequenceDiagram {
     id: "Alice-Bob",
     from: "Alice",
     to: "Bob",
-    label: plainLabel("hello"),
-    labelBox: boxOf("hello"),
-    labelAnchor: { x: 140, y: 84 },
+    label: { label: plainLabel("hello"), box: boxOf("hello"), anchor: { x: 140, y: 84 } },
     arrow,
     autonumber: null,
     y: 100,
@@ -134,9 +132,7 @@ function buildMessagesFixture(arrows: SequenceArrow[]): PositionedSequenceDiagra
         id: `Alice-Bob-${index}`,
         from: "Alice",
         to: "Bob",
-        label: plainLabel("hello"),
-        labelBox: boxOf("hello"),
-        labelAnchor: { x: 140, y: 84 + index * 20 },
+        label: { label: plainLabel("hello"), box: boxOf("hello"), anchor: { x: 140, y: 84 + index * 20 } },
         arrow,
         autonumber: null,
         y: 100 + index * 20,
@@ -574,8 +570,8 @@ describe("renderSequenceToSVG", () => {
   it("renders message labels, participant labels, and the title via textContent only, never as parsed markup", () => {
     const diagram = buildMessageFixture({ line: "solid", head: "filled" });
     diagram.title = "<script>alert(1)</script>";
-    (diagram.elements[0] as { kind: "message"; message: PositionedMessage }).message.label =
-      plainLabel("<b>hi</b>");
+    const message = (diagram.elements[0] as { kind: "message"; message: PositionedMessage }).message;
+    message.label = { ...message.label, label: plainLabel("<b>hi</b>") };
     diagram.participants[0]!.label = plainLabel("<i>Alice</i>");
 
     const svg = renderSequenceToSVG(diagram);
@@ -592,9 +588,8 @@ describe("renderSequenceToSVG", () => {
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
-      label: plainLabel("[n < 5]"),
-      labelBox: boxOf("[n < 5]"),
-      labelAnchor: headerAnchor(boxOf("[n < 5]"), 40, 50),
+      label: { label: plainLabel("[n < 5]"), box: boxOf("[n < 5]"), anchor: headerAnchor(boxOf("[n < 5]"), 40, 50) },
+      color: null,
       x: 40,
       y: 50,
       width: 200,
@@ -643,24 +638,19 @@ describe("renderSequenceToSVG", () => {
     const block: PositionedBlock = {
       id: "alt:1",
       kind: "alt",
-      label: plainLabel("[x == 1]"),
-      labelBox: boxOf("[x == 1]"),
-      labelAnchor: headerAnchor(boxOf("[x == 1]"), 20, 30),
+      label: { label: plainLabel("[x == 1]"), box: boxOf("[x == 1]"), anchor: headerAnchor(boxOf("[x == 1]"), 20, 30) },
+      color: null,
       x: 20,
       y: 30,
       width: 240,
       height: 180,
       dividers: [
         {
-          label: plainLabel("[x == 2]"),
-          labelBox: boxOf("[x == 2]"),
-          labelAnchor: dividerAnchor(boxOf("[x == 2]"), 20, 90),
+          label: { label: plainLabel("[x == 2]"), box: boxOf("[x == 2]"), anchor: dividerAnchor(boxOf("[x == 2]"), 20, 90) },
           y: 90,
         },
         {
-          label: plainLabel("[else]"),
-          labelBox: boxOf("[else]"),
-          labelAnchor: dividerAnchor(boxOf("[else]"), 20, 140),
+          label: { label: plainLabel("[else]"), box: boxOf("[else]"), anchor: dividerAnchor(boxOf("[else]"), 20, 140) },
           y: 140,
         },
       ],
@@ -698,9 +688,7 @@ describe("renderSequenceToSVG", () => {
       id: "Alice-Bob",
       from: "Alice",
       to: "Bob",
-      label: plainLabel("hi"),
-      labelBox: boxOf("hi"),
-      labelAnchor: { x: 140, y: 84 },
+      label: { label: plainLabel("hi"), box: boxOf("hi"), anchor: { x: 140, y: 84 } },
       arrow: { line: "solid", head: "filled" },
       autonumber: null,
       y: 100,
@@ -710,9 +698,8 @@ describe("renderSequenceToSVG", () => {
     const block: PositionedBlock = {
       id: "rect:1",
       kind: "rect",
-      label: plainLabel("rgb(191, 223, 255)"),
-      labelBox: boxOf("rgb(191, 223, 255)"),
-      labelAnchor: null,
+      label: null,
+      color: "rgb(191, 223, 255)",
       x: 20,
       y: 60,
       width: 240,
@@ -752,9 +739,8 @@ describe("renderSequenceToSVG", () => {
     const innerBlock: PositionedBlock = {
       id: "alt:1",
       kind: "alt",
-      label: plainLabel("y > 0"),
-      labelBox: boxOf("y > 0"),
-      labelAnchor: headerAnchor(boxOf("y > 0"), 60, 80),
+      label: { label: plainLabel("y > 0"), box: boxOf("y > 0"), anchor: headerAnchor(boxOf("y > 0"), 60, 80) },
+      color: null,
       x: 60,
       y: 80,
       width: 160,
@@ -765,9 +751,8 @@ describe("renderSequenceToSVG", () => {
     const outerBlock: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
-      label: plainLabel("[n < 5]"),
-      labelBox: boxOf("[n < 5]"),
-      labelAnchor: headerAnchor(boxOf("[n < 5]"), 40, 50),
+      label: { label: plainLabel("[n < 5]"), box: boxOf("[n < 5]"), anchor: headerAnchor(boxOf("[n < 5]"), 40, 50) },
+      color: null,
       x: 40,
       y: 50,
       width: 200,
@@ -825,9 +810,8 @@ describe("renderSequenceToSVG", () => {
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
-      label: plainLabel("retrying"),
-      labelBox: boxOf("retrying"),
-      labelAnchor: headerAnchor(boxOf("retrying"), 40, 60),
+      label: { label: plainLabel("retrying"), box: boxOf("retrying"), anchor: headerAnchor(boxOf("retrying"), 40, 60) },
+      color: null,
       x: 40,
       y: 60,
       width: 220,
@@ -975,9 +959,8 @@ describe("renderSequenceToSVG", () => {
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
-      label: plainLabel("each retry"),
-      labelBox: boxOf("each retry"),
-      labelAnchor: headerAnchor(boxOf("each retry"), 20, 60),
+      label: { label: plainLabel("each retry"), box: boxOf("each retry"), anchor: headerAnchor(boxOf("each retry"), 20, 60) },
+      color: null,
       x: 20,
       y: 60,
       width: 240,
@@ -1044,18 +1027,15 @@ describe("renderSequenceToSVG", () => {
     const block: PositionedBlock = {
       id: "alt:1",
       kind: "alt",
-      label: plainLabel("[<b>x == 1</b>]"),
-      labelBox: boxOf("[<b>x == 1</b>]"),
-      labelAnchor: headerAnchor(boxOf("[<b>x == 1</b>]"), 20, 30),
+      label: { label: plainLabel("[<b>x == 1</b>]"), box: boxOf("[<b>x == 1</b>]"), anchor: headerAnchor(boxOf("[<b>x == 1</b>]"), 20, 30) },
+      color: null,
       x: 20,
       y: 30,
       width: 240,
       height: 180,
       dividers: [
         {
-          label: plainLabel("[<i>else</i>]"),
-          labelBox: boxOf("[<i>else</i>]"),
-          labelAnchor: dividerAnchor(boxOf("[<i>else</i>]"), 20, 120),
+          label: { label: plainLabel("[<i>else</i>]"), box: boxOf("[<i>else</i>]"), anchor: dividerAnchor(boxOf("[<i>else</i>]"), 20, 120) },
           y: 120,
         },
       ],
@@ -1080,8 +1060,7 @@ describe("renderSequenceToSVG", () => {
       id: "loop:1",
       kind: "loop",
       label: null,
-      labelBox: null,
-      labelAnchor: null,
+      color: null,
       x: 40,
       y: 50,
       width: 200,
@@ -1105,9 +1084,8 @@ describe("renderSequenceToSVG", () => {
       const block: PositionedBlock = {
         id: `${kind}:1`,
         kind,
-        label: plainLabel("condition"),
-        labelBox: boxOf("condition"),
-        labelAnchor: headerAnchor(boxOf("condition"), 40, 50),
+        label: { label: plainLabel("condition"), box: boxOf("condition"), anchor: headerAnchor(boxOf("condition"), 40, 50) },
+        color: null,
         x: 40,
         y: 50,
         width: 200,
@@ -1177,9 +1155,7 @@ describe("renderSequenceToSVG's labels", () => {
   it("draws a message's label row by row, centred on the anchor layout gave it", () => {
     const diagram = buildMessageFixture({ line: "solid", head: "filled" });
     const message = (diagram.elements[0] as { kind: "message"; message: PositionedMessage }).message;
-    message.label = rowsLabel("first", "second");
-    message.labelBox = boxOf("first", "second");
-    message.labelAnchor = { x: 140, y: 70 };
+    message.label = { label: rowsLabel("first", "second"), box: boxOf("first", "second"), anchor: { x: 140, y: 70 } };
 
     const text = renderSequenceToSVG(diagram).querySelector("text.siren-message-label");
 
@@ -1218,18 +1194,15 @@ describe("renderSequenceToSVG's labels", () => {
     const block: PositionedBlock = {
       id: "alt:1",
       kind: "alt",
-      label: rowsLabel("[every", "day]"),
-      labelBox: boxOf("[every", "day]"),
-      labelAnchor: headerAnchor(boxOf("[every", "day]"), 10, 40),
+      label: { label: rowsLabel("[every", "day]"), box: boxOf("[every", "day]"), anchor: headerAnchor(boxOf("[every", "day]"), 10, 40) },
+      color: null,
       x: 10,
       y: 40,
       width: 300,
       height: 200,
       dividers: [
         {
-          label: rowsLabel("[e1", "e2]"),
-          labelBox: boxOf("[e1", "e2]"),
-          labelAnchor: dividerAnchor(boxOf("[e1", "e2]"), 10, 140),
+          label: { label: rowsLabel("[e1", "e2]"), box: boxOf("[e1", "e2]"), anchor: dividerAnchor(boxOf("[e1", "e2]"), 10, 140) },
           y: 140,
         },
       ],
@@ -1255,14 +1228,13 @@ describe("renderSequenceToSVG's labels", () => {
     const block: PositionedBlock = {
       id: "alt:1",
       kind: "alt",
-      label: plainLabel("[c]"),
-      labelBox: boxOf("[c]"),
-      labelAnchor: { x: 123, y: 77 },
+      label: { label: plainLabel("[c]"), box: boxOf("[c]"), anchor: { x: 123, y: 77 } },
+      color: null,
       x: 10,
       y: 40,
       width: 300,
       height: 200,
-      dividers: [{ label: plainLabel("[e]"), labelBox: boxOf("[e]"), labelAnchor: { x: 45, y: 161 }, y: 140 }],
+      dividers: [{ label: { label: plainLabel("[e]"), box: boxOf("[e]"), anchor: { x: 45, y: 161 } }, y: 140 }],
       children: [],
     };
 
@@ -1280,9 +1252,8 @@ describe("renderSequenceToSVG's labels", () => {
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
-      label: rowsLabel("[every", "day]"),
-      labelBox: boxOf("[every", "day]"),
-      labelAnchor: headerAnchor(boxOf("[every", "day]"), 10, 40),
+      label: { label: rowsLabel("[every", "day]"), box: boxOf("[every", "day]"), anchor: headerAnchor(boxOf("[every", "day]"), 10, 40) },
+      color: null,
       x: 10,
       y: 40,
       width: 300,

@@ -137,12 +137,11 @@ const PLACES: PositionedErRelationship = {
   fromCardinality: "onlyOne",
   toCardinality: "zeroOrMore",
   line: "identifying",
-  ...labelled("places"),
   points: [
     { x: 56, y: 60 },
     { x: 56, y: 200 },
   ],
-  labelAnchor: { x: 56, y: 130 },
+  label: { label: plainLabel("places"), box: boxOf("places"), anchor: { x: 56, y: 130 } },
 };
 
 /** The `<marker>` `cardinality`'s figure is built in, or a thrown explanation. */
@@ -225,8 +224,7 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
       diagram([CUSTOMER, ORDER], undefined, [
         {
           ...PLACES,
-          label: rowsLabel("places", "many"),
-          labelBox: boxOf("places", "many"),
+          label: { label: rowsLabel("places", "many"), box: boxOf("places", "many"), anchor: { x: 56, y: 130 } },
         },
       ]),
     );

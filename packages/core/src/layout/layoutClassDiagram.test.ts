@@ -884,9 +884,9 @@ describe("layoutClassDiagram", () => {
       const first = routed.points[0];
       const last = routed.points[routed.points.length - 1];
 
-      expect(routed.labelAnchor).not.toBeNull();
-      expect(routed.labelAnchor!.y).toBeGreaterThan(first.y);
-      expect(routed.labelAnchor!.y).toBeLessThan(last.y);
+      expect(routed.label).not.toBeNull();
+      expect(routed.label!.anchor.y).toBeGreaterThan(first.y);
+      expect(routed.label!.anchor.y).toBeLessThan(last.y);
 
       // Each multiplicity sits beside its own end of the line: nearer that
       // end than the other, and within a line height of it.
@@ -1023,7 +1023,7 @@ describe("layoutClassDiagram", () => {
       );
 
       const routed = diagram.relationships[0];
-      expect(routed.labelAnchor).toBeNull();
+      expect(routed.label).toBeNull();
       expect(routed.fromMultiplicityAnchor).toBeNull();
       expect(routed.toMultiplicityAnchor).toBeNull();
     });
@@ -1442,9 +1442,9 @@ describe("layoutClassDiagram", () => {
 
       for (const routed of diagram.relationships) {
         for (const point of routed.points) withinBounds(point);
-        if (routed.labelAnchor) {
-          const size = fakeMeasurer.measure(routed.label!.text);
-          withinBounds(routed.labelAnchor, size.width / 2, size.height / 2);
+        if (routed.label) {
+          const size = fakeMeasurer.measure(routed.label.label.text);
+          withinBounds(routed.label.anchor, size.width / 2, size.height / 2);
         }
         for (const [text, anchor] of [
           [routed.fromMultiplicity, routed.fromMultiplicityAnchor],
@@ -1558,9 +1558,9 @@ describe("layoutClassDiagram", () => {
       const twoRows = laidOutWith(rowsLabel("holds", "many"));
 
       const routed = twoRows.relationships[0];
-      expect(routed.label).toEqual(rowsLabel("holds", "many"));
-      expect(routed.labelBox!.height).toBe(LINE_HEIGHT * 2);
-      expect(routed.labelBox!.width).toBe(measuredWidth("holds"));
+      expect(routed.label?.label).toEqual(rowsLabel("holds", "many"));
+      expect(routed.label!.box.height).toBe(LINE_HEIGHT * 2);
+      expect(routed.label!.box.width).toBe(measuredWidth("holds"));
       expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
     });
 

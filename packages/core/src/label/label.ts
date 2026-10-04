@@ -122,6 +122,26 @@ export interface LabelBox {
   rows: LabelBoxRow[];
 }
 
+/**
+ * A label layout has measured **and** placed: what to draw, the box
+ * `layoutLabel` measured for it (the space layout kept clear), and the
+ * centre of that box — exactly the three arguments `drawLabel` takes.
+ *
+ * One value rather than three fields on the positioned element, so that a
+ * label nobody placed is one `null` and never a `label` with no `box`, or a
+ * `box` with no `anchor`: the three exist together or not at all, and a
+ * renderer asks once. Declared here, beside `Label` and `LabelBox`, so
+ * layout and renderer both reach it through `contracts.ts` without either
+ * importing the other. `anchor` is spelled structurally rather than as
+ * `contracts.ts`'s `Point` for the same reason `drawLabel`'s is: this
+ * directory imports nothing from the contract that re-exports it.
+ */
+export interface PlacedLabel {
+  label: Label;
+  box: LabelBox;
+  anchor: { x: number; y: number };
+}
+
 /** One measured row of a `LabelBox`. */
 export interface LabelBoxRow {
   y: number;
