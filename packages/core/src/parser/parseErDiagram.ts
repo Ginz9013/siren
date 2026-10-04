@@ -1170,8 +1170,6 @@ function readLine(
       }
       // Its own length, not the line's: `class` never left the initial
       // condition, so the stream continues. See `CLASS_RE`.
-      // Its own length, not the line's: `class` never left the initial
-      // condition, so the stream continues. See `CLASS_RE`.
       rest = rest.slice(apply[0].length).trimStart();
       continue;
     }
