@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
-import type { Diagnostic, FlowchartDocument, SirenNode } from "../contracts";
+import { parseSiren } from "./parseSiren";
+import type { Diagnostic, FlowchartDocument, ParseResult, SirenNode } from "../contracts";
 import { plainRun } from "../label/label";
 
 /**
- * Asserts a `parseFlowchart` call produced a document and narrows it to
- * `FlowchartDocument`, so tests can read flowchart fields without repeating
- * the null check.
+ * Asserts a `parseFlowchart` call (or `parse`'s, when given) produced a
+ * document and narrows it to `FlowchartDocument`, so tests can read
+ * flowchart fields without repeating the null check.
  */
-function parseOk(source: string): { document: FlowchartDocument; diagnostics: Diagnostic[] } {
-  const { document, diagnostics } = parseFlowchart(source);
+function parseOk(
+  source: string,
+  parse: (source: string) => ParseResult = parseFlowchart,
+): { document: FlowchartDocument; diagnostics: Diagnostic[] } {
+  const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "flowchart") {
     throw new Error(
       `expected a flowchart document, got ${document === null ? "null" : document.kind}` +
@@ -48,8 +52,8 @@ vi.mock("../label/readLabel", async (importOriginal) => {
 });
 
 /** Each diagnostic as `severity line:column`, for the position tests below. */
-function positions(source: string): string[] {
-  return parseFlowchart(source).diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}`);
+function positions(source: string, parse: (source: string) => ParseResult = parseFlowchart): string[] {
+  return parse(source).diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}`);
 }
 
 describe("a problem in a label, reported where the author wrote it", () => {
@@ -743,11 +747,12 @@ describe("the header a flowchart rejects", () => {
  * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
  * drops the last `;` of every line where `style` (or `classDef`), a `:` and
  * then a `#` come before it — the whole line, not one label. Mermaid
- * 11.17.2, measured with `--html`.
+ * 11.17.2, measured with `--html`. `parseSiren` applies it to the whole
+ * document, so these read through it.
  */
 describe("the `;` Mermaid drops from a style line", () => {
   const nodeLabel = (source: string, id: string) =>
-    parseOk(source).document.nodes.find((node) => node.id === id)!.label;
+    parseOk(source, parseSiren).document.nodes.find((node) => node.id === id)!.label;
 
   it("is the line's last `;`, even when that one trails the statement", () => {
     // `A["<span style='color:#f00;'>r</span>"];` draws
@@ -764,9 +769,31 @@ describe("the `;` Mermaid drops from a style line", () => {
     expect(nodeLabel(source, "B").text).toBe("#35");
   });
 
+  it("joins a `style` statement's two declarations around it into one", () => {
+    // `style A fill:#fdd;position:fixed,stroke:#c00` records
+    // `styles=["fill:#fddposition:fixed","stroke:#c00"]` (measured): the
+    // dropped `;` never reaches the declaration gate, so nothing is refused.
+    const { document, diagnostics } = parseOk(
+      "flowchart TD\n  A --> B\n  style A fill:#fdd;position:fixed,stroke:#c00",
+      parseSiren,
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map(({ targetIds, properties, line, column }) => ({ targetIds, properties, line, column }))).toEqual([
+      {
+        targetIds: ["A"],
+        properties: [
+          { property: "fill", value: "#fddposition:fixed" },
+          { property: "stroke", value: "#c00" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
   it("leaves every position past it where the author wrote it", () => {
     // `  A["<b style='x:#1'>#35;⚑</b>"] --> C`: the dropped `;` is the 25th
     // character and the ⚑ the 26th, as written.
-    expect(positions(`flowchart TB\n  A["<b style='x:#1'>#35;⚑</b>"] --> C`)).toEqual(["warning 2:26"]);
+    expect(positions(`flowchart TB\n  A["<b style='x:#1'>#35;⚑</b>"] --> C`, parseSiren)).toEqual(["warning 2:26"]);
   });
 });

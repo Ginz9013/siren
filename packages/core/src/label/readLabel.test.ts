@@ -1001,7 +1001,7 @@ describe("readLabel's entity codes", () => {
 
   // Mermaid drops the last `;` of a line where `style`, a `:` and then a `#`
   // come before it (its `/style.*:\S*#.*;/`) — but of the whole line, which
-  // a label is only part of, so the parsers drop it (`styleLines`) and a
+  // a label is only part of, so `parseSiren` drops it (`styleLines`) and a
   // label is read as it is handed over: a `#hex;` in it is a code, which the
   // browser cannot read as a color and drops. Measured:
   // `<span style='color:#f00;background-color:#ff0;'>` is

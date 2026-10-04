@@ -20,7 +20,6 @@ import type {
 } from "../contracts";
 import { plainLabel } from "../label/label";
 import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
-import { styleLines } from "../label/styleLines";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -673,7 +672,8 @@ const STATEMENT_END = ";";
  * `classDef hot fill:red;` reads as `classDef hot fill:red` does.
  *
  * A line where a `#` follows the `:` never gets here with its last `;`:
- * Mermaid's style-line rule (`styleLines`) has dropped it already, so
+ * Mermaid's style-line rule (`styleLines`, which `parseSiren` applies to
+ * the whole document) has dropped it already, so
  * `style A fill:#fdd;position:fixed,stroke:#c00` is one declaration,
  * `fill:#fddposition:fixed`, which is what Mermaid records too (measured,
  * 11.17.2: `styles=["fill:#fddposition:fixed","stroke:#c00"]`).
@@ -1453,17 +1453,8 @@ function joinMarkdownFences(lines: readonly string[]): string[] {
  * it costs the document, and nothing else about it.
  */
 export function parseFlowchart(source: string): ParseResult {
-  const read = styleLines(source);
-  return read.asWritten(parseRead(read.source));
-}
-
-/**
- * `parseFlowchart`'s reading of `source`, a document as Mermaid parses it
- * (`styleLines`): every position it finds is in that document's lines.
- */
-function parseRead(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
-  const lines = joinMarkdownFences(source.split("\n"));
+  const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];

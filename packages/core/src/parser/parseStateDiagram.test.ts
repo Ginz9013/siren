@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { StateDocument } from "../contracts";
+import type { ParseResult, StateDocument } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
+import { parseSiren } from "./parseSiren";
 import { parseStateDiagram } from "./parseStateDiagram";
 
 /**
@@ -32,8 +33,8 @@ vi.mock("../label/readLabel", async (importOriginal) => {
 });
 
 /** The parsed document, or a thrown explanation naming what went wrong instead. */
-function documentOf(source: string): StateDocument {
-  const { document, diagnostics } = parseStateDiagram(source);
+function documentOf(source: string, parse: (source: string) => ParseResult = parseStateDiagram): StateDocument {
+  const { document, diagnostics } = parse(source);
   if (document === null) {
     throw new Error(
       `expected a state document, got diagnostics: ${diagnostics
@@ -1428,7 +1429,8 @@ describe("parseStateDiagram — a problem in a label, reported where the author 
  * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
  * drops the last `;` of every line where `style` (or `classDef`), a `:` and
  * then a `#` come before it — the whole line, not one label. Mermaid
- * 11.17.2, measured with `--html`.
+ * 11.17.2, measured with `--html`. `parseSiren` applies it to the whole
+ * document, so these read through it.
  */
 describe("parseStateDiagram — the `;` Mermaid drops from a style line", () => {
   const colors = (label: { rows: { text: string; color: string | null }[][] } | null | undefined) =>
@@ -1436,14 +1438,14 @@ describe("parseStateDiagram — the `;` Mermaid drops from a style line", () => 
 
   it("keeps a color whose `;` is the line's last", () => {
     // `state "<span style='color:#f00;'>r</span>" as A` draws `color:#f00`.
-    const document = documentOf(`stateDiagram-v2\n  state "<span style='color:#f00;'>r</span>" as A`);
+    const document = documentOf(`stateDiagram-v2\n  state "<span style='color:#f00;'>r</span>" as A`, parseSiren);
     expect(colors(document.states.find((state) => state.id === "A")!.descriptions[0])).toEqual([["r", "#f00"]]);
   });
 
   it("drops the line's last `;` and not the color's, in a transition label", () => {
     // `A --> B : <span style='color:#f00;'>r</span> #35;` draws
     // `<span style="color:&amp;f00;">r</span> #35`.
-    const document = documentOf(`stateDiagram-v2\n  A --> B : <span style='color:#f00;'>r</span> #35;`);
+    const document = documentOf(`stateDiagram-v2\n  A --> B : <span style='color:#f00;'>r</span> #35;`, parseSiren);
     const label = document.transitions[0]!.label!;
     expect(label.text).toBe("r #35");
     expect(colors(label)).toEqual([["r #35", null]]);
@@ -1452,7 +1454,7 @@ describe("parseStateDiagram — the `;` Mermaid drops from a style line", () => 
   it("leaves a position past it where the author wrote it", () => {
     // `  A --> B : <b style='x:#1'>#35;⚑</b>`: the ⚑ is the 33rd character.
     expect(
-      parseStateDiagram("stateDiagram-v2\n  A --> B : <b style='x:#1'>#35;⚑</b>").diagnostics.map(
+      parseSiren("stateDiagram-v2\n  A --> B : <b style='x:#1'>#35;⚑</b>").diagnostics.map(
         (d) => `${d.severity} ${d.line}:${d.column}`,
       ),
     ).toEqual(["warning 2:33"]);

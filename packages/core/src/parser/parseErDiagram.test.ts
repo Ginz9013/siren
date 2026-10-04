@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Direction, ErAttribute, ErDocument, Label } from "../contracts";
+import type { Direction, ErAttribute, ErDocument, Label, ParseResult } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 import { parseErDiagram } from "./parseErDiagram";
+import { parseSiren } from "./parseSiren";
 
 /**
  * The test-only input for the one thing no real tag can exercise yet: how a
@@ -44,8 +45,8 @@ const rowsLabel = (...rows: string[]): Label => ({
  * null check or the kind check. Narrowing once in the return type is what
  * keeps `document!` and a vacuous `not.toBeNull()` out of every test below.
  */
-function documentOf(source: string): ErDocument {
-  const { document, diagnostics } = parseErDiagram(source);
+function documentOf(source: string, parse: (source: string) => ParseResult = parseErDiagram): ErDocument {
+  const { document, diagnostics } = parse(source);
   if (document === null) {
     throw new Error(
       `expected an ER document, got diagnostics: ${diagnostics
@@ -2090,13 +2091,13 @@ describe("parseErDiagram reads subgraph clusters", () => {
  * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
  * drops the last `;` of every line where `style` (or `classDef`), a `:` and
  * then a `#` come before it — the whole line, not one label. Mermaid
- * 11.17.2, measured with `--html`.
+ * 11.17.2, measured with `--html`. `parseSiren` applies it to the whole
+ * document, so these read through it.
  */
 describe("parseErDiagram — the `;` Mermaid drops from a style line", () => {
-  const aliasColors = (source: string) =>
-    documentOf(source)
-      .entities.find((entity) => entity.name === "A")!
-      .alias!.rows[0]!.map((run) => [run.text, run.color]);
+  const aliasA = (source: string) =>
+    documentOf(source, parseSiren).entities.find((entity) => entity.name === "A")!.alias!;
+  const aliasColors = (source: string) => aliasA(source).rows[0]!.map((run) => [run.text, run.color]);
 
   it("keeps a color whose `;` is the line's last", () => {
     // `A["<span style='color:#f00;'>r</span>"]` draws `color:#f00`.
@@ -2107,14 +2108,14 @@ describe("parseErDiagram — the `;` Mermaid drops from a style line", () => {
     // `A["<span style='color:#f00;'>r</span> #35;"]` draws
     // `<span style="color:&amp;f00;">r</span> #35`.
     const source = `erDiagram\n  A["<span style='color:#f00;'>r</span> #35;"]`;
-    expect(aliasOf(source, "A")).toBe("r #35");
+    expect(aliasA(source).text).toBe("r #35");
     expect(aliasColors(source)).toEqual([["r #35", null]]);
   });
 
   it("leaves a position past it where the author wrote it", () => {
     // `  A["<b style='x:#1'>#35;⚑</b>"]`: the ⚑ is the 26th character.
     expect(
-      parseErDiagram(`erDiagram\n  A["<b style='x:#1'>#35;⚑</b>"]`).diagnostics.map(
+      parseSiren(`erDiagram\n  A["<b style='x:#1'>#35;⚑</b>"]`).diagnostics.map(
         ({ severity, line, column }) => [severity, line, column],
       ),
     ).toEqual([["warning", 2, 26]]);

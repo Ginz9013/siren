@@ -1,7 +1,8 @@
 /**
- * Mermaid's style-line rule: the one rewrite of the label text that Mermaid
- * makes to whole lines of the document rather than to a label, and so the
- * one every parser applies to its lines before it reads a label from them.
+ * Mermaid's style-line rule: a rewrite Mermaid makes to whole lines of the
+ * document before any diagram's parser sees it, and so, like comment
+ * stripping, one `parseSiren` applies to the whole document before it hands
+ * it to a kind's parser.
  */
 
 /**
