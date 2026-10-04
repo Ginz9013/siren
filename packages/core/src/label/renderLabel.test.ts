@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "../index";
 
 describe("render() with a <span style> Siren draws only part of", () => {
-  // The board: a property outside the ten is not drawn, and the author is
+  // ADR-0015: a property outside the ten is not drawn, and the author is
   // told, once per `style` attribute, at the tag — while the rest of the
   // label, and the document, are drawn.
   it("draws the label and warns at the <span> naming the properties it ignored", () => {
@@ -34,7 +34,7 @@ describe("render() with a <span style> Siren draws only part of", () => {
 });
 
 describe("render() with a label link inside a node link", () => {
-  // The board: with a node `click` link, both links are kept — the label's
+  // The spec: with a node `click` link, both links are kept — the label's
   // on its own text, the node's everywhere else (measured: Mermaid wraps the
   // node in an `<a>` and keeps the label's `<a>` inside it).
   it("keeps the node's <a> around the node and the label's <a> inside it", () => {

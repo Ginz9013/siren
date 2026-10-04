@@ -272,7 +272,7 @@ function runsOf<K extends keyof LabelRun>(
 
 describe("readLabel's text-styling tags", () => {
   // Mermaid 11.17.2 draws `b` and `strong` with `font-weight: bold`
-  // (measured in headless Chrome, the board's table).
+  // (measured in headless Chrome, the spec's table).
   for (const tag of ["b", "strong", "B"]) {
     it(`reads <${tag}> as a bold run`, () => {
       expect(runsOf(`x <${tag}>y</${tag}> z`, "bold")).toEqual([
@@ -324,7 +324,7 @@ describe("readLabel's text-styling tags", () => {
   }
 
   // `small` draws at × 0.833 of the surrounding size and `big` at × 1.2
-  // (measured, the board's table).
+  // (measured, the spec's table).
   it("reads <small> and <big> as a scale of the font size", () => {
     expect(runsOf("x <small>s</small> <big>b</big>", "fontSize")).toEqual([
       { text: "x ", fontSize: { scale: 1 } },
@@ -484,10 +484,10 @@ describe("readLabel's attribute tags", () => {
     ]);
   });
 
-  // The board's measured table: sizes 1–7 are 12 / 13 / 16 / 18 / 20 / 32 /
+  // The spec's measured table: sizes 1–7 are 12 / 13 / 16 / 18 / 20 / 32 /
   // 48px where the text around them is 16px. A size is the HTML standard's
   // legacy one: `+n`/`-n` count from 3, and the result is held to 1–7.
-  it("reads <font size> 1–7 as the board's scale of the font size", () => {
+  it("reads <font size> 1–7 as the spec's scale of the font size", () => {
     const sizes = ["1", "2", "3", "4", "5", "6", "7"].map(
       (size) => runsOf(`<font size="${size}">x</font>`, "fontSize")[0]!.fontSize,
     );
@@ -571,7 +571,7 @@ describe("readLabel's attribute tags", () => {
   });
 
   // `<span style>` keeps its declarations through DOMPurify (measured with
-  // `mermaid-probe.mjs --html`), and the board names the ten properties
+  // `mermaid-probe.mjs --html`), and ADR-0015 names the ten properties
   // Siren draws. These six are carried as written. (The hex color is last,
   // with no `;` after it: `#ff0;` is an entity code — see "readLabel's
   // entity codes".)
@@ -628,7 +628,7 @@ describe("readLabel's attribute tags", () => {
     ]);
   });
 
-  // The board: a relative size is a scale of Siren's own, and an absolute
+  // ADR-0015: a relative size is a scale of Siren's own, and an absolute
   // one is drawn as written.
   it("reads <span style>'s font-size in em or % as a scale, and any other as written", () => {
     expect(
@@ -645,7 +645,7 @@ describe("readLabel's attribute tags", () => {
     ]);
   });
 
-  // The board: every other property is not drawn, and the author is told
+  // ADR-0015: every other property is not drawn, and the author is told
   // which, once per `style` attribute, at the tag that wrote it.
   it("warns once at a <span> whose style has properties Siren does not draw, naming each", () => {
     const { label, problems } = readLabel(
@@ -788,7 +788,7 @@ describe("readLabel's links", () => {
     );
     expect(runsOf("<a name='n'>x</a>", "href", "underline")).toEqual([{ text: "x", href: null, underline: false }]);
   });
-  // Measured (the board's example): the parser closes an open `<a>` at the
+  // Measured (the spec's example): the parser closes an open `<a>` at the
   // next `<a>` start tag and reopens the formatting tags inside it, so
   // `<a href='x'>1<b>2<a href='y'>3</a>4</b>5` is
   // `<a href="x">1<b>2</b></a><b><a href="y">3</a>4</b>5`.
@@ -855,6 +855,21 @@ describe("readLabel's unterminated tag", () => {
     expect(flagged("a<b/ >c</b>d")).toEqual(["ac(b)d"]);
     expect(flagged("a<b/x>c</b>d")).toEqual(["ac(b)d"]);
     expect(rowTexts("a<y a'b>c")).toEqual(["ac"]);
+  });
+
+  // Reading is pure: a label that ended inside a tag leaves nothing behind
+  // for the next one, whose tags — a Markdown string's included, which
+  // Markdown reads whole — are read from its start.
+  it("reads the next label's tags from its start after one ends inside a tag", () => {
+    readLabel("x <y", { dialect: "html" });
+    const { label } = readLabel("<a href='http://x/_a_/'>l</a> *b*", { dialect: "html", markdown: true });
+    expect(label.rows[0]!.map((run) => [run.text, run.href, run.italic])).toEqual([
+      ["l", "http://x/_a_/", false],
+      [" ", null, false],
+      ["b", null, true],
+    ]);
+    readLabel("x <y", { dialect: "html" });
+    expect(flagged("<b>a</b>c")).toEqual(["a(b)c"]);
   });
 
   // Mermaid draws sequence text in SVG mode, where a `<` is a character.
@@ -1033,7 +1048,7 @@ describe("readLabel's entity codes", () => {
 });
 
 describe("readLabel's block tags", () => {
-  // The board's block layer, less `li` (which begins with a marker) and
+  // ADR-0015's block layer, less `li` (which begins with a marker) and
   // `hr` (which has no content). Each is a block in the browser, so its
   // start and its end each end the line before it: `a<div>b</div>c` is
   // `<p>a</p><div>b</div>c<p></p>` (measured with `mermaid-probe.mjs --html`
@@ -1112,9 +1127,9 @@ function headingRuns(source: string): string[][] {
 }
 
 describe("readLabel's headings", () => {
-  // The board's measured picture: `h1`…`h6` at × 2 / 1.5 / 1.17 / 1 /
+  // The spec's measured picture: `h1`…`h6` at × 2 / 1.5 / 1.17 / 1 /
   // 0.83 / 0.67 of the size around them, all bold.
-  it("reads <h1>…<h6> as bold rows at the board's scales", () => {
+  it("reads <h1>…<h6> as bold rows at the spec's scales", () => {
     expect(headingRuns("<h1>a</h1><h2>b</h2><h3>c</h3><h4>d</h4><h5>e</h5><h6>f</h6>")).toEqual([
       ["a bold 2"],
       ["b bold 1.5"],
@@ -1135,7 +1150,7 @@ describe("readLabel's headings", () => {
 });
 
 describe("readLabel's blocks with a font of their own", () => {
-  // The board's measured picture: `pre` draws its text in `monospace`, and
+  // The spec's measured picture: `pre` draws its text in `monospace`, and
   // `address` in italics.
   it("reads <pre> as monospace rows and <address> as italic ones", () => {
     const { label } = readLabel("x<pre>a</pre><address>b</address>", { dialect: "html" });
@@ -1160,7 +1175,7 @@ describe("readLabel's blocks with a font of their own", () => {
 });
 
 describe("readLabel's lists", () => {
-  // The board's measured picture: a list item begins with its marker. An
+  // The spec's measured picture: a list item begins with its marker. An
   // `li` start tag closes an open `li`, so `x<li>a<li>b` is
   // `<p>x</p><li>a</li><li>b</li>` (measured); outside an `ol` the marker is
   // a bullet.
@@ -1248,14 +1263,14 @@ describe("readLabel's definition lists", () => {
 
 describe("readLabel's <hr>", () => {
   // `a<hr>b<hr/>c` is `<p>a</p><hr>b<hr>c` (measured): a void block, which
-  // the board draws as a row edge and nothing else — the rule is not drawn.
+  // ADR-0015 draws as a row edge and nothing else — the rule is not drawn.
   it("ends the row at <hr>, drawing no rule", () => {
     expect(rowTexts("a<hr>b<hr/>c</hr>d")).toEqual(["a", "b", "cd"]);
   });
 });
 
 describe("readLabel's <marquee>", () => {
-  // The board draws `marquee` as static text, a block of its own rows. The
+  // ADR-0015 draws `marquee` as static text, a block of its own rows. The
   // HTML parser makes it a scope boundary: a block inside it does not close
   // Mermaid's paragraph around it, an end tag inside it closes nothing
   // outside it, and a formatting tag opened inside it is not reopened after
