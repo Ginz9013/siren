@@ -471,16 +471,10 @@ function resolveBlock(
       break;
     case "rect":
       // `rect` isn't a labeled-branch construct like alt/par/critical — it's
-      // a single colored-background region with no condition label of its
-      // own. ResolvedSequenceBlock/PositionedBlock have no dedicated color
-      // field (contracts.ts is frozen for this board), so the color string
-      // rides through in this sole branch's `label` slot: layoutSequence
-      // copies it straight to PositionedBlock.label, and
-      // renderSequenceToSVG (ticket 09) reads it there for `rect`'s fill.
-      // Passed through unvalidated, per this ticket's acceptance criteria —
-      // validating the color string is rendering's concern. A plain label,
-      // never one `readLabel` read: it is a color, so nothing in it is a tag.
-      branchInputs = [{ label: plainLabel(statement.color), body: statement.body }];
+      // a single colored-background region with no condition of its own. Its
+      // color goes to the block's own `color`, passed through unvalidated
+      // (validating it is rendering's concern); its one branch has no label.
+      branchInputs = [{ label: null, body: statement.body }];
       break;
     default:
       // loop / opt / break: single implicit branch.
@@ -503,6 +497,7 @@ function resolveBlock(
     id,
     kind: statement.kind,
     touchedParticipantIds: [...touched],
+    color: statement.kind === "rect" ? statement.color : null,
     branches,
   };
 }

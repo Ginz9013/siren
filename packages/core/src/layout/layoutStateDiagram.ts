@@ -362,7 +362,7 @@ export function layoutStateDiagram(
           ? null
           : {
               label: transition.label,
-              box: transitionLabelBoxById.get(transition.id)!,
+              labelBox: transitionLabelBoxById.get(transition.id)!,
               anchor: shifted(route.labelAnchor),
             },
     };
@@ -767,8 +767,8 @@ function diagramBounds(
     for (const point of transition.points) cover(point.x, point.y);
     if (transition.label !== null) {
       cover(
-        transition.label.anchor.x + transition.label.box.width / 2,
-        transition.label.anchor.y + transition.label.box.height / 2,
+        transition.label.anchor.x + transition.label.labelBox.width / 2,
+        transition.label.anchor.y + transition.label.labelBox.height / 2,
       );
     }
   }

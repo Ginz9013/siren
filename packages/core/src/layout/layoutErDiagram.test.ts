@@ -715,9 +715,9 @@ describe("layoutErDiagram places subgraph clusters", () => {
     );
 
     expect(membersTop - frame.y).toBe(12 + 48 + 12);
-    expect(frame.label).toEqual(twoRows);
-    expect(frame.labelBox.height).toBe(48);
-    expect(frame.labelAnchor.y - frame.y).toBe(12 + 24);
+    expect(frame.label.label).toEqual(twoRows);
+    expect(frame.label.labelBox.height).toBe(48);
+    expect(frame.label.anchor.y - frame.y).toBe(12 + 24);
   });
 
   it("draws a frame enclosing its members and nothing else", () => {

@@ -404,7 +404,11 @@ author's own line and column (an error refuses the document, as an unrecognized 
 stacked, an author's px size measured against the 14px base, a run's letter- and word-spacing
 counted into its width, a bold run at the regular weight and a monospace run in the regular font (a
 deliberate simplification, not a gap); `drawLabel`
-draws it at the box's centre. A label of one row holding one plain run — nearly every label — is
+draws it at the box's centre. A label layout has measured and placed is a **placed label**
+(`PlacedLabel`): the label, its `labelBox`, and the `anchor` `drawLabel` centres it on, which exist
+together or not at all — an edge's, a message's, a block condition's and a frame title's `label` is
+one, and a `null` one means nothing is drawn there.
+A label of one row holding one plain run — nearly every label — is
 drawn as the `<text>`'s own `textContent`, exactly as before labels had rows; anything else is one
 `<tspan class="siren-label-row">` per row with one `<tspan>` per run inside it, which is the
 structure Mermaid's own SVG labels use. What a run paints *behind* its text comes back separately,
@@ -558,8 +562,8 @@ sits on the header or on a divider). A condition is a **Label** in the `sequence
 brackets open its first row and close its last (`loop every<br/>day` draws `[every` over `day]`),
 and the header or divider band grows a row for each row it adds, the first row staying where a
 one-row condition sits. `rect` is the exception: a filled background highlight with no frame and no
-keyword; what follows `rect` is its color, carried in the block's `label` field and drawn as the
-fill, never as text. Addressable in a `timeline:` block under a generated id — its kind,
+keyword; what follows `rect` is its color, carried in the block's own `color` field (its one
+branch has no condition) and drawn as the fill, never as text. Addressable in a `timeline:` block under a generated id — its kind,
 then a 1-based counter per kind in source order: `loop:1`, `alt:2`, `rect:1`. The colon is
 load-bearing: a participant id is `\w+`, so no message id (`${from}-${to}`) can ever spell one of
 these.

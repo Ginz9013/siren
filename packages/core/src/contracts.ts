@@ -806,11 +806,7 @@ export interface ResolvedSequenceMessage {
 
 /** One resolved branch of a block, mirroring `SequenceAltBranch`/`SequenceParBranch`/`SequenceCriticalBranch` post-resolution. */
 export interface ResolvedSequenceBranch {
-  /**
-   * The branch's condition. A `rect` block's one branch carries its color
-   * here instead, as a plain label holding the `rgb()`/`rgba()` text as
-   * written — see `buildSequenceModel`.
-   */
+  /** The branch's condition; `null` when it has none, and always for a `rect`'s one branch. */
   label: Label | null;
   statements: ResolvedSequenceStatement[];
 }
@@ -821,6 +817,12 @@ export interface ResolvedSequenceBlock {
   kind: "loop" | "alt" | "opt" | "par" | "critical" | "break" | "rect";
   /** Every participant lane touched anywhere in this block's body, recursively — used to compute the block's horizontal extent. */
   touchedParticipantIds: string[];
+  /**
+   * A `rect`'s fill, the `rgb()`/`rgba()` text as written and unvalidated —
+   * the syntax puts it where a condition would be, but it is never a label.
+   * `null` for every other kind.
+   */
+  color: string | null;
   branches: ResolvedSequenceBranch[];
 }
 
@@ -1016,8 +1018,8 @@ export interface PositionedBlock {
    */
   label: PlacedLabel | null;
   /**
-   * A `rect`'s fill, as written (`ResolvedSequenceBranch.label` — the
-   * syntax puts it where a condition would be) and never drawn as text;
+   * A `rect`'s fill, as written (`ResolvedSequenceBlock.color`) and never
+   * drawn as text;
    * `null` for a `rect` written without one and for every other kind. The
    * shape `PositionedBox.color` has.
    */
@@ -1035,9 +1037,13 @@ export interface PositionedBlock {
 export interface PositionedBox {
   id: string;
   color: string | null;
-  label: Label | null;
-  /** The box `layoutLabel` measured for `label`, or `null` when there is none. */
-  labelBox: LabelBox | null;
+  /**
+   * The caption, placed: the box `layoutLabel` measured for it, and its
+   * centre — across the top of the background, its rows filling the caption
+   * band layout reserved above the participants. `null` when the box has no
+   * label.
+   */
+  label: PlacedLabel | null;
   x: number;
   y: number;
   width: number;
@@ -1403,15 +1409,15 @@ export interface PositionedEdge extends Omit<GraphEdge, "label"> {
  */
 export interface PositionedSubgraph {
   id: string;
-  label: Label;
-  /** The title as `layoutLabel` measured it, centred on `labelAnchor`. */
-  labelBox: LabelBox;
+  /**
+   * The title, placed: the box `layoutLabel` measured for it, and its centre
+   * — in the strip above the frame's contents.
+   */
+  label: PlacedLabel;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Where the frame's title text is drawn: centred in the strip above its contents. */
-  labelAnchor: Point;
 }
 
 /**
@@ -2006,18 +2012,15 @@ export interface PositionedClassRelationship {
 /** A namespace with a layout-assigned frame enclosing its member classes. */
 export interface PositionedClassNamespace {
   id: string;
-  label: Label;
   /**
-   * The label as `layoutLabel` measured it — the strip along the frame's top
-   * is as tall as all its rows — centred on `labelAnchor`.
+   * The label, placed: the box `layoutLabel` measured for it — the strip
+   * along the frame's top is as tall as all its rows — and its centre.
    */
-  labelBox: LabelBox;
+  label: PlacedLabel;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Where the frame's label text is drawn. */
-  labelAnchor: Point;
 }
 
 /** A note with a layout-assigned box and, when attached, its connector. */
@@ -3719,19 +3722,16 @@ export interface PositionedErRelationship {
  */
 export interface PositionedErSubgraph {
   id: string;
-  /** What the frame's title draws, carried through from `ResolvedErSubgraph.label`. */
-  label: Label;
   /**
-   * The title as `layoutLabel` measured it — the strip along the frame's
-   * top was sized from it, and the renderer hands it `drawLabel`.
+   * The title, carried through from `ResolvedErSubgraph.label` and placed:
+   * the box `layoutLabel` measured for it — the strip along the frame's top
+   * was sized from it — and its centre, in that strip.
    */
-  labelBox: LabelBox;
+  label: PlacedLabel;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Where the frame's title is drawn: centred in the strip above its contents. */
-  labelAnchor: Point;
 }
 
 export interface PositionedErDiagram {

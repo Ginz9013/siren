@@ -412,7 +412,7 @@ function layoutBlock(
     block.kind === "rect"
       ? null
       : placeCondition(bracketed(block.branches[0]?.label ?? null), ctx, left + BLOCK_KEYWORD_WIDTH, top);
-  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header?.box ?? null, 0);
+  let y = top + BLOCK_HEADER_HEIGHT + heightBesides(header?.labelBox ?? null, 0);
 
   const dividers: PositionedBlockDivider[] = [];
   const children: PositionedSequenceElement[] = [];
@@ -422,7 +422,7 @@ function layoutBlock(
       y += BLOCK_DIVIDER_TOP_GAP;
       const label = placeCondition(bracketed(branch.label), ctx, left, y);
       dividers.push({ label, y });
-      y += BLOCK_DIVIDER_HEIGHT + heightBesides(label?.box ?? null, 0);
+      y += BLOCK_DIVIDER_HEIGHT + heightBesides(label?.labelBox ?? null, 0);
     }
 
     const { elements, endY } = layoutStatements(branch.statements, ctx, y, depth + 1);
@@ -437,7 +437,7 @@ function layoutBlock(
       id: block.id,
       kind: block.kind,
       label: header,
-      color: block.kind === "rect" ? (block.branches[0]?.label?.text ?? null) : null,
+      color: block.color,
       x: left,
       y: top,
       width: right - left,
@@ -475,8 +475,16 @@ function layoutBox(
   return {
     id: box.id,
     color: box.color,
-    label: box.label,
-    labelBox,
+    // The top of the background is the caption band reserved above the
+    // participants, as tall as this label — so the label fills it.
+    label:
+      box.label === null || labelBox === null
+        ? null
+        : {
+            label: box.label,
+            labelBox,
+            anchor: { x: (left + right) / 2, y: top + labelBox.height / 2 },
+          },
     x: left,
     y: top,
     width: right - left,
@@ -522,7 +530,7 @@ function placeCondition(
   const box = layoutLabel(label, ctx.measureText);
   return {
     label,
-    box,
+    labelBox: box,
     anchor: {
       x: left + BLOCK_LABEL_INSET_X + box.width / 2,
       y: lineY + BLOCK_LABEL_FIRST_ROW_Y - box.rows[0]!.y + box.height / 2,
@@ -557,7 +565,7 @@ function layoutMessage(
     to: message.to,
     label: {
       label: message.label,
-      box: labelBox,
+      labelBox,
       anchor: { x: (fromX + toX) / 2, y: y - MESSAGE_LABEL_GAP - labelBox.height / 2 },
     },
     arrow: message.arrow,

@@ -380,7 +380,7 @@ function buildEdgeLabel(
   // `.siren-edge` and `.siren-relationship-line` are already two names for
   // two connectors. One shared name would mean a consumer restyling class
   // labels silently restyled every flowchart edge label as well.
-  const drawn = drawLabel(edge.label.label, edge.label.box, edge.label.anchor, "siren-edge-label");
+  const drawn = drawLabel(edge.label.label, edge.label.labelBox, edge.label.anchor, "siren-edge-label");
   const { text } = drawn;
   // The same id the path wears — see ADR-0009, and the call site above.
   text.setAttribute("data-siren-id", edge.id);
@@ -443,7 +443,7 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
   g.appendChild(frame);
 
   // Over the frame and under the title, since document order is paint order.
-  appendLabel(g, drawLabel(subgraph.label, subgraph.labelBox, subgraph.labelAnchor, "siren-subgraph-label"));
+  appendLabel(g, drawLabel(subgraph.label.label, subgraph.label.labelBox, subgraph.label.anchor, "siren-subgraph-label"));
 
   return g;
 }

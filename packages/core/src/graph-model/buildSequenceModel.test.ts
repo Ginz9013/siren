@@ -717,7 +717,8 @@ describe("buildSequenceModel", () => {
       (s): s is Extract<typeof s, { kind: "block" }> => s.kind === "block",
     )!.block;
     expect(block.kind).toBe("rect");
-    expect(block.branches[0]!.label).toEqual(plainLabel("not-a-real-color-value"));
+    expect(block.color).toBe("not-a-real-color-value");
+    expect(block.branches[0]!.label).toBeNull();
   });
 
   it("resolves a create-declared participant with origin created and createdAt at its create statement's position", () => {

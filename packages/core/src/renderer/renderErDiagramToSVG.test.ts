@@ -141,7 +141,7 @@ const PLACES: PositionedErRelationship = {
     { x: 56, y: 60 },
     { x: 56, y: 200 },
   ],
-  label: { label: plainLabel("places"), box: boxOf("places"), anchor: { x: 56, y: 130 } },
+  label: { label: plainLabel("places"), labelBox: boxOf("places"), anchor: { x: 56, y: 130 } },
 };
 
 /** The `<marker>` `cardinality`'s figure is built in, or a thrown explanation. */
@@ -224,7 +224,7 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
       diagram([CUSTOMER, ORDER], undefined, [
         {
           ...PLACES,
-          label: { label: rowsLabel("places", "many"), box: boxOf("places", "many"), anchor: { x: 56, y: 130 } },
+          label: { label: rowsLabel("places", "many"), labelBox: boxOf("places", "many"), anchor: { x: 56, y: 130 } },
         },
       ]),
     );
@@ -281,13 +281,11 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
       diagram([CUSTOMER], { width: 400, height: 200 }, [], [
         {
           id: "subgraph:1",
-          label: rowsLabel("sales", "team"),
-          labelBox: boxOf("sales", "team"),
+          label: { label: rowsLabel("sales", "team"), labelBox: boxOf("sales", "team"), anchor: { x: 104, y: 42 } },
           x: 4,
           y: 6,
           width: 200,
           height: 160,
-          labelAnchor: { x: 104, y: 42 },
         },
       ]),
     );
@@ -744,12 +742,11 @@ describe("renderErDiagramToSVG writes the author's declarations onto the element
 describe("renderErDiagramToSVG draws subgraph clusters", () => {
   const FRAME = {
     id: "subgraph:1",
-    ...labelled("sales"),
+    label: { ...labelled("sales"), anchor: { x: 104, y: 20 } },
     x: 4,
     y: 6,
     width: 200,
     height: 120,
-    labelAnchor: { x: 104, y: 20 },
   };
 
   it("draws a frame and its title under one addressable group", () => {

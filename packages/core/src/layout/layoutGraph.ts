@@ -409,14 +409,14 @@ export function layoutGraph(
       label:
         edge.label === null || route.labelAnchor === undefined
           ? null
-          : { label: edge.label, box: edgeLabelBoxById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
+          : { label: edge.label, labelBox: edgeLabelBoxById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
     };
   });
 
   const subgraphs = frames.map((frame) => ({
     ...frame,
     ...shifted(frame),
-    labelAnchor: shifted(frame.labelAnchor),
+    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
   }));
 
   return {
@@ -511,16 +511,18 @@ function subgraphFrames(
 
     frameById.set(subgraph.id, {
       id: subgraph.id,
-      label: subgraph.label,
-      labelBox: label,
+      label: {
+        label: subgraph.label,
+        labelBox: label,
+        anchor: {
+          x: (left + right) / 2,
+          y: top + SUBGRAPH_PADDING + label.height / 2,
+        },
+      },
       x: left,
       y: top,
       width: right - left,
       height: bottom - top,
-      labelAnchor: {
-        x: (left + right) / 2,
-        y: top + SUBGRAPH_PADDING + label.height / 2,
-      },
     });
   }
 

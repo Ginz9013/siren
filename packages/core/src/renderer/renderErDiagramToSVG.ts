@@ -214,7 +214,7 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   // (ADR-0015).
   appendLabel(
     g,
-    drawLabel(subgraph.label, subgraph.labelBox, subgraph.labelAnchor, "siren-er-subgraph-label"),
+    drawLabel(subgraph.label.label, subgraph.label.labelBox, subgraph.label.anchor, "siren-er-subgraph-label"),
   );
 
   return g;
@@ -256,8 +256,8 @@ function buildRelationship(
     // Drawn by `drawLabel` at the anchor the layout reserved room for: one
     // plain row is the `<text>`'s own `textContent`, anything else a row
     // tspan per row (ADR-0015).
-    const { label, box, anchor } = relationship.label;
-    appendLabel(g, drawLabel(label, box, anchor, "siren-er-relationship-label"));
+    const { label, labelBox, anchor } = relationship.label;
+    appendLabel(g, drawLabel(label, labelBox, anchor, "siren-er-relationship-label"));
   }
 
   return g;

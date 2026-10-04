@@ -459,16 +459,18 @@ function namespaceFrame(
 
   return {
     id: ns.id,
-    label: ns.label,
-    labelBox,
+    label: {
+      label: ns.label,
+      labelBox,
+      anchor: {
+        x: (left + right) / 2,
+        y: top + NAMESPACE_PADDING + labelBox.height / 2,
+      },
+    },
     x: left,
     y: top,
     width: right - left,
     height: bottom - top,
-    labelAnchor: {
-      x: (left + right) / 2,
-      y: top + NAMESPACE_PADDING + labelBox.height / 2,
-    },
   };
 }
 
@@ -690,7 +692,7 @@ export function layoutClassDiagram(
   const namespaces = frames.map((frame) => ({
     ...frame,
     ...shifted(frame),
-    labelAnchor: shifted(frame.labelAnchor),
+    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
   }));
 
   /**
@@ -777,7 +779,7 @@ export function layoutClassDiagram(
             ? null
             : {
                 label: rel.label,
-                box: relationshipLabelBoxById.get(rel.id)!,
+                labelBox: relationshipLabelBoxById.get(rel.id)!,
                 anchor: route.labelAnchor,
               },
         fromMultiplicity: rel.fromMultiplicity,
@@ -903,7 +905,7 @@ function diagramBounds(
   for (const rel of relationships) {
     for (const point of rel.points) cover(point.x, point.y);
     if (rel.label !== null) {
-      coverCentered(rel.label.box, rel.label.anchor);
+      coverCentered(rel.label.labelBox, rel.label.anchor);
     }
     if (rel.fromMultiplicity !== null && rel.fromMultiplicityAnchor !== null) {
       coverText(rel.fromMultiplicity, rel.fromMultiplicityAnchor);
