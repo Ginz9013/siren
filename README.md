@@ -123,8 +123,11 @@ Publish with `pnpm`, not `npm`. `pnpm publish` rewrites `siren-board`'s
 4. Publish:
 
    ```sh
-   pnpm -r publish --access public
+   pnpm run publish
    ```
+
+   This is the root script for `pnpm -r publish --access public`. Type `run`: a bare
+   `pnpm publish` is pnpm's own command, not this script.
 
 Each package's `prepublishOnly` script runs its tests and build before it is published.
 `LICENSE` is copied into each package so it travels in the tarball; npm only picks up the one
