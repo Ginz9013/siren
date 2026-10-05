@@ -8,6 +8,18 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-05
+
+Requires `siren-core` ^0.3.0.
+
+### Changed
+
+- Built against `siren-core` 0.3.0, and `dist/siren-board.js`, which bundles it, carries that
+  release's labels: every label draws the HTML Mermaid's labels draw, as SVG text, and a label
+  writing HTML Siren cannot draw is refused with a diagnostic. A stylesheet that targeted
+  `siren-node-label-row` must target `siren-label-row` instead. See the
+  [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#030---2026-10-05).
+
 ## [0.2.0] - 2026-10-02
 
 Requires `siren-core` ^0.2.0.

@@ -8,6 +8,12 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-05
+
+Breaking for a stylesheet that targets `siren-node-label-row`, which is now `siren-label-row`,
+and for a document whose labels write HTML Siren now refuses (see **Changed**). That is why this
+is 0.3.0 rather than 0.2.1.
+
 ### Added
 
 - **Labels draw the HTML Mermaid's labels draw.** Every label in every diagram kind now reads
