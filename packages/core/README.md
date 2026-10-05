@@ -395,6 +395,11 @@ Override any `--siren-*` custom property in your own CSS:
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |
 | Motion    | `--siren-fade-duration`, `--siren-slide-duration`, `--siren-slide-distance`, `--siren-highlight-duration`          |
+| Label paint | `--siren-label-mark-fill` (`#ff0`, the rect behind `<mark>` text), `--siren-label-mark-text` (`#000`, `<mark>` text), `--siren-label-link` (`#0000ee`, `<a href>` link text) |
+
+The label-paint tokens are what the browser's default stylesheet paints these tags with in
+Mermaid's HTML labels. They sit outside the five-color palette, so a marked or linked run
+looks the same whichever palette is in use, unless you repaint them.
 
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.

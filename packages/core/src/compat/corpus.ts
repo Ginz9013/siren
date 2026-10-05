@@ -16,6 +16,7 @@
  * assert that says which picture was drawn.
  */
 import type { SirenRenderResult } from "../contracts";
+import { LABEL_CASES, labelRows, labelRuns } from "./labelCorpus";
 
 /** Which Mermaid diagram kind a case is written in. */
 export type CompatKind = "flowchart" | "class" | "sequence" | "state" | "er";
@@ -97,35 +98,15 @@ function textOf(element: Element): string {
 }
 
 /**
- * A Markdown-labelled node's drawn rows, read off the actual `<tspan>`
- * structure rather than off `textContent` — `textOf` above already proves
- * the *text* survived (concatenating every descendant text node, tspans
- * included), so this is what a `fc-text-*` Markdown row needs beyond that:
- * proof that each row is its own `tspan.siren-node-label-row` and that a
- * bold/italic run actually carries `font-weight`/`font-style`, not merely
- * that the letters are on the page.
- *
- * One string per row, each run's text immediately followed by `(b)`, `(i)`
- * or `(bi)` when that run carries `font-weight:bold`/`font-style:italic` —
- * nothing appended for a plain run, so a row of plain text alone reads as
- * its own text with no decoration, and a failure names the exact run that
- * disagrees rather than a diff of the whole label.
+ * A node's drawn label rows — `labelRows` (in `labelCorpus.ts`) on that
+ * node's `<text>`. `textOf` already proves the *text* survived; this is what
+ * a row about a label's structure needs beyond that: proof that each row is
+ * its own `tspan.siren-label-row` and that a bold/italic run actually
+ * carries `font-weight`/`font-style`, not merely that the letters are on the
+ * page.
  */
-function markdownRows(result: SirenRenderResult, id: string): string[] {
-  const text = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`);
-  if (text === null) {
-    return [];
-  }
-  return Array.from(text.querySelectorAll("tspan.siren-node-label-row")).map((row) =>
-    Array.from(row.querySelectorAll("tspan"))
-      .map((run) => {
-        const flags =
-          (run.getAttribute("font-weight") === "bold" ? "b" : "") +
-          (run.getAttribute("font-style") === "italic" ? "i" : "");
-        return flags === "" ? (run.textContent ?? "") : `${run.textContent}(${flags})`;
-      })
-      .join(""),
-  );
+function nodeLabelRows(result: SirenRenderResult, id: string): string[] {
+  return labelRows(svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`));
 }
 
 /** Every flowchart node as `id[label]`, in draw order. */
@@ -1808,6 +1789,49 @@ export const COMPAT_CASES: readonly CompatCase[] = [
   },
 
   // -------------------------------------------------------------------------
+  // flowchart — a node declared twice
+  // -------------------------------------------------------------------------
+  {
+    id: "fc-node-relabelled",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x] --> B
+      A[y]`,
+    status: "supported",
+    meaning:
+      "A node written with a second, different label is drawn with the " +
+      "**last** one, where it was first written, and with no diagnostic. " +
+      "Measured (mermaid 11.17.2, `node scripts/mermaid-probe.mjs --html`): " +
+      "`A[x]` then `A[y]` records `id=\"A\" text=\"y\"` and draws " +
+      "`<p>y</p>`. Siren used to keep the first label and warn; the later " +
+      "word is the one the author's diagram uses, so there is nothing to " +
+      "warn about. A bare mention (`A --> C` after `A[x]`) changes nothing, " +
+      "in either.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[y]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "fc-node-reshaped",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[x]
+      A{x}`,
+    status: "supported",
+    meaning:
+      "The shape follows the same rule as the label: the last bracket " +
+      "written is the shape drawn, even when the label is unchanged. " +
+      "Measured (mermaid 11.17.2): `A[x]` then `A{x}` records " +
+      "`type=\"diamond\"`. Siren used to keep the first shape, silently, " +
+      "because its redeclaration check compared labels only.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[x]"]);
+      expectSame("outline", nodeOutline(result, "A"), "diamond");
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // flowchart — edges
   // -------------------------------------------------------------------------
   {
@@ -1995,6 +2019,25 @@ export const COMPAT_CASES: readonly CompatCase[] = [
           `the label is drawn at y=${label.y}, not between A (ends ${nodeBox(result, "A").bottom}) and B (starts ${nodeBox(result, "B").top})`,
         );
       }
+    },
+  },
+  {
+    id: "fc-edge-label-br",
+    kind: "flowchart",
+    source: `flowchart TB
+      A -->|"yes<br/>no"| B`,
+    status: "supported",
+    meaning:
+      "`<br>` in an edge label is a line break, as it is in a node's: the edge " +
+      "label is one of the positions ADR-0015 reads with the whole tag " +
+      "vocabulary, and Mermaid draws `yes` over `no` there in both its HTML " +
+      "and its SVG labels. Siren used to draw `yes<br/>no` literally.",
+    assert: (result) => {
+      expectSame(
+        "label rows",
+        labelRows(svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]')),
+        ["yes", "no"],
+      );
     },
   },
   {
@@ -2295,6 +2338,32 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-title-br",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S["a<br/>b"]
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "`<br>` in a subgraph's title is a line break, as it is in a node's " +
+      "label: a title is one of the positions ADR-0015 reads with the whole " +
+      "tag vocabulary, and Mermaid draws `a` over `b` there. Siren used to " +
+      "draw `a<br/>b` literally. The frame's title strip holds both rows, so " +
+      "the node it groups is still drawn below them.",
+    assert: (result) => {
+      const title = svgOf(result).querySelector("g.siren-subgraph text.siren-subgraph-label");
+      expectSame("title rows", labelRows(title), ["a", "b"]);
+      // The title is read back by its flattened text, which `textContent`
+      // concatenates with nothing between the rows.
+      const frame = subgraphBox(result, "ab");
+      expectSame("S encloses A", encloses(frame, nodeBox(result, "A")), true);
+      const rows = Array.from(title?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      expectSame("the title's last row is above A", lastRowY < nodeBox(result, "A").top, true);
+    },
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB
@@ -2484,7 +2553,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       // The plain text still reads right off `textContent` — tspans concatenate.
       expectSame("nodes", nodes(result), ["A[bold]"]);
       // And the run that carries it is drawn bold, not merely spelled "bold".
-      expectSame("markdown rows", markdownRows(result, "A"), ["bold(b)"]);
+      expectSame("label rows", nodeLabelRows(result, "A"), ["bold(b)"]);
     },
   },
   {
@@ -2500,7 +2569,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "measures, independent rather than a second spelling of the same rule.",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[italic]"]);
-      expectSame("markdown rows", markdownRows(result, "A"), ["italic(i)"]);
+      expectSame("label rows", nodeLabelRows(result, "A"), ["italic(i)"]);
     },
   },
   {
@@ -2527,10 +2596,36 @@ line2\`"]`,
       // `textContent` concatenates them with nothing in between (no
       // separator a DOM ever inserts between sibling elements), so the
       // line break these two rows draw is visible in *where* the SVG puts
-      // them, not in this string. `markdownRows` is the assert that reads
+      // them, not in this string. `nodeLabelRows` is the assert that reads
       // that structure; this is only proof the letters themselves made it.
       expectSame("nodes", nodes(result), ["A[line1line2]"]);
-      expectSame("markdown rows", markdownRows(result, "A"), ["line1", "line2"]);
+      expectSame("label rows", nodeLabelRows(result, "A"), ["line1", "line2"]);
+    },
+  },
+
+  {
+    id: "fc-label-tag-quotes",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["<span style="color:red">t</span>"]
+      B["<span style="font-family:'x'">u</span>"]`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So a double-quoted " +
+      "attribute inside a quoted label no longer ends the label's quotes: " +
+      "`A[\"<span style=\"color:red\">t</span>\"]` is a red `t`. And a " +
+      "double-quoted value holding a `'` is cut short by it: " +
+      "`style=\"font-family:'x'\"` becomes `style='font-family:'x''`, whose " +
+      "value is `font-family:` — no family at all. Measured (mermaid 11.17.2, " +
+      "`--html`): `<span style=\"color:red\">t</span>` and " +
+      "`<span style=\"font-family:\">u</span>`. Siren used to draw `\"t\"` and " +
+      "`\"u\"`, quotes and all.",
+    assert: (result) => {
+      const text = (id: string) => svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`);
+      expectSame("A's runs", labelRuns(text("A"), "style"), ["t[style=fill: red]"]);
+      expectSame("B's runs", labelRuns(text("B"), "style", "font-family"), ["u"]);
     },
   },
 
@@ -2548,6 +2643,27 @@ line2\`"]`,
     assert: (result) => {
       expectSame("node A's inline style", nodeStyle(result, "A"), "fill:#fdd");
       expectSame("node B's inline style", nodeStyle(result, "B"), "");
+    },
+  },
+  {
+    id: "fc-style-style-line-semicolon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Start] --> B[End]
+      style A fill:#fdd;position:fixed,stroke:#c00`,
+    status: "supported",
+    meaning:
+      "A `;` inside a `style` statement's list, on a line where a `#` follows " +
+      "the `:`, is the one Mermaid's style-line rule drops before it parses, " +
+      "so the two declarations around it run together: measured (mermaid " +
+      "11.17.2), `A` records `styles=[\"fill:#fddposition:fixed\",\"stroke:#c00\"]`. " +
+      "The `;` never reaches the declaration gate, so nothing is refused or " +
+      "reported; the browser is handed a `fill` it cannot read, and the " +
+      "`stroke` beside it.",
+    assert: (result) => {
+      expectSame("node A's inline style", nodeStyle(result, "A"), "fill:#fddposition:fixed;stroke:#c00");
+      expectSame("node B's inline style", nodeStyle(result, "B"), "");
+      expectSame("no diagnostic", result.diagnostics, []);
     },
   },
   {
@@ -3076,6 +3192,210 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "cls-class-relabelled",
+    kind: "class",
+    source: `classDiagram
+      class Order["x"]
+      class Order["y"]`,
+    status: "supported",
+    meaning:
+      "A class written with a second, different label is drawn with the " +
+      "**last** one, and with no diagnostic. Measured (mermaid 11.17.2, " +
+      "`node scripts/mermaid-probe.mjs --html`): `class A[\"x\"]` then " +
+      "`class A[\"y\"]` records `label=\"y\"` and draws `<p>y</p>`. Siren " +
+      "used to keep the first label and warn. A label is the exception " +
+      "among the single-valued properties of a class: a second generic or " +
+      "annotation is still dropped with a warning, because Mermaid keeps " +
+      "the first of those (`class A~T~` then `class A~U~` records " +
+      "`type=\"T\"`; two annotations draw only the first).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Order"]);
+      const name = svgOf(result).querySelector(
+        'g.siren-class[data-siren-id="Order"] text.siren-class-name',
+      );
+      expectSame("the name's rows", labelRows(name), ["y"]);
+    },
+  },
+  {
+    id: "cls-class-label-br",
+    kind: "class",
+    source: `classDiagram
+      class Order["Order<br/>Line"]`,
+    status: "supported",
+    meaning:
+      "`class X[\"label\"]` draws the label in place of the name, and `<br>` in " +
+      "it is a line break: a class label is one of the positions ADR-0015 " +
+      "reads with the whole tag vocabulary. Measured (mermaid 11.17.2, " +
+      "`--paint`): `class A[\"Order<br/>Line\"]` draws `Order` over `Line` in " +
+      "both label modes, and a label replaces the generic too " +
+      "(`class A~T~[\"Lab\"]` draws `Lab`). Siren used to reject the bracket " +
+      "outright. The name band is sized for both rows.",
+    assert: (result) => {
+      const group = 'g.siren-class[data-siren-id="Order"]';
+      const name = svgOf(result).querySelector(`${group} text.siren-class-name`);
+      expectSame("the name's rows", labelRows(name), ["Order", "Line"]);
+      const frame = svgOf(result).querySelector(`${group} rect.siren-class-frame`);
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(name?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-relationship-label-br",
+    kind: "class",
+    source: `classDiagram
+      Order --> Line : holds<br/>many`,
+    status: "supported",
+    meaning:
+      "`<br>` in a relationship's `: label` is a line break, as it is on a " +
+      "flowchart edge. Measured (mermaid 11.17.2, `--paint`): `A --> B : " +
+      "a<br/>b` draws `a` over `b` in both label modes. Siren used to draw " +
+      "`holds<br/>many` literally. Drawn centred on the space layout kept " +
+      "clear for it, which is now the label box's centre rather than its " +
+      "baseline.",
+    assert: (result) => {
+      expectSame(
+        "the label's rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-relationship[data-siren-id="Order-Line"] text.siren-relationship-label',
+          ),
+        ),
+        ["holds", "many"],
+      );
+    },
+  },
+  {
+    id: "cls-note-br",
+    kind: "class",
+    source: `classDiagram
+      class Duck
+      note for Duck "can fly<br/>can swim"`,
+    status: "supported",
+    meaning:
+      "`<br>` in a note is a line break. The board had inferred this position " +
+      "rather than measured it, so it was measured (mermaid 11.17.2, " +
+      "`--paint`, `htmlLabels: true`): `note for A \"n<br/>m <i>q</i>r\"` " +
+      "reads `nm qr`, two rows with the tags honored, and a free note the " +
+      "same. Siren used to draw the note's text literally. The note's box is " +
+      "sized for both rows.",
+    assert: (result) => {
+      const text = svgOf(result).querySelector("g.siren-note text.siren-note-text");
+      expectSame("the note's rows", labelRows(text), ["can fly", "can swim"]);
+      const frame = svgOf(result).querySelector("g.siren-note rect.siren-note-frame");
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the note (rows at ${JSON.stringify(rowYs)}, note ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-namespace-label-br",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo["Big<br/>Zoo"] {
+        class Lion
+      }`,
+    status: "supported",
+    meaning:
+      "`namespace X[\"label\"] {` labels the frame, and `<br>` in it is a line " +
+      "break. Not on the board's table of measured places, so measured " +
+      "(mermaid 11.17.2, `--paint`): `namespace Zoo[\"Big<br/>Zoo <b>x</b>\"] {` " +
+      "keeps `Zoo` as the cluster's id and draws `Big` over `Zoo x`. Siren " +
+      "used to reject the bracket outright. The frame's label strip holds " +
+      "both rows, so the class is drawn below them.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector("g.siren-namespace text.siren-namespace-label");
+      expectSame("the label's rows", labelRows(label), ["Big", "Zoo"]);
+      const rows = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      const lionTop = classBox(result, "Lion").y;
+      expectSame(
+        `the label's last row is above Lion (at ${lastRowY}, Lion's top at ${lionTop})`,
+        lastRowY < lionTop,
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-member-tags-literal",
+    kind: "class",
+    source: `classDiagram
+      class Order {
+        +id<br/>int
+        +<b>id</b> int
+      }`,
+    status: "supported",
+    meaning:
+      "A member is not a label: Mermaid escapes a member's text in both label " +
+      "modes (measured, mermaid 11.17.2, `--paint`), so `+id<br/>int` draws " +
+      "the characters `+id<br>int` — Mermaid's own `/<br\\s*\\/?>/gi` respells " +
+      "the break first — and `+<b>id</b> int` draws its tags as written. Siren " +
+      "used to reject `+id<br/>int` as an unrecognized member.",
+    assert: (result) => {
+      expectSame("Order's members", members(result, "Order"), ["+id<br>int", "+<b>id</b> int"]);
+    },
+  },
+  {
+    id: "cls-member-tags-literal-rejected",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +int <b>id</b>
+        +x<br class="y">z
+      }`,
+    status: "rejected",
+    meaning:
+      "The same rule as `cls-member-tags-literal`, in two spellings Siren " +
+      "cannot read yet. Mermaid escapes a member's text in both label modes " +
+      "(measured, mermaid 11.17.2, `--html`: the members' labels are " +
+      "`+int &lt;b&gt;id&lt;/b&gt;` and `+x&lt;br class=\"y\"&gt;z`), so it " +
+      "draws `+int <b>id</b>` and `+x<br class=\"y\">z` as characters — " +
+      "and a `<br>` with an attribute is not one of the spellings its " +
+      "`/<br\\s*\\/?>/gi` respells. Those characters are not quite the ones " +
+      "written: the member's text passes through DOMPurify before it is " +
+      "escaped, and the `\"` is DOMPurify's re-serialization, not the " +
+      "author's quote — Mermaid's whole-document `cleanupText` has already " +
+      "made it `class='y'`. Re-measured (T23): `+x<br class=\"a'b\">z` is " +
+      "drawn `+x<br class=\"a\">z` (the rewrite's `'a'b'` cut short), and " +
+      "`+x<br class = \"y\">z` is drawn `+x<br class=\"y\">z`. Siren refuses both as unrecognized " +
+      "members: a member's name is read as an identifier, and `<b>id</b>` " +
+      "after a type, or `x<br class=\"y\">z` with a space inside it, is not " +
+      "one. Its exit is implementation — a member whose text is not a typed " +
+      "identifier kept and drawn as characters, as Mermaid does, including " +
+      "the tag DOMPurify re-serializes.",
+  },
+  {
+    id: "cls-class-label-tag-quotes",
+    kind: "class",
+    source: `classDiagram
+      class B["<span style="color:red">t</span>"]`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So a class label may " +
+      "hold a double-quoted attribute inside its own quotes. Measured " +
+      "(mermaid 11.17.2): the label is `<span style=\"color:red\">t</span>`.",
+    assert: (result) => {
+      const name = svgOf(result).querySelector('g.siren-class[data-siren-id="B"] text.siren-class-name');
+      expectSame("B's runs", labelRuns(name, "style"), ["t[style=fill: red]"]);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------
@@ -3586,6 +3906,287 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "seq-participant-label-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A as Web<br/>Client
+      A->>A: hi`,
+    status: "supported",
+    meaning:
+      "`<br>` in a participant's alias is a line break. Sequence text is SVG in " +
+      "both of Mermaid's label modes, so ADR-0015 reads it with `<br>` and " +
+      "entity codes only. Measured (mermaid 11.17.2, `--paint`): `participant " +
+      "A as Web<br/>Client` draws `Web` over `Client`, in the top and the " +
+      "bottom row. Siren used to draw `Web<br/>Client` literally. The box is " +
+      "sized for both rows.",
+    assert: (result) => {
+      const group = 'g.siren-participant[data-siren-id="A"]';
+      const labels = Array.from(svgOf(result).querySelectorAll(`${group} text`));
+      expectSame("both rows of the label", labels.map(labelRows), [
+        ["Web", "Client"],
+        ["Web", "Client"],
+      ]);
+      const frame = svgOf(result).querySelector(`${group} rect`);
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(
+        labels[0]?.querySelectorAll(":scope > tspan.siren-label-row") ?? [],
+      ).map((row) => Number(row.getAttribute("y")));
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-message-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: first<br/>second`,
+    status: "supported",
+    meaning:
+      "`<br>` in a message is a line break. Measured (mermaid 11.17.2, " +
+      "`--paint`): `A->>A: x<br/>y` draws `x` over `y`. Siren used to draw " +
+      "`first<br/>second` literally. The rows stand on the arrow, and the " +
+      "message sits a row further down to make room for them.",
+    assert: (result) => {
+      const group = 'g.siren-message[data-siren-id="A-B"]';
+      const label = svgOf(result).querySelector(`${group} text.siren-message-label`);
+      expectSame("the message's rows", labelRows(label), ["first", "second"]);
+      const arrowPath = svgOf(result).querySelector(`${group} path`)?.getAttribute("d") ?? "";
+      const arrowY = Number(/,(-?[\d.]+)/.exec(arrowPath)?.[1]);
+      const rowYs = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows are above the arrow (rows at ${JSON.stringify(rowYs)}, arrow at ${arrowY})`,
+        rowYs.length === 2 && rowYs.every((y) => y < arrowY),
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-message-tags-literal",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: <b>bold</b> msg`,
+    status: "supported",
+    meaning:
+      "Every tag but `<br>` in sequence text is drawn as the characters " +
+      "written: Mermaid draws sequence text as SVG in both label modes, so " +
+      "there the literal tag *is* the picture (ADR-0015). Measured (mermaid " +
+      "11.17.2, `--paint`): `A->>B: <b>bold</b> msg` draws the one `<text>` " +
+      "`<b>bold</b> msg`, not bold.",
+    assert: (result) => {
+      expectSame(
+        "the message is drawn as written",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")),
+        ["<b>bold</b> msg"],
+      );
+    },
+  },
+  {
+    id: "seq-message-br-after-open-angle",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: x <y <br> z`,
+    status: "supported",
+    meaning:
+      "Only Mermaid's `/<br\\s*\\/?>/gi` breaks sequence text, and every " +
+      "other character is drawn as written, a `<` included, so a `<` that " +
+      "would begin an HTML tag cannot hide the `<br>` after it. Measured " +
+      "(mermaid 11.17.2, `--paint`): `A->>B: x <y <br> z` draws two " +
+      "`<text>` rows, `x <y` and `z`.",
+    assert: (result) => {
+      expectSame(
+        "the message breaks at its <br>",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")).map((row) => row.trim()),
+        ["x <y", "z"],
+      );
+    },
+  },
+  {
+    id: "seq-message-entity-codes",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: x #quot; #35; #hearts; z`,
+    status: "supported",
+    meaning:
+      "Entity codes resolve in sequence text, as in every other label: " +
+      "`#quot;` is `\"`, `#35;` is `#` and `#hearts;` is `♥`. Measured " +
+      "(mermaid 11.17.2, `--paint`): the message draws the one `<text>` " +
+      "`x \" # ♥ z`.",
+    assert: (result) => {
+      expectSame(
+        "the message's codes are resolved",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")),
+        ['x " # \u2665 z'],
+      );
+    },
+  },
+  {
+    id: "seq-message-tag-quotes",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: a<b c="d">e say "hi"`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads its text, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `<name\u2026>` as `='\u2026'` (its `cleanupText`), " +
+      "and a `\"` anywhere else is kept. Sequence text reads no tag, so the " +
+      "rewrite is drawn. Measured (mermaid 11.17.2, `--paint`): " +
+      "`A->>B: a<b c=\"d\">e say \"hi\"` draws the one `<text>` " +
+      "`a<b c='d'>e say \"hi\"`.",
+    assert: (result) => {
+      expectSame(
+        "the tag's quotes are rewritten, the rest kept",
+        labelRows(svgOf(result).querySelector("text.siren-message-label")),
+        ["a<b c='d'>e say \"hi\""],
+      );
+    },
+  },
+  {
+    id: "seq-note-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      Note over A: a<br/>b`,
+    status: "supported",
+    meaning:
+      "`<br>` in a note is a line break. Measured (mermaid 11.17.2, " +
+      "`--paint`): `Note over A: a<br/>b` draws `a` over `b`. Siren used to " +
+      "draw `a<br/>b` literally. The note's box is sized for both rows.",
+    assert: (result) => {
+      const text = svgOf(result).querySelector("g.siren-note text.siren-note-text");
+      expectSame("the note's rows", labelRows(text), ["a", "b"]);
+      const frame = svgOf(result).querySelector("g.siren-note rect.siren-note-frame");
+      const top = Number(frame?.getAttribute("y"));
+      const bottom = top + Number(frame?.getAttribute("height"));
+      const rowYs = Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the note (rows at ${JSON.stringify(rowYs)}, note ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-block-condition-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      loop every<br/>day
+        A->>B: hi
+      end
+      alt c1<br/>c2
+        A->>B: z
+      else e1<br/>e2
+        A->>B: w
+      end`,
+    status: "supported",
+    meaning:
+      "`<br>` in a block's condition, and in each branch's, is a line break, " +
+      "and the brackets Mermaid draws around a condition go around all of " +
+      "its rows. Not on the board's table of measured places, so measured " +
+      "(mermaid 11.17.2, `--paint`): `loop every<br/>day` draws `[every` over " +
+      "`day]`, and `alt c1<br/>c2` / `else e1<br/>e2` draw `[c1` over `c2]` " +
+      "and `[e1` over `e2]`. Siren used to draw them literally. The header " +
+      "and the divider are made a row taller, so no message is drawn over a " +
+      "condition.",
+    assert: (result) => {
+      const conditionsOf = (id: string) =>
+        Array.from(
+          svgOf(result).querySelectorAll(
+            `g.siren-block[data-siren-id="${id}"] > text.siren-block-label`,
+          ),
+        );
+      const rowsIn = (id: string) => conditionsOf(id).map(labelRows);
+      expectSame("the loop's condition", rowsIn("loop:1"), [["[every", "day]"]]);
+      expectSame("the alt's conditions", rowsIn("alt:1"), [
+        ["[c1", "c2]"],
+        ["[e1", "e2]"],
+      ]);
+      const lastRowY = (id: string, index: number) => {
+        const label = conditionsOf(id)[index];
+        const rows = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+        return Number(rows[rows.length - 1]?.getAttribute("y"));
+      };
+      const arrowY = (id: string) => {
+        const group = `g.siren-message[data-siren-id="${id}"]`;
+        const path = svgOf(result).querySelector(`${group} path`)?.getAttribute("d") ?? "";
+        return Number(/,(-?[\d.]+)/.exec(path)?.[1]);
+      };
+      expectSame(
+        "each branch's message is below its condition's last row",
+        [
+          arrowY("A-B") > lastRowY("loop:1", 0),
+          arrowY("A-B#2") > lastRowY("alt:1", 0),
+          arrowY("A-B#3") > lastRowY("alt:1", 1),
+        ],
+        [true, true, true],
+      );
+    },
+  },
+  {
+    id: "seq-box-label-br",
+    kind: "sequence",
+    source: `sequenceDiagram
+      box Aqua Grp<br/>two
+        participant A
+      end
+      A->>A: hi`,
+    status: "supported",
+    meaning:
+      "`<br>` in a box's label is a line break. Not on the board's table of " +
+      "measured places, so measured (mermaid 11.17.2, `--paint`): `box " +
+      "aqua Grp<br/>two` and `box Grp<br/>two` both draw `Grp` over `two`. " +
+      "(The probe writes the color in lower case: under jsdom Mermaid tests a " +
+      "box color by how `Option().style` serializes it, so `Aqua` reads as " +
+      "part of the label there, as it does not in a browser.) Siren used to " +
+      "draw `Grp<br/>two` literally. The caption band above the participants " +
+      "holds both rows.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector("g.siren-box text.siren-box-label");
+      expectSame("the label's rows", labelRows(label), ["Grp", "two"]);
+      const rows = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      const participantTop = Number(
+        svgOf(result).querySelector('g.siren-participant[data-siren-id="A"] rect')?.getAttribute("y"),
+      );
+      expectSame(
+        `the label's last row is above A (at ${lastRowY}, A's top at ${participantTop})`,
+        lastRowY < participantTop,
+        true,
+      );
+    },
+  },
+  {
+    id: "seq-message-tag-quotes-across-lines",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: a<b c="d"
+      B->>A: e`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). The stretch is the " +
+      "document's, not one label's: `[^>]*` crosses a line break, so " +
+      "`a<b c=\"d\"`, whose own line has no `>`, is ended by the next line's " +
+      "`->>`. Measured (mermaid 11.17.2): the first message is stored " +
+      "`a<b c='d'`. Siren used to apply the rewrite to one label at a time, " +
+      "and drew `a<b c=\"d\"`.",
+    assert: (result) => {
+      expectSame(
+        "the messages",
+        elements(result, "text.siren-message-label").map((text) => text.textContent),
+        ["a<b c='d'", "e"],
+      );
+    },
+  },
   // -------------------------------------------------------------------------
   // stateDiagram
   // -------------------------------------------------------------------------
@@ -4055,6 +4656,151 @@ line2\`"]`,
         true,
       );
       expectSame("transitions", transitions(result), ["Idle-Running: "]);
+    },
+  },
+  {
+    id: "st-description-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 : a<br/>b
+      s1 --> s2`,
+    status: "supported",
+    meaning:
+      "`<br>` in a description is a line break: a description is one of the " +
+      "positions ADR-0015 reads with the whole tag vocabulary. Measured " +
+      "(mermaid 11.17.2): with `htmlLabels: true` the label reads `ab`, two " +
+      "rows, and with `--markup` the SVG mode draws two `title-row` tspans. " +
+      "Siren used to draw `a<br/>b` literally. The box is sized for both " +
+      "rows, and one description — however many rows — draws no divider.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-state[data-siren-id="s1"] text.siren-state-label',
+      );
+      expectSame("the description's rows", labelRows(label), ["a", "b"]);
+      const box = stateRect(result, "s1");
+      const rowYs = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${JSON.stringify(box)})`,
+        rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
+        true,
+      );
+      expectSame("one description draws no divider", stateRowGeometry(result, "s1").dividerY, null);
+    },
+  },
+  {
+    id: "st-description-br-accumulates",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 : a<br/>b
+      s1 : c<br>d`,
+    status: "supported",
+    meaning:
+      "Each description is a label of its own, so each may break its own " +
+      "rows. Measured with `--markup` (mermaid 11.17.2): two label groups " +
+      "of two `title-row` tspans each, with `line.divider` **between the " +
+      "groups** — under every row of the first description, not under its " +
+      "first row.",
+    assert: (result) => {
+      const group = 'g.siren-state[data-siren-id="s1"]';
+      const title = svgOf(result).querySelector(`${group} text.siren-state-label`);
+      const description = svgOf(result).querySelector(`${group} text.siren-state-description`);
+      expectSame("the title's rows", labelRows(title), ["a", "b"]);
+      expectSame("the description's rows", labelRows(description), ["c", "d"]);
+      const rowYs = [title, description].flatMap((text) =>
+        Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map((row) =>
+          Number(row.getAttribute("y")),
+        ),
+      );
+      const { dividerY } = stateRowGeometry(result, "s1");
+      expectSame(
+        `the divider sits between b and c (rows at ${JSON.stringify(rowYs)}, divider at ${dividerY})`,
+        dividerY !== null && dividerY > rowYs[1] && dividerY < rowYs[2],
+        true,
+      );
+    },
+  },
+  {
+    id: "st-transition-label-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 --> s2 : a<br/>b`,
+    status: "supported",
+    meaning:
+      "`<br>` in a transition label is a line break, as it is on a " +
+      "flowchart edge. Measured (mermaid 11.17.2, `htmlLabels: true`): " +
+      "`s1 --> s2 : t<br/>u` draws `t` over `u`. Siren used to draw " +
+      "`a<br/>b` literally. Drawn centred on the space layout kept clear for " +
+      "it, which is now the label box's centre rather than its baseline.",
+    assert: (result) => {
+      expectSame(
+        "the label's rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-transition[data-siren-id="s1-s2"] text.siren-transition-label',
+          ),
+        ),
+        ["a", "b"],
+      );
+    },
+  },
+  {
+    id: "st-composite-title-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "a<br/>b" as Outer {
+        First
+      }`,
+    status: "supported",
+    meaning:
+      "`<br>` in a composite's quoted title is a line break. The board had " +
+      "inferred this position rather than measured it, so it was measured " +
+      "(mermaid 11.17.2, `--paint`, `htmlLabels: true`): " +
+      "`state \"c<br/>d\" as X {` titles its cluster `cd`, two rows, and " +
+      "`<b>`/`<i>` are honored there as in a description. The title strip " +
+      "holds both rows, so the member is drawn below them.",
+    assert: (result) => {
+      const title = svgOf(result).querySelector(
+        'g.siren-state[data-siren-id="Outer"] text.siren-composite-label',
+      );
+      expectSame("the title's rows", labelRows(title), ["a", "b"]);
+      const rows = Array.from(title?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+      const lastRowY = Number(rows[rows.length - 1]?.getAttribute("y"));
+      expectSame(
+        `the title's last row is above First (at ${lastRowY}, First's top at ${stateRect(result, "First").top})`,
+        lastRowY < stateRect(result, "First").top,
+        true,
+      );
+    },
+  },
+  {
+    id: "st-note-br",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 --> s2
+      note right of s1 : a<br/>b`,
+    status: "supported",
+    meaning:
+      "`<br>` in a note is a line break. Like a composite's title, this " +
+      "position was inferred by the board and then measured (mermaid " +
+      "11.17.2, `--paint`, `htmlLabels: true`): `note right of s1 : n<br/>m` " +
+      "reads `nm`, two rows, and `note left of s2 : p<i>q</i>r` reads `pqr` — " +
+      "the full dialect. The note's box is sized for both rows.",
+    assert: (result) => {
+      const text = svgOf(result).querySelector(
+        'g.siren-state[data-siren-id="s1"] text.siren-note-text',
+      );
+      expectSame("the note's rows", labelRows(text), ["a", "b"]);
+      const box = stateNoteRect(result, "s1");
+      const rowYs = Array.from(text?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the note (rows at ${JSON.stringify(rowYs)}, note ${JSON.stringify(box)})`,
+        rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
+        true,
+      );
     },
   },
   {
@@ -4765,6 +5511,27 @@ line2\`"]`,
       ]);
     },
   },
+  {
+    id: "st-label-tag-quotes",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "<span style="color:red">t</span>" as S
+      S --> T : <span style="color:blue">u</span>`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So a state's quoted " +
+      "description may hold a double-quoted attribute. Measured (mermaid " +
+      "11.17.2, `--html`): `<span style=\"color:red\">t</span>` and the " +
+      "transition's `<span style=\"color:blue\">u</span>`.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector('g.siren-state[data-siren-id="S"] text.siren-state-label');
+      expectSame("S's runs", labelRuns(label, "style"), ["t[style=fill: red]"]);
+      const transition = svgOf(result).querySelector("text.siren-transition-label");
+      expectSame("the transition's runs", labelRuns(transition, "style"), ["u[style=fill: blue]"]);
+    },
+  },
   // -------------------------------------------------------------------------
   // erDiagram
   // -------------------------------------------------------------------------
@@ -5189,6 +5956,95 @@ line2\`"]`,
         "the two boxes are drawn clear of one another",
         overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
+      );
+    },
+  },
+  {
+    id: "er-alias-br",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER["Customer<br/>Record"]`,
+    status: "supported",
+    meaning:
+      "`<br>` in an entity's alias is a line break: an alias is one of the " +
+      "positions ADR-0015 reads with the whole tag vocabulary. Measured " +
+      "(mermaid 11.17.2, `--html`): `CUSTOMER[\"Customer<br/>Record\"]` is " +
+      "the node label `<p>Customer<br>Record</p>`. Siren used to draw " +
+      "`Customer<br/>Record` literally. The name row is sized for both rows, " +
+      "and the entity is still addressed by its name.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-entity[data-siren-id="CUSTOMER"] text.siren-er-entity-label',
+      );
+      expectSame("the alias's rows", labelRows(label), ["Customer", "Record"]);
+      const box = erEntityRect(result, "CUSTOMER");
+      const rowYs = Array.from(label?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit inside the box (rows at ${JSON.stringify(rowYs)}, box ${box.top}..${box.bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
+        true,
+      );
+    },
+  },
+  {
+    id: "er-relationship-label-br",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "places<br/>many"`,
+    status: "supported",
+    meaning:
+      "`<br>` in a relationship's quoted `: label` is a line break. Measured " +
+      "(mermaid 11.17.2, `--html`): `CUSTOMER ||--o{ ORDER : " +
+      "\"places<br/>many\"` is the edge label `<p>places<br>many</p>`. Siren " +
+      "used to draw `places<br/>many` literally. The layout holds the two " +
+      "ranks far enough apart for both rows.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+      );
+      expectSame("the label's rows", labelRows(label), ["places", "many"]);
+      expectSame(
+        "the two boxes are drawn clear of one another",
+        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        false,
+      );
+    },
+  },
+  {
+    id: "er-attribute-comment-br",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER {
+        string name "a<br/>b"
+      }`,
+    status: "supported",
+    meaning:
+      "`<br>` in an attribute's comment is a line break. Measured (mermaid " +
+      "11.17.2, `--html`): `string name \"a<br/>b\"` is the cell label " +
+      "`<p>a<br>b</p>`. The type and the name beside it are not labels and " +
+      "are drawn as written. Siren used to draw `a<br/>b` literally. The " +
+      "attribute's row is as tall as the comment's two rows.",
+    assert: (result) => {
+      const group = 'g.siren-er-entity[data-siren-id="CUSTOMER"]';
+      const comment = svgOf(result).querySelector(`${group} text.siren-er-attribute-comment`);
+      expectSame("the comment's rows", labelRows(comment), ["a", "b"]);
+      expectSame(
+        "the type and name cells, drawn as written",
+        texts(result, `${group} text.siren-er-attribute-type, ${group} text.siren-er-attribute-name`),
+        ["string", "name"],
+      );
+      const divider = svgOf(result).querySelector(`${group} line.siren-er-entity-divider`);
+      const top = Number(divider?.getAttribute("y1"));
+      const bottom = erEntityRect(result, "CUSTOMER").bottom;
+      const rowYs = Array.from(
+        comment?.querySelectorAll(":scope > tspan.siren-label-row") ?? [],
+      ).map((row) => Number(row.getAttribute("y")));
+      expectSame(
+        `both rows sit in the attribute's row (rows at ${JSON.stringify(rowYs)}, row ${top}..${bottom})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < bottom),
+        true,
       );
     },
   },
@@ -5754,6 +6610,39 @@ line2\`"]`,
         "CUSTOMER[CUSTOMER]",
         "ORDER[ORDER]",
       ]);
+    },
+  },
+  {
+    id: "er-subgraph-label-br",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1["Order<br/>pipeline"]
+        CUSTOMER
+      end`,
+    status: "supported",
+    meaning:
+      "`<br>` in a cluster's quoted title is a line break. Measured (mermaid " +
+      "11.17.2, `--html`): `subgraph s1[\"My<br/>Title <b>x</b>\"]` is the " +
+      "cluster label `<p>My<br>Title <b>x</b></p>` — the whole tag " +
+      "vocabulary, read once the title's words are joined with one space. " +
+      "Siren used to draw `Order<br/>pipeline` literally. The strip along " +
+      "the frame's top holds both rows. (An *unquoted* title holding a tag " +
+      "is a parse error in Mermaid and is not this row.)",
+    assert: (result) => {
+      const group = svgOf(result).querySelector('g.siren-er-subgraph[data-siren-id="subgraph:1"]');
+      const title = group?.querySelector("text.siren-er-subgraph-label") ?? null;
+      expectSame("the title's rows", labelRows(title), ["Order", "pipeline"]);
+      const frame = group?.querySelector("rect.siren-er-subgraph-frame");
+      const top = Number(frame?.getAttribute("y"));
+      const member = erEntityRect(result, "CUSTOMER");
+      const rowYs = Array.from(title?.querySelectorAll(":scope > tspan.siren-label-row") ?? []).map(
+        (row) => Number(row.getAttribute("y")),
+      );
+      expectSame(
+        `both rows sit in the strip above the member (rows at ${JSON.stringify(rowYs)}, strip ${top}..${member.top})`,
+        rowYs.length === 2 && rowYs.every((y) => y > top && y < member.top),
+        true,
+      );
     },
   },
   {
@@ -6378,4 +7267,37 @@ line2\`"]`,
       "block, so the body's prose is not reported as malformed ER on top of " +
       "the refusal.",
   },
+
+  {
+    id: "er-label-tag-quotes",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER["<span style="color:red">t</span>"] {
+        string id "<span style="color:red">c</span>"
+      }
+      CUSTOMER ||--o{ ORDER : "<span style="color:red">r</span>"`,
+    status: "supported",
+    meaning:
+      "Before any diagram reads a line, Mermaid rewrites each `=\"\u2026\"` " +
+      "inside a tag-shaped stretch `/<(\\w+)([^>]*)>/` as `='\u2026'` (its " +
+      "`cleanupText`, over the whole document). So an alias, a comment " +
+      "and a relationship label may each hold a double-quoted attribute " +
+      "inside their own quotes. Measured (mermaid 11.17.2, `--html`): the " +
+      "alias, the comment and the label are each a red " +
+      "`<span style=\"color:red\">`.",
+    assert: (result) => {
+      const group = 'g.siren-er-entity[data-siren-id="CUSTOMER"]';
+      const alias = svgOf(result).querySelector(`${group} text.siren-er-entity-label`);
+      const comment = svgOf(result).querySelector(`${group} text.siren-er-attribute-comment`);
+      const label = svgOf(result).querySelector("text.siren-er-relationship-label");
+      expectSame("the alias's runs", labelRuns(alias, "style"), ["t[style=fill: red]"]);
+      expectSame("the comment's runs", labelRuns(comment, "style"), ["c[style=fill: red]"]);
+      expectSame("the label's runs", labelRuns(label, "style"), ["r[style=fill: red]"]);
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`
+  // -------------------------------------------------------------------------
+  ...LABEL_CASES,
 ];

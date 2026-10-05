@@ -7,6 +7,17 @@
  * against these shapes without waiting on each other's internals.
  *
  * Types and JSDoc only — no functions, no logic.
+ *
+ * **Source positions.** Every field that records where in the source the
+ * author wrote something is a 1-based pair spelled with one of exactly two
+ * key pairs: `line`/`column`, or `sourceLine`/`sourceColumn` (the spelling
+ * an edge, a relationship or a transition takes, whose `line` names its
+ * line style instead). Nothing else in a `ParseResult` may be a number
+ * keyed `…Line` or `…Column`. `parseSiren` depends on it: Mermaid's
+ * style-line rule drops a `;` before any parser reads the line, and
+ * `parser/styleLines`'s `asWritten` moves each position back past it by
+ * walking the result for these two pairs — a position spelled any other way
+ * would silently point one character early. `styleLines.test.ts` pins it.
  */
 
 /** Severity of a parse/build-time diagnostic. */
@@ -80,44 +91,41 @@ export type HighlightEffect = "outline" | "glow";
 export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
 
 /**
- * One run of a Markdown-formatted node label: a stretch of text sharing one
- * combination of bold/italic. Independent axes rather than a closed set of
- * "styles" — matches mermaid 11.17.2's own `font-weight`/`font-style` pair,
- * measured (`htmlLabels: false`, a throwaway `mermaid-probe.mjs`-based
- * script): `**bold**` sets only `font-weight`, `*italic*` sets only
- * `font-style`, and a run written inside both would carry both. This
- * board's own corpus rows never nest the two, so no run either of them
- * produces does in practice, but the shape leaves room for one that does.
+ * The label model — `Label`, its runs, its measured box, and the problems
+ * reading one can raise. Declared in `label/label.ts`, beside the three
+ * functions that read, measure and draw a label, so that the tickets growing
+ * the tag vocabulary (ADR-0015) never have to touch this file; re-exported
+ * here so every other module still finds its cross-module types in one place.
  */
-export interface LabelRun {
-  text: string;
-  bold: boolean;
-  italic: boolean;
-}
+import type { Label, LabelBox, PlacedLabel } from "./label/label";
+
+export type {
+  Label,
+  LabelBox,
+  LabelBoxRow,
+  LabelDialect,
+  LabelProblem,
+  LabelRun,
+  PlacedLabel,
+} from "./label/label";
 
 /** A node as declared in source, before graph-model resolution. */
 export interface SirenNode {
   id: string;
-  label: string;
   /**
-   * The label's Markdown runs, one array per line, in source order — or
-   * `null` when the label carries no Markdown formatting, the overwhelming
-   * common case: an ordinary `A[label]` or `A["label"]` never sets this.
+   * The label as `readLabel` read it — rows of runs, with the tags the
+   * author wrote already turned into row breaks and run properties
+   * (ADR-0015). A node written with no label at all is labelled with its
+   * own id, as one plain run.
    *
-   * Non-null only when the author wrote the fenced `` "`...`" `` Markdown-
-   * string spelling — measured, mermaid 11.17.2's own syntax for a label
-   * that may be bold, italic or carry a line break. `label` above still
-   * holds the *flattened* plain text in that case (every run's text
-   * concatenated in order, each line joined by `\n`), so it stays
-   * meaningful to a reader that has never heard of this field — an error
-   * message, a diagnostic quoting a redeclared label.
-   *
-   * Required rather than optional, the same rule `GraphNode.style`/
-   * `parentId`/`interaction` already follow: "no formatting" is a state
-   * every node has, not the absence of a field some nodes carry and others
-   * do not.
+   * Every spelling reads into this one shape: an ordinary `A[label]`, a
+   * quoted `A["label"]`, and the fenced Markdown string
+   * `` A["`**bold**`"] `` whose `**`/`*` and real line breaks are read by
+   * the same function. `label.text` is the flattened plain text, for a
+   * reader that only wants a string, such as a diagnostic quoting the
+   * label.
    */
-  labelRuns: LabelRun[][] | null;
+  label: Label;
   /**
    * The shape its bracket spelling named — `"rect"` for a bare `A`, for
    * `A[label]`, and for `A:::name`.
@@ -204,8 +212,12 @@ export interface SirenEdge {
    * follow, arriving at `null` instead of a default because a label has no
    * neutral value to default to — the shape `ClassRelationship.label`
    * already has, for the same reason.
+   *
+   * Read by `readLabel` like a node's, so `<br>` breaks a row here too
+   * (ADR-0015). Never a Markdown string: Mermaid reads one on an edge and
+   * Siren does not yet, which is a gap of its own.
    */
-  label: string | null;
+  label: Label | null;
   sourceLine?: number;
   sourceColumn?: number;
 }
@@ -292,8 +304,12 @@ export interface SirenSubgraph {
    * ADR-0010, because a subgraph may legitimately be named after a node.
    */
   name: string | null;
-  /** The text drawn on the frame. `subgraph Ingest` labels itself. */
-  label: string;
+  /**
+   * The title drawn on the frame, read by `readLabel` like a node's label —
+   * so `<br>` breaks a row here too (ADR-0015). `subgraph Ingest` labels
+   * itself.
+   */
+  label: Label;
   /**
    * The ids of the nodes named directly inside this block, in source order,
    * excluding any a subgraph already claimed.
@@ -459,7 +475,14 @@ export interface SequenceArrow {
  */
 export interface SequenceParticipantDecl {
   id: string;
-  label: string;
+  /**
+   * The `as` alias, or the id when none was written. An alias is read by
+   * `readLabel` in the `sequence` dialect (ADR-0015): Mermaid draws sequence
+   * text as SVG in both modes, so `<br>` breaks a row and every other tag is
+   * drawn as written — measured (mermaid 11.17.2, `--paint`): `participant A
+   * as Web<br/>Client` draws "Web" over "Client".
+   */
+  label: Label;
   participantKind: SequenceParticipantKind;
   line?: number;
   column?: number;
@@ -471,7 +494,11 @@ export interface SequenceParticipantDecl {
  */
 export interface SequenceBox {
   color: string | null;
-  label: string | null;
+  /**
+   * Read by `readLabel` in the `sequence` dialect (ADR-0015) — measured
+   * (mermaid 11.17.2, `--paint`): `box Grp<br/>two` draws "Grp" over "two".
+   */
+  label: Label | null;
   participantIds: string[];
   line?: number;
   column?: number;
@@ -482,7 +509,13 @@ export interface SequenceMessageStatement {
   kind: "message";
   from: string;
   to: string;
-  text: string;
+  /**
+   * Read by `readLabel` in the `sequence` dialect (ADR-0015), so `<br>`
+   * breaks a row and every other tag is drawn as written — measured (mermaid
+   * 11.17.2, `--paint`): `A->>A: x<br/>y` draws "x" over "y", and
+   * `A->>B: <b>bold</b> msg` draws its tags literally.
+   */
+  label: Label;
   arrow: SequenceArrow;
   line?: number;
   column?: number;
@@ -496,7 +529,8 @@ export interface SequenceMessageStatement {
 export interface SequenceParticipantStatement {
   kind: "participant";
   id: string;
-  label: string;
+  /** The same label `SequenceParticipantDecl.label` carries. */
+  label: Label;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
   line?: number;
@@ -564,7 +598,11 @@ export interface SequenceNoteStatement {
   placement: SequenceNotePlacement;
   from: string;
   to: string;
-  text: string;
+  /**
+   * Read by `readLabel` in the `sequence` dialect (ADR-0015) — measured
+   * (mermaid 11.17.2, `--paint`): `Note over A: a<br/>b` draws "a" over "b".
+   */
+  label: Label;
   line?: number;
   column?: number;
 }
@@ -586,7 +624,13 @@ export interface SequenceAutonumberOffStatement {
 /** A `loop <label>? ... end` block. */
 export interface SequenceLoopStatement {
   kind: "loop";
-  label: string | null;
+  /**
+   * A block's condition, read by `readLabel` in the `sequence` dialect
+   * (ADR-0015), as every block's and branch's is — measured (mermaid
+   * 11.17.2, `--paint`): `loop every<br/>day` draws "[every" over "day]", the
+   * brackets around the whole condition rather than each row.
+   */
+  label: Label | null;
   body: SequenceStatement[];
   line?: number;
   column?: number;
@@ -594,7 +638,7 @@ export interface SequenceLoopStatement {
 
 /** One branch of an `alt`/`else` block — the first branch is the `alt` condition, the rest are `else`. */
 export interface SequenceAltBranch {
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
 }
 
@@ -609,7 +653,7 @@ export interface SequenceAltStatement {
 /** An `opt <label>? ... end` block. */
 export interface SequenceOptStatement {
   kind: "opt";
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
   line?: number;
   column?: number;
@@ -617,7 +661,7 @@ export interface SequenceOptStatement {
 
 /** One branch of a `par`/`and` block — the first branch is the `par` condition, the rest are `and`. */
 export interface SequenceParBranch {
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
 }
 
@@ -631,7 +675,7 @@ export interface SequenceParStatement {
 
 /** One branch of a `critical`/`option` block — the first branch is the `critical` condition, the rest are `option`. */
 export interface SequenceCriticalBranch {
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
 }
 
@@ -646,7 +690,7 @@ export interface SequenceCriticalStatement {
 /** A `break <label>? ... end` block. */
 export interface SequenceBreakStatement {
   kind: "break";
-  label: string | null;
+  label: Label | null;
   body: SequenceStatement[];
   line?: number;
   column?: number;
@@ -738,7 +782,8 @@ export interface SequenceDocument {
  */
 export interface ResolvedSequenceParticipant {
   id: string;
-  label: string;
+  /** The declaration's label, or a plain one holding the id for a lane created by a mention. */
+  label: Label;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
   /** Flattened-statement-order index the lifeline begins at (0 for a preamble declaration). */
@@ -752,7 +797,8 @@ export interface ResolvedSequenceMessage {
   id: string;
   from: string;
   to: string;
-  text: string;
+  /** Carried unchanged from `SequenceMessageStatement.label`. */
+  label: Label;
   arrow: SequenceArrow;
   /** Sequential autonumber label, or `null` when autonumbering was off for this message. */
   autonumber: number | null;
@@ -760,7 +806,8 @@ export interface ResolvedSequenceMessage {
 
 /** One resolved branch of a block, mirroring `SequenceAltBranch`/`SequenceParBranch`/`SequenceCriticalBranch` post-resolution. */
 export interface ResolvedSequenceBranch {
-  label: string | null;
+  /** The branch's condition; `null` when it has none, and always for a `rect`'s one branch. */
+  label: Label | null;
   statements: ResolvedSequenceStatement[];
 }
 
@@ -770,6 +817,12 @@ export interface ResolvedSequenceBlock {
   kind: "loop" | "alt" | "opt" | "par" | "critical" | "break" | "rect";
   /** Every participant lane touched anywhere in this block's body, recursively — used to compute the block's horizontal extent. */
   touchedParticipantIds: string[];
+  /**
+   * A `rect`'s fill, the `rgb()`/`rgba()` text as written and unvalidated —
+   * the syntax puts it where a condition would be, but it is never a label.
+   * `null` for every other kind.
+   */
+  color: string | null;
   branches: ResolvedSequenceBranch[];
 }
 
@@ -802,14 +855,15 @@ export interface ResolvedSequenceNote {
   placement: SequenceNotePlacement;
   from: string;
   to: string;
-  text: string;
+  /** Carried unchanged from `SequenceNoteStatement.label`. */
+  label: Label;
 }
 
 /** A box after graph-model resolution: assigned id. */
 export interface ResolvedSequenceBox {
   id: string;
   color: string | null;
-  label: string | null;
+  label: Label | null;
   participantIds: string[];
 }
 
@@ -847,7 +901,12 @@ export interface SequenceModelResult {
 /** A participant with layout-assigned lane position and lifeline extent. */
 export interface PositionedParticipant {
   id: string;
-  label: string;
+  label: Label;
+  /**
+   * The box `layoutLabel` measured for `label`; the participant's own box is
+   * this plus its padding, so a label of two rows makes a box two rows tall.
+   */
+  labelBox: LabelBox;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
   /** Lane center x-coordinate. */
@@ -867,7 +926,13 @@ export interface PositionedMessage {
   id: string;
   from: string;
   to: string;
-  text: string;
+  /**
+   * The message's text, placed: the box `layoutLabel` measured for it,
+   * which stands on the arrow, and that box's centre — midway between the
+   * arrow's ends, with the box's bottom just above the arrow, so its rows
+   * stack upward from it. Never `null`: every message has a label.
+   */
+  label: PlacedLabel;
   arrow: SequenceArrow;
   autonumber: number | null;
   y: number;
@@ -915,7 +980,9 @@ export type PositionedSequenceElement =
  */
 export interface PositionedNote {
   id: string;
-  text: string;
+  label: Label;
+  /** The box `layoutLabel` measured for `label`; the note is this plus its padding. */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -924,7 +991,14 @@ export interface PositionedNote {
 
 /** A branch divider (used for `else`/`and`/`option`) with layout-assigned position. */
 export interface PositionedBlockDivider {
-  label: string | null;
+  /**
+   * The branch's condition as drawn, brackets included (see
+   * `PositionedBlock.label`), placed: the box `layoutLabel` measured for it,
+   * and its centre — at the frame's left inset, its first row centred where
+   * a one-row condition's is below the line, so further rows grow
+   * downward. `null` when the branch has no condition.
+   */
+  label: PlacedLabel | null;
   y: number;
 }
 
@@ -932,7 +1006,23 @@ export interface PositionedBlockDivider {
 export interface PositionedBlock {
   id: string;
   kind: "loop" | "alt" | "opt" | "par" | "critical" | "break" | "rect";
-  label: string | null;
+  /**
+   * The header's condition **as drawn**: wrapped in brackets around all its
+   * rows, as Mermaid draws it (measured, mermaid 11.17.2: `loop every day`
+   * draws `[every day]`, and `loop every<br/>day` draws "[every" over
+   * "day]"), so that what layout measured is what the renderer draws —
+   * placed: the box `layoutLabel` measured for it, and its centre, past the
+   * block's keyword, its first row centred where a one-row condition's is,
+   * so further rows grow downward. `null` for a block written without one,
+   * and always for a `rect`, which draws no condition (see `color`).
+   */
+  label: PlacedLabel | null;
+  /**
+   * A `rect`'s fill, as written (`ResolvedSequenceBlock.color`) and never
+   * drawn as text — a `rect` always has one. `null` for every other kind.
+   * The shape `PositionedBox.color` has.
+   */
+  color: string | null;
   x: number;
   y: number;
   width: number;
@@ -946,7 +1036,13 @@ export interface PositionedBlock {
 export interface PositionedBox {
   id: string;
   color: string | null;
-  label: string | null;
+  /**
+   * The caption, placed: the box `layoutLabel` measured for it, and its
+   * centre — across the top of the background, its rows filling the caption
+   * band layout reserved above the participants. `null` when the box has no
+   * label.
+   */
+  label: PlacedLabel | null;
   x: number;
   y: number;
   width: number;
@@ -978,13 +1074,12 @@ export interface PositionedSequenceDiagram {
 /** A node after graph-model resolution (duplicates merged, ids validated). */
 export interface GraphNode {
   id: string;
-  label: string;
   /**
-   * Carried unchanged from `SirenNode.labelRuns` — see that field for what
-   * `null` versus non-null means. `buildFlowchartModel` re-decides nothing
-   * about a label's own text here, the same rule `shape` already follows.
+   * Carried unchanged from `SirenNode.label` — `buildFlowchartModel`
+   * re-decides nothing about a label's own text, the same rule `shape`
+   * already follows.
    */
-  labelRuns: LabelRun[][] | null;
+  label: Label;
   /**
    * The shape this node is drawn as, carried unchanged from the spelling
    * the author used. Required for the same reason `style` is: "no shape"
@@ -1071,8 +1166,8 @@ export interface GraphNode {
  */
 export interface ResolvedSubgraph {
   id: string;
-  /** The text drawn on the frame — the author's title, carried through. */
-  label: string;
+  /** The title drawn on the frame — the author's, carried through. */
+  label: Label;
   /** The subgraph this one is nested in, or `null` at the top level. */
   parentId: string | null;
   /**
@@ -1132,7 +1227,7 @@ export interface GraphEdge {
    * unlike the three axes above: a label is a box dagre has to keep clear,
    * so it changes where the edge goes and not only what is drawn on it.
    */
-  label: string | null;
+  label: Label | null;
   /**
    * Author declarations to emit as this edge's inline `style` attribute, in
    * declaration order, with rejected values already dropped — the same
@@ -1269,23 +1364,35 @@ export interface PositionedNode extends GraphNode {
   y: number;
   width: number;
   height: number;
+  /**
+   * The label as `layoutLabel` measured it: the box the node's shape was
+   * sized to hold, and where each row sits inside it. Centred on the node,
+   * which is the anchor the renderer hands `drawLabel`.
+   *
+   * Reported by layout rather than re-measured by the renderer, which has
+   * no measurer: the rows are drawn where the space for them was reserved.
+   */
+  labelBox: LabelBox;
 }
 
 /** An edge with a layout-assigned point path. */
-export interface PositionedEdge extends GraphEdge {
+export interface PositionedEdge extends Omit<GraphEdge, "label"> {
   points: Point[];
   /**
-   * Where to draw `label`: the centre of the space layout kept clear for
-   * it, or `null` when the edge carries no label and asked for none.
+   * `GraphEdge.label`, placed: the text, the box `layoutLabel` measured for
+   * it — the box dagre was asked to keep clear — and the centre of the space
+   * layout kept clear for it. `null` when the edge carries no label and
+   * asked for none.
    *
-   * Reported by the layout rather than computed by the renderer from
-   * `points`, because it is where the *reserved box* ended up — the mid-point
-   * of a route is not the same place, and drawing there would put the text
-   * across the line the space was made beside. The shape a class
-   * diagram's `PositionedClassRelationship.labelAnchor` already has, for
-   * the same reason.
+   * The anchor is reported by the layout rather than computed by the
+   * renderer from `points`, because it is where the *reserved box* ended up
+   * — the mid-point of a route is not the same place, and drawing there
+   * would put the text across the line the space was made beside. Every
+   * other label on a line (`PositionedClassRelationship.label`,
+   * `PositionedStateTransition.label`, …) is a `PlacedLabel` for the same
+   * reason.
    */
-  labelAnchor: Point | null;
+  label: PlacedLabel | null;
 }
 
 /**
@@ -1301,13 +1408,15 @@ export interface PositionedEdge extends GraphEdge {
  */
 export interface PositionedSubgraph {
   id: string;
-  label: string;
+  /**
+   * The title, placed: the box `layoutLabel` measured for it, and its centre
+   * — in the strip above the frame's contents.
+   */
+  label: PlacedLabel;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Where the frame's title text is drawn: centred in the strip above its contents. */
-  labelAnchor: Point;
 }
 
 /**
@@ -1417,6 +1526,16 @@ export interface ClassDecl {
   generic: string | null;
   /** Annotation text without its `<<`/`>>` (`interface`), or `null`. */
   annotation: string | null;
+  /**
+   * The label written in brackets after the name — `class Order["Order
+   * Line"]` — or `null` when the declaration wrote none, in which case the
+   * class draws its id (and generic). Read by `readLabel` in the full
+   * `html` dialect (ADR-0015); measured (mermaid 11.17.2, `--paint`):
+   * `class A["Order<br/>Line"]` draws "Order" over "Line" in both label
+   * modes, and a label replaces the whole drawn name, generic included —
+   * `class A~T~["Lab"]` draws "Lab".
+   */
+  label: Label | null;
   members: ClassMember[];
   line?: number;
   column?: number;
@@ -1465,8 +1584,13 @@ export interface ClassRelationship {
   line: ClassRelationshipLine;
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
-  /** The `: label` text, or `null`. */
-  label: string | null;
+  /**
+   * The `: label`, or `null` — read by `readLabel` in the full `html`
+   * dialect (ADR-0015), so `<br>` breaks a row here as it does on a
+   * flowchart edge. Measured (mermaid 11.17.2, `--paint`): `A --> B :
+   * a<br/>b` draws "a" over "b" in both label modes.
+   */
+  label: Label | null;
   /** The quoted multiplicity next to `from` (`"1"` in `Customer "1" --> "*" Ticket`), or `null`. */
   fromMultiplicity: string | null;
   /** The quoted multiplicity next to `to` (`"*"` in the same example), or `null`. */
@@ -1482,6 +1606,15 @@ export interface ClassRelationship {
  */
 export interface ClassNamespace {
   id: string;
+  /**
+   * The label written in brackets after the name — `namespace Zoo["Big
+   * Zoo"] {` — or `null` when the block wrote none, in which case the frame
+   * is labelled by its name. Read by `readLabel` in the full `html` dialect
+   * (ADR-0015): not on the board's table of measured places, so measured
+   * (mermaid 11.17.2, `--paint`): `namespace Zoo["Big<br/>Zoo <b>x</b>"]`
+   * keeps `Zoo` as the cluster's id and draws "Big" over "Zoo x".
+   */
+  label: Label | null;
   classIds: string[];
   line?: number;
   column?: number;
@@ -1489,7 +1622,14 @@ export interface ClassNamespace {
 
 /** A `note "text"` (free) or `note for X "text"` (attached) statement. */
 export interface ClassNote {
-  text: string;
+  /**
+   * The quoted text, read by `readLabel` in the full `html` dialect
+   * (ADR-0015), which the board had only inferred for this position and
+   * which was then measured (mermaid 11.17.2, `--paint`, `htmlLabels:
+   * true`): `note for A "n<br/>m <i>q</i>r"` draws "n" over "m qr", the tags
+   * honored rather than drawn, and a free note the same.
+   */
+  label: Label;
   /** The class this note is attached to, or `null` for a free note. */
   targetId: string | null;
   line?: number;
@@ -1661,6 +1801,13 @@ export interface ResolvedClass {
   id: string;
   generic: string | null;
   annotation: string | null;
+  /**
+   * The last label any declaration of the class wrote, or `null` when none
+   * did. Unlike `annotation` and `generic` (first-named wins, a conflict is
+   * a warning), a later label replaces an earlier one silently — what
+   * Mermaid 11.17.2 draws, measured.
+   */
+  label: Label | null;
   members: ClassMember[];
   /** The namespace this class belongs to, or `null` when it belongs to none. */
   namespaceId: string | null;
@@ -1684,7 +1831,8 @@ export interface ResolvedClassRelationship {
   line: ClassRelationshipLine;
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
-  label: string | null;
+  /** Carried unchanged from `ClassRelationship.label`. */
+  label: Label | null;
   fromMultiplicity: string | null;
   toMultiplicity: string | null;
   /**
@@ -1700,14 +1848,19 @@ export interface ResolvedClassRelationship {
 /** A namespace after model resolution: assigned id, membership resolved. */
 export interface ResolvedClassNamespace {
   id: string;
-  label: string;
+  /**
+   * The frame's label: the one written in brackets (`ClassNamespace.label`),
+   * or else the namespace's name as one plain run.
+   */
+  label: Label;
   classIds: string[];
 }
 
 /** A note after model resolution: assigned id, attachment resolved. */
 export interface ResolvedClassNote {
   id: string;
-  text: string;
+  /** Carried unchanged from `ClassNote.label`. */
+  label: Label;
   /** The class this note is attached to, or `null` for a free note. */
   targetId: string | null;
 }
@@ -1797,8 +1950,16 @@ export interface PositionedClassCompartment {
  */
 export interface PositionedClass {
   id: string;
-  /** The class-name text as drawn, including any generic parameter. */
-  name: string;
+  /**
+   * What the name band draws: the class's written label, or else its id with
+   * any generic parameter composed in (`Registry<T>`) as one plain run.
+   */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the name band was
+   * sized around, centred in the part of the band the name takes.
+   */
+  labelBox: LabelBox;
   /** Annotation text without its `<<`/`>>`, or `null`. */
   annotation: string | null;
   x: number;
@@ -1824,9 +1985,14 @@ export interface PositionedClassRelationship {
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
   points: Point[];
-  label: string | null;
-  /** Where the label is drawn; `null` when there is no label. */
-  labelAnchor: Point | null;
+  /**
+   * The relationship's label, placed: its text, the box `layoutLabel`
+   * measured for it — the box the core was asked to keep clear — and the
+   * centre of the space the shared core kept clear for it. `null` when
+   * there is no label. `PositionedStateTransition.label` carries a
+   * transition's the same way.
+   */
+  label: PlacedLabel | null;
   fromMultiplicity: string | null;
   /** Where the from-end multiplicity is drawn; `null` when there is none. */
   fromMultiplicityAnchor: Point | null;
@@ -1845,19 +2011,27 @@ export interface PositionedClassRelationship {
 /** A namespace with a layout-assigned frame enclosing its member classes. */
 export interface PositionedClassNamespace {
   id: string;
-  label: string;
+  /**
+   * The label, placed: the box `layoutLabel` measured for it — the strip
+   * along the frame's top is as tall as all its rows — and its centre.
+   */
+  label: PlacedLabel;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Where the frame's label text is drawn. */
-  labelAnchor: Point;
 }
 
 /** A note with a layout-assigned box and, when attached, its connector. */
 export interface PositionedClassNote {
   id: string;
-  text: string;
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the note's own was
+   * padded around — centred on the note box, which is the anchor the
+   * renderer hands `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -2001,8 +2175,14 @@ export interface StateNote {
    * The note's text, trimmed — never empty, because `note right of Idle :`
    * with nothing after the colon is a lexical error in Mermaid (measured),
    * not a note carrying a blank line.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015), which the
+   * board had only inferred for this position and which was then measured
+   * (mermaid 11.17.2, `--paint`, `htmlLabels: true`): `note right of s1 :
+   * n<br/>m` draws "n" over "m" and `note left of s2 : p<i>q</i>r` reads
+   * "pqr", the tags honored rather than drawn.
    */
-  text: string;
+  label: Label;
 }
 
 /**
@@ -2058,8 +2238,15 @@ export interface StateDecl {
    * **neither renames the state**, so `state "text" as s` is a description
    * and not an alias. A field saying which spelling was read would be a
    * difference downstream could act on where Mermaid has none.
+   *
+   * **Each description is a label of its own**, read by `readLabel` in the
+   * full `html` dialect (ADR-0015), so `s : a<br/>b` is one description of
+   * two rows. Measured (mermaid 11.17.2, `--markup`): `s1 : a<br/>b` and
+   * `s1 : c<br>d` draw two separate label groups of two rows each, with the
+   * divider between the groups — so the rows a `<br>` makes stay inside the
+   * description that wrote it, and never become descriptions themselves.
    */
-  descriptions: string[];
+  descriptions: Label[];
   /**
    * The composite state whose `{ }` block holds this one, or `null` at the
    * document's own level.
@@ -2161,7 +2348,12 @@ export interface StateTransition {
   from: string | null;
   /** The state this transition enters — `null` for `[*]`, the level's **end** pseudo-state. */
   to: string | null;
-  label: string | null;
+  /**
+   * Read by `readLabel` in the full `html` dialect, so `<br>` breaks a row
+   * here as it does on a flowchart edge (ADR-0015) — measured (mermaid
+   * 11.17.2, `htmlLabels: true`): `s1 --> s2 : t<br/>u` draws "t" over "u".
+   */
+  label: Label | null;
   /**
    * The composite state whose block this transition was written in, or
    * `null` at the document's own level.
@@ -2391,8 +2583,10 @@ export interface ResolvedState {
    * becomes addressing-only. That is the split a flowchart's `A[label]`
    * already draws between the id and the text — measured for a state
    * diagram too (mermaid 11.17.2 draws no `s` once `s : text` is written).
+   *
+   * Each one a `Label`, as `readLabel` read it in the parser.
    */
-  descriptions: string[];
+  descriptions: Label[];
   /**
    * The note written onto this state, or `null` when the author wrote none —
    * carried straight through from `StateDecl.note`, authored text and an
@@ -2420,7 +2614,8 @@ export interface ResolvedStateTransition {
   id: string;
   from: string;
   to: string;
-  label: string | null;
+  /** Carried unchanged from `StateTransition.label`. */
+  label: Label | null;
 }
 
 /**
@@ -2465,15 +2660,23 @@ export interface StateModelResult {
 // ---------------------------------------------------------------------------
 
 /**
- * One row of text drawn inside a state's box: what it says, and the y its
- * text is centred on, in diagram coordinates.
+ * One label drawn inside a state's box — the id, or one description — with
+ * the box `layoutLabel` measured for it and the y that box is centred on, in
+ * diagram coordinates.
  *
- * A row rather than a label, because a described state draws several of
- * them stacked — `PositionedClass`'s member lines in the shape a state's
- * box needs.
+ * A label rather than a row, now that a label has rows of its own: a
+ * description written `a<br/>b` is one of these holding two rows, and a
+ * described state draws several of them stacked — `PositionedClass`'s
+ * member lines in the shape a state's box needs. Measured (mermaid 11.17.2,
+ * `--markup`): each description is its own label group, so the divider
+ * under the first sits below *all* of that description's rows.
+ *
+ * Centred on the box's horizontal middle, which the renderer takes from the
+ * state's own `x`/`width`; only `y` is the label's to report.
  */
-export interface PositionedStateRow {
-  text: string;
+export interface PositionedStateLabel {
+  label: Label;
+  labelBox: LabelBox;
   y: number;
 }
 
@@ -2496,8 +2699,14 @@ export interface PositionedStateRow {
  * for the renderer to act on a second time.
  */
 export interface PositionedStateNote {
-  /** The note's text, exactly as the author wrote it. */
-  text: string;
+  /** The note's label, exactly as `readLabel` read it. */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the note's own was
+   * sized around, padding aside — centred on the note box, which is the
+   * anchor the renderer hands `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -2546,16 +2755,16 @@ export interface PositionedState {
   width: number;
   height: number;
   /**
-   * The text this box draws, top to bottom: the state's descriptions when
-   * it has any, and otherwise the one row its id makes. Empty for a
+   * The labels this box draws, top to bottom: the state's descriptions when
+   * it has any, and otherwise the one label its id makes. Empty for a
    * pseudo-state, which draws a mark and no text at all.
    *
-   * Which of the two the row came from is deliberately not recorded: by
+   * Which of the two a label came from is deliberately not recorded: by
    * here it is simply the text the box holds, the same way a flowchart node
    * arrives at the renderer carrying its label rather than the question of
    * whether the author wrote one.
    */
-  rows: PositionedStateRow[];
+  labels: PositionedStateLabel[];
   /**
    * Author declarations to emit as this state's inline `style` attributes:
    * the frame's on the box (or, for a composite, on the frame rect), the
@@ -2574,8 +2783,9 @@ export interface PositionedState {
    * is drawn as a titled box — the first description above a divider and
    * the rest below it — while one description, or none, gets a plain
    * rounded rect with no divider at all. So this is `null` for every box
-   * with fewer than two rows, and the divider never separates the id from
-   * the descriptions: an id is not drawn once a description exists.
+   * with fewer than two labels, however many rows a `<br>` gave one of
+   * them, and the divider never separates the id from the descriptions: an
+   * id is not drawn once a description exists.
    */
   dividerY: number | null;
   /**
@@ -2591,20 +2801,20 @@ export interface PositionedState {
   note: PositionedStateNote | null;
 }
 
-/** A transition with a layout-assigned path and, when it carries one, a label anchor. */
+/** A transition with a layout-assigned path and, when it carries one, a placed label. */
 export interface PositionedStateTransition {
   id: string;
   from: string;
   to: string;
   points: Point[];
-  label: string | null;
   /**
-   * Where to draw `label`: the centre of the space layout kept clear for it,
-   * or `null` when the transition carries no label and asked for none — the
-   * shape `PositionedEdge.labelAnchor` already has, for the reason given
-   * there.
+   * The transition's label, placed: its text, the box `layoutLabel`
+   * measured for it — the box the shared core was asked to keep clear — and
+   * the centre of the space layout kept clear for it. `null` when the
+   * transition carries no label and asked for none — the shape
+   * `PositionedEdge.label` has, for the reason given there.
    */
-  labelAnchor: Point | null;
+  label: PlacedLabel | null;
 }
 
 /**
@@ -2675,8 +2885,12 @@ export interface ErEntityDecl {
    * Per mention, like `attributes`: an entity may be named several times and
    * only one of those mentions carry an alias. Which one wins is
    * `buildErModel`'s — measured, the **first non-empty** one does.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015): measured
+   * (mermaid 11.17.2, `--html`), `CUSTOMER["Customer<br/>Record"]` draws
+   * `Customer` over `Record`.
    */
-  alias: string | null;
+  alias: Label | null;
   /**
    * The attributes this *mention* of the entity declared, in source order —
    * empty for a bare name and for either end of a relationship.
@@ -2742,8 +2956,14 @@ export interface ErAttribute {
    * `string x "a" PK` is a parse error, and so is a second comment. A comma
    * inside it is ordinary text (`"x, y"` is one comment), which is the same
    * character that splits `keys` two fields to the left.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015): measured
+   * (mermaid 11.17.2, `--html`), `string name "a<br/>b"` draws `a` over
+   * `b`. No comment written is the empty label — one row, one empty run —
+   * so "wrote none" is `comment.text === ""`. `type` and `name` are never
+   * read for tags: they are drawn as written.
    */
-  comment: string;
+  comment: Label;
 }
 
 /**
@@ -2806,8 +3026,14 @@ export interface ErSubgraph {
    * between them. Mermaid's `subgraphTitle` is a *list of words* joined
    * with a single space, so `s1[a   b]` answers `"a b"` — measured, which
    * is why the run of spaces is collapsed rather than carried.
+   *
+   * Read by `readLabel` in the full `html` dialect once the spaces are
+   * collapsed (ADR-0015): measured (mermaid 11.17.2, `--html`),
+   * `s1["My<br/>Title <b>x</b>"]` is the cluster label
+   * `<p>My<br>Title <b>x</b></p>`. The name standing in for an unwritten
+   * title is a plain label of itself, never read for tags.
    */
-  label: string;
+  label: Label;
   /**
    * This block's own rank direction, or `null` when it wrote none and its
    * members lay out along the document's.
@@ -3032,8 +3258,12 @@ export interface ErRelationshipDecl {
    * `CUSTOMER ||--o{ ORDER` with no colon is a Mermaid parse error
    * ("Expecting 'COLON', 'STYLE_SEPARATOR', got 'NEWLINE'"), so there is no
    * such thing as an unlabelled ER relationship and this is not nullable.
+   *
+   * Read by `readLabel` in the full `html` dialect (ADR-0015): measured
+   * (mermaid 11.17.2, `--html`), `: "places<br/>many"` is the edge label
+   * `<p>places<br>many</p>` — two rows.
    */
-  label: string;
+  label: Label;
 }
 
 // ---------------------------------------------------------------------------
@@ -3057,8 +3287,11 @@ export interface ErRelationshipDecl {
 export interface ResolvedErEntity {
   /** The authored name: `data-siren-id`, and the handle everything addresses. */
   id: string;
-  /** The text the box draws. */
-  label: string;
+  /**
+   * What the box draws: the alias the author gave it, or a plain label of
+   * its name, which has no tag in it to read.
+   */
+  label: Label;
   /**
    * Every attribute this entity declared, in source order and **joined
    * across blocks** — measured, an entity that opens two blocks carries both
@@ -3122,8 +3355,8 @@ export interface ResolvedErEntity {
  */
 export interface ResolvedErSubgraph {
   id: string;
-  /** The text the frame draws — the block's title, carried through. */
-  label: string;
+  /** What the frame draws — the block's title, carried through. */
+  label: Label;
   /** The cluster this one is nested in, or `null` at the top level. */
   parentId: string | null;
   /**
@@ -3183,9 +3416,10 @@ export interface ResolvedErRelationship {
    * impossible in an ER name outright, and a comment that said so would be
    * wrong: a *quoted* name takes any character at all, and both
    * `erDiagram / "CUSTOMER:ORDER" ||--|| X : y` and
-   * `erDiagram / "subgraph:1" ||--|| B : y` parse. Siren refuses quoted
-   * names today (`er-entity-name-quoted`), which is the only reason this
-   * spelling cannot be collided with from a source document right now.
+   * `erDiagram / "subgraph:1" ||--|| B : y` parse. Siren accepts quoted
+   * names too (`er-entity-name-quoted`, supported), so this spelling **can**
+   * be collided with from a source document: `"CUSTOMER:ORDER"` is an
+   * entity whose id is the one `CUSTOMER ||--|| ORDER` mints.
    *
    * So the invariant is **not** held by the separator. It is held by
    * `reportIdCollisions` in `buildErModel`, which compares the ids actually
@@ -3204,7 +3438,8 @@ export interface ResolvedErRelationship {
   /** The marker drawn against `to`. */
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  label: string;
+  /** What the relationship's label draws, carried through from `ErRelationshipDecl.label`. */
+  label: Label;
 }
 
 /**
@@ -3253,10 +3488,11 @@ export interface ErModel {
    */
   styles: ResolvedStyle[];
   /**
-   * The `timeline:` block resolved against this kind's two target kinds —
+   * The `timeline:` block resolved against this kind's three target kinds —
    * an **entity**, by the id its author wrote whatever an alias renamed it
-   * to on screen, and a **relationship**, by the id `buildErModel` assigned
-   * it. An **attribute** is neither: its cells are drawn inside the entity's
+   * to on screen, a **relationship**, by the id `buildErModel` assigned it,
+   * and a **subgraph**, by the id generated for it (`subgraph:1`, …), since
+   * its name need not be unique. An **attribute** is none of them: its cells are drawn inside the entity's
    * `<g>` with no `data-siren-id` of their own, so the box that owns a row
    * is what animates it.
    *
@@ -3301,8 +3537,13 @@ export interface ErModelResult {
  */
 export interface PositionedErEntity {
   id: string;
-  /** The text the box draws, carried through from `ResolvedErEntity.label`. */
-  label: string;
+  /** What the box draws, carried through from `ResolvedErEntity.label`. */
+  label: Label;
+  /**
+   * The label as `layoutLabel` measured it — the box the name row was sized
+   * around. The renderer centres it in that row and hands it `drawLabel`.
+   */
+  labelBox: LabelBox;
   x: number;
   y: number;
   width: number;
@@ -3386,15 +3627,21 @@ export interface PositionedErAttributeRow {
 }
 
 /**
- * One cell of the attribute table: what it says, and where its text starts.
+ * One cell of the attribute table: what it says, and where its text starts —
+ * a **text cell** for the type, name and keys, which are drawn as written,
+ * or a **comment cell**, whose comment is a label (ADR-0015). Told apart by
+ * `column`.
  *
  * `x` is the text's **left edge**, not its centre — cells are left-aligned
  * in their columns, which is measured (Mermaid places each label at its
  * column's left plus half the padding) and is what keeps a column of types
  * reading as a column.
  */
-export interface PositionedErAttributeCell {
-  column: ErAttributeColumn;
+export type PositionedErAttributeCell = PositionedErAttributeTextCell | PositionedErAttributeCommentCell;
+
+/** A type, name or keys cell: one line of literal text, never read for tags. */
+export interface PositionedErAttributeTextCell {
+  column: Exclude<ErAttributeColumn, "comment">;
   /**
    * The text drawn. For `keys` this is the list **re-joined with a comma** —
    * `attribute.keys.join()` is what Mermaid draws, so `UK,PK` reads back as
@@ -3407,6 +3654,23 @@ export interface PositionedErAttributeCell {
   x: number;
   /** Vertical centre of the text, the way `PositionedClass`'s member lines are. */
   y: number;
+}
+
+/**
+ * A comment cell: the comment as a label. `labelBox` is what `layoutLabel`
+ * measured, which the row's height and the column's width were sized from,
+ * and `anchor` the centre the renderer hands `drawLabel`: the band the
+ * label's widest row fills starts at `x`, so a one-row comment's text starts
+ * where every cell's in the column does.
+ */
+export interface PositionedErAttributeCommentCell {
+  column: "comment";
+  x: number;
+  /** Vertical centre of the label, as a text cell's `y` is. */
+  y: number;
+  label: Label;
+  labelBox: LabelBox;
+  anchor: Point;
 }
 
 /**
@@ -3424,15 +3688,16 @@ export interface PositionedErRelationship {
   fromCardinality: ErCardinality;
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  label: string;
   points: Point[];
   /**
-   * Centre of the space the layout kept clear for the label, or `null` when
+   * `ResolvedErRelationship.label`, placed: its text, the box `layoutLabel`
+   * measured for it — the size the layout kept clear — and the centre of
+   * that space, which is what the renderer hands `drawLabel`. `null` when
    * the shared layout core reserved none. Nullable on the same terms as
-   * `PositionedClassRelationship.labelAnchor`, rather than because an ER
+   * `PositionedClassRelationship.label`, rather than because an ER
    * relationship can be unlabelled — measured, it cannot be.
    */
-  labelAnchor: Point | null;
+  label: PlacedLabel | null;
 }
 
 /**
@@ -3456,13 +3721,16 @@ export interface PositionedErRelationship {
  */
 export interface PositionedErSubgraph {
   id: string;
-  label: string;
+  /**
+   * The title, carried through from `ResolvedErSubgraph.label` and placed:
+   * the box `layoutLabel` measured for it — the strip along the frame's top
+   * was sized from it — and its centre, in that strip.
+   */
+  label: PlacedLabel;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Where the frame's title is drawn: centred in the strip above its contents. */
-  labelAnchor: Point;
 }
 
 export interface PositionedErDiagram {

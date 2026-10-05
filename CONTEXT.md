@@ -259,9 +259,9 @@ state a corpus row declares)
 
 **Diagram kind**:
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
-`sequenceDiagram`, `classDiagram`, or `stateDiagram` (`stateDiagram-v2` is the same kind under a
-second spelling, measured: both report the diagram type `stateDiagram`, exactly as
-`classDiagram-v2` does). Carried as `SirenDocument.kind` and dispatched on by
+`sequenceDiagram`, `classDiagram`, `stateDiagram`, or `erDiagram` (`stateDiagram-v2` is the same
+kind under a second spelling, measured: both report the diagram type `stateDiagram`, exactly as
+`classDiagram-v2` does; `erDiagram` has no such second spelling). Carried as `SirenDocument.kind` and dispatched on by
 `parseSiren`, `buildGraphModel`, and `render()`, each of which routes to that kind's own
 parser/model/layout/renderer. `graph` is Mermaid's original spelling of `flowchart` and opens the
 same kind: like `TD`, it is normalized away in `parseDirection`, so no document, model or renderer
@@ -279,8 +279,8 @@ _Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — i
 `layoutDirectedGraph`'s input field name, and nowhere else), TD (say `TB`)
 
 **Graph-shaped diagram**:
-A diagram kind whose layout is a directed graph of boxes and connectors — flowchart and class
-diagrams today; state, ER, requirement and C4 when they land. Every one of them sizes its own
+A diagram kind whose layout is a directed graph of boxes and connectors — flowchart, class, state
+and ER diagrams today; requirement and C4 when they land. Every one of them sizes its own
 boxes and labels and then calls `layoutDirectedGraph`, the single place in the codebase that
 imports dagre (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
 and its amendment). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
@@ -315,27 +315,106 @@ Mermaid's v11 `A@{ shape: cyl }` spelling is a second, larger vocabulary of abou
 is unimplemented: a line spelling one is refused as an unrecognized flowchart line rather than
 drawn as something else. Its own board, and it reuses all of this.
 
-**A label may itself carry Markdown formatting**, written as the fenced `` A["`**bold**`"] ``
-spelling — a quoted label whose content is itself fenced in backticks. `SirenNode`/`GraphNode`/
-`PositionedNode` each carry a `labelRuns: LabelRun[][] | null` alongside the plain-string `label`
-they have always had: `null` — the overwhelming common case — means the label carries no
-formatting and `label` alone is authoritative, exactly as before this field existed; non-null only
-for the fenced spelling, one array of `{ text, bold, italic }` runs per line, in source order, with
-`label` still holding the *flattened* plain text (every run's text concatenated, lines joined by
-`\n`) so a reader that has never heard of `labelRuns` — an error message, the redeclaration warning
-— still reads something sensible. Bold and italic are independent axes, not a closed set of
-"styles", matching mermaid 11.17.2's own `font-weight`/`font-style` pair (measured, `htmlLabels:
-false`). A line break inside the fence is real Mermaid too: its lexer reads a quoted label across
-physical source lines when the closing quote has not been reached yet, so the flowchart parser
-joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`) before anything else
-reads them — the one place this grammar is not read one physical line at a time. Layout sizes a
-Markdown-labelled box by its **plain text** (widest line's width, one line-height times line count)
-rather than weighing a bold run's actual glyph width — a deliberate simplification, not a gap — and
-the renderer draws the shape real Mermaid draws for this construct: one `<tspan class=
-"siren-node-label-row">` per line, absolute-positioned to center the block vertically, each holding
-one inner `<tspan>` per run with `font-weight`/`font-style` set only when true.
+**A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
+title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds
+the `labelBox` layout measured it into, which the node's shape was sized to hold. The fenced
+`` A["`**bold**`"] `` Markdown string is one spelling of a label rather than a second field: a quoted
+label whose content is itself fenced in backticks is read by the same reader, its `**`/`*` pairs and
+real line breaks read as the tags they stand for (`<strong>`, `<em>`, `<br>`), which is what Mermaid
+does with it. A line break inside the fence is real Mermaid too: its lexer reads a quoted
+label across physical source lines when the closing quote has not been reached yet, so the
+flowchart parser joins such lines back together (`joinMarkdownFences` in `parseFlowchart.ts`)
+before anything else reads them — the one place this grammar is not read one physical line at a
+time. A node written without a label (`A`, `A:::name`) is labelled with its own id.
 _Avoid_: box, vertex, block, state, "the shape" for one drawn element (a node's frame may be
 several elements — say "frame" for what is drawn and "shape" for which of the fourteen it is)
+
+**Label**:
+What an author wrote in one place a diagram draws text, read as **rows of runs**: each row is one
+drawn line, and each **run** is a stretch of a row's text sharing one set of properties — bold,
+italic, underline, a font size, a color, a link, and the rest of `LabelRun`'s fields, each an
+independent axis with a neutral value. A run with every axis neutral is a **plain run**. A label's
+`text` is its **flattened text** — the runs concatenated, the rows joined by `\n` — for the readers
+that only want a string, such as a diagnostic quoting the label.
+What is drawn is the rows.
+
+The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the
+**drawing** stays SVG `<text>`/`<tspan>` with author text through `textContent`, never `innerHTML`
+(ADR-0015). Between them, in the `html` dialect, every HTML tag Mermaid lets through is read into
+the label's rows and runs — drawn, drawn approximately, or refused with a diagnostic — and none is
+drawn as its literal characters; in the `sequence` dialect every tag but a row break *is* drawn as
+its characters, because that is Mermaid's picture there, and a class member draws all of them so.
+A tag is read as the HTML tokenizer reads one: `<` then a letter (or `/` and a letter) starts it, its
+first `>` outside a quoted value ends it, and one the label ends inside is dropped with everything
+after its `<` (`x <y` draws `x `), while a `<` before anything else is a character (`a < b`). Which
+tags a place honors is its **dialect**: `html`, the whole vocabulary, for the places
+Mermaid draws as HTML; `sequence`, only `<br>` and entity codes, for sequence text, which Mermaid
+draws as SVG in both modes. A class **member** is not a label at all: Mermaid escapes it in both
+modes, so it is kept as written. A **row break** is `<br>` in any case, with or without attributes
+and a closing `/` — `<br>`, `<br/>`, `<br />`, `<BR>` and `<br class="x">` all break a row, the last
+because Mermaid's HTML labels keep it as an element, though its own `/<br\s*\/?>/gi` does not match
+it; in the `sequence` dialect that narrower pattern is the picture, so `<br class="x">` is drawn as
+its characters there. The text-styling tags are read too — `b` `strong`, `i` `em` `cite` `dfn` `var`, `u` `ins`, `s`
+`strike` `del`, `code` `kbd` `samp` `tt`, `small` `big`, `sub` `sup`, `q` and `mark` (black text on
+a yellow rect behind the run, through the theme's `--siren-label-mark-text` and
+`--siren-label-mark-fill`) — nested and misnested as the browser's HTML parser reads them; a **Markdown string** is read as the tags it stands for, so
+its `**`/`*` and `__`/`_` stack with tags the author wrote, paired by CommonMark's emphasis rules as
+Mermaid's Markdown reader pairs them (`x**(a)**y` and `a_b_c` are drawn as written); a backslash
+before punctuation escapes it (`\*a\*` is drawn `*a*`), a line break after two spaces or a backslash
+is drawn as a space, and a blank line is a paragraph break. The tags whose attributes say what they draw are read
+too: `font` (its `color`, its `size` 1–7 as the scale Mermaid's label measured, and its `face`);
+`span style`, drawing ten properties — `color`, `background-color` (a rect behind the run, as
+`mark`'s), `font-size`, `font-weight`, `font-style`, `font-family`, `text-decoration`,
+`letter-spacing`, `word-spacing` and `opacity`, a `color` or `background-color` only when it is
+written in CSS color syntax (a named color, a hex color, a color function or a `var(--…)`; anything
+else, such as `banana`, is dropped as the browser drops it) — and **warning** about any other, naming it, the one
+thing in a label Siren warns about rather than drawing or refusing; and `a href`, drawn as an SVG
+`<a href>` around its run, underlined and painted with the `--siren-label-link` token, for exactly
+the hrefs DOMPurify keeps (an `<a>` whose href it strips is plain text). An author's value that
+could fetch, run script or smuggle a second declaration is dropped silently, under the same rule as
+`style` statements. The 20 tags with no rendering of their own (`abbr`, `time`, `wbr` and the rest)
+draw only their text; `html`, `head` and `body`, and a table's nine parts (`tr`, `td`, `col` and the
+rest) outside a table, are ignored by the parser and their text kept; and a tag outside the
+vocabulary is dropped and its text kept, as DOMPurify drops it — except `script`, `style`,
+`iframe`, `noscript`, `noembed`, `xmp` and `noframes`, and the eight DOMPurify keeps and the
+browser does not show (`title`, `template`, a closed `dialog`, `datalist`, `rp`, and the void
+`source`, `track` and `area`), removed together with their content, and `plaintext`, removed with
+everything after it. The 21 **refused** tags — `table`, `ruby` and `rt`, the 16 embedded, form,
+media and interactive ones, and `svg` and `math`, which DOMPurify's SVG and MathML profiles keep —
+and an open `dialog` are an error-severity diagnostic at the label's first one, saying what kind of
+HTML SVG text does not draw; `<img>`'s names Mermaid's image shape, `A@{ img: "…" }`. One per
+label, because the first already refuses the document. The 34 **block** tags (`p`, `div`,
+`h1`–`h6`, `pre`, `ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each
+begins and ends a row, block edges that meet end it once (no empty row between blocks or at either
+end of the label), a block keeps its font (a heading bold and sized, `pre` monospace with its spaces
+kept, `address` italic), and a list item's row begins with its **marker** — `• `, `◦ ` or `▪ ` by
+how many lists its bulleted list is nested in, or its number in an `ol`, counted from the list's
+`start` and an item's `value` — while margins, indents, `hr`'s rule and `marquee`'s motion are not
+drawn. They nest and close as the HTML parser closes them, inside the `<p>` Mermaid wraps every
+label in. **Entity codes** — Mermaid's `#name;` and `#NN;` —
+resolve in both dialects as the HTML character references `&name;` and `&#NN;` Mermaid turns them
+into: every name the HTML standard defines (`#copy;` is `©`), an unknown one drawn as the reference
+(`#foo;` draws `&foo;`); the `html` dialect also resolves references the author wrote as HTML
+(`&lt;`). Each tag has its row in the compatibility corpus (`src/compat/labelCorpus.ts`).
+
+One module owns all of it, `packages/core/src/label/`: `readLabel` reads the source into a `Label`
+and reports **problems** at character offsets, which the parser turns into diagnostics at the
+author's own line and column (an error refuses the document, as an unrecognized line does);
+`layoutLabel` measures it into a `LabelBox` — a row as tall as its tallest run, the label its rows
+stacked, an author's px size measured against the 14px base, a run's letter- and word-spacing
+counted into its width, a bold run at the regular weight and a monospace run in the regular font (a
+deliberate simplification, not a gap); `drawLabel`
+draws it at the box's centre. A label layout has measured and placed is a **placed label**
+(`PlacedLabel`): the label, its `labelBox`, and the `anchor` `drawLabel` centres it on, which exist
+together or not at all — an edge's, a message's, a block condition's and a frame title's `label` is
+one, and a `null` one means nothing is drawn there.
+A label of one row holding one plain run — nearly every label — is
+drawn as the `<text>`'s own `textContent`, exactly as before labels had rows; anything else is one
+`<tspan class="siren-label-row">` per row with one `<tspan>` per run inside it, which is the
+structure Mermaid's own SVG labels use. What a run paints *behind* its text comes back separately,
+and the renderer puts it before the `<text>`, since document order is paint order.
+_Avoid_: text, caption, string (for the read label — say "flattened text" for the string); line (for
+a drawn row — a Markdown string's plain *line* break is one way to start a row, `<br>` is another)
 
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
@@ -451,7 +530,8 @@ _Avoid_: header, top box (ambiguous with a box grouping)
 
 **Message**:
 One `A->>B: text` line in a sequence diagram — an arrow from one participant to another (or to
-itself), carrying label text. Its arrow style is two independent axes: a line (`solid`/`dotted`)
+itself), carrying its text as a **Label** in the `sequence` dialect, its rows stacked upward from the
+arrow, which moves down a row for each row the label adds. Its arrow style is two independent axes: a line (`solid`/`dotted`)
 and an arrowhead (`none`/`filled`/`bidirectionalFilled`/`cross`/`open`), which compose into
 Mermaid's ten arrow forms.
 _Avoid_: edge (that is flowchart vocabulary — messages are ordered in time, edges are not), call,
@@ -476,10 +556,14 @@ A `loop`/`alt`/`opt`/`par`/`critical`/`break`/`rect` region wrapping a run of st
 sequence diagram, nestable to any depth. Drawn as a frame spanning every participant lane its body
 touches, with one divider per extra branch (`else`/`and`/`option`). Its own keyword (`loop`, `alt`,
 …) draws once, on the block's own header — never on a divider, however many branches there are —
-beside the bracket-wrapped condition text (`loop every day` draws the word `loop` and `[every
+beside the bracket-wrapped condition (`loop every day` draws the word `loop` and `[every
 day]`; measured against real Mermaid, which brackets a block's condition the same way whether it
-sits on the header or on a divider). `rect` is the exception: a filled background highlight with no
-frame, no keyword and no label. Addressable in a `timeline:` block under a generated id — its kind,
+sits on the header or on a divider). A condition is a **Label** in the `sequence` dialect: the
+brackets open its first row and close its last (`loop every<br/>day` draws `[every` over `day]`),
+and the header or divider band grows a row for each row it adds, the first row staying where a
+one-row condition sits. `rect` is the exception: a filled background highlight with no frame and no
+keyword; what follows `rect` is its color, carried in the block's own `color` field (its one
+branch has no condition) and drawn as the fill, never as text. Addressable in a `timeline:` block under a generated id — its kind,
 then a 1-based counter per kind in source order: `loop:1`, `alt:2`, `rect:1`. The colon is
 load-bearing: a participant id is `\w+`, so no message id (`${from}-${to}`) can ever spell one of
 these.
@@ -487,7 +571,9 @@ _Avoid_: block (alone — too vague), group, section, box
 
 **Box grouping**:
 A `box <color> <label> ... end` region wrapping participant declarations, drawn as a colored
-background band behind those lanes for the diagram's full height. Distinct from a control-flow
+background band behind those lanes for the diagram's full height, its label a **Label** in the
+`sequence` dialect drawn across the band's top, above the participant row, which starts lower by
+the tallest box label's every row. Distinct from a control-flow
 block (which wraps messages in time, not participants in space) and from a participant's own box
 shape. Addressable in a `timeline:` block under a generated id (`box:1`, `box:2`, … in declaration
 order); animating it moves the band and its label, never the participants it groups, which are
@@ -500,8 +586,11 @@ One box in a class diagram — the class-diagram counterpart of a flowchart node
 `class` statement (bare, block, or the inline `Animal : +int age` member form) or implicitly by
 being named in a relationship, exactly as `A --> B` creates two flowchart nodes. Its id is the
 declared name, with a generic parameter *not* part of it: `class Registry~T~` has the id
-`Registry` and draws as `Registry<T>`. A second declaration of the same name merges members
-rather than erroring. May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
+`Registry` and draws as `Registry<T>`. It may carry a bracketed `["label"]` after the name and any
+generic (`class Order["Order<br/>Line"]`, also on the block form), drawn in place of the name and
+generic; the label is a **Label** in the `html` dialect, and the name stays the id. A second
+declaration of the same name merges members rather than erroring (a second, different label is
+ignored with a warning — the first one is kept). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
 author-chosen text), drawn in guillemets above the name — an annotation labels the class it
 is written in, unlike a note, which is a box of its own.
 _Avoid_: CSS class (the codebase is full of `siren-*` CSS classes and of these boxes — say
@@ -514,7 +603,10 @@ boxes, so say "the apply-directive" for it), node, entity, box
 One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
 `-` private, `#` protected, `~` package), an optional classifier (`*` abstract, `$` static), a
 name, an optional type, and — for methods — a parameter list and an optional return type.
-Rendered verbatim, as the author spelled it. Attributes and methods draw in two separate
+Rendered verbatim, as the author spelled it: a member is **not** a Label, because Mermaid escapes
+its text in both label modes, so no tag in it is read — the one change made first, as Mermaid makes
+it, is respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those four
+characters. Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
@@ -522,7 +614,7 @@ member" when the kind matters)
 
 **Relationship**:
 A directed edge between two classes, carrying one of Mermaid's nine types, an optional `: label`
-and optional multiplicity strings at each end. Its id follows the flowchart edge convention
+— a **Label** in the `html` dialect — and optional multiplicity strings at each end. Its id follows the flowchart edge convention
 exactly: `${fromId}-${toId}`, then `#2` for a repeat pair. The type is modeled as two axes — a
 `line` (`solid` | `dashed`) and an endpoint marker at each end (`none` | `triangle` |
 `diamondFilled` | `diamondHollow` | `arrow` | `circle`) — whose named compositions are
@@ -552,7 +644,9 @@ one in a graph-shaped diagram — a sequence diagram's **box grouping** bands pa
 its **control-flow block** wraps statements in time. A flowchart's **subgraph** is the fourth and
 draws the same figure deliberately, so a theme or an author who has learned to read one need not
 learn a second vocabulary; that entry lists the four things that are nevertheless not the same,
-starting with nesting, which this construct does not do. Addressable in a `timeline:` block under
+starting with nesting, which this construct does not do. It may carry a bracketed `["label"]` after
+its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
+**Label** in the `html` dialect. Addressable in a `timeline:` block under
 a generated id (`namespace:1`, `namespace:2`, … in source order).
 _Avoid_: package, module, cluster (that is the dagre-side word `layoutDirectedGraph` uses for the
 mechanism, not the authored construct), group, box
@@ -560,8 +654,10 @@ mechanism, not the authored construct), group, box
 **Note**:
 A free-standing annotation box, in either of the two diagram kinds that have one — a class
 diagram's, either attached to one class (`note for Shelf "..."`, drawn with a connector to that
-class's box) or standing alone (`note "..."`); a sequence diagram's `note over A,B`/`note right of
-A`/`note left of A`, modeled as one statement with a `left`/`right`/`over` placement axis (the
+class's box) or standing alone (`note "..."`), its quoted text a **Label** in the `html` dialect; a
+sequence diagram's `note over A,B`/`note right of
+A`/`note left of A`, its text a **Label** in the `sequence` dialect and the note as tall as all its
+rows, modeled as one statement with a `left`/`right`/`over` placement axis (the
 same two/one-axis pattern as `SequenceArrow`/`ClassRelationshipEnd`) rather than three statement
 kinds, and drawn with the class diagram's own `siren-note`/`siren-note-frame`/`siren-note-text`
 classes — deliberately reused rather than duplicated, since it is the same idea (a boxed
@@ -589,14 +685,17 @@ it was first written, and the model is left with *identification* alone.
 
 What it does carry is **descriptions**, and that is an array rather than a string because they
 **accumulate**: measured (mermaid 11.17.2), `s : first` followed by `s : second` reports
-`descriptions=["first","second"]`, so a second description is a second line of text and not a
-correction of the first. The two spellings — `Idle : waiting` and `state "waiting" as Idle` — are
+`descriptions=["first","second"]`, so a second description is drawn beneath the first and is not a
+correction of it. Each description is a **Label** (below), so one description may hold several rows
+of its own. The two spellings — `Idle : waiting` and `state "waiting" as Idle` — are
 **one construct written two ways**, and `as` is not the rename it looks like: measured, both land in
 the same `descriptions` array and neither touches the id, so `Idle` is still what a transition
 names. Which spelling was written is therefore recorded nowhere, the same call `graph` versus
 `flowchart` gets. A described state draws its descriptions *in place of* its id, with a
-`.siren-state-divider` closing the title row once there are two or more — the compartment line a
-class box already draws, and the one Mermaid draws as `line.divider`.
+`.siren-state-divider` under every row of the first description — the **title label** — once there
+are two or more descriptions: the compartment line a class box already draws, and the one Mermaid
+draws as `line.divider`. Descriptions, notes, transition labels and a composite's quoted title are
+all Labels read in the `html` dialect, because Mermaid draws every one of them as HTML (measured).
 _Avoid_: node (flowchart vocabulary), status, step (that is the timeline's word for a reveal
 position), box (say "frame" for the drawn `<rect>`)
 
@@ -674,6 +773,104 @@ description statement can name one.
 _Avoid_: initial/final state (they are not states — nothing can describe or style one), start node,
 terminator, `[*]` (that is the spelling, not the thing)
 
+**Entity**:
+One box in an ER diagram — the ER counterpart of a flowchart **node**, a class diagram's **class**
+and a state diagram's **state**. Declared by naming it, bare (`CUSTOMER`) or at either end of an
+**ER relationship**, and a line is a stream of statements rather than one, so `CUSTOMER ORDER` is
+two entities. Its name is its id and is spelled one of two ways: **bare**, in Mermaid's ER name
+alphabet — letters, digits, `_`, `-`, `.`, `*` and any non-ASCII character, so `LINE-ITEM` and
+`中文實體` are each one name, while `end`, `subgraph`, `class`, `style` and `classDef` are refused —
+or **quoted**, `"Customer Account"`, which takes any character but a quote and keeps its spaces.
+Quoting changes the id itself and is not an alias. Named again, it is still one entity, kept where it
+was first named, and the attributes of every block it opens join in order.
+
+It may carry an **alias**, `CUSTOMER["Customer Account"]` or bracketless `CUSTOMER[Account]`,
+drawn in place of the name while the name stays the id — so `data-siren-id` and a `timeline:`
+entry still say `CUSTOMER`. The alias is a **Label** in the `html` dialect; the bracketless
+spelling holds exactly one name, so it can carry no tag. The first alias written wins, and a later
+mention without one does not clear it. An entity with no alias draws its name as written, never
+read for tags. Unlike a state's `state "text" as s`, an alias replaces the drawn name rather than
+adding a description under it.
+_Avoid_: table, node (flowchart vocabulary), class (class-diagram vocabulary), box (say "frame" for
+the drawn `<rect>`), entity code (that is a label's `#name;` character reference — see **Label** —
+and never one of these boxes), label (for the alias)
+
+**Entity attribute**:
+One row in an entity's `{ ... }` block — `type name`, then optional keys, then an optional comment,
+in that order (`string code PK,FK "the code"`). One line may hold several, and the braces belong to
+the line's stream rather than standing on lines of their own: `E { string a }` is the same entity
+as the three-line spelling. The **type** and the **name** are literal: never Labels, drawn exactly
+as written, in a third alphabet of their own — a word that may not begin with a digit, carries
+`()`, `[]` and `,` (`string(99)`, `int[]`), keeps a `~generic~` with its tildes (a class diagram's
+generic is redrawn in angle brackets; this one is not), and may be backticked
+(`` `odd name` ``) to hold any character, the backticks not drawn. The **keys** are `PK`, `FK` and
+`UK`, any case, comma-separated and kept as written, repeats included. The **comment** is the
+quoted string last on the row, and a **Label** in the `html` dialect. An entity's table draws the
+type and name columns always, and its keys and comment columns only when some row of it wrote
+one. An entity attribute has no id: it is not addressable in a `timeline:` block, and animates with
+the entity that owns it.
+_Avoid_: attribute (alone — it is also an SVG attribute and one of a class **member**'s two kinds),
+member (class-diagram vocabulary), field, column (that is the drawn table's), property (that is a
+CSS declaration's)
+
+**ER relationship**:
+A connector between two entities, written `CUSTOMER ||--o{ ORDER : places` — a cardinality at each
+end, a line between them, and a label. Both endpoints are declared by being named, and both join
+the ER subgraph it is written in.
+
+- **Cardinality** — how many of the entity at that end take part, one of four, chosen at each end
+  independently: `onlyOne` (`||`), `zeroOrOne` (`|o`/`o|`), `oneOrMore` (`}|`/`|{`) and
+  `zeroOrMore` (`}o`/`o{`), each also spelled in words or digits (`one`, `zero or one`, `one or more`,
+  `zero or many`, `1+`, …) that mix freely with the punctuation. Drawn as a crow's-foot marker
+  against the entity it is written next to: the glyph touching the box says one or many, the one
+  beyond it mandatory or optional. Mermaid's fifth, `u`, is refused by name — Mermaid draws no
+  figure for it either.
+- **Identifying** or **non-identifying** — the line: `--` or `to` draws it solid, `..`, `.-`, `-.`
+  or `optionally to` dashed.
+- **Label** — required: there is no unlabelled ER relationship. One word or one quoted string —
+  `: two words` labels it `two` and declares a third entity, `words`. A **Label** in the `html`
+  dialect.
+
+Its id is `${from}:${to}`, then `#2` for a repeat pair — a colon where every other kind's connector
+uses a hyphen, because an ER name may itself contain one. A quoted name can still spell any id, so
+two drawn elements sharing one are warned about rather than ruled out. Addressable in a `timeline:`
+block; no author style can reach it.
+_Avoid_: relationship (alone — that is the class diagram's connector, see **Relationship**), edge
+(flowchart vocabulary), transition, association, multiplicity (that is a class relationship's
+end string — say "cardinality"), dashed/solid as the axis's name (say "identifying" — they are how
+it is drawn)
+
+**ER subgraph**:
+A `subgraph sales ... end` block in an ER diagram, drawn as a titled frame around the entities named
+inside it — relationship endpoints included — and laid out as a dagre cluster: the **sixth**
+grouping construct here, drawing deliberately the same figure as a flowchart's **subgraph**, a
+**namespace** and a **composite state**. Its **name** is mandatory and is an entity name in either
+spelling (`subgraph "My Cluster"`; `subgraph My Cluster` unquoted is refused). The header owns its
+line, while `end` is an ordinary statement — `A end` declares `A` and then closes the block.
+
+Its **title** is optional and bracketed: `sales["Sales Team"]` or `sales[Sales Team]`, drawn on the
+frame in place of the name, every run of spaces drawn as one. **Quoted, the title is a Label in the
+`html` dialect. Unquoted, it is words in the entity-name alphabet and nothing else**, so it can carry
+no tag: a title with any other character — `subgraph s1[My<br/>Title]` — is refused at the title, as
+Mermaid refuses it, and quoting it is the way to write a label. A block with no title draws its name
+as written, never read for tags.
+
+It nests and may carry its own `direction`, both as a flowchart's subgraph does. Three things are
+not the same as a flowchart's subgraph, each measured:
+
+- **A name claimed by two blocks belongs to the innermost one**, because Mermaid settles membership
+  as each block closes — not to the first that named it.
+- **Its name is not unique**, since two blocks may share one, so its id is generated
+  (`subgraph:1`, `subgraph:2`, … in the order the keywords open) and that is what a `timeline:`
+  entry addresses.
+- **Nothing may share its name.** An entity named like a block — bare, or as a relationship's
+  endpoint — is refused by name, since Mermaid draws no box for it, and so no relationship can end
+  on the frame. A `style` or `class` naming a block already closed is refused too: Mermaid paints
+  the frame, and painting one is unimplemented.
+_Avoid_: subgraph (alone — that is the flowchart's, see **Subgraph**), cluster (the dagre-side
+word), namespace (class-diagram vocabulary), composite state (state-diagram vocabulary), group,
+frame (that is the drawn `<rect>`)
+
 **Author style**:
 A styling declaration written in the document, emitted as an inline `style` attribute on the
 element it is about. A **local override within one document**, as opposed to a **design token**,
@@ -682,12 +879,18 @@ which is the global default for every diagram — the two do not compete, see
 four directives: `style A fill:#fdd` straight onto one node, `classDef name ...` defining a named
 set that applies to nothing on its own, the apply-directive that applies one such set to a list of
 targets, and `linkStyle` — the only one that reaches an **edge**. A class diagram accepts the
-first three. A sequence diagram accepts none, deliberately: Mermaid has no `style` there, so
-adding one would be Siren invention rather than compatibility.
+first three. An ER diagram accepts the first three too, and they reach an **entity** and nothing
+else: an **ER relationship** cannot be styled at all, as in Mermaid, and an **ER subgraph** named
+after its block has closed is refused, since Mermaid paints that frame and Siren does not yet. Nor
+does an ER `classDef default` stand: in Mermaid every ER entity wears that class implicitly, and
+here none does, so it is refused rather than applied to nothing. A sequence diagram accepts none,
+deliberately: Mermaid has no `style` there, so adding one would be Siren invention rather than
+compatibility.
 The apply-directive has two authored spellings and is **one directive**: Mermaid writes
-`class A,B name` in a flowchart and `cssClass "A,B" name` in a class diagram, plus the flowchart
-shorthand `A:::name` (standalone, or on either endpoint of an edge line). All three normalize at
-the parser to one `apply` kind, so nothing downstream branches on which was written — the same
+`class A,B name` in a flowchart and an ER diagram and `cssClass "A,B" name` in a class diagram,
+plus the shorthand `A:::name` — in a flowchart standalone or on either endpoint of an edge line,
+in an ER diagram on an entity's own declaration, after any alias and before any `{`. All three
+normalize at the parser to one `apply` kind, so nothing downstream branches on which was written — the same
 rule that turns `TD` into `TB`. The authored spelling survives only as `authoredAs`, so that a
 diagnostic can quote the keyword the author actually typed and nothing else can act on it.
 **`linkStyle` addresses an edge by declaration index; everything downstream uses the edge id.**
@@ -697,7 +900,8 @@ index never reaches a renderer. `default` is a **fallback tier**, not another de
 covers every edge no specific `linkStyle` named, a specific one wins for the edge it names
 whichever order the two were written in, and the two merge property by property rather than one
 replacing the other.
-`color` reaches label text, in both diagram kinds — the author's spelling, translated once in the
+`color` reaches label text, in every kind that styles — in an ER diagram, an entity's name and
+every cell of its attribute table — the author's spelling, translated once in the
 model to the `fill` that actually paints SVG text. That now includes a flowchart **edge**'s own
 label, which is a `<text>` the same translation lands on; the connection was made once the edge
 had somewhere to put it, and only after measuring that Mermaid makes it too. Every other property
@@ -729,7 +933,10 @@ reaches this concept through `click`. A sequence diagram reaches it through a th
 was added for it: Mermaid's own popup-menu semantics for this directive are not reproducible in a
 static SVG anyway, measured as a `display:none` panel toggled by JS), with `Label` carried as the
 interaction's `tooltip` and drawn as a `<title>` — the same "first child of the group" tooltip
-convention `click`/`link` already use on a class.
+convention `click`/`link` already use on a class. An ER diagram has no interaction target at all:
+Mermaid's ER grammar has no `click`, `link` or `callback`, so `click A href "url"` there is not a
+directive but a stream of entity names — `click`, `A`, `href` and the quoted `url` — and Siren
+reads it the same way rather than inventing the construct.
 
 A flowchart's `click X href "url"` additionally accepts an optional fourth argument, one of
 Mermaid's four `LINK_TARGET` values (`_blank`/`_self`/`_top`/`_parent`, a fixed lexer token —

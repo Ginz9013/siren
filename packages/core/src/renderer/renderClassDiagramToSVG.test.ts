@@ -3,13 +3,50 @@ import { renderClassDiagramToSVG } from "./renderClassDiagramToSVG";
 import type {
   ClassRelationshipEnd,
   ClassRelationshipLine,
+  Label,
+  LabelBox,
+  PlacedLabel,
   PositionedClass,
   PositionedClassDiagram,
   PositionedClassNamespace,
   PositionedClassNote,
   PositionedClassRelationship,
 } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { CANVAS_GUTTER } from "./sizeCanvas";
+
+/** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
+
+/**
+ * A box for `rowsLabel(...rows)` as a measurer answering 8px a character
+ * and 24px a row, with no padding, would measure it — written out here so
+ * no measurer is involved: the renderer draws what layout reported.
+ */
+const boxOf = (...rows: string[]): LabelBox => ({
+  width: Math.max(...rows.map((row) => row.length * 8)),
+  height: rows.length * 24,
+  rows: rows.map((row, index) => ({
+    y: index * 24 + 12,
+    height: 24,
+    width: row.length * 8,
+    runs: [{ x: 0, width: row.length * 8 }],
+  })),
+});
+
+/** `text` as one plain run, with the box layout would have measured for it. */
+const labelled = (text: string): { label: Label; labelBox: LabelBox } => ({
+  label: plainLabel(text),
+  labelBox: boxOf(text),
+});
+
+/** A relationship's `label`: `labelled`'s text and box, placed at `anchor`. */
+const placed = (text: string, anchor: { x: number; y: number }): { label: PlacedLabel } => ({
+  label: { label: plainLabel(text), labelBox: boxOf(text), anchor },
+});
 
 /**
  * Hand-built class box with no compartments — a bare `class Animal`, laid
@@ -19,7 +56,7 @@ import { CANVAS_GUTTER } from "./sizeCanvas";
 function buildClass(overrides: Partial<PositionedClass> = {}): PositionedClass {
   return {
     id: "Animal",
-    name: "Animal",
+    ...labelled("Animal"),
     annotation: null,
     x: 10,
     y: 20,
@@ -74,7 +111,6 @@ function buildRelationship(
       { x: 260, y: 160 },
     ],
     label: null,
-    labelAnchor: null,
     fromMultiplicity: null,
     fromMultiplicityAnchor: null,
     toMultiplicity: null,
@@ -198,7 +234,7 @@ const MERMAID_RELATIONSHIP_TYPES = [
 
 /**
  * Hand-built namespace frame, laid out around the class fixtures above with
- * its label centered on the strip along its top edge — `labelAnchor` is the
+ * its label centered on the strip along its top edge — `label.anchor` is the
  * label's center point, as `layoutClassDiagram` computes it.
  */
 function buildNamespace(
@@ -206,12 +242,11 @@ function buildNamespace(
 ): PositionedClassNamespace {
   return {
     id: "Zoo",
-    label: "Zoo",
+    ...placed("Zoo", { x: 154, y: 20 }),
     x: 4,
     y: 6,
     width: 300,
     height: 200,
-    labelAnchor: { x: 154, y: 20 },
     ...overrides,
   };
 }
@@ -220,7 +255,7 @@ function buildNamespace(
 function buildNote(overrides: Partial<PositionedClassNote> = {}): PositionedClassNote {
   return {
     id: "note-1",
-    text: "Ducks are birds",
+    ...labelled("Ducks are birds"),
     x: 200,
     y: 40,
     width: 160,
@@ -261,7 +296,7 @@ describe("renderClassDiagramToSVG", () => {
 
   it("renders one identified group per class, holding a frame rect at the class's box", () => {
     const svg = renderClassDiagramToSVG(
-      buildDiagram([buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 20 })]),
+      buildDiagram([buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 20 })]),
     );
 
     const groups = svg.querySelectorAll("g.siren-class");
@@ -280,7 +315,7 @@ describe("renderClassDiagramToSVG", () => {
   });
 
   it("renders the class name centered in the box when the class has no compartments", () => {
-    const svg = renderClassDiagramToSVG(buildDiagram([buildClass({ name: "Square~Shape~" })]));
+    const svg = renderClassDiagramToSVG(buildDiagram([buildClass({ ...labelled("Square~Shape~") })]));
 
     const name = svg.querySelector("g.siren-class text.siren-class-name");
     expect(name?.textContent).toBe("Square~Shape~");
@@ -325,7 +360,7 @@ describe("renderClassDiagramToSVG", () => {
   it("renders one identified group per relationship, with its line along the layout's points", () => {
     const svg = renderClassDiagramToSVG(
       buildDiagram(
-        [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],
+        [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
         [buildRelationship()],
       ),
     );
@@ -409,8 +444,7 @@ describe("renderClassDiagramToSVG", () => {
         [],
         [
           buildRelationship({
-            label: "owns",
-            labelAnchor: { x: 150, y: 148 },
+            ...placed("owns", { x: 150, y: 148 }),
             fromMultiplicity: "1",
             fromMultiplicityAnchor: { x: 80, y: 96 },
             toMultiplicity: "*",
@@ -488,7 +522,7 @@ describe("renderClassDiagramToSVG", () => {
     // that rule kept in this file.
     const diagram = {
       ...buildDiagram(
-        [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],
+        [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
         [buildRelationship()],
       ),
       namespaces: [buildNamespace({ id: "namespace:1" })],
@@ -509,7 +543,7 @@ describe("renderClassDiagramToSVG", () => {
     // And the same for a timeline built from the other three verbs, whose
     // targets were never pending under the deleted rule either.
     const noEnter = buildDiagram(
-      [buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 140 })],
+      [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
       [buildRelationship()],
     );
     noEnter.timeline = {
@@ -533,14 +567,13 @@ describe("renderClassDiagramToSVG", () => {
       buildDiagram(
         [
           buildClass({
-            name: markup,
+            ...labelled(markup),
             methods: { dividerY: 50, members: [{ text: markup, x: 18, y: 64 }] },
           }),
         ],
         [
           buildRelationship({
-            label: markup,
-            labelAnchor: { x: 150, y: 148 },
+            ...placed(markup, { x: 150, y: 148 }),
             toMultiplicity: markup,
             toMultiplicityAnchor: { x: 244, y: 152 },
           }),
@@ -567,7 +600,7 @@ describe("renderClassDiagramToSVG", () => {
   // markup for the same reason every label in this file is.
   it("draws a generic as part of the class name, in the spelling the layout composed", () => {
     const svg = renderClassDiagramToSVG(
-      buildDiagram([buildClass({ id: "Registry", name: "Registry<T>" })]),
+      buildDiagram([buildClass({ id: "Registry", ...labelled("Registry<T>") })]),
     );
 
     const name = svg.querySelector("g.siren-class text.siren-class-name");
@@ -632,8 +665,8 @@ describe("renderClassDiagramToSVG", () => {
 
   it("renders every namespace before the classes, so a frame paints behind its members", () => {
     const svg = renderClassDiagramToSVG({
-      ...buildDiagram([buildClass(), buildClass({ id: "Duck", name: "Duck", x: 200, y: 20 })]),
-      namespaces: [buildNamespace(), buildNamespace({ id: "Aviary", label: "Aviary" })],
+      ...buildDiagram([buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 20 })]),
+      namespaces: [buildNamespace(), buildNamespace({ id: "Aviary", ...placed("Aviary", { x: 154, y: 20 }) })],
     });
 
     // SVG has no z-index: what paints behind is whatever comes first in
@@ -764,7 +797,7 @@ describe("renderClassDiagramToSVG", () => {
               },
             }),
           ],
-          [buildRelationship({ label: "owns", labelAnchor: { x: 70, y: 160 } })],
+          [buildRelationship(placed("owns", { x: 70, y: 160 }))],
         ),
       );
 
@@ -956,5 +989,117 @@ describe("renderClassDiagramToSVG", () => {
     expect(dividers.length).toBe(1);
     expect(dividers[0].getAttribute("y1")).toBe("90");
     expect(svg.querySelector("text.siren-class-name")?.getAttribute("y")).toBe("55");
+  });
+});
+
+describe("renderClassDiagramToSVG — labels of more than one row", () => {
+  /** Each row tspan's text, in order — the rows a reader sees. */
+  const rowsOf = (text: Element | null): string[] =>
+    Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map(
+      (row) => row.textContent ?? "",
+    );
+
+  it("draws a class's label one row tspan per row, wearing the class's text style", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram([
+        buildClass({
+          label: rowsLabel("Order", "Line"),
+          labelBox: boxOf("Order", "Line"),
+          style: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+        }),
+      ]),
+    );
+
+    const name = svg.querySelector("g.siren-class text.siren-class-name");
+    expect(rowsOf(name)).toEqual(["Order", "Line"]);
+    expect(name?.getAttribute("style")).toBe("fill:#fff");
+    // The box's name band is the whole box (20..80), so the label is
+    // centred on 50 and its two 24px rows on 38 and 62.
+    expect(
+      Array.from(name?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+        row.getAttribute("y"),
+      ),
+    ).toEqual(["38", "62"]);
+  });
+
+  it("gives an annotation above a name of two rows a third of the band, the name the rest", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram([
+        buildClass({
+          annotation: "interface",
+          label: rowsLabel("Order", "Line"),
+          labelBox: boxOf("Order", "Line"),
+        }),
+      ]),
+    );
+
+    // Band 20..80 shared by three rows: the annotation's 20..40, the name's 40..80.
+    expect(svg.querySelector("text.siren-class-annotation")?.getAttribute("y")).toBe("30");
+    const name = svg.querySelector("text.siren-class-name");
+    expect(
+      Array.from(name?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+        row.getAttribute("y"),
+      ),
+    ).toEqual(["48", "72"]);
+  });
+
+  it("draws a relationship's label one row tspan per row, centred on its anchor", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram(
+        [buildClass()],
+        [
+          buildRelationship({
+            label: { label: rowsLabel("holds", "many"), labelBox: boxOf("holds", "many"), anchor: { x: 150, y: 148 } },
+          }),
+        ],
+      ),
+    );
+
+    const label = svg.querySelector("g.siren-relationship text.siren-relationship-label");
+    expect(rowsOf(label)).toEqual(["holds", "many"]);
+    expect(
+      Array.from(label?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+        row.getAttribute("y"),
+      ),
+    ).toEqual(["136", "160"]);
+  });
+
+  it("draws a namespace's label one row tspan per row, centred on its anchor", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()]),
+      namespaces: [
+        buildNamespace({ label: { label: rowsLabel("Big", "Zoo"), labelBox: boxOf("Big", "Zoo"), anchor: { x: 154, y: 20 } } }),
+      ],
+    });
+
+    const label = svg.querySelector("g.siren-namespace text.siren-namespace-label");
+    expect(rowsOf(label)).toEqual(["Big", "Zoo"]);
+    expect(
+      Array.from(label?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+        row.getAttribute("y"),
+      ),
+    ).toEqual(["8", "32"]);
+  });
+
+  it("draws a note's label one row tspan per row, centred in its box", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()]),
+      notes: [
+        buildNote({
+          label: rowsLabel("can fly", "can swim"),
+          labelBox: boxOf("can fly", "can swim"),
+          height: 64,
+        }),
+      ],
+    });
+
+    const text = svg.querySelector("g.siren-note text.siren-note-text");
+    expect(rowsOf(text)).toEqual(["can fly", "can swim"]);
+    // The box spans 40..104, so its centre is 72 and the rows' 60 and 84.
+    expect(
+      Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+        row.getAttribute("y"),
+      ),
+    ).toEqual(["60", "84"]);
   });
 });

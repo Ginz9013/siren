@@ -1,13 +1,14 @@
 import type {
   EdgeEnd,
   EdgeLine,
-  LabelRun,
   PositionedEdge,
   PositionedGraph,
   PositionedNode,
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
+import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -228,17 +229,14 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
       g.appendChild(element);
     }
 
-    const text = document.createElementNS(SVG_NS, "text");
-    const centerX = node.x + node.width / 2;
-    text.setAttribute("x", String(centerX));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("dominant-baseline", "middle");
-    if (node.labelRuns === null) {
-      text.setAttribute("y", String(node.y + node.height / 2));
-      text.textContent = node.label;
-    } else {
-      buildMarkdownLabel(text, node.labelRuns, centerX, node.y + node.height / 2, node.height);
-    }
+    // Centred on the node, which is where layout centred the box the shape
+    // was sized around. What the label paints behind its text goes in
+    // first, over the frame and under the text, since document order is
+    // paint order.
+    const drawn = drawLabel(node.label, node.labelBox, {
+      x: node.x + node.width / 2,
+      y: node.y + node.height / 2,
+    });
     // The other half of the author's declaration. A node draws two things —
     // the frame and this label — and `resolveStyles` already decided which
     // of them each declaration is about, so there is nothing to sort here.
@@ -248,8 +246,8 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // selector exactly as it outranks a class selector, so a
     // `siren-node-label` mirroring `.siren-class-name` would change nothing
     // about where this lands.
-    applyInlineStyle(text, node.style.text);
-    g.appendChild(text);
+    applyInlineStyle(drawn.text, node.style.text);
+    appendLabel(g, drawn);
 
     // The same wrapper the class diagram renderer calls, on the terms
     // ADR-0008 already established for a node's frame: `null` draws nothing
@@ -345,9 +343,11 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // on. Two elements wearing one id is exactly what ADR-0009 settles: a
     // timeline target is an id, not an element, so `exit A-B fade` takes
     // the label with the line without the controller learning anything.
-    const labelText = buildEdgeLabel(edge);
-    if (labelText !== null) {
-      svg.appendChild(labelText);
+    // What the label paints behind its text goes first: document order is
+    // paint order.
+    const drawnLabel = buildEdgeLabel(edge);
+    if (drawnLabel !== null) {
+      appendLabel(svg, drawnLabel);
     }
   }
 
@@ -355,7 +355,8 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
 }
 
 /**
- * The `<text>` drawn on an edge, or `null` when the edge carries none.
+ * The `<text>` drawn on an edge, with what its label paints behind it, or
+ * `null` when the edge carries none.
  *
  * `null` rather than an empty element, the rule
  * `renderClassDiagramToSVG.buildRelationshipText` already follows: an empty
@@ -367,26 +368,23 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  * that recomputed a mid-point from `points` would draw the text across the
  * line the space was reserved beside.
  */
-function buildEdgeLabel(edge: PositionedEdge): SVGTextElement | null {
-  if (edge.label === null || edge.labelAnchor === null) {
+function buildEdgeLabel(
+  edge: PositionedEdge,
+): DrawnLabel | null {
+  if (edge.label === null) {
     return null;
   }
 
-  const text = document.createElementNS(SVG_NS, "text");
   // A sibling of `.siren-relationship-label`, not that class reused. Every
   // `siren-*` name here is the construct's own: a *relationship* belongs to
   // the class diagram and an *edge* to the flowchart, which is why
   // `.siren-edge` and `.siren-relationship-line` are already two names for
   // two connectors. One shared name would mean a consumer restyling class
   // labels silently restyled every flowchart edge label as well.
-  text.setAttribute("class", "siren-edge-label");
+  const drawn = drawPlaced(edge.label, "siren-edge-label");
+  const { text } = drawn;
   // The same id the path wears — see ADR-0009, and the call site above.
   text.setAttribute("data-siren-id", edge.id);
-  text.setAttribute("x", String(edge.labelAnchor.x));
-  text.setAttribute("y", String(edge.labelAnchor.y));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("dominant-baseline", "middle");
-  text.textContent = edge.label;
   // The author's text half, on the one element an edge has to put it on.
   //
   // **Measured, not chosen.** `linkStyle 0 color:#f00` used to be resolved,
@@ -403,7 +401,7 @@ function buildEdgeLabel(edge: PositionedEdge): SVGTextElement | null {
   // painted with. This is the same call `renderToSVG` already makes for a
   // node's label, on the same half of the same resolved style.
   applyInlineStyle(text, edge.style.text);
-  return text;
+  return drawn;
 }
 
 /** The classes one edge's path wears: the name every edge has, plus its line's own. */
@@ -445,14 +443,8 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
   frame.setAttribute("height", String(subgraph.height));
   g.appendChild(frame);
 
-  const title = document.createElementNS(SVG_NS, "text");
-  title.setAttribute("class", "siren-subgraph-label");
-  title.setAttribute("x", String(subgraph.labelAnchor.x));
-  title.setAttribute("y", String(subgraph.labelAnchor.y));
-  title.setAttribute("text-anchor", "middle");
-  title.setAttribute("dominant-baseline", "middle");
-  title.textContent = subgraph.label;
-  g.appendChild(title);
+  // Over the frame and under the title, since document order is paint order.
+  appendLabel(g, drawPlaced(subgraph.label, "siren-subgraph-label"));
 
   return g;
 }
@@ -844,60 +836,6 @@ function applyInlineStyle(element: SVGElement, style: StyleProperty[]): void {
     "style",
     style.map(({ property, value }) => `${property}:${value}`).join(";"),
   );
-}
-
-/**
- * Fills a node's `<text>` with the nested-`<tspan>` structure a Markdown
- * label draws: one `<tspan class="siren-node-label-row">` per line, each
- * holding one inner `<tspan>` per bold/italic/plain run — the shape real
- * mermaid 11.17.2 draws for this construct, measured (`htmlLabels: false`,
- * a throwaway `mermaid-probe.mjs`-based script): one outer row tspan per
- * line and one inner tspan per formatting run within it.
- *
- * **Absolute `y` on every row, not Mermaid's own relative `transform:
- * translate(...)` plus chained `dy`.** Siren already positions everything
- * else in this file in absolute coordinates, and a row here is no
- * different: `lineHeight` is `boxHeight / lines.length`, which is exact
- * rather than approximate because `layoutGraph`'s `measureLabelBox` sized
- * this very node's box the same way (single-line height times line count),
- * so dividing back out recovers the number layout started from. Each row is
- * then centred on `centerY` the way a single-line label already is —
- * `dominant-baseline: middle`, inherited from the enclosing `<text>`, reads
- * each row's own explicit `y` as that row's vertical middle — spread one
- * `lineHeight` apart so the whole block centers on `centerY`.
- *
- * `font-weight`/`font-style` are written only when true, never
- * `font-weight="normal"` for a plain run — the same omit-the-default
- * convention `wrapInteraction`'s `target`/`rel` pair and every conditional
- * attribute in this file already follow, rather than stating every run's
- * axis explicitly.
- */
-function buildMarkdownLabel(
-  text: SVGTextElement,
-  labelRuns: readonly LabelRun[][],
-  centerX: number,
-  centerY: number,
-  boxHeight: number,
-): void {
-  const lineHeight = boxHeight / labelRuns.length;
-  labelRuns.forEach((lineRuns, index) => {
-    const row = document.createElementNS(SVG_NS, "tspan");
-    row.setAttribute("class", "siren-node-label-row");
-    row.setAttribute("x", String(centerX));
-    row.setAttribute("y", String(centerY + lineHeight * (index - (labelRuns.length - 1) / 2)));
-    for (const run of lineRuns) {
-      const runEl = document.createElementNS(SVG_NS, "tspan");
-      if (run.bold) {
-        runEl.setAttribute("font-weight", "bold");
-      }
-      if (run.italic) {
-        runEl.setAttribute("font-style", "italic");
-      }
-      runEl.textContent = run.text;
-      row.appendChild(runEl);
-    }
-    text.appendChild(row);
-  });
 }
 
 /**

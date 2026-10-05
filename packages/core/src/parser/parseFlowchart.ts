@@ -5,7 +5,8 @@ import type {
   EdgeLine,
   FlowchartDocument,
   Interaction,
-  LabelRun,
+  Label,
+  LabelProblem,
   LinkStyleDecl,
   LinkTarget,
   NodeShape,
@@ -17,6 +18,8 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { plainLabel } from "../label/label";
+import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -208,7 +211,7 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`, "d"),
 }));
 
 /**
@@ -238,7 +241,11 @@ const FENCED_LABEL_RE = /^"([^"]*)"$/;
 
 /**
  * The label an author wrote inside `[...]`, with the fence removed when
- * there is one, and the padding around it dropped.
+ * there is one, and the padding around it dropped — and **where** in
+ * `content` that label begins, past the quote fence and the padding, so
+ * that a problem `readLabel` finds at some offset in the label can be
+ * pointed at in the author's own line. Every label this parser reads has
+ * its position carried this way, from the statement down to the character.
  *
  * Trimmed whether or not the label was quoted: mermaid 11.17.2 records
  * `text="padded"` for both `A[  padded  ]` and `A["  padded  "]`
@@ -246,14 +253,21 @@ const FENCED_LABEL_RE = /^"([^"]*)"$/;
  * label is how an author lays a document out, not part of what the box
  * says, so it is dropped here rather than drawn.
  */
-function labelIn(content: string): string {
+function labelSpan(content: string): LabelSpan {
   const fenced = FENCED_LABEL_RE.exec(content);
-  const label = fenced === null ? content : fenced[1];
-  return label.trim();
+  const inner = fenced === null ? content : fenced[1];
+  const at = (fenced === null ? 0 : LABEL_FENCE.length) + (inner.length - inner.trimStart().length);
+  return { text: inner.trim(), at };
+}
+
+/** A label's text, and the offset it begins at in whatever it was cut from. */
+interface LabelSpan {
+  text: string;
+  at: number;
 }
 
 /**
- * What is left of a fenced label once `labelIn`'s own quote fence has come
+ * What is left of a fenced label once `labelSpan`'s own quote fence has come
  * off, when that remainder is itself fenced in backticks — Mermaid's
  * Markdown-string spelling: `` A["`**bold**`"] ``. Anchored at both ends,
  * the same rule `FENCED_LABEL_RE` follows: one run spanning everything left,
@@ -269,78 +283,35 @@ function labelIn(content: string): string {
 const MARKDOWN_FENCE_RE = /^`([\s\S]*)`$/;
 
 /**
- * `**bold**` or `*italic*`, read left to right and non-nested: the bold
- * alternative is tried first at every position, so `**bold**` is one bold
- * run rather than two italic runs sharing a doubled star.
- *
- * **Deliberately not what mermaid 11.17.2 itself does**, and that gap is
- * measured rather than assumed: real Mermaid tokenizes a Markdown label by
- * *word*, so `plain **bold** plain` draws four `<tspan>`s (one per word) and
- * a bold run nested inside an italic one loses the bold the moment the
- * italic opens (`**bold *and* still**` draws "and" italic and not bold,
- * `scripts/mermaid-probe.mjs`). This board's own corpus rows never mix or
- * nest the two within a line — `fc-text-markdown` is bold-only,
- * `fc-text-italic` is italic-only, `fc-text-multiline` carries neither — so
- * a span-per-run reading is indistinguishable from Mermaid's word-per-run
- * one for everything this ticket measures, and building the word-splitting,
- * style-dropping machinery to match an untested case would be building past
- * what was measured.
+ * A node label read from bracket content: the fence comes off (`labelSpan`),
+ * and what is left is read by `readLabel` — as a Markdown string when the
+ * author wrote the fenced `` "`...`" `` spelling, so `**`/`*` and a real
+ * line break mean something there and nowhere else. The one place both
+ * spellings are told apart, so a standalone declaration
+ * (`readNodeDeclaration`) and an edge endpoint cannot disagree about what a
+ * label means, exactly as `labelSpan` already keeps them from disagreeing
+ * about quoting.
  */
-const MARKDOWN_RUN_RE = /\*\*(.*?)\*\*|\*(.*?)\*/g;
-
-/**
- * One line of a Markdown label, split into the runs `MARKDOWN_RUN_RE` finds,
- * with the plain text between and around them carried as runs of their own.
- *
- * Always at least one run, even for an empty line — a blank row in a
- * multi-line label still has a `<tspan class="row">` to draw in Mermaid, and
- * an empty plain run is what the renderer draws nothing for.
- */
-function markdownLineRuns(line: string): LabelRun[] {
-  const runs: LabelRun[] = [];
-  let lastIndex = 0;
-  MARKDOWN_RUN_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = MARKDOWN_RUN_RE.exec(line)) !== null) {
-    if (match.index > lastIndex) {
-      runs.push({ text: line.slice(lastIndex, match.index), bold: false, italic: false });
-    }
-    if (match[1] !== undefined) {
-      runs.push({ text: match[1], bold: true, italic: false });
-    } else {
-      runs.push({ text: match[2]!, bold: false, italic: true });
-    }
-    lastIndex = MARKDOWN_RUN_RE.lastIndex;
-  }
-  if (lastIndex < line.length || runs.length === 0) {
-    runs.push({ text: line.slice(lastIndex), bold: false, italic: false });
-  }
-  return runs;
+function parseNodeLabel(content: string): ReadLabelResult {
+  const stripped = labelSpan(content);
+  const markdown = MARKDOWN_FENCE_RE.exec(stripped.text);
+  return markdown === null
+    ? readLabelAt(stripped, { dialect: "html" })
+    : readLabelAt(
+        // Past the opening backtick, which is syntax like the quote fence.
+        { text: markdown[1], at: stripped.at + 1 },
+        { dialect: "html", markdown: true },
+      );
 }
 
 /**
- * A node label read from bracket content, split into its Markdown runs when
- * the author wrote the fenced `` "`...`" `` spelling — the one place both
- * spellings are told apart, so a standalone declaration
- * (`readNodeDeclaration`) and an edge endpoint cannot disagree about what a
- * label means, exactly as `labelIn` already keeps them from disagreeing
- * about quoting.
- *
- * `label` is always the *flattened* plain text — every run's text
- * concatenated in source order, each line joined by `\n` — so it stays
- * meaningful to a reader that never learns `labelRuns` exists: an error
- * message, or the redeclaration warning `addNode` raises by comparing two
- * plain strings.
+ * `readLabel` over a span, with each problem's offset moved from the span's
+ * own text into whatever the span was cut from — the one place that
+ * arithmetic is written, for every label position this parser reads.
  */
-function parseNodeLabel(content: string): { label: string; labelRuns: LabelRun[][] | null } {
-  const stripped = labelIn(content);
-  const markdown = MARKDOWN_FENCE_RE.exec(stripped);
-  if (markdown === null) {
-    return { label: stripped, labelRuns: null };
-  }
-  const labelRuns = markdown[1].split("\n").map(markdownLineRuns);
-  const label = labelRuns.map((line) => line.map((run) => run.text).join("")).join("\n");
-  return { label, labelRuns };
+function readLabelAt(span: LabelSpan, options: Parameters<typeof readLabel>[1]): ReadLabelResult {
+  const { label, problems } = readLabel(span.text, options);
+  return { label, problems: problems.map((problem) => ({ ...problem, offset: problem.offset + span.at })) };
 }
 
 /**
@@ -380,7 +351,8 @@ const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
  */
 const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
   shape,
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}(?:\s*:::(\w+))?$`),
+  // `d` for the label's own index, which `labelAt` is measured from.
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}(?:\s*:::(\w+))?$`, "d"),
 }));
 
 /**
@@ -627,7 +599,7 @@ const ARROW_RE = new RegExp(ARROW_TOKEN, "y");
  * nothing here — nothing precedes position 0 — which is what lets one
  * pattern serve both readings.
  */
-const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`);
+const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`, "d");
 
 /**
  * The anchored form that splits an **inline-labelled** run back into the
@@ -652,6 +624,7 @@ const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`);
  */
 const INLINE_LABELLED_PARTS_RE = new RegExp(
   String.raw`^(${FROM_MARKER})?(--|==|-\.)\s*(.+?)\s*(${INLINE_CLOSING_ARROW})$`,
+  "d",
 );
 
 /** The stroke each inline-label opener starts, which its closer must agree with. */
@@ -686,16 +659,24 @@ const STATEMENT_END = ";";
  *
  * The one place `;` stops separating, and a deliberate divergence from
  * Mermaid rather than an oversight. Mermaid does end the statement there —
- * `style A fill:#fdd;position:fixed,stroke:#c00` leaves it holding
- * `fill:#fdd` and invents a **node** called `position:fixed,stroke:#c00` —
- * which is a silent mis-render, the exact failure mode this board exists to
+ * `style A fill:red;position:fixed,stroke:#c00` leaves it holding
+ * `fill:red` and invents a **node** called `position:fixed,stroke:#c00`
+ * (measured, 11.17.2) — which is a silent mis-render, the exact failure
+ * mode this board exists to
  * remove. Siren instead hands the whole list to `resolveStyles`, whose gate
  * refuses a value containing `;` by name: "would smuggle in a second
  * declaration". Splitting here would delete that diagnostic and quietly
  * apply the half of the value that came first.
  *
  * A `;` that merely *trails* such a statement is still spare, so
- * `classDef hot fill:#fdd;` reads as `classDef hot fill:#fdd` does.
+ * `classDef hot fill:red;` reads as `classDef hot fill:red` does.
+ *
+ * A line where a `#` follows the `:` never gets here with its last `;`:
+ * Mermaid's style-line rule (`styleLines`, which `parseSiren` applies to
+ * the whole document) has dropped it already, so
+ * `style A fill:#fdd;position:fixed,stroke:#c00` is one declaration,
+ * `fill:#fddposition:fixed`, which is what Mermaid records too (measured,
+ * 11.17.2: `styles=["fill:#fddposition:fixed","stroke:#c00"]`).
  */
 const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
 
@@ -729,6 +710,8 @@ interface ArrowForm {
   minLength: number;
   /** What the author wrote on the edge, or `null` when they wrote nothing. */
   label: string | null;
+  /** Where `label` begins in the arrow token, for positioning its problems; `0` without one. */
+  labelAt: number;
 }
 
 /**
@@ -781,7 +764,9 @@ function readArrow(token: string): ArrowForm | null {
   if (body === undefined) {
     return readInlineLabelledArrow(token);
   }
-  const label = pipeLabel === undefined ? null : edgeLabelIn(pipeLabel);
+  const span = pipeLabel === undefined ? null : edgeLabelSpan(pipeLabel);
+  const label = span === null ? null : span.text;
+  const labelAt = span === null ? 0 : match.indices![4]![0] + span.at;
   if (label === "") {
     // `A -->|""| B`: a fence with nothing in it is not a label an author
     // can write, and reading it as an unlabelled edge would be the silent
@@ -801,12 +786,12 @@ function readArrow(token: string): ArrowForm | null {
 
   const toEnd = end === undefined ? "none" : END_FOR_MARKER[end];
   if (start === undefined) {
-    return { line, fromEnd: "none", toEnd, minLength, label };
+    return { line, fromEnd: "none", toEnd, minLength, label, labelAt };
   }
   if (end === undefined || start !== OPENING_MARKER[end]) {
     return null;
   }
-  return { line, fromEnd: toEnd, toEnd, minLength, label };
+  return { line, fromEnd: toEnd, toEnd, minLength, label, labelAt };
 }
 
 /**
@@ -847,28 +832,38 @@ function readInlineLabelledArrow(token: string): ArrowForm | null {
   if (form === null || form.line !== OPENER_LINE[opener]) {
     return null;
   }
-  const label = edgeLabelIn(text);
-  return label === "" ? null : { ...form, label };
+  const span = edgeLabelSpan(text);
+  return span.text === ""
+    ? null
+    : { ...form, label: span.text, labelAt: inline.indices![3]![0] + span.at };
 }
 
 /**
- * The label an author wrote on an edge, with the fence removed and the
+ * The label an author wrote on an edge, and where in `content` it begins,
+ * with the fence removed and the
  * padding dropped — the padding outside the fence and the padding inside it
- * alike, exactly as `labelIn` drops a node's.
+ * alike, exactly as `labelSpan` drops a node's.
  *
  * The outer `.trim()` runs before the fence is read rather than relying on
- * `labelIn`'s own, because it is what lets the fenced pattern match at all
+ * `labelSpan`'s own, because it is what lets the fenced pattern match at all
  * when an author padded outside the quotes — `A -->|  "yes"  | B` has
  * nothing to do with `^"..."$` until the surrounding spaces are gone.
  */
-function edgeLabelIn(content: string): string {
-  return labelIn(content.trim());
+function edgeLabelSpan(content: string): LabelSpan {
+  const span = labelSpan(content.trim());
+  return { text: span.text, at: content.length - content.trimStart().length + span.at };
 }
 
 /** One place a node was written on an edge line, as written there. */
 interface EdgeEndpoint {
   id: string;
   label: string | undefined;
+  /**
+   * Where `label`'s bracket content begins in the statement it was written
+   * in, so a problem inside the label can be reported at its own column.
+   * `0`, and never read, when there is no label.
+   */
+  labelAt: number;
   definitionName: string | undefined;
   /**
    * The shape its spelling named. `"rect"` for a bare mention, which is
@@ -885,19 +880,21 @@ interface EdgeEndpoint {
  * The bracket spellings are tried before the bare form, since only they can
  * carry a label; the bare form is what is left.
  */
-function readEndpoint(text: string): EdgeEndpoint | null {
+function readEndpoint(text: string, at: number): EdgeEndpoint | null {
   const trimmed = text.trim();
+  const lead = text.length - text.trimStart().length;
   for (const { shape, re } of ENDPOINT_PATTERNS) {
     const match = re.exec(trimmed);
     if (match !== null) {
-      return { id: match[1], label: match[2], definitionName: match[3], shape };
+      const labelAt = at + lead + match.indices![2]![0];
+      return { id: match[1], label: match[2], labelAt, definitionName: match[3], shape };
     }
   }
   const bare = BARE_ENDPOINT_RE.exec(trimmed);
   if (bare === null) {
     return null;
   }
-  return { id: bare[1], label: undefined, definitionName: bare[2], shape: "rect" };
+  return { id: bare[1], label: undefined, labelAt: 0, definitionName: bare[2], shape: "rect" };
 }
 
 /**
@@ -911,7 +908,13 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
   for (const { shape, re } of NODE_PATTERNS) {
     const match = re.exec(line);
     if (match !== null) {
-      return { id: match[1], label: match[2], definitionName: match[3], shape };
+      return {
+        id: match[1],
+        label: match[2],
+        labelAt: match.indices![2]![0],
+        definitionName: match[3],
+        shape,
+      };
     }
   }
   return null;
@@ -1040,6 +1043,32 @@ function splitOutsideLabel(text: string, separator: string): string[] {
 }
 
 /**
+ * One statement, with where it was written: its text, the line it starts on
+ * and the column it starts at. What a diagnostic about something inside it
+ * is positioned from.
+ */
+interface Statement {
+  text: string;
+  line: number;
+  column: number;
+}
+
+/**
+ * Where each of `parts` begins in the text `cutOutsideLabel` cut them from:
+ * the parts and the separators between them lie end to end, so each part
+ * starts where everything before it ends.
+ */
+function offsetsOf(parts: readonly string[], separators: readonly string[]): number[] {
+  const offsets: number[] = [];
+  let at = 0;
+  parts.forEach((part, index) => {
+    offsets.push(at);
+    at += part.length + (separators[index]?.length ?? 0);
+  });
+  return offsets;
+}
+
+/**
  * The statements one source line carries, each with the column it starts
  * at — so a diagnostic on the second statement of a line points at the
  * second statement rather than at the line.
@@ -1083,7 +1112,7 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
  * a bare word — a single pattern would either have to alternate three ways
  * inline or, worse, accept a tail it cannot read and lose the diagnostic.
  */
-const SUBGRAPH_OPEN_RE = /^subgraph\s+(\S.*)$/;
+const SUBGRAPH_OPEN_RE = /^subgraph\s+(\S.*)$/d;
 
 /** The statement that closes a `subgraph` block. Mermaid's own keyword, lowercase. */
 const SUBGRAPH_END = "end";
@@ -1094,7 +1123,7 @@ const SUBGRAPH_END = "end";
  * same `LABEL_CONTENT` every node label goes through, so `subgraph
  * one["a, b"]` fences exactly as `A["a, b"]` does.
  */
-const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTENT})\]$`);
+const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTENT})\]$`, "d");
 
 /**
  * A bare authored id and nothing else — `Ingest`, `A`, `a.-b`.
@@ -1127,17 +1156,25 @@ const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
  */
 function readSubgraphTitle(
   tail: string,
-): { name: string | null; label: string } | null {
+): ({ name: string | null } & ReadLabelResult) | null {
   const titled = SUBGRAPH_TITLED_RE.exec(tail);
   if (titled !== null) {
-    return { name: titled[1], label: labelIn(titled[2]) };
+    const content = labelSpan(titled[2]);
+    return {
+      name: titled[1],
+      ...readLabelAt({ text: content.text, at: titled.indices![2]![0] + content.at }, { dialect: "html" }),
+    };
   }
   const fenced = FENCED_LABEL_RE.exec(tail);
   if (fenced !== null) {
-    return { name: null, label: fenced[1] };
+    return {
+      name: null,
+      ...readLabelAt({ text: fenced[1], at: LABEL_FENCE.length }, { dialect: "html" }),
+    };
   }
   if (AUTHORED_ID_RE.test(tail)) {
-    return { name: tail, label: tail };
+    // A bare word is the handle and the title at once, and has no tag in it.
+    return { name: tail, label: plainLabel(tail), problems: [] };
   }
   return null;
 }
@@ -1519,24 +1556,50 @@ export function parseFlowchart(source: string): ParseResult {
 
   const addNode = (
     id: string,
-    label: string,
-    labelRuns: LabelRun[][] | null,
+    label: Label,
     shape: NodeShape,
     line: number,
     column: number,
   ) => {
     const existing = nodesById.get(id);
     if (existing === undefined) {
-      nodesById.set(id, { id, label, labelRuns, shape, line, column });
+      nodesById.set(id, { id, label, shape, line, column });
       return;
     }
-    if (existing.label !== label) {
-      diagnostics.push({
-        severity: "warning",
-        message: `Node "${id}" redeclared with a different label ("${existing.label}" kept, "${label}" ignored)`,
-        line,
-        column,
-      });
+    // A later bracket replaces an earlier one — its label and its shape
+    // both, silently — and the node keeps the place it was first written in.
+    // Mermaid 11.17.2, measured: `A[x]` then `A[y]` draws "y", and `A[x]`
+    // then `A{x}` draws a diamond, each with no diagnostic. The author's
+    // later word is the one used, so there is no mistake here to warn about.
+    nodesById.set(id, { ...existing, label, shape });
+  };
+
+  /**
+   * Turns the problems `readLabel` found in one label into diagnostics, each
+   * at the line and column of the character it is about — `at` being where
+   * the label's offsets count from, in `statement`'s own text.
+   *
+   * A statement is a slice of its source line as written, so a position in
+   * it is a column once the statement's own column is added — except that a
+   * Markdown string's fence may have carried the statement across physical
+   * lines (`joinMarkdownFences`), so every line break before the position
+   * moves it one line down and restarts the column count.
+   *
+   * An error costs the whole document, exactly as an unrecognized line does:
+   * a label Siren cannot draw as written is not drawn some other way.
+   */
+  const reportLabelProblems = (problems: LabelProblem[], statement: Statement, at: number) => {
+    const reported = labelDiagnostics(problems, (offset) => {
+      const before = statement.text.slice(0, at + offset);
+      const lastBreak = before.lastIndexOf("\n");
+      return {
+        line: statement.line + before.split("\n").length - 1,
+        column: lastBreak === -1 ? statement.column + before.length : before.length - lastBreak,
+      };
+    });
+    diagnostics.push(...reported.diagnostics);
+    if (reported.hasError) {
+      sawError = true;
     }
   };
 
@@ -1549,8 +1612,8 @@ export function parseFlowchart(source: string): ParseResult {
    * written, so where it was written must not be what decides what it does.
    *
    * The label and the definition are independent. A label declares, so a
-   * labelled mention goes through `addNode` and can raise the redeclaration
-   * warning; an unlabelled one only applies, so it declares the node just
+   * labelled mention goes through `addNode` and replaces whatever bracket
+   * came before it; an unlabelled one only applies, so it declares the node just
    * when nothing else has and leaves a label written elsewhere for that id
    * alone. That second rule is ticket 04's, for the standalone `A:::name`,
    * and an edge's bare endpoint has always followed it — they are one rule
@@ -1559,15 +1622,13 @@ export function parseFlowchart(source: string): ParseResult {
    * `label` is bracket content as written, so the fence comes off here —
    * once, for every place a label can appear, which is why `A["x, y"]` on
    * a line of its own and at an edge endpoint cannot disagree about what
-   * the author wrote. `parseNodeLabel` is what removes it now, in place of
-   * the plain `labelIn` this function used to call directly, so a Markdown
-   * label is told apart from an ordinary one in the one place both
-   * spellings already meet.
+   * the author wrote. `parseNodeLabel` is what removes it, through
+   * `labelSpan`, so a Markdown label is told apart from an ordinary one in
+   * the one place both spellings already meet.
    */
   const addNodeAsWritten = (
-    { id, label, definitionName, shape }: EdgeEndpoint,
-    line: number,
-    column: number,
+    { id, label, labelAt, definitionName, shape }: EdgeEndpoint,
+    statement: Statement,
     /**
      * Where this mention was written. Only an *edge endpoint* can mean a
      * subgraph's frame rather than a node — that is Mermaid's rule and the
@@ -1597,11 +1658,13 @@ export function parseFlowchart(source: string): ParseResult {
       innermost.subgraph.nodeIds.push(id);
       claimedBy = innermost.subgraph;
     }
+    const { line, column } = statement;
     if (label !== undefined) {
-      const parsed = parseNodeLabel(label);
-      addNode(id, parsed.label, parsed.labelRuns, shape, line, column);
+      const read = parseNodeLabel(label);
+      reportLabelProblems(read.problems, statement, labelAt);
+      addNode(id, read.label, shape, line, column);
     } else if (undeclared) {
-      nodesById.set(id, { id, label: id, labelRuns: null, shape, line, column });
+      nodesById.set(id, { id, label: plainLabel(id), shape, line, column });
     }
     if (definitionName !== undefined) {
       applyAtDeclaration(id, definitionName, line, column);
@@ -1627,9 +1690,10 @@ export function parseFlowchart(source: string): ParseResult {
     const rawLine = lines[i];
     const lineNumber = i + 1;
 
-    for (const statement of splitStatements(rawLine)) {
-      const line = statement.text;
-      const column = statement.column;
+    for (const piece of splitStatements(rawLine)) {
+      const line = piece.text;
+      const column = piece.column;
+      const statement: Statement = { text: line, line: lineNumber, column };
 
       if (mode === "before-header") {
         const headerDirection = matchFlowchartHeader(line);
@@ -1686,6 +1750,7 @@ export function parseFlowchart(source: string): ParseResult {
           sawError = true;
           continue;
         }
+        reportLabelProblems(title.problems, statement, subgraphOpenMatch.indices![1]![0]);
         const subgraph: SirenSubgraph = {
           name: title.name,
           label: title.label,
@@ -1772,9 +1837,16 @@ export function parseFlowchart(source: string): ParseResult {
 
         // A group per arrow-separated piece: one end of an arrow may name
         // several nodes, `A & B --> C`.
-        const groups: (EdgeEndpoint | null)[][] = arrowParts.map((part) =>
-          splitOutsideLabel(part, GROUP_SEPARATOR).map(readEndpoint),
-        );
+        //
+        // Each endpoint is handed where it starts in the statement, so a
+        // label's problem is reported at its own column: the pieces and the
+        // separators that cut them lie end to end, and add up to the line.
+        const partAt = offsetsOf(arrowParts, arrowTokens);
+        const groups: (EdgeEndpoint | null)[][] = arrowParts.map((part, index) => {
+          const { parts, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
+          const pieceAt = offsetsOf(parts, separators);
+          return parts.map((piece, at) => readEndpoint(piece, partAt[index]! + pieceAt[at]!));
+        });
         if (groups.flat().some((endpoint) => endpoint === null)) {
           // One unreadable endpoint refuses the whole statement — the rule
           // `ENDPOINT_RE` is anchored for. Nothing has been declared yet, so
@@ -1798,7 +1870,7 @@ export function parseFlowchart(source: string): ParseResult {
         // a `:::` on an endpoint two arrows along applies exactly once rather
         // than once per link it takes part in.
         for (const endpoint of written) {
-          addNodeAsWritten(endpoint, lineNumber, column, "an edge endpoint");
+          addNodeAsWritten(endpoint, statement, "an edge endpoint");
         }
         // Sources outermost, which is Mermaid's order: `FlowDB.addLink` is
         // `for (const start of _start) for (const end of _end)`, so
@@ -1808,12 +1880,24 @@ export function parseFlowchart(source: string): ParseResult {
           // `A & B -.-> C` both edges are dotted, and in `A --> B ==> C` the
           // second is thick and the first is not.
           const arrow = arrows[link]!;
+          // Read once per arrow rather than once per edge it draws: `A & B
+          // -->|x| C` is two edges wearing the one label the author wrote.
+          // The token sits right after the part it follows.
+          const tokenAt = partAt[link]! + arrowParts[link]!.length;
+          let label: Label | null = null;
+          if (arrow.label !== null) {
+            const read = readLabelAt({ text: arrow.label, at: arrow.labelAt }, { dialect: "html" });
+            reportLabelProblems(read.problems, statement, tokenAt);
+            label = read.label;
+          }
           for (const from of chain[link]) {
             for (const to of chain[link + 1]) {
+              const { labelAt: _labelAt, ...form } = arrow;
               edges.push({
                 from: from.id,
                 to: to.id,
-                ...arrow,
+                ...form,
+                label,
                 sourceLine: lineNumber,
                 sourceColumn: column,
               });
@@ -1976,7 +2060,7 @@ export function parseFlowchart(source: string): ParseResult {
 
       const declared = readNodeDeclaration(line);
       if (declared !== null) {
-        addNodeAsWritten(declared, lineNumber, column);
+        addNodeAsWritten(declared, statement);
         continue;
       }
 
@@ -1987,11 +2071,7 @@ export function parseFlowchart(source: string): ParseResult {
         // definition, claims no label and names no shape — `addNodeAsWritten`
         // holds what that means, for this spelling and for an edge's bare
         // endpoint alike.
-        addNodeAsWritten(
-          { id, label: undefined, definitionName, shape: "rect" },
-          lineNumber,
-          column,
-        );
+        addNodeAsWritten({ id, label: undefined, labelAt: 0, definitionName, shape: "rect" }, statement);
         continue;
       }
 
@@ -2020,9 +2100,8 @@ export function parseFlowchart(source: string): ParseResult {
       // block state.
       if (line !== SUBGRAPH_END && AUTHORED_ID_RE.test(line)) {
         addNodeAsWritten(
-          { id: line, label: undefined, definitionName: undefined, shape: "rect" },
-          lineNumber,
-          column,
+          { id: line, label: undefined, labelAt: 0, definitionName: undefined, shape: "rect" },
+          statement,
         );
         continue;
       }

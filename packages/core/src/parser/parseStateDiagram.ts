@@ -1,6 +1,7 @@
 import type {
   Diagnostic,
   Direction,
+  Label,
   ParseResult,
   SirenTimeline,
   StateDecl,
@@ -12,6 +13,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
@@ -37,7 +39,7 @@ const STATE_HEADER_SPELLINGS = listAcceptedHeaders(["state"]);
  * rather than a looser `.+`, so nothing else bracket-shaped is read as an
  * endpoint and a state literally named `[*]` stays unconstructible.
  */
-const TRANSITION_RE = /^(\w+|\[\*\])\s*-->\s*(\w+|\[\*\])\s*(?::\s*(.*))?$/;
+const TRANSITION_RE = /^(\w+|\[\*\])\s*-->\s*(\w+|\[\*\])\s*(?::\s*(.*))?$/d;
 
 /** The one spelling of a pseudo-state endpoint, as an author writes it. */
 const PSEUDO_STATE = "[*]";
@@ -150,7 +152,7 @@ const KEYWORD_ONLY_RE = /^state(?:\s+\w+)?$/i;
  * an empty description — so it falls through to this parser's own
  * unrecognized-line diagnostic instead of entering a state table.
  */
-const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/;
+const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/d;
 
 /**
  * The other spelling of the very same thing — `state "waiting" as Idle`.
@@ -167,7 +169,7 @@ const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/;
  * `state "" as X` is a **parse error in Mermaid**, not a state with a blank
  * description.
  */
-const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
+const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/d;
 
 /**
  * The statement that opens a composite state: `state Outer {`, or the same
@@ -200,7 +202,7 @@ const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/;
  * that does not render. That anchor is also what keeps the two spellings
  * apart from the two description patterns below, which end at the id.
  */
-const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/;
+const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/d;
 
 /**
  * `state Choice <<choice>>` — the marker that changes which figure a state
@@ -290,7 +292,7 @@ const DIVIDER_RE = /^(?:--)+$/;
  *   `STATE_DESCRIPTION_RE` carries for `Empty :`, and for the same measured
  *   reason.
  */
-const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/i;
+const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/di;
 
 /**
  * The two positions, as `StateNotePosition` spells them — and the gate that
@@ -664,6 +666,36 @@ export function parseStateDiagram(source: string): ParseResult {
   };
 
   /**
+   * Reads the label one capture group of a statement's match holds, and
+   * records its diagnostics (`readLabelAt`): every label this parser reads
+   * is a capture of one of its own patterns over the trimmed line, each
+   * compiled with the `d` flag, and a state diagram's statement never spans
+   * physical lines, so the line's own indent (`column`) is all the position
+   * it needs — without the line-break walk only a flowchart's Markdown
+   * string needs (`parseFlowchart`'s `reportLabelProblems`).
+   *
+   * Read in the full `html` dialect wherever it is called: measured (mermaid
+   * 11.17.2, `--paint`, `htmlLabels: true`), a description, a transition
+   * label, a composite's quoted title and a note all honor the tags rather
+   * than draw them — see `StateDecl.descriptions` and `StateNote.label`.
+   *
+   * An error costs the whole document, exactly as an unrecognized line does.
+   */
+  const readLabelIn = (
+    match: RegExpExecArray,
+    group: number,
+    lineNumber: number,
+    column: number,
+  ): Label => {
+    const read = readLabelAt(match, group, { line: lineNumber, column }, "html");
+    diagnostics.push(...read.diagnostics);
+    if (read.hasError) {
+      sawError = true;
+    }
+    return read.label;
+  };
+
+  /**
    * Records one description on the state it was written for, declaring that
    * state if this is the first line to name it — `Lonely : waits` is a
    * declaration as well as a description, measured.
@@ -675,7 +707,7 @@ export function parseStateDiagram(source: string): ParseResult {
    */
   const describeState = (
     id: string,
-    description: string,
+    description: Label,
     line: number,
     column: number,
   ): void => {
@@ -699,11 +731,11 @@ export function parseStateDiagram(source: string): ParseResult {
   const annotateState = (
     id: string,
     position: StateNotePosition,
-    text: string,
+    label: Label,
     line: number,
     column: number,
   ): void => {
-    declareState(id, line, column).note = { position, text };
+    declareState(id, line, column).note = { position, label };
   };
 
   /**
@@ -824,7 +856,7 @@ export function parseStateDiagram(source: string): ParseResult {
 
     const transitionMatch = TRANSITION_RE.exec(line);
     if (transitionMatch !== null) {
-      const [, fromSpelling, toSpelling, label] = transitionMatch;
+      const [, fromSpelling, toSpelling, labelSource] = transitionMatch;
       // A word of Mermaid's own on either side. Refused before either
       // endpoint is read, so a transition with one bad end declares
       // *neither* state and leaves no half-built line behind — Mermaid
@@ -861,7 +893,12 @@ export function parseStateDiagram(source: string): ParseResult {
         to,
         // No label means `null`, and so does a `:` with nothing after it —
         // see `StateTransition.label`.
-        label: label === undefined || label.trim().length === 0 ? null : label.trim(),
+        // The capture starts past the padding after the colon, and the line
+        // is already trimmed, so the label is the capture as it stands.
+        label:
+          labelSource === undefined || labelSource.length === 0
+            ? null
+            : readLabelIn(transitionMatch, 3, lineNumber, column),
         // Which level the transition was written at — the only thing that
         // says which start or end pseudo-state a `null` endpoint means, now
         // that there is one pair per level rather than one per document.
@@ -893,7 +930,12 @@ export function parseStateDiagram(source: string): ParseResult {
       // accumulating list an ordinary state's are, so `Outer : text` written
       // elsewhere adds a row to this one rather than contradicting it.
       if (quotedDescription !== undefined) {
-        describeState(compositeId, quotedDescription, lineNumber, column);
+        describeState(
+          compositeId,
+          readLabelIn(compositeOpenMatch, 1, lineNumber, column),
+          lineNumber,
+          column,
+        );
       }
       openBlocks.push({ state: composite, statement: line, line: lineNumber, column });
       continue;
@@ -1059,8 +1101,14 @@ export function parseStateDiagram(source: string): ParseResult {
     // claim a statement opening with one of the words this parser reserves.
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null && isNotePosition(noteMatch[1])) {
-      const [, position, targetId, text] = noteMatch;
-      annotateState(targetId, position, text, lineNumber, column);
+      const [, position, targetId] = noteMatch;
+      annotateState(
+        targetId,
+        position,
+        readLabelIn(noteMatch, 3, lineNumber, column),
+        lineNumber,
+        column,
+      );
       continue;
     }
 
@@ -1093,7 +1141,12 @@ export function parseStateDiagram(source: string): ParseResult {
 
     const descriptionMatch = STATE_DESCRIPTION_RE.exec(line);
     if (descriptionMatch !== null) {
-      describeState(descriptionMatch[1], descriptionMatch[2], lineNumber, column);
+      describeState(
+        descriptionMatch[1],
+        readLabelIn(descriptionMatch, 2, lineNumber, column),
+        lineNumber,
+        column,
+      );
       continue;
     }
 
@@ -1102,7 +1155,12 @@ export function parseStateDiagram(source: string): ParseResult {
     // difference between the branches is which capture holds which half.
     const quotedMatch = QUOTED_DESCRIPTION_RE.exec(line);
     if (quotedMatch !== null) {
-      describeState(quotedMatch[2], quotedMatch[1], lineNumber, column);
+      describeState(
+        quotedMatch[2],
+        readLabelIn(quotedMatch, 1, lineNumber, column),
+        lineNumber,
+        column,
+      );
       continue;
     }
 

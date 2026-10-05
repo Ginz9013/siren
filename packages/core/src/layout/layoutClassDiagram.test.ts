@@ -13,8 +13,16 @@ import type {
   ResolvedClassRelationship,
   ResolvedTimeline,
   TextMeasurer,
+  Label,
 } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
+
+/** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
 
 /** Deterministic fake measurer, same fixture pattern as layoutGraph.test.ts. */
 const fakeMeasurer: TextMeasurer = {
@@ -63,6 +71,7 @@ function cls(
     id,
     generic: null,
     annotation: null,
+    label: null,
     members,
     namespaceId: null,
     ...partial,
@@ -95,7 +104,7 @@ function namespace(
   classIds: string[],
   label: string = id,
 ): ResolvedClassNamespace {
-  return { id, label, classIds };
+  return { id, label: plainLabel(label), classIds };
 }
 
 function note(
@@ -103,7 +112,7 @@ function note(
   text: string,
   targetId: string | null = null,
 ): ResolvedClassNote {
-  return { id, text, targetId };
+  return { id, label: plainLabel(text), targetId };
 }
 
 function classModel(partial: Partial<ClassModel> = {}): ClassModel {
@@ -508,12 +517,12 @@ describe("layoutClassDiagram", () => {
       );
 
       const square = classById(diagram, "Square");
-      expect(square.name).toBe("Square<Shape>");
+      expect(square.label).toEqual(plainLabel("Square<Shape>"));
       // The name it draws is the widest line of this class, so the box has to
       // hold the whole composed name with padding to spare.
       expect(square.width).toBeGreaterThan(measuredWidth("Square<Shape>"));
       // A class with no generic still draws its bare id.
-      expect(classById(diagram, "Circle").name).toBe("Circle");
+      expect(classById(diagram, "Circle").label).toEqual(plainLabel("Circle"));
     });
 
     it("draws a member's generic type and return type in angle brackets, leaving a package-visibility tilde alone", () => {
@@ -594,7 +603,7 @@ describe("layoutClassDiagram", () => {
       );
 
       const map = classById(diagram, "Map");
-      expect(map.name).toBe("Map<String, List<int>>");
+      expect(map.label).toEqual(plainLabel("Map<String, List<int>>"));
       expect(map.attributes!.members.map((m) => m.text)).toEqual([
         "+Map<String, List<int>> lookup",
       ]);
@@ -862,7 +871,7 @@ describe("layoutClassDiagram", () => {
           classes: [cls("Customer"), cls("Ticket")],
           relationships: [
             relationship("Customer", "Ticket", {
-              label: "raises",
+              label: plainLabel("raises"),
               fromMultiplicity: "1",
               toMultiplicity: "*",
             }),
@@ -875,9 +884,9 @@ describe("layoutClassDiagram", () => {
       const first = routed.points[0];
       const last = routed.points[routed.points.length - 1];
 
-      expect(routed.labelAnchor).not.toBeNull();
-      expect(routed.labelAnchor!.y).toBeGreaterThan(first.y);
-      expect(routed.labelAnchor!.y).toBeLessThan(last.y);
+      expect(routed.label).not.toBeNull();
+      expect(routed.label!.anchor.y).toBeGreaterThan(first.y);
+      expect(routed.label!.anchor.y).toBeLessThan(last.y);
 
       // Each multiplicity sits beside its own end of the line: nearer that
       // end than the other, and within a line height of it.
@@ -1014,7 +1023,7 @@ describe("layoutClassDiagram", () => {
       );
 
       const routed = diagram.relationships[0];
-      expect(routed.labelAnchor).toBeNull();
+      expect(routed.label).toBeNull();
       expect(routed.fromMultiplicityAnchor).toBeNull();
       expect(routed.toMultiplicityAnchor).toBeNull();
     });
@@ -1095,7 +1104,7 @@ describe("layoutClassDiagram", () => {
       expect(diagram.namespaces).toHaveLength(1);
       const frame = diagram.namespaces[0];
       expect(frame.id).toBe("BaseShapes");
-      expect(frame.label).toBe("BaseShapes");
+      expect(frame.label.label).toEqual(plainLabel("BaseShapes"));
       // A frame is drawn like every other element, so it stays on the canvas.
       expect(frame.x).toBeGreaterThanOrEqual(0);
       expect(frame.y).toBeGreaterThanOrEqual(0);
@@ -1112,14 +1121,14 @@ describe("layoutClassDiagram", () => {
 
       // The label sits inside the frame and clear of every member box.
       const halfLabel = measuredWidth("BaseShapes") / 2;
-      expect(frame.labelAnchor.x - halfLabel).toBeGreaterThanOrEqual(frame.x);
-      expect(frame.labelAnchor.x + halfLabel).toBeLessThanOrEqual(
+      expect(frame.label.anchor.x - halfLabel).toBeGreaterThanOrEqual(frame.x);
+      expect(frame.label.anchor.x + halfLabel).toBeLessThanOrEqual(
         frame.x + frame.width,
       );
-      expect(frame.labelAnchor.y - LINE_HEIGHT / 2).toBeGreaterThanOrEqual(
+      expect(frame.label.anchor.y - LINE_HEIGHT / 2).toBeGreaterThanOrEqual(
         frame.y,
       );
-      expect(frame.labelAnchor.y + LINE_HEIGHT / 2).toBeLessThanOrEqual(
+      expect(frame.label.anchor.y + LINE_HEIGHT / 2).toBeLessThanOrEqual(
         Math.min(...members.map((box) => box.y)),
       );
     });
@@ -1195,12 +1204,12 @@ describe("layoutClassDiagram", () => {
       const diagram = annotated();
 
       expect(diagram.notes.map((n) => n.id)).toEqual(["note1", "note2"]);
-      expect(diagram.notes.map((n) => n.text)).toEqual([
+      expect(diagram.notes.map((n) => n.label.text)).toEqual([
         "ducks are birds",
         "a free-standing remark",
       ]);
       for (const box of diagram.notes) {
-        expect(box.width).toBeGreaterThan(measuredWidth(box.text));
+        expect(box.width).toBeGreaterThan(measuredWidth(box.label.text));
         expect(box.height).toBeGreaterThan(LINE_HEIGHT);
         for (const cls of diagram.classes) {
           expect(overlaps(box, cls)).toBe(false);
@@ -1405,7 +1414,7 @@ describe("layoutClassDiagram", () => {
           ],
           relationships: [
             relationship("Customer", "Ticket", {
-              label: "raises a great many of",
+              label: plainLabel("raises a great many of"),
               fromMultiplicity: "1",
               toMultiplicity: "*",
             }),
@@ -1433,9 +1442,9 @@ describe("layoutClassDiagram", () => {
 
       for (const routed of diagram.relationships) {
         for (const point of routed.points) withinBounds(point);
-        if (routed.labelAnchor) {
-          const size = fakeMeasurer.measure(routed.label!);
-          withinBounds(routed.labelAnchor, size.width / 2, size.height / 2);
+        if (routed.label) {
+          const size = fakeMeasurer.measure(routed.label.label.text);
+          withinBounds(routed.label.anchor, size.width / 2, size.height / 2);
         }
         for (const [text, anchor] of [
           [routed.fromMultiplicity, routed.fromMultiplicityAnchor],
@@ -1494,13 +1503,104 @@ describe("layoutClassDiagram", () => {
       }
 
       for (const frame of diagram.namespaces) {
-        const size = fakeMeasurer.measure(frame.label);
-        withinBounds(frame.labelAnchor, size.width / 2, size.height / 2);
+        const size = fakeMeasurer.measure(frame.label.label.text);
+        withinBounds(frame.label.anchor, size.width / 2, size.height / 2);
       }
 
       for (const box of diagram.notes) {
         for (const point of box.linkPoints ?? []) withinBounds(point);
       }
+    });
+  });
+
+  describe("labels", () => {
+    it("sizes a class's name band for every row of its label, which replaces the id and generic it would draw", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("Order", [], { label: rowsLabel("Order", "Line"), generic: "T" }),
+            cls("Plain"),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const order = classById(diagram, "Order");
+      // Measured: a label replaces the whole drawn name, generic included.
+      expect(order.label).toEqual(rowsLabel("Order", "Line"));
+      expect(order.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(order.labelBox.rows.map((row) => row.width)).toEqual([
+        measuredWidth("Order"),
+        measuredWidth("Line"),
+      ]);
+      // One row taller than a class whose name is one row, and as wide as
+      // the widest row rather than as the two rows written end to end.
+      const plain = classById(diagram, "Plain");
+      expect(order.height).toBe(plain.height + LINE_HEIGHT);
+      expect(order.width).toBe(plain.width + measuredWidth("Order") - measuredWidth("Plain"));
+      // A class with no label draws its id as one plain run.
+      expect(plain.label).toEqual(plainLabel("Plain"));
+    });
+
+    it("keeps clear the space every row of a relationship's label needs, and reports the box it measured", () => {
+      const laidOutWith = (label: Label) =>
+        layoutClassDiagram(
+          classModel({
+            classes: [cls("Order"), cls("Line")],
+            relationships: [relationship("Order", "Line", { label })],
+          }),
+          { measureText: fakeMeasurer },
+        );
+      const gap = (diagram: PositionedClassDiagram) =>
+        classById(diagram, "Line").y - classById(diagram, "Order").y;
+
+      const oneRow = laidOutWith(plainLabel("holds"));
+      const twoRows = laidOutWith(rowsLabel("holds", "many"));
+
+      const routed = twoRows.relationships[0];
+      expect(routed.label?.label).toEqual(rowsLabel("holds", "many"));
+      expect(routed.label!.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(routed.label!.labelBox.width).toBe(measuredWidth("holds"));
+      expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
+    });
+
+    it("gives a namespace's label strip room for every row of its label, clear of the boxes it frames", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Lion", [], { namespaceId: "namespace:1" })],
+          namespaces: [
+            { id: "namespace:1", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const [frame] = diagram.namespaces;
+      expect(frame.label.label).toEqual(rowsLabel("Big", "Zoo"));
+      expect(frame.label.labelBox.height).toBe(LINE_HEIGHT * 2);
+      // Both rows inside the frame and above the box it frames.
+      const lion = classById(diagram, "Lion");
+      expect(frame.label.anchor.y - frame.label.labelBox.height / 2).toBeGreaterThanOrEqual(frame.y);
+      expect(frame.label.anchor.y + frame.label.labelBox.height / 2).toBeLessThanOrEqual(lion.y);
+    });
+
+    it("sizes a note's box around every row of its label, and reports the box it measured", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          notes: [
+            { id: "note:1", label: rowsLabel("can fly", "can swim"), targetId: null },
+            { id: "note:2", label: plainLabel("can fly"), targetId: null },
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const twoRows = noteById(diagram, "note:1");
+      const oneRow = noteById(diagram, "note:2");
+      expect(twoRows.label).toEqual(rowsLabel("can fly", "can swim"));
+      expect(twoRows.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(twoRows.height).toBe(oneRow.height + LINE_HEIGHT);
+      expect(twoRows.width).toBe(oneRow.width + measuredWidth("can swim") - measuredWidth("can fly"));
     });
   });
 });

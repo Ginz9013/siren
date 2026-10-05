@@ -1,10 +1,40 @@
-import { describe, expect, it } from "vitest";
-import type { StateDocument } from "../contracts";
+import { describe, expect, it, vi } from "vitest";
+import type { ParseResult, StateDocument } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
+import { parseSiren } from "./parseSiren";
 import { parseStateDiagram } from "./parseStateDiagram";
 
+/**
+ * The test-only input for the one thing no real tag can exercise yet: how a
+ * problem `readLabel` reports becomes a diagnostic — the device
+ * `parseFlowchart.test.ts` uses, for the same reason. `readLabel` is the real
+ * one, delegated to unchanged, except that a `⚠` in a label's source is
+ * reported as an error at that character and a `⚑` as a warning, so where
+ * the diagnostic lands can be checked against where the author wrote the
+ * character. No real label here contains either, so every other test in
+ * this file reads labels exactly as production does.
+ */
+vi.mock("../label/readLabel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../label/readLabel")>();
+  return {
+    ...actual,
+    readLabel: (...args: Parameters<typeof actual.readLabel>) => {
+      const read = actual.readLabel(...args);
+      const [source] = args;
+      const problems = [...read.problems];
+      for (const [mark, severity] of [["⚠", "error"], ["⚑", "warning"]] as const) {
+        for (let at = source.indexOf(mark); at !== -1; at = source.indexOf(mark, at + 1)) {
+          problems.push({ severity, message: `test problem ${mark}`, offset: at });
+        }
+      }
+      return { ...read, problems };
+    },
+  };
+});
+
 /** The parsed document, or a thrown explanation naming what went wrong instead. */
-function documentOf(source: string): StateDocument {
-  const { document, diagnostics } = parseStateDiagram(source);
+function documentOf(source: string, parse: (source: string) => ParseResult = parseStateDiagram): StateDocument {
+  const { document, diagnostics } = parse(source);
   if (document === null) {
     throw new Error(
       `expected a state document, got diagnostics: ${diagnostics
@@ -57,7 +87,7 @@ describe("parseStateDiagram", () => {
       {
         from: "Idle",
         to: "Running",
-        label: "start the job",
+        label: plainLabel("start the job"),
         parentId: null,
         regionIndex: null,
         sourceLine: 2,
@@ -101,7 +131,7 @@ describe("parseStateDiagram", () => {
       {
         from: "Running",
         to: "Running",
-        label: "retry",
+        label: plainLabel("retry"),
         parentId: null,
         regionIndex: null,
         sourceLine: 2,
@@ -168,7 +198,7 @@ describe("parseStateDiagram", () => {
 
     const byDescription = documentOf("stateDiagram-v2\n  state Skipped\n  Skipped : waiting\n");
     expect(byDescription.states.map((state) => state.id)).toEqual(["Skipped"]);
-    expect(byDescription.states[0].descriptions).toEqual(["waiting"]);
+    expect(byDescription.states[0].descriptions).toEqual([plainLabel("waiting")]);
   });
 
   it("keeps a state's first-mention position when a later transition names it again", () => {
@@ -254,7 +284,7 @@ describe("parseStateDiagram", () => {
         id: "Lonely",
         kind: "state",
         stereotype: null,
-        descriptions: ["waits here"],
+        descriptions: [plainLabel("waits here")],
         parentId: null,
         regionIndex: null,
         direction: null,
@@ -286,7 +316,7 @@ describe("parseStateDiagram", () => {
         id: "Both",
         kind: "state",
         stereotype: null,
-        descriptions: ["one", "two", "three"],
+        descriptions: [plainLabel("one"), plainLabel("two"), plainLabel("three")],
         parentId: null,
         regionIndex: null,
         direction: null,
@@ -426,7 +456,7 @@ describe("parseStateDiagram", () => {
       "stateDiagram-v2\n  state Active {\n    A --> B : go -- now\n  }\n",
     );
     expect(inALabel.regions).toEqual([]);
-    expect(inALabel.transitions.map((t) => t.label)).toEqual(["go -- now"]);
+    expect(inALabel.transitions.map((t) => t.label)).toEqual([plainLabel("go -- now")]);
 
     const inADescription = documentOf(
       "stateDiagram-v2\n  state Active {\n    A : waits -- then goes\n  }\n",
@@ -434,7 +464,7 @@ describe("parseStateDiagram", () => {
     expect(inADescription.regions).toEqual([]);
     expect(inADescription.states.map((state) => state.descriptions)).toEqual([
       [],
-      ["waits -- then goes"],
+      [plainLabel("waits -- then goes")],
     ]);
 
     for (const dashes of ["-", "---", "-----"]) {
@@ -527,7 +557,7 @@ describe("parseStateDiagram", () => {
         state.descriptions,
       ]),
     ).toEqual([
-      ["Outer", "composite", null, ["the outer block"]],
+      ["Outer", "composite", null, [plainLabel("the outer block")]],
       ["First", "state", "Outer", []],
       ["Second", "state", "Outer", []],
     ]);
@@ -557,8 +587,8 @@ describe("parseStateDiagram", () => {
         state.descriptions,
       ]),
     ).toEqual([
-      ["A", "composite", null, ["a"]],
-      ["B", "composite", "A", ["b"]],
+      ["A", "composite", null, [plainLabel("a")]],
+      ["B", "composite", "A", [plainLabel("b")]],
       ["Deep", "state", "B", []],
       ["Deeper", "state", "B", []],
     ]);
@@ -873,7 +903,7 @@ describe("parseStateDiagram", () => {
     );
 
     expect(document.states.map((state) => [state.id, state.note])).toEqual([
-      ["Idle", { position: "right of", text: "waiting for work" }],
+      ["Idle", { position: "right of", label: plainLabel("waiting for work") }],
       ["Busy", null],
     ]);
   });
@@ -890,12 +920,12 @@ describe("parseStateDiagram", () => {
     const crossed = documentOf(
       "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle : first\n  note left of Idle : second\n",
     );
-    expect(crossed.states[0].note).toEqual({ position: "left of", text: "second" });
+    expect(crossed.states[0].note).toEqual({ position: "left of", label: plainLabel("second") });
 
     const sameSide = documentOf(
       "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle : first\n  note right of Idle : second\n",
     );
-    expect(sameSide.states[0].note).toEqual({ position: "right of", text: "second" });
+    expect(sameSide.states[0].note).toEqual({ position: "right of", label: plainLabel("second") });
 
     // One state, not two: the second statement annotates the state again
     // rather than declaring anything new.
@@ -912,7 +942,7 @@ describe("parseStateDiagram", () => {
     );
 
     expect(document.states.map((state) => state.id)).toEqual(["Idle", "Busy", "Ghost"]);
-    expect(document.states[2].note).toEqual({ position: "right of", text: "who?" });
+    expect(document.states[2].note).toEqual({ position: "right of", label: plainLabel("who?") });
 
     // And inside a composite it joins that block, the way every other
     // first mention of a state does — measured: mermaid reports
@@ -1298,7 +1328,7 @@ describe("parseStateDiagram", () => {
     // which is the trade CONTEXT.md's compatibility condition forbids.
     const described = documentOf('stateDiagram-v2\n  state "waiting" as note\n');
     expect(described.states.map((s) => [s.id, s.descriptions])).toEqual([
-      ["note", ["waiting"]],
+      ["note", [plainLabel("waiting")]],
     ]);
 
     const composite = documentOf("stateDiagram-v2\n  state class {\n    A --> B\n  }\n");
@@ -1318,5 +1348,115 @@ describe("parseStateDiagram", () => {
     expect(diagnostics[0].message).toContain('"stateDiagram"');
     expect(diagnostics[0].message).toContain('"stateDiagram-v2"');
     expect(diagnostics[0].message).toContain('found "stateChart"');
+  });
+});
+
+/**
+ * Every place a state diagram writes text is a label read by `readLabel`
+ * in the full `html` dialect — measured (mermaid 11.17.2, `--paint` with
+ * `htmlLabels: true`): `s2 : d<b>bold</b>e` reads "dbolde", a transition's
+ * `t<br/>u` reads "tu", `state "c<br/>d" as X {` titles its cluster "cd",
+ * and `note left of s2 : p<i>q</i>r` reads "pqr". So `<br>` breaks a row in
+ * all four, and every other tag is the label module's to read.
+ */
+describe("parseStateDiagram — labels", () => {
+  /** A label of these rows, each one plain run. */
+  const rowsLabel = (...rows: string[]) => ({
+    text: rows.join("\n"),
+    rows: rows.map((row) => [plainRun(row)]),
+  });
+
+  it("reads a description's <br/> as a row break", () => {
+    const document = documentOf("stateDiagram-v2\n  s1 : a<br/>b\n");
+
+    expect(document.states[0].descriptions).toEqual([rowsLabel("a", "b")]);
+  });
+
+  it("reads a transition label's <br/> as a row break", () => {
+    const document = documentOf("stateDiagram-v2\n  s1 --> s2 : a<br/>b\n");
+
+    expect(document.transitions[0].label).toEqual(rowsLabel("a", "b"));
+  });
+
+  it("reads a note's <br/> as a row break", () => {
+    const document = documentOf("stateDiagram-v2\n  note right of s1 : a<br/>b\n");
+
+    expect(document.states[0].note).toEqual({ position: "right of", label: rowsLabel("a", "b") });
+  });
+});
+
+describe("parseStateDiagram — a problem in a label, reported where the author wrote it", () => {
+  /** Each diagnostic as `severity line:column`. */
+  const positions = (source: string): string[] =>
+    parseStateDiagram(source).diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}`);
+
+  it("points into a description, in both spellings", () => {
+    // `  s1 : ab⚠c` — the ⚠ is the 10th character of line 2.
+    expect(positions("stateDiagram-v2\n  s1 : ab⚠c")).toEqual(["error 2:10"]);
+    // `  state "x⚠" as S` — past the quote.
+    expect(positions('stateDiagram-v2\n  state "x⚠" as S')).toEqual(["error 2:11"]);
+  });
+
+  it("points into a composite's quoted title", () => {
+    // `  state "c⚠" as X {`
+    expect(positions('stateDiagram-v2\n  state "c⚠" as X {\n    A\n  }')).toEqual([
+      "error 2:11",
+    ]);
+  });
+
+  it("points into a transition label, past the padding after the colon", () => {
+    // `  A --> B :  y⚠`
+    expect(positions("stateDiagram-v2\n  A --> B :  y⚠")).toEqual(["error 2:15"]);
+  });
+
+  it("points into a note", () => {
+    // `  note right of A : n⚠`
+    expect(positions("stateDiagram-v2\n  note right of A : n⚠")).toEqual(["error 2:22"]);
+  });
+
+  it("costs the document for an error and not for a warning", () => {
+    expect(parseStateDiagram("stateDiagram-v2\n  s1 : a⚠").document).toBeNull();
+
+    const warned = parseStateDiagram("stateDiagram-v2\n  s1 : a⚑");
+    expect(warned.document).not.toBeNull();
+    expect(warned.diagnostics).toEqual([
+      { severity: "warning", message: "test problem ⚑", line: 2, column: 9 },
+    ]);
+  });
+});
+
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, not one label. Mermaid
+ * 11.17.2, measured with `--html`. `parseSiren` applies it to the whole
+ * document, so these read through it.
+ */
+describe("parseStateDiagram — the `;` Mermaid drops from a style line", () => {
+  const colors = (label: { rows: { text: string; color: string | null }[][] } | null | undefined) =>
+    label?.rows[0]!.map((run) => [run.text, run.color]);
+
+  it("keeps a color whose `;` is the line's last", () => {
+    // `state "<span style='color:#f00;'>r</span>" as A` draws `color:#f00`.
+    const document = documentOf(`stateDiagram-v2\n  state "<span style='color:#f00;'>r</span>" as A`, parseSiren);
+    expect(colors(document.states.find((state) => state.id === "A")!.descriptions[0])).toEqual([["r", "#f00"]]);
+  });
+
+  it("drops the line's last `;` and not the color's, in a transition label", () => {
+    // `A --> B : <span style='color:#f00;'>r</span> #35;` draws
+    // `<span style="color:&amp;f00;">r</span> #35`.
+    const document = documentOf(`stateDiagram-v2\n  A --> B : <span style='color:#f00;'>r</span> #35;`, parseSiren);
+    const label = document.transitions[0]!.label!;
+    expect(label.text).toBe("r #35");
+    expect(colors(label)).toEqual([["r #35", null]]);
+  });
+
+  it("leaves a position past it where the author wrote it", () => {
+    // `  A --> B : <b style='x:#1'>#35;⚑</b>`: the ⚑ is the 33rd character.
+    expect(
+      parseSiren("stateDiagram-v2\n  A --> B : <b style='x:#1'>#35;⚑</b>").diagnostics.map(
+        (d) => `${d.severity} ${d.line}:${d.column}`,
+      ),
+    ).toEqual(["warning 2:33"]);
   });
 });

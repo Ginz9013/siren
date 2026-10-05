@@ -10,6 +10,9 @@
  *     A -->|yes| B
  *     linkStyle 0 stroke:#00ff00,color:#ff0000'
  *     pnpm --filter siren-core probe --paint some-diagram.mmd
+ *     node packages/core/scripts/mermaid-probe.mjs --html --source 'flowchart TB
+ *     A["<b>a<i>b</b>c</i>d"]'
+ *     pnpm --filter siren-core probe --html some-diagram.mmd
  *
  * Two things to know before pointing it at an `examples/*.srn` file, both
  * measured the hard way:
@@ -90,15 +93,52 @@
  * puts a label in a `<foreignObject>`, where it is HTML and `color` is the
  * property that paints it; `htmlLabels: false` puts it in an SVG `<text>`,
  * where `color` names no paint at all and Mermaid emits `fill` instead.
- * Siren draws SVG text, so the second is the comparable measurement, but a
- * mode that reported only one would make Mermaid's own translation look like
- * a quirk of this script.
+ *
+ * **`htmlLabels: true` is the picture Siren is held to; `htmlLabels: false`
+ * is the reference for its DOM structure** (ADR-0015). The default is what a
+ * reader sees on mermaid.live, in GitHub and in every host that keeps
+ * Mermaid's settings, so what a label *shows* — which tags break a row, bold
+ * a run, or vanish — is measured there. Siren still draws labels as SVG
+ * `<text>`, so how a label is *built* — a `<tspan>` per row, one per run
+ * inside it — is read off the SVG mode, which is also the mode `--markup`
+ * prints. The two disagree (`htmlLabels: false` draws `<b>` as its literal
+ * characters), and a mode that reported only one would hide exactly that.
  *
  * **Geometry from this mode is meaningless.** jsdom performs no layout, so
  * `getBBox` and friends are stubbed with a fixed box purely to let Mermaid's
  * measuring pass complete; every coordinate downstream of that stub is the
  * stub's answer rather than Mermaid's, and several arrive as `NaN`. Ask this
  * mode about paint, and ask the layout seam about geometry.
+ *
+ * ## What `--html` prints
+ *
+ * The markup each label is left holding in the picture Siren is held to:
+ * every node, edge and cluster label's `innerHTML` under `htmlLabels: true`,
+ * named by its owner exactly as `--paint` names it.
+ *
+ * ADR-0015 measures what a label *shows* in that mode, and neither mode above
+ * can read it. `--paint` prints `textContent`, which flattens
+ * `<b>a<i>b</b>c</i>d` to `"abcd"` and so throws away the very tags in
+ * question; `--markup` prints `htmlLabels: false`, where those tags are not
+ * markup at all. What the HTML mode actually draws is decided by DOMPurify
+ * after Mermaid hands it the label — a mis-nested run is repaired, an unknown
+ * tag vanishes — and the only way to know the repair is to read it back out.
+ * Three times (T1, T6, and a review fix-up of the label-vocabulary board) that
+ * was done with a throwaway copy of this script; this mode is that copy kept.
+ * Measured on Mermaid 11.17.2:
+ *
+ *     node packages/core/scripts/mermaid-probe.mjs --html --source 'flowchart TB
+ *     A["<b>a<i>b</b>c</i>d"]'
+ *     ...
+ *     node label "<p><b>a<i>b</i></b><i>c</i>d</p>"
+ *
+ * The `<p>` is Mermaid's own wrapper around a string label, and it is printed
+ * rather than stripped because it is part of what reaches the picture; read
+ * the measurement inside it.
+ *
+ * **Geometry is still meaningless here**, for the reason `--paint` gives: this
+ * mode renders through the same layout stub, because jsdom performs no layout.
+ * Nothing it prints is a coordinate, and it should stay that way.
  *
  * ## How it drives Mermaid
  *
@@ -107,7 +147,7 @@
  * first (jsdom is already this package's test environment), and then
  * `mermaidAPI.getDiagramFromText` runs the real grammar over the text and
  * hands back the diagram's database. No rendering, no layout — just the parse,
- * unless `--paint` asked for the render as well.
+ * unless `--paint`, `--markup` or `--html` asked for the render as well.
  */
 import { readFileSync } from "node:fs";
 
@@ -136,6 +176,14 @@ async function installDomGlobals() {
     "requestAnimationFrame",
     "getComputedStyle",
     "CSSStyleSheet",
+    // A sequence `box` line's color is tested by assigning it to a fresh
+    // `new Option().style` (Mermaid's `parseBoxData`, where `window.CSS` is
+    // missing, as it is in jsdom), so every `box` line threw "Option is not
+    // defined" without it. That fallback compares the value with what jsdom
+    // serializes it as, so write a box color in lower case (`box aqua Grp`):
+    // `box Aqua Grp` reads `Aqua` as part of the label here, where a browser's
+    // `CSS.supports` reads it as a color.
+    "Option",
   ];
   for (const name of names) {
     if (globalThis[name] === undefined) globalThis[name] = dom.window[name];
@@ -152,9 +200,10 @@ async function installDomGlobals() {
  * the first label it sizes. A fixed box gets it past that, at the price named
  * in the header: **every coordinate this mode produces is this stub's answer
  * and not Mermaid's.** That is an acceptable price for a paint question and
- * not for any other, which is why the stubs are installed only for `--paint`
- * rather than beside the globals above — the parse path must stay a
- * measurement of Mermaid with nothing of ours in it.
+ * not for any other, which is why the stubs are installed only for the modes
+ * that render (`--paint`, `--markup`, `--html`) rather than beside the globals
+ * above — the parse path must stay a measurement of Mermaid with nothing of
+ * ours in it.
  */
 function installLayoutStubs(dom) {
   const box = () => ({ x: 0, y: 0, width: 40, height: 20 });
@@ -547,12 +596,14 @@ function paintLine(dom, element) {
 const LABEL_MECHANISMS = [
   {
     htmlLabels: false,
-    title: "paint, with labels as SVG `<text>` (`htmlLabels: false` — the form Siren draws)",
+    title:
+      "paint, with labels as SVG `<text>` (`htmlLabels: false` — the reference for Siren's DOM structure)",
     labels: "text",
   },
   {
     htmlLabels: true,
-    title: "paint, with labels as HTML in a `<foreignObject>` (`htmlLabels: true` — Mermaid's default)",
+    title:
+      "paint, with labels as HTML in a `<foreignObject>` (`htmlLabels: true` — Mermaid's default, the picture Siren is held to)",
     labels: "foreignObject span[class]",
   },
 ];
@@ -636,6 +687,43 @@ async function reportMarkup(mermaid, dom, source) {
   host.remove();
 }
 
+/**
+ * **What each label's markup becomes in the picture Siren is held to** — the
+ * question neither `--paint` nor `--markup` can answer.
+ *
+ * `--paint` prints a label's `textContent`, which flattens `<b>a<i>b</b>c</i>d`
+ * to `"abcd"` and so loses exactly the tags ADR-0015 is about; `--markup`
+ * prints `htmlLabels: false`, where those tags are not markup at all. This
+ * prints the `innerHTML` Mermaid left in each HTML label after DOMPurify has
+ * had it, which is where a mis-nested run is repaired and an unknown tag
+ * vanishes.
+ *
+ * The selector is the HTML mechanism's own from `LABEL_MECHANISMS`, so this
+ * and `--paint` can never disagree about which element *is* the label.
+ */
+async function reportHtml(mermaid, dom, source) {
+  const { htmlLabels, labels } = LABEL_MECHANISMS.find((mechanism) => mechanism.htmlLabels);
+  const title = "html, each label's innerHTML (`htmlLabels: true` — the picture Siren is held to)";
+  mermaid.initialize({ startOnLoad: false, htmlLabels, flowchart: { htmlLabels } });
+  let svg;
+  try {
+    ({ svg } = await mermaid.render("siren-probe-html-markup", source));
+  } catch (error) {
+    section(title, ["MERMAID FAILED TO RENDER THIS", String(error.message)]);
+    return;
+  }
+  const host = dom.window.document.createElement("div");
+  host.innerHTML = svg;
+  dom.window.document.body.appendChild(host);
+  section(
+    title,
+    [...host.querySelectorAll(labels)].map(
+      (element) => `${labelOwner(element)} ${JSON.stringify(element.innerHTML)}`,
+    ),
+  );
+  host.remove();
+}
+
 async function reportPaint(mermaid, dom, source) {
   for (const { htmlLabels, title, labels } of LABEL_MECHANISMS) {
     mermaid.initialize({ startOnLoad: false, htmlLabels, flowchart: { htmlLabels } });
@@ -667,19 +755,20 @@ const argv = process.argv.slice(2);
 // Flags rather than positionals, and taken out of the list wherever they
 // were written, so that `--paint` reads the same before a file path, after
 // `pnpm run`'s own `--`, or at the end of a line someone is editing.
-const FLAGS = ["--paint", "--markup"];
+const FLAGS = ["--paint", "--markup", "--html"];
 const wantsPaint = argv.includes("--paint");
 const wantsMarkup = argv.includes("--markup");
+const wantsHtml = argv.includes("--html");
 const source = readSource(argv.filter((argument) => !FLAGS.includes(argument)));
 if (source === null) {
   console.error(
-    "usage: mermaid-probe.mjs [--paint] [--markup] <file> | --source <text> | -   (- reads stdin)",
+    "usage: mermaid-probe.mjs [--paint] [--markup] [--html] <file> | --source <text> | -   (- reads stdin)",
   );
   process.exit(2);
 }
 
 const dom = await installDomGlobals();
-if (wantsPaint || wantsMarkup) installLayoutStubs(dom);
+if (wantsPaint || wantsMarkup || wantsHtml) installLayoutStubs(dom);
 const mermaid = (await import("mermaid")).default;
 mermaid.initialize({ startOnLoad: false });
 
@@ -706,3 +795,4 @@ report(diagram.type, diagram.db);
 // the first and absent from the second is the finding.
 if (wantsPaint) await reportPaint(mermaid, dom, source);
 if (wantsMarkup) await reportMarkup(mermaid, dom, source);
+if (wantsHtml) await reportHtml(mermaid, dom, source);
