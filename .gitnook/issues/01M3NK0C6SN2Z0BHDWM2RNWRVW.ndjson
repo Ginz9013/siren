@@ -6,3 +6,4 @@
 {"id":"01M3NM3B72KRN7AMRQ8XFDKFCQ","t":6,"a":"83a1","op":"comment","body":"排入 board `.scratch/sequence-flowchart-gaps`，ticket `02-sequence-outline-theme.md`（依序第 2 張，共 5 張）。spec：`.scratch/sequence-flowchart-gaps/spec.md`。決定：rect 在既有填色矩形上加 highlight 顏色的 stroke；participant 的 outline 涵蓋框/人形、lifeline（維持虛線）與 destroy X；message 只改線、不改共用箭頭。"}
 {"id":"01M3NMBHQZXGYQB30MW6Z3F2D6","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M3NMHBPNTWXS0XW68X972609","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M44Z9VHAC0R828PBGFS5HB8D","t":9,"a":"83a1","op":"set","k":"archived","v":true}

@@ -8,3 +8,4 @@
 {"id":"01M3NM3BBT2AFZSS8QDB3G8NYP","t":8,"a":"83a1","op":"comment","body":"排入 board `.scratch/sequence-flowchart-gaps`，ticket `03-sequence-keyword-case.md`（依序第 3 張，共 5 張）。spec：`.scratch/sequence-flowchart-gaps/spec.md`。範圍已擴大到所有 sequence 關鍵字，見描述開頭。"}
 {"id":"01M3NMHH60NJYHBGBBZ5Q1R7W7","t":9,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M3NMQCYFFJEJ1VFCEAYEXQ39","t":10,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M44Z9VR01QZKEW515B6XMR4V","t":11,"a":"83a1","op":"set","k":"archived","v":true}
