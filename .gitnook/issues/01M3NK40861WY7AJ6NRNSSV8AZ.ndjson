@@ -6,3 +6,4 @@
 {"id":"01M3NM3BGKMFAMBB2M94G3TA6C","t":6,"a":"83a1","op":"comment","body":"排入 board `.scratch/sequence-flowchart-gaps`，ticket `04-flowchart-click-shorthand.md`（依序第 4 張，共 5 張）。spec：`.scratch/sequence-flowchart-gaps/spec.md`。範圍擴大：量到 Siren 連完整 href 形式的 tooltip 都沒畫。決定比照 class/sequence renderer，以節點群組的第一個子元素 <title> 畫出；target 與 rel=\"noopener noreferrer\" 維持 Siren 現行作法（Mermaid strict 模式不輸出 target）。"}
 {"id":"01M3NMQJV365JWAKMHCQE0XVGW","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M3NN4XKD4G7FEAQ37J3RX6HQ","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M44Z9W55707X2AHVA8DW1QE7","t":9,"a":"83a1","op":"set","k":"archived","v":true}

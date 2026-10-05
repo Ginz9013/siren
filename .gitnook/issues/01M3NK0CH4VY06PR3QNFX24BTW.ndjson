@@ -6,3 +6,4 @@
 {"id":"01M3NM3BNECGYE0XV8V4HSXZ41","t":6,"a":"83a1","op":"comment","body":"排入 board `.scratch/sequence-flowchart-gaps`，ticket `05-sequence-implicit-participants.md`（依序第 5 張，共 5 張）。spec：`.scratch/sequence-flowchart-gaps/spec.md`。決定 (a)：完全照 Mermaid 靜默隱式建立（message、note、activate、deactivate、destroy）；lane 依首次提及順序；後宣告的 alias/actor 回溯套用且不移位；隱式建立後的 create participant 仍報錯（Mermaid 拒絕）；隱式 participant 不進 box，移除 box 未宣告成員檢查。以 ADR-0013 記錄。"}
 {"id":"01M3NN52Y2MVZK1ESF12A0A1E2","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M3NNFGBTC78JK8JN10PFZ980","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M44Z9VYPW3252HNG22CYX3VB","t":9,"a":"83a1","op":"set","k":"archived","v":true}

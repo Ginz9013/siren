@@ -4,3 +4,4 @@
 {"id":"01M37P35ZDPHW9P7TK6TQVJJ03","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M37P36CHTP46XNWRMF3DBTQX","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M37PCFZS0T092V8Q2R1E6M2V","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M44Z9Q6XWT1K90SB1KP0HMC9","t":7,"a":"83a1","op":"set","k":"archived","v":true}
