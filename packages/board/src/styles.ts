@@ -26,7 +26,8 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * Board picks no palette on the page's behalf: nothing below reads the
  * reader's system color preference or any theme attribute, so a consumer who
  * wants dark chrome redeclares these six tokens under a selector of their own,
- * exactly as they would core's five. demos/theme-dark.css does both at once.
+ * exactly as they would core's color tokens. demos/theme-dark.css does both
+ * at once.
  */
 const CSS = `
 :root {

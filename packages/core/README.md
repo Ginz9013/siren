@@ -339,8 +339,10 @@ import "siren-core/theme.css";
 
 The theme is one palette. Siren never picks one for you: nothing in `theme.css` reads
 `prefers-color-scheme` or any attribute on the page, so a second theme is yours to declare
-and yours to decide when it applies. Redeclare the five color tokens under whatever
-selector fits — a media query, a theme attribute your app already sets, a container class:
+and yours to decide when it applies. Redeclare the color tokens under whatever selector
+fits — a media query, a theme attribute your app already sets, a container class. That is
+the five-color palette, plus `--siren-label-link`: its default is the browser's link blue,
+which is unreadable on a dark node:
 
 ```css
 /* Follow the reader's system preference... */
@@ -351,20 +353,21 @@ selector fits — a media query, a theme attribute your app already sets, a cont
     --siren-node-text: #ece8f8;
     --siren-edge-stroke: #8e88a3;
     --siren-highlight-color: #2dd4bf;
+    --siren-label-link: #9cc7ff;
   }
 }
 
 /* ...or let your own theme switch decide, on any element you like. */
 [data-theme="dark"] {
   --siren-node-fill: #2a2144;
-  /* ...the same five. */
+  /* ...the same six. */
 }
 ```
 
 Those are Siren's own dark values, and the repo's
 [`demos/theme-dark.css`](https://github.com/Ginz9013/siren/blob/main/demos/theme-dark.css)
-is this done in full — the five above plus `siren-board`'s six chrome tokens — ready to
-copy.
+is this done in full — the six above, the `<mark>` pair, and `siren-board`'s six chrome
+tokens — ready to copy.
 
 Scoping the override lower than `:root` works the same way, which is how one diagram on a
 page differs from the rest — declare it on the container you pass to `render()`, and the
@@ -399,7 +402,8 @@ Override any `--siren-*` custom property in your own CSS:
 
 The label-paint tokens are what the browser's default stylesheet paints these tags with in
 Mermaid's HTML labels. They sit outside the five-color palette, so a marked or linked run
-looks the same whichever palette is in use, unless you repaint them.
+looks the same whichever palette is in use, unless you repaint them — and a dark palette
+should repaint `--siren-label-link`, as in the example above.
 
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.

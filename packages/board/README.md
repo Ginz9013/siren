@@ -321,7 +321,7 @@ theme attribute, a container:
 
 Those are the chrome's own dark values. The repo's
 [`demos/theme-dark.css`](https://github.com/Ginz9013/siren/blob/main/demos/theme-dark.css)
-declares them alongside `siren-core`'s five, so the diagram and the chrome switch
+declares them alongside `siren-core`'s color tokens, so the diagram and the chrome switch
 together — copy it and you have a dark theme for both.
 
 For deeper changes, target the classes `.siren-board-controls` and
