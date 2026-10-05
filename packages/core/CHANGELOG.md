@@ -8,6 +8,12 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- The README's dark-theme example, and `demos/theme-dark.css` it points to, now redeclare
+  `--siren-label-link` (`#9cc7ff`). Copied as they were, they left a label link in the
+  browser's light-page blue, 1.6:1 on the dark node fill and unreadable.
+
 ## [0.3.0] - 2026-10-05
 
 Breaking for a stylesheet that targets `siren-node-label-row`, which is now `siren-label-row`,

@@ -1193,6 +1193,71 @@ A["x <a href='https://e.x'><mark>m</mark></a>"]`);
     expect(getComputedStyle(run).fill).toBe("var(--siren-label-mark-text)");
   });
 
+  // ADR-0014: a second theme is the consumer's, declared by redeclaring
+  // tokens under a selector of their own. The label-paint tokens must answer
+  // to that exactly as the palette does. jsdom does not inherit custom
+  // properties into descendants (measured: a value redeclared on the
+  // container reads back on the container and as "" on any child), so this
+  // pins the two halves CSS joins: the theme's value lands on the diagram's
+  // container, and every drawn element paints with a `var()` reference to
+  // the token rather than a literal — which a browser resolves from that
+  // ancestor.
+  it("lets a theme scoped to the diagram's container repaint the three label-paint tokens", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A["x <mark>m</mark> <a href='https://e.x'>l</a>"]`);
+    const container = svg.parentElement;
+    if (container === null) {
+      throw new Error("the svg has no container");
+    }
+    const theme = document.createElement("style");
+    theme.textContent = `[data-label-paint-test] {
+  --siren-label-mark-fill: #123456;
+  --siren-label-mark-text: #abcdef;
+  --siren-label-link: #9cc7ff;
+}`;
+    document.head.appendChild(theme);
+    container.setAttribute("data-label-paint-test", "");
+    try {
+      const rect = svg.querySelector("rect.siren-label-mark");
+      const marked = svg.querySelector("tspan.siren-label-mark-text");
+      const linked = svg.querySelector("a tspan.siren-label-link");
+      if (rect === null || marked === null || linked === null) {
+        throw new Error("no marked or linked run drawn");
+      }
+      expect(getComputedStyle(rect).fill).toBe("var(--siren-label-mark-fill)");
+      expect(getComputedStyle(marked).fill).toBe("var(--siren-label-mark-text)");
+      expect(getComputedStyle(linked).fill).toBe("var(--siren-label-link)");
+      const theirs = getComputedStyle(container);
+      expect(theirs.getPropertyValue("--siren-label-mark-fill").trim()).toBe("#123456");
+      expect(theirs.getPropertyValue("--siren-label-mark-text").trim()).toBe("#abcdef");
+      expect(theirs.getPropertyValue("--siren-label-link").trim()).toBe("#9cc7ff");
+    } finally {
+      theme.remove();
+      container.removeAttribute("data-label-paint-test");
+    }
+  });
+
+  // demos/theme-dark.css is the second theme the README tells consumers to
+  // copy. It must redeclare every color token core's `:root` declares — the
+  // palette and the label paint alike — or a consumer who copies it inherits
+  // a light color on a dark node (the link blue measured 1.6:1 on its node
+  // fill before this test existed).
+  it("has the demos' dark theme redeclare every color token core declares", () => {
+    const darkThemeCss = (
+      process as unknown as {
+        getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
+      }
+    )
+      .getBuiltinModule("node:fs")
+      .readFileSync(
+        `${(import.meta as unknown as { dirname: string }).dirname}/../../../../demos/theme-dark.css`,
+        "utf8",
+      );
+    const colorTokens = [...Object.keys(PALETTE), "--siren-label-mark-fill", "--siren-label-mark-text", "--siren-label-link"];
+    const missing = colorTokens.filter((token) => !new RegExp(`${token}\\s*:`).test(darkThemeCss));
+    expect(missing).toEqual([]);
+  });
+
   // `layoutLabel` measures an author's px size, and an `em` spacing, against
   // a base it cannot read off the stylesheet; that base is this token's
   // default, and the two may not drift apart.
