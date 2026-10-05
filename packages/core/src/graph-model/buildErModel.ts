@@ -7,6 +7,7 @@ import type {
   ResolvedErRelationship,
   ResolvedErSubgraph,
 } from "../contracts";
+import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveStyles } from "./resolveStyles";
 import {
@@ -52,10 +53,11 @@ export function buildErModel(document: ErDocument): ErModelResult {
       // the two: measured with `--markup`, the box of
       // `CUSTOMER["Customer Account"]` draws "Customer Account", while the
       // table entry stays keyed on `CUSTOMER` — so the alias replaces the
-      // drawn text and nothing else (see `ResolvedErEntity`).
+      // drawn text and nothing else (see `ResolvedErEntity`). The name is
+      // never read for tags: it is the id, drawn as written.
       byId.set(entity.name, {
         id: entity.name,
-        label: entity.alias ?? entity.name,
+        label: entity.alias ?? plainLabel(entity.name),
         attributes: [...entity.attributes],
         // Filled in by `resolveErSubgraphs` below, which is the only thing
         // that may: a block claims a name, a name does not name a block.
@@ -91,9 +93,11 @@ export function buildErModel(document: ErDocument): ErModelResult {
   const relationships = assignRelationshipIds(document);
   const subgraphs = resolveErSubgraphs(document.subgraphs, byId);
 
-  // **Two kinds of timeline target: an entity and a relationship**, sharing
-  // one id space exactly as a flowchart's nodes and edges do, so the shared
-  // resolver never has to learn which kind of element an id belongs to.
+  // **Three kinds of timeline target: an entity, a relationship and a
+  // subgraph**, sharing one id space exactly as a flowchart's nodes, edges
+  // and subgraphs do, so the shared resolver never has to learn which kind
+  // of element an id belongs to. A subgraph is named by the id
+  // `resolveErSubgraphs` generates for it (`subgraph:1`), never by its title.
   //
   // An entity is named by the id the *author* wrote, which is what an alias
   // deliberately leaves alone (see `ResolvedErEntity`): renaming a box on

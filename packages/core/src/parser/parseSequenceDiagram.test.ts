@@ -1,14 +1,40 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
-import type { Diagnostic, SequenceDocument } from "../contracts";
+import { parseSiren } from "./parseSiren";
+import type { Diagnostic, Label, ParseResult, SequenceDocument } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
+
+// A stand-in for `readLabel` that reports a problem wherever its source holds
+// `⚠` (an error) or `⚑` (a warning): the `sequence` dialect has no tag that
+// reports one, so this is how a test asks where a problem would land.
+vi.mock("../label/readLabel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../label/readLabel")>();
+  return {
+    ...actual,
+    readLabel: (...args: Parameters<typeof actual.readLabel>) => {
+      const read = actual.readLabel(...args);
+      const [source] = args;
+      const problems = [...read.problems];
+      for (const [mark, severity] of [["⚠", "error"], ["⚑", "warning"]] as const) {
+        for (let at = source.indexOf(mark); at !== -1; at = source.indexOf(mark, at + 1)) {
+          problems.push({ severity, message: `test problem ${mark}`, offset: at });
+        }
+      }
+      return { ...read, problems };
+    },
+  };
+});
 
 /**
  * Asserts a `parseSequenceDiagram` call succeeded and narrows its document
  * to `SequenceDocument`, so the rest of a test can access sequence-only
  * fields without fighting `SirenDocument`'s discriminated union.
  */
-function parseOk(source: string): { document: SequenceDocument; diagnostics: Diagnostic[] } {
-  const { document, diagnostics } = parseSequenceDiagram(source);
+function parseOk(
+  source: string,
+  parse: (source: string) => ParseResult = parseSequenceDiagram,
+): { document: SequenceDocument; diagnostics: Diagnostic[] } {
+  const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "sequence") {
     throw new Error(
       `expected a sequence document, got ${document === null ? "null" : document.kind}`,
@@ -40,10 +66,10 @@ describe("parseSequenceDiagram", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.participants).toEqual([
-      { id: "A", label: "A", participantKind: "participant", line: 2, column: 3 },
-      { id: "B", label: "Bob", participantKind: "participant", line: 3, column: 3 },
-      { id: "C", label: "C", participantKind: "actor", line: 4, column: 3 },
-      { id: "D", label: "Dave", participantKind: "actor", line: 5, column: 3 },
+      { id: "A", label: plainLabel("A"), participantKind: "participant", line: 2, column: 3 },
+      { id: "B", label: plainLabel("Bob"), participantKind: "participant", line: 3, column: 3 },
+      { id: "C", label: plainLabel("C"), participantKind: "actor", line: 4, column: 3 },
+      { id: "D", label: plainLabel("Dave"), participantKind: "actor", line: 5, column: 3 },
     ]);
   });
 
@@ -100,7 +126,7 @@ describe("parseSequenceDiagram", () => {
         kind: "message",
         from: "A",
         to: "B",
-        text: "request",
+        label: plainLabel("request"),
         arrow: { line: "solid", head: "filled" },
         line: 4,
         column: 3,
@@ -127,7 +153,7 @@ describe("parseSequenceDiagram", () => {
         kind: "message",
         from: "B",
         to: "A",
-        text: "response",
+        label: plainLabel("response"),
         arrow: { line: "dotted", head: "filled" },
         line: 4,
         column: 3,
@@ -168,7 +194,7 @@ describe("parseSequenceDiagram", () => {
         placement: "over",
         from: "A",
         to: "B",
-        text: "they agree",
+        label: plainLabel("they agree"),
         line: 4,
         column: 3,
       },
@@ -185,7 +211,7 @@ describe("parseSequenceDiagram", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.statements.slice(1)).toEqual([
-      { kind: "note", placement: "over", from: "A", to: "A", text: "alone", line: 3, column: 3 },
+      { kind: "note", placement: "over", from: "A", to: "A", label: plainLabel("alone"), line: 3, column: 3 },
     ]);
   });
 
@@ -205,7 +231,7 @@ describe("parseSequenceDiagram", () => {
         placement: "right",
         from: "A",
         to: "A",
-        text: "thinking",
+        label: plainLabel("thinking"),
         line: 3,
         column: 3,
       },
@@ -214,7 +240,7 @@ describe("parseSequenceDiagram", () => {
         placement: "left",
         from: "A",
         to: "A",
-        text: "pondering",
+        label: plainLabel("pondering"),
         line: 4,
         column: 3,
       },
@@ -360,14 +386,14 @@ describe("parseSequenceDiagram", () => {
     expect(diagnostics).toEqual([]);
     expect(document.statements.map((s) => s.kind)).toEqual(["participant", "participant", "loop"]);
     const loopStatement = document.statements.find((s) => s.kind === "loop");
-    expect(loopStatement!.kind === "loop" && loopStatement!.label).toBe("Every minute");
+    expect(loopStatement!.kind === "loop" && loopStatement!.label).toEqual(plainLabel("Every minute"));
     expect(loopStatement!.kind === "loop" && loopStatement!.body.map((s) => s.kind)).toEqual([
       "message",
     ]);
     expect(
       loopStatement!.kind === "loop" &&
         loopStatement!.body[0].kind === "message" &&
-        loopStatement!.body[0].text,
+        loopStatement!.body[0].label.text,
     ).toBe("poll");
   });
 
@@ -398,13 +424,13 @@ describe("parseSequenceDiagram", () => {
     ]);
 
     const optStatement = document.statements.find((s) => s.kind === "opt");
-    expect(optStatement!.kind === "opt" && optStatement!.label).toBe("is available");
+    expect(optStatement!.kind === "opt" && optStatement!.label).toEqual(plainLabel("is available"));
     expect(optStatement!.kind === "opt" && optStatement!.body.map((s) => s.kind)).toEqual([
       "message",
     ]);
 
     const breakStatement = document.statements.find((s) => s.kind === "break");
-    expect(breakStatement!.kind === "break" && breakStatement!.label).toBe("connection lost");
+    expect(breakStatement!.kind === "break" && breakStatement!.label).toEqual(plainLabel("connection lost"));
     expect(breakStatement!.kind === "break" && breakStatement!.body.map((s) => s.kind)).toEqual([
       "message",
     ]);
@@ -450,13 +476,13 @@ describe("parseSequenceDiagram", () => {
     expect(altStatement).toBeDefined();
     expect(altStatement!.kind === "alt" && altStatement!.branches).toEqual([
       {
-        label: "is sick",
+        label: plainLabel("is sick"),
         body: [
           {
             kind: "message",
             from: "A",
             to: "B",
-            text: "sick message",
+            label: plainLabel("sick message"),
             arrow: { line: "solid", head: "filled" },
             line: 5,
             column: 5,
@@ -464,13 +490,13 @@ describe("parseSequenceDiagram", () => {
         ],
       },
       {
-        label: "is well",
+        label: plainLabel("is well"),
         body: [
           {
             kind: "message",
             from: "A",
             to: "B",
-            text: "well message",
+            label: plainLabel("well message"),
             arrow: { line: "solid", head: "filled" },
             line: 7,
             column: 5,
@@ -500,7 +526,7 @@ describe("parseSequenceDiagram", () => {
     const parStatement = document.statements.find((s) => s.kind === "par");
     expect(parStatement).toBeDefined();
     expect(
-      parStatement!.kind === "par" && parStatement!.branches.map((b) => b.label),
+      parStatement!.kind === "par" && parStatement!.branches.map((b) => b.label?.text ?? null),
     ).toEqual(["send to B", "send to C", "send again"]);
     expect(
       parStatement!.kind === "par" && parStatement!.branches.map((b) => b.body.length),
@@ -527,7 +553,7 @@ describe("parseSequenceDiagram", () => {
     expect(criticalStatement).toBeDefined();
     expect(
       criticalStatement!.kind === "critical" &&
-        criticalStatement!.branches.map((b) => b.label),
+        criticalStatement!.branches.map((b) => b.label?.text ?? null),
     ).toEqual(["establish connection", "networkFailure", "timeout"]);
     expect(
       criticalStatement!.kind === "critical" &&
@@ -555,21 +581,21 @@ describe("parseSequenceDiagram", () => {
     if (loopStatement === undefined || loopStatement.kind !== "loop") {
       throw new Error("expected a loop statement");
     }
-    expect(loopStatement.label).toBe("outer");
+    expect(loopStatement.label).toEqual(plainLabel("outer"));
 
     const altStatement = loopStatement.body.find((s) => s.kind === "alt");
     if (altStatement === undefined || altStatement.kind !== "alt") {
       throw new Error("expected an alt statement nested in the loop");
     }
-    expect(altStatement.branches.map((b) => b.label)).toEqual(["condition"]);
+    expect(altStatement.branches.map((b) => b.label?.text ?? null)).toEqual(["condition"]);
 
     const parStatement = altStatement.branches[0].body.find((s) => s.kind === "par");
     if (parStatement === undefined || parStatement.kind !== "par") {
       throw new Error("expected a par statement nested in the alt branch");
     }
-    expect(parStatement.branches.map((b) => b.label)).toEqual(["branch"]);
+    expect(parStatement.branches.map((b) => b.label?.text ?? null)).toEqual(["branch"]);
     expect(
-      parStatement.branches[0].body.map((s) => (s.kind === "message" ? s.text : null)),
+      parStatement.branches[0].body.map((s) => (s.kind === "message" ? s.label.text : null)),
     ).toEqual(["deepest"]);
   });
 
@@ -630,7 +656,7 @@ describe("parseSequenceDiagram", () => {
       {
         kind: "participant",
         id: "A",
-        label: "A",
+        label: plainLabel("A"),
         participantKind: "participant",
         origin: "declared",
         line: 2,
@@ -640,7 +666,7 @@ describe("parseSequenceDiagram", () => {
         kind: "message",
         from: "A",
         to: "Carl",
-        text: "hi",
+        label: plainLabel("hi"),
         arrow: { line: "solid", head: "filled" },
         line: 3,
         column: 3,
@@ -648,7 +674,7 @@ describe("parseSequenceDiagram", () => {
       {
         kind: "participant",
         id: "Carl",
-        label: "Carl",
+        label: plainLabel("Carl"),
         participantKind: "participant",
         origin: "created",
         line: 4,
@@ -657,7 +683,7 @@ describe("parseSequenceDiagram", () => {
       {
         kind: "participant",
         id: "D",
-        label: "Donald",
+        label: plainLabel("Donald"),
         participantKind: "actor",
         origin: "created",
         line: 5,
@@ -665,9 +691,9 @@ describe("parseSequenceDiagram", () => {
       },
     ]);
     expect(document.participants).toEqual([
-      { id: "A", label: "A", participantKind: "participant", line: 2, column: 3 },
-      { id: "Carl", label: "Carl", participantKind: "participant", line: 4, column: 3 },
-      { id: "D", label: "Donald", participantKind: "actor", line: 5, column: 3 },
+      { id: "A", label: plainLabel("A"), participantKind: "participant", line: 2, column: 3 },
+      { id: "Carl", label: plainLabel("Carl"), participantKind: "participant", line: 4, column: 3 },
+      { id: "D", label: plainLabel("Donald"), participantKind: "actor", line: 5, column: 3 },
     ]);
   });
 
@@ -717,16 +743,16 @@ describe("parseSequenceDiagram", () => {
     expect(document.boxes).toEqual([
       {
         color: "Purple",
-        label: "Alice,Bob",
+        label: plainLabel("Alice,Bob"),
         participantIds: ["Alice", "Bob"],
         line: 2,
         column: 3,
       },
     ]);
     expect(document.participants).toEqual([
-      { id: "Alice", label: "Alice", participantKind: "participant", line: 3, column: 5 },
-      { id: "Bob", label: "Bobby", participantKind: "actor", line: 4, column: 5 },
-      { id: "Carl", label: "Carl", participantKind: "participant", line: 6, column: 3 },
+      { id: "Alice", label: plainLabel("Alice"), participantKind: "participant", line: 3, column: 5 },
+      { id: "Bob", label: plainLabel("Bobby"), participantKind: "actor", line: 4, column: 5 },
+      { id: "Carl", label: plainLabel("Carl"), participantKind: "participant", line: 6, column: 3 },
     ]);
     expect(document.statements.map((s) => (s.kind === "participant" ? s.id : s.kind))).toEqual([
       "Alice",
@@ -758,11 +784,27 @@ describe("parseSequenceDiagram", () => {
     expect(diagnostics).toEqual([]);
     expect(document.boxes.map((b) => ({ color: b.color, label: b.label }))).toEqual([
       { color: "transparent", label: null },
-      { color: "rgb(255, 0, 0)", label: "Reds" },
-      { color: null, label: "My Service" },
+      { color: "rgb(255, 0, 0)", label: plainLabel("Reds") },
+      { color: null, label: plainLabel("My Service") },
       { color: null, label: null },
     ]);
     expect(document.boxes.map((b) => b.participantIds)).toEqual([["A"], ["B"], ["C"], ["D"]]);
+  });
+
+  // Measured with the probe's `--paint`: `box currentcolor Team` draws the
+  // label `Team`, so Mermaid's color test takes `currentcolor` as the color,
+  // as CSS Color 4 makes it one, where `box banana Team` draws all three
+  // words. The same table answers a label's own `color`.
+  it("reads currentcolor as a box header's color, as CSS does", () => {
+    const { document } = parseOk(`sequenceDiagram
+  box currentcolor Team
+    participant A
+  end
+`);
+
+    expect(document.boxes.map((b) => ({ color: b.color, label: b.label }))).toEqual([
+      { color: "currentcolor", label: plainLabel("Team") },
+    ]);
   });
 
   it("returns a null document plus an error diagnostic for a box missing its end", () => {
@@ -817,7 +859,7 @@ describe("parseSequenceDiagram", () => {
     expect(loopStatement.body[0]).toEqual({
       kind: "participant",
       id: "Worker",
-      label: "Worker",
+      label: plainLabel("Worker"),
       participantKind: "participant",
       origin: "created",
       line: 8,
@@ -973,5 +1015,142 @@ describe("the header a sequence diagram rejects", () => {
 
     expect(document).toBeNull();
     expect(diagnostics[0].message).toBe('Expected "sequenceDiagram", found "sequence"');
+  });
+});
+
+describe("the labels a sequence diagram reads", () => {
+  /** A label of plain rows, one plain run each — what `<br>` between words reads as. */
+  const rowsLabel = (...rows: string[]): Label => ({
+    text: rows.join("\n"),
+    rows: rows.map((row) => [plainRun(row)]),
+  });
+
+  it("reads a participant's alias as a label, so <br/> breaks it into rows", () => {
+    const { document } = parseOk("sequenceDiagram\n  participant A as Web<br/>Client\n");
+
+    expect(document.participants.map((p) => p.label)).toEqual([rowsLabel("Web", "Client")]);
+  });
+
+  it("reads a message's and a note's text as a label, so <br/> breaks each into rows", () => {
+    const { document } = parseOk(
+      "sequenceDiagram\n  A->>B: first<br/>second\n  A->>+B: x<br>y\n  Note over A: a<br/>b\n",
+    );
+
+    const labels = document.statements.flatMap((s) =>
+      s.kind === "message" || s.kind === "note" ? [s.label] : [],
+    );
+    expect(labels).toEqual([
+      rowsLabel("first", "second"),
+      rowsLabel("x", "y"),
+      rowsLabel("a", "b"),
+    ]);
+  });
+
+  it("reads a block's condition, each branch's and a box's label as labels, so <br/> breaks them into rows", () => {
+    // Measured (mermaid 11.17.2, `--paint`): `loop every<br/>day` draws
+    // "[every" over "day]", `alt c1<br/>c2` / `else e1<br/>e2` draw two rows
+    // each, and `box Grp<br/>two` draws "Grp" over "two".
+    const { document } = parseOk(`sequenceDiagram
+  box Aqua Grp<br/>two
+    participant A
+  end
+  loop every<br/>day
+    A->>A: hi
+  end
+  alt c1<br/>c2
+    A->>A: z
+  else e1<br/>e2
+    A->>A: w
+  end
+`);
+
+    expect(document.boxes.map((b) => b.label)).toEqual([rowsLabel("Grp", "two")]);
+    const [, loop, alt] = document.statements;
+    expect(loop!.kind === "loop" && loop!.label).toEqual(rowsLabel("every", "day"));
+    expect(alt!.kind === "alt" && alt!.branches.map((b) => b.label)).toEqual([
+      rowsLabel("c1", "c2"),
+      rowsLabel("e1", "e2"),
+    ]);
+  });
+
+  it("reports a label's problem at the column the author wrote it, wherever the label is", () => {
+    // `⚑` is the stand-in's warning (see the `vi.mock` above). Columns are
+    // 1-based, and every label below puts its `⚑` at a known column.
+    const placed = (body: string) =>
+      parseSequenceDiagram(`sequenceDiagram\n${body}`).diagnostics.map(({ severity, line, column }) => [
+        severity,
+        line,
+        column,
+      ]);
+
+    // `  participant A as W⚑` — the 21st character.
+    expect(placed("  participant A as W⚑\n")).toEqual([["warning", 2, 21]]);
+    // `  create actor C as  W⚑`, the alias past the `create` keyword: the 23rd.
+    expect(placed("  A->>B: x\n  create actor C as  W⚑\n")).toEqual([["warning", 3, 23]]);
+    // `  A->>B:  m⚑` and `  A->>+B: m⚑`: the 12th, twice.
+    expect(placed("  A->>B:  m⚑\n")).toEqual([["warning", 2, 12]]);
+    expect(placed("  A->>+B: m⚑\n")).toEqual([["warning", 2, 12]]);
+    // `  Note over A: n⚑`: the 17th.
+    expect(placed("  Note over A: n⚑\n")).toEqual([["warning", 2, 17]]);
+    // `  loop   l⚑` (a run of spaces after the keyword) and `  else e⚑`.
+    expect(placed("  loop   l⚑\n    A->>B: x\n  end\n")).toEqual([["warning", 2, 11]]);
+    expect(placed("  alt a\n    A->>B: x\n  else e⚑\n    A->>B: y\n  end\n")).toEqual([
+      ["warning", 4, 9],
+    ]);
+    // A box's label, after a color and without one: `  box Aqua  b⚑`, `  box b⚑`.
+    expect(placed("  box Aqua  b⚑\n    participant A\n  end\n")).toEqual([["warning", 2, 14]]);
+    expect(placed("  box b⚑\n    participant A\n  end\n")).toEqual([["warning", 2, 8]]);
+  });
+
+  it("refuses the document when a label holds an error, and says where", () => {
+    // `⚠` is the stand-in's error: a label Siren cannot draw as written is
+    // not drawn some other way, so the whole document goes.
+    const result = parseSequenceDiagram("sequenceDiagram\n  A->>B: m⚠\n");
+
+    expect(result.document).toBeNull();
+    expect(result.diagnostics.map((d) => [d.severity, d.line, d.column])).toEqual([["error", 2, 11]]);
+  });
+
+  it("draws every tag but <br> as written, as Mermaid draws sequence text", () => {
+    // Measured (mermaid 11.17.2, `--paint`): `A->>B: <b>bold</b> msg` draws
+    // the one `<text>` "<b>bold</b> msg" — sequence text is SVG in both modes.
+    const { document } = parseOk("sequenceDiagram\n  A->>B: <b>bold</b> msg\n");
+
+    const [message] = document.statements;
+    expect(message!.kind === "message" && message!.label).toEqual(rowsLabel("<b>bold</b> msg"));
+  });
+});
+
+/**
+ * Mermaid's style-line rule (its `encodeEntities`): before it parses, it
+ * drops the last `;` of every line where `style` (or `classDef`), a `:` and
+ * then a `#` come before it — the whole line, a participant's name
+ * included, not only the text. Sequence text is drawn as SVG, so these were
+ * measured as the message Mermaid 11.17.2 recorded. `parseSiren` applies it
+ * to the whole document, so these read through it.
+ */
+describe("parseSequenceDiagram — the `;` Mermaid drops from a style line", () => {
+  const labelText = (source: string) => {
+    const [statement] = parseOk(`sequenceDiagram\n${source}`, parseSiren).document.statements;
+    return statement!.kind === "message" || statement!.kind === "note" ? statement!.label.text : null;
+  };
+
+  it("drops the line's last `;` when `style` is in a participant's name", () => {
+    // `styles->>B:#35; a;b` records `ﬂ°°35¶ß ab`: drawn `# ab`.
+    expect(labelText("  styles->>B:#35; a;b")).toBe("# ab");
+  });
+
+  it("drops the line's last `;` from a note", () => {
+    // `Note over A: style x:#35; a;b` records `style x:ﬂ°°35¶ß ab`.
+    expect(labelText("  Note over A: style x:#35; a;b")).toBe("style x:# ab");
+  });
+
+  it("leaves a position past it where the author wrote it", () => {
+    // `  A->>B: style x:#35;⚑`: the ⚑ is the 22nd character.
+    expect(
+      parseSiren("sequenceDiagram\n  A->>B: style x:#35;⚑").diagnostics.map(
+        ({ severity, line, column }) => [severity, line, column],
+      ),
+    ).toEqual([["warning", 2, 22]]);
   });
 });

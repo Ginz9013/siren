@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { ClassDecl, ClassDocument, ClassMember, ClassRelationship } from "../contracts";
+import type { ClassDecl, ClassDocument, ClassMember, ClassRelationship, Label } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { buildClassModel } from "./buildClassModel";
+
+/** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
 
 /**
  * A `ClassDocument` with everything empty, so each test states only the
@@ -25,7 +32,7 @@ function classDocument(overrides: Partial<ClassDocument> = {}): ClassDocument {
 
 /** A `ClassDecl` with the fields a test does not care about defaulted. */
 function classDecl(overrides: Partial<ClassDecl> & { id: string }): ClassDecl {
-  return { generic: null, annotation: null, members: [], ...overrides };
+  return { generic: null, annotation: null, label: null, members: [], ...overrides };
 }
 
 /** An attribute member, `+int size` by default. */
@@ -88,6 +95,7 @@ describe("buildClassModel", () => {
         id: "Animal",
         generic: null,
         annotation: null,
+        label: null,
         members: [size, swim],
         namespaceId: null,
       },
@@ -245,16 +253,16 @@ describe("buildClassModel", () => {
           classDecl({ id: "Button" }),
         ],
         namespaces: [
-          { id: "BaseShapes", classIds: ["Triangle", "Square"] },
-          { id: "Widgets", classIds: ["Button"] },
+          { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"] },
+          { id: "Widgets", label: null, classIds: ["Button"] },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", label: "BaseShapes", classIds: ["Triangle", "Square"] },
-      { id: "namespace:2", label: "Widgets", classIds: ["Button"] },
+      { id: "namespace:1", label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"] },
+      { id: "namespace:2", label: plainLabel("Widgets"), classIds: ["Button"] },
     ]);
     expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
       ["Triangle", "namespace:1"],
@@ -271,8 +279,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Square" })],
         namespaces: [
-          { id: "BaseShapes", classIds: ["Triangle", "Square"], line: 2, column: 1 },
-          { id: "Widgets", classIds: ["Triangle"], line: 7, column: 1 },
+          { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"], line: 2, column: 1 },
+          { id: "Widgets", label: null, classIds: ["Triangle"], line: 7, column: 1 },
         ],
       }),
     );
@@ -287,8 +295,8 @@ describe("buildClassModel", () => {
       },
     ]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", label: "BaseShapes", classIds: ["Triangle", "Square"] },
-      { id: "namespace:2", label: "Widgets", classIds: [] },
+      { id: "namespace:1", label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"] },
+      { id: "namespace:2", label: plainLabel("Widgets"), classIds: [] },
     ]);
     expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", "namespace:1"]);
   });
@@ -297,7 +305,7 @@ describe("buildClassModel", () => {
     const { model } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Loose" })],
-        namespaces: [{ id: "BaseShapes", classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle"] }],
       }),
     );
 
@@ -308,14 +316,14 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", classIds: ["Triangle", "Square"] }],
+        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle", "Square"] }],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.classes).toEqual([
-      { id: "Triangle", generic: null, annotation: null, members: [], namespaceId: "namespace:1" },
-      { id: "Square", generic: null, annotation: null, members: [], namespaceId: "namespace:1" },
+      { id: "Triangle", generic: null, annotation: null, label: null, members: [], namespaceId: "namespace:1" },
+      { id: "Square", generic: null, annotation: null, label: null, members: [], namespaceId: "namespace:1" },
     ]);
     expect(model.namespaces[0].classIds).toEqual(["Triangle", "Square"]);
   });
@@ -331,7 +339,7 @@ describe("buildClassModel", () => {
             line: "dashed",
             fromEnd: "diamondFilled",
             toEnd: "arrow",
-            label: "raises",
+            label: plainLabel("raises"),
             fromMultiplicity: "1",
             toMultiplicity: "*",
             sourceLine: 3,
@@ -350,7 +358,7 @@ describe("buildClassModel", () => {
         line: "dashed",
         fromEnd: "diamondFilled",
         toEnd: "arrow",
-        label: "raises",
+        label: plainLabel("raises"),
         fromMultiplicity: "1",
         toMultiplicity: "*",
         fromInterfaceLabel: null,
@@ -393,6 +401,7 @@ describe("buildClassModel", () => {
       id: "Animal",
       generic: null,
       annotation: null,
+      label: null,
       members: [],
       namespaceId: null,
     });
@@ -464,16 +473,16 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Duck" })],
         notes: [
-          { text: "free standing", targetId: null },
-          { text: "can fly", targetId: "Duck" },
+          { label: plainLabel("free standing"), targetId: null },
+          { label: plainLabel("can fly"), targetId: "Duck" },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.notes).toEqual([
-      { id: "note:1", text: "free standing", targetId: null },
-      { id: "note:2", text: "can fly", targetId: "Duck" },
+      { id: "note:1", label: plainLabel("free standing"), targetId: null },
+      { id: "note:2", label: plainLabel("can fly"), targetId: "Duck" },
     ]);
   });
 
@@ -485,9 +494,9 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Duck" })],
         notes: [
-          { text: "first", targetId: "Duck" },
-          { text: "orphan", targetId: "Ghost", line: 6, column: 1 },
-          { text: "third", targetId: null },
+          { label: plainLabel("first"), targetId: "Duck" },
+          { label: plainLabel("orphan"), targetId: "Ghost", line: 6, column: 1 },
+          { label: plainLabel("third"), targetId: null },
         ],
       }),
     );
@@ -503,8 +512,8 @@ describe("buildClassModel", () => {
     // The surviving notes keep the ids their own position gives them: a
     // broken note does not renumber the ones after it.
     expect(model.notes).toEqual([
-      { id: "note:1", text: "first", targetId: "Duck" },
-      { id: "note:3", text: "third", targetId: null },
+      { id: "note:1", label: plainLabel("first"), targetId: "Duck" },
+      { id: "note:3", label: plainLabel("third"), targetId: null },
     ]);
     expect(model.classes.map((c) => c.id)).toEqual(["Duck"]);
   });
@@ -539,8 +548,8 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", classIds: ["Triangle"] }],
-        notes: [{ text: "shapes live here", targetId: "Triangle" }],
+        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle"] }],
+        notes: [{ label: plainLabel("shapes live here"), targetId: "Triangle" }],
         timeline: {
           entries: [
             { kind: "enter", step: 1, targetId: "namespace:1", effect: "fade" },
@@ -657,7 +666,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Duck" })],
-        notes: [{ text: "orphan", targetId: "Ghost", line: 4, column: 1 }],
+        notes: [{ label: plainLabel("orphan"), targetId: "Ghost", line: 4, column: 1 }],
         timeline: {
           entries: [{ kind: "enter", step: 1, targetId: "note:1", effect: "fade", line: 8 }],
         },
@@ -1408,8 +1417,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "namespace" }), classDecl({ id: "1" })],
         relationships: [relationship({ from: "namespace", to: "1" })],
-        namespaces: [{ id: "Shapes", classIds: ["namespace"] }],
-        notes: [{ text: "about shapes", targetId: "namespace" }],
+        namespaces: [{ id: "Shapes", label: null, classIds: ["namespace"] }],
+        notes: [{ label: plainLabel("about shapes"), targetId: "namespace" }],
         timeline: {
           entries: [
             { kind: "enter", step: 1, targetId: "namespace-1", effect: "fade" },
@@ -1459,5 +1468,81 @@ describe("buildClassModel", () => {
     expect(model.timeline.totalSteps).toBe(3);
     expect(model.classes.map((c) => c.id)).toEqual(["Animal", "Duck"]);
     expect(model.relationships.map((r) => r.id)).toEqual(["Animal-Duck"]);
+  });
+});
+
+describe("buildClassModel — labels", () => {
+  it("keeps a label written for a class through the declarations that write none", () => {
+    // The implicit declaration a relationship makes carries no label, before
+    // or after the one that wrote it; neither one takes the label away.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [
+          classDecl({ id: "Order" }),
+          classDecl({ id: "Order", label: rowsLabel("Order", "Line") }),
+          classDecl({ id: "Order" }),
+          classDecl({ id: "Plain" }),
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.classes.map((c) => [c.id, c.label])).toEqual([
+      ["Order", rowsLabel("Order", "Line")],
+      ["Plain", null],
+    ]);
+  });
+
+  it("takes the last label, silently, when two declarations of one class label it differently", () => {
+    // Mermaid 11.17.2, measured: `class A["x"]` then `class A["y"]` draws
+    // "y" with no diagnostic — unlike a generic or an annotation, where the
+    // first is the one drawn.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [
+          classDecl({ id: "Order", label: plainLabel("x"), line: 2, column: 3 }),
+          classDecl({ id: "Order", label: rowsLabel("y", "z"), line: 3, column: 3 }),
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.classes.map((c) => [c.id, c.label])).toEqual([["Order", rowsLabel("y", "z")]]);
+  });
+
+  it("labels a namespace with the label it wrote, and one that wrote none with its name", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Lion" }), classDecl({ id: "Cow" })],
+        namespaces: [
+          { id: "Zoo", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
+          { id: "Farm", label: null, classIds: ["Cow"] },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.namespaces).toEqual([
+      { id: "namespace:1", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
+      { id: "namespace:2", label: plainLabel("Farm"), classIds: ["Cow"] },
+    ]);
+  });
+
+  it("carries a note's label and a relationship's label through unchanged", () => {
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "Order" }), classDecl({ id: "Line" })],
+        relationships: [
+          relationship({ from: "Order", to: "Line", label: rowsLabel("holds", "many") }),
+        ],
+        notes: [{ label: rowsLabel("can fly", "can swim"), targetId: "Order" }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.relationships.map((r) => r.label)).toEqual([rowsLabel("holds", "many")]);
+    expect(model.notes).toEqual([
+      { id: "note:1", label: rowsLabel("can fly", "can swim"), targetId: "Order" },
+    ]);
   });
 });

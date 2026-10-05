@@ -294,7 +294,7 @@ describe("the corpus, case by case", () => {
  * only `fc-text-label-whitespace` — a flowchart parser trim, out of scope
  * for the sequence board that closed the other two.
  *
- * `fc-text-label-whitespace` closed the same way: `labelIn` trims after the
+ * `fc-text-label-whitespace` closed the same way: `labelSpan` trims after the
  * fence is removed, so a padded label draws exactly as Mermaid draws it.
  * 1 - 1 = 0. Every case this constant has ever named is now either
  * `supported` or `rejected` — the destination this policy always pointed at.
@@ -1349,8 +1349,33 @@ const SILENTLY_WRONG = 2;
  * labelled `to`, `one`, `many`, `1abc` and `end` for five documents Mermaid
  * refuses outright. The alphabet is a lexer question and was answered as
  * one (`readsAsOneEntityName`).
+ *
+ * **9 → 10: a member written down for the first time.** Case (2) above.
+ * The label board's round-3 review measured two class members Mermaid draws
+ * as literal characters (`+int <b>id</b>`, `+x<br class="y">z` — escaped in
+ * both label modes, `--html`) and Siren refuses as unrecognized, and wrote
+ * them down as `cls-member-tags-literal-rejected`. Nothing broke: both were
+ * refused before the row existed, `cls-member-tags-literal`'s two spellings
+ * still draw, and `silently-wrong` does not move. Never measured until now
+ * because the ticket that made members literal measured the two spellings
+ * it fixed, not the ones it left.
+ *
+ * **10 → 14: ADR-0015's refused layers written down for the first time.**
+ * Case (2) above. The label board's T11 wrote one row each for the HTML a
+ * label may hold that Mermaid draws and SVG text cannot — a table, ruby,
+ * `<img>` and a form control (`label-table-rejected`, `label-ruby-rejected`,
+ * `label-img-rejected`, `label-form-control-rejected`) — each refused with
+ * an error-severity diagnostic at its tag. Nothing broke: before T11 Siren
+ * read them as tags outside its vocabulary and drew their text, and no row
+ * recorded them. Its review then measured the layers out of context and
+ * narrowed them: a table part outside a table is ignored by the parser
+ * (`label-stray-table-part`), and seven tags the browser does not show are
+ * removed with their content (`label-hidden-tags`). Both new rows are
+ * `supported`, and each of the four rejected rows still holds a tag that is
+ * refused, so the net is still 14. `silently-wrong` does not move: these
+ * refuse pictures Mermaid draws as written, not wrong ones.
  */
-const REJECTED = 9;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

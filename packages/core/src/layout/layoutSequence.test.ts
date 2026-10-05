@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { plainLabel, plainRun } from "../label/label";
 import type {
+  Label,
   PositionedSequenceElement,
   ResolvedSequenceBlock,
   ResolvedSequenceParticipant,
@@ -24,7 +26,7 @@ function coreModel(): SequenceModel {
     participants: [
       {
         id: "A",
-        label: "Alice",
+        label: plainLabel("Alice"),
         participantKind: "participant",
         origin: "declared",
         createdAt: 0,
@@ -32,7 +34,7 @@ function coreModel(): SequenceModel {
       },
       {
         id: "B",
-        label: "Bob",
+        label: plainLabel("Bob"),
         participantKind: "actor",
         origin: "declared",
         createdAt: 0,
@@ -40,7 +42,7 @@ function coreModel(): SequenceModel {
       },
       {
         id: "C",
-        label: "Carol",
+        label: plainLabel("Carol"),
         participantKind: "participant",
         origin: "declared",
         createdAt: 0,
@@ -55,7 +57,7 @@ function coreModel(): SequenceModel {
           id: "A-B",
           from: "A",
           to: "B",
-          text: "Hello Bob",
+          label: plainLabel("Hello Bob"),
           arrow: { line: "solid", head: "filled" },
           autonumber: null,
         },
@@ -66,7 +68,7 @@ function coreModel(): SequenceModel {
           id: "B-C",
           from: "B",
           to: "C",
-          text: "Hi Carol",
+          label: plainLabel("Hi Carol"),
           arrow: { line: "dotted", head: "open" },
           autonumber: null,
         },
@@ -80,7 +82,7 @@ function coreModel(): SequenceModel {
 function declaredParticipant(id: string, label: string): ResolvedSequenceParticipant {
   return {
     id,
-    label,
+    label: plainLabel(label),
     participantKind: "participant",
     origin: "declared",
     createdAt: 0,
@@ -100,7 +102,7 @@ function messageStatement(
       id,
       from,
       to,
-      text,
+      label: plainLabel(text),
       arrow: { line: "solid", head: "filled" },
       autonumber: null,
     },
@@ -140,7 +142,7 @@ describe("layoutSequence", () => {
     expect(byId.B.x).toBeLessThan(byId.C.x);
 
     for (const decl of model.participants) {
-      const measured = fakeMeasurer.measure(decl.label);
+      const measured = fakeMeasurer.measure(decl.label.text);
       expect(byId[decl.id].width).toBeGreaterThanOrEqual(measured.width);
       expect(byId[decl.id].height).toBeGreaterThanOrEqual(measured.height);
     }
@@ -173,7 +175,7 @@ describe("layoutSequence", () => {
       participants: [
         {
           id: "A",
-          label: "Alice",
+          label: plainLabel("Alice"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -188,7 +190,7 @@ describe("layoutSequence", () => {
             id: "A-A",
             from: "A",
             to: "A",
-            text: "Think",
+            label: plainLabel("Think"),
             arrow: { line: "solid", head: "filled" },
             autonumber: null,
           },
@@ -263,7 +265,7 @@ describe("layoutSequence", () => {
       participants: [
         {
           id: "A",
-          label: "Alice",
+          label: plainLabel("Alice"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -271,7 +273,7 @@ describe("layoutSequence", () => {
         },
         {
           id: "B",
-          label: "Bob",
+          label: plainLabel("Bob"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -286,9 +288,10 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
-                label: "Every minute",
+                label: plainLabel("Every minute"),
                 statements: [
                   {
                     kind: "message",
@@ -296,7 +299,7 @@ describe("layoutSequence", () => {
                       id: "A-B-1",
                       from: "A",
                       to: "B",
-                      text: "Poll",
+                      label: plainLabel("Poll"),
                       arrow: { line: "solid", head: "filled" },
                       autonumber: null,
                     },
@@ -307,7 +310,7 @@ describe("layoutSequence", () => {
                       id: "B-A-1",
                       from: "B",
                       to: "A",
-                      text: "Ack",
+                      label: plainLabel("Ack"),
                       arrow: { line: "dotted", head: "open" },
                       autonumber: null,
                     },
@@ -336,7 +339,7 @@ describe("layoutSequence", () => {
     expect(block.x + block.width).toBeGreaterThan(byId.B.x + byId.B.width / 2);
 
     // y-range encloses the header label plus both messages.
-    expect(block.label).toBe("Every minute");
+    expect(block.label?.label).toEqual(plainLabel("[Every minute]"));
     expect(block.children).toHaveLength(2);
     const [first, second] = block.children as Extract<
       PositionedSequenceElement,
@@ -354,7 +357,7 @@ describe("layoutSequence", () => {
       participants: [
         {
           id: "A",
-          label: "Alice",
+          label: plainLabel("Alice"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -362,7 +365,7 @@ describe("layoutSequence", () => {
         },
         {
           id: "B",
-          label: "Bob",
+          label: plainLabel("Bob"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -377,9 +380,10 @@ describe("layoutSequence", () => {
             id: "alt:1",
             kind: "alt",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
-                label: "is valid",
+                label: plainLabel("is valid"),
                 statements: [
                   {
                     kind: "message",
@@ -387,7 +391,7 @@ describe("layoutSequence", () => {
                       id: "A-B-1",
                       from: "A",
                       to: "B",
-                      text: "OK",
+                      label: plainLabel("OK"),
                       arrow: { line: "solid", head: "filled" },
                       autonumber: null,
                     },
@@ -395,7 +399,7 @@ describe("layoutSequence", () => {
                 ],
               },
               {
-                label: "is invalid",
+                label: plainLabel("is invalid"),
                 statements: [
                   {
                     kind: "message",
@@ -403,7 +407,7 @@ describe("layoutSequence", () => {
                       id: "A-B-2",
                       from: "A",
                       to: "B",
-                      text: "Error",
+                      label: plainLabel("Error"),
                       arrow: { line: "solid", head: "filled" },
                       autonumber: null,
                     },
@@ -423,9 +427,9 @@ describe("layoutSequence", () => {
     if (blockElement.kind !== "block") throw new Error("expected block element");
     const block = blockElement.block;
 
-    expect(block.label).toBe("is valid");
+    expect(block.label?.label).toEqual(plainLabel("[is valid]"));
     expect(block.dividers).toHaveLength(1);
-    expect(block.dividers[0].label).toBe("is invalid");
+    expect(block.dividers[0].label?.label).toEqual(plainLabel("[is invalid]"));
 
     expect(block.children).toHaveLength(2);
     const [first, second] = block.children as Extract<
@@ -445,7 +449,7 @@ describe("layoutSequence", () => {
       participants: [
         {
           id: "A",
-          label: "Alice",
+          label: plainLabel("Alice"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -453,7 +457,7 @@ describe("layoutSequence", () => {
         },
         {
           id: "B",
-          label: "Bob",
+          label: plainLabel("Bob"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -461,7 +465,7 @@ describe("layoutSequence", () => {
         },
         {
           id: "C",
-          label: "Carol",
+          label: plainLabel("Carol"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -477,9 +481,10 @@ describe("layoutSequence", () => {
             kind: "opt",
             // Touches only the outer lanes A and C — B is declared but not referenced.
             touchedParticipantIds: ["A", "C"],
+            color: null,
             branches: [
               {
-                label: "maybe",
+                label: plainLabel("maybe"),
                 statements: [
                   {
                     kind: "message",
@@ -487,7 +492,7 @@ describe("layoutSequence", () => {
                       id: "A-C-1",
                       from: "A",
                       to: "C",
-                      text: "Ping",
+                      label: plainLabel("Ping"),
                       arrow: { line: "solid", head: "filled" },
                       autonumber: null,
                     },
@@ -522,7 +527,7 @@ describe("layoutSequence", () => {
         id: "B-C-1",
         from: "B",
         to: "C",
-        text: "Work",
+        label: plainLabel("Work"),
         arrow: { line: "solid", head: "filled" },
         autonumber: null,
       },
@@ -531,21 +536,24 @@ describe("layoutSequence", () => {
       id: "par:1",
       kind: "par",
       touchedParticipantIds: ["B", "C"],
-      branches: [{ label: "path 1", statements: [innermostMessage] }],
+      color: null,
+      branches: [{ label: plainLabel("path 1"), statements: [innermostMessage] }],
     };
     const middle: ResolvedSequenceBlock = {
       id: "alt:1",
       kind: "alt",
       touchedParticipantIds: ["B", "C"],
-      branches: [{ label: "ready", statements: [{ kind: "block", block: innermost }] }],
+      color: null,
+      branches: [{ label: plainLabel("ready"), statements: [{ kind: "block", block: innermost }] }],
     };
     const outer: ResolvedSequenceBlock = {
       id: "loop:1",
       kind: "loop",
       touchedParticipantIds: ["A", "B", "C"],
+      color: null,
       branches: [
         {
-          label: "retry",
+          label: plainLabel("retry"),
           statements: [
             {
               kind: "message",
@@ -553,7 +561,7 @@ describe("layoutSequence", () => {
                 id: "A-B-1",
                 from: "A",
                 to: "B",
-                text: "Start",
+                label: plainLabel("Start"),
                 arrow: { line: "solid", head: "filled" },
                 autonumber: null,
               },
@@ -571,7 +579,7 @@ describe("layoutSequence", () => {
       participants: [
         {
           id: "A",
-          label: "Alice",
+          label: plainLabel("Alice"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -579,7 +587,7 @@ describe("layoutSequence", () => {
         },
         {
           id: "B",
-          label: "Bob",
+          label: plainLabel("Bob"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -587,7 +595,7 @@ describe("layoutSequence", () => {
         },
         {
           id: "C",
-          label: "Carol",
+          label: plainLabel("Carol"),
           participantKind: "participant",
           origin: "declared",
           createdAt: 0,
@@ -631,7 +639,7 @@ describe("layoutSequence", () => {
     function participant(id: string, label: string) {
       return {
         id,
-        label,
+        label: plainLabel(label),
         participantKind: "participant" as const,
         origin: "declared" as const,
         createdAt: 0,
@@ -646,7 +654,7 @@ describe("layoutSequence", () => {
           id,
           from,
           to,
-          text,
+          label: plainLabel(text),
           arrow: { line: "solid", head: "filled" },
           autonumber: null,
         },
@@ -667,9 +675,10 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B", "C"],
+            color: null,
             branches: [
               {
-                label: "outer",
+                label: plainLabel("outer"),
                 statements: [
                   message("m2", "A", "B", "in outer"),
                   {
@@ -678,9 +687,10 @@ describe("layoutSequence", () => {
                       id: "alt:1",
                       kind: "alt",
                       touchedParticipantIds: ["B", "C"],
+                      color: null,
                       branches: [
-                        { label: "branch 1", statements: [message("m3", "B", "C", "branch 1 msg")] },
-                        { label: "branch 2", statements: [message("m4", "B", "C", "branch 2 msg")] },
+                        { label: plainLabel("branch 1"), statements: [message("m3", "B", "C", "branch 1 msg")] },
+                        { label: plainLabel("branch 2"), statements: [message("m4", "B", "C", "branch 2 msg")] },
                       ],
                     } satisfies ResolvedSequenceBlock,
                   },
@@ -720,7 +730,7 @@ describe("layoutSequence", () => {
     function participant(id: string, label: string) {
       return {
         id,
-        label,
+        label: plainLabel(label),
         participantKind: "participant" as const,
         origin: "declared" as const,
         createdAt: 0,
@@ -741,7 +751,7 @@ describe("layoutSequence", () => {
             id: "m1",
             from: "A",
             to: "B",
-            text: "Hi",
+            label: plainLabel("Hi"),
             arrow: { line: "solid", head: "filled" },
             autonumber: null,
           },
@@ -759,9 +769,10 @@ describe("layoutSequence", () => {
             id: "alt:1",
             kind: "alt",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
-                label: "branch 1",
+                label: plainLabel("branch 1"),
                 statements: [
                   {
                     kind: "message",
@@ -769,7 +780,7 @@ describe("layoutSequence", () => {
                       id: "m1",
                       from: "A",
                       to: "B",
-                      text: "Hi",
+                      label: plainLabel("Hi"),
                       arrow: { line: "solid", head: "filled" },
                       autonumber: null,
                     },
@@ -777,7 +788,7 @@ describe("layoutSequence", () => {
                 ],
               },
               {
-                label: "branch 2",
+                label: plainLabel("branch 2"),
                 statements: [
                   {
                     kind: "message",
@@ -785,7 +796,7 @@ describe("layoutSequence", () => {
                       id: "m2",
                       from: "B",
                       to: "A",
-                      text: "Yo",
+                      label: plainLabel("Yo"),
                       arrow: { line: "solid", head: "filled" },
                       autonumber: null,
                     },
@@ -828,7 +839,7 @@ describe("layoutSequence", () => {
         declaredParticipant("B", "Bob"),
         {
           id: "C",
-          label: "Carol",
+          label: plainLabel("Carol"),
           participantKind: "participant",
           origin: "created",
           createdAt: 1,
@@ -842,7 +853,7 @@ describe("layoutSequence", () => {
           kind: "participant",
           participant: {
             id: "C",
-            label: "Carol",
+            label: plainLabel("Carol"),
             participantKind: "participant",
             origin: "created",
             createdAt: 1,
@@ -1002,7 +1013,7 @@ describe("layoutSequence", () => {
         messageStatement("m1", "A", "B", "request"),
         {
           kind: "note",
-          note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
+          note: { id: "note:1", placement: "over", from: "A", to: "B", label: plainLabel("they agree") },
         },
         messageStatement("m2", "B", "A", "response"),
       ],
@@ -1028,7 +1039,7 @@ describe("layoutSequence", () => {
       statements: [
         {
           kind: "note",
-          note: { id: "note:1", placement: "over", from: "A", to: "B", text: "they agree" },
+          note: { id: "note:1", placement: "over", from: "A", to: "B", label: plainLabel("they agree") },
         },
       ],
       timeline: { totalSteps: 0, entries: [] },
@@ -1055,11 +1066,11 @@ describe("layoutSequence", () => {
       statements: [
         {
           kind: "note",
-          note: { id: "note:1", placement: "right", from: "A", to: "A", text: "thinking" },
+          note: { id: "note:1", placement: "right", from: "A", to: "A", label: plainLabel("thinking") },
         },
         {
           kind: "note",
-          note: { id: "note:2", placement: "left", from: "A", to: "A", text: "pondering" },
+          note: { id: "note:2", placement: "left", from: "A", to: "A", label: plainLabel("pondering") },
         },
       ],
       timeline: { totalSteps: 0, entries: [] },
@@ -1076,7 +1087,7 @@ describe("layoutSequence", () => {
   it("spans a created-then-destroyed participant's lifeline exactly between its create and destroy rows, even nested inside a block", () => {
     const carol: ResolvedSequenceParticipant = {
       id: "C",
-      label: "Carol",
+      label: plainLabel("Carol"),
       participantKind: "actor",
       origin: "created",
       createdAt: 2,
@@ -1097,9 +1108,10 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "C"],
+            color: null,
             branches: [
               {
-                label: "each retry",
+                label: plainLabel("each retry"),
                 statements: [
                   { kind: "participant", participant: carol },
                   messageStatement("m2", "A", "C", "work"),
@@ -1161,7 +1173,7 @@ describe("layoutSequence", () => {
     // is eligible for a bottom box, so no bottom row is reserved.
     const carol: ResolvedSequenceParticipant = {
       id: "C",
-      label: "Carol",
+      label: plainLabel("Carol"),
       participantKind: "participant",
       origin: "created",
       createdAt: 1,
@@ -1205,7 +1217,7 @@ describe("layoutSequence", () => {
         {
           id: "box:1",
           color: "rgb(200, 220, 255)",
-          label: "Service tier",
+          label: plainLabel("Service tier"),
           participantIds: ["A", "B"],
         },
       ],
@@ -1219,7 +1231,7 @@ describe("layoutSequence", () => {
     const box = positioned.boxes[0];
     expect(box.id).toBe("box:1");
     expect(box.color).toBe("rgb(200, 220, 255)");
-    expect(box.label).toBe("Service tier");
+    expect(box.label?.label).toEqual(plainLabel("Service tier"));
 
     const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
 
@@ -1240,7 +1252,7 @@ describe("layoutSequence", () => {
   it("grows width for a box's background padding and keeps create/destroy geometry inside the diagram bounds", () => {
     const carol: ResolvedSequenceParticipant = {
       id: "C",
-      label: "Carol",
+      label: plainLabel("Carol"),
       participantKind: "participant",
       origin: "created",
       createdAt: 1,
@@ -1327,9 +1339,10 @@ describe("layoutSequence", () => {
             id: "loop:1",
             kind: "loop",
             touchedParticipantIds: ["A", "B"],
+            color: null,
             branches: [
               {
-                label: "each retry",
+                label: plainLabel("each retry"),
                 statements: [messageStatement("m1", "A", "B", "first message")],
               },
             ],
@@ -1357,7 +1370,7 @@ describe("layoutSequence", () => {
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [
-        { id: "box:1", color: null, label: "Service tier", participantIds: ["A", "B"] },
+        { id: "box:1", color: null, label: plainLabel("Service tier"), participantIds: ["A", "B"] },
       ],
       statements: [messageStatement("m1", "A", "B", "Ping")],
       timeline: { totalSteps: 0, entries: [] },
@@ -1393,3 +1406,230 @@ describe("layoutSequence", () => {
   });
 
 });
+
+describe("layoutSequence's labels", () => {
+  /** A label of plain rows — what `<br>` between words reads as. */
+  const rowsLabel = (...rows: string[]): Label => ({
+    text: rows.join("\n"),
+    rows: rows.map((row) => [plainRun(row)]),
+  });
+
+  /** One line is 24 tall and 8 wide a character, with no padding (`fakeMeasurer`). */
+  const LINE = 24;
+
+  it("sizes a participant's box for every row of its label, as wide as its widest row", () => {
+    const model: SequenceModel = {
+      ...coreModel(),
+      participants: [
+        { ...declaredParticipant("A", "x"), label: rowsLabel("Web", "Client") },
+        declaredParticipant("B", "Web"),
+      ],
+      statements: [],
+    };
+
+    const byId = Object.fromEntries(
+      layoutSequence(model, { measureText: fakeMeasurer }).participants.map((p) => [p.id, p]),
+    );
+
+    expect(byId.A.height - byId.B.height).toBe(LINE);
+    // "Client" is the wider row: 6 characters, plus 16 of padding a side.
+    expect(byId.A.width).toBe(6 * 8 + 2 * 16);
+    expect(byId.A.labelBox.rows).toHaveLength(2);
+  });
+
+  /** A message from A to B labelled `label`. */
+  const labelled = (id: string, label: Label): ResolvedSequenceStatement => {
+    const statement = messageStatement(id, "A", "B", "x");
+    return statement.kind === "message"
+      ? { kind: "message", message: { ...statement.message, label } }
+      : statement;
+  };
+
+  it("spaces a message a row further from the one before it for every row its label adds", () => {
+    const gapAfter = (first: Label) => {
+      const model: SequenceModel = {
+        ...coreModel(),
+        statements: [labelled("m1", rowsLabel("x")), labelled("m2", first), labelled("m3", rowsLabel("x"))],
+      };
+      const [m1, m2, m3] = messagesOf(layoutSequence(model, { measureText: fakeMeasurer }));
+      return { before: m2!.y - m1!.y, after: m3!.y - m2!.y };
+    };
+
+    const one = gapAfter(rowsLabel("first"));
+    const two = gapAfter(rowsLabel("first", "second"));
+
+    // The rows stack upward from the arrow, so it is the gap *above* the
+    // message that grows, and the one below it stays as it was.
+    expect(two.before - one.before).toBe(LINE);
+    expect(two.after).toBe(one.after);
+  });
+
+  it("stands a message's label on its arrow, centred between its ends and clear of the arrow above", () => {
+    const model: SequenceModel = {
+      ...coreModel(),
+      statements: [labelled("m1", rowsLabel("x")), labelled("m2", rowsLabel("first", "second"))],
+    };
+
+    const [m1, m2] = messagesOf(layoutSequence(model, { measureText: fakeMeasurer }));
+
+    expect(m2!.label.anchor.x).toBe((m2!.fromX + m2!.toX) / 2);
+    const top = m2!.label.anchor.y - m2!.label.labelBox.height / 2;
+    const bottom = m2!.label.anchor.y + m2!.label.labelBox.height / 2;
+    expect(bottom).toBeLessThan(m2!.y);
+    expect(top).toBeGreaterThan(m1!.y);
+  });
+
+  it("sizes a note for every row of its label, as wide as its widest row", () => {
+    const noteOf = (label: Label) => {
+      const model: SequenceModel = {
+        ...coreModel(),
+        statements: [
+          { kind: "note", note: { id: "note:1", placement: "right", from: "A", to: "A", label } },
+        ],
+      };
+      return notesOf(layoutSequence(model, { measureText: fakeMeasurer }))[0]!;
+    };
+
+    const one = noteOf(rowsLabel("aa"));
+    const two = noteOf(rowsLabel("aa", "bbbb"));
+
+    expect(two.height - one.height).toBe(LINE);
+    // "bbbb" is two characters wider than "aa".
+    expect(two.width - one.width).toBe(2 * 8);
+    expect(two.labelBox.rows).toHaveLength(2);
+  });
+
+  it("makes a block's header and each divider a row taller for every row their condition adds", () => {
+    // An alt: its condition heads the frame, the else branch's heads the divider.
+    const layoutAlt = (condition: Label, otherwise: Label) => {
+      const block: ResolvedSequenceBlock = {
+        id: "alt:1",
+        kind: "alt",
+        touchedParticipantIds: ["A", "B"],
+        color: null,
+        branches: [
+          { label: condition, statements: [labelled("m1", rowsLabel("x"))] },
+          { label: otherwise, statements: [labelled("m2", rowsLabel("x"))] },
+        ],
+      };
+      const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
+      const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
+      if (element?.kind !== "block") throw new Error("expected a block");
+      const [m1, m2] = messagesOf({ elements: element.block.children });
+      return { block: element.block, m1: m1!, m2: m2! };
+    };
+
+    const plain = layoutAlt(rowsLabel("c"), rowsLabel("e"));
+    const tallHeader = layoutAlt(rowsLabel("c1", "c2"), rowsLabel("e"));
+    const tallDivider = layoutAlt(rowsLabel("c"), rowsLabel("e1", "e2"));
+
+    // The header's second row pushes the first branch's content down a row.
+    expect(tallHeader.m1.y - tallHeader.block.y).toBe(plain.m1.y - plain.block.y + LINE);
+    // The divider's second row pushes the second branch's content down a row,
+    // and leaves where the divider itself is drawn alone.
+    expect(tallDivider.block.dividers[0]!.y).toBe(plain.block.dividers[0]!.y);
+    expect(tallDivider.m2.y - tallDivider.block.dividers[0]!.y).toBe(
+      plain.m2.y - plain.block.dividers[0]!.y + LINE,
+    );
+    expect(tallHeader.block.label?.labelBox.rows).toHaveLength(2);
+    expect(tallDivider.block.dividers[0]!.label?.labelBox.rows).toHaveLength(2);
+  });
+
+  it("leaves a box's caption a band as tall as every row of its label", () => {
+    const captionBand = (label: Label) => {
+      const model: SequenceModel = {
+        ...coreModel(),
+        boxes: [{ id: "box:1", color: null, label, participantIds: ["A", "B"] }],
+      };
+      const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+      return { band: positioned.participants[0]!.top - positioned.boxes[0]!.y, box: positioned.boxes[0]! };
+    };
+
+    const one = captionBand(rowsLabel("Grp"));
+    const two = captionBand(rowsLabel("Grp", "two"));
+
+    expect(two.band - one.band).toBe(LINE);
+    expect(two.box.label?.labelBox.rows).toHaveLength(2);
+    // Centred across the box, its two rows filling the top two lines of it.
+    expect(two.box.label?.anchor).toEqual({ x: two.box.x + two.box.width / 2, y: two.box.y + LINE });
+  });
+
+  it("anchors a block's and a divider's condition so its first row sits where a one-row condition does, past the keyword in the header", () => {
+    const block: ResolvedSequenceBlock = {
+      id: "alt:1",
+      kind: "alt",
+      touchedParticipantIds: ["A", "B"],
+      color: null,
+      branches: [
+        { label: rowsLabel("every", "day"), statements: [] },
+        { label: rowsLabel("e1"), statements: [] },
+        { label: null, statements: [] },
+      ],
+    };
+    const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
+
+    const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
+    if (element?.kind !== "block") throw new Error("expected a block");
+    const { block: positioned } = element;
+    const [divider, bare] = positioned.dividers;
+
+    // The condition's box begins 8 in from the frame — past the 64 reserved
+    // for the keyword in the header — and its first row is centred 14 below
+    // the frame's top, or the divider's line: two rows of 24 put the box's
+    // centre a row lower than one row's.
+    expect(positioned.label?.anchor).toEqual({
+      x: positioned.x + 8 + 64 + "[every".length * 4,
+      y: positioned.y + 14 + LINE / 2,
+    });
+    expect(divider!.label?.anchor).toEqual({ x: positioned.x + 8 + "[e1]".length * 4, y: divider!.y + 14 });
+    expect(bare!.label).toBeNull();
+  });
+
+  it("brackets a block's condition around all its rows, and measures it as drawn", () => {
+    // Measured (mermaid 11.17.2, `--paint`): `loop every<br/>day` draws
+    // "[every" over "day]", and `else e1<br/>e2` draws "[e1" over "e2]".
+    const block: ResolvedSequenceBlock = {
+      id: "alt:1",
+      kind: "alt",
+      touchedParticipantIds: ["A", "B"],
+      color: null,
+      branches: [
+        { label: rowsLabel("every", "day"), statements: [] },
+        { label: rowsLabel("e1", "e2"), statements: [] },
+        { label: null, statements: [] },
+      ],
+    };
+    const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
+
+    const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
+    if (element?.kind !== "block") throw new Error("expected a block");
+
+    expect(element.block.label?.label).toEqual(rowsLabel("[every", "day]"));
+    expect(element.block.label?.labelBox.width).toBe("[every".length * 8);
+    expect(element.block.dividers.map((divider) => divider.label?.label ?? null)).toEqual([
+      rowsLabel("[e1", "e2]"),
+      null,
+    ]);
+  });
+
+  it("carries a rect block's color as written, and gives it no condition to draw", () => {
+    // `rect rgb(191, 223, 255)`: the syntax puts the color where a condition
+    // would be, and Mermaid paints it as the block's fill rather than
+    // drawing it as text — so it is neither bracketed nor measured.
+    const block: ResolvedSequenceBlock = {
+      id: "rect:1",
+      kind: "rect",
+      touchedParticipantIds: ["A", "B"],
+      color: "rgb(191, 223, 255)",
+      branches: [{ label: null, statements: [] }],
+    };
+    const model: SequenceModel = { ...coreModel(), statements: [{ kind: "block", block }] };
+
+    const [element] = layoutSequence(model, { measureText: fakeMeasurer }).elements;
+    if (element?.kind !== "block") throw new Error("expected a block");
+
+    expect(element.block.color).toBe("rgb(191, 223, 255)");
+    expect(element.block.label).toBeNull();
+  });
+});
+

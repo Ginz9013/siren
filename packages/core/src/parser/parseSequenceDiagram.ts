@@ -1,6 +1,7 @@
 import type {
   Diagnostic,
   Interaction,
+  Label,
   ParseResult,
   SequenceAltBranch,
   SequenceArrowHead,
@@ -17,6 +18,9 @@ import type {
   SequenceStatement,
   SirenTimeline,
 } from "../contracts";
+import { CSS_NAMED_COLORS } from "../label/cssColor";
+import { plainLabel, type SourcePosition } from "../label/label";
+import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 
@@ -38,7 +42,7 @@ const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
  * spelling stays owned by the shared timeline grammar.
  */
 const TIMELINE_TERMINATOR = "timeline:";
-const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/i;
+const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/di;
 const TITLE_RE = /^title\s+(.+)$/i;
 /** `accTitle: text` — screen-reader-only, distinct from the visible `title` above. The colon is required. */
 const ACC_TITLE_RE = /^accTitle:\s*(.+)$/i;
@@ -55,31 +59,7 @@ const RECT_COLOR_RE = /^(rgba?\([^()]*\))$/;
  * `rgb()`/`rgba()` call, a `#hex` literal, or a bare word — and whatever
  * follows it.
  */
-const BOX_HEADER_RE = /^(rgba?\([^()]*\)|#\w+|\w+)(?:\s+(.*))?$/;
-
-/**
- * The CSS named colors, plus `transparent`. Used only to decide whether a
- * `box` header's first bare word is its color or the start of its label
- * (see `parseBoxHeader`); no color value is ever validated beyond this.
- */
-const CSS_NAMED_COLORS: ReadonlySet<string> = new Set(
-  `transparent aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond
-   blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk
-   crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta
-   darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray
-   darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick
-   floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey
-   honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon
-   lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink
-   lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow
-   lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple
-   mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue
-   mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid
-   palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum
-   powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen
-   seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal
-   thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen`.split(/\s+/),
-);
+const BOX_HEADER_RE = /^(rgba?\([^()]*\)|#\w+|\w+)(?:\s+(.*))?$/d;
 
 interface ArrowTokenDef {
   token: string;
@@ -119,7 +99,7 @@ const ARROW_ALTERNATION = ARROW_TOKENS.map((a) => escapeRegExp(a.token)).join("|
  * arrow and the target — in particular not the activation shorthand's
  * `+`/`-`, which `ACTIVATION_MESSAGE_RE` below claims instead.
  */
-const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$`);
+const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$`, "d");
 
 /**
  * The same message shape, but with the activation shorthand's `+`/`-`
@@ -139,6 +119,7 @@ const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$
  */
 const ACTIVATION_MESSAGE_RE = new RegExp(
   `^(\\w+)(${ARROW_ALTERNATION})([+-])(\\w+)\\s*:\\s*(.*)$`,
+  "d",
 );
 /** `activate X` / `deactivate X` — the long form of the same activation bar. */
 const ACTIVATE_RE = /^activate\s+(\w+)$/i;
@@ -150,7 +131,7 @@ const DEACTIVATE_RE = /^deactivate\s+(\w+)$/i;
  * `left of` name exactly one, and splitting on `,` after the match reads
  * either shape without two regexes.
  */
-const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/i;
+const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/di;
 
 /** Mutable cursor + accumulators threaded through the recursive-descent body parser. */
 interface ParserState {
@@ -171,6 +152,12 @@ interface KeywordMatch {
   matched: boolean;
   /** Trimmed text after the keyword, or `""` when the line was just the bare keyword. */
   rest: string;
+  /**
+   * Where `rest` begins in the line, so a label read out of it reports a
+   * problem at the column the author wrote it — `rest` is trimmed, so its
+   * start is not simply the keyword's length plus one.
+   */
+  restIndex: number;
 }
 
 /**
@@ -184,16 +171,67 @@ interface KeywordMatch {
 function matchLeadingKeyword(line: string, keyword: string): KeywordMatch {
   const lowered = line.toLowerCase();
   if (lowered === keyword) {
-    return { matched: true, rest: "" };
+    return { matched: true, rest: "", restIndex: line.length };
   }
   if (lowered.startsWith(`${keyword} `)) {
-    return { matched: true, rest: line.slice(keyword.length + 1).trim() };
+    const after = line.slice(keyword.length + 1);
+    const restIndex = keyword.length + 1 + (after.length - after.trimStart().length);
+    return { matched: true, rest: after.trim(), restIndex };
   }
-  return { matched: false, rest: "" };
+  return { matched: false, rest: "", restIndex: 0 };
 }
 
-function labelFrom(rest: string): string | null {
-  return rest.length > 0 ? rest : null;
+/**
+ * Reads the label capture group `group` of `match` holds in the `sequence`
+ * dialect (ADR-0015: Mermaid draws sequence text as SVG in both modes, so
+ * `<br>` breaks a row and every other tag is drawn as written), reporting
+ * its problems onto the document's diagnostics. `at` is where the matched
+ * text begins in the document, and the pattern must carry the `d` flag
+ * (`readLabelAt`). An error costs the whole document, exactly as an
+ * unrecognized line does.
+ */
+function readLabelInto(
+  state: ParserState,
+  match: RegExpExecArray,
+  group: number,
+  at: SourcePosition,
+): Label {
+  return recorded(state, readLabelAt(match, group, at, "sequence"));
+}
+
+/**
+ * Reads `text` — the whole of it — as a label, or answers `null` for an
+ * empty one: a block's or branch's condition, and a box's label, are each
+ * optional, and none of them is a capture of a pattern of their own. `at` is
+ * where `text` begins in the document.
+ */
+function readTextLabel(state: ParserState, text: string, at: SourcePosition): Label | null {
+  return text === "" ? null : recorded(state, readTextAt(text, at, "sequence"));
+}
+
+/** `read`'s label, its diagnostics recorded onto the document's; an error costs the document. */
+function recorded(state: ParserState, read: ReturnType<typeof readTextAt>): Label {
+  state.diagnostics.push(...read.diagnostics);
+  if (read.hasError) {
+    state.sawError = true;
+  }
+  return read.label;
+}
+
+/**
+ * Reads the text after a leading keyword (`loop every day`, `else ok`) as
+ * its label, or `null` when the keyword stood alone. `at` is where the
+ * keyword's line begins in the document.
+ */
+function readKeywordLabel(
+  state: ParserState,
+  keywordMatch: KeywordMatch,
+  at: SourcePosition,
+): Label | null {
+  return readTextLabel(state, keywordMatch.rest, {
+    line: at.line,
+    column: at.column + keywordMatch.restIndex,
+  });
 }
 
 function unterminatedBlockDiagnostic(kind: string, line: number, column: number): Diagnostic {
@@ -224,10 +262,14 @@ function unterminatedBlockDiagnostic(kind: string, line: number, column: number)
  * A label is never reinterpreted as a color: only the first token is ever
  * a color candidate.
  */
-function parseBoxHeader(rest: string): { color: string | null; label: string | null } {
+function parseBoxHeader(
+  state: ParserState,
+  rest: string,
+  at: SourcePosition,
+): { color: string | null; label: Label | null } {
   const headerMatch = BOX_HEADER_RE.exec(rest);
   if (headerMatch === null) {
-    return { color: null, label: labelFrom(rest) };
+    return { color: null, label: readTextLabel(state, rest, at) };
   }
 
   const [, firstToken, remainder] = headerMatch;
@@ -238,9 +280,19 @@ function parseBoxHeader(rest: string): { color: string | null; label: string | n
     CSS_NAMED_COLORS.has(firstToken.toLowerCase());
 
   if (!isColor) {
-    return { color: null, label: labelFrom(rest) };
+    return { color: null, label: readTextLabel(state, rest, at) };
   }
-  return { color: firstToken, label: labelFrom(remainder === undefined ? "" : remainder.trim()) };
+  // `rest` is trimmed and `\s+` takes the whitespace before the remainder,
+  // so the remainder is the label exactly as written, and where it begins
+  // is its group's own index.
+  const label =
+    remainder === undefined
+      ? null
+      : readTextLabel(state, remainder, {
+          line: at.line,
+          column: at.column + headerMatch.indices![2]![0],
+        });
+  return { color: firstToken, label };
 }
 
 /**
@@ -250,7 +302,9 @@ function parseBoxHeader(rest: string): { color: string | null; label: string | n
  * returns the statement that marks its position in the statement stream.
  *
  * `declMatch` must be a `PARTICIPANT_RE` match (for `create`, of the text
- * after the `create` keyword). The flat list keeps encounter order;
+ * after the `create` keyword), and `matchedAt` where that text begins in
+ * the document — the statement's own position for a declaration, but
+ * past the keyword for `create`. The flat list keeps encounter order;
  * separating preamble lanes from `create`d ones for lane ordering is
  * `buildSequenceModel`'s job, not the parser's.
  */
@@ -260,12 +314,14 @@ function declareParticipant(
   origin: SequenceParticipantOrigin,
   line: number,
   column: number,
+  matchedAt: SourcePosition,
 ): SequenceParticipantStatement {
   const [, kindWord, id, alias] = declMatch;
   // `Participant` and `ACTOR` are Mermaid's spellings too: the keyword is
   // read in any case, and only the id and label keep the author's.
   const participantKind = kindWord.toLowerCase() as SequenceParticipantKind;
-  const label = alias !== undefined ? alias.trim() : id;
+  const label =
+    alias !== undefined ? readLabelInto(state, declMatch, 3, matchedAt) : plainLabel(id);
 
   if (state.participantIds.has(id)) {
     state.diagnostics.push({
@@ -288,7 +344,7 @@ interface ParseBodyResult {
   /** The terminator keyword that stopped this body, or `null` if EOF was reached instead. */
   terminatorKeyword: string | null;
   /** The label carried by the terminator line (only meaningful for `else`/`and`/`option`). */
-  terminatorLabel: string | null;
+  terminatorLabel: Label | null;
 }
 
 /**
@@ -312,7 +368,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     }
 
     let matchedTerminator: string | null = null;
-    let terminatorLabel: string | null = null;
+    let terminatorLabel: Label | null = null;
     for (const term of terminators) {
       if (term === TIMELINE_TERMINATOR) {
         if (isTimelineHeader(line)) {
@@ -324,7 +380,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
       const m = matchLeadingKeyword(line, term);
       if (m.matched) {
         matchedTerminator = term;
-        terminatorLabel = labelFrom(m.rest);
+        terminatorLabel = readKeywordLabel(state, m, { line: lineNumber, column });
         break;
       }
     }
@@ -335,7 +391,12 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const declMatch = PARTICIPANT_RE.exec(line);
     if (declMatch !== null) {
-      statements.push(declareParticipant(state, declMatch, "declared", lineNumber, column));
+      statements.push(
+        declareParticipant(state, declMatch, "declared", lineNumber, column, {
+          line: lineNumber,
+          column,
+        }),
+      );
       state.index++;
       continue;
     }
@@ -354,7 +415,12 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         state.index++;
         continue;
       }
-      statements.push(declareParticipant(state, createdDeclMatch, "created", lineNumber, column));
+      statements.push(
+        declareParticipant(state, createdDeclMatch, "created", lineNumber, column, {
+          line: lineNumber,
+          column: column + createMatch.restIndex,
+        }),
+      );
       state.index++;
       continue;
     }
@@ -425,7 +491,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const messageMatch = MESSAGE_RE.exec(line);
     if (messageMatch !== null) {
-      const [, from, arrowToken, to, text] = messageMatch;
+      const [, from, arrowToken, to] = messageMatch;
       const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
       // arrowDef is always found: arrowToken can only be one of ARROW_TOKENS'
       // own tokens, since it is exactly what the alternation matched.
@@ -433,7 +499,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         kind: "message",
         from,
         to,
-        text: text.trim(),
+        label: readLabelInto(state, messageMatch, 4, { line: lineNumber, column }),
         arrow: { line: arrowDef!.line, head: arrowDef!.head },
         line: lineNumber,
         column,
@@ -444,13 +510,13 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const activationMatch = ACTIVATION_MESSAGE_RE.exec(line);
     if (activationMatch !== null) {
-      const [, from, arrowToken, marker, to, text] = activationMatch;
+      const [, from, arrowToken, marker, to] = activationMatch;
       const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
       statements.push({
         kind: "message",
         from,
         to,
-        text: text.trim(),
+        label: readLabelInto(state, activationMatch, 5, { line: lineNumber, column }),
         arrow: { line: arrowDef!.line, head: arrowDef!.head },
         line: lineNumber,
         column,
@@ -483,7 +549,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null) {
-      const [, keyword, participantList, text] = noteMatch;
+      const [, keyword, participantList] = noteMatch;
       const ids = participantList.split(",").map((id) => id.trim());
       // Mermaid reads the keyword and its position words in any case
       // (`Note LEFT OF A` draws on the left), so the position is lowercased
@@ -500,7 +566,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         // the same "from and to are the same id" shape a flowchart's own
         // self-edge already models.
         to: ids.length > 1 ? ids[1] : ids[0],
-        text: text.trim(),
+        label: readLabelInto(state, noteMatch, 3, { line: lineNumber, column }),
         line: lineNumber,
         column,
       });
@@ -511,7 +577,10 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const boxMatch = matchLeadingKeyword(line, "box");
     if (boxMatch.matched) {
       state.index++;
-      const { color, label } = parseBoxHeader(boxMatch.rest);
+      const { color, label } = parseBoxHeader(state, boxMatch.rest, {
+        line: lineNumber,
+        column: column + boxMatch.restIndex,
+      });
       const body = parseBody(state, ["end"]);
       if (body.terminatorKeyword !== "end") {
         state.diagnostics.push(unterminatedBlockDiagnostic("box", lineNumber, column));
@@ -548,7 +617,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const loopMatch = matchLeadingKeyword(line, "loop");
     if (loopMatch.matched) {
       state.index++;
-      const label = labelFrom(loopMatch.rest);
+      const label = readKeywordLabel(state, loopMatch, { line: lineNumber, column });
       const body = parseBody(state, ["end"]);
       if (body.terminatorKeyword !== "end") {
         state.diagnostics.push(unterminatedBlockDiagnostic("loop", lineNumber, column));
@@ -568,7 +637,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const optMatch = matchLeadingKeyword(line, "opt");
     if (optMatch.matched) {
       state.index++;
-      const label = labelFrom(optMatch.rest);
+      const label = readKeywordLabel(state, optMatch, { line: lineNumber, column });
       const body = parseBody(state, ["end"]);
       if (body.terminatorKeyword !== "end") {
         state.diagnostics.push(unterminatedBlockDiagnostic("opt", lineNumber, column));
@@ -588,7 +657,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const breakMatch = matchLeadingKeyword(line, "break");
     if (breakMatch.matched) {
       state.index++;
-      const label = labelFrom(breakMatch.rest);
+      const label = readKeywordLabel(state, breakMatch, { line: lineNumber, column });
       const body = parseBody(state, ["end"]);
       if (body.terminatorKeyword !== "end") {
         state.diagnostics.push(unterminatedBlockDiagnostic("break", lineNumber, column));
@@ -646,7 +715,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
       const { branches, ok } = parseBranches<SequenceAltBranch>(
         state,
         "else",
-        labelFrom(altMatch.rest),
+        readKeywordLabel(state, altMatch, { line: lineNumber, column }),
       );
       if (!ok) {
         state.diagnostics.push(unterminatedBlockDiagnostic("alt", lineNumber, column));
@@ -663,7 +732,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
       const { branches, ok } = parseBranches<SequenceParBranch>(
         state,
         "and",
-        labelFrom(parMatch.rest),
+        readKeywordLabel(state, parMatch, { line: lineNumber, column }),
       );
       if (!ok) {
         state.diagnostics.push(unterminatedBlockDiagnostic("par", lineNumber, column));
@@ -680,7 +749,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
       const { branches, ok } = parseBranches<SequenceCriticalBranch>(
         state,
         "option",
-        labelFrom(criticalMatch.rest),
+        readKeywordLabel(state, criticalMatch, { line: lineNumber, column }),
       );
       if (!ok) {
         state.diagnostics.push(unterminatedBlockDiagnostic("critical", lineNumber, column));
@@ -710,10 +779,10 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
  * additional branches each opened by `branchKeyword` (`else`/`and`/
  * `option`), until `end`. Returns `ok: false` (no `end` found) on EOF.
  */
-function parseBranches<TBranch extends { label: string | null; body: SequenceStatement[] }>(
+function parseBranches<TBranch extends { label: Label | null; body: SequenceStatement[] }>(
   state: ParserState,
   branchKeyword: string,
-  firstLabel: string | null,
+  firstLabel: Label | null,
 ): { branches: TBranch[]; ok: boolean } {
   const branches: TBranch[] = [];
   let label = firstLabel;

@@ -9,6 +9,8 @@ import type {
   PositionedClassRelationship,
   StyleProperty,
 } from "../contracts";
+import { appendLabel, drawLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -168,13 +170,14 @@ function buildRelationship(
   }
   g.appendChild(line);
 
-  const label = buildRelationshipText(
-    "siren-relationship-label",
-    relationship.label,
-    relationship.labelAnchor,
-  );
-  if (label !== null) {
-    g.appendChild(label);
+  // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
+  // shared core kept clear — like every other label here. That gives it
+  // `dominant-baseline: middle`, which it lacked: it was drawn with its
+  // *baseline* on the anchor, which sat the text above the middle of the
+  // space reserved for it, the same correction a state diagram's transition
+  // label took. Its `x` and `y` are unchanged for a label of one row.
+  if (relationship.label !== null) {
+    appendLabel(g, drawPlaced(relationship.label, "siren-relationship-label"));
   }
 
   for (const [text, anchor] of [
@@ -205,9 +208,11 @@ function buildRelationship(
 }
 
 /**
- * Builds one of a relationship's `<text>` elements at its layout-assigned
- * anchor, or `null` when the relationship carries no such text — an absent
- * label or multiplicity renders nothing at all, not an empty `<text>`.
+ * Builds one of a relationship's plain `<text>` elements — a multiplicity or
+ * an interface label — at its layout-assigned anchor, or `null` when the
+ * relationship carries no such text: an absent one renders nothing at all,
+ * not an empty `<text>`. The relationship's own label is a label and is
+ * drawn by `drawLabel` instead.
  */
 function buildRelationshipText(
   className: string,
@@ -435,38 +440,42 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    * that translation, and this renderer neither repeats nor second-guesses
    * it.
    */
-  const appendLabel = (label: SVGTextElement): void => {
+  const appendClassText = (label: SVGTextElement): void => {
     applyAuthorStyle(label, positionedClass.style.text);
     g.appendChild(label);
+  };
+
+  /**
+   * Appends the class's name label, drawn by `drawLabel` centred on `y`.
+   * Every row of it wears the author's text declarations through the one
+   * `<text>` they are written on — the row tspans inherit them.
+   */
+  const appendName = (y: number): void => {
+    const drawn = drawLabel(positionedClass.label, positionedClass.labelBox, { x: centerX, y }, "siren-class-name");
+    applyAuthorStyle(drawn.text, positionedClass.style.text);
+    appendLabel(g, drawn);
   };
 
   const centerX = positionedClass.x + positionedClass.width / 2;
   const band = nameBand(positionedClass);
   if (positionedClass.annotation === null) {
-    appendLabel(
-      buildCenteredText("siren-class-name", positionedClass.name, {
-        x: centerX,
-        y: (band.top + band.bottom) / 2,
-      }),
-    );
+    appendName((band.top + band.bottom) / 2);
   } else {
-    // Two lines share the band — `planClassBox` reserved a line above the name
-    // for the annotation — so each takes half of it. The annotation is drawn
-    // in Mermaid's guillemets, which is also why the layout measured it
-    // without them.
-    const split = (band.top + band.bottom) / 2;
-    appendLabel(
+    // The annotation's one line and the name's rows share the band —
+    // `planClassBox` reserved a line above the name for the annotation — so
+    // the band is divided between them by rows: half each for a name of one
+    // row, as it always was, and a third to the annotation above a name of
+    // two. The annotation is drawn in Mermaid's guillemets, which is also why
+    // the layout measured it without them.
+    const nameRows = positionedClass.labelBox.rows.length;
+    const split = band.top + (band.bottom - band.top) / (1 + nameRows);
+    appendClassText(
       buildCenteredText("siren-class-annotation", `«${positionedClass.annotation}»`, {
         x: centerX,
         y: (band.top + split) / 2,
       }),
     );
-    appendLabel(
-      buildCenteredText("siren-class-name", positionedClass.name, {
-        x: centerX,
-        y: (split + band.bottom) / 2,
-      }),
-    );
+    appendName((split + band.bottom) / 2);
   }
 
   for (const compartment of compartmentsOf(positionedClass)) {
@@ -480,7 +489,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
       // textContent, never innerHTML — the hard invariant of every Siren
       // renderer: member text is author input and must render literally.
       text.textContent = member.text;
-      appendLabel(text);
+      appendClassText(text);
     }
   }
 
@@ -490,8 +499,9 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
 /**
  * Builds the `<g class="siren-namespace">` for one namespace: a
  * `<rect class="siren-namespace-frame">` at the frame the layout grew around
- * its member boxes, and a `<text class="siren-namespace-label">` centered on
- * the layout-assigned anchor in the strip along the frame's top edge.
+ * its member boxes, and its label, drawn by `drawLabel` as a
+ * `<text class="siren-namespace-label">` centred on the layout-assigned
+ * anchor in the strip along the frame's top edge.
  */
 function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
@@ -506,9 +516,7 @@ function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
   frame.setAttribute("height", String(namespace.height));
   g.appendChild(frame);
 
-  g.appendChild(
-    buildCenteredText("siren-namespace-label", namespace.label, namespace.labelAnchor),
-  );
+  appendLabel(g, drawPlaced(namespace.label, "siren-namespace-label"));
   return g;
 }
 
@@ -519,10 +527,10 @@ function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
  * `<path class="siren-note-link">` along the connector the layout routed from
  * the note to the class it annotates. A free note is a box on its own.
  *
- * The text is centered rather than placed at an anchor of its own because
+ * The label is centred rather than placed at an anchor of its own because
  * `PositionedClassNote` carries no anchor: `layoutClassDiagram` sizes the box
- * by padding the one line it measured, so the box's center *is* where that
- * line goes.
+ * by padding the label box it measured, so the box's centre *is* where that
+ * label goes.
  */
 function buildNote(note: PositionedClassNote): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
@@ -547,11 +555,14 @@ function buildNote(note: PositionedClassNote): SVGGElement {
   frame.setAttribute("height", String(note.height));
   g.appendChild(frame);
 
-  g.appendChild(
-    buildCenteredText("siren-note-text", note.text, {
-      x: note.x + note.width / 2,
-      y: note.y + note.height / 2,
-    }),
+  appendLabel(
+    g,
+    drawLabel(
+      note.label,
+      note.labelBox,
+      { x: note.x + note.width / 2, y: note.y + note.height / 2 },
+      "siren-note-text",
+    ),
   );
   return g;
 }

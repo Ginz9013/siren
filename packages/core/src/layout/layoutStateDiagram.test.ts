@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Direction, StateModel, TextMeasurer } from "../contracts";
+import type { Direction, Label, StateModel, TextMeasurer } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { layoutStateDiagram } from "./layoutStateDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -39,7 +40,9 @@ function model(
       id: `${from}-${to}`,
       from,
       to,
-      label: label ?? null,
+      // A fixture's label is one plain run — what `readLabel` reads any
+      // label with no tag in it as.
+      label: label === undefined || label === null ? null : plainLabel(label),
     })),
     styles: [],
     timeline: { totalSteps: 0, entries: [] },
@@ -123,10 +126,9 @@ describe("layoutStateDiagram", () => {
     // reports back where that space ended up; an unlabelled one asks for
     // none and reports no anchor at all, rather than a point nothing is
     // drawn at.
-    expect(laid.transitions[0].label).toBe("start");
-    expect(laid.transitions[0].labelAnchor).not.toBeNull();
+    expect(laid.transitions[0].label?.label).toEqual(plainLabel("start"));
+    expect(laid.transitions[0].label?.anchor).toBeDefined();
     expect(laid.transitions[1].label).toBeNull();
-    expect(laid.transitions[1].labelAnchor).toBeNull();
   });
 
   it("routes a self-transition as a loop on its one state, inside the canvas", () => {
@@ -181,14 +183,14 @@ describe("layoutStateDiagram", () => {
     // So the state keeps the box its own label earned, and the note gets
     // one measured around its own text.
     const noted = model([{ from: "Idle", to: "Busy" }]);
-    noted.states[0].note = { position: "right of", text: "waiting for work" };
+    noted.states[0].note = { position: "right of", label: plainLabel("waiting for work") };
 
     const laid = layoutStateDiagram(noted, options);
 
     const [idle, busy] = laid.states;
     expect(busy.note).toBeNull();
     expect(idle.note).not.toBeNull();
-    expect(idle.note!.text).toBe("waiting for work");
+    expect(idle.note!.label).toEqual(plainLabel("waiting for work"));
     expect(idle.note!.width).toBeGreaterThan(measuredWidth("waiting for work"));
     expect(idle.note!.height).toBeGreaterThan(
       fakeMeasurer.measure("waiting for work").height,
@@ -210,7 +212,7 @@ describe("layoutStateDiagram", () => {
     // behaviour because it is Mermaid's mechanism, not a rule of Siren's.
     const sideways = (position: "left of" | "right of") => {
       const noted = model([{ from: "Idle", to: "Busy" }], undefined, "LR");
-      noted.states[0].note = { position, text: "why" };
+      noted.states[0].note = { position, label: plainLabel("why") };
       const laid = layoutStateDiagram(noted, options);
       return laid.states[0];
     };
@@ -223,7 +225,7 @@ describe("layoutStateDiagram", () => {
 
     // Top to bottom, the same two words rank the note below and above.
     const downward = model([{ from: "Idle", to: "Busy" }]);
-    downward.states[0].note = { position: "right of", text: "why" };
+    downward.states[0].note = { position: "right of", label: plainLabel("why") };
     const below = layoutStateDiagram(downward, options).states[0];
     expect(below.note!.y).toBeGreaterThan(below.y + below.height);
   });
@@ -238,7 +240,7 @@ describe("layoutStateDiagram", () => {
     // which: the edge itself runs the other way for `left of`.
     for (const position of ["left of", "right of"] as const) {
       const noted = model([{ from: "Idle", to: "Busy" }], undefined, "LR");
-      noted.states[0].note = { position, text: "why" };
+      noted.states[0].note = { position, label: plainLabel("why") };
 
       const idle = layoutStateDiagram(noted, options).states[0];
       const connector = idle.note!.connector;
@@ -273,7 +275,7 @@ describe("layoutStateDiagram", () => {
           descriptions: [],
           parentId: "Outer",
           direction: null,
-          note: { position: "right of", text: "a long note about the inner state" },
+          note: { position: "right of", label: plainLabel("a long note about the inner state") },
         },
         { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
       ],
@@ -324,7 +326,7 @@ describe("layoutStateDiagram", () => {
           descriptions: [],
           parentId: "Inner",
           direction: null,
-          note: { position: "right of", text: "a very long note about the deep state" },
+          note: { position: "right of", label: plainLabel("a very long note about the deep state") },
         },
         { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
       ],
@@ -364,10 +366,10 @@ describe("layoutStateDiagram", () => {
           // the cluster box the core placed — the growth the clip pays for.
           kind: "composite",
           stereotype: null,
-          descriptions: ["a very long composite title"],
+          descriptions: [plainLabel("a very long composite title")],
           parentId: null,
           direction: null,
-          note: { position: "left of", text: "about the block" },
+          note: { position: "left of", label: plainLabel("about the block") },
         },
         { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
@@ -482,7 +484,7 @@ describe("layoutStateDiagram", () => {
     // No text, so nothing for the renderer to draw — and nothing measured
     // from the id, which is why `Merge` and `Split` are the same size
     // despite being different lengths.
-    expect(laid.states.map((state) => state.rows)).toEqual([[], [], []]);
+    expect(laid.states.map((state) => state.labels)).toEqual([[], [], []]);
     expect(laid.states.map((state) => state.dividerY)).toEqual([null, null, null]);
 
     // The stereotype survives layout, because it is the only thing left that
@@ -591,7 +593,7 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "s", kind: "state", stereotype: null, descriptions: ["waiting for work"], parentId: null, direction: null, note: null },
+          { id: "s", kind: "state", stereotype: null, descriptions: [plainLabel("waiting for work")], parentId: null, direction: null, note: null },
           { id: "Undescribed", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
@@ -603,8 +605,8 @@ describe("layoutStateDiagram", () => {
 
     const [described, plain] = laid.states;
     expect(described.width).toBeGreaterThan(measuredWidth("waiting for work"));
-    expect(described.rows.map((row) => row.text)).toEqual(["waiting for work"]);
-    expect(plain.rows.map((row) => row.text)).toEqual(["Undescribed"]);
+    expect(described.labels.map((planned) => planned.label.text)).toEqual(["waiting for work"]);
+    expect(plain.labels.map((planned) => planned.label.text)).toEqual(["Undescribed"]);
 
     // One description draws no divider: measured, Mermaid gives it the same
     // plain rounded rect an undescribed state gets, the description simply
@@ -614,9 +616,9 @@ describe("layoutStateDiagram", () => {
 
     // Every row is somewhere inside the box that was sized for it.
     for (const state of laid.states) {
-      for (const row of state.rows) {
-        expect(row.y, `${state.id}: ${row.text}`).toBeGreaterThan(state.y);
-        expect(row.y, `${state.id}: ${row.text}`).toBeLessThan(state.y + state.height);
+      for (const row of state.labels) {
+        expect(row.y, `${state.id}: ${row.label.text}`).toBeGreaterThan(state.y);
+        expect(row.y, `${state.id}: ${row.label.text}`).toBeLessThan(state.y + state.height);
       }
     }
   });
@@ -632,8 +634,8 @@ describe("layoutStateDiagram", () => {
       {
         direction: "TB",
         states: [
-          { id: "s", kind: "state", stereotype: null, descriptions: ["first", "second", "third"], parentId: null, direction: null, note: null },
-          { id: "t", kind: "state", stereotype: null, descriptions: ["only"], parentId: null, direction: null, note: null },
+          { id: "s", kind: "state", stereotype: null, descriptions: [plainLabel("first"), plainLabel("second"), plainLabel("third")], parentId: null, direction: null, note: null },
+          { id: "t", kind: "state", stereotype: null, descriptions: [plainLabel("only")], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
         styles: [],
@@ -643,7 +645,7 @@ describe("layoutStateDiagram", () => {
     );
 
     const [titled, plain] = laid.states;
-    expect(titled.rows.map((row) => row.text)).toEqual(["first", "second", "third"]);
+    expect(titled.labels.map((planned) => planned.label.text)).toEqual(["first", "second", "third"]);
     expect(titled.dividerY).not.toBeNull();
     // Inside its own box, which is what makes it a divider rather than a
     // line drawn across the canvas.
@@ -651,9 +653,9 @@ describe("layoutStateDiagram", () => {
     expect(titled.dividerY!).toBeLessThan(titled.y + titled.height);
     // The first description titles the box; every other one is below the
     // line. This is the half most easily got backwards.
-    expect(titled.rows[0].y).toBeLessThan(titled.dividerY!);
-    for (const row of titled.rows.slice(1)) {
-      expect(row.y, row.text).toBeGreaterThan(titled.dividerY!);
+    expect(titled.labels[0].y).toBeLessThan(titled.dividerY!);
+    for (const row of titled.labels.slice(1)) {
+      expect(row.y, row.label.text).toBeGreaterThan(titled.dividerY!);
     }
     // Three rows and a divider need more room than one row: a box sized
     // for one line would draw the other two outside itself.
@@ -701,8 +703,8 @@ describe("layoutStateDiagram", () => {
     // The title strip: the frame's own row is above everything it holds,
     // which is what leaves room for the text rather than drawing it over a
     // member's box.
-    expect(frame.rows.map((row) => row.text)).toEqual(["Outer"]);
-    expect(frame.rows[0].y).toBeLessThan(Math.min(placed("Idle").y, placed("Busy").y));
+    expect(frame.labels.map((planned) => planned.label.text)).toEqual(["Outer"]);
+    expect(frame.labels[0].y).toBeLessThan(Math.min(placed("Idle").y, placed("Busy").y));
     expect(frame.dividerY).toBeNull();
 
     // A frame grows up and left of the corner the core laid the graph out
@@ -753,8 +755,8 @@ describe("layoutStateDiagram", () => {
     // frame grown around an inner *cluster box* rather than an inner
     // *frame* still encloses it, and draws its own title across it.
     const rowHalf = fakeMeasurer.measure("Outer").height / 2;
-    expect(placed("Outer").rows[0].y + rowHalf).toBeLessThanOrEqual(placed("Inner").y);
-    expect(placed("Inner").rows[0].y + rowHalf).toBeLessThanOrEqual(placed("Deep").y);
+    expect(placed("Outer").labels[0].y + rowHalf).toBeLessThanOrEqual(placed("Inner").y);
+    expect(placed("Inner").labels[0].y + rowHalf).toBeLessThanOrEqual(placed("Deep").y);
   });
 
   it("draws each concurrent region as a frame of its own, side by side inside the block", () => {
@@ -827,7 +829,7 @@ describe("layoutStateDiagram", () => {
 
     // A region draws no title: it has no name to draw, and mermaid's own
     // divider group comes back with no label element in it at all.
-    expect(placed("region:1").rows).toEqual([]);
+    expect(placed("region:1").labels).toEqual([]);
     expect(placed("region:1").dividerY).toBeNull();
   });
 
@@ -1158,5 +1160,107 @@ describe("layoutStateDiagram", () => {
       text: [{ property: "fill", value: "#fff" }],
     });
     expect(laid.states.find((s) => s.id === "Idle")!.style).toEqual({ frame: [], text: [] });
+  });
+});
+
+/**
+ * A label is measured by `layoutLabel` wherever a state diagram draws one,
+ * so a `<br>` (ADR-0015) costs its box a row. The fake measurer answers 24
+ * for every row's height and adds no padding (it measures `""` as 0 wide),
+ * so every expected size below is arithmetic on those two numbers and on
+ * this module's own paddings.
+ */
+describe("layoutStateDiagram — labels", () => {
+  /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+  const rowsLabel = (...rows: string[]): Label => ({
+    text: rows.join("\n"),
+    rows: rows.map((row) => [plainRun(row)]),
+  });
+
+  /** One state `s` carrying these descriptions, alone in the diagram. */
+  const described = (...descriptions: Label[]): StateModel => ({
+    ...model([], ["s"]),
+    states: [
+      { id: "s", kind: "state", stereotype: null, descriptions, parentId: null, direction: null, note: null },
+    ],
+  });
+
+  it("gives a description of two rows a box two rows tall, sized to its widest row", () => {
+    const [state] = layoutStateDiagram(described(rowsLabel("ab", "wxyz")), options).states;
+
+    // STATE_PADDING_Y (8) above and below two 24px rows.
+    expect(state.height).toBe(8 + 24 + 24 + 8);
+    // STATE_PADDING_X (14) either side of the widest row, "wxyz" (32).
+    expect(state.width).toBe(14 + 32 + 14);
+    expect(state.labels).toHaveLength(1);
+    expect(state.labels[0].labelBox.rows).toHaveLength(2);
+    // Centred on the box, which is what the label's two rows share.
+    expect(state.labels[0].y).toBe(state.y + state.height / 2);
+  });
+
+  it("puts the divider under every row of the first description, when each description has rows of its own", () => {
+    // Measured (mermaid 11.17.2, `--markup`): `s1 : a<br/>b` then
+    // `s1 : c<br>d` draws two label groups of two rows each, with
+    // `line.divider` between the groups.
+    const [state] = layoutStateDiagram(
+      described(rowsLabel("a", "b"), rowsLabel("c", "d")),
+      options,
+    ).states;
+
+    // Padding, the first label's two rows, padding: the line.
+    expect(state.dividerY).toBe(state.y + 8 + 48 + 8);
+    // Padding below the line, then the second label's two rows centred.
+    expect(state.labels.map((planned) => planned.y)).toEqual([
+      state.y + 8 + 24,
+      state.y + 8 + 48 + 8 + 8 + 24,
+    ]);
+    expect(state.height).toBe(8 + 48 + 8 + 8 + 48 + 8);
+  });
+
+  it("gives a composite's title strip a row for every row of its title", () => {
+    const laid = layoutStateDiagram(
+      {
+        ...model([], ["Outer", "Inner"]),
+        states: [
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [rowsLabel("c", "d")], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+        ],
+      },
+      options,
+    );
+    const [outer, inner] = laid.states;
+
+    expect(outer.labels).toHaveLength(1);
+    expect(outer.labels[0].labelBox.rows).toHaveLength(2);
+    // COMPOSITE_PADDING (12) above a title two rows tall.
+    expect(outer.labels[0].y).toBe(outer.y + 12 + 24);
+    // And the member starts below both rows, not below the first.
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y + 12 + 48);
+  });
+
+  it("gives a note of two rows a box two rows tall", () => {
+    const noted = described(rowsLabel("s"));
+    noted.states[0].note = { position: "right of", label: rowsLabel("ab", "wxyz") };
+
+    const note = layoutStateDiagram(noted, options).states[0].note!;
+
+    // NOTE_PADDING_Y (8) above and below, NOTE_PADDING_X (10) either side.
+    expect(note.height).toBe(8 + 48 + 8);
+    expect(note.width).toBe(10 + 32 + 10);
+    expect(note.labelBox.rows).toHaveLength(2);
+  });
+
+  it("measures a transition label of two rows, and keeps the canvas around both", () => {
+    const labelled = model([{ from: "a", to: "b" }]);
+    labelled.transitions[0].label = rowsLabel("ab", "wxyz");
+
+    const laid = layoutStateDiagram(labelled, options);
+    const [transition] = laid.transitions;
+
+    expect(transition.label).not.toBeNull();
+    expect(transition.label!.labelBox.height).toBe(48);
+    expect(transition.label!.labelBox.width).toBe(32);
+    // The anchor is the box's centre, so its lower row ends 24 below it.
+    expect(laid.height).toBeGreaterThanOrEqual(transition.label!.anchor.y + 24);
   });
 });

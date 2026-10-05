@@ -379,8 +379,10 @@ enter C fade
 
   it("renders a label containing markup-looking text as literal visible text, never as parsed markup", () => {
     const container = document.createElement("div");
+    // Written as Mermaid's entity codes: a bare `<script>` is a tag, and is
+    // removed with its content (ADR-0015); the codes draw its characters.
     const source = `flowchart TD
-A[<script>alert(1)</script>] --> B[End]
+A[#lt;script#gt;alert(1)#lt;/script#gt;] --> B[End]
 `;
 
     const result = render(source, container);
@@ -832,8 +834,9 @@ end
     expect(
       result.svg!.querySelector('g.siren-participant[data-siren-id="A"] text')!.textContent,
     ).toBe("<i>Alpha</i>");
+    // Mermaid's cleanupText rewrites `="…"` inside a tag-shaped stretch as `='…'` (measured, mermaid 11.17.2).
     expect(result.svg!.querySelector("text.siren-block-label")!.textContent).toBe(
-      '[<img src=x onerror="alert(1)">]',
+      "[<img src=x onerror='alert(1)'>]",
     );
     expect(result.svg!.querySelector("text.siren-message-label")!.textContent).toBe(
       '<script>alert("message")</script>',
@@ -1849,6 +1852,7 @@ Plain -- Bare
     const container = document.createElement("div");
     // Every refused spelling in one statement per class, each paired with a
     // legitimate sibling declaration that must survive the rejection.
+    // `Smuggles` is `fill:red`, not a `#` color: a `#` would make it a Mermaid style line, whose last `;` is dropped before the gate sees it.
     const source = `classDiagram
 class Fetches
 class Executes
@@ -1858,7 +1862,7 @@ Fetches -- Executes
 Smuggles -- Escapes
 style Fetches fill:url(#evil),stroke:#c00
 style Executes fill:expression(alert(1)),stroke:#c00
-style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Smuggles fill:red;position:fixed,stroke:#c00
 style Escapes fill:u\\72 l(#evil),stroke:#c00
 `;
 
@@ -1984,6 +1988,8 @@ class Duck {
   it("renders markup-looking member, annotation, note, relationship-label, multiplicity and tooltip text as literal visible text, never as parsed markup", () => {
     const container = document.createElement("div");
     const injected = `<script>alert(1)</script>`;
+    // The relationship label and the note are labels, where a bare tag is
+    // read (ADR-0015), so their markup is written as Mermaid's entity codes.
     // A namespace label is deliberately absent from this list: `namespace \w+`
     // is the whole grammar, so a namespace name cannot spell markup in the
     // first place. Every *other* free-text position in a classDiagram is here.
@@ -1993,8 +1999,8 @@ class Sneaky {
   +<b>bold</b> field
 }
 class Plain
-Sneaky "<i>1</i>" --> "<i>*</i>" Plain : <svg onload=alert(1)>
-note for Plain "<iframe src=javascript:alert(1)></iframe>"
+Sneaky "<i>1</i>" --> "<i>*</i>" Plain : #lt;svg onload=alert(1)#gt;
+note for Plain "#lt;iframe src=javascript:alert(1)#gt;#lt;/iframe#gt;"
 click Sneaky call inspect() "<b>tooltip</b>"
 `;
 
@@ -3504,12 +3510,13 @@ style Ghost fill:#fdd
 
   it("holds the style-value gate identically for a flowchart: the refused value never reaches the attribute, its sibling does, and the message is word-for-word the class diagram's", () => {
     const container = document.createElement("div");
+    // `Smuggles` is `fill:red`, not a `#` color: a `#` would make it a Mermaid style line, whose last `;` is dropped before the gate sees it.
     const source = `flowchart TD
 Fetches[Fetches] --> Executes[Executes]
 Smuggles[Smuggles] --> Escapes[Escapes]
 style Fetches fill:url(#evil),stroke:#c00
 style Executes fill:expression(alert(1)),stroke:#c00
-style Smuggles fill:#fdd;position:fixed,stroke:#c00
+style Smuggles fill:red;position:fixed,stroke:#c00
 style Escapes fill:u\\72 l(#evil),stroke:#c00
 `;
 

@@ -8,6 +8,40 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **Labels draw the HTML Mermaid's labels draw.** Every label in every diagram kind now reads
+  the tags Mermaid's default (`htmlLabels: true`) picture honours and draws them as SVG text,
+  never as `<foreignObject>` (ADR-0015). `<br>` breaks a row; `b`/`strong`, `i`/`em`, `u`, `s`,
+  `code`, `small`/`big`, `sub`/`sup`, `q`, `mark` and the rest of the text-styling tags style a
+  run; `<font>`, `<span style>` (ten properties) and `<a href>` (an SVG link) are drawn; block
+  tags (`p`, `div`, headings, lists, `pre`) become rows with their fonts and list markers;
+  tags with no rendering of their own, unknown tags and the tags Mermaid's sanitizer removes
+  behave as they do there; and `#name;`/`#NN;` entity codes resolve. Markdown strings read
+  `**`, `*`, `__`, `_`, backslash escapes, hard breaks and blank lines as Mermaid's `marked`
+  does. A sequence diagram honours `<br>` and entity codes only, and a class member stays
+  literal, as in Mermaid.
+- Three theme tokens paint what the browser's stylesheet paints in Mermaid's picture:
+  `--siren-label-link` (`#0000ee`), `--siren-label-mark-fill` (`#ff0`) and
+  `--siren-label-mark-text` (`#000`).
+- `class X["…"]` and `namespace X["…"] {` give a class and a namespace their own label.
+
+### Changed
+
+- **A label that writes HTML Siren cannot draw as SVG text is refused** with an error that
+  names it: a `table`, `ruby`, `img` (the message points at Mermaid's image shape), form
+  controls, media and interactive content, `svg` and `math`. Tags the browser hides
+  (`template`, a closed `dialog`, `datalist`, `rp`, `source`, `track`, `area`, `title`) are
+  removed with their content instead.
+- A flowchart node or class declared twice with different labels draws the last one, and a
+  flowchart node the last shape, with no warning, as Mermaid does.
+- Mermaid's whole-document preprocessing is followed: `="…"` inside a tag becomes `='…'`, and a
+  style line's last `;` is dropped, before any diagram reads its text.
+- An unquoted ER subgraph title outside the name alphabet is refused at the title.
+- Row tspans are `siren-label-row` (was `siren-node-label-row`). A transition, relationship or
+  message label is now centred on the space layout keeps for it rather than standing on its
+  baseline there.
+
 ## [0.2.0] - 2026-10-02
 
 ### Changed

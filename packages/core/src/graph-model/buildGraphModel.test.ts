@@ -7,6 +7,7 @@ import type {
   LinkStyleDecl,
   SirenDocument,
 } from "../contracts";
+import { plainLabel } from "../label/label";
 import { buildGraphModel } from "./buildGraphModel";
 
 /**
@@ -93,9 +94,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -121,8 +122,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -148,9 +149,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -197,8 +198,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -221,19 +222,20 @@ describe("buildGraphModel", () => {
     expect(diagnostics[0].severity).toBe("error");
   });
 
-  it("carries each node's shape onto the GraphNode, keeping the first-seen one when an id is declared twice", () => {
+  it("carries each node's shape onto the GraphNode, taking the last one when an id is declared twice", () => {
     // The shape is the parser's answer, not this stage's: nothing here
     // re-reads a spelling, so a diamond stays a diamond and a node nobody
     // gave a bracket is the rect it has always been. The redeclaration rule
-    // is the label's own, applied to the shape rather than invented for it.
+    // is the label's own, applied to the shape rather than invented for it —
+    // Mermaid 11.17.2 draws `A{x}` after `A[x]` as a diamond, measured.
     const document: SirenDocument = {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "Is it ready?", shape: "rhombus", labelRuns: null },
-        { id: "B", label: "Done", shape: "rect", labelRuns: null },
-        { id: "A", label: "Is it ready?", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("Is it ready?"), shape: "rect" },
+        { id: "B", label: plainLabel("Done"), shape: "rect" },
+        { id: "A", label: plainLabel("Is it ready?"), shape: "rhombus" },
       ],
       edges: [],
       subgraphs: [],
@@ -248,19 +250,22 @@ describe("buildGraphModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(graph.nodes).toEqual([
-      { id: "A", label: "Is it ready?", shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
-      { id: "B", label: "Done", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", label: plainLabel("Is it ready?"), shape: "rhombus", style: { frame: [], text: [] }, parentId: null, interaction: null },
+      { id: "B", label: plainLabel("Done"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
   });
 
-  it("keeps the first-seen label and warns when a node id is declared twice with conflicting labels", () => {
+  it("keeps the last label, silently and in the first position, when a node id is declared twice with conflicting labels", () => {
+    // The parser's rule, held here too so a hand-built document cannot be
+    // drawn differently from the same nodes parsed: Mermaid 11.17.2 draws
+    // the last label and says nothing.
     const document: SirenDocument = {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "Start", shape: "rect", labelRuns: null },
-        { id: "A", label: "Begin", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("Start"), shape: "rect" },
+        { id: "A", label: plainLabel("Begin"), shape: "rect" },
       ],
       edges: [],
       subgraphs: [],
@@ -274,10 +279,9 @@ describe("buildGraphModel", () => {
     const { graph, diagnostics } = buildFlowchart(document);
 
     expect(graph.nodes).toEqual([
-      { id: "A", label: "Start", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", label: plainLabel("Begin"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics).toEqual([]);
   });
 
   it("sets totalSteps to 0 and leaves every element immediately visible when there is no timeline block", () => {
@@ -286,8 +290,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -311,8 +315,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [],
       subgraphs: [],
@@ -352,7 +356,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -382,8 +386,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [],
       subgraphs: [],
@@ -415,7 +419,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -440,7 +444,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "B", label: "B", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "B", label: plainLabel("B"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -470,8 +474,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -503,7 +507,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -543,8 +547,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -578,8 +582,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -608,9 +612,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW }, // A-B: edge exits at the same step as A
@@ -641,18 +645,18 @@ describe("buildGraphModel", () => {
       accTitle: null,
       interactions: [],
       participants: [
-        { id: "A", label: "A", participantKind: "participant" },
-        { id: "B", label: "B", participantKind: "participant" },
+        { id: "A", label: plainLabel("A"), participantKind: "participant" },
+        { id: "B", label: plainLabel("B"), participantKind: "participant" },
       ],
       boxes: [],
       statements: [
-        { kind: "participant", id: "A", label: "A", participantKind: "participant", origin: "declared" },
-        { kind: "participant", id: "B", label: "B", participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
+        { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
         {
           kind: "message",
           from: "A",
           to: "B",
-          text: "hello",
+          label: plainLabel("hello"),
           arrow: { line: "solid", head: "filled" },
         },
       ],
@@ -676,7 +680,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -692,7 +696,7 @@ describe("buildGraphModel", () => {
     expect(result.kind).toBe("flowchart");
     if (result.kind !== "flowchart") throw new Error(`got a ${result.kind} result`);
     expect(result.model.nodes).toEqual([
-      { id: "A", label: "A", shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null, labelRuns: null },
+      { id: "A", label: plainLabel("A"), shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
     ]);
   });
 
@@ -701,8 +705,8 @@ describe("buildGraphModel", () => {
       kind: "class",
       direction: "TB",
       classes: [
-        { id: "Animal", generic: null, annotation: null, members: [] },
-        { id: "Duck", generic: null, annotation: null, members: [] },
+        { id: "Animal", generic: null, annotation: null, label: null, members: [] },
+        { id: "Duck", generic: null, annotation: null, label: null, members: [] },
       ],
       relationships: [
         {
@@ -738,8 +742,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       subgraphs: [],
@@ -784,7 +788,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -819,7 +823,7 @@ describe("buildGraphModel", () => {
       kind: "flowchart",
       interactions: [],
       direction: "TB",
-      nodes: [{ id: "A", label: "A", shape: "rect", labelRuns: null }],
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
       edges: [],
       subgraphs: [],
       linkStyles: [],
@@ -862,10 +866,10 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
-        { id: "D", label: "D", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
+        { id: "D", label: plainLabel("D"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -907,9 +911,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -955,9 +959,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1004,8 +1008,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1099,9 +1103,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1154,9 +1158,9 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
-        { id: "C", label: "C", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
+        { id: "C", label: plainLabel("C"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", ...PLAIN_ARROW },
@@ -1218,8 +1222,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
       styles: [],
@@ -1268,8 +1272,8 @@ describe("buildGraphModel", () => {
       interactions: [],
       direction: "TB",
       nodes: [
-        { id: "A", label: "A", shape: "rect", labelRuns: null },
-        { id: "B", label: "B", shape: "rect", labelRuns: null },
+        { id: "A", label: plainLabel("A"), shape: "rect" },
+        { id: "B", label: plainLabel("B"), shape: "rect" },
       ],
       edges: [
         { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
@@ -1338,8 +1342,8 @@ describe("an edge's arrow through the model", () => {
     interactions: [],
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect", labelRuns: null },
-      { id: "B", label: "B", shape: "rect", labelRuns: null },
+      { id: "A", label: plainLabel("A"), shape: "rect" },
+      { id: "B", label: plainLabel("B"), shape: "rect" },
     ],
     edges,
     subgraphs: [],
@@ -1380,13 +1384,13 @@ describe("an edge's arrow through the model", () => {
     // rule above exists to prevent.
     const { graph } = buildFlowchart(
       documentWith([
-        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: "yes" },
+        { from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: plainLabel("yes") },
         { from: "B", to: "A", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null },
       ]),
     );
 
     expect(graph.edges.map((edge) => [edge.id, edge.label])).toEqual([
-      ["A-B", "yes"],
+      ["A-B", plainLabel("yes")],
       ["B-A", null],
     ]);
   });
@@ -1429,9 +1433,9 @@ describe("a subgraph in the graph model", () => {
     interactions: [],
     direction: "TB",
     nodes: [
-      { id: "A", label: "A", shape: "rect", labelRuns: null },
-      { id: "B", label: "B", shape: "rect", labelRuns: null },
-      { id: "C", label: "C", shape: "rect", labelRuns: null },
+      { id: "A", label: plainLabel("A"), shape: "rect" },
+      { id: "B", label: plainLabel("B"), shape: "rect" },
+      { id: "C", label: plainLabel("C"), shape: "rect" },
     ],
     edges: [{ from: "A", to: "B", ...PLAIN_ARROW }],
     subgraphs,
@@ -1445,13 +1449,13 @@ describe("a subgraph in the graph model", () => {
   it("gives each one a generated id and puts its members' parentage on the nodes", () => {
     const { graph, diagnostics } = buildFlowchart(
       grouped([
-        { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },
+        { name: "Ingest", label: plainLabel("Ingest"), nodeIds: ["A", "B"], subgraphs: [], direction: null },
       ]),
     );
 
     expect(diagnostics).toEqual([]);
     expect(graph.subgraphs).toEqual([
-      { id: "subgraph:1", label: "Ingest", parentId: null, direction: null },
+      { id: "subgraph:1", label: plainLabel("Ingest"), parentId: null, direction: null },
     ]);
     expect(graph.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ["A", "subgraph:1"],
@@ -1467,12 +1471,12 @@ describe("a subgraph in the graph model", () => {
       grouped([
         {
           name: "Outer",
-          label: "Outer",
+          label: plainLabel("Outer"),
           nodeIds: ["C"],
           subgraphs: [
             {
               name: "Inner",
-              label: "Inner",
+              label: plainLabel("Inner"),
               nodeIds: ["A", "B"],
               subgraphs: [],
               direction: null,
@@ -1486,8 +1490,8 @@ describe("a subgraph in the graph model", () => {
     // Pre-order, which is the order the author wrote the `subgraph` keywords
     // in and therefore the order they would count them in.
     expect(graph.subgraphs).toEqual([
-      { id: "subgraph:1", label: "Outer", parentId: null, direction: null },
-      { id: "subgraph:2", label: "Inner", parentId: "subgraph:1", direction: null },
+      { id: "subgraph:1", label: plainLabel("Outer"), parentId: null, direction: null },
+      { id: "subgraph:2", label: plainLabel("Inner"), parentId: "subgraph:1", direction: null },
     ]);
     expect(graph.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ["A", "subgraph:2"],
@@ -1501,7 +1505,7 @@ describe("a subgraph in the graph model", () => {
     // node *and* the word the author titled the block with. Two elements,
     // two ids, and the frame's cannot be spelled by any node.
     const { graph, diagnostics } = buildFlowchart(
-      grouped([{ name: "A", label: "A", nodeIds: ["B"], subgraphs: [], direction: null }]),
+      grouped([{ name: "A", label: plainLabel("A"), nodeIds: ["B"], subgraphs: [], direction: null }]),
     );
 
     expect(diagnostics).toEqual([]);
@@ -1517,7 +1521,7 @@ describe("a subgraph in the graph model", () => {
     // way — so `enter subgraph:1 fade` has to resolve rather than be
     // dropped as an unknown target.
     const document = grouped([
-      { name: "Ingest", label: "Ingest", nodeIds: ["A", "B"], subgraphs: [], direction: null },
+      { name: "Ingest", label: plainLabel("Ingest"), nodeIds: ["A", "B"], subgraphs: [], direction: null },
     ]) as FlowchartDocument;
     const { graph, diagnostics } = buildFlowchart({
       ...document,
@@ -1559,7 +1563,7 @@ describe("buildGraphModel — a state document", () => {
       {
         from: "Idle",
         to: "Running",
-        label: "start",
+        label: plainLabel("start"),
         parentId: null,
         regionIndex: null,
         sourceLine: 2,
@@ -1568,7 +1572,7 @@ describe("buildGraphModel — a state document", () => {
       {
         from: "Running",
         to: "Running",
-        label: "retry",
+        label: plainLabel("retry"),
         parentId: null,
         regionIndex: null,
         sourceLine: 3,

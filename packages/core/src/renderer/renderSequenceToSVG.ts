@@ -1,4 +1,7 @@
 import type {
+  Label,
+  LabelBox,
+  PlacedLabel,
   PositionedActivation,
   PositionedBlock,
   PositionedBox,
@@ -10,6 +13,8 @@ import type {
   PositionedSequenceElement,
   SequenceArrowHead,
 } from "../contracts";
+import { appendLabel, drawLabel } from "../label/drawLabel";
+import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -17,18 +22,19 @@ import { wrapInteraction } from "./wrapInteraction";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /**
- * Horizontal/vertical inset for a block's header/branch condition labels
- * from the block frame's top-left corner — matches Mermaid's own visual
- * convention of hugging the frame's top-left, not centering.
+ * Horizontal/vertical inset of a block's keyword from the block frame's
+ * top-left corner — matches Mermaid's own visual convention of hugging the
+ * frame's top-left, not centering. The same inset `layoutSequence` places a
+ * condition's first row at (`PositionedBlock.label`'s anchor), so the keyword shares its line;
+ * and where a block has no condition, its empty placeholder sits there too.
  */
 const BLOCK_LABEL_PADDING_X = 8;
 const BLOCK_LABEL_PADDING_Y = 14;
 
 /**
- * Horizontal room reserved for a block's own keyword (`loop`, `alt`, ...)
- * before its condition label — a fixed estimate rather than a measurement,
- * since this module never measures text; wide enough for `critical`, the
- * longest of the six keywords, at the block label's font size.
+ * Horizontal room `layoutSequence` leaves for a block's own keyword (`loop`,
+ * `alt`, ...) before its condition — here only to place the empty
+ * placeholder of a header with no condition where the condition would begin.
  */
 const BLOCK_KEYWORD_WIDTH = 64;
 
@@ -38,25 +44,6 @@ const BLOCK_KEYWORD_WIDTH = 64;
  * truncation point.
  */
 const DESTROY_MARK_ARM = 7;
-
-/**
- * Baseline offset of a box's label from the top of its background rect —
- * Mermaid captions a box across the top of the group, above the
- * participants it contains, not centered in the fill.
- */
-const BOX_LABEL_PADDING_Y = 14;
-
-/**
- * Share of an `actor` row's reserved height `[top, top + height]` given to
- * the stick figure, measured from the row's top edge; the remainder is the
- * label's own band. An actor is the one participant shape whose label sits
- * beside its shape rather than inside it, so the row has to be split — drawing
- * the figure across the whole row and hanging the label off its bottom edge
- * (as this did before) printed the label through the figure's legs. 0.6 is
- * roughly Mermaid's own figure-to-label proportion, and leaves the label a
- * band comfortably taller than a line of text at the theme's font size.
- */
-const ACTOR_ICON_BAND_RATIO = 0.6;
 
 /**
  * The `<marker>` shapes an arrowhead can take. `filled` and
@@ -211,13 +198,7 @@ function buildBox(box: PositionedBox): SVGGElement {
   g.appendChild(background);
 
   if (box.label !== null) {
-    const label = document.createElementNS(SVG_NS, "text");
-    label.setAttribute("class", "siren-box-label");
-    label.setAttribute("x", String(box.x + box.width / 2));
-    label.setAttribute("y", String(box.y + BOX_LABEL_PADDING_Y));
-    label.setAttribute("text-anchor", "middle");
-    label.textContent = box.label;
-    g.appendChild(label);
+    appendLabel(g, drawPlaced(box.label, "siren-box-label"));
   }
 
   return g;
@@ -261,14 +242,15 @@ function buildNote(note: PositionedNote): SVGGElement {
   frame.setAttribute("height", String(note.height));
   g.appendChild(frame);
 
-  const text = document.createElementNS(SVG_NS, "text");
-  text.setAttribute("class", "siren-note-text");
-  text.setAttribute("x", String(note.x + note.width / 2));
-  text.setAttribute("y", String(note.y + note.height / 2));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("dominant-baseline", "middle");
-  text.textContent = note.text;
-  g.appendChild(text);
+  appendLabel(
+    g,
+    drawLabel(
+      note.label,
+      note.labelBox,
+      { x: note.x + note.width / 2, y: note.y + note.height / 2 },
+      "siren-note-text",
+    ),
+  );
 
   return g;
 }
@@ -324,13 +306,10 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
     g.appendChild(
       buildBlockKeyword(block.kind, block.x + BLOCK_LABEL_PADDING_X, block.y + BLOCK_LABEL_PADDING_Y),
     );
-    g.appendChild(
-      buildBlockLabel(
-        bracketedCondition(block.label),
-        block.x + BLOCK_LABEL_PADDING_X + BLOCK_KEYWORD_WIDTH,
-        block.y + BLOCK_LABEL_PADDING_Y,
-      ),
-    );
+    appendBlockLabel(g, block.label, {
+      x: block.x + BLOCK_LABEL_PADDING_X + BLOCK_KEYWORD_WIDTH,
+      y: block.y + BLOCK_LABEL_PADDING_Y,
+    });
     for (const divider of block.dividers) {
       const line = document.createElementNS(SVG_NS, "line");
       line.setAttribute("class", "siren-block-divider");
@@ -341,13 +320,10 @@ function buildBlock(block: PositionedBlock, scope: string): SVGGElement {
       g.appendChild(line);
 
       if (divider.label !== null) {
-        g.appendChild(
-          buildBlockLabel(
-            bracketedCondition(divider.label),
-            block.x + BLOCK_LABEL_PADDING_X,
-            divider.y + BLOCK_LABEL_PADDING_Y,
-          ),
-        );
+        appendBlockLabel(g, divider.label, {
+          x: block.x + BLOCK_LABEL_PADDING_X,
+          y: divider.y + BLOCK_LABEL_PADDING_Y,
+        });
       }
     }
   }
@@ -379,9 +355,8 @@ function buildBlockFrame(block: PositionedBlock): SVGRectElement {
 /**
  * Builds the filled `<rect class="siren-block-fill">` for a `rect`-kind
  * block: the background-highlight treatment, with no frame border, using
- * the `rect rgb(...)`/`rgba(...)` color Mermaid syntax captured — per the
- * frozen `PositionedBlock` shape, which carries no separate color field —
- * in this block's `label`.
+ * the `rect rgb(...)`/`rgba(...)` color Mermaid syntax captured, which
+ * layout carries as this block's `color`.
  */
 function buildBlockFill(block: PositionedBlock): SVGRectElement {
   const rect = document.createElementNS(SVG_NS, "rect") as SVGRectElement;
@@ -390,30 +365,36 @@ function buildBlockFill(block: PositionedBlock): SVGRectElement {
   rect.setAttribute("y", String(block.y));
   rect.setAttribute("width", String(block.width));
   rect.setAttribute("height", String(block.height));
-  rect.setAttribute("fill", block.label ?? "none");
+  rect.setAttribute("fill", block.color ?? "none");
   return rect;
 }
 
-/** Builds one top-left-anchored `<text class="siren-block-label">`. */
-function buildBlockLabel(text: string, x: number, y: number): SVGTextElement {
-  const label = document.createElementNS(SVG_NS, "text") as SVGTextElement;
-  label.setAttribute("class", "siren-block-label");
-  label.setAttribute("x", String(x));
-  label.setAttribute("y", String(y));
-  label.setAttribute("text-anchor", "start");
-  label.textContent = text;
-  return label;
-}
-
 /**
- * Wraps a block's condition text in brackets, the way Mermaid draws it
- * (measured: `loop every day` renders as `[every day]`). `null`/empty stays
- * empty rather than becoming a bracket pair around nothing — Mermaid itself
- * draws an invisible placeholder for a condition-less block, which for a
- * renderer with no equivalent need means drawing nothing visible.
+ * Appends one `<text class="siren-block-label">` — a block's or a divider's
+ * condition, already bracketed by layout (`PositionedBlock.label`) — centred
+ * on the anchor layout placed it at, which puts its first row where a
+ * one-row condition's always was and grows the rest downward into the band
+ * layout made taller for them.
+ *
+ * A header with no condition still gets its (empty) element, as it always
+ * has, at `placeholder` — where a condition would begin: Mermaid draws an
+ * invisible placeholder there.
  */
-function bracketedCondition(text: string | null): string {
-  return text === null || text.length === 0 ? "" : `[${text}]`;
+function appendBlockLabel(
+  parent: Element,
+  label: PlacedLabel | null,
+  placeholder: { x: number; y: number },
+): void {
+  if (label === null) {
+    const empty = document.createElementNS(SVG_NS, "text");
+    empty.setAttribute("class", "siren-block-label");
+    empty.setAttribute("x", String(placeholder.x));
+    empty.setAttribute("y", String(placeholder.y));
+    empty.setAttribute("text-anchor", "start");
+    parent.appendChild(empty);
+    return;
+  }
+  appendLabel(parent, drawPlaced(label, "siren-block-label"));
 }
 
 /**
@@ -429,6 +410,9 @@ function buildBlockKeyword(kind: string, x: number, y: number): SVGTextElement {
   keyword.setAttribute("x", String(x));
   keyword.setAttribute("y", String(y));
   keyword.setAttribute("text-anchor", "start");
+  // Centred on `y` as the condition's first row is (`appendBlockLabel`), so
+  // the two read as one line however the theme sizes either.
+  keyword.setAttribute("dominant-baseline", "middle");
   keyword.textContent = kind;
   return keyword;
 }
@@ -473,13 +457,12 @@ function buildMessage(message: PositionedMessage, scope: string): SVGGElement {
   }
   g.appendChild(path);
 
-  const label = document.createElementNS(SVG_NS, "text");
-  label.setAttribute("class", "siren-message-label");
-  label.setAttribute("x", String((message.fromX + message.toX) / 2));
-  label.setAttribute("y", String(message.y - 6));
-  label.setAttribute("text-anchor", "middle");
-  label.textContent = message.text;
-  g.appendChild(label);
+  // Centred on the anchor layout gave it, which stands the label's box on
+  // the arrow — so a label of several rows grows upward, away from it.
+  appendLabel(
+    g,
+    drawPlaced(message.label, "siren-message-label"),
+  );
 
   if (message.autonumber !== null) {
     const autonumber = document.createElementNS(SVG_NS, "text");
@@ -633,18 +616,18 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
   if (participant.participantKind === "actor") {
     g.appendChild(buildActorIcon(participant, top));
 
-    // The figure owns the top of the row and the label owns what is left, so
-    // the two never share pixels; centring the label in that free band (rather
-    // than sitting it on the band's bottom edge) keeps ascenders and
-    // descenders inside the row, exactly as a participant box's label does.
-    const iconBottom = top + participant.height * ACTOR_ICON_BAND_RATIO;
-    const text = document.createElementNS(SVG_NS, "text");
-    text.setAttribute("x", String(participant.x));
-    text.setAttribute("y", String((iconBottom + top + participant.height) / 2));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("dominant-baseline", "middle");
-    text.textContent = participant.label;
-    g.appendChild(text);
+    // Layout sizes an actor's row as its figure above its label, every row
+    // of it (`layoutSequence`'s `ACTOR_FIGURE_HEIGHT`), so the label owns the
+    // bottom `labelBox.height` of the row and the figure what is above it:
+    // the two never share pixels, and a label of several rows grows the row
+    // downward rather than into the figure's legs.
+    appendLabel(
+      g,
+      drawLabel(participant.label, participant.labelBox, {
+        x: participant.x,
+        y: top + participant.height - participant.labelBox.height / 2,
+      }),
+    );
 
     return g;
   }
@@ -656,13 +639,13 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
   rect.setAttribute("height", String(participant.height));
   g.appendChild(rect);
 
-  const text = document.createElementNS(SVG_NS, "text");
-  text.setAttribute("x", String(participant.x));
-  text.setAttribute("y", String(top + participant.height / 2));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("dominant-baseline", "middle");
-  text.textContent = participant.label;
-  g.appendChild(text);
+  appendLabel(
+    g,
+    drawLabel(participant.label, participant.labelBox, {
+      x: participant.x,
+      y: top + participant.height / 2,
+    }),
+  );
 
   return g;
 }
@@ -670,15 +653,15 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
 /**
  * Builds the stick-figure icon for an `actor` participant: a head circle,
  * a body line, an arm line, and two leg lines, drawn inside the icon band —
- * the top `ACTOR_ICON_BAND_RATIO` of the participant's layout-assigned row
- * `[top, top + height]`. The rest of the row is the label's band (see
- * `buildParticipant`); drawing the figure across the whole row instead put the
- * label's glyphs straight through the figure's legs.
+ * the part of the participant's layout-assigned row `[top, top + height]`
+ * above its label, which owns the bottom `labelBox.height` of the row (see
+ * `buildParticipant`). The band is as tall for a label of several rows as
+ * for one, so the figure does not grow with its label.
  */
 function buildActorIcon(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   const centerX = participant.x;
-  const iconHeight = participant.height * ACTOR_ICON_BAND_RATIO;
+  const iconHeight = participant.height - participant.labelBox.height;
   const headRadius = Math.max(Math.min(participant.width, iconHeight) / 6, 4);
   const headCenterY = top + headRadius;
   const bodyTopY = headCenterY + headRadius;

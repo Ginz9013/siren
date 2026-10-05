@@ -13,7 +13,11 @@ import type {
   ResolvedClass,
   ResolvedInteraction,
   ResolvedClassNamespace,
+  Label,
+  LabelBox,
 } from "../contracts";
+import { plainLabel } from "../label/label";
+import { layoutLabel } from "../label/layoutLabel";
 import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
@@ -148,6 +152,17 @@ function classNameText(cls: ResolvedClass): string {
 }
 
 /**
+ * The label a class box draws in its name band: the one the author wrote
+ * in brackets when there is one — which replaces the whole name, generic
+ * included (measured, mermaid 11.17.2: `class A~T~["Lab"]` draws "Lab") —
+ * and otherwise `classNameText` as one plain run. Never read as markup
+ * there: the composed `<T>` is the generic Mermaid draws, not a tag.
+ */
+function classLabel(cls: ResolvedClass): Label {
+  return cls.label ?? plainLabel(classNameText(cls));
+}
+
+/**
  * A compartment's geometry in box-local coordinates: `dividerY` is measured
  * from the box's top edge, as is each member's line center.
  */
@@ -165,6 +180,8 @@ interface CompartmentPlan {
 interface ClassBoxPlan {
   width: number;
   height: number;
+  label: Label;
+  labelBox: LabelBox;
   attributes: CompartmentPlan | null;
   methods: CompartmentPlan | null;
 }
@@ -192,9 +209,12 @@ function planClassBox(
     bottom += annotation.height;
   }
 
-  const name = measure(classNameText(cls));
-  widths.push(name.width);
-  bottom += name.height + CLASS_PADDING_Y;
+  // The name is a label, so it is measured row by row: a `<br>` in a
+  // written label makes the band one line taller per row it adds.
+  const label = classLabel(cls);
+  const labelBox = layoutLabel(label, options.measureText);
+  widths.push(labelBox.width);
+  bottom += labelBox.height + CLASS_PADDING_Y;
 
   /**
    * Stacks one group of members below everything placed so far, preceded by
@@ -227,6 +247,8 @@ function planClassBox(
   return {
     width: Math.max(...widths) + CLASS_PADDING_X * 2,
     height: bottom,
+    label,
+    labelBox,
     attributes,
     methods,
   };
@@ -411,24 +433,23 @@ function namespaceFrame(
   ns: ResolvedClassNamespace,
   memberBoxes: DirectedGraphLayoutNodeBox[],
   clusterBox: DirectedGraphLayoutNodeBox,
-  options: LayoutOptions,
+  labelBox: LabelBox,
 ): PositionedClassNamespace {
-  const label = options.measureText.measure(ns.label);
   const left = Math.min(
     clusterBox.x,
     ...memberBoxes.map((box) => box.x - NAMESPACE_PADDING),
   );
   const top = Math.min(
     clusterBox.y,
-    // The label strip: padding, the label line, then padding again before the
+    // The label strip: padding, the label's rows, then padding again before the
     // first member box starts.
     ...memberBoxes.map(
-      (box) => box.y - NAMESPACE_PADDING * 2 - label.height,
+      (box) => box.y - NAMESPACE_PADDING * 2 - labelBox.height,
     ),
   );
   const right = Math.max(
     clusterBox.x + clusterBox.width,
-    left + label.width + NAMESPACE_PADDING * 2,
+    left + labelBox.width + NAMESPACE_PADDING * 2,
     ...memberBoxes.map((box) => box.x + box.width + NAMESPACE_PADDING),
   );
   const bottom = Math.max(
@@ -438,15 +459,18 @@ function namespaceFrame(
 
   return {
     id: ns.id,
-    label: ns.label,
+    label: {
+      label: ns.label,
+      labelBox,
+      anchor: {
+        x: (left + right) / 2,
+        y: top + NAMESPACE_PADDING + labelBox.height / 2,
+      },
+    },
     x: left,
     y: top,
     width: right - left,
     height: bottom - top,
-    labelAnchor: {
-      x: (left + right) / 2,
-      y: top + NAMESPACE_PADDING + label.height / 2,
-    },
   };
 }
 
@@ -495,6 +519,37 @@ export function layoutClassDiagram(
     (note) => note.targetId !== null && knownClassIds.has(note.targetId),
   );
 
+  /**
+   * Each framed namespace's label as `layoutLabel` measured it, by the
+   * namespace's id — measured once, so the smallest box the core is handed,
+   * the strip `namespaceFrame` reserves and the box the renderer draws in
+   * are all the same box.
+   */
+  const namespaceLabelBoxById = new Map(
+    groups.map(({ ns }) => [ns.id, layoutLabel(ns.label, options.measureText)] as const),
+  );
+
+  /**
+   * Each note's label as `layoutLabel` measured it, by the note's id — the
+   * box its own is padded around, and the box the renderer draws in.
+   */
+  const noteLabelBoxById = new Map(
+    model.notes.map((note) => [note.id, layoutLabel(note.label, options.measureText)] as const),
+  );
+
+  /**
+   * Each labelled relationship's label as `layoutLabel` measured it, by the
+   * relationship's id — measured once, so the box the core keeps clear and
+   * the box the renderer draws in are the same box.
+   */
+  const relationshipLabelBoxById = new Map(
+    model.relationships.flatMap((rel) =>
+      rel.label === null
+        ? []
+        : [[rel.id, layoutLabel(rel.label, options.measureText)] as const],
+    ),
+  );
+
   const laidOut = layoutDirectedGraph({
     rankdir: model.direction,
     nodes: [
@@ -522,7 +577,7 @@ export function layoutClassDiagram(
         // its members regardless and this comment must not be read as saying
         // it needn't. The label's own size is passed anyway, as the smallest
         // the frame could sensibly be.
-        const label = options.measureText.measure(group.ns.label);
+        const label = namespaceLabelBoxById.get(group.ns.id)!;
         return {
           id: namespaceNodeId(group.ns.id),
           isCluster: true,
@@ -533,11 +588,11 @@ export function layoutClassDiagram(
       // A note is a box the layout places like any other, which is what keeps
       // it from landing on top of a class.
       ...model.notes.map((note) => {
-        const text = options.measureText.measure(note.text);
+        const labelBox = noteLabelBoxById.get(note.id)!;
         return {
           id: noteNodeId(note.id),
-          width: text.width + NOTE_PADDING_X * 2,
-          height: text.height + NOTE_PADDING_Y * 2,
+          width: labelBox.width + NOTE_PADDING_X * 2,
+          height: labelBox.height + NOTE_PADDING_Y * 2,
         };
       }),
       // A lollipop's interface label (`buildClassModel` already minted its
@@ -572,7 +627,7 @@ export function layoutClassDiagram(
         // apart for the text, and reports back where that space ended up.
         ...(rel.label === null
           ? {}
-          : { label: options.measureText.measure(rel.label) }),
+          : { label: relationshipLabelBoxById.get(rel.id)! }),
       })),
       // An attached note is joined to its class by an edge that is never
       // drawn as a relationship: it is what puts the note beside the class it
@@ -599,7 +654,7 @@ export function layoutClassDiagram(
       group.ns,
       group.memberIds.map((id) => boxInCoreSpaceById.get(id)!),
       boxInCoreSpaceById.get(namespaceNodeId(group.ns.id))!,
-      options,
+      namespaceLabelBoxById.get(group.ns.id)!,
     ),
   );
 
@@ -637,7 +692,7 @@ export function layoutClassDiagram(
   const namespaces = frames.map((frame) => ({
     ...frame,
     ...shifted(frame),
-    labelAnchor: shifted(frame.labelAnchor),
+    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
   }));
 
   /**
@@ -694,7 +749,8 @@ export function layoutClassDiagram(
 
     return {
       id: cls.id,
-      name: classNameText(cls),
+      label: plan.label,
+      labelBox: plan.labelBox,
       annotation: cls.annotation,
       x: box.x,
       y: box.y,
@@ -718,8 +774,14 @@ export function layoutClassDiagram(
         fromEnd: rel.fromEnd,
         toEnd: rel.toEnd,
         points: route.points,
-        label: rel.label,
-        labelAnchor: route.labelAnchor ?? null,
+        label:
+          rel.label === null || route.labelAnchor === undefined
+            ? null
+            : {
+                label: rel.label,
+                labelBox: relationshipLabelBoxById.get(rel.id)!,
+                anchor: route.labelAnchor,
+              },
         fromMultiplicity: rel.fromMultiplicity,
         fromMultiplicityAnchor:
           rel.fromMultiplicity === null
@@ -763,7 +825,8 @@ export function layoutClassDiagram(
       : null;
     return {
       id: note.id,
-      text: note.text,
+      label: note.label,
+      labelBox: noteLabelBoxById.get(note.id)!,
       x: box.x,
       y: box.y,
       width: box.width,
@@ -821,10 +884,14 @@ function diagramBounds(
     bottom = Math.max(bottom, y);
   };
 
+  /** Covers a box of `size` centered on `anchor`. */
+  const coverCentered = (size: { width: number; height: number }, anchor: Point) => {
+    cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
+  };
+
   /** Covers a centered run of text drawn at `anchor`. */
   const coverText = (text: string, anchor: Point) => {
-    const size = options.measureText.measure(text);
-    cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
+    coverCentered(options.measureText.measure(text), anchor);
   };
 
   for (const box of [...classes, ...namespaces, ...notes]) {
@@ -837,8 +904,8 @@ function diagramBounds(
 
   for (const rel of relationships) {
     for (const point of rel.points) cover(point.x, point.y);
-    if (rel.label !== null && rel.labelAnchor !== null) {
-      coverText(rel.label, rel.labelAnchor);
+    if (rel.label !== null) {
+      coverCentered(rel.label.labelBox, rel.label.anchor);
     }
     if (rel.fromMultiplicity !== null && rel.fromMultiplicityAnchor !== null) {
       coverText(rel.fromMultiplicity, rel.fromMultiplicityAnchor);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
+import { plainLabel, plainRun } from "../label/label";
 import type {
   ClassDocument,
   Diagnostic,
@@ -189,7 +190,10 @@ timeline:
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
-  it("keeps the first label and emits a warning when a node id is redeclared with different bracket text", () => {
+  it("keeps the last label, silently and in the first position, when a node id is redeclared with different bracket text", () => {
+    // Mermaid 11.17.2, measured: `A[x]` then `A[y]` draws "y" and says
+    // nothing — the later declaration is used, so it is not a mistake to
+    // warn about. The node stays where it was first written.
     const source = `flowchart TD
   A[Start]
   A --> B[End]
@@ -198,11 +202,11 @@ timeline:
 
     const { document, diagnostics } = parseFlowchartOk(source);
 
-    expect(document).not.toBeNull();
-    const nodeA = document.nodes.find((n) => n.id === "A");
-    expect(nodeA?.label).toBe("Start");
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.line])).toEqual([
+      ["A", "Begin", 2],
+      ["B", "End", 3],
+    ]);
   });
 
   /**
@@ -222,7 +226,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.label)).toEqual([
+    expect(document.nodes.map((n) => n.label.text)).toEqual([
       "a/b",
       "x (y)",
       "100%",
@@ -238,7 +242,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.label)).toEqual(["Quoted, with comma"]);
+    expect(document.nodes.map((n) => n.label.text)).toEqual(["Quoted, with comma"]);
   });
 
   it("lets a fenced label hold the `]` that would otherwise end it, which is what quoting is for", () => {
@@ -255,7 +259,7 @@ timeline:
 
     const fenced = parseFlowchartOk(quoted);
     expect(fenced.diagnostics).toEqual([]);
-    expect(fenced.document.nodes.map((n) => n.label)).toEqual(["a]b"]);
+    expect(fenced.document.nodes.map((n) => n.label.text)).toEqual(["a]b"]);
 
     const bare = parseSiren(unquoted);
     expect(bare.document).toBeNull();
@@ -278,7 +282,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => `${n.id}=${n.label}`)).toEqual([
+    expect(document.nodes.map((n) => `${n.id}=${n.label.text}`)).toEqual([
       "A=a]b-->c",
       "B=x, y",
     ]);
@@ -301,7 +305,7 @@ timeline:
     // line is refused rather than drawn with a stray quote in it.
     const empty = parseFlowchartOk('flowchart TB\n  A[""]\n');
     expect(empty.diagnostics).toEqual([]);
-    expect(empty.document.nodes.map((n) => n.label)).toEqual([""]);
+    expect(empty.document.nodes.map((n) => n.label.text)).toEqual([""]);
 
     for (const line of ['A["]', 'A["""]']) {
       const { document, diagnostics } = parseSiren(`flowchart TB\n  ${line}\n`);
@@ -326,7 +330,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.label)).toEqual(['"hi" and "bye"']);
+    expect(document.nodes.map((n) => n.label.text)).toEqual(['"hi" and "bye"']);
   });
 
   it("reads `A{text}` as a rhombus, and every other node spelling as a rect", () => {
@@ -344,7 +348,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Is it ready?", "rhombus"],
       ["B", "Done", "rect"],
       ["C", "C", "rect"],
@@ -374,7 +378,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "a-->b", "rhombus"],
       ["C", "C", "rect"],
       ["D", "a;b", "rhombus"],
@@ -406,7 +410,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Flag", "asymmetric"],
       ["B", "a>b", "asymmetric"],
     ]);
@@ -425,7 +429,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Flag", "asymmetric"],
       ["B", "Other", "asymmetric"],
       ["C", "C", "rect"],
@@ -458,7 +462,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Hexagon", "hexagon"],
       ["B", "a}}b", "hexagon"],
       ["C", "Rhombus", "rhombus"],
@@ -473,7 +477,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Hexagon", "hexagon"],
       ["B", "Ready?", "rhombus"],
     ]);
@@ -515,7 +519,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Round", "round"],
       ["B", "Stadium", "stadium"],
       ["C", "Subroutine", "subroutine"],
@@ -566,7 +570,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Circle", "circle"],
       ["B", "Double", "double-circle"],
       ["C", "DB", "cylinder"],
@@ -608,7 +612,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "a-->b", "round"],
       ["C", "C", "rect"],
       ["D", "a;b", "round"],
@@ -649,7 +653,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Para", "parallelogram"],
       ["B", "Alt", "parallelogram-alt"],
       ["C", "Trap", "trapezoid"],
@@ -672,7 +676,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "Para", "parallelogram"],
       ["B", "Alt", "parallelogram-alt"],
       ["C", "Trap", "trapezoid"],
@@ -694,7 +698,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => [n.id, n.label, n.shape])).toEqual([
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
       ["A", "/", "rect"],
       ["B", "\\", "rect"],
       ["C", "a/b", "rect"],
@@ -709,7 +713,7 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.label)).toEqual(['say "hi" now']);
+    expect(document.nodes.map((n) => n.label.text)).toEqual(['say "hi" now']);
   });
 
   it("names a Markdown string label as Markdown, drawing **bold** as one bold run", () => {
@@ -723,9 +727,9 @@ classDef hot fill:#fdd
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.label)).toEqual(["bold"]);
-    expect(document.nodes.map((n) => n.labelRuns)).toEqual([
-      [[{ text: "bold", bold: true, italic: false }]],
+    expect(document.nodes.map((n) => n.label.text)).toEqual(["bold"]);
+    expect(document.nodes.map((n) => n.label.rows)).toEqual([
+      [[{ ...plainRun("bold"), bold: true }]],
     ]);
   });
 
@@ -733,7 +737,7 @@ classDef hot fill:#fdd
     // Two endpoints on two different lines and at both ends of an arrow, so
     // the rule is visibly about the *place* rather than about one line's
     // shape: a Markdown label declared inline at an edge endpoint parses
-    // into the exact same labelRuns a standalone declaration would.
+    // into the exact same label a standalone declaration would.
     const source = `flowchart TB
   A["` + "`" + `**bold**` + "`" + `"] --> B[Read]
   C[Write] --> D["` + "`" + `**bold**` + "`" + `"]
@@ -743,8 +747,8 @@ classDef hot fill:#fdd
 
     expect(diagnostics).toEqual([]);
     const byId = Object.fromEntries(document.nodes.map((n) => [n.id, n]));
-    expect(byId.A.labelRuns).toEqual([[{ text: "bold", bold: true, italic: false }]]);
-    expect(byId.D.labelRuns).toEqual([[{ text: "bold", bold: true, italic: false }]]);
+    expect(byId.A.label.rows).toEqual([[{ ...plainRun("bold"), bold: true }]]);
+    expect(byId.D.label.rows).toEqual([[{ ...plainRun("bold"), bold: true }]]);
   });
 
   it("parses all four timeline verbs with the correct kind/targetId/step, and effect only where expected", () => {
@@ -892,8 +896,8 @@ timeline:
     const sequenceDocument = document as SequenceDocument;
     expect(sequenceDocument.title).toBe("Order confirmation flow");
     expect(sequenceDocument.participants).toEqual([
-      { id: "A", label: "Alice", participantKind: "participant", line: 3, column: 3 },
-      { id: "B", label: "Bob", participantKind: "actor", line: 4, column: 3 },
+      { id: "A", label: plainLabel("Alice"), participantKind: "participant", line: 3, column: 3 },
+      { id: "B", label: plainLabel("Bob"), participantKind: "actor", line: 4, column: 3 },
     ]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
     expect(messages).toHaveLength(2);
@@ -1024,7 +1028,7 @@ flowchart TD
     expect(sequenceDocument.participants.map((p) => p.id)).toEqual(["A", "B"]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
     expect(messages).toHaveLength(1);
-    expect(messages[0].kind === "message" && messages[0].text).toBe("Sync call");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call");
   });
 
   it("ignores whole-line, indented and trailing %% comments in a class diagram", () => {
@@ -1057,7 +1061,7 @@ classDiagram
 
     expect(diagnostics).toEqual([]);
     const messages = (document as SequenceDocument).statements.filter((s) => s.kind === "message");
-    expect(messages[0].kind === "message" && messages[0].text).toBe("50");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("50");
   });
 
   it("reports an error diagnostic, not a throw, for a document that is only comments", () => {
@@ -1247,7 +1251,7 @@ timeline:
     // it gives an id nothing else declares the id as its label, and leaves
     // the label an edge already wrote alone rather than fighting it.
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "Start"],
       ["B", "End"],
       ["C", "C"],
@@ -1296,7 +1300,7 @@ timeline:
     // The shorthand rides along with the endpoint; it does not take the
     // label away from it, and the far endpoint is untouched.
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "Start"],
       ["B", "End"],
     ]);
@@ -1324,10 +1328,9 @@ timeline:
 
     // Ticket 04's rule for the standalone bare form, in the edge position:
     // the shorthand applies, and declares only what nothing else has. So B
-    // keeps `End` rather than being redeclared as its own id, and no
-    // redeclaration warning fires.
+    // keeps `End` rather than being relabelled with its own id.
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "A"],
       ["B", "End"],
       ["C", "C"],
@@ -1358,7 +1361,7 @@ timeline:
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "A"],
       ["B", "End"],
       ["C", "C"],
@@ -1426,7 +1429,7 @@ timeline:
       ["B", "C"],
       ["C", "D"],
     ]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "Start"],
       ["B", "B"],
       ["C", "C"],
@@ -1553,7 +1556,7 @@ timeline:
 `);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "Start"],
       ["B", "End"],
     ]);
@@ -1578,7 +1581,7 @@ timeline:
     // against its own parser — so a splitter that did not know where a
     // label starts would cut them into nonsense.
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "one; two"],
       ["B", "three & four"],
     ]);
@@ -1622,7 +1625,7 @@ timeline:
     ]);
     expect(document.styles.every((style) => style.authoredAs === ":::")).toBe(true);
     // And the shorthand still claims no label, so every node keeps its id.
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "A"],
       ["B", "B"],
       ["C", "C"],
@@ -1655,19 +1658,27 @@ timeline:
     // the refusal being total, not which construct triggers it, and one
     // still-unreadable construct is enough to show that.
     //
-    // The redeclaration warning is what makes "nothing was taken" observable
-    // — `A` already has a label, so if the first endpoint had been declared
-    // before the refusal there would be a warning sitting next to the error.
+    // "Nothing was taken" is observed through a warning that reading the
+    // first endpoint would raise: on its own, the line
+    // `A[<span style="foo:1">Other</span>] --> B` warns that `<span style>`
+    // ignores "foo". (This used to lean on the redeclaration warning
+    // `A[Other]` raised, until a later label came to replace an earlier one
+    // silently, as in Mermaid 11.17.2.) With the unreadable arrow at the end
+    // of the same line, the refusal must be the only diagnostic — so `A`'s
+    // label was never read.
     const unreadable = parseSiren(`flowchart TD
   A[Start]
-  A[Other] --> B o--x C
+  A[<span style="foo:1">Other</span>] --> B o--x C
 `);
 
     expect(unreadable.document).toBeNull();
     expect(unreadable.diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Siren does not draw the arrow "o--x" yet: "A[Other] --> B o--x C"',
+        message:
+          // The line is quoted as it is read: after Mermaid's tag-quote
+          // rewrite (`tagQuotesRewritten`), which made the span's `"` a `'`.
+          'Siren does not draw the arrow "o--x" yet: "A[<span style=\'foo:1\'>Other</span>] --> B o--x C"',
         line: 3,
         column: 3,
       },
@@ -2039,7 +2050,7 @@ describe("the arrow token an edge is written with", () => {
     const { document, diagnostics } = parseFlowchartOk(`flowchart TB\n  A[a==>b] --> B\n`);
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => node.label)).toEqual(["a==>b", "B"]);
+    expect(document.nodes.map((node) => node.label.text)).toEqual(["a==>b", "B"]);
     expect(document.edges.map((edge) => `${edge.from}-${edge.to}`)).toEqual(["A-B"]);
   });
 });
@@ -2058,7 +2069,7 @@ describe("the label an edge carries", () => {
   const labelsOf = (source: string) => {
     const { document, diagnostics } = parseFlowchartOk(`flowchart TB\n  ${source}\n`);
     expect(diagnostics).toEqual([]);
-    return document.edges.map((edge) => [`${edge.from}-${edge.to}`, edge.label]);
+    return document.edges.map((edge) => [`${edge.from}-${edge.to}`, (edge.label?.text ?? null)]);
   };
 
   it("reads `A -->|yes| B` as the edge A to B labelled `yes`", () => {
@@ -2098,7 +2109,7 @@ describe("the label an edge carries", () => {
 
     expect(diagnostics).toEqual([]);
     expect(
-      document.edges.map((edge) => [edge.label, edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
+      document.edges.map((edge) => [(edge.label?.text ?? null), edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
     ).toEqual([
       ["yes", "solid", "none", "arrow", 2],
       ["no", "thick", "none", "arrow", 1],
@@ -2120,7 +2131,7 @@ describe("the label an edge carries", () => {
     );
     expect(diagnostics).toEqual([]);
     expect(
-      document.edges.map((edge) => [edge.label, edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
+      document.edges.map((edge) => [(edge.label?.text ?? null), edge.line, edge.fromEnd, edge.toEnd, edge.minLength]),
     ).toEqual([
       ["yes", "dotted", "none", "arrow", 1],
       ["no", "dotted", "none", "none", 1],
@@ -2134,7 +2145,7 @@ describe("the label an edge carries", () => {
     expect(chain.diagnostics).toEqual([]);
     expect(chain.document.nodes.map((node) => node.id)).toEqual(["A", "yes", "B"]);
     expect(
-      chain.document.edges.map((edge) => [edge.from, edge.to, edge.label, edge.line, edge.toEnd]),
+      chain.document.edges.map((edge) => [edge.from, edge.to, (edge.label?.text ?? null), edge.line, edge.toEnd]),
     ).toEqual([
       ["A", "yes", null, "dotted", "none"],
       ["yes", "B", null, "dotted", "arrow"],
@@ -2159,7 +2170,7 @@ describe("the label an edge carries", () => {
     );
     expect(diagnostics).toEqual([]);
     expect(
-      document.edges.map((edge) => [edge.label, edge.line, edge.toEnd, edge.minLength]),
+      document.edges.map((edge) => [(edge.label?.text ?? null), edge.line, edge.toEnd, edge.minLength]),
     ).toEqual([
       ["yes", "dotted", "arrow", 1],
       ["no", "dotted", "arrow", 1],
@@ -2245,7 +2256,7 @@ describe("a subgraph", () => {
     expect(document.subgraphs).toEqual([
       {
         name: "Ingest",
-        label: "Ingest",
+        label: plainLabel("Ingest"),
         nodeIds: ["A", "B"],
         subgraphs: [],
         direction: null,
@@ -2275,11 +2286,11 @@ describe("a subgraph", () => {
     expect(diagnostics).toEqual([]);
     expect(document.subgraphs).toHaveLength(1);
     const [outer] = document.subgraphs;
-    expect(outer.label).toBe("Outer");
+    expect(outer.label.text).toBe("Outer");
     // `A` was named inside `Inner` first, so it is `Inner`'s and not
     // `Outer`'s — the first-claim rule mermaid 11.17.2 applies, measured.
     expect(outer.nodeIds).toEqual(["C"]);
-    expect(outer.subgraphs.map((sub) => sub.label)).toEqual(["Inner"]);
+    expect(outer.subgraphs.map((sub) => sub.label.text)).toEqual(["Inner"]);
     expect(outer.subgraphs[0].nodeIds).toEqual(["A", "B"]);
   });
 
@@ -2290,7 +2301,7 @@ describe("a subgraph", () => {
         "  subgraph T\n    B --> C\n  end\n",
     );
 
-    expect(document.subgraphs.map((sub) => [sub.label, sub.nodeIds])).toEqual([
+    expect(document.subgraphs.map((sub) => [sub.label.text, sub.nodeIds])).toEqual([
       ["S", ["A", "B"]],
       ["T", ["C"]],
     ]);
@@ -2307,7 +2318,7 @@ describe("a subgraph", () => {
   it("reads a quoted or bracketed title, and keeps the author's own handle apart from it", () => {
     const titles = (source: string) =>
       parseFlowchartOk(`flowchart TB\n  ${source}\n    A --> B\n  end\n`).document.subgraphs.map(
-        (sub) => [sub.name, sub.label],
+        (sub) => [sub.name, sub.label.text],
       );
 
     // A bare word is both: mermaid 11.17.2 records `id="Ingest"
@@ -2332,7 +2343,7 @@ describe("a subgraph", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(document.subgraphs.map((sub) => [sub.label, sub.nodeIds])).toEqual([["S", ["A", "B"]]]);
+    expect(document.subgraphs.map((sub) => [sub.label.text, sub.nodeIds])).toEqual([["S", ["A", "B"]]]);
   });
 
   it("refuses an `end` with no subgraph open, and a subgraph never closed", () => {
@@ -2472,7 +2483,7 @@ describe("a bare node id on its own line", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
       ["A", "A"],
       ["B", "Box"],
     ]);
@@ -2483,7 +2494,7 @@ describe("a bare node id on its own line", () => {
     const { document, diagnostics } = parseFlowchartOk("flowchart TB\n  A\n");
 
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.label])).toEqual([["A", "A"]]);
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([["A", "A"]]);
   });
 });
 
@@ -2549,5 +2560,83 @@ describe("the header spellings the dispatcher teaches", () => {
       );
       expect(rejections).toEqual([]);
     }
+  });
+});
+
+/**
+ * Mermaid's order of work before any parser reads a line (11.17.2): its
+ * `cleanupComments` removes only whole-line `%%` comments, then its
+ * `encodeEntities` drops a style line's last `;` — so a `;` in an
+ * end-of-line comment is still on the line when that rule picks one.
+ */
+describe("the style-line `;` and an end-of-line comment", () => {
+  it("drops the comment's `;`, leaving the label's color a code", () => {
+    // Measured (`--html`): `state "<span style='color:#f00;'>r</span>" as A %% x;`
+    // draws `<span style="color:&amp;f00;">r</span>` — uncolored.
+    const { document } = parseSiren(`stateDiagram-v2\n  state "<span style='color:#f00;'>r</span>" as A %% x;`);
+    if (document === null || document.kind !== "state") {
+      throw new Error("expected a state document");
+    }
+    const label = document.states.find((state) => state.id === "A")!.descriptions[0]!;
+    expect(label.rows[0]!.map((run) => [run.text, run.color])).toEqual([["r", null]]);
+  });
+});
+
+/**
+ * Mermaid's `cleanupText` (11.17.2, `preprocessDiagram`'s first step): over
+ * the whole document, before any diagram reads a line, each `="…"` inside a
+ * stretch shaped `/<(\w+)([^>]*)>/` becomes `='…'`. The stretch is the
+ * document's, not one label's, so it can run past a line's end to the next
+ * `>` anywhere below.
+ */
+describe("Mermaid's tag-quote rewrite over the whole document", () => {
+  it("rewrites a tag's quotes when the `>` ending its stretch is on a later line", () => {
+    // Measured (probe): `A->>B: a<b c="d"` followed by `B->>A: e` stores
+    // the first message as `a<b c='d'` — the second line's `->>` ends the
+    // stretch.
+    const { document } = parseSiren(`sequenceDiagram\nA->>B: a<b c="d"\nB->>A: e`);
+    if (document === null || document.kind !== "sequence") {
+      throw new Error("expected a sequence document");
+    }
+    expect(document.statements.map((statement) => ("label" in statement ? statement.label?.text : null))).toEqual([
+      "a<b c='d'",
+      "e",
+    ]);
+  });
+
+  // Measured with the probe (mermaid 11.17.2), moved here from the
+  // sequence dialect's reader when the rewrite became the document's: a
+  // message `A->>B: a<b c="d">e` is stored and drawn `a<b c='d'>e`, while a
+  // `"` anywhere else, or after `= ` with a space, or in an end tag, or in a
+  // value the stretch's first `>` cuts short, is drawn as written.
+  for (const [text, drawn] of [
+    ['a<b c="d">e', "a<b c='d'>e"],
+    ['<b c="d" e="f">g "h"', "<b c='d' e='f'>g \"h\""],
+    ['a<1 x="y">z', "a<1 x='y'>z"],
+    ['x<br class="x">y', "x<br class='x'>y"],
+    ['say "hi"', 'say "hi"'],
+    ['a<b c = "d">e', 'a<b c = "d">e'],
+    ['a</b c="d">e', 'a</b c="d">e'],
+    ['<b c="d>e">f', '<b c="d>e">f'],
+    ['x="y" <b>', 'x="y" <b>'],
+  ] as const) {
+    it(`stores the message ${text} with Mermaid's quotes`, () => {
+      const { document } = parseSiren(`sequenceDiagram\nA->>B: ${text}`);
+      if (document === null || document.kind !== "sequence") {
+        throw new Error("expected a sequence document");
+      }
+      const message = document.statements[0]!;
+      expect("label" in message ? message.label?.text : null).toBe(drawn);
+    });
+  }
+
+  it("reads a double-quoted attribute inside a quoted flowchart label as the tag's own", () => {
+    // Measured (`--html`): `A["<span style="color:red">t</span>"]` draws
+    // `<span style="color:red">t</span>` — the rewrite turns the inner
+    // quotes into `'`, so they no longer end the label's fence.
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB\nA["<span style="color:red">t</span>"]`);
+    expect(diagnostics).toEqual([]);
+    const label = document.nodes.find((node) => node.id === "A")!.label;
+    expect(label.rows.map((row) => row.map((run) => [run.text, run.color]))).toEqual([[["t", "red"]]]);
   });
 });

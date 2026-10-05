@@ -1,11 +1,54 @@
 import { describe, expect, it } from "vitest";
 import type {
   ErCardinality,
+  Label,
+  LabelBox,
   PositionedErDiagram,
   PositionedErRelationship,
 } from "../contracts";
+import { plainLabel, plainRun } from "../label/label";
 import { renderErDiagramToSVG } from "./renderErDiagramToSVG";
 import { CANVAS_GUTTER } from "./sizeCanvas";
+
+/** A label of these rows, each one plain run — what `a<br/>b` reads as. */
+const rowsLabel = (...rows: string[]): Label => ({
+  text: rows.join("\n"),
+  rows: rows.map((row) => [plainRun(row)]),
+});
+
+/**
+ * A box for `rowsLabel(...rows)` as a measurer answering 8px a character
+ * and 24px a row, with no padding, would measure it — written out here so
+ * no measurer is involved: the renderer draws what layout reported.
+ */
+const boxOf = (...rows: string[]): LabelBox => ({
+  width: Math.max(...rows.map((row) => row.length * 8)),
+  height: rows.length * 24,
+  rows: rows.map((row, index) => ({
+    y: index * 24 + 12,
+    height: 24,
+    width: row.length * 8,
+    runs: [{ x: 0, width: row.length * 8 }],
+  })),
+});
+
+/** `text` as one plain run, with the box layout would have measured for it. */
+const labelled = (text: string): { label: Label; labelBox: LabelBox } => ({
+  label: plainLabel(text),
+  labelBox: boxOf(text),
+});
+
+/** Each row tspan's text, in order — the rows a reader sees. */
+const rowsOf = (text: Element | null): string[] =>
+  Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map(
+    (row) => row.textContent ?? "",
+  );
+
+/** Each row tspan's `y`, in order. */
+const rowYsOf = (text: Element | null): number[] =>
+  Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+    Number(row.getAttribute("y")),
+  );
 
 const diagram = (
   entities: PositionedErDiagram["entities"],
@@ -24,7 +67,7 @@ const diagram = (
 
 const CUSTOMER = {
   id: "CUSTOMER",
-  label: "CUSTOMER",
+  ...labelled("CUSTOMER"),
   x: 10,
   y: 20,
   width: 92,
@@ -34,7 +77,7 @@ const CUSTOMER = {
 };
 const ORDER = {
   id: "ORDER",
-  label: "ORDER",
+  ...labelled("ORDER"),
   x: 10,
   y: 200,
   width: 92,
@@ -57,7 +100,7 @@ const ORDER = {
  */
 const WITH_ATTRIBUTES = {
   id: "CUSTOMER",
-  label: "CUSTOMER",
+  ...labelled("CUSTOMER"),
   x: 10,
   y: 20,
   width: 180,
@@ -94,12 +137,11 @@ const PLACES: PositionedErRelationship = {
   fromCardinality: "onlyOne",
   toCardinality: "zeroOrMore",
   line: "identifying",
-  label: "places",
   points: [
     { x: 56, y: 60 },
     { x: 56, y: 200 },
   ],
-  labelAnchor: { x: 56, y: 130 },
+  label: { label: plainLabel("places"), labelBox: boxOf("places"), anchor: { x: 56, y: 130 } },
 };
 
 /** The `<marker>` `cardinality`'s figure is built in, or a thrown explanation. */
@@ -150,6 +192,109 @@ function glyphDistances(marker: Element): { bar: number[]; circle: number[]; foo
   }
   return { bar, circle, foot };
 }
+
+describe("renderErDiagramToSVG — labels of more than one row", () => {
+  it("draws an entity's two-row label one row tspan per row, centred in the name row and wearing its text style", () => {
+    // `CUSTOMER["Customer<br/>Record"]` (ADR-0015). The box is 20..84 with
+    // no table, so the label's centre is 52 and its two 24px rows sit on
+    // 40 and 64.
+    const svg = renderErDiagramToSVG(
+      diagram([
+        {
+          ...CUSTOMER,
+          label: rowsLabel("Customer", "Record"),
+          labelBox: boxOf("Customer", "Record"),
+          height: 64,
+          style: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+        },
+      ]),
+    );
+
+    const label = svg.querySelector("g.siren-er-entity text.siren-er-entity-label");
+    expect(rowsOf(label)).toEqual(["Customer", "Record"]);
+    expect(rowYsOf(label)).toEqual([40, 64]);
+    expect(label?.getAttribute("style")).toBe("fill:#fff");
+  });
+
+  it("draws a relationship's two-row label one row tspan per row, centred on its anchor", () => {
+    // `CUSTOMER ||--o{ ORDER : "places<br/>many"` (ADR-0015). The anchor is
+    // at y 130, so the label's 48px of rows run 106..154 and the two rows
+    // sit on 118 and 142.
+    const svg = renderErDiagramToSVG(
+      diagram([CUSTOMER, ORDER], undefined, [
+        {
+          ...PLACES,
+          label: { label: rowsLabel("places", "many"), labelBox: boxOf("places", "many"), anchor: { x: 56, y: 130 } },
+        },
+      ]),
+    );
+
+    const label = svg.querySelector("g.siren-er-relationship text.siren-er-relationship-label");
+    expect(rowsOf(label)).toEqual(["places", "many"]);
+    expect(rowYsOf(label)).toEqual([118, 142]);
+  });
+
+  it("draws an attribute's two-row comment one row tspan per row, at the anchor layout gave it and wearing the entity's text style", () => {
+    // `string c UK,PK "a<br/>b"` (ADR-0015). The comment's anchor is
+    // (200, 100), so its 48px of rows run 76..124 and sit on 88 and 112.
+    const comment = {
+      column: "comment" as const,
+      x: 196,
+      y: 100,
+      label: rowsLabel("a", "b"),
+      labelBox: boxOf("a", "b"),
+      anchor: { x: 200, y: 100 },
+    };
+    const svg = renderErDiagramToSVG(
+      diagram([
+        {
+          ...WITH_ATTRIBUTES,
+          style: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+          attributeTable: {
+            ...WITH_ATTRIBUTES.attributeTable,
+            rows: [
+              {
+                cells: [...WITH_ATTRIBUTES.attributeTable.rows[0].cells, comment],
+              },
+            ],
+          },
+        },
+      ]),
+    );
+
+    const text = svg.querySelector("text.siren-er-attribute-comment");
+    expect(text?.getAttribute("class")).toBe("siren-er-attribute siren-er-attribute-comment");
+    expect(rowsOf(text)).toEqual(["a", "b"]);
+    expect(rowYsOf(text)).toEqual([88, 112]);
+    expect(
+      Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>
+        row.getAttribute("x"),
+      ),
+    ).toEqual(["200", "200"]);
+    expect(text?.getAttribute("style")).toBe("fill:#fff");
+  });
+
+  it("draws a subgraph's two-row title one row tspan per row, centred on its anchor", () => {
+    // `subgraph s1["sales<br/>team"]` (ADR-0015). The anchor is at y 42, so
+    // the title's 48px of rows run 18..66 and the two rows sit on 30 and 54.
+    const svg = renderErDiagramToSVG(
+      diagram([CUSTOMER], { width: 400, height: 200 }, [], [
+        {
+          id: "subgraph:1",
+          label: { label: rowsLabel("sales", "team"), labelBox: boxOf("sales", "team"), anchor: { x: 104, y: 42 } },
+          x: 4,
+          y: 6,
+          width: 200,
+          height: 160,
+        },
+      ]),
+    );
+
+    const title = svg.querySelector("g.siren-er-subgraph text.siren-er-subgraph-label");
+    expect(rowsOf(title)).toEqual(["sales", "team"]);
+    expect(rowYsOf(title)).toEqual([30, 54]);
+  });
+});
 
 describe("renderErDiagramToSVG", () => {
   it("sizes the root svg from the bounds layout reported", () => {
@@ -208,7 +353,7 @@ describe("renderErDiagramToSVG", () => {
     // that is where the defect would show: a label built by writing markup
     // would put a `<c>` element into the picture, and reading `textContent`
     // back would report the characters either way.
-    const ALIASED = { ...CUSTOMER, label: "a & b <c> d" };
+    const ALIASED = { ...CUSTOMER, ...labelled("a & b <c> d") };
     const svg = renderErDiagramToSVG(diagram([ALIASED]));
 
     const label = svg.querySelector("text.siren-er-entity-label");
@@ -292,7 +437,7 @@ describe("renderErDiagramToSVG", () => {
     // `.siren-node`, `.siren-class` and `.siren-state` carry theirs, so one
     // controller drives an entity's box and its label together.
     const svg = renderErDiagramToSVG(
-      diagram([CUSTOMER, { ...CUSTOMER, id: "ORDER", label: "ORDER", x: 150 }]),
+      diagram([CUSTOMER, { ...CUSTOMER, id: "ORDER", ...labelled("ORDER"), x: 150 }]),
     );
 
     const groups = Array.from(svg.querySelectorAll("g.siren-er-entity"));
@@ -597,12 +742,11 @@ describe("renderErDiagramToSVG writes the author's declarations onto the element
 describe("renderErDiagramToSVG draws subgraph clusters", () => {
   const FRAME = {
     id: "subgraph:1",
-    label: "sales",
+    label: { ...labelled("sales"), anchor: { x: 104, y: 20 } },
     x: 4,
     y: 6,
     width: 200,
     height: 120,
-    labelAnchor: { x: 104, y: 20 },
   };
 
   it("draws a frame and its title under one addressable group", () => {

@@ -10,6 +10,7 @@ import type {
   ResolvedClassNote,
   ResolvedClassRelationship,
 } from "../contracts";
+import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
@@ -118,7 +119,7 @@ interface ClassAccumulator {
 
 function emptyClass(id: string): ClassAccumulator {
   return {
-    resolved: { id, generic: null, annotation: null, members: [], namespaceId: null },
+    resolved: { id, generic: null, annotation: null, label: null, members: [], namespaceId: null },
     memberKeys: new Set<string>(),
   };
 }
@@ -145,6 +146,7 @@ function resolveClasses(
       const created = emptyClass(declaration.id);
       created.resolved.generic = declaration.generic;
       created.resolved.annotation = declaration.annotation;
+      created.resolved.label = declaration.label;
       classesById.set(declaration.id, created);
       addMembers(created, declaration.members);
       continue;
@@ -154,7 +156,11 @@ function resolveClasses(
 
     // An annotation and a generic are single-valued, so they cannot be
     // unioned the way members are: the first declaration that names one
-    // wins. First-*named*, not first-declared — the implicit declaration a
+    // wins, as it does in Mermaid 11.17.2 (measured: `class A~T~` then
+    // `class A~U~` keeps `T`; `<<interface>> A` then `<<service>> A` draws
+    // only «interface»). A second, different one is a warning because
+    // Mermaid drops it without a word, which is likely not what the author
+    // meant. First-*named*, not first-declared — the implicit declaration a
     // relationship makes carries neither, and it is usually the one that
     // introduced the class, so taking its nulls would discard whatever the
     // explicit declaration said.
@@ -174,6 +180,16 @@ function resolveClasses(
       declaration,
       diagnostics,
     );
+    // A label is single-valued too, but Mermaid does not merge it the way
+    // it merges those two: the *last* label written is the one drawn, with
+    // no diagnostic (measured, 11.17.2: `class A["x"]` then `class A["y"]`
+    // draws "y", while `class A~T~` then `class A~U~` keeps `T` and two
+    // annotations draw only the first). So a later label replaces an
+    // earlier one silently — what `buildFlowchartModel` does for a node
+    // written with two — and a declaration that writes none leaves it alone.
+    if (declaration.label !== null) {
+      existing.resolved.label = declaration.label;
+    }
   }
 
   // Defensive: an endpoint no declaration covers still gets a class, so a
@@ -201,8 +217,8 @@ function resolveClasses(
  * Resolves the document's `namespace` blocks: each gets the stable
  * `namespace:${n}` id the timeline and the renderer address it by — a
  * 1-based counter in document order, the same convention
- * `buildSequenceModel` gives its blocks — while the name the author wrote
- * becomes the frame's `label`.
+ * `buildSequenceModel` gives its blocks — while the label the author wrote
+ * in brackets, or else the name, becomes the frame's `label`.
  *
  * The `:` separator is load-bearing, not decoration: see `generatedId`.
  *
@@ -258,7 +274,9 @@ function resolveNamespaces(
       classIds.push(classId);
     }
 
-    return { id, label: namespace.id, classIds };
+    // A name is an identifier and has no tag in it to read, so a namespace
+    // written without a label is labelled by its name as one plain run.
+    return { id, label: namespace.label ?? plainLabel(namespace.id), classIds };
   });
 }
 
@@ -350,7 +368,7 @@ function resolveNotes(
 
     notes.push({
       id: generatedId("note", index + 1),
-      text: note.text,
+      label: note.label,
       targetId: note.targetId,
     });
   });
@@ -414,7 +432,8 @@ function assignRelationshipIds(document: ClassDocument): ResolvedClassRelationsh
  * same class: the first non-null value wins, and two different non-null
  * values are a warning rather than an error — both declarations are
  * perfectly well-formed on their own, and the diagram still renders with
- * the first. Mirrors `buildFlowchartModel`'s conflicting-node-label rule.
+ * the first. A label is not merged here: Mermaid keeps the last one, so
+ * `resolveClasses` replaces it instead.
  */
 function mergeAttribute(
   kept: string | null,

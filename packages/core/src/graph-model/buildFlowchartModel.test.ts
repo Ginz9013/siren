@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FlowchartDocument, SirenNode } from "../contracts";
 import { buildFlowchartModel } from "./buildFlowchartModel";
+import { plainLabel, plainRun } from "../label/label";
 
 /**
  * A `FlowchartDocument` with everything empty, so each test states only the
@@ -27,7 +28,7 @@ function flowchartDocument(overrides: Partial<FlowchartDocument> = {}): Flowchar
 
 /** A `SirenNode` with the fields a test does not care about defaulted. */
 function sirenNode(overrides: Partial<SirenNode> & { id: string }): SirenNode {
-  return { label: overrides.id, labelRuns: null, shape: "rect", ...overrides };
+  return { label: plainLabel(overrides.id), shape: "rect", ...overrides };
 }
 
 describe("buildFlowchartModel's interactions", () => {
@@ -153,24 +154,16 @@ describe("buildFlowchartModel's interactions", () => {
   });
 });
 
-describe("buildFlowchartModel's labelRuns", () => {
-  it("carries a node's Markdown label runs through unchanged", () => {
-    const labelRuns = [[{ text: "bold", bold: true, italic: false }]];
+describe("buildFlowchartModel's node label", () => {
+  it("carries a node's label through unchanged, runs and all", () => {
+    const label = { text: "bold", rows: [[{ ...plainRun("bold"), bold: true }]] };
     const { graph } = buildFlowchartModel(
       flowchartDocument({
-        nodes: [sirenNode({ id: "A", label: "bold", labelRuns })],
+        nodes: [sirenNode({ id: "A", label })],
       }),
     );
 
-    expect(graph.nodes[0].labelRuns).toEqual(labelRuns);
-  });
-
-  it("leaves an ordinary node's labelRuns null", () => {
-    const { graph } = buildFlowchartModel(
-      flowchartDocument({ nodes: [sirenNode({ id: "A" })] }),
-    );
-
-    expect(graph.nodes[0].labelRuns).toBeNull();
+    expect(graph.nodes[0].label).toEqual(label);
   });
 });
 
@@ -180,14 +173,14 @@ describe("buildFlowchartModel's subgraph direction", () => {
       flowchartDocument({
         nodes: [sirenNode({ id: "A" })],
         subgraphs: [
-          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: "LR" },
+          { name: "one", label: plainLabel("one"), nodeIds: ["A"], subgraphs: [], direction: "LR" },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(graph.subgraphs).toEqual([
-      { id: "subgraph:1", label: "one", parentId: null, direction: "LR" },
+      { id: "subgraph:1", label: plainLabel("one"), parentId: null, direction: "LR" },
     ]);
   });
 
@@ -196,13 +189,13 @@ describe("buildFlowchartModel's subgraph direction", () => {
       flowchartDocument({
         nodes: [sirenNode({ id: "A" })],
         subgraphs: [
-          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+          { name: "one", label: plainLabel("one"), nodeIds: ["A"], subgraphs: [], direction: null },
         ],
       }),
     );
 
     expect(graph.subgraphs).toEqual([
-      { id: "subgraph:1", label: "one", parentId: null, direction: null },
+      { id: "subgraph:1", label: plainLabel("one"), parentId: null, direction: null },
     ]);
   });
 });
@@ -218,8 +211,8 @@ describe("buildFlowchartModel's subgraph edge endpoints", () => {
       flowchartDocument({
         nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
         subgraphs: [
-          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
-          { name: "two", label: "two", nodeIds: ["B"], subgraphs: [], direction: null },
+          { name: "one", label: plainLabel("one"), nodeIds: ["A"], subgraphs: [], direction: null },
+          { name: "two", label: plainLabel("two"), nodeIds: ["B"], subgraphs: [], direction: null },
         ],
         edges: [
           {
@@ -252,7 +245,7 @@ describe("buildFlowchartModel's subgraph edge endpoints", () => {
       flowchartDocument({
         nodes: [sirenNode({ id: "A" })],
         subgraphs: [
-          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+          { name: "one", label: plainLabel("one"), nodeIds: ["A"], subgraphs: [], direction: null },
         ],
         edges: [
           {
@@ -276,7 +269,7 @@ describe("buildFlowchartModel's subgraph edge endpoints", () => {
       flowchartDocument({
         nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
         subgraphs: [
-          { name: "one", label: "one", nodeIds: ["A"], subgraphs: [], direction: null },
+          { name: "one", label: plainLabel("one"), nodeIds: ["A"], subgraphs: [], direction: null },
         ],
         edges: [
           {

@@ -4,6 +4,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { unsafeStyleValue } from "../unsafeStyleValue";
 
 /**
  * Resolves a document's `style`/`classDef`/apply-directive statements into
@@ -194,28 +195,6 @@ function asProperties(half: ReadonlyMap<string, string>): StyleProperty[] {
 const CSS_PROPERTY_RE = /^-{0,2}[A-Za-z_][A-Za-z0-9_-]*$/;
 
 /**
- * The CSS functions an author's style value may not use, with why.
- *
- * `url(` fetches: it turns a diagram into a beacon that reports every reader
- * to whoever wrote the document, and in some contexts loads code.
- * `expression(` is legacy IE and executes script outright. Both are matched
- * case-insensitively and with optional space before the paren — the value is
- * refused, not sanitized, so being broader than the CSS grammar costs a
- * diagnostic on an unusable declaration and nothing else.
- *
- * A deliberately short list. It is not "every way CSS can fetch" — the
- * board named these two — so a future value-bearing sink (`image-set(`,
- * `-moz-binding`) belongs here, and this is the one place to add it. Note
- * that these patterns match *text*: an author can spell any of them with a
- * CSS escape, which is why `rejectStyleProperty` refuses a value carrying a
- * backslash before it can reach one of these names in disguise.
- */
-const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[] = [
-  { pattern: /url\s*\(/i, name: "url(", why: "can fetch a remote resource" },
-  { pattern: /expression\s*\(/i, name: "expression(", why: "can execute script" },
-];
-
-/**
  * Filters one statement's declarations down to the ones that may be
  * emitted, diagnosing each rejection at the statement that wrote it.
  *
@@ -260,37 +239,16 @@ function rejectStyleProperty({ property, value }: StyleProperty): string | null 
     return `Style property "${property}" is not a plain CSS identifier; dropping the declaration.`;
   }
 
-  for (const rejected of REJECTED_VALUE_FUNCTIONS) {
-    if (rejected.pattern.test(value)) {
-      return `Style value for "${property}" uses "${rejected.name}", which ${rejected.why}; dropping the declaration.`;
-    }
-  }
-
-  // A value is one declaration's worth of CSS. A `;` inside it can only be
-  // an attempt at a second one — the parser splits on the first `:`, so
-  // `fill:#fdd;position:fixed` arrives here as a single value. Whether it
-  // would actually smuggle depends on how the renderer serializes the
-  // attribute; refusing it here means the answer does not matter.
-  if (value.includes(";")) {
-    return `Style value for "${property}" contains ";", which would smuggle in a second declaration; dropping the declaration.`;
-  }
-
-  // A `\` is refused outright, because the list above matches literal text
-  // and literal text is not what CSS reads: `\75 rl(...)`, `u\72 l(...)` and
-  // `\65 xpression(...)` are `url(` and `expression(` by the time a browser
-  // has resolved the escapes, and each one walked straight past the list.
-  //
-  // The alternative — resolving escapes here and matching the result — means
-  // owning a piece of the CSS tokenizer (hex escapes with an optional
-  // trailing space, `\0` becoming U+FFFD, escapes inside strings versus
-  // idents), and every corner of it got subtly wrong reopens exactly this
-  // hole. Refusing is cruder, and it is the option whose failure mode is a
-  // diagnostic rather than a bypass: no value this stage exists to emit —
-  // colors, lengths, keywords, `rgb()`, `color-mix()` — contains a
-  // backslash, so nothing legitimate is lost by not spending that
-  // complexity here.
-  if (value.includes("\\")) {
-    return `Style value for "${property}" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.`;
+  // The value half is the rule a label's style values are held to as well,
+  // written once in `unsafeStyleValue` — read it for why each is refused.
+  const unsafe = unsafeStyleValue(value);
+  switch (unsafe?.kind) {
+    case "function":
+      return `Style value for "${property}" uses "${unsafe.name}", which ${unsafe.why}; dropping the declaration.`;
+    case "semicolon":
+      return `Style value for "${property}" contains ";", which would smuggle in a second declaration; dropping the declaration.`;
+    case "backslash":
+      return `Style value for "${property}" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.`;
   }
 
   return null;

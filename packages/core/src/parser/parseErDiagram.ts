@@ -8,10 +8,14 @@ import type {
   ErRelationshipDecl,
   ErRelationshipLine,
   ErSubgraph,
+  Label,
   ParseResult,
   SirenTimeline,
   StyleDecl,
 } from "../contracts";
+import { plainLabel, type SourcePosition } from "../label/label";
+import { labelDiagnostics, readLabel } from "../label/readLabel";
+import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
@@ -37,6 +41,12 @@ const ER_HEADERS = listAcceptedHeaders(["er"]);
 const RELATIONSHIP_BODY_ONLY_RE = /^[-.]{2,}$/;
 
 /**
+ * One character of `NAME_SOURCE`'s alphabet, on its own so that
+ * `SUBGRAPH_TITLE_RE` can build from the same alphabet rather than copy it.
+ */
+const NAME_CHAR_SOURCE = "[\\w*.-]|[^\\x00-\\x7F]";
+
+/**
  * A **bare** entity name — one, and the alphabet every pattern below reads
  * one in. A source fragment rather than a `RegExp`, because several patterns
  * embed it and two spellings of one alphabet would be two places to drift.
@@ -55,7 +65,7 @@ const RELATIONSHIP_BODY_ONLY_RE = /^[-.]{2,}$/;
  * guard: adding one would refuse three documents Mermaid draws — and why
  * `readEntityHead` needs `RELATIONSHIP_BODY_ONLY_RE` beside it.
  */
-const NAME_SOURCE = "(?:[\\w*.-]|[^\\x00-\\x7F])+";
+const NAME_SOURCE = `(?:${NAME_CHAR_SOURCE})+`;
 
 /**
  * A **quoted** entity name — the second spelling of a name, and the one that
@@ -100,6 +110,32 @@ const ANY_NAME_SOURCE = `(?:${QUOTED_NAME_SOURCE}|${NAME_SOURCE})`;
  */
 const unquoteName = (name: string): string =>
   name.startsWith('"') ? name.slice(1, -1) : name;
+
+/**
+ * Reads the label capture group `group` of `match` holds, reporting its
+ * problems into `diagnostics` (`readLabelAt`): every label here is a capture
+ * of one of this parser's own patterns, each compiled with the `d` flag, and
+ * no ER statement holding a label spans physical lines, so where the matched
+ * text begins (`at`) is all the position it needs.
+ *
+ * Read in the full `html` dialect wherever it is called (ADR-0015). Never
+ * called for an attribute's type or name: those are drawn as written.
+ *
+ * Into a list rather than straight onto the document's, because `readLine`
+ * is all-or-nothing: a line it refuses reports what is wrong with the line,
+ * not with a label on it. An error among them costs the whole document,
+ * exactly as an unrecognized line does — see `take`.
+ */
+function readLabelInto(
+  match: RegExpExecArray,
+  group: number,
+  at: SourcePosition,
+  diagnostics: Diagnostic[],
+): Label {
+  const read = readLabelAt(match, group, at, "html");
+  diagnostics.push(...read.diagnostics);
+  return read.label;
+}
 
 /**
  * The words a **bare** ER name may never be, whatever the alphabet allows.
@@ -372,12 +408,18 @@ const alternation = (spellings: readonly string[]): string =>
  * Mermaid draws too — measured, `A ||--o{ B : two words` reports the role
  * as `two` and then declares a **third entity** called `words`. Reading the
  * whole tail as the label would draw a label Mermaid does not.
+ *
+ * The label's two spellings are two groups, the quoted one's text without
+ * its quotes, for the reason `ENTITY_HEAD_RE`'s alias is: the label is read
+ * by `readLabel` (ADR-0015 — measured, `: "places<br/>many"` is the edge
+ * label `<p>places<br>many</p>`), and `readLabelAt` places a problem in it
+ * by where its group begins.
  */
 const RELATIONSHIP_SOURCE =
   `^(${ANY_NAME_SOURCE})(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
   `\\s*(${alternation(Object.keys(LINE_BY_SPELLING))})\\s*` +
   `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${ANY_NAME_SOURCE})` +
-  `\\s*:\\s*(${QUOTED_NAME_SOURCE}|${NAME_SOURCE})`;
+  `\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
 
 /**
  * ⚠️ **Not anchored on the end of the line.** Mermaid's grammar is
@@ -387,11 +429,15 @@ const RELATIONSHIP_SOURCE =
  * **plus a third entity** called `words`, and `A ||--o{ B : x C ||--o{ D :
  * y` is two relationships. `readStatements` is what reads the rest.
  */
-const RELATIONSHIP_RE = new RegExp(RELATIONSHIP_SOURCE, "iu");
+const RELATIONSHIP_RE = new RegExp(RELATIONSHIP_SOURCE, "diu");
 
 /**
  * The relationship at the head of `text`, and how many characters it took —
  * or `null` when `text` does not begin with one.
+ *
+ * `at` and `diagnostics` are `readEntityHead`'s: where `text` begins, and
+ * where a problem in the label is reported once the relationship is known
+ * to be one.
  *
  * Returns the whole declaration rather than a boolean so the caller cannot
  * read the two cardinalities back in the wrong order: `left` and `right`
@@ -400,13 +446,15 @@ const RELATIONSHIP_RE = new RegExp(RELATIONSHIP_SOURCE, "iu");
  */
 function readRelationship(
   text: string,
+  at: SourcePosition,
+  diagnostics: Diagnostic[],
 ): { decl: ErRelationshipDecl; length: number } | null {
   const match = RELATIONSHIP_RE.exec(text);
   if (match === null) {
     return null;
   }
-  const [, left, leftMarker, body, rightMarker, right, rawLabel] = match;
-  const label = unquoteName(rawLabel);
+  const [, left, leftMarker, body, rightMarker, right, quotedLabel, bareLabel] = match;
+  const label = quotedLabel ?? bareLabel;
   // Lower-cased for the lookup because Mermaid's lexer rules are all `/i` —
   // measured, `A ZERO OR ONE to many B : x` reports `ZERO_OR_ONE`, so the
   // shouted spelling is the same construct and not an entity called `ZERO`.
@@ -423,8 +471,10 @@ function readRelationship(
   // `A ||--o{ B : end` are each refused by Mermaid — the last two as
   // *lexical* errors, because the lexer emits a keyword token wherever those
   // letters stand alone. Quoted, they are ordinary text again, which is why
-  // this asks about the raw match and not the unquoted string.
-  if ([left, right, rawLabel].some((text) => RESERVED_BARE_NAMES.has(text.toLowerCase()))) {
+  // this asks about the raw names and the bare label group only.
+  if (
+    [left, right, bareLabel ?? ""].some((text) => RESERVED_BARE_NAMES.has(text.toLowerCase()))
+  ) {
     return null;
   }
   return {
@@ -438,7 +488,7 @@ function readRelationship(
       line: LINE_BY_SPELLING[spelling(body)],
       rightCardinality: CARDINALITY_BY_SPELLING[spelling(rightMarker)],
       right: unquoteName(right),
-      label,
+      label: readLabelInto(match, quotedLabel !== undefined ? 6 : 7, at, diagnostics),
     },
     length: match[0].length,
   };
@@ -576,24 +626,88 @@ const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
  * Measured, `s1["My Title"]` and `s1 [Bracket Title]` both answer with the
  * text between the brackets, and `s1[a   b]` answers `"a b"` — Mermaid's
  * `subgraphTitle` is a list of words joined with a single space, which is
- * why `subgraphTitleOf` below collapses a run of whitespace instead of
- * carrying it.
+ * why `readSubgraphTitle` below collapses a run of whitespace instead of
+ * carrying it. Unquoted, those words are names — `SUBGRAPH_TITLE_RE` holds
+ * the alphabet, and a title outside it is refused.
  */
 const SUBGRAPH_HEAD_RE = new RegExp(
   `^subgraph\\b\\s*(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*([^\\]\\r\\n]+?)\\s*\\])?$`,
-  "iu",
+  "diu",
 );
 
 /**
- * The text a header's brackets drew, as Mermaid joins it: quotes off if it
- * wrote any, and every run of whitespace inside it one space.
+ * What a header's bracketed title may hold: quoted words, and outside them
+ * nothing but `NAME_SOURCE`'s alphabet and the spaces between words.
+ *
+ * ⚠️ **`SUBGRAPH_HEAD_RE` stays wider on purpose**, so a title outside this
+ * alphabet is still recognized as a header and refused *at the title*,
+ * rather than falling through to the table at the bottom and being told
+ * its whole line is unrecognized. Measured one probe per character (mermaid
+ * 11.17.2): `subgraph s1[My<br/>Title]` is a parse error ("got '<'"), and so
+ * is every other ASCII punctuation mark tried bare in a title, while the
+ * name alphabet, several words and a quoted word beside a bare one all
+ * draw — the characters probed each way are listed once, in
+ * `parseErDiagram.test.ts` ("reads an unquoted title in the name alphabet
+ * only"). Only the quoted spelling may carry a tag, which is why
+ * `readSubgraphTitle` reads a label at all: `s1["My<br/>Title"]` is one
+ * Mermaid draws.
+ *
+ * Built from `NAME_CHAR_SOURCE`, one character per alternative, rather than
+ * from `NAME_SOURCE` repeated, so a long title that fails at its last
+ * character fails in linear time instead of trying every way to split its
+ * words. It stays linear because `"` is not in that character class: a
+ * quoted word and a bare character can never start at the same place.
+ */
+const SUBGRAPH_TITLE_RE = new RegExp(
+  `^(?:${QUOTED_NAME_SOURCE}|${NAME_CHAR_SOURCE}|\\s)+$`,
+  "u",
+);
+
+/**
+ * The title a header's brackets drew, read as a label: quotes off if it
+ * wrote any, every run of whitespace inside it one space — as Mermaid joins
+ * its words — and then read by `readLabel` in the full `html` dialect
+ * (ADR-0015: measured, mermaid 11.17.2, `--html`, `subgraph s1["My<br/>Title
+ * <b>x</b>"]` is the cluster label `<p>My<br>Title <b>x</b></p>`).
+ *
+ * Not `readLabelAt`, because what is read is not the group as written: the
+ * whitespace is collapsed first, so a problem's offset in the read text is
+ * mapped back to the character it came from before it becomes a column.
+ * `at` is where `header`'s line begins in the document.
  *
  * The quotes are stripped by `unquoteName` rather than by a branch of the
  * pattern above, so the one place this file takes quotes off stays one
  * place.
  */
-function subgraphTitleOf(raw: string): string {
-  return unquoteName(raw).replace(/\s+/g, " ");
+function readSubgraphTitle(
+  header: RegExpExecArray,
+  at: SourcePosition,
+): { label: Label; diagnostics: Diagnostic[]; hasError: boolean } {
+  const raw = header[2]!;
+  const written = unquoteName(raw);
+  // Where `written` begins on the line: past the opening quote, if any.
+  const start = header.indices![2]![0] + (raw.length - written.length) / 2;
+  // The collapsed text, and for each of its characters where in `written`
+  // it came from — a run of whitespace from where the run began.
+  let text = "";
+  const origin: number[] = [];
+  for (const piece of written.matchAll(/\s+|\S+/gu)) {
+    if (/^\s/u.test(piece[0])) {
+      text += " ";
+      origin.push(piece.index);
+    } else {
+      text += piece[0];
+      for (let index = 0; index < piece[0].length; index += 1) {
+        origin.push(piece.index + index);
+      }
+    }
+  }
+  const { label, problems } = readLabel(text, { dialect: "html" });
+  const reported = labelDiagnostics(problems, (offset) => ({
+    line: at.line,
+    column: at.column + start + (origin[offset] ?? written.length),
+  }));
+  return { label, ...reported };
 }
 
 /**
@@ -679,12 +793,19 @@ const END_RE = /^end\b\s*/iu;
  * `class A alpha,beta` does (measured). `A:::` alone is a parse error, which
  * is why the group is `+` and not `*`.
  *
+ * **The alias is a label**, read in the full `html` dialect (ADR-0015):
+ * measured (mermaid 11.17.2, `--html`), `CUSTOMER["Customer<br/>Record"]`
+ * is the node label `<p>Customer<br>Record</p>`. Its two spellings are two
+ * groups — the quoted one's text without its quotes — so that where each
+ * begins is the group's own index (`d`), which is what `readLabelAt` places
+ * a problem in it by.
+ *
  * ⚠️ Not anchored on the end of the line — see `RELATIONSHIP_RE`.
  */
 const ENTITY_HEAD_RE = new RegExp(
-  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*("[^"\\r\\n]+"|${NAME_SOURCE})\\s*\\])?` +
+  `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))\\s*\\])?` +
     `(?::::(${idListSource(NAME_SOURCE)}))?(\\s*\\{)?`,
-  "u",
+  "du",
 );
 const ATTRIBUTE_BLOCK_CLOSE = "}";
 
@@ -741,7 +862,7 @@ const KEYWORD_AT_NAME_HEAD_RE =
  * `subgraphTitle` is `subgraphTitle word`, while `CUSTOMER[Customer Account]`
  * is a **parse error** ("Expecting 'SQE', got 'UNICODE_TEXT'"). The bracket
  * is the same character in both and the two constructs behind it are not the
- * same shape, so `subgraphTitleOf` could not be reused here.
+ * same shape, so `readSubgraphTitle` could not be reused here.
  *
  * **The digits are a rule of their own, and the reason is a missing `\b`.**
  * Mermaid's `NUM` rule is `[0-9]+` with no word boundary after it, so it
@@ -772,7 +893,7 @@ function readsAsOneEntityName(bare: string): boolean {
 /** One entity head, as `ENTITY_HEAD_RE` read it, and how much it took. */
 interface ErEntityHead {
   name: string;
-  alias: string | null;
+  alias: Label | null;
   /** The classes a `:::` applied to it, in source order; empty when it wrote none. */
   classes: string[];
   opensBlock: boolean;
@@ -782,13 +903,21 @@ interface ErEntityHead {
 /**
  * The entity at the head of `text`, or `null` when `text` does not begin
  * with one.
+ *
+ * `at` is where `text` begins in the document, and `diagnostics` where a
+ * problem in the alias is reported — only once the head is known to be one,
+ * so a string this declines reports nothing.
  */
-function readEntityHead(text: string): ErEntityHead | null {
+function readEntityHead(
+  text: string,
+  at: SourcePosition,
+  diagnostics: Diagnostic[],
+): ErEntityHead | null {
   const match = ENTITY_HEAD_RE.exec(text);
   if (match === null) {
     return null;
   }
-  const [whole, name, alias, classes, brace] = match;
+  const [whole, name, quotedAlias, bareAlias, classes, brace] = match;
   // The over-reach guard the name alphabet needs: `-` and `.` are each a
   // whole name, so the alphabet admits `--`, which Mermaid's lexer reads as
   // a relationship body and refuses. Quoted, the same characters *are* a
@@ -801,15 +930,16 @@ function readEntityHead(text: string): ErEntityHead | null {
     return null;
   }
   // The bracketless alias's own alphabet, which the quoted spelling has
-  // none of — see `readsAsOneEntityName`. Asked of the raw match so that a
-  // quoted alias, where anything at all goes, never reaches it.
-  if (alias !== undefined && !alias.startsWith('"') && !readsAsOneEntityName(alias)) {
+  // none of — see `readsAsOneEntityName`. Asked of the bare group only, so
+  // that a quoted alias, where anything at all goes, never reaches it.
+  if (bareAlias !== undefined && !readsAsOneEntityName(bareAlias)) {
     return null;
   }
+  const aliasGroup = quotedAlias !== undefined ? 2 : bareAlias !== undefined ? 3 : null;
 
   return {
     name: unquoteName(name),
-    alias: alias === undefined ? null : unquoteName(alias),
+    alias: aliasGroup === null ? null : readLabelInto(match, aliasGroup, at, diagnostics),
     classes: classes === undefined ? [] : splitIdList(classes),
     opensBlock: brace !== undefined,
     length: whole.length,
@@ -822,6 +952,11 @@ interface ErLineReading {
   entities: ErEntityDecl[];
   /** The relationships named, in source order. */
   relationships: ErRelationshipDecl[];
+  /**
+   * What reading the labels on the line found to report, already placed at
+   * their line and column — handed back for the reason `malformedStyles` is.
+   */
+  diagnostics: Diagnostic[];
   /**
    * The styling statements named, in source order, already stamped with the
    * position of the line that wrote them.
@@ -903,13 +1038,14 @@ interface ErLineReading {
 function readLine(
   line: string,
   openEntity: ErEntityDecl | null,
-  where: { line: number; column: number },
+  where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
 ): ErLineReading | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
   const styles: StyleDecl[] = [];
   const malformedStyles: string[] = [];
+  const diagnostics: Diagnostic[] = [];
   const memberships: { name: string; block: ErSubgraph | null }[] = [];
   /**
    * How deep into `openBlocks` the reader still is. Decremented by `end`,
@@ -927,6 +1063,12 @@ function readLine(
   const appends: { entity: ErEntityDecl; attributes: ErAttribute[] }[] = [];
   let open = openEntity;
   let rest = line;
+  /**
+   * Where `rest` begins in the document. `rest` is always a suffix of
+   * `line` — the reader only ever slices off its head and trims its start —
+   * so its column is however much of the line is gone.
+   */
+  const restAt = () => ({ line: where.line, column: where.column + line.length - rest.length });
 
   while (rest.length > 0) {
     if (open !== null) {
@@ -940,7 +1082,7 @@ function readLine(
         rest = rest.slice(ATTRIBUTE_BLOCK_CLOSE.length).trimStart();
         continue;
       }
-      const read = readAttributes(rest);
+      const read = readAttributes(rest, restAt(), diagnostics);
       if (read === null) {
         return null;
       }
@@ -1028,8 +1170,6 @@ function readLine(
       }
       // Its own length, not the line's: `class` never left the initial
       // condition, so the stream continues. See `CLASS_RE`.
-      // Its own length, not the line's: `class` never left the initial
-      // condition, so the stream continues. See `CLASS_RE`.
       rest = rest.slice(apply[0].length).trimStart();
       continue;
     }
@@ -1049,7 +1189,7 @@ function readLine(
       continue;
     }
 
-    const relationship = readRelationship(rest);
+    const relationship = readRelationship(rest, restAt(), diagnostics);
     if (relationship !== null) {
       // Both endpoints join the one entity list, in the order the line names
       // them — measured, a relationship declares its entities exactly as a
@@ -1071,7 +1211,7 @@ function readLine(
       continue;
     }
 
-    const head = readEntityHead(rest);
+    const head = readEntityHead(rest, restAt(), diagnostics);
     if (head === null) {
       return null;
     }
@@ -1106,6 +1246,7 @@ function readLine(
   return {
     entities,
     relationships,
+    diagnostics,
     styles,
     malformedStyles,
     openEntity: open,
@@ -1222,12 +1363,25 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
    * see `tokenizeAttributeLine`.
    */
   { kind: "word", pattern: /^`([^`]+)`/u },
-  { kind: "comment", pattern: /^"[^"]*"/u },
+  /**
+   * The comment, its text without the quotes in group 1 — a label, read by
+   * `readLabel` in the full `html` dialect (ADR-0015: measured,
+   * `string name "a<br/>b"` is the cell label `<p>a<br>b</p>`). `d`, so that
+   * where the text begins is the group's own index (`readLabelAt`).
+   */
+  { kind: "comment", pattern: /^"([^"]*)"/du },
 ];
 
 interface AttributeToken {
   kind: "key" | "word" | "comment" | "punctuation";
   text: string;
+  /**
+   * The rule's match, and where in the tokenized text it begins — kept for
+   * the comment, whose label `readLabelAt` places a problem in by both.
+   * `null` for the punctuation no rule matched.
+   */
+  match: RegExpExecArray | null;
+  offset: number;
 }
 
 /**
@@ -1262,7 +1416,7 @@ function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length
       // no partner on the line, and refusing both is the point: measured,
       // `list~int xs` is a parse error in Mermaid too.
       if (rest.startsWith(",")) {
-        tokens.push({ kind: "punctuation", text: "," });
+        tokens.push({ kind: "punctuation", text: ",", match: null, offset: text.length - rest.length });
         rest = rest.slice(1);
         continue;
       }
@@ -1274,7 +1428,12 @@ function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length
     // difference between the two constructs above: the generic rule
     // captures nothing and keeps its tildes, the backtick rule captures
     // what stood between the quotes and loses them.
-    tokens.push({ kind: rule.kind, text: match[1] ?? match[0] });
+    tokens.push({
+      kind: rule.kind,
+      text: match[1] ?? match[0],
+      match,
+      offset: text.length - rest.length,
+    });
     rest = rest.slice(match[0].length);
   }
   return { tokens, length: text.length - rest.length };
@@ -1295,46 +1454,72 @@ function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length
  * It stops at the closing brace rather than at the end of the line, because
  * the block ends where that brace is and not where the line does — see
  * `readLine`.
+ *
+ * The comment is a label (`readLabelInto`), and the type and name are not:
+ * they are drawn as written, never read for tags. `at` is where `text`
+ * begins in the document, and `diagnostics` where a problem in a comment is
+ * reported — `readEntityHead`'s pair.
  */
-function readAttributes(text: string): { attributes: ErAttribute[]; length: number } | null {
+function readAttributes(
+  text: string,
+  at: SourcePosition,
+  diagnostics: Diagnostic[],
+): { attributes: ErAttribute[]; length: number } | null {
   const tokenized = tokenizeAttributeLine(text);
   if (tokenized === null) {
     return null;
   }
   const { tokens, length } = tokenized;
   const attributes: ErAttribute[] = [];
-  let at = 0;
-  const peek = (): AttributeToken | undefined => tokens[at];
-  while (at < tokens.length) {
+  /**
+   * The comments' problems, held back until every attribute on the line has
+   * read — a line this refuses reports what is wrong with the line, not with
+   * a label on it (see `readLabelInto`).
+   */
+  const found: Diagnostic[] = [];
+  let index = 0;
+  const peek = (): AttributeToken | undefined => tokens[index];
+  while (index < tokens.length) {
     const type = peek();
     if (type?.kind !== "word") return null;
-    at += 1;
+    index += 1;
     const name = peek();
     if (name?.kind !== "word") return null;
-    at += 1;
+    index += 1;
 
     const keys: string[] = [];
     if (peek()?.kind === "key") {
-      keys.push(tokens[at].text);
-      at += 1;
+      keys.push(tokens[index].text);
+      index += 1;
       while (peek()?.kind === "punctuation" && peek()?.text === ",") {
-        at += 1;
+        index += 1;
         const next = peek();
         if (next?.kind !== "key") return null;
         keys.push(next.text);
-        at += 1;
+        index += 1;
       }
     }
 
-    let comment = "";
-    if (peek()?.kind === "comment") {
-      comment = tokens[at].text.slice(1, -1);
-      at += 1;
+    // No comment written is an empty label: one row, one empty run.
+    let comment = plainLabel("");
+    const written = peek();
+    if (written?.kind === "comment") {
+      comment = readLabelInto(
+        written.match!,
+        1,
+        { line: at.line, column: at.column + written.offset },
+        found,
+      );
+      index += 1;
     }
 
     attributes.push({ type: type.text, name: name.text, keys, comment });
   }
-  return attributes.length === 0 ? null : { attributes, length };
+  if (attributes.length === 0) {
+    return null;
+  }
+  diagnostics.push(...found);
+  return { attributes, length };
 }
 
 /**
@@ -1539,6 +1724,17 @@ export function parseErDiagram(source: string): ParseResult {
   const registeredBlocks = new Set<string>();
 
   /**
+   * Adds diagnostics read off one line to the document's, and marks the
+   * document unreadable if any of them is an error.
+   */
+  const report = (reported: readonly Diagnostic[]): void => {
+    diagnostics.push(...reported);
+    if (reported.some((diagnostic) => diagnostic.severity === "error")) {
+      sawError = true;
+    }
+  };
+
+  /**
    * Everything one line's reading contributes, taken in one place so the
    * two callers of `readLine` cannot drift apart about what a line may
    * carry — the in-block caller reads the same statements once its brace
@@ -1556,6 +1752,7 @@ export function parseErDiagram(source: string): ParseResult {
     line: string,
   ): void => {
     entities.push(...reading.entities);
+    report(reading.diagnostics);
     // Membership is replayed here rather than written as the line was read,
     // so a line that turned out unreadable claims no members — the
     // all-or-nothing rule `readLine` already keeps for boxes. A name is
@@ -1746,11 +1943,29 @@ export function parseErDiagram(source: string): ParseResult {
     const header = SUBGRAPH_HEAD_RE.exec(line);
     if (header !== null && !RESERVED_BARE_NAMES.has(header[1].toLowerCase())) {
       const name = unquoteName(header[1]);
+      // The title if the header wrote one, otherwise the name — measured,
+      // `subgraph s1` answers `title:"s1"`. The name is never read for tags.
+      let label = plainLabel(name);
+      if (header[2] !== undefined && !SUBGRAPH_TITLE_RE.test(header[2])) {
+        report([
+          {
+            severity: "error",
+            message:
+              `Unrecognized erDiagram subgraph title: "${header[2]}" — unquoted, ` +
+              `a title is words of name characters; quote it to write a label, ` +
+              `in "${line}"`,
+            line: lineNumber,
+            column: column + header.indices![2]![0],
+          },
+        ]);
+      } else if (header[2] !== undefined) {
+        const title = readSubgraphTitle(header, { line: lineNumber, column });
+        label = title.label;
+        report(title.diagnostics);
+      }
       const opened: ErSubgraph = {
         name,
-        // The title if the header wrote one, otherwise the name — measured,
-        // `subgraph s1` answers `title:"s1"`.
-        label: header[2] === undefined ? name : subgraphTitleOf(header[2]),
+        label,
         direction: null,
         entityNames: [],
         subgraphs: [],

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render } from "../index";
+import { BASE_FONT_SIZE_PX } from "../label/label";
 
 /**
  * `default.css`'s own text — the artifact these tests are about.
@@ -1139,6 +1140,67 @@ describe("default theme's color palette", () => {
     // switch that no longer exists belong nowhere in it.
     expect(defaultThemeCss).not.toMatch(/data-theme/);
     expect(defaultThemeCss).not.toMatch(/prefers-color-scheme/);
+  });
+});
+
+describe("default theme's label paint", () => {
+  // Mermaid's default HTML labels draw `<mark>` black on yellow `#ff0`
+  // (measured, the board's table) — the browser's default stylesheet, which
+  // ADR-0015 turns into two tokens a consumer can repaint.
+  it("paints a marked run's background and text through the two mark tokens", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A[x <mark>m</mark>]`);
+
+    const rect = svg.querySelector("rect.siren-label-mark");
+    const run = svg.querySelector("tspan.siren-label-mark-text");
+    if (rect === null || run === null) {
+      throw new Error("no marked run drawn");
+    }
+    expect(getComputedStyle(rect).fill).toBe("var(--siren-label-mark-fill)");
+    expect(getComputedStyle(run).fill).toBe("var(--siren-label-mark-text)");
+
+    const root = getComputedStyle(document.documentElement);
+    expect(root.getPropertyValue("--siren-label-mark-fill").trim()).toBe("#ff0");
+    expect(root.getPropertyValue("--siren-label-mark-text").trim()).toBe("#000");
+  });
+
+  // Mermaid's default HTML labels draw a link `#0000ee` and underlined
+  // (measured, the board's table) — the browser's default link color, which
+  // ADR-0015 turns into a token a consumer can repaint.
+  it("paints a linked run through the link token", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A["x <a href='https://e.x'>l</a>"]`);
+
+    const run = svg.querySelector("a tspan.siren-label-link");
+    if (run === null) {
+      throw new Error("no linked run drawn");
+    }
+    expect(getComputedStyle(run).fill).toBe("var(--siren-label-link)");
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--siren-label-link").trim()).toBe("#0000ee");
+  });
+
+  // The innermost of a link and a mark paints the text (measured): a mark
+  // inside a link draws the mark's black, and nothing in the theme may
+  // repaint it with the link's blue.
+  it("paints a mark inside a link with the mark text token", () => {
+    const svg = renderThemedSVG(`flowchart TB
+A["x <a href='https://e.x'><mark>m</mark></a>"]`);
+
+    const run = svg.querySelector("a tspan.siren-label-mark-text");
+    if (run === null) {
+      throw new Error("no marked linked run drawn");
+    }
+    expect(getComputedStyle(run).fill).toBe("var(--siren-label-mark-text)");
+  });
+
+  // `layoutLabel` measures an author's px size, and an `em` spacing, against
+  // a base it cannot read off the stylesheet; that base is this token's
+  // default, and the two may not drift apart.
+  it("declares the font size label measurement takes as its base", () => {
+    const declared = /--siren-font-size:\s*(\d*\.?\d+)px;/.exec(defaultThemeCss);
+
+    expect(declared?.[1]).toBeDefined();
+    expect(Number(declared![1])).toBe(BASE_FONT_SIZE_PX);
   });
 });
 

@@ -42,11 +42,14 @@
  * alone; there is one palette now and no pin, so there is one entry point.
  *
  * One palette, and only one: a consumer who wants a second — dark,
- * high-contrast, print — redeclares the five color tokens under a selector of
- * their own and owns when it applies. The theme never picks for them, which is
- * why nothing in this file reads the reader's system color preference or any
- * theme attribute on the page — see packages/core/README.md for the worked
- * example, and demos/theme-dark.css for one that runs.
+ * high-contrast, print — redeclares the five palette tokens under a selector
+ * of their own and owns when it applies. The three label-paint tokens
+ * (`--siren-label-mark-fill`, `--siren-label-mark-text`, `--siren-label-link`)
+ * sit outside the palette and may be redeclared the same way. The theme never
+ * picks for them, which is why nothing in this file reads the reader's system
+ * color preference or any theme attribute on the page — see
+ * packages/core/README.md for the worked example, and demos/theme-dark.css
+ * for one that runs.
  */
 :root {
   /* Color tokens: the violet palette of siren-website's decision 01M3BY1GPP. */
@@ -55,6 +58,16 @@
   --siren-node-text: #1d1730;
   --siren-edge-stroke: #6f6a84;
   --siren-highlight-color: #0d9488;
+  /* What the browser's default stylesheet paints a `<mark>` with in
+     Mermaid's HTML labels (measured): black text on yellow. Not part of the
+     palette above — a marked run looks the same on any of them, as it does
+     in Mermaid — but a token all the same, so a theme can repaint it
+     (ADR-0015). */
+  --siren-label-mark-fill: #ff0;
+  --siren-label-mark-text: #000;
+  /* What the browser paints a link with in Mermaid's HTML labels (measured):
+     its default link blue. Outside the palette for the same reason. */
+  --siren-label-link: #0000ee;
 
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
@@ -137,6 +150,28 @@
   font-size: var(--siren-font-size);
   fill: var(--siren-node-text);
 }
+
+/*
+ * A marked run in any label (`<mark>`): the rect `drawLabel` puts behind its
+ * text, and the run's own `<tspan>`. The text color is set on the run itself,
+ * not left to inherit, because inherited paint loses to it whatever the
+ * `<text>` around it was given — the theme's text color, or an author's
+ * `style` — which is what the browser does with a `<mark>` too.
+ */
+.siren-label-mark {
+  fill: var(--siren-label-mark-fill);
+}
+
+.siren-label-mark-text {
+  fill: var(--siren-label-mark-text);
+}
+
+/*
+ * No rule for `.siren-label-link`: a linked run is painted by its own inline
+ * `fill: var(--siren-label-link)`, which a mark inside the link replaces, so
+ * a class rule here would repaint that mark blue. The class stays on the run
+ * as a hook.
+ */
 
 /*
  * A subgraph's frame and its title — the flowchart's grouping construct, and
