@@ -3,6 +3,7 @@ import type { Board, ControlsFactory } from "./createBoard";
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
 const SELECT_CLASS = "siren-board-controls__select";
+const STEP_CLASS = "siren-board-controls__step";
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** The play intervals the bar's select offers, in ms. */
 const PLAY_INTERVALS = [1000, 1500, 2000, 3000, 5000];
@@ -73,10 +74,13 @@ const ICONS = {
 } satisfies Record<string, string[]>;
 
 /**
- * Board's built-in Prev/Play/Next/Reset/Play interval/Full diagram/Reset view
- * control bar — the default value of `BoardOptions.controls`. Its buttons are
- * icon-only; each carries its name as `aria-label` and `title` instead of
- * visible text, and the interval select its name as `aria-label`. Reads
+ * Board's built-in Prev/Play/Next/step counter/Reset/Play interval/Full
+ * diagram/Reset view control bar — the default value of
+ * `BoardOptions.controls`. Its buttons are icon-only; each carries its name as
+ * `aria-label` and `title` instead of visible text, and the interval select its
+ * name as `aria-label`. The step counter is plain text, not a live region:
+ * playback changes it on every step, and announcing each one would talk over
+ * the reader. Reads
  * `board.controller` at click time rather than capturing it once, so it keeps
  * working across `setSource` and `setFullDiagram` calls that replace the
  * underlying controller. Turn it off with `controls: false`, or replace it
@@ -103,11 +107,13 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   intervalSelect.className = SELECT_CLASS;
   intervalSelect.setAttribute("aria-label", "Play interval");
   intervalSelect.addEventListener("change", () => board.setPlayInterval(Number(intervalSelect.value)));
-  bar.append(prev, play, next, reset, intervalSelect, fullDiagram, resetView);
+  const step = document.createElement("span");
+  step.className = STEP_CLASS;
+  bar.append(prev, play, next, step, reset, intervalSelect, fullDiagram, resetView);
 
   /**
-   * Mirrors `board.playing`, `board.playInterval` and `board.fullDiagram`
-   * onto the bar. The full diagram has no steps, so the step buttons are
+   * Mirrors `board.playing`, `board.playInterval`, `board.fullDiagram` and
+   * the controller's `currentStep / totalSteps` onto the bar. The full diagram has no steps, so the step buttons are
    * disabled rather than left clickable to do nothing, and Play and the
    * interval select are disabled whenever there is nothing to play (the full
    * diagram, or no steps); Reset view stays, since pan/zoom works on any
@@ -125,6 +131,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // Here too the icon names what a click switches to; the pressed state,
     // not the icon, says which drawing is showing now.
     fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
+    // The full diagram's controller has no steps, and before the first
+    // render there is no controller: both read 0 / 0.
+    step.textContent = `${board.controller?.currentStep ?? 0} / ${board.controller?.totalSteps ?? 0}`;
     const nothingToPlay = board.fullDiagram || (board.controller?.totalSteps ?? 0) === 0;
     const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
       [prev, board.fullDiagram],

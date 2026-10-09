@@ -39,6 +39,13 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   3s and 5s, plus the current `playInterval` when it is none of those (2500 shows as 2.5s).
   Both are disabled while the full diagram shows and on a document with no steps. A
   control that is disabled while focused hands focus to Full diagram.
+- The built-in control bar gains a step counter between Next and Reset, reading
+  `currentStep / totalSteps` (`0 / 10` at the start). It follows every step change, from the
+  bar, from playback or from code, and every `setSource()`. It reads `0 / 0` while the full
+  diagram shows, on a document with no steps, and before a first render succeeds. It is plain
+  text, not a live region, so playback is not announced step by step. Style it through
+  `.siren-board-controls__step`; its digits are tabular, so the bar keeps its width as the
+  count changes.
 
 ## [0.3.0] - 2026-10-05
 

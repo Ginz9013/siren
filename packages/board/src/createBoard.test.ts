@@ -162,17 +162,20 @@ class A
     expect(() => board.destroy()).not.toThrow();
   });
 
-  it("renders a default Prev/Play/Next/Reset/Play interval/Full diagram/Reset view control bar unless controls: false is passed", () => {
+  it("renders a default Prev/Play/Next/step counter/Reset/Play interval/Full diagram/Reset view control bar unless controls: false is passed", () => {
     const container = document.createElement("div");
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
 
     const bar = container.querySelector(".siren-board-controls")!;
     expect(bar).not.toBeNull();
-    expect(Array.from(bar.children).map((c) => `${c.tagName.toLowerCase()} ${c.getAttribute("aria-label")}`)).toEqual([
+    expect(
+      Array.from(bar.children).map((c) => `${c.tagName.toLowerCase()} ${c.getAttribute("aria-label") ?? c.className}`),
+    ).toEqual([
       "button Prev",
       "button Play",
       "button Next",
+      "span siren-board-controls__step",
       "button Reset",
       "select Play interval",
       "button Full diagram",
@@ -1076,6 +1079,107 @@ enter C fade
       board.setFullDiagram(true);
 
       expect(seen).toEqual([]);
+    });
+  });
+
+  describe("the built-in bar's step counter", () => {
+    /** Two steps, so the counter has somewhere to go in both directions. */
+    const TWO_STEP_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+`;
+
+    /** The counter's text, as a reader sees it. */
+    function counter(container: HTMLElement): string | null {
+      return container.querySelector(".siren-board-controls .siren-board-controls__step")?.textContent ?? null;
+    }
+
+    it("sits between Next and Reset and starts at 0 of the timeline's steps, as plain text rather than a live region", () => {
+      const container = document.createElement("div");
+
+      createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(counter(container)).toBe("0 / 2");
+      const step = container.querySelector(".siren-board-controls__step")!;
+      expect(step.previousElementSibling?.getAttribute("aria-label")).toBe("Next");
+      expect(step.nextElementSibling?.getAttribute("aria-label")).toBe("Reset");
+      // Playback changes it on every step: announcing each one would talk over the reader.
+      expect(step.hasAttribute("aria-live")).toBe(false);
+      expect(step.hasAttribute("role")).toBe(false);
+    });
+
+    it("follows every step change: Next, Prev and Reset from the bar, a direct board.controller call, and setSource", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+      const click = (label: string) =>
+        container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!.click();
+
+      click("Next");
+      expect(counter(container)).toBe("1 / 2");
+      click("Next");
+      expect(counter(container)).toBe("2 / 2");
+      click("Prev");
+      expect(counter(container)).toBe("1 / 2");
+      click("Reset");
+      expect(counter(container)).toBe("0 / 2");
+
+      board.controller!.next();
+      expect(counter(container)).toBe("1 / 2");
+
+      board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+highlight A outline
+`);
+      expect(counter(container)).toBe("0 / 3");
+    });
+
+    it("follows playback, one step per play interval", () => {
+      vi.useFakeTimers();
+      try {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+        board.play();
+        expect(counter(container)).toBe("1 / 2");
+
+        vi.advanceTimersByTime(board.playInterval);
+        expect(counter(container)).toBe("2 / 2");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reads 0 / 0 in the full diagram, and the step shown before once switched back", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+      board.controller!.next();
+
+      board.setFullDiagram(true);
+      expect(counter(container)).toBe("0 / 0");
+
+      board.setFullDiagram(false);
+      expect(counter(container)).toBe("1 / 2");
+    });
+
+    it("reads 0 / 0, in the same place, on a document with no timeline and on a board whose render failed", () => {
+      const noTimeline = document.createElement("div");
+      createBoard(noTimeline, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+      expect(counter(noTimeline)).toBe("0 / 0");
+
+      const failed = document.createElement("div");
+      const board = createBoard(failed, { source: "this is not a valid siren document", measureText: FAKE_MEASURER });
+      expect(board.controller).toBeNull(); // sanity: nothing rendered
+      expect(counter(failed)).toBe("0 / 0");
+      const step = failed.querySelector(".siren-board-controls__step")!;
+      expect(step.previousElementSibling?.getAttribute("aria-label")).toBe("Next");
+      expect(step.nextElementSibling?.getAttribute("aria-label")).toBe("Reset");
     });
   });
 
