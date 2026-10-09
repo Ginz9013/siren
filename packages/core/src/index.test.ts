@@ -7968,3 +7968,145 @@ destroy X`);
     expect(b().every((el) => el.classList.contains("siren-enter-fade"))).toBe(true);
   });
 });
+
+describe("render(…, { timeline: false }) — the document drawn as Mermaid draws it", () => {
+  /**
+   * Checks the whole `timeline: false` invariant for one document: the
+   * picture is the one the same document draws with its `timeline:` block
+   * deleted, the controller has no steps to take, and the diagnostics are the
+   * default render's — timeline errors included, since the block is still
+   * read and validated even though it is not applied.
+   *
+   * The expected picture comes from a second source rather than from the
+   * default render: "the document without its timeline" is what the option
+   * promises, and it is the one drawing that cannot be wearing timeline
+   * state by construction.
+   */
+  const expectDrawnWithoutTimeline = (source: string): void => {
+    const blockAt = source.indexOf("timeline:");
+    expect(blockAt).toBeGreaterThan(0);
+    const withoutBlock = source.slice(0, blockAt);
+
+    const asDefault = render(source, document.createElement("div"));
+    const asPlain = render(withoutBlock, document.createElement("div"));
+    const container = document.createElement("div");
+    const result = render(source, container, { timeline: false });
+
+    // Guards against passing vacuously: the default render must actually be
+    // wearing timeline state for its absence here to mean anything.
+    expect(sameDrawing(asDefault.svg!.outerHTML)).not.toBe(sameDrawing(asPlain.svg!.outerHTML));
+
+    expect(result.diagnostics).toEqual(asDefault.diagnostics);
+    expect(result.svg).not.toBeNull();
+    expect(container.contains(result.svg!)).toBe(true);
+    expect(sameDrawing(result.svg!.outerHTML)).toBe(sameDrawing(asPlain.svg!.outerHTML));
+
+    const controller = result.controller!;
+    expect(controller.totalSteps).toBe(0);
+    expect(controller.currentStep).toBe(0);
+    const before = result.svg!.outerHTML;
+    controller.next();
+    controller.next();
+    expect(controller.currentStep).toBe(0);
+    expect(result.svg!.outerHTML).toBe(before);
+    controller.prev();
+    controller.reset();
+    expect(result.svg!.outerHTML).toBe(before);
+  };
+
+  it("draws a flowchart with every timeline effect left off, and still reports the timeline's errors", () => {
+    expectDrawnWithoutTimeline(`flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+highlight A outline
+exit A fade, enter C slide-left
+highlight GHOST outline
+`);
+  });
+
+  it("draws a class diagram with every timeline effect left off, and still reports the timeline's errors", () => {
+    expectDrawnWithoutTimeline(`classDiagram
+Animal <|-- Duck
+Animal <|-- Fish
+timeline:
+enter Duck fade
+highlight Animal outline
+exit Fish fade, enter Animal-Duck slide-left
+highlight GHOST outline
+`);
+  });
+
+  it("draws a sequence diagram with every timeline effect left off, and still reports the timeline's errors", () => {
+    expectDrawnWithoutTimeline(`sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+B->>A: Hi
+timeline:
+enter B fade
+highlight A outline
+exit A fade, enter A-B fade
+highlight GHOST outline
+`);
+  });
+
+  it("draws a state diagram with every timeline effect left off, and still reports the timeline's errors", () => {
+    expectDrawnWithoutTimeline(`stateDiagram-v2
+[*] --> Idle
+Idle --> Running : start
+Running --> Idle : stop
+timeline:
+enter Running fade
+highlight Idle outline
+exit Idle fade, enter Idle-Running fade
+highlight GHOST outline
+`);
+  });
+
+  it("draws an ER diagram with every timeline effect left off, and still reports the timeline's errors", () => {
+    expectDrawnWithoutTimeline(`erDiagram
+CUSTOMER ||--o{ ORDER : places
+ORDER ||--|{ LINE-ITEM : contains
+timeline:
+enter ORDER fade
+highlight CUSTOMER outline
+exit LINE-ITEM fade, enter CUSTOMER:ORDER fade
+highlight GHOST outline
+`);
+  });
+
+  it("fails exactly when the default render fails, with the same diagnostics", () => {
+    // Two different stages failing: the parser refusing the document, and
+    // layout refusing a measurer's answer. Leaving the timeline off must not
+    // rescue either, or switching modes would hide a broken document.
+    const unmeasurable: TextMeasurer = { measure: () => ({ width: NaN, height: 10 }) };
+    const cases: Array<[string, { measureText?: TextMeasurer }]> = [
+      ["this is not a valid siren document", {}],
+      [VALID_SOURCE, { measureText: unmeasurable }],
+    ];
+
+    for (const [source, options] of cases) {
+      const asDefault = render(source, document.createElement("div"), options);
+      const result = render(source, document.createElement("div"), {
+        ...options,
+        timeline: false,
+      });
+
+      expect(asDefault.svg).toBeNull();
+      expect(result.svg).toBeNull();
+      expect(result.controller).toBeNull();
+      expect(result.diagnostics).toEqual(asDefault.diagnostics);
+    }
+  });
+
+  it("applies the timeline when the option is true, exactly as when it is left out", () => {
+    const asDefault = render(ALL_VERBS_SOURCE, document.createElement("div"));
+    const result = render(ALL_VERBS_SOURCE, document.createElement("div"), { timeline: true });
+
+    expect(result.controller!.totalSteps).toBe(5);
+    expect(sameDrawing(result.svg!.outerHTML)).toBe(sameDrawing(asDefault.svg!.outerHTML));
+    expect(result.svg!.querySelector(".siren-pending")).not.toBeNull();
+  });
+});
