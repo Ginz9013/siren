@@ -17,8 +17,9 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * directly above the trigger — always there, never flipped below for want of
  * room, and never scrolled, since it holds every option at once — with the
  * selected option in the accent color. The listbox is anchored by the root
- * class every dropdown carries, not by a dropdown's own class. The step counter sets its digits in
- * tabular figures, so the bar keeps its width as the count changes.
+ * class every dropdown carries, not by a dropdown's own class. The step
+ * counter sets its digits in tabular figures, so the bar keeps its width as
+ * the count changes.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a

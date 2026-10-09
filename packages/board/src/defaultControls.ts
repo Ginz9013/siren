@@ -191,7 +191,8 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
       (opposite !== undefined && !disabled.get(opposite) ? opposite : fullDiagram).focus();
     }
     // A disabled dropdown has nothing to pick from; this is the only thing
-    // in update() that closes an open listbox.
+    // in update() that closes the interval's open listbox (the timeline's
+    // closes only as it leaves the bar, in syncTimelineDropdown).
     if (nothingToPlay) intervalDropdown.close();
     for (const [control, off] of disabled) if (off) control.disabled = true;
   }
