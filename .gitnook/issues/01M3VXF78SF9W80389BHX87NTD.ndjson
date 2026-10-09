@@ -3,3 +3,4 @@
 {"id":"01M3VXH53QA4SFN47E7V5X0KHW","t":3,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M3VXW4DHAKM0ZF23HASHHVTF","t":4,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M44Z9WBS9FKPVRSBTDKECTR1","t":5,"a":"83a1","op":"set","k":"archived","v":true}
+{"id":"01M4GAKDQVMV2V0BTWCYDHWRCV","t":6,"a":"83a1","op":"comment","body":"`.scratch/theme-single-palette/` 已遷移到 nook：`01M4GAK9N8M23W33S1BNP3KDNX`"}

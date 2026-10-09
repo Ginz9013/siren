@@ -3,3 +3,4 @@
 {"id":"01M2FPYWQ4MGPBRVEKXXNMDER6","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M2FPYWQ4F5GKAFP1H45XG8KZ","t":4,"a":"83a1","op":"label.add","v":"a11y"}
 {"id":"01M2NPXK42Y713WK4K9P9KPN5K","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec non-goals 明寫「desktop mouse only in this slice」，是刻意排除，不是漏掉。動工前有兩個未答的設計決策：鍵盤操作要不要先取得 focus（tabindex？）、觸控手勢會不會跟頁面滾動搶事件（touch-action CSS）。維持 backlog，等有明確需求或先把設計決策問清楚再排。"}
+{"id":"01M4GAKA63ZAKPBGH7H90G6DCQ","t":6,"a":"83a1","op":"comment","body":"`.scratch/siren-board-viewport-slice/` 已遷移到 nook：`01M4GAJWC3BD8QCXW74D5ZV5DM`"}
