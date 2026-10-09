@@ -16,9 +16,10 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   drawn without its `timeline:` block, every element visible and no step applied. Switching
   off returns to the step that was showing; switching never changes pan and zoom.
   `onFullDiagramChange` fires on every switch, from the bar or from code.
-- The built-in control bar gains a Full diagram button (Lucide `workflow`) between Reset and
-  Reset view. It is `aria-pressed` while the full diagram shows, and Prev, Next and Reset are
-  disabled meanwhile.
+- The built-in control bar gains a Full diagram button between Reset and Reset view. Its icon
+  shows what a click switches to: Lucide `image` while the timeline shows, `clapperboard`
+  while the full diagram shows. It is `aria-pressed` while the full diagram shows, and Prev,
+  Next and Reset are disabled meanwhile.
 
 ## [0.3.0] - 2026-10-05
 

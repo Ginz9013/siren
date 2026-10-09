@@ -33,11 +33,22 @@ const ICONS = {
   next: ["m9 18 6-6-6-6"],
   /** Lucide `rotate-ccw` */
   reset: ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"],
-  /** Lucide `workflow` — its two `<rect>`s (8×8, rx 2) redrawn as paths, since makeIcon draws only paths. */
+  /**
+   * Lucide `image` — its `<rect>` and `<circle>` redrawn as paths, since
+   * makeIcon draws only paths. The Full diagram button's icon while the
+   * timeline shows: a still picture, which is what a click switches to.
+   */
   fullDiagram: [
-    "M5 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
-    "M7 11v4a2 2 0 0 0 2 2h4",
-    "M15 13h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z",
+    "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+    "M7 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+    "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21",
+  ],
+  /** Lucide `clapperboard` — the same button's icon while the full diagram shows: back to the animation. */
+  timeline: [
+    "m12.296 3.464 3.02 3.956",
+    "M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z",
+    "M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+    "m6.18 5.276 3.1 3.899",
   ],
   /** Lucide `scan` */
   resetView: [
@@ -85,6 +96,9 @@ export function createDefaultControls(
    */
   function syncFullDiagram(): void {
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
+    // The icon names what a click switches to, as a play button does; the
+    // pressed state, not the icon, says which drawing is showing now.
+    fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
     if (board.fullDiagram && [prev, next, reset].some((b) => b === document.activeElement)) {
       fullDiagram.focus();
     }
