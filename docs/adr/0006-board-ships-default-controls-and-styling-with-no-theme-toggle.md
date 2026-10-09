@@ -10,7 +10,7 @@ status: accepted
 > stands for the reason given below. Board's chrome tokens follow core's shape: one set,
 > declared once.
 
-> Amended by the board-playback change (decision `01M4GA`): the built-in control bar is now an
+> Amended by the board-playback change (decision `01M4GA438B`): the built-in control bar is now an
 > ordinary `ControlsFactory`. A factory may return an optional `update()`, which board calls
 > after every `setSource` that renders, every step change and every full diagram switch, and
 > never after `destroy()`. The built-in bar stays in step through that public hook rather than a

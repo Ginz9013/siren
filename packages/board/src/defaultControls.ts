@@ -70,7 +70,7 @@ const ICONS = {
  * ordinary `ControlsFactory`, kept in step through the public `update()`
  * hook like any other, so it never shows a stale pressed or disabled state.
  */
-export const createDefaultControls: ControlsFactory = (board: Board) => {
+export function createDefaultControls(board: Board): ReturnType<ControlsFactory> {
   const bar = document.createElement("div");
   bar.className = CONTROLS_CLASS;
 
@@ -103,7 +103,7 @@ export const createDefaultControls: ControlsFactory = (board: Board) => {
   update();
 
   return { element: bar, update };
-};
+}
 
 function makeButton(label: string, iconPaths: string[], onClick: () => void): HTMLButtonElement {
   const button = document.createElement("button");

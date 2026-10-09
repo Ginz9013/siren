@@ -14,7 +14,7 @@ const CANVAS_CLASS = "siren-board-canvas";
  * that rendered, a step change from any source, a `fullDiagram` switch — and
  * never after `destroy()`; read the new state off `board` there.
  */
-export type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): void; update?(): void };
+export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(): void; destroy?(): void };
 
 /** Options accepted by `createBoard`. */
 export interface BoardOptions {
