@@ -1,3 +1,4 @@
 {"id":"01M4GQ716EX5H05FB25AM8FSDD","t":1,"a":"83a1","op":"create","title":"board: 內建控制列的 timeline 選單，加多 timeline 範例與 demo"}
 {"id":"01M4GQ716R40SQQ3S6HD2C2ZEZ","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T05-default-controls-timeline-dropdown.md`（T5）。"}
 {"id":"01M4GQ716R7VY22GQ7NMF9JCE1","t":3,"a":"83a1","op":"label.add","v":"board"}
+{"id":"01M4GSMTH2HRRBDQTDFJ40TVVV","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
