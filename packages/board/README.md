@@ -33,7 +33,8 @@ createBoard(document.getElementById("board"), { source });
 
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
   (`2 / 10`), Reset, a timeline dropdown, a play interval dropdown, Full diagram and Reset
-  view. Prev, Next and Reset are disabled when they have nowhere to go. Replace it with your
+  view. Prev, Next and Reset are disabled when they have nowhere to go, and every step
+  control, the timeline dropdown included, while the full diagram shows. Replace it with your
   own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.

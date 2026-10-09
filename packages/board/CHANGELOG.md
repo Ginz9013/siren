@@ -74,8 +74,9 @@ Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<
   dropdown, shown only while the document names two timelines or more, so it comes and goes
   as `setSource()` crosses that line. Its options are the names in `board.timelines`, with
   `board.timeline` selected; picking one calls `board.setTimeline(name)`, and the dropdown
-  follows every switch made from code. It is never disabled: in the full diagram a pick leaves
-  the full diagram. Taken out of the bar while focused, it hands focus to Full diagram. It is
+  follows every switch made from code. Like the other step controls it is disabled while the
+  full diagram shows (`board.setTimeline()` from code still leaves it). Taken out of the bar, or
+  disabled, while focused, it hands focus to Full diagram. It is
   the same dropdown as the play interval's, keyboard included; style it through
   `.siren-board-controls__timeline`.
 
