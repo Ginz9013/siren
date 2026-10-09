@@ -6,3 +6,4 @@
 {"id":"01M4G5ZNXCC30ZJAE9XH9YXXH2","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M4G5ZP25DNWKYG0N6KYDZHX6","t":7,"a":"83a1","op":"comment","body":"程式與自動化驗證完成（3e51a4c、9fd1d14）。只剩瀏覽器手動確認：Chrome 擴充未連線，未能代做。"}
 {"id":"01M4G9TWAMDQZ4BTASGQR751KT","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4G9WCQWM8A3HXDFMMMJWTRQ","t":9,"a":"83a1","op":"set","k":"archived","v":true}

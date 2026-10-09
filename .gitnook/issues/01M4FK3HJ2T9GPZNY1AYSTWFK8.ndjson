@@ -4,3 +4,4 @@
 {"id":"01M4FK3HJCSBRXZAJTARMXXC4X","t":4,"a":"83a1","op":"label.add","v":"flowchart"}
 {"id":"01M4G2EFC7PGZ4CTD9VFVBVNBR","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4G2W55ETABJA60P6HA1PWM0","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4G9WBZKDFDFCY51CB1D3YA2","t":7,"a":"83a1","op":"set","k":"archived","v":true}
