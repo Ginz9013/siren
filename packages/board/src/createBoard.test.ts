@@ -577,4 +577,221 @@ enter C fade
     board.controller!.reset();
     expect(calls).toEqual([[1, 2], [2, 2], [0, 2]]);
   });
+
+  describe("full diagram", () => {
+    /**
+     * By step 2, A carries a highlight class and B an exit class — the two
+     * states that make the timeline's last step differ from the full diagram
+     * (CONTEXT.md's "Full diagram").
+     */
+    const TIMELINE_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+highlight A outline
+exit B fade
+`;
+
+    /** Every timeline effect class (enter/exit/highlight/pending) anywhere in the board's SVG. */
+    function effectClasses(container: HTMLElement): string[] {
+      const found: string[] = [];
+      for (const el of Array.from(container.querySelectorAll(".siren-board-viewport svg *"))) {
+        for (const c of Array.from(el.classList)) {
+          if (c === "siren-pending" || /^siren-(enter|exit|highlight)-/.test(c)) found.push(c);
+        }
+      }
+      return found;
+    }
+
+    /**
+     * The viewport's markup with each render's per-SVG id scope collapsed:
+     * core suffixes marker ids with a fresh `__xxxxxxxx` scope per render (so
+     * two diagrams on one page never collide), which makes markup differ
+     * across renders even when the drawing is identical — the same
+     * normalisation core's own index.test.ts uses for "same drawing".
+     */
+    function sameDrawing(container: HTMLElement): string {
+      return container.querySelector(".siren-board-viewport")!.innerHTML.replace(/__[0-9a-z]{8}(?![0-9a-z])/g, "__SCOPE");
+    }
+
+    it("starts with fullDiagram false", () => {
+      const board = createBoard(document.createElement("div"), { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(board.fullDiagram).toBe(false);
+    });
+
+    it("setFullDiagram(true) at step 2 draws the document without its timeline: no effect classes, no steps, onFullDiagramChange(true), and neither onStepChange nor onDiagnostics fires", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const stepChanges: number[] = [];
+      let diagnosticsCalls = 0;
+      const board = createBoard(container, {
+        source: TIMELINE_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => changes.push(on),
+        onStepChange: (current) => stepChanges.push(current),
+        onDiagnostics: () => diagnosticsCalls++,
+      });
+      board.controller!.next();
+      board.controller!.next();
+      expect(effectClasses(container)).not.toEqual([]); // sanity: step 2 shows the exit and highlight
+      stepChanges.length = 0;
+      diagnosticsCalls = 0;
+
+      board.setFullDiagram(true);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(effectClasses(container)).toEqual([]);
+      expect(container.querySelectorAll(".siren-board-viewport svg g.siren-node")).toHaveLength(3);
+      expect(board.controller!.totalSteps).toBe(0);
+      expect(board.controller!.currentStep).toBe(0);
+      expect(changes).toEqual([true]);
+      expect(stepChanges).toEqual([]);
+      expect(diagnosticsCalls).toBe(0);
+    });
+
+    it("setFullDiagram(false) returns to the step shown before, drawing exactly what stepping there directly draws, with onFullDiagramChange(false) and no onStepChange", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const stepChanges: number[] = [];
+      const board = createBoard(container, {
+        source: TIMELINE_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => changes.push(on),
+        onStepChange: (current) => stepChanges.push(current),
+      });
+      board.controller!.next();
+      board.controller!.next();
+      board.setFullDiagram(true);
+      stepChanges.length = 0;
+
+      board.setFullDiagram(false);
+
+      const direct = document.createElement("div");
+      const directBoard = createBoard(direct, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+      directBoard.controller!.next();
+      directBoard.controller!.next();
+      expect(board.fullDiagram).toBe(false);
+      expect(board.controller!.currentStep).toBe(2);
+      expect(board.controller!.totalSteps).toBe(2);
+      expect(sameDrawing(container)).toBe(sameDrawing(direct));
+      expect(changes).toEqual([true, false]);
+      expect(stepChanges).toEqual([]);
+    });
+
+    it("setting fullDiagram to the value it already has re-renders nothing and fires no onFullDiagramChange", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TIMELINE_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => changes.push(on),
+      });
+      const timelineSvg = container.querySelector(".siren-board-viewport svg");
+
+      board.setFullDiagram(false);
+
+      expect(container.querySelector(".siren-board-viewport svg")).toBe(timelineSvg);
+      expect(changes).toEqual([]);
+
+      board.setFullDiagram(true);
+      const fullSvg = container.querySelector(".siren-board-viewport svg");
+      board.setFullDiagram(true);
+
+      expect(container.querySelector(".siren-board-viewport svg")).toBe(fullSvg);
+      expect(changes).toEqual([true]);
+    });
+
+    it("switching the full diagram on and off leaves the view (pan/zoom) where it was", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+      const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+      stubRect(canvas, { width: 400, height: 300 });
+      canvas.dispatchEvent(
+        new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+      );
+      const zoomed = readViewportTransform(container);
+      expect(zoomed.scale).not.toBe(1); // sanity: the wheel event actually moved the view
+
+      board.setFullDiagram(true);
+      expect(readViewportTransform(container)).toEqual(zoomed);
+
+      board.setFullDiagram(false);
+      expect(readViewportTransform(container)).toEqual(zoomed);
+    });
+
+    it("setSource while the full diagram is on draws the new document as a full diagram, and switching back starts its timeline at step 0", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+      board.controller!.next();
+      board.controller!.next();
+      board.setFullDiagram(true);
+
+      board.setSource(TIMELINE_SOURCE);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(effectClasses(container)).toEqual([]);
+      expect(board.controller!.totalSteps).toBe(0);
+
+      board.setFullDiagram(false);
+
+      expect(board.controller!.totalSteps).toBe(2);
+      expect(board.controller!.currentStep).toBe(0);
+    });
+
+    it("on a board that has not rendered yet, setFullDiagram still switches and fires, and the first setSource that renders draws the full diagram", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, { measureText: FAKE_MEASURER, onFullDiagramChange: (on) => changes.push(on) });
+
+      board.setFullDiagram(true);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(changes).toEqual([true]);
+      expect(board.controller).toBeNull();
+
+      board.setSource(TIMELINE_SOURCE);
+
+      expect(board.controller!.totalSteps).toBe(0);
+      expect(container.querySelectorAll(".siren-board-viewport svg g.siren-node")).toHaveLength(3);
+    });
+
+    it("after a setSource that failed, switching re-renders the last source that rendered and keeps the error banner and diagnostics", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+      board.setSource("this is not a valid siren document");
+      const failedDiagnostics = board.diagnostics;
+      expect(failedDiagnostics.some((d) => d.severity === "error")).toBe(true); // sanity
+
+      board.setFullDiagram(true);
+
+      expect(board.controller!.totalSteps).toBe(0);
+      expect(container.querySelectorAll(".siren-board-viewport svg g.siren-node")).toHaveLength(3);
+      expect(container.querySelector(".siren-board-error")).not.toBeNull();
+      expect(board.diagnostics).toBe(failedDiagnostics);
+
+      board.setFullDiagram(false);
+
+      expect(board.controller!.totalSteps).toBe(2);
+      expect(container.querySelector(".siren-board-error")).not.toBeNull();
+      expect(board.diagnostics).toBe(failedDiagnostics);
+    });
+
+    it("setFullDiagram after destroy() does nothing: no throw, no onFullDiagramChange, nothing mounted again", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TIMELINE_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => changes.push(on),
+      });
+      board.destroy();
+
+      expect(() => board.setFullDiagram(true)).not.toThrow();
+
+      expect(changes).toEqual([]);
+      expect(board.fullDiagram).toBe(false);
+      expect(container.children).toHaveLength(0);
+    });
+  });
 });

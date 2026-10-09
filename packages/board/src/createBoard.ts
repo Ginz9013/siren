@@ -23,6 +23,8 @@ export interface BoardOptions {
   onStepChange?: (current: number, total: number) => void;
   /** `true`/omitted = built-in Prev/Next/Reset bar; `false` = none; function = custom. */
   controls?: boolean | ControlsFactory;
+  /** Fired whenever `fullDiagram` changes, from the built-in bar or a direct `setFullDiagram` call. */
+  onFullDiagramChange?: (fullDiagram: boolean) => void;
 }
 
 /**
@@ -33,7 +35,16 @@ export interface BoardOptions {
 export interface Board {
   readonly controller: AnimationController | null;
   readonly diagnostics: Diagnostic[];
+  /** Whether the board shows the full diagram rather than the timeline (see CONTEXT.md's "Full diagram"). */
+  readonly fullDiagram: boolean;
   setSource(source: string): void;
+  /**
+   * Switches the full diagram on or off by re-rendering the last rendered
+   * source; switching off returns to the step shown before. Never changes
+   * the view or `diagnostics`, and fires neither `onStepChange` nor
+   * `onDiagnostics`. Setting the current value is a no-op.
+   */
+  setFullDiagram(on: boolean): void;
   /** Resets pan/zoom to the initial fit-to-container state (scale 1.0, no offset). */
   resetView(): void;
   destroy(): void;
@@ -53,6 +64,15 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   let wrappedController: AnimationController | null = null;
   let diagnostics: Diagnostic[] = [];
   let destroyed = false;
+  let fullDiagram = false;
+  /**
+   * The source of the last `setSource` call that rendered. Toggling the full
+   * diagram re-renders this rather than the latest source, so a failed
+   * `setSource` (error banner showing) never turns into a blank board.
+   */
+  let renderedSource: string | null = null;
+  /** The timeline step to return to when the full diagram is switched off. */
+  let stepBeforeFullDiagram = 0;
 
   function wrapController(real: AnimationController): AnimationController {
     function afterCall(previousStep: number): void {
@@ -98,7 +118,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   }
 
   function setSource(source: string): void {
-    const result = render(source, viewport.content, { measureText });
+    const result = render(source, viewport.content, { measureText, timeline: !fullDiagram });
     diagnostics = result.diagnostics;
     if (result.svg === null) {
       // render() leaves the viewport's content layer untouched on failure
@@ -108,10 +128,36 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       showErrorBanner();
     } else {
       clearErrorBanner();
+      renderedSource = source;
+      // A new document starts its timeline at step 0, full diagram or not.
+      stepBeforeFullDiagram = 0;
       wrappedController = wrapController(result.controller!);
       viewport.resetView();
     }
     options.onDiagnostics?.(diagnostics);
+  }
+
+  /**
+   * Re-renders the last rendered source with or without its timeline (the
+   * full diagram is core's `render(…, { timeline: false })`, ADR-0005: board
+   * never parses). Deliberately leaves `diagnostics`, the view, and the
+   * error banner alone, and fires neither `onDiagnostics` nor
+   * `onStepChange` — the document did not change, only how it is drawn.
+   */
+  function setFullDiagram(on: boolean): void {
+    if (destroyed || on === fullDiagram) return;
+    if (on) stepBeforeFullDiagram = wrappedController?.currentStep ?? 0;
+    fullDiagram = on;
+    if (renderedSource !== null) {
+      const result = render(renderedSource, viewport.content, { measureText, timeline: !on });
+      const real = result.controller!;
+      // Stepping the unwrapped controller, in this same synchronous task,
+      // means the reader never sees step 0 flash by and `onStepChange` stays
+      // quiet: the reader is back where they were, not moving.
+      for (let i = 0; i < stepBeforeFullDiagram && real.currentStep < real.totalSteps; i++) real.next();
+      wrappedController = wrapController(real);
+    }
+    options.onFullDiagramChange?.(fullDiagram);
   }
 
   let controlsDestroy: (() => void) | undefined;
@@ -123,7 +169,11 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     get diagnostics() {
       return diagnostics;
     },
+    get fullDiagram() {
+      return fullDiagram;
+    },
     setSource,
+    setFullDiagram,
     resetView() {
       viewport.resetView();
     },
