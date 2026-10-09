@@ -72,7 +72,7 @@ export interface RenderOptions {
    * **A document may declare several timelines, and by default only the first
    * applies.** `true` (or leaving this out) applies the unnamed `timeline:`
    * block, or else the first `timeline <name>:` block; a viewer that never
-   * passes a name therefore still shows a sensible path, just never the
+   * passes a name therefore still shows the first block, just never the
    * others. A string applies the named block of that name — the names are
    * `SirenRenderResult.timelines`, which is how a viewer offers the rest. A
    * name the document does not declare throws a `RangeError`: it is the
@@ -337,6 +337,15 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
 }
 
 /**
+ * What `render()` returns when there is no diagram to mount: no SVG, no
+ * controller (the two are null together), and no timelines to offer. One
+ * place, so a field the result gains is added to every failure at once.
+ */
+function failedRender(diagnostics: Diagnostic[]): SirenRenderResult {
+  return { svg: null, controller: null, diagnostics, timelines: [] };
+}
+
+/**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
  * createAnimationController; a class diagram runs layoutClassDiagram ->
@@ -356,10 +365,10 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
  * needs to call `attachClickHooks` for it, the same reason a class's own
  * `href` interactions never do either.
  *
- * `options.timeline` chooses what every kind's controller is handed: the
- * current timeline by default, the named block a string names, or an empty
- * timeline for `false`, so the picture is the full diagram and there are no
- * steps. Everything before that point runs unchanged — every block is parsed
+ * `options.timeline` chooses what every kind's controller is handed — the
+ * current timeline: the first block when nothing names one, the named block a
+ * string names, or an empty timeline for `false`, so the picture is the full
+ * diagram and there are no steps. Everything before that point runs unchanged — every block is parsed
  * and validated as usual — which is why the diagnostics, and whether the
  * render succeeds at all, never depend on the option. The one way the option
  * changes the outcome is a name the document does not declare, which throws a
@@ -378,7 +387,7 @@ export function render(
   diagnostics.push(...parseResult.diagnostics);
 
   if (parseResult.document === null) {
-    return { svg: null, controller: null, diagnostics, timelines: [] };
+    return failedRender(diagnostics);
   }
 
   const graphResult = buildGraphModel(parseResult.document);
@@ -399,7 +408,7 @@ export function render(
     const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
     if (!erLayout.placed) {
       diagnostics.push(erLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics, timelines: [] };
+      return failedRender(diagnostics);
     }
 
     const positionedErDiagram = erLayout.value;
@@ -417,7 +426,7 @@ export function render(
     const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
     if (!stateLayout.placed) {
       diagnostics.push(stateLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics, timelines: [] };
+      return failedRender(diagnostics);
     }
 
     const positionedStateDiagram = stateLayout.value;
@@ -446,7 +455,7 @@ export function render(
     const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
     if (!classLayout.placed) {
       diagnostics.push(classLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics, timelines: [] };
+      return failedRender(diagnostics);
     }
 
     const positionedClassDiagram = classLayout.value;
@@ -477,7 +486,7 @@ export function render(
     const sequenceLayout = attemptLayout(() => layoutSequence(model, { measureText }));
     if (!sequenceLayout.placed) {
       diagnostics.push(sequenceLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics, timelines: [] };
+      return failedRender(diagnostics);
     }
 
     const positionedSequence = sequenceLayout.value;
@@ -504,7 +513,7 @@ export function render(
   const flowchartLayout = attemptLayout(() => layoutGraph(graph, { measureText }));
   if (!flowchartLayout.placed) {
     diagnostics.push(flowchartLayout.diagnostic);
-    return { svg: null, controller: null, diagnostics, timelines: [] };
+    return failedRender(diagnostics);
   }
 
   const positioned = flowchartLayout.value;
