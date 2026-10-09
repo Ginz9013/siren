@@ -11,10 +11,13 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * rather than a file consumers link themselves. In the bar, a pressed button
  * (Full diagram while the full diagram shows, Play while playing) takes the
  * accent color, and a disabled one (a step button or Play while there is
- * nothing to step through) fades and ignores hover. The play interval select wears the buttons' border, surface and
- * radius, and fades the same way when there is nothing to play. The step
- * counter sets its digits in tabular figures, so the bar keeps its width as
- * the count changes.
+ * nothing to step through) fades and ignores hover. The play interval
+ * dropdown's trigger wears the buttons' border, surface and radius, and
+ * fades the same way when there is nothing to play; its listbox opens
+ * directly above the trigger — always there, never flipped below for want of
+ * room, and never scrolled, since it holds every option at once — with the
+ * selected option in the accent color. The step counter sets its digits in
+ * tabular figures, so the bar keeps its width as the count changes.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
@@ -137,26 +140,67 @@ const CSS = `
   cursor: not-allowed;
 }
 
-.siren-board-controls__select {
-  padding: 0 0.75rem 0 0.5rem;
+.siren-board-controls__interval {
+  position: relative;
+  display: flex;
+}
+
+.siren-board-controls__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.375rem 0 0.625rem;
   border: 1px solid var(--siren-board-border);
   border-radius: 8px;
   background: var(--siren-board-surface);
   color: var(--siren-board-text);
   font: 14px system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
-.siren-board-controls__select:hover {
+.siren-board-controls__trigger:hover,
+.siren-board-controls__trigger[aria-expanded="true"] {
   border-color: var(--siren-board-accent);
   background: var(--siren-board-surface-hover);
 }
 
-.siren-board-controls__select:disabled {
+.siren-board-controls__trigger:disabled {
   border-color: var(--siren-board-border);
   background: var(--siren-board-surface);
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.siren-board-controls__listbox {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 100%;
+  padding: 0.25rem;
+  border: 1px solid var(--siren-board-border);
+  border-radius: 8px;
+  background: var(--siren-board-surface);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--siren-board-text) 12%, transparent);
+}
+
+.siren-board-controls__option {
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  color: var(--siren-board-text);
+  font: 14px system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.siren-board-controls__option:hover {
+  background: var(--siren-board-surface-hover);
+}
+
+.siren-board-controls__option[aria-selected="true"] {
+  color: var(--siren-board-accent);
 }
 
 .siren-board-controls__step {

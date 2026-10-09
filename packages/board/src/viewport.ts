@@ -88,7 +88,7 @@ export function createViewport(surface: HTMLElement): Viewport {
     // testing.
     event.preventDefault();
     // preventDefault() also cancels the browser moving focus off whatever
-    // held it, so a control the reader just used (the play interval select)
+    // held it, so a control the reader just used (the play interval dropdown)
     // would stay focused; give back that part of the default.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     dragging = true;
