@@ -1323,7 +1323,7 @@ export interface GraphModel {
   /** Carried through unchanged from `FlowchartDocument.accDescr` — no resolution needed for plain text with no target to validate against. */
   accDescr: string | null;
   /**
-   * The timeline `render()` applies by default: the unnamed block, or the
+   * The current timeline when nothing names one: the unnamed block, or the
    * first named one, or an empty timeline when there is neither. Layout and
    * the renderers carry only this one; choosing among blocks is `render()`'s.
    */

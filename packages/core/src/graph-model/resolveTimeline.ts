@@ -31,6 +31,11 @@ import type {
  * kind. The two differed only in spelling the visible-before check
  * `kind === "highlight" || kind === "exit" || kind === "unhighlight"` versus
  * `kind !== "enter"` — the same test over a four-verb union.
+ *
+ * ⚠️ Every message this raises starts `timeline:`. `resolveTimelineBlocks`
+ * relies on it to name a block in its messages (`namedMessage`), so a new
+ * message that starts any other way would reach the author without the name
+ * of the block it is about.
  */
 export function resolveTimeline(
   timeline: SirenTimeline | null,
@@ -153,6 +158,10 @@ export function resolveTimeline(
  * `exit` — and once they have, at or before the endpoint's step, the warning
  * goes quiet. One warning per affected connector, naming whichever endpoint
  * leaves first.
+ *
+ * ⚠️ Its message starts `timeline:`, for the same reason every one of
+ * `resolveTimeline`'s does: `resolveTimelineBlocks` rewrites that prefix to
+ * name the block.
  */
 export function warnOnConnectorsOutlivingTheirEndpoints(
   entries: readonly ResolvedTimelineEntry[],
@@ -211,8 +220,8 @@ export interface TimelineConnectors {
 /** Every block a model resolved, ready for `render()` to choose from. */
 export interface ResolvedTimelineBlocks {
   /**
-   * The block `render()` applies by default: the unnamed one, or else the
-   * first named one, or else an empty timeline.
+   * The current timeline when nothing names one: the unnamed block, or else
+   * the first named one, or else an empty timeline.
    */
   timeline: ResolvedTimeline;
   /**
@@ -236,9 +245,10 @@ export interface ResolvedTimelineBlocks {
  * Every block is resolved whichever one will be played, so choosing a
  * timeline never makes a problem appear or vanish. What a named block adds is
  * only its name in the messages it raises — `timeline card:` instead of
- * `timeline:` — since two blocks can now say the same thing about the same id
- * and the line number alone no longer says which path the author was
- * writing. An unnamed document's messages are untouched.
+ * `timeline:` — since two blocks can now say the same thing about the same
+ * id, and a reader should not have to count headers above a line number to
+ * learn which block a message is about. An unnamed document's messages are
+ * untouched.
  */
 export function resolveTimelineBlocks(
   blocks: {
@@ -277,6 +287,10 @@ export function resolveTimelineBlocks(
  * block. A prefix swap rather than a `name` parameter threaded through the two
  * resolvers, so the unnamed wording has one spelling and the named one is
  * derived from it rather than kept in step with it by hand.
+ *
+ * The price is a contract on the two resolvers above — each message they
+ * raise starts `timeline:` — stated beside them and pinned by a test that
+ * faults a named block every way they report.
  */
 function namedMessage(message: string, name: string): string {
   return message.startsWith(UNNAMED_PREFIX)

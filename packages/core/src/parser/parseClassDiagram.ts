@@ -375,8 +375,8 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  *
  * The first timeline header ends the diagram body, and the timeline blocks
  * run from there to the end of the document, exactly as they do in a
- * flowchart — and they are parsed by the same
- * grammar, `parseTimelineBlock`, rather than by a second copy of it here.
+ * flowchart — and they are parsed by the same grammar, `parseTimelineBlock`,
+ * rather than by a second copy of it here.
  * Nothing about a timeline entry is diagram-kind-specific (ADR-0002 keeps the
  * block separate from the structural definition precisely so it can name any
  * id), so the ids in it are resolved by `buildClassModel` and validated

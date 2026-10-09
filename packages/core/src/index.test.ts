@@ -8223,8 +8223,8 @@ describe("render() — a document with several named timeline blocks", () => {
         'Timeline "card" is already declared on line HEADER',
       ],
       [
-        "timeline card:\nenter A fade\ntimeline pay by card:\n",
-        'Invalid timeline name "pay by card" (a name is letters, digits, "_" and "-")',
+        "timeline card:\nenter A fade\ntimeline pay.card:\n",
+        'Invalid timeline name "pay.card" (a name is letters, digits, "_" and "-")',
       ],
     ];
 
@@ -8245,5 +8245,47 @@ describe("render() — a document with several named timeline blocks", () => {
         ]);
       }
     }
+  });
+
+  // The two below pin what these lines did before named blocks existed
+  // (measured at 2fdb29d): neither was a timeline header then, so neither is
+  // one now.
+  it("leaves `timeline :` — a space before the colon — to the flowchart grammar, as before", () => {
+    const result = render(
+      "flowchart TD\nA --> B\ntimeline :\nenter A fade\n",
+      document.createElement("div"),
+    );
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized flowchart line: "timeline :"',
+        line: 3,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'Unrecognized flowchart line: "enter A fade"',
+        line: 4,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("leaves a sequence line that starts with a participant named `timeline` to the sequence grammar", () => {
+    const result = render(
+      "sequenceDiagram\nparticipant timeline\nparticipant B\ntimeline ->> B:\n",
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Unrecognized sequenceDiagram line: "timeline ->> B:"',
+        line: 4,
+        column: 1,
+      },
+    ]);
   });
 });
