@@ -3,3 +3,4 @@
 {"id":"01M4GE6XECHSNAX986XHZ1X9PF","t":3,"a":"83a1","op":"label.add","v":"spec"}
 {"id":"01M4GE6XECKRNZCKESVME75A59","t":4,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M4GE85RQH1HZ2SWTAD08BSCR","t":5,"a":"83a1","op":"comment","body":"Tickets（依序 T1 → T2 → T3）\n\n| Ticket | Nook | Blocked by |\n|---|---|---|\n| T1 ControlsFactory update() hook | `01M4GE78SS2XXDNTKWFPF13Z9W` | — |\n| T2 Board Playback API | `01M4GE7JX6Y452T585PCD1Y75J` | T1 |\n| T3 內建控制列 Play 與間隔 select | `01M4GE7WN12NTXFMWG0T8NC6PV` | T2 |"}
+{"id":"01M4GEDXWCK3HQ0QFJQQHG76T2","t":6,"a":"83a1","op":"set","k":"status","v":"todo"}
