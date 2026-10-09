@@ -77,6 +77,16 @@ Resetting the view (`board.resetView()`) never changes the current step; resetti
 (`controller.reset()`) never changes the view.
 _Avoid_: viewport, camera, zoom level (say "view" for the combined pan+zoom state)
 
+**Full diagram**:
+What a board shows while `board.fullDiagram` is on: the document drawn without applying its
+**Timeline block** at all — the diagram Mermaid would draw. Every element is visible, none
+carries an enter, exit, or highlight state, and there are no steps (`totalSteps: 0`). The board
+produces it by re-rendering with siren-core's `render(…, { timeline: false })`, and switching it
+off returns to the step that was showing. It is independent of the **View**: switching the full
+diagram never changes the view, and resetting the view never switches the full diagram.
+_Avoid_: overview, plain mode, "the last step" (the timeline's last step still hides exited
+elements and keeps highlights, so it is not the full diagram)
+
 **Timeline block**:
 The `timeline:` section of a Siren document. Each non-blank line is one step, and lists the
 timeline actions that fire on it, naming timeline targets by id. Deliberately separate from the diagram's structural definition — see
