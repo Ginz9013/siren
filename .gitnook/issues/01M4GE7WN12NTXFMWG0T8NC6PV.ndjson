@@ -3,3 +3,5 @@
 {"id":"01M4GE7WNBVX0Y3MG5P0ZR7BTS","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M4GE7WNBH96930FPCW3MKZZ7","t":4,"a":"83a1","op":"label.add","v":"ui"}
 {"id":"01M4GEDYCPD3RNT6WRCHF6CMHA","t":5,"a":"83a1","op":"set","k":"status","v":"todo"}
+{"id":"01M4GF5N0JKH5V6E655BZDDMJE","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GFJZZSPCW8NRJJWRYE1MRN","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
