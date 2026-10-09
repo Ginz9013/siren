@@ -3,3 +3,4 @@
 {"id":"01M4G596ZZ5WFSZ2GXSHDWCKQ4","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M4G59JPR9D25WMCDMZKV50WD","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4G5MYJC5P8030X2V8H7VS1V","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4G9WCWPD0Y6394EHBHEY41T","t":6,"a":"83a1","op":"set","k":"archived","v":true}
