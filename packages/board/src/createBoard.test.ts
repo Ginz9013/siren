@@ -904,7 +904,7 @@ exit B fade
         expect(disabledButtons(container)).toEqual([]);
       });
 
-      it("without the built-in bar — controls: false or a custom factory — setFullDiagram still switches and fires", () => {
+      it("without the built-in bar — controls: false or a custom factory with no update — stepping and setFullDiagram still work and fire", () => {
         for (const controls of [false, () => ({ element: document.createElement("div") })]) {
           const container = document.createElement("div");
           const changes: boolean[] = [];
@@ -915,10 +915,12 @@ exit B fade
             onFullDiagramChange: (on) => changes.push(on),
           });
 
+          board.controller!.next();
           board.setFullDiagram(true);
           board.setFullDiagram(false);
 
           expect(changes).toEqual([true, false]);
+          expect(board.controller!.currentStep).toBe(1);
           expect(board.fullDiagram).toBe(false);
           expect(board.controller!.totalSteps).toBe(2);
         }

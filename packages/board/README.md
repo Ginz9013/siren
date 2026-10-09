@@ -154,6 +154,8 @@ The full diagram is the document drawn without its `timeline:` block. While it s
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
 Next and Reset and marks its Full diagram button as pressed. Switching never changes pan
 and zoom, and `onFullDiagramChange` fires whether the switch came from the bar or from code.
+A custom control bar learns about switches through its own `update()` instead (see
+[Custom controls](#custom-controls)).
 
 ### Keyboard navigation
 
@@ -223,7 +225,8 @@ createBoard(container, {
     return {
       element: bar,
       // Called after every render, step change and full diagram switch, from your bar or
-      // from code. Read the new state off the board.
+      // from code — not at mount, so give the bar its starting state yourself. Read the
+      // new state off the board; board.controller is still null before the first render.
       update: () => {
         const controller = board.controller;
         next.disabled = !controller || controller.currentStep === controller.totalSteps;
