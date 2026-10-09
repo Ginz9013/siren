@@ -1876,6 +1876,42 @@ highlight A outline
         container.remove();
       });
 
+      it("setPlayInterval from code with an interval the list lacks, while the listbox is open, keeps keyboard focus on the option the reader was on", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        control(container, "Play interval").click(); // focus on 2s
+        expect(document.activeElement?.textContent).toBe("2s"); // sanity
+
+        board.setPlayInterval(750); // the options are rebuilt to add 0.75s
+
+        expect(listbox(container)).not.toBeNull();
+        expect(document.activeElement?.textContent).toBe("2s");
+        expect(listbox(container)!.contains(document.activeElement)).toBe(true);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("a mousedown inside the open listbox — on its padding or an option — keeps focus where it is rather than dropping it to the page", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        control(container, "Play interval").click();
+        const press = (target: HTMLElement) => {
+          const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+          target.dispatchEvent(event);
+          return event;
+        };
+
+        expect(press(listbox(container)!).defaultPrevented).toBe(true);
+        expect(press(option(container, "3s")).defaultPrevented).toBe(true);
+        expect(listbox(container)).not.toBeNull();
+
+        board.destroy();
+        container.remove();
+      });
+
       it("keys the dropdown handles stay with it, so a page's own keyboard shortcuts do not also fire", () => {
         const container = document.createElement("div");
         document.body.appendChild(container);

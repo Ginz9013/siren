@@ -182,9 +182,11 @@ set added to the list. Its button shows the current interval; the list always op
 above it, at a fixed place and without a scrollbar. Open it with a click, or with the arrow
 keys, Enter or Space on its button; move with the arrow keys, Home and End; pick with Enter,
 Space or a click; close it without picking with Escape, Tab or a click anywhere else, the
-diagram included. Playback stepping while it is open leaves it open. Both are disabled while the full diagram shows and when the document
-has no steps. Any step change playback did not make stops it — Prev, Next or Reset, a new
-document, or switching to the full diagram.
+diagram included. Playback stepping while it is open leaves it open. Since the list opens
+inside the board, give the board at least about 260px of height, or its top options are cut
+off. Both are disabled while the full diagram shows and when the document has no steps. Any
+step change playback did not make stops it — Prev, Next or Reset, a new document, or
+switching to the full diagram.
 
 ### Keyboard navigation
 
