@@ -248,7 +248,9 @@ timeline wallet:
 Each block is a timeline of its own: its steps count from 1, and anything *that block* never
 mentions is visible at its step 0. A diagnostic about a named block starts with
 `timeline <name>:`. A document uses either one unnamed `timeline:` block or named blocks,
-never both, and a name can be used only once.
+never both, and a name can be used only once. A header is exactly `timeline:` or
+`timeline <name>:` with nothing between the name and the colon; a name is letters, digits, `_` and
+`-`. Any other line starting with `timeline` is not a header and is read as ordinary syntax.
 
 `render()` applies the first block unless you pass another name (see
 [`RenderOptions`](#renderoptions)). Every block is checked on every render, whichever one is
