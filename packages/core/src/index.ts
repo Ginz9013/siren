@@ -236,9 +236,9 @@ const NO_TIMELINE: ResolvedTimeline = { totalSteps: 0, entries: [] };
  * the first named one) — or none at all when the caller asked for the full
  * diagram.
  *
- * Chosen from the *model*, once, rather than from each kind's positioned
- * diagram: layout and the renderers carry only the default timeline, because
- * no renderer reads it (step 0 is the controller's, see `establishStepZero`).
+ * Chosen from the *model*, once: layout and the renderers never see a
+ * timeline, since no renderer needs one (step 0 is the controller's, see
+ * `establishStepZero`).
  * Substituting at the controller rather than dropping blocks before parsing is
  * what keeps every block read and validated whichever one applies.
  */

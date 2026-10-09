@@ -86,24 +86,6 @@ function buildFixture(): PositionedGraph {
   };
 }
 
-/** Hand-built fixture: three unconnected nodes X, Y and Z. */
-function buildNonEnterFixture(): PositionedGraph {
-  return {
-    direction: "TB",
-    nodes: [
-      { id: "X", ...labelled("ExitOnly"), x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "Y", ...labelled("HighlightOnly"), x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "Z", ...labelled("EntersLater"), x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-    ],
-    edges: [],
-    subgraphs: [],
-    accTitle: null,
-    accDescr: null,
-    width: 80,
-    height: 240,
-  };
-}
-
 /**
  * The `<marker>` one edge path points at, found by following its own
  * `marker-end` rather than by naming an id.
@@ -143,13 +125,12 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("leaves step-0 pending state to the controller, stamping siren-pending on nothing whatever the timeline declares", () => {
+  it("leaves step-0 pending state to the controller, stamping siren-pending on nothing", () => {
     // The renderer draws the diagram; `createAnimationController.reset()`
-    // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. Held
-    // here so a private "which elements start pending" copy cannot grow back
-    // in this file and drift from the controller's own notion of step 0.
+    // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. The
+    // renderer cannot see a timeline at all, so this guards only against an
+    // unconditional `siren-pending` creeping back into this file.
     expect(renderToSVG(buildFixture()).querySelectorAll(".siren-pending")).toHaveLength(0);
-    expect(renderToSVG(buildNonEnterFixture()).querySelectorAll(".siren-pending")).toHaveLength(0);
   });
 
   it("gives every node a rect sized to width/height and a text with the node's exact label", () => {
