@@ -868,7 +868,7 @@
 /*
  * `fill` is absent because the renderer writes `fill="none"` onto the path
  * itself: a transition's points make an open, multi-segment path that a
- * default fill would paint as a polygon over the states it joins. A
+ * default fill would paint as a polygon spanning the states it joins. A
  * self-transition's loop is the same path drawn beside one box, and takes
  * this same rule.
  */

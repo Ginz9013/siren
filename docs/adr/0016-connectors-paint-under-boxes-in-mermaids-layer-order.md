@@ -35,8 +35,14 @@ defs → frames → every connector line → every connector label → boxes →
 ```
 
 Frames (subgraph, namespace, composite, ER subgraph) are all `fill: none`, so whether they sit
-above or below a line changes only which stroke wins where the two cross. They stay first, as
-Mermaid's `clusters` are.
+above or below a line changes only which stroke wins where the two cross. Subgraph, namespace and
+ER subgraph frames stay first, as Mermaid's `clusters` are.
+
+A state diagram's composite frame is the exception: it stays among the states, after the lines. A
+composite is itself a `g.siren-state` in the model's state list and a timeline target under the
+author's own name, so drawing its frame first would mean pulling it out of the group the timeline
+animates. Because the frame is unfilled, the only cost is that its stroke is drawn over a
+transition where the two cross.
 
 A connector whose lines and labels used to share one `<g>` is now split into **two groups that wear
 the same `data-siren-id`**:
