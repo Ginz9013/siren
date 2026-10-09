@@ -1,3 +1,4 @@
 {"id":"01M4GQ70K19106SV9AD5CWWKM6","t":1,"a":"83a1","op":"create","title":"core: 五種圖都能解析、驗證多個具名 timeline block，render 預設播第一條"}
 {"id":"01M4GQ70KAXXK5PE2BWPK0WBPB","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T02-core-named-timeline-blocks.md`（T2）。"}
 {"id":"01M4GQ70KANY9B01HDTZ8A76X3","t":3,"a":"83a1","op":"label.add","v":"core"}
+{"id":"01M4GQHF3C29QYQYEMV321Y82H","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
