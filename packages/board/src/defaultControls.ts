@@ -1,11 +1,9 @@
 import type { Board, ControlsFactory } from "./createBoard";
+import { createDropdown } from "./dropdown";
 
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
 const INTERVAL_CLASS = "siren-board-controls__interval";
-const TRIGGER_CLASS = "siren-board-controls__trigger";
-const LISTBOX_CLASS = "siren-board-controls__listbox";
-const OPTION_CLASS = "siren-board-controls__option";
 const STEP_CLASS = "siren-board-controls__step";
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** The play intervals the bar's interval dropdown offers, in ms. */
@@ -111,59 +109,16 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     board.setFullDiagram(!board.fullDiagram);
   });
   const resetView = makeButton("Reset view", ICONS.resetView, () => board.resetView());
-  const intervalDropdown = document.createElement("div");
-  intervalDropdown.className = INTERVAL_CLASS;
-  const intervalTrigger = document.createElement("button");
-  intervalTrigger.type = "button";
-  intervalTrigger.className = TRIGGER_CLASS;
-  intervalTrigger.setAttribute("aria-label", INTERVAL_LABEL);
-  intervalTrigger.setAttribute("aria-haspopup", "listbox");
-  intervalTrigger.setAttribute("aria-expanded", "false");
-  const intervalLabel = document.createElement("span");
-  intervalTrigger.append(intervalLabel, makeIcon(ICONS.chevronUp));
-  intervalDropdown.append(intervalTrigger);
-  /** The interval dropdown's options, in the DOM only while it is open. */
-  const intervalListbox = document.createElement("div");
-  intervalListbox.className = LISTBOX_CLASS;
-  intervalListbox.setAttribute("role", "listbox");
-  intervalListbox.setAttribute("aria-label", INTERVAL_LABEL);
-  intervalListbox.addEventListener("keydown", (event) => {
-    const options = intervalOptions();
-    const at = options.indexOf(document.activeElement as HTMLElement);
-    const to = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: options.length - 1 }[event.key];
-    if (to !== undefined) {
-      // Stops at either end rather than wrapping, like a native select.
-      options[Math.min(options.length - 1, Math.max(0, to))]?.focus();
-    } else if ((event.key === "Enter" || event.key === " ") && at !== -1) {
-      pickInterval(Number(options[at].dataset.value));
-    } else if (event.key === "Escape") {
-      closeIntervalList(true);
-    } else {
-      // Not handled, so not prevented: Tab, after focus goes back to the
-      // trigger, moves on from there as it would from a closed dropdown.
-      if (event.key === "Tab") closeIntervalList(true);
-      return;
-    }
-    claimKey(event);
+  const intervalDropdown = createDropdown<number>({
+    label: INTERVAL_LABEL,
+    className: INTERVAL_CLASS,
+    icon: makeIcon(ICONS.chevronUp),
+    onPick: (ms) => board.setPlayInterval(ms),
   });
-  // A press on the listbox's own padding would otherwise drop focus to the
-  // page, leaving the arrows and Escape with nothing to act on; an option
-  // still picks on the click that follows.
-  intervalListbox.addEventListener("mousedown", (event) => event.preventDefault());
-  intervalTrigger.addEventListener("click", () => {
-    if (intervalListbox.isConnected) closeIntervalList();
-    else openIntervalList();
-  });
-  intervalTrigger.addEventListener("keydown", (event) => {
-    if (!["ArrowUp", "ArrowDown", "Enter", " "].includes(event.key)) return;
-    // Handled here rather than left to the button's own click: Space would
-    // scroll the page, and the click that follows would shut it again.
-    claimKey(event);
-    openIntervalList();
-  });
+  const intervalTrigger = intervalDropdown.trigger;
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
-  bar.append(prev, play, next, stepCounter, reset, intervalDropdown, fullDiagram, resetView);
+  bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView);
   /**
    * Where a step button disabled while focused hands focus: the opposite way,
    * which is the way left to go. Every other control, and these when the
@@ -192,7 +147,6 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // Like Full diagram's below, the icon names what a click does: play while
     // stopped, pause while playing.
     play.replaceChildren(makeIcon(board.playing ? ICONS.pause : ICONS.play));
-    intervalLabel.textContent = intervalText(board.playInterval);
     syncIntervalOptions();
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
     // Here too the icon names what a click switches to; the pressed state,
@@ -218,7 +172,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // only then disable.
     for (const [control, off] of disabled) if (!off) control.disabled = false;
     // Focus on one of the open listbox's options counts as focus on its trigger.
-    const focused = intervalListbox.contains(document.activeElement) ? intervalTrigger : document.activeElement;
+    const focused = intervalDropdown.element.contains(document.activeElement) ? intervalTrigger : document.activeElement;
     const losing = [...disabled].find(([control, off]) => off && control === focused)?.[0];
     if (losing !== undefined) {
       const opposite = handoff.get(losing);
@@ -226,7 +180,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     }
     // A disabled dropdown has nothing to pick from; this is the only thing
     // in update() that closes an open listbox.
-    if (nothingToPlay) closeIntervalList();
+    if (nothingToPlay) intervalDropdown.close();
     for (const [control, off] of disabled) if (off) control.disabled = true;
   }
   update();
@@ -234,87 +188,19 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   /**
    * Offers `PLAY_INTERVALS` plus `board.playInterval` when it is not one of
    * them (2500 from the option or from code shows as "2.5s", in order), and
-   * marks the current one selected. The options are rebuilt only when that
-   * list changes: update() runs on every playback step, and rebuilding an
-   * open listbox would pull the option out from under the reader's focus.
+   * marks the current one selected.
    */
   function syncIntervalOptions(): void {
-    const wanted = [...new Set([...PLAY_INTERVALS, board.playInterval])].sort((a, b) => a - b);
-    const shown = intervalOptions().map((option) => Number(option.dataset.value));
-    if (wanted.join() !== shown.join()) {
-      // Rebuilding drops the focused option from the DOM; keep the reader on
-      // the same interval in the new list.
-      const focusedValue = intervalListbox.contains(document.activeElement)
-        ? (document.activeElement as HTMLElement).dataset.value
-        : undefined;
-      intervalListbox.replaceChildren(...wanted.map(makeIntervalOption));
-      if (focusedValue !== undefined) {
-        intervalOptions().find((option) => option.dataset.value === focusedValue)?.focus();
-      }
-    }
-    for (const option of intervalOptions()) {
-      option.setAttribute("aria-selected", String(Number(option.dataset.value) === board.playInterval));
-    }
-  }
-
-  /** Opens the interval listbox above its trigger, focusing the selected option. */
-  function openIntervalList(): void {
-    intervalDropdown.append(intervalListbox);
-    intervalTrigger.setAttribute("aria-expanded", "true");
-    // Capture phase: the canvas's own mousedown handler prevents the default
-    // and blurs, so this must hear the press before anything else can.
-    document.addEventListener("mousedown", onOutsideMouseDown, true);
-    selectedOption()?.focus();
-  }
-
-  /** Closes the interval listbox, handing focus back to its trigger when `refocus`. */
-  function closeIntervalList(refocus = false): void {
-    intervalListbox.remove();
-    intervalTrigger.setAttribute("aria-expanded", "false");
-    document.removeEventListener("mousedown", onOutsideMouseDown, true);
-    if (refocus) intervalTrigger.focus();
-  }
-
-  /** A press anywhere but the dropdown itself closes its listbox, as a click away from a native select would. */
-  function onOutsideMouseDown(event: MouseEvent): void {
-    if (!intervalDropdown.contains(event.target as Node)) closeIntervalList();
-  }
-
-  /** Sets the play interval to `ms` and closes the listbox onto its trigger. */
-  function pickInterval(ms: number): void {
-    closeIntervalList(true);
-    board.setPlayInterval(ms);
-  }
-
-  function selectedOption(): HTMLElement | undefined {
-    return intervalOptions().find((option) => option.getAttribute("aria-selected") === "true");
-  }
-
-  function intervalOptions(): HTMLElement[] {
-    return Array.from(intervalListbox.children as HTMLCollectionOf<HTMLElement>);
-  }
-
-  /** The listbox's option for `ms`: a click picks it and closes the listbox. */
-  /** A key the dropdown handles is its alone: no default, and no page shortcut on the same key (Home, the arrows). */
-function claimKey(event: KeyboardEvent): void {
-  event.preventDefault();
-  event.stopPropagation();
-}
-
-function makeIntervalOption(ms: number): HTMLElement {
-    const option = document.createElement("div");
-    option.className = OPTION_CLASS;
-    option.setAttribute("role", "option");
-    option.tabIndex = -1;
-    option.dataset.value = String(ms);
-    option.textContent = intervalText(ms);
-    option.addEventListener("click", () => pickInterval(ms));
-    return option;
+    const intervals = [...new Set([...PLAY_INTERVALS, board.playInterval])].sort((a, b) => a - b);
+    intervalDropdown.sync(
+      intervals.map((ms) => ({ value: ms, label: intervalText(ms) })),
+      board.playInterval,
+    );
   }
 
   /** Closes an open listbox, which takes its document listener with it. */
   function destroy(): void {
-    closeIntervalList();
+    intervalDropdown.destroy();
   }
 
   return { element: bar, update, destroy };
