@@ -1248,11 +1248,18 @@ function stateFigures(result: SirenRenderResult): string[] {
  * Every state-diagram transition as `id: label`, in draw order — the label
  * empty when the transition carries none, which is a picture a reader can
  * tell from one that carries an empty label only because nothing is drawn.
+ *
+ * The label is found by the transition's id, not inside its line group: it
+ * is a group of its own, drawn after every line (ADR-0016).
  */
 function transitions(result: SirenRenderResult): string[] {
-  return elements(result, "g.siren-transition").map(
-    (g) => `${idOf(g)}: ${g.querySelector("text.siren-transition-label")?.textContent ?? ""}`,
-  );
+  const svg = svgOf(result);
+  return elements(result, "g.siren-transition").map((g) => {
+    const label = svg.querySelector(
+      `g.siren-transition-labels[data-siren-id="${idOf(g)}"] text.siren-transition-label`,
+    );
+    return `${idOf(g)}: ${label?.textContent ?? ""}`;
+  });
 }
 
 /**
@@ -4334,10 +4341,11 @@ line2\`"]`,
     assert: (result) => {
       expectSame("transitions", transitions(result), ["Idle-Running: start the job"]);
       // Drawn on the line rather than merely present somewhere: the label
-      // belongs to the transition's own group.
+      // wears the transition's own id, in the label group drawn after every
+      // line (ADR-0016).
       expectSame(
-        "the label is drawn inside the transition's group",
-        texts(result, 'g.siren-transition[data-siren-id="Idle-Running"] text'),
+        "the label is drawn in the transition's label group",
+        texts(result, 'g.siren-transition-labels[data-siren-id="Idle-Running"] text'),
         ["start the job"],
       );
     },
@@ -4738,7 +4746,7 @@ line2\`"]`,
         "the label's rows",
         labelRows(
           svgOf(result).querySelector(
-            'g.siren-transition[data-siren-id="s1-s2"] text.siren-transition-label',
+            'g.siren-transition-labels[data-siren-id="s1-s2"] text.siren-transition-label',
           ),
         ),
         ["a", "b"],
