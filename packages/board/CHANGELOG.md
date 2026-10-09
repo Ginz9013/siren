@@ -53,6 +53,12 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   `setSource()`. A step button disabled while focused hands focus to the opposite one (Next
   to Prev, Prev or Reset to Next), or to Full diagram when that one is disabled too.
 
+### Fixed
+
+- Pressing the mouse on the diagram takes focus off whatever control held it, as a click
+  elsewhere on the page would. Starting a pan used to cancel that too, so a button or select
+  the reader had just used kept its focus ring after they went back to the diagram.
+
 ## [0.3.0] - 2026-10-05
 
 Requires `siren-core` ^0.3.0.
