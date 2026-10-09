@@ -81,7 +81,9 @@ describe("board chrome's color tokens", () => {
 
     // Not vacuous: the chrome rules themselves are in what is left.
     expect(outside).toContain(".siren-board-controls__button:hover");
-    expect(outside).toContain(".siren-board-controls__select");
+    expect(outside).toContain(".siren-board-controls__trigger");
+    expect(outside).toContain(".siren-board-controls__listbox");
+    expect(outside).toContain(".siren-board-controls__option");
     expect(outside).toContain(".siren-board-error");
     // A literal in a chrome rule is a color no page theme can reach.
     expect(outside.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g) ?? []).toEqual([]);
@@ -117,20 +119,43 @@ describe("board chrome's control bar states", () => {
     expect(pressed).toContain("var(--siren-board-accent)");
   });
 
-  it("styles the interval select like the bar's buttons, unavailable when disabled", () => {
-    // Play and the interval select are disabled together, with nothing to
-    // play: the select must fade and refuse the pointer just as Play does.
+  it("styles the interval trigger like the bar's buttons, unavailable when disabled", () => {
+    // Play and the interval dropdown are disabled together, with nothing to
+    // play: the trigger must fade and refuse the pointer just as Play does.
     const css = injectedChromeCss();
 
-    const select = ruleBody(css, ".siren-board-controls__select");
-    expect(select).toBeDefined();
-    expect(select).toContain("var(--siren-board-border)");
-    expect(select).toContain("var(--siren-board-surface)");
-    expect(select).toContain("var(--siren-board-text)");
+    const trigger = ruleBody(css, ".siren-board-controls__trigger");
+    expect(trigger).toBeDefined();
+    expect(trigger).toContain("var(--siren-board-border)");
+    expect(trigger).toContain("var(--siren-board-surface)");
+    expect(trigger).toContain("var(--siren-board-text)");
 
-    const disabled = ruleBody(css, ".siren-board-controls__select:disabled");
+    const disabled = ruleBody(css, ".siren-board-controls__trigger:disabled");
     expect(disabled).toBeDefined();
     expect(disabled).toMatch(/cursor:\s*not-allowed/);
+  });
+
+  it("opens the interval listbox directly above its trigger, whatever the room, and never scrolls it", () => {
+    // A native select's list is placed by the OS and drifts up or down; this
+    // one is pinned above the trigger and shows every option at once.
+    const css = injectedChromeCss();
+
+    const interval = ruleBody(css, ".siren-board-controls__interval");
+    expect(interval).toMatch(/position:\s*relative/);
+
+    const listbox = ruleBody(css, ".siren-board-controls__listbox");
+    expect(listbox).toBeDefined();
+    expect(listbox).toMatch(/position:\s*absolute/);
+    expect(listbox).toMatch(/bottom:\s*calc\(100% \+ [^)]+\)/);
+    expect(listbox).not.toMatch(/(?:^|[\s;])top:/);
+    expect(listbox).not.toMatch(/overflow(?:-y)?:\s*(?:auto|scroll)/);
+    expect(listbox).not.toMatch(/max-height/);
+    expect(listbox).toContain("var(--siren-board-surface)");
+    expect(listbox).toContain("var(--siren-board-border)");
+
+    // The selected option reads in the accent color, as a pressed button does.
+    const selected = ruleBody(css, '.siren-board-controls__option[aria-selected="true"]');
+    expect(selected).toContain("var(--siren-board-accent)");
   });
 
   it("sets the step counter in tabular figures, colored through the chrome tokens", () => {

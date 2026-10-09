@@ -32,7 +32,7 @@ createBoard(document.getElementById("board"), { source });
 ## Features
 
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
-  (`2 / 10`), Reset, a play interval select, Full diagram and Reset view. Prev, Next and
+  (`2 / 10`), Reset, a play interval dropdown, Full diagram and Reset view. Prev, Next and
   Reset are disabled when they have nowhere to go. Replace it with your own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
@@ -155,7 +155,7 @@ board.setFullDiagram(false); // back to the step that was showing
 
 The full diagram is the document drawn without its `timeline:` block. While it shows,
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
-Play, Next, Reset and the play interval select, marks its Full diagram button as pressed,
+Play, Next, Reset and the play interval dropdown, marks its Full diagram button as pressed,
 and its step counter reads `0 / 0` until you switch back. The counter also reads `0 / 0`
 on a document with no `timeline:` block, and before a first render succeeds, and Prev,
 Next and Reset stay disabled there too. On the timeline, the bar disables Prev and Reset on
@@ -176,9 +176,13 @@ board.pause();
 ```
 
 The built-in bar's Play button does the same. It shows a play icon while stopped and a pause
-icon while playing, and is pressed (`aria-pressed="true"`) while playback runs. The select
+icon while playing, and is pressed (`aria-pressed="true"`) while playback runs. The dropdown
 next to Reset picks the interval: 1s, 1.5s, 2s, 3s or 5s, with any other `playInterval` you
-set added to the list. Both are disabled while the full diagram shows and when the document
+set added to the list. Its button shows the current interval; the list always opens directly
+above it, at a fixed place and without a scrollbar. Open it with a click, or with the arrow
+keys, Enter or Space on its button; move with the arrow keys, Home and End; pick with Enter,
+Space or a click; close it without picking with Escape, Tab or a click anywhere else, the
+diagram included. Playback stepping while it is open leaves it open. Both are disabled while the full diagram shows and when the document
 has no steps. Any step change playback did not make stops it — Prev, Next or Reset, a new
 document, or switching to the full diagram.
 
@@ -401,7 +405,8 @@ declares them alongside `siren-core`'s color tokens, so the diagram and the chro
 together — copy it and you have a dark theme for both.
 
 For deeper changes, target the classes `.siren-board-controls`,
-`.siren-board-controls__button` and `.siren-board-controls__step` (the step counter), or
+`.siren-board-controls__button`, `.siren-board-controls__step` (the step counter) and
+`.siren-board-controls__trigger`, `__listbox` and `__option` (the play interval dropdown), or
 pass your own `controls`.
 
 The built-in buttons are icon-only. Each has an `aria-label` and a `title`, so screen

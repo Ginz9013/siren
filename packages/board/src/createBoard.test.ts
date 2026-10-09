@@ -182,11 +182,16 @@ class A
       "button Next",
       "span siren-board-controls__step",
       "button Reset",
-      "select Play interval",
+      "div siren-board-controls__interval",
       "button Full diagram",
       "button Reset view",
     ]);
-    const buttons = Array.from(bar.querySelectorAll("button"));
+    // The interval dropdown's wrapper holds its trigger, which names it.
+    const interval = bar.querySelector(".siren-board-controls__interval")!;
+    expect(interval.firstElementChild?.tagName.toLowerCase()).toBe("button");
+    expect(interval.firstElementChild?.getAttribute("aria-label")).toBe("Play interval");
+    // The icon-only buttons; the interval trigger shows its value as text.
+    const buttons = Array.from(bar.querySelectorAll<HTMLButtonElement>(":scope > button"));
     const labels = ["Prev", "Play", "Next", "Reset", "Full diagram", "Reset view"];
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(labels);
     expect(buttons.map((b) => b.title)).toEqual(labels);
@@ -416,21 +421,21 @@ enter B fade
     window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 100 })); // cleanup: stop the drag this started
   });
 
-  it("a mousedown on the board's canvas still takes focus off a control, as a click on the page would — preventDefault() alone would leave the play interval select focused", () => {
+  it("a mousedown on the board's canvas still takes focus off a control, as a click on the page would — preventDefault() alone would leave the play interval trigger focused", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
-    // A timeline, so the select is enabled and can hold focus.
+    // A timeline, so the interval trigger is enabled and can hold focus.
     const source = `${VALID_SOURCE}timeline:\nexit B fade\n`;
     createBoard(container, { source, measureText: FAKE_MEASURER });
     const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
     stubRect(canvas, { width: 400, height: 300 });
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Play interval"]')!;
-    select.focus();
-    expect(document.activeElement).toBe(select); // sanity
+    const trigger = button(container, "Play interval");
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger); // sanity
 
     canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 100, clientY: 100, button: 0, bubbles: true, cancelable: true }));
 
-    expect(document.activeElement).not.toBe(select);
+    expect(document.activeElement).not.toBe(trigger);
     window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 100 })); // cleanup: stop the drag this started
     container.remove();
   });
@@ -887,7 +892,7 @@ exit B fade
         expect(board.fullDiagram).toBe(true);
         expect(effectClasses(container)).toEqual([]);
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
-        expect(disabledButtons(container)).toEqual(["Prev", "Play", "Next", "Reset"]);
+        expect(disabledButtons(container)).toEqual(["Prev", "Play", "Next", "Reset", "Play interval"]);
       });
 
       it("a second click switches it back off, releases the button, re-enables every button, and returns to the step shown before", () => {
@@ -927,7 +932,7 @@ exit B fade
         board.setFullDiagram(true);
 
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
-        expect(disabledButtons(container)).toEqual(["Prev", "Play", "Next", "Reset"]);
+        expect(disabledButtons(container)).toEqual(["Prev", "Play", "Next", "Reset", "Play interval"]);
 
         board.setFullDiagram(false);
 
@@ -1684,10 +1689,30 @@ highlight A outline
       expect(updates).toBe(0);
     });
 
-    describe("the built-in bar's Play button and interval select", () => {
+    describe("the built-in bar's Play button and interval dropdown", () => {
       /** The built-in bar's control with this accessible name. */
       function control<T extends HTMLElement = HTMLButtonElement>(container: HTMLElement, label: string): T {
         return container.querySelector<T>(`.siren-board-controls [aria-label="${label}"]`)!;
+      }
+
+      /** The interval dropdown's open listbox, or null while it is closed. */
+      function listbox(container: HTMLElement): HTMLElement | null {
+        return container.querySelector<HTMLElement>('.siren-board-controls [role="listbox"]');
+      }
+
+      /** The open listbox's options as a reader sees them: label, and whether it is the selected one. */
+      function options(container: HTMLElement): [string | null, boolean][] {
+        return Array.from(listbox(container)?.querySelectorAll('[role="option"]') ?? [], (option) => [
+          option.textContent,
+          option.getAttribute("aria-selected") === "true",
+        ]);
+      }
+
+      /** The open listbox's option labelled `label`. */
+      function option(container: HTMLElement, label: string): HTMLElement {
+        return Array.from(listbox(container)!.querySelectorAll<HTMLElement>('[role="option"]')).find(
+          (o) => o.textContent === label,
+        )!;
       }
 
       it("a click plays, presses the button and swaps its icon to pause; a second click pauses and swaps it back", () => {
@@ -1738,57 +1763,296 @@ highlight A outline
         expect(play.getAttribute("aria-pressed")).toBe("false");
       });
 
-      it("the interval select offers 1s, 1.5s, 2s, 3s and 5s with 2s selected, and choosing one sets the play interval", () => {
+      it("the interval dropdown's trigger is a closed listbox button showing the current interval and a chevron", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
-        const select = control<HTMLSelectElement>(container, "Play interval");
+        const trigger = control(container, "Play interval");
 
-        expect(Array.from(select.options).map((o) => [o.textContent, o.value])).toEqual([
-          ["1s", "1000"],
-          ["1.5s", "1500"],
-          ["2s", "2000"],
-          ["3s", "3000"],
-          ["5s", "5000"],
-        ]);
-        expect(select.value).toBe("2000");
+        expect(trigger.tagName.toLowerCase()).toBe("button");
+        expect(trigger.type).toBe("button");
+        expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(trigger.textContent).toBe("2s");
+        const icons = trigger.querySelectorAll("svg");
+        expect(icons).toHaveLength(1);
+        expect(icons[0].getAttribute("aria-hidden")).toBe("true");
+        expect(listbox(container)).toBeNull();
 
-        select.value = "1500";
-        select.dispatchEvent(new Event("change"));
+        board.setPlayInterval(3000);
 
-        expect(board.playInterval).toBe(1500);
+        expect(trigger.textContent).toBe("3s");
       });
 
-      it("an interval the select does not offer — the playInterval option or setPlayInterval from code — gets an option of its own, in order, and is selected", () => {
+      it("a click on the trigger opens a listbox of 1s, 1.5s, 2s, 3s and 5s with focus on the selected 2s; a click on an option sets the play interval, closes it and focuses the trigger", () => {
         const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+
+        trigger.click();
+
+        expect(trigger.getAttribute("aria-expanded")).toBe("true");
+        expect(options(container)).toEqual([
+          ["1s", false],
+          ["1.5s", false],
+          ["2s", true],
+          ["3s", false],
+          ["5s", false],
+        ]);
+        expect(document.activeElement).toBe(option(container, "2s"));
+
+        option(container, "1.5s").click();
+
+        expect(board.playInterval).toBe(1500);
+        expect(listbox(container)).toBeNull();
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(trigger.textContent).toBe("1.5s");
+        expect(document.activeElement).toBe(trigger);
+
+        trigger.click();
+        expect(options(container).find(([, selected]) => selected)?.[0]).toBe("1.5s");
+        trigger.click(); // a second click closes it again
+        expect(listbox(container)).toBeNull();
+
+        board.destroy();
+        container.remove();
+      });
+
+      it.each(["ArrowUp", "ArrowDown", "Enter", " "])("%j on the trigger opens the listbox with focus on the selected option", (key) => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER, playInterval: 3000 });
+        const trigger = control(container, "Play interval");
+        trigger.focus();
+
+        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+        trigger.dispatchEvent(event);
+
+        expect(trigger.getAttribute("aria-expanded")).toBe("true");
+        expect(document.activeElement).toBe(option(container, "3s"));
+        // Handled here, so the page doesn't scroll and the button doesn't click itself shut.
+        expect(event.defaultPrevented).toBe(true);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it.each(["Enter", " "])("in the listbox, ArrowUp/ArrowDown/Home/End move focus between options and %j picks the focused one, closing the listbox onto the trigger", (key) => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+        trigger.click(); // focus on 2s
+        const press = (k: string) => {
+          const event = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+          (document.activeElement as HTMLElement).dispatchEvent(event);
+          return event;
+        };
+        const focused = () => document.activeElement?.textContent;
+
+        expect(press("ArrowDown").defaultPrevented).toBe(true);
+        expect(focused()).toBe("3s");
+        press("ArrowUp");
+        press("ArrowUp");
+        expect(focused()).toBe("1.5s");
+        press("End");
+        expect(focused()).toBe("5s");
+        press("ArrowDown"); // the last option stays put
+        expect(focused()).toBe("5s");
+        press("Home");
+        expect(focused()).toBe("1s");
+        press("ArrowUp"); // and so does the first
+        expect(focused()).toBe("1s");
+        expect(board.playInterval).toBe(2000); // moving alone picks nothing
+
+        expect(press(key).defaultPrevented).toBe(true);
+
+        expect(board.playInterval).toBe(1000);
+        expect(listbox(container)).toBeNull();
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(trigger);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it.each([
+        ["Escape", true],
+        ["Tab", false],
+      ])("%s in the listbox closes it without picking and puts focus back on the trigger", (key, prevented) => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+        trigger.click();
+        option(container, "2s").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+
+        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+        option(container, "3s").dispatchEvent(event);
+
+        expect(listbox(container)).toBeNull();
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(trigger);
+        expect(board.playInterval).toBe(2000);
+        // Tab is left to the browser, which moves on from the trigger to the next control.
+        expect(event.defaultPrevented).toBe(prevented);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("a mousedown anywhere but the listbox and its trigger — the page, or the board's canvas — closes the listbox", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+        const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+        stubRect(canvas, { width: 400, height: 300 });
+        const mousedown = (target: Element) =>
+          target.dispatchEvent(new MouseEvent("mousedown", { clientX: 100, clientY: 100, button: 0, bubbles: true, cancelable: true }));
+
+        trigger.click();
+        mousedown(option(container, "3s"));
+        mousedown(listbox(container)!);
+        mousedown(trigger);
+        expect(listbox(container)).not.toBeNull(); // its own parts leave it open
+
+        mousedown(document.body);
+        expect(listbox(container)).toBeNull();
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+        trigger.click();
+        mousedown(canvas);
+        window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 100 })); // stop the drag this started
+        expect(listbox(container)).toBeNull();
+        expect(board.playInterval).toBe(2000);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("a playback step neither closes nor rebuilds an open listbox, so the reader keeps their place in it", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+        board.play();
+        trigger.click();
+        option(container, "2s").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        const shown = Array.from(listbox(container)!.children);
+        const focused = document.activeElement;
+        expect(focused?.textContent).toBe("3s"); // sanity
+
+        vi.advanceTimersByTime(2000);
+
+        expect(board.controller!.currentStep).toBe(2);
+        expect(listbox(container)).not.toBeNull();
+        expect(shown.every((o, i) => o === listbox(container)!.children[i])).toBe(true);
+        expect(document.activeElement).toBe(focused);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("disabling the dropdown while its listbox is open closes it and hands focus to Full diagram", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+        trigger.click();
+        expect(document.activeElement?.getAttribute("role")).toBe("option"); // sanity
+
+        board.setFullDiagram(true);
+
+        expect(trigger.disabled).toBe(true);
+        expect(listbox(container)).toBeNull();
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(control(container, "Full diagram"));
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("destroy() with the listbox open removes it and every listener the dropdown put on document or window", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        // Each listener as [target, type, listener, capture], from spies that still call through.
+        const spies = [document, window].map((target) => ({
+          target,
+          add: vi.spyOn(target, "addEventListener"),
+          remove: vi.spyOn(target, "removeEventListener"),
+        }));
+        const listeners = (kind: "add" | "remove") =>
+          spies.flatMap((spy) =>
+            spy[kind].mock.calls.map(([type, listener, options]) => [
+              spy.target,
+              type,
+              listener,
+              Boolean(typeof options === "object" ? options.capture : options),
+            ]),
+          );
+        control(container, "Play interval").click();
+        const added = listeners("add");
+        expect(added).not.toEqual([]); // sanity: the open listbox listens for a press outside it
+
+        board.destroy();
+
+        expect(container.querySelector('[role="listbox"]')).toBeNull();
+        for (const listener of added) expect(listeners("remove")).toContainEqual(listener);
+        vi.restoreAllMocks();
+        container.remove();
+      });
+
+      it("an interval the dropdown does not offer — the playInterval option or setPlayInterval from code — gets an option of its own, in order, and is selected, even while the listbox is open", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
         const board = createBoard(container, {
           source: THREE_STEP_SOURCE,
           measureText: FAKE_MEASURER,
           playInterval: 2500,
         });
-        const select = control<HTMLSelectElement>(container, "Play interval");
-        const labels = () => Array.from(select.options).map((o) => o.textContent);
+        const trigger = control(container, "Play interval");
+        expect(trigger.textContent).toBe("2.5s");
 
-        expect(labels()).toEqual(["1s", "1.5s", "2s", "2.5s", "3s", "5s"]);
-        expect(select.value).toBe("2500");
-        expect(select.selectedOptions[0].textContent).toBe("2.5s");
+        trigger.click();
+
+        expect(options(container)).toEqual([
+          ["1s", false],
+          ["1.5s", false],
+          ["2s", false],
+          ["2.5s", true],
+          ["3s", false],
+          ["5s", false],
+        ]);
 
         board.setPlayInterval(750);
 
-        expect(labels()).toEqual(["0.75s", "1s", "1.5s", "2s", "3s", "5s"]);
-        expect(select.value).toBe("750");
+        expect(options(container)).toEqual([
+          ["0.75s", true],
+          ["1s", false],
+          ["1.5s", false],
+          ["2s", false],
+          ["3s", false],
+          ["5s", false],
+        ]);
+        expect(trigger.textContent).toBe("0.75s");
 
         board.setPlayInterval(3000);
 
-        expect(labels()).toEqual(["1s", "1.5s", "2s", "3s", "5s"]);
-        expect(select.value).toBe("3000");
+        expect(options(container).map(([label]) => label)).toEqual(["1s", "1.5s", "2s", "3s", "5s"]);
+        expect(options(container).find(([, selected]) => selected)?.[0]).toBe("3s");
+
+        board.destroy();
+        container.remove();
       });
 
-      it("Play and the interval select are disabled with nothing to play — before the first render, without steps, in the full diagram — and enabled again once there is", () => {
+      it("Play and the interval dropdown are disabled with nothing to play — before the first render, without steps, in the full diagram — and enabled again once there is", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { measureText: FAKE_MEASURER });
         const play = control(container, "Play");
-        const select = control<HTMLSelectElement>(container, "Play interval");
-        const disabled = () => [play.disabled, select.disabled];
+        const interval = control(container, "Play interval");
+        const disabled = () => [play.disabled, interval.disabled];
         expect(disabled()).toEqual([true, true]); // no controller yet
 
         board.setSource(VALID_SOURCE);
@@ -1805,7 +2069,7 @@ highlight A outline
         expect(disabled()).toEqual([false, false]);
       });
 
-      it("hands focus from Play or the interval select to Full diagram when a change from code disables it", () => {
+      it("hands focus from Play or the interval trigger to Full diagram when a change from code disables it", () => {
         const container = document.createElement("div");
         document.body.appendChild(container);
         const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
@@ -1817,7 +2081,7 @@ highlight A outline
         expect(document.activeElement).toBe(fullDiagram);
 
         board.setFullDiagram(false);
-        control<HTMLSelectElement>(container, "Play interval").focus();
+        control(container, "Play interval").focus();
         board.setSource(VALID_SOURCE); // no steps: nothing to play
         expect(document.activeElement).toBe(fullDiagram);
 
