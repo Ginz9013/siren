@@ -2174,4 +2174,418 @@ enter B fade
       expect(playback).toEqual([true, false]);
     });
   });
+
+  describe("named timelines", () => {
+    /** Two named blocks told apart by length: `card` has one step, `wallet` three. */
+    const TWO_TIMELINES = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline card:
+enter B fade
+timeline wallet:
+enter B fade
+enter C fade
+highlight A outline
+`;
+
+    it("lists the document's named timelines and starts on the first; an unnamed or missing timeline lists none and is null", () => {
+      const board = createBoard(document.createElement("div"), { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+
+      expect(board.timelines).toEqual(["card", "wallet"]);
+      expect(board.timeline).toBe("card");
+      expect(board.controller!.totalSteps).toBe(1);
+
+      board.setSource(`flowchart TD\nA --> B\ntimeline:\nenter B fade\n`);
+      expect(board.timelines).toEqual([]);
+      expect(board.timeline).toBeNull();
+
+      board.setSource(VALID_SOURCE);
+      expect(board.timelines).toEqual([]);
+      expect(board.timeline).toBeNull();
+    });
+
+    it("setTimeline to another name re-renders that block from step 0, leaves the view and diagnostics alone, and fires onTimelineChange but neither onStepChange nor onDiagnostics", () => {
+      const container = document.createElement("div");
+      const timelineChanges: (string | null)[] = [];
+      const stepChanges: number[] = [];
+      let diagnosticsCalls = 0;
+      const board = createBoard(container, {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+        onStepChange: (current) => stepChanges.push(current),
+        onDiagnostics: () => diagnosticsCalls++,
+      });
+      board.controller!.next();
+      const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+      stubRect(canvas, { width: 400, height: 300 });
+      canvas.dispatchEvent(
+        new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+      );
+      const zoomed = readViewportTransform(container);
+      const diagnostics = board.diagnostics;
+      timelineChanges.length = 0;
+      stepChanges.length = 0;
+      diagnosticsCalls = 0;
+
+      board.setTimeline("wallet");
+
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(3);
+      expect(board.controller!.currentStep).toBe(0);
+      expect(readViewportTransform(container)).toEqual(zoomed);
+      expect(board.diagnostics).toBe(diagnostics);
+      expect(timelineChanges).toEqual(["wallet"]);
+      expect(stepChanges).toEqual([]);
+      expect(diagnosticsCalls).toBe(0);
+    });
+
+    it("setTimeline to another name stops playback, and no later playback step lands on the new timeline", () => {
+      vi.useFakeTimers();
+      try {
+        const playback: boolean[] = [];
+        const board = createBoard(document.createElement("div"), {
+          source: TWO_TIMELINES,
+          measureText: FAKE_MEASURER,
+          onPlaybackChange: (playing) => playback.push(playing),
+        });
+        board.setTimeline("wallet");
+        board.play();
+        expect(board.controller!.currentStep).toBe(1); // sanity: playing, one step in
+
+        board.setTimeline("card");
+
+        expect(board.playing).toBe(false);
+        expect(playback).toEqual([true, false]);
+        vi.advanceTimersByTime(10000);
+        expect(board.controller!.currentStep).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("setTimeline to the current name re-renders nothing, keeps the step, and fires no callback", () => {
+      const container = document.createElement("div");
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(container, {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+      board.controller!.next();
+      const controller = board.controller;
+      const svg = container.querySelector(".siren-board-viewport svg");
+      timelineChanges.length = 0;
+
+      board.setTimeline("card");
+
+      expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+      expect(board.controller).toBe(controller);
+      expect(board.controller!.currentStep).toBe(1);
+      expect(timelineChanges).toEqual([]);
+    });
+
+    it("setTimeline to a name the document does not declare throws a RangeError and changes nothing: drawing, step, playback, callbacks", () => {
+      vi.useFakeTimers();
+      try {
+        const container = document.createElement("div");
+        const timelineChanges: (string | null)[] = [];
+        const board = createBoard(container, {
+          source: TWO_TIMELINES,
+          measureText: FAKE_MEASURER,
+          onTimelineChange: (name) => timelineChanges.push(name),
+        });
+        board.setTimeline("wallet");
+        board.play();
+        const controller = board.controller;
+        const svg = container.querySelector(".siren-board-viewport svg");
+        timelineChanges.length = 0;
+
+        expect(() => board.setTimeline("paypal")).toThrow(RangeError);
+
+        expect(board.timeline).toBe("wallet");
+        expect(board.controller).toBe(controller);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+        expect(board.playing).toBe(true);
+        expect(timelineChanges).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("setTimeline throws a RangeError for any name on a board whose document has no named timelines, or that has not rendered yet", () => {
+      const unnamed = createBoard(document.createElement("div"), {
+        source: `flowchart TD\nA --> B\ntimeline:\nenter B fade\n`,
+        measureText: FAKE_MEASURER,
+      });
+      expect(() => unnamed.setTimeline("card")).toThrow(RangeError);
+      expect(unnamed.timeline).toBeNull();
+
+      const empty = createBoard(document.createElement("div"), { measureText: FAKE_MEASURER });
+      expect(() => empty.setTimeline("card")).toThrow(RangeError);
+      expect(empty.controller).toBeNull();
+    });
+
+    it("setSource keeps the current timeline when the new document declares it, at step 0, without firing onTimelineChange", () => {
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+      board.setTimeline("wallet");
+      board.controller!.next();
+      timelineChanges.length = 0;
+
+      // wallet is now first and two steps long: still chosen by name, not by place.
+      board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline paypal:
+enter B fade
+timeline wallet:
+enter C fade
+highlight A outline
+`);
+
+      expect(board.timelines).toEqual(["paypal", "wallet"]);
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(2);
+      expect(board.controller!.currentStep).toBe(0);
+      expect(timelineChanges).toEqual([]);
+    });
+
+    it("setSource falls back to the new document's first timeline, or null, when it does not declare the current one, and fires onTimelineChange", () => {
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+      board.setTimeline("wallet");
+      timelineChanges.length = 0;
+
+      board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+timeline paypal:
+enter B fade
+timeline card:
+highlight A outline
+`);
+
+      expect(board.timeline).toBe("paypal");
+      expect(board.controller!.totalSteps).toBe(1);
+      expect(timelineChanges).toEqual(["paypal"]);
+
+      board.setSource(VALID_SOURCE);
+
+      expect(board.timeline).toBeNull();
+      expect(timelineChanges).toEqual(["paypal", null]);
+    });
+
+    it("the initial timeline fires no onTimelineChange: not on construction with a source", () => {
+      const timelineChanges: (string | null)[] = [];
+
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+
+      expect(board.timeline).toBe("card");
+      expect(timelineChanges).toEqual([]);
+    });
+
+    it("the initial timeline fires no onTimelineChange: not on an empty board's first setSource that renders, though a later one that changes it does", () => {
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(document.createElement("div"), {
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+
+      board.setSource(TWO_TIMELINES);
+
+      expect(board.timeline).toBe("card");
+      expect(timelineChanges).toEqual([]);
+
+      board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+timeline paypal:
+enter B fade
+`);
+
+      expect(board.timeline).toBe("paypal");
+      expect(timelineChanges).toEqual(["paypal"]);
+    });
+
+    it("a setSource that fails changes neither timelines nor timeline and fires no onTimelineChange", () => {
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+      board.setTimeline("wallet");
+      timelineChanges.length = 0;
+
+      board.setSource("this is not a valid siren document");
+
+      expect(board.timelines).toEqual(["card", "wallet"]);
+      expect(board.timeline).toBe("wallet");
+      expect(timelineChanges).toEqual([]);
+    });
+
+    it("switching the full diagram off returns to the current timeline, at the step shown before, not to the first", () => {
+      const board = createBoard(document.createElement("div"), { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+      board.setTimeline("wallet");
+      board.controller!.next();
+      board.controller!.next();
+      board.setFullDiagram(true);
+      expect(board.timeline).toBe("wallet"); // kept while the full diagram is on
+
+      board.setFullDiagram(false);
+
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(3);
+      expect(board.controller!.currentStep).toBe(2);
+    });
+
+    it("in the full diagram, setTimeline to the current name leaves it for the step shown before, firing onFullDiagramChange(false) only", () => {
+      const fullDiagramChanges: boolean[] = [];
+      const timelineChanges: (string | null)[] = [];
+      const stepChanges: number[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => fullDiagramChanges.push(on),
+        onTimelineChange: (name) => timelineChanges.push(name),
+        onStepChange: (current) => stepChanges.push(current),
+      });
+      board.setTimeline("wallet");
+      board.controller!.next();
+      board.controller!.next();
+      board.setFullDiagram(true);
+      fullDiagramChanges.length = 0;
+      timelineChanges.length = 0;
+      stepChanges.length = 0;
+
+      board.setTimeline("wallet");
+
+      expect(board.fullDiagram).toBe(false);
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(3);
+      expect(board.controller!.currentStep).toBe(2);
+      expect(fullDiagramChanges).toEqual([false]);
+      expect(timelineChanges).toEqual([]);
+      expect(stepChanges).toEqual([]);
+    });
+
+    it("in the full diagram, setTimeline to another name leaves it for that timeline's step 0, firing onFullDiagramChange(false) and onTimelineChange", () => {
+      const fullDiagramChanges: boolean[] = [];
+      const timelineChanges: (string | null)[] = [];
+      const stepChanges: number[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => fullDiagramChanges.push(on),
+        onTimelineChange: (name) => timelineChanges.push(name),
+        onStepChange: (current) => stepChanges.push(current),
+      });
+      board.controller!.next();
+      board.setFullDiagram(true);
+      fullDiagramChanges.length = 0;
+      stepChanges.length = 0;
+
+      board.setTimeline("wallet");
+
+      expect(board.fullDiagram).toBe(false);
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(3);
+      expect(board.controller!.currentStep).toBe(0);
+      expect(fullDiagramChanges).toEqual([false]);
+      expect(timelineChanges).toEqual(["wallet"]);
+      expect(stepChanges).toEqual([]);
+    });
+
+    it("setSource while the full diagram is on stays on it, keeping or replacing the remembered timeline by the same rule, which switching off then applies", () => {
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+      board.setTimeline("wallet");
+      board.setFullDiagram(true);
+      timelineChanges.length = 0;
+
+      board.setSource(TWO_TIMELINES);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(board.controller!.totalSteps).toBe(0);
+      expect(board.timeline).toBe("wallet");
+      expect(timelineChanges).toEqual([]);
+
+      board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+timeline paypal:
+enter B fade
+highlight A outline
+`);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(board.timeline).toBe("paypal");
+      expect(timelineChanges).toEqual(["paypal"]);
+
+      board.setFullDiagram(false);
+
+      expect(board.controller!.totalSteps).toBe(2);
+      expect(board.controller!.currentStep).toBe(0);
+    });
+
+    it("setTimeline after destroy() does nothing: no throw, no callback, nothing mounted again", () => {
+      const container = document.createElement("div");
+      const timelineChanges: (string | null)[] = [];
+      const board = createBoard(container, {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onTimelineChange: (name) => timelineChanges.push(name),
+      });
+      board.destroy();
+      timelineChanges.length = 0;
+
+      expect(() => board.setTimeline("wallet")).not.toThrow();
+      expect(() => board.setTimeline("paypal")).not.toThrow();
+
+      expect(timelineChanges).toEqual([]);
+      expect(board.timeline).toBe("card");
+      expect(container.children).toHaveLength(0);
+    });
+
+    it("a ControlsFactory's update() is called once after every timeline switch, already seeing the new timeline, and not after a no-op", () => {
+      const seen: { timeline: string | null; total: number; fullDiagram: boolean }[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        controls: (b: Board) => ({
+          element: document.createElement("div"),
+          update() {
+            seen.push({ timeline: b.timeline, total: b.controller!.totalSteps, fullDiagram: b.fullDiagram });
+          },
+        }),
+      });
+      seen.length = 0; // drop the construction-time setSource
+
+      board.setTimeline("wallet");
+      board.setTimeline("wallet"); // no change
+      board.setFullDiagram(true);
+      board.setTimeline("card");
+
+      expect(seen).toEqual([
+        { timeline: "wallet", total: 3, fullDiagram: false },
+        { timeline: "wallet", total: 0, fullDiagram: true },
+        { timeline: "card", total: 1, fullDiagram: false },
+      ]);
+    });
+  });
 });

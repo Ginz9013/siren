@@ -82,8 +82,9 @@ What a board shows while `board.fullDiagram` is on: the document drawn without a
 **Timeline block** at all — the diagram Mermaid would draw. Every element is visible, none
 carries an enter, exit, or highlight state, and there are no steps (`totalSteps: 0`). The board
 produces it by re-rendering with siren-core's `render(…, { timeline: false })`, and switching it
-off returns to the step that was showing. It is independent of the **View**: switching the full
-diagram never changes the view, and resetting the view never switches the full diagram.
+off applies the **Current timeline** again and returns to the step that was showing. It is
+independent of the **View**: switching the full diagram never changes the view, and resetting
+the view never switches the full diagram.
 _Avoid_: overview, plain mode, "the last step" (the timeline's last step still hides exited
 elements and keeps highlights, so it is not the full diagram)
 
