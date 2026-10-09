@@ -31,8 +31,9 @@ createBoard(document.getElementById("board"), { source });
 
 ## Features
 
-- **Step controls included**: a floating bar with Prev, Play, Next, Reset, a play interval
-  select, Full diagram and Reset view. Replace it with your own, or turn it off.
+- **Step controls included**: a floating bar with Prev, Play, Next, a step counter
+  (`2 / 10`), Reset, a play interval select, Full diagram and Reset view. Replace it with
+  your own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
@@ -154,8 +155,9 @@ board.setFullDiagram(false); // back to the step that was showing
 
 The full diagram is the document drawn without its `timeline:` block. While it shows,
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
-Play, Next, Reset and the play interval select, and marks its Full diagram button as
-pressed. Switching never changes pan and zoom, and `onFullDiagramChange` fires whether the
+Play, Next, Reset and the play interval select, marks its Full diagram button as pressed,
+and its step counter reads `0 / 0` until you switch back. The counter also reads `0 / 0`
+on a document with no `timeline:` block, and before a first render succeeds. Switching never changes pan and zoom, and `onFullDiagramChange` fires whether the
 switch came from the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
 [Custom controls](#custom-controls)).
@@ -393,8 +395,9 @@ Those are the chrome's own dark values. The repo's
 declares them alongside `siren-core`'s color tokens, so the diagram and the chrome switch
 together — copy it and you have a dark theme for both.
 
-For deeper changes, target the classes `.siren-board-controls` and
-`.siren-board-controls__button`, or pass your own `controls`.
+For deeper changes, target the classes `.siren-board-controls`,
+`.siren-board-controls__button` and `.siren-board-controls__step` (the step counter), or
+pass your own `controls`.
 
 The built-in buttons are icon-only. Each has an `aria-label` and a `title`, so screen
 readers announce it and a tooltip names it.
