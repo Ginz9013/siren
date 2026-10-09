@@ -9,36 +9,36 @@ import type {
 } from "../contracts";
 
 /**
- * The `timeline:` grammar, owned once and shared by every diagram kind that
- * animates.
+ * The timeline grammar, owned once and shared by every diagram kind that
+ * animates: what a timeline header is, what a line inside a block says, and
+ * how the blocks after the first header divide up.
  *
- * ADR-0002 puts the timeline in a block of its own, deliberately separate
+ * ADR-0002 puts the timeline in blocks of its own, deliberately separate
  * from the diagram's structural definition — which is exactly what makes the
- * grammar shareable: the block's contents name ids and verbs and know nothing
- * about the statements above it. So a second diagram kind gains animation by
- * calling this, not by growing a second copy of the grammar that drifts from
- * the first one verb at a time.
+ * grammar shareable: a block's contents name ids and verbs and know nothing
+ * about the statements above them. So all five parsers call this rather than
+ * keeping copies that drift apart one verb, or one header rule, at a time.
  *
- * Lifted verbatim out of `parseFlowchart`, which now calls it: no behavior
- * change for flowcharts, and the class parser gets the identical vocabulary
- * rather than an approximation of it.
- *
- * The same argument covers the block's *body* — skip the blanks, number and
- * measure each line, hand it to the grammar, collect what comes back — which
- * had grown a copy in each of the three parsers. `parseTimelineBody` is that
- * loop, written once. What stays with each
- * parser is only what differs: where the block starts, and what a diagnostic
- * inside it costs that kind's document.
+ * Three layers, each written once. `parseTimelineLine` reads one step's
+ * actions. `parseTimelineBody` is the loop over one block — skip the blanks,
+ * number and measure each line, stop at the next header. `parseTimelineBlocks`
+ * walks every block from the first header to the end of the document and
+ * owns the rules *between* blocks: unnamed or named, never both, no name
+ * twice (decision 01M4GQ70CJ177A029JQV917H2Z). What stays with each parser is
+ * only what differs: where the first header is, and what a diagnostic
+ * inside the blocks costs that kind's document.
  */
 
-// `timeline:` or `timeline <name>:`. The name is captured loosely — anything
-// up to the colon that starts with neither a space nor a colon — so that a
-// malformed name is still read as a header and reported as one, rather than
-// falling through to the action grammar as a verb nobody recognizes.
-const TIMELINE_HEADER_RE = /^timeline(?:\s+([^:\s][^:]*?))?\s*:\s*$/;
-// What a well-formed name is. Narrow on purpose: a name is what a caller
-// passes to select a block, so it should survive a URL, an attribute and a
-// shell without quoting.
+// Exactly two header forms: `timeline:` and `timeline <name>:` — one space,
+// one whitespace-free token, the colon straight after it. Anything looser
+// would claim lines that were never headers before named blocks existed:
+// `timeline :` was always an ordinary line of the diagram's own grammar, and
+// so is a sequence message from a participant called `timeline`. The token is
+// captured whatever it contains, so a malformed name such as `a.b` is still
+// read as a header and reported as one.
+const TIMELINE_HEADER_RE = /^timeline(?: (\S+))?:\s*$/;
+// What a well-formed name is: `[A-Za-z0-9_-]+`, case-sensitive, as decision
+// 01M4GQ70CJ177A029JQV917H2Z settles it.
 const TIMELINE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 // A verb, a target id, and an optional trailing effect token (unhighlight
 // takes none; every other verb requires one — validated below, not here).
@@ -191,20 +191,11 @@ export function parseTimelineBody(
   lines: readonly string[],
   startIndex: number,
 ): TimelineLineResult {
-  return readBody(lines, startIndex).result;
-}
-
-/** `parseTimelineBody`, plus the index it stopped at: the next header, or `lines.length`. */
-function readBody(
-  lines: readonly string[],
-  startIndex: number,
-): { result: TimelineLineResult; endIndex: number } {
   const entries: TimelineEntry[] = [];
   const diagnostics: Diagnostic[] = [];
   let step = 0;
 
-  let index = startIndex;
-  for (; index < lines.length; index++) {
+  for (let index = startIndex; index < lines.length; index++) {
     const rawLine = lines[index];
     const line = rawLine.trim();
     if (line.length === 0) continue;
@@ -217,7 +208,15 @@ function readBody(
     diagnostics.push(...lineResult.diagnostics);
   }
 
-  return { result: { entries, diagnostics }, endIndex: index };
+  return { entries, diagnostics };
+}
+
+/** The index of the first timeline header at or after `startIndex`, or `lines.length`. */
+function nextHeaderIndex(lines: readonly string[], startIndex: number): number {
+  for (let index = startIndex; index < lines.length; index++) {
+    if (isTimelineHeader(lines[index].trim())) return index;
+  }
+  return lines.length;
 }
 
 /**
@@ -272,7 +271,7 @@ export function parseTimelineBlocks(
       line: index + 1,
       column: rawHeader.length - rawHeader.trimStart().length + 1,
     };
-    const { result, endIndex } = readBody(lines, index + 1);
+    const result = parseTimelineBody(lines, index + 1);
 
     const block: SirenTimeline = { entries: result.entries };
     if (name === null) {
@@ -317,7 +316,7 @@ export function parseTimelineBlocks(
       namedTimelines.push({ name, timeline: block });
     }
     diagnostics.push(...result.diagnostics);
-    index = endIndex;
+    index = nextHeaderIndex(lines, index + 1);
   }
 
   return { timeline, namedTimelines, diagnostics };

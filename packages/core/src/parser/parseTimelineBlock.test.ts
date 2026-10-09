@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTimelineBlocks, parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, parseTimelineBlocks, parseTimelineBody } from "./parseTimelineBlock";
 
 describe("parseTimelineBody", () => {
   it("derives an entry's column from the indentation of the line it was written on", () => {
@@ -243,19 +243,19 @@ describe("parseTimelineBlocks", () => {
     ]);
   });
 
-  it("reports a name outside [A-Za-z0-9_-] on its header, and still reads the block's lines", () => {
-    const lines = ["timeline a b:", "  enter A fade", "timeline pay.card :", "  wobble"];
+  it("reports a single-token name outside [A-Za-z0-9_-] on its header, and still reads the block's lines", () => {
+    const lines = ["timeline a.b:", "  enter A fade", "timeline pay/card:", "  wobble"];
 
     expect(parseTimelineBlocks(lines, 0).diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Invalid timeline name "a b" (a name is letters, digits, "_" and "-")',
+        message: 'Invalid timeline name "a.b" (a name is letters, digits, "_" and "-")',
         line: 1,
         column: 1,
       },
       {
         severity: "error",
-        message: 'Invalid timeline name "pay.card" (a name is letters, digits, "_" and "-")',
+        message: 'Invalid timeline name "pay/card" (a name is letters, digits, "_" and "-")',
         line: 3,
         column: 1,
       },
@@ -266,5 +266,21 @@ describe("parseTimelineBlocks", () => {
         column: 3,
       },
     ]);
+  });
+});
+
+describe("isTimelineHeader", () => {
+  it("recognizes exactly `timeline:` and `timeline <one token>:`, with nothing before the colon", () => {
+    expect(["timeline:", "timeline card:", "timeline a.b:", "timeline:  "].map(isTimelineHeader)).toEqual(
+      [true, true, true, true],
+    );
+    // A space before the colon was never a header, and a name of several
+    // words is not one either: those lines fall through to whichever grammar
+    // reads them, as they did before named blocks existed.
+    expect(
+      ["timeline :", "timeline card :", "timeline a b:", "timeline ->> B:", "timeline  card:"].map(
+        isTimelineHeader,
+      ),
+    ).toEqual([false, false, false, false, false]);
   });
 });
