@@ -171,7 +171,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       wrappedController = wrapController(real);
     }
     fullDiagram = on;
-    syncDefaultControls?.();
+    syncFullDiagram?.();
     options.onFullDiagramChange?.(fullDiagram);
   }
 
@@ -181,7 +181,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    * reads `board.fullDiagram` and listens through `onFullDiagramChange`
    * instead; there is deliberately no public hook for this.
    */
-  let syncDefaultControls: (() => void) | undefined;
+  let syncFullDiagram: (() => void) | undefined;
 
   const board: Board = {
     get controller() {
@@ -208,15 +208,17 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     },
   };
 
-  if (typeof options.controls === "function") {
-    const controls = options.controls(board);
+  if (options.controls !== false) {
+    let controls: ReturnType<ControlsFactory>;
+    if (typeof options.controls === "function") {
+      controls = options.controls(board);
+    } else {
+      const builtIn = createDefaultControls(board);
+      syncFullDiagram = builtIn.syncFullDiagram;
+      controls = builtIn;
+    }
     container.appendChild(controls.element);
     controlsDestroy = controls.destroy;
-  } else if (options.controls !== false) {
-    const controls = createDefaultControls(board);
-    container.appendChild(controls.element);
-    controlsDestroy = controls.destroy;
-    syncDefaultControls = controls.syncFullDiagram;
   }
 
   if (options.source !== undefined) {
