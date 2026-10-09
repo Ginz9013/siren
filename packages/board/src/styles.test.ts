@@ -94,3 +94,25 @@ describe("board chrome's color tokens", () => {
     expect([...declared].filter((token) => !referenced.includes(token))).toEqual([]);
   });
 });
+
+describe("board chrome's control bar states", () => {
+  /** The declarations of the one rule whose selector is exactly `selector`, comments stripped. */
+  function ruleBody(css: string, selector: string): string | undefined {
+    const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    return rules.find(([, sel]) => sel.trim() === selector)?.[2];
+  }
+
+  it("styles a disabled button as unavailable, and a pressed button in the accent color", () => {
+    // The Full diagram button is pressed while the full diagram shows, and
+    // Prev/Next/Reset are disabled then: both states must read at a glance.
+    const css = injectedChromeCss();
+
+    const disabled = ruleBody(css, ".siren-board-controls__button:disabled");
+    expect(disabled).toBeDefined();
+    expect(disabled).toMatch(/cursor:\s*not-allowed/);
+
+    const pressed = ruleBody(css, '.siren-board-controls__button[aria-pressed="true"]');
+    expect(pressed).toBeDefined();
+    expect(pressed).toContain("var(--siren-board-accent)");
+  });
+});

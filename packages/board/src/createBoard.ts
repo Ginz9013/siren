@@ -171,10 +171,17 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       wrappedController = wrapController(real);
     }
     fullDiagram = on;
+    syncDefaultControls?.();
     options.onFullDiagramChange?.(fullDiagram);
   }
 
   let controlsDestroy: (() => void) | undefined;
+  /**
+   * Set only when the built-in bar is mounted. A custom `ControlsFactory`
+   * reads `board.fullDiagram` and listens through `onFullDiagramChange`
+   * instead; there is deliberately no public hook for this.
+   */
+  let syncDefaultControls: (() => void) | undefined;
 
   const board: Board = {
     get controller() {
@@ -201,11 +208,15 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     },
   };
 
-  if (options.controls !== false) {
-    const factory = typeof options.controls === "function" ? options.controls : createDefaultControls;
-    const controls = factory(board);
+  if (typeof options.controls === "function") {
+    const controls = options.controls(board);
     container.appendChild(controls.element);
     controlsDestroy = controls.destroy;
+  } else if (options.controls !== false) {
+    const controls = createDefaultControls(board);
+    container.appendChild(controls.element);
+    controlsDestroy = controls.destroy;
+    syncDefaultControls = controls.syncFullDiagram;
   }
 
   if (options.source !== undefined) {
