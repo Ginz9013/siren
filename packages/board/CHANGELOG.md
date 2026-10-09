@@ -34,9 +34,15 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   `onPlaybackChange` report whether playback is running, and a `ControlsFactory`'s `update()`
   is also called when `playing` or `playInterval` changes.
 - The built-in control bar gains a Play button between Prev and Next, and a play interval
-  select between Reset and Full diagram. Play shows Lucide `play` while stopped and `pause`
-  while playing, and is `aria-pressed` while playback runs. The select offers 1s, 1.5s, 2s,
+  dropdown between Reset and Full diagram. Play shows Lucide `play` while stopped and `pause`
+  while playing, and is `aria-pressed` while playback runs. The dropdown offers 1s, 1.5s, 2s,
   3s and 5s, plus the current `playInterval` when it is none of those (2500 shows as 2.5s).
+  It is board's own rather than a native `<select>`, whose list the OS places above or below
+  at will: a button (`aria-haspopup="listbox"`) showing the current interval, and a
+  `role="listbox"` that always opens directly above it and never scrolls. It works from the
+  keyboard (arrow keys, Home, End, Enter, Space, Escape, Tab) as well as the pointer, closes
+  on a press anywhere else, the diagram included, and stays open while playback steps.
+  Style it through `.siren-board-controls__trigger`, `__listbox` and `__option`.
   Both are disabled while the full diagram shows and on a document with no steps. Either
   one, disabled while focused, hands focus to Full diagram.
 - The built-in control bar gains a step counter between Next and Reset, reading
@@ -56,8 +62,8 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
 ### Fixed
 
 - Pressing the mouse on the diagram takes focus off whatever control held it, as a click
-  elsewhere on the page would. Starting a pan used to cancel that too, so a button or select
-  the reader had just used kept its focus ring after they went back to the diagram.
+  elsewhere on the page would. Starting a pan used to cancel that too, so a control the
+  reader had just used kept its focus ring after they went back to the diagram.
 
 ## [0.3.0] - 2026-10-05
 

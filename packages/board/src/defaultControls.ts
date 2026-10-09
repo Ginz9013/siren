@@ -2,11 +2,15 @@ import type { Board, ControlsFactory } from "./createBoard";
 
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
-const SELECT_CLASS = "siren-board-controls__select";
+const INTERVAL_CLASS = "siren-board-controls__interval";
+const TRIGGER_CLASS = "siren-board-controls__trigger";
+const LISTBOX_CLASS = "siren-board-controls__listbox";
+const OPTION_CLASS = "siren-board-controls__option";
 const STEP_CLASS = "siren-board-controls__step";
 const SVG_NS = "http://www.w3.org/2000/svg";
-/** The play intervals the bar's select offers, in ms. */
+/** The play intervals the bar's interval dropdown offers, in ms. */
 const PLAY_INTERVALS = [1000, 1500, 2000, 3000, 5000];
+const INTERVAL_LABEL = "Play interval";
 
 /*
  * Icon paths below are copied from Lucide (https://lucide.dev) rather than
@@ -64,6 +68,8 @@ const ICONS = {
     "M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
     "m6.18 5.276 3.1 3.899",
   ],
+  /** Lucide `chevron-up` — the interval trigger's: its listbox opens upward. */
+  chevronUp: ["m18 15-6-6-6 6"],
   /** Lucide `scan` */
   resetView: [
     "M3 7V5a2 2 0 0 1 2-2h2",
@@ -77,8 +83,11 @@ const ICONS = {
  * Board's built-in Prev/Play/Next/step counter/Reset/Play interval/Full
  * diagram/Reset view control bar — the default value of
  * `BoardOptions.controls`. Its buttons are icon-only; each carries its name as
- * `aria-label` and `title` instead of visible text, and the interval select its
- * name as `aria-label`. The step counter is plain text, not a live region:
+ * `aria-label` and `title` instead of visible text. The interval dropdown's
+ * trigger carries its name as `aria-label` too, but shows the current interval
+ * as text, and opens a listbox of intervals directly above itself rather than
+ * leaving a native select's list to the OS, which places it above or below at
+ * will. The step counter is plain text, not a live region:
  * playback changes it on every step, and announcing each one would talk over
  * the reader. Reads `board.controller` at click time rather than capturing
  * it once, so it keeps working across `setSource` and `setFullDiagram` calls
@@ -102,19 +111,65 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     board.setFullDiagram(!board.fullDiagram);
   });
   const resetView = makeButton("Reset view", ICONS.resetView, () => board.resetView());
-  const intervalSelect = document.createElement("select");
-  intervalSelect.className = SELECT_CLASS;
-  intervalSelect.setAttribute("aria-label", "Play interval");
-  intervalSelect.addEventListener("change", () => board.setPlayInterval(Number(intervalSelect.value)));
+  const intervalDropdown = document.createElement("div");
+  intervalDropdown.className = INTERVAL_CLASS;
+  const intervalTrigger = document.createElement("button");
+  intervalTrigger.type = "button";
+  intervalTrigger.className = TRIGGER_CLASS;
+  intervalTrigger.setAttribute("aria-label", INTERVAL_LABEL);
+  intervalTrigger.setAttribute("aria-haspopup", "listbox");
+  intervalTrigger.setAttribute("aria-expanded", "false");
+  const intervalLabel = document.createElement("span");
+  intervalTrigger.append(intervalLabel, makeIcon(ICONS.chevronUp));
+  intervalDropdown.append(intervalTrigger);
+  /** The interval dropdown's options, in the DOM only while it is open. */
+  const intervalListbox = document.createElement("div");
+  intervalListbox.className = LISTBOX_CLASS;
+  intervalListbox.setAttribute("role", "listbox");
+  intervalListbox.setAttribute("aria-label", INTERVAL_LABEL);
+  intervalListbox.addEventListener("keydown", (event) => {
+    const options = intervalOptions();
+    const at = options.indexOf(document.activeElement as HTMLElement);
+    const to = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: options.length - 1 }[event.key];
+    if (to !== undefined) {
+      // Stops at either end rather than wrapping, like a native select.
+      options[Math.min(options.length - 1, Math.max(0, to))]?.focus();
+    } else if ((event.key === "Enter" || event.key === " ") && at !== -1) {
+      pickInterval(Number(options[at].dataset.value));
+    } else if (event.key === "Escape") {
+      closeIntervalList(true);
+    } else {
+      // Not handled, so not prevented: Tab, after focus goes back to the
+      // trigger, moves on from there as it would from a closed dropdown.
+      if (event.key === "Tab") closeIntervalList(true);
+      return;
+    }
+    claimKey(event);
+  });
+  // A press on the listbox's own padding would otherwise drop focus to the
+  // page, leaving the arrows and Escape with nothing to act on; an option
+  // still picks on the click that follows.
+  intervalListbox.addEventListener("mousedown", (event) => event.preventDefault());
+  intervalTrigger.addEventListener("click", () => {
+    if (intervalListbox.isConnected) closeIntervalList();
+    else openIntervalList();
+  });
+  intervalTrigger.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown", "Enter", " "].includes(event.key)) return;
+    // Handled here rather than left to the button's own click: Space would
+    // scroll the page, and the click that follows would shut it again.
+    claimKey(event);
+    openIntervalList();
+  });
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
-  bar.append(prev, play, next, stepCounter, reset, intervalSelect, fullDiagram, resetView);
+  bar.append(prev, play, next, stepCounter, reset, intervalDropdown, fullDiagram, resetView);
   /**
    * Where a step button disabled while focused hands focus: the opposite way,
    * which is the way left to go. Every other control, and these when the
    * opposite one is disabled too, hands it to Full diagram.
    */
-  const handoff = new Map<HTMLButtonElement | HTMLSelectElement, HTMLButtonElement>([
+  const handoff = new Map<HTMLButtonElement, HTMLButtonElement>([
     [next, prev],
     [prev, next],
     [reset, next],
@@ -125,7 +180,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
    * the controller's `currentStep / totalSteps` onto the bar. A step button
    * that would do nothing is disabled rather than left clickable: Prev and
    * Reset on step 0, Next on the last step, and all three in the full diagram
-   * or with no steps. Play and the interval select are disabled whenever there
+   * or with no steps. Play and the interval trigger are disabled whenever there
    * is nothing to play (the full diagram, or no steps), but Play stays on the
    * last step, where it replays from step 0; Reset view stays, since pan/zoom
    * works on any drawing. A control holding focus as it is disabled hands it
@@ -137,6 +192,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // Like Full diagram's below, the icon names what a click does: play while
     // stopped, pause while playing.
     play.replaceChildren(makeIcon(board.playing ? ICONS.pause : ICONS.play));
+    intervalLabel.textContent = intervalText(board.playInterval);
     syncIntervalOptions();
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
     // Here too the icon names what a click switches to; the pressed state,
@@ -150,22 +206,27 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     const nothingToPlay = board.fullDiagram || totalSteps === 0;
     const atStart = board.fullDiagram || currentStep === 0;
     const atEnd = board.fullDiagram || currentStep >= totalSteps;
-    const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
+    const disabled = new Map<HTMLButtonElement, boolean>([
       [prev, atStart],
       [play, nothingToPlay],
       [next, atEnd],
       [reset, atStart],
-      [intervalSelect, nothingToPlay],
+      [intervalTrigger, nothingToPlay],
     ]);
     // Enable first, so a handoff can land on a control this change enables;
     // move focus next, while the control losing it can still hold it; and
     // only then disable.
     for (const [control, off] of disabled) if (!off) control.disabled = false;
-    const losing = [...disabled].find(([control, off]) => off && control === document.activeElement)?.[0];
+    // Focus on one of the open listbox's options counts as focus on its trigger.
+    const focused = intervalListbox.contains(document.activeElement) ? intervalTrigger : document.activeElement;
+    const losing = [...disabled].find(([control, off]) => off && control === focused)?.[0];
     if (losing !== undefined) {
       const opposite = handoff.get(losing);
       (opposite !== undefined && !disabled.get(opposite) ? opposite : fullDiagram).focus();
     }
+    // A disabled dropdown has nothing to pick from; this is the only thing
+    // in update() that closes an open listbox.
+    if (nothingToPlay) closeIntervalList();
     for (const [control, off] of disabled) if (off) control.disabled = true;
   }
   update();
@@ -173,20 +234,90 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   /**
    * Offers `PLAY_INTERVALS` plus `board.playInterval` when it is not one of
    * them (2500 from the option or from code shows as "2.5s", in order), and
-   * selects the current one. The options are rebuilt only when that list
-   * changes: update() runs on every playback step, and rebuilding an open
-   * select would close it under the reader's pointer.
+   * marks the current one selected. The options are rebuilt only when that
+   * list changes: update() runs on every playback step, and rebuilding an
+   * open listbox would pull the option out from under the reader's focus.
    */
   function syncIntervalOptions(): void {
     const wanted = [...new Set([...PLAY_INTERVALS, board.playInterval])].sort((a, b) => a - b);
-    const shown = Array.from(intervalSelect.options, (option) => Number(option.value));
-    if (wanted.join() !== shown.join()) intervalSelect.replaceChildren(...wanted.map(makeIntervalOption));
-    // update() runs on every playback step: leave a select the reader may
-    // have open alone unless the interval really changed.
-    if (intervalSelect.value !== String(board.playInterval)) intervalSelect.value = String(board.playInterval);
+    const shown = intervalOptions().map((option) => Number(option.dataset.value));
+    if (wanted.join() !== shown.join()) {
+      // Rebuilding drops the focused option from the DOM; keep the reader on
+      // the same interval in the new list.
+      const focusedValue = intervalListbox.contains(document.activeElement)
+        ? (document.activeElement as HTMLElement).dataset.value
+        : undefined;
+      intervalListbox.replaceChildren(...wanted.map(makeIntervalOption));
+      if (focusedValue !== undefined) {
+        intervalOptions().find((option) => option.dataset.value === focusedValue)?.focus();
+      }
+    }
+    for (const option of intervalOptions()) {
+      option.setAttribute("aria-selected", String(Number(option.dataset.value) === board.playInterval));
+    }
   }
 
-  return { element: bar, update };
+  /** Opens the interval listbox above its trigger, focusing the selected option. */
+  function openIntervalList(): void {
+    intervalDropdown.append(intervalListbox);
+    intervalTrigger.setAttribute("aria-expanded", "true");
+    // Capture phase: the canvas's own mousedown handler prevents the default
+    // and blurs, so this must hear the press before anything else can.
+    document.addEventListener("mousedown", onOutsideMouseDown, true);
+    selectedOption()?.focus();
+  }
+
+  /** Closes the interval listbox, handing focus back to its trigger when `refocus`. */
+  function closeIntervalList(refocus = false): void {
+    intervalListbox.remove();
+    intervalTrigger.setAttribute("aria-expanded", "false");
+    document.removeEventListener("mousedown", onOutsideMouseDown, true);
+    if (refocus) intervalTrigger.focus();
+  }
+
+  /** A press anywhere but the dropdown itself closes its listbox, as a click away from a native select would. */
+  function onOutsideMouseDown(event: MouseEvent): void {
+    if (!intervalDropdown.contains(event.target as Node)) closeIntervalList();
+  }
+
+  /** Sets the play interval to `ms` and closes the listbox onto its trigger. */
+  function pickInterval(ms: number): void {
+    closeIntervalList(true);
+    board.setPlayInterval(ms);
+  }
+
+  function selectedOption(): HTMLElement | undefined {
+    return intervalOptions().find((option) => option.getAttribute("aria-selected") === "true");
+  }
+
+  function intervalOptions(): HTMLElement[] {
+    return Array.from(intervalListbox.children as HTMLCollectionOf<HTMLElement>);
+  }
+
+  /** The listbox's option for `ms`: a click picks it and closes the listbox. */
+  /** A key the dropdown handles is its alone: no default, and no page shortcut on the same key (Home, the arrows). */
+function claimKey(event: KeyboardEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function makeIntervalOption(ms: number): HTMLElement {
+    const option = document.createElement("div");
+    option.className = OPTION_CLASS;
+    option.setAttribute("role", "option");
+    option.tabIndex = -1;
+    option.dataset.value = String(ms);
+    option.textContent = intervalText(ms);
+    option.addEventListener("click", () => pickInterval(ms));
+    return option;
+  }
+
+  /** Closes an open listbox, which takes its document listener with it. */
+  function destroy(): void {
+    closeIntervalList();
+  }
+
+  return { element: bar, update, destroy };
 }
 
 function makeButton(label: string, iconPaths: string[], onClick: () => void): HTMLButtonElement {
@@ -200,12 +331,9 @@ function makeButton(label: string, iconPaths: string[], onClick: () => void): HT
   return button;
 }
 
-/** The select's option for `ms`, labelled in seconds: 1500 reads "1.5s". */
-function makeIntervalOption(ms: number): HTMLOptionElement {
-  const option = document.createElement("option");
-  option.value = String(ms);
-  option.textContent = `${ms / 1000}s`;
-  return option;
+/** `ms` as the dropdown shows it, in seconds: 1500 reads "1.5s". */
+function intervalText(ms: number): string {
+  return `${ms / 1000}s`;
 }
 
 /** A 24×24 stroke icon drawn in `currentColor`, so it follows the button's hover color. */
