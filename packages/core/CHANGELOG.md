@@ -35,6 +35,9 @@ own group (see **Changed**).
 
 ### Changed
 
+- A second unnamed `timeline:` header is now reported as `A document declares at most one
+  unnamed "timeline:" block; name each block ("timeline <name>:") to declare several`, instead
+  of `Unrecognized timeline action: "timeline:"`. The document is still rejected.
 - **Connectors paint under the boxes, in Mermaid's layer order** (ADR-0016). Flowchart, class,
   state and ER diagrams now draw frames, then every connector line, then every connector label,
   then the boxes. A line routed past a box it does not end at runs under it instead of across
