@@ -1,3 +1,4 @@
 {"id":"01M4GQ70SG3EEVD3DT2NJ3ZGEY","t":1,"a":"83a1","op":"create","title":"core: render() 用 timeline: name 指定要套用哪條 timeline，並列出 timelines"}
 {"id":"01M4GQ70SSMHD3K5CVG28YV5EQ","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T03-core-timeline-selection.md`（T3）。"}
 {"id":"01M4GQ70SSQNA5JG4DB8NH96R7","t":3,"a":"83a1","op":"label.add","v":"core api"}
+{"id":"01M4GRHQ8MNXN78G2RAPM9ZKF8","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
