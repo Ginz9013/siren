@@ -129,6 +129,8 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
   bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView);
+  /** The bar's dropdowns, whose open listbox counts as focus on their trigger. */
+  const dropdowns = [intervalDropdown, timelineDropdown];
   /**
    * Where a step button disabled while focused hands focus: the opposite way,
    * which is the way left to go. Every other control, and these when the
@@ -151,9 +153,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
    * last step, where it replays from step 0. The timeline trigger is disabled
    * in the full diagram, leaving Full diagram the one way back to a timeline
    * (code may still call `board.setTimeline` there). Reset view stays, since
-   * pan/zoom works on any drawing. A control holding focus as it is disabled hands it
-   * on first (see `handoff`), so a change made from code never drops a
-   * keyboard reader's focus to the page.
+   * pan/zoom works on any drawing. A control holding focus as it is disabled
+   * hands it on first (see `handoff`), so a change made from code never drops
+   * a keyboard reader's focus to the page, and a disabled dropdown closes.
    */
   function update(): void {
     play.setAttribute("aria-pressed", String(board.playing));
@@ -180,8 +182,6 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
       [next, atEnd],
       [reset, atStart],
       [intervalTrigger, nothingToPlay],
-      // Like every other step control, the timeline dropdown has nothing to
-      // do in the full diagram; the Full diagram button is the way back.
       [timelineDropdown.trigger, board.fullDiagram],
     ]);
     // Enable first, so a handoff can land on a control this change enables;
@@ -190,8 +190,8 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     for (const [control, off] of disabled) if (!off) control.disabled = false;
     // Focus on one of an open listbox's options counts as focus on its trigger.
     const focused =
-      [intervalDropdown, timelineDropdown].find((dropdown) => dropdown.element.contains(document.activeElement))
-        ?.trigger ?? document.activeElement;
+      dropdowns.find((dropdown) => dropdown.element.contains(document.activeElement))?.trigger ??
+      document.activeElement;
     const losing = [...disabled].find(([control, off]) => off && control === focused)?.[0];
     if (losing !== undefined) {
       const opposite = handoff.get(losing);
@@ -200,8 +200,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // A disabled dropdown has nothing to pick from, so its open listbox
     // closes; the timeline's also closes as it leaves the bar, in
     // syncTimelineDropdown.
-    if (nothingToPlay) intervalDropdown.close();
-    if (board.fullDiagram) timelineDropdown.close();
+    for (const dropdown of dropdowns) if (disabled.get(dropdown.trigger)) dropdown.close();
     for (const [control, off] of disabled) if (off) control.disabled = true;
   }
   update();
@@ -224,8 +223,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
    * `board.timelines` offers a choice — two names or more — with each name as
    * its own label and `board.timeline` selected, and takes it out of the bar
    * otherwise; `update()` disables it in the full diagram. Taken out while it
-   * holds focus — on its trigger or an open listbox's option — it closes and hands focus to Full diagram, as a
-   * control disabled under focus does, rather than dropping it to the page.
+   * holds focus — on its trigger or an open listbox's option — it closes and
+   * hands focus to Full diagram, as a control disabled under focus does,
+   * rather than dropping it to the page.
    */
   function syncTimelineDropdown(): void {
     if (board.timelines.length < 2) {

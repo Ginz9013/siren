@@ -40,7 +40,8 @@ createBoard(document.getElementById("board"), { source });
   stopping on the last step. Any manual step takes over from playback.
 - **Named timelines**: a document can tell several stories over one diagram, each in its
   own `timeline <name>:` block. When it names two or more, the bar shows a dropdown of their
-  names; picking one plays that timeline from the start, even from the full diagram.
+  names; picking one plays that timeline from the start. The dropdown is disabled while the
+  full diagram shows; `board.setTimeline()` from code still switches, leaving it.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
@@ -160,13 +161,14 @@ board.setFullDiagram(false); // back to the step that was showing
 
 The full diagram is the document drawn without its `timeline:` block. While it shows,
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
-Play, Next, Reset and the play interval dropdown, marks its Full diagram button as pressed,
+Play, Next, Reset, the timeline dropdown and the play interval dropdown, marks its Full diagram button as pressed,
 and its step counter reads `0 / 0` until you switch back. The counter also reads `0 / 0`
 on a document with no `timeline:` block, and before a first render succeeds, and Prev,
 Next and Reset stay disabled there too. On the timeline, the bar disables Prev and Reset on
 step 0 and Next on the last step; Play stays enabled there, since it replays from step 0.
 A step button disabled while it has focus hands focus to the opposite one (Next to Prev,
-Prev or Reset to Next), or to Full diagram when that one is disabled too. Switching
+Prev or Reset to Next), or to Full diagram when that one is disabled too; a dropdown
+disabled while it has focus closes and hands focus to Full diagram. Switching
 never changes pan and zoom, and `onFullDiagramChange` fires whether the switch came from
 the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
