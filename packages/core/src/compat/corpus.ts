@@ -1010,13 +1010,18 @@ function erCardinalityGlyphs(result: SirenRenderResult, name: string): string[] 
   return placed.sort((a, b) => a.out - b.out).map((entry) => entry.glyph);
 }
 
-/** Where one ER relationship's drawn label sits. */
+/**
+ * Where one ER relationship's drawn label sits.
+ *
+ * The label is found by the relationship's id, not inside its line group: it
+ * is a group of its own, drawn after every line (ADR-0016).
+ */
 function erRelationshipLabelAnchor(
   result: SirenRenderResult,
   id: string,
 ): { text: string; x: number; y: number } {
   const text = svgOf(result).querySelector(
-    `g.siren-er-relationship[data-siren-id="${id}"] text.siren-er-relationship-label`,
+    `g.siren-er-relationship-labels[data-siren-id="${id}"] text.siren-er-relationship-label`,
   );
   if (text === null) throw new Error(`no relationship "${id}" drew a label`);
   return {
@@ -1248,11 +1253,18 @@ function stateFigures(result: SirenRenderResult): string[] {
  * Every state-diagram transition as `id: label`, in draw order — the label
  * empty when the transition carries none, which is a picture a reader can
  * tell from one that carries an empty label only because nothing is drawn.
+ *
+ * The label is found by the transition's id, not inside its line group: it
+ * is a group of its own, drawn after every line (ADR-0016).
  */
 function transitions(result: SirenRenderResult): string[] {
-  return elements(result, "g.siren-transition").map(
-    (g) => `${idOf(g)}: ${g.querySelector("text.siren-transition-label")?.textContent ?? ""}`,
-  );
+  const svg = svgOf(result);
+  return elements(result, "g.siren-transition").map((g) => {
+    const label = svg.querySelector(
+      `g.siren-transition-labels[data-siren-id="${idOf(g)}"] text.siren-transition-label`,
+    );
+    return `${idOf(g)}: ${label?.textContent ?? ""}`;
+  });
 }
 
 /**
@@ -3266,7 +3278,7 @@ line2\`"]`,
         "the label's rows",
         labelRows(
           svgOf(result).querySelector(
-            'g.siren-relationship[data-siren-id="Order-Line"] text.siren-relationship-label',
+            'g.siren-relationship-labels[data-siren-id="Order-Line"] text.siren-relationship-label',
           ),
         ),
         ["holds", "many"],
@@ -4334,10 +4346,11 @@ line2\`"]`,
     assert: (result) => {
       expectSame("transitions", transitions(result), ["Idle-Running: start the job"]);
       // Drawn on the line rather than merely present somewhere: the label
-      // belongs to the transition's own group.
+      // wears the transition's own id, in the label group drawn after every
+      // line (ADR-0016).
       expectSame(
-        "the label is drawn inside the transition's group",
-        texts(result, 'g.siren-transition[data-siren-id="Idle-Running"] text'),
+        "the label is drawn in the transition's label group",
+        texts(result, 'g.siren-transition-labels[data-siren-id="Idle-Running"] text'),
         ["start the job"],
       );
     },
@@ -4738,7 +4751,7 @@ line2\`"]`,
         "the label's rows",
         labelRows(
           svgOf(result).querySelector(
-            'g.siren-transition[data-siren-id="s1-s2"] text.siren-transition-label',
+            'g.siren-transition-labels[data-siren-id="s1-s2"] text.siren-transition-label',
           ),
         ),
         ["a", "b"],
@@ -5737,22 +5750,34 @@ line2\`"]`,
       "to fix a problem only this one has.",
     assert: (result) => {
       // The whole claim, read off the drawing: every `data-siren-id` the
-      // render stamped. Four elements and four ids — under the old spelling
-      // this was four elements and **three** ids, which is exactly what no
+      // render stamped. Four figures and four ids — under the old spelling
+      // this was four figures and **three** ids, which is exactly what no
       // assert was watching for.
       //
       // Sorted, because what matters here is the id *space* and not the
       // order the groups happen to sit in the DOM; a row that pinned the
       // drawing order as well would fail for a reason that has nothing to
       // do with what it is about.
-      const ids = elements(result, "[data-siren-id]").map(idOf).sort();
-      expectSame("every drawn element's id", ids, [
+      //
+      // A relationship's label group is left out, and on purpose: it is
+      // part of the relationship's figure, wearing the line's id so one
+      // timeline entry reaches both (ADR-0016) — a sharing that is the
+      // design, not the collision this row watches for.
+      const ids = elements(result, "[data-siren-id]:not(g.siren-er-relationship-labels)")
+        .map(idOf)
+        .sort();
+      expectSame("every drawn figure's id", ids, [
         "ITEM",
         "LINE",
         "LINE-ITEM",
         "LINE:ITEM",
       ]);
       expectSame("no two of them are the same string", new Set(ids).size, ids.length);
+      expectSame(
+        "the label wears its relationship's id",
+        elements(result, "g.siren-er-relationship-labels").map(idOf),
+        ["LINE:ITEM"],
+      );
 
       // And the box that shares the *spelling* is still the box: a reader
       // of the failure above should not have to wonder whether the entity
@@ -6002,7 +6027,7 @@ line2\`"]`,
       "ranks far enough apart for both rows.",
     assert: (result) => {
       const label = svgOf(result).querySelector(
-        'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
       );
       expectSame("the label's rows", labelRows(label), ["places", "many"]);
       expectSame(

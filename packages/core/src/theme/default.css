@@ -300,20 +300,26 @@
    groups belong here rather than in a rule of their own: `layoutClassDiagram`
    sizes every class box from text measured in this font at this size, so a
    group left out renders its members in the browser's default face and the
-   box no longer fits what it holds. */
+   box no longer fits what it holds. A connector's label group is here for
+   the same reason its connector's group is: since ADR-0016 the text sits in
+   a group of its own, drawn after every line, rather than inside the line's
+   group, and it has to inherit the type it inherited there. */
 .siren-participant,
 .siren-message,
 .siren-block,
 .siren-box,
 .siren-class,
 .siren-relationship,
+.siren-relationship-labels,
 .siren-namespace,
 .siren-note,
 .siren-state,
 .siren-transition,
+.siren-transition-labels,
 .siren-er-entity,
 .siren-er-subgraph,
-.siren-er-relationship {
+.siren-er-relationship,
+.siren-er-relationship-labels {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }
@@ -862,7 +868,7 @@
 /*
  * `fill` is absent because the renderer writes `fill="none"` onto the path
  * itself: a transition's points make an open, multi-segment path that a
- * default fill would paint as a polygon over the states it joins. A
+ * default fill would paint as a polygon spanning the states it joins. A
  * self-transition's loop is the same path drawn beside one box, and takes
  * this same rule.
  */
@@ -1226,7 +1232,7 @@
  * A relationship's line. `fill` is absent for the reason
  * `.siren-relationship-line`'s is: the renderer writes `fill="none"` onto
  * the path itself, since the route is an open, multi-segment path a default
- * fill would paint as a polygon over the entities it joins.
+ * fill would paint as a polygon spanning the entities it joins.
  *
  * The dash that tells `--` from `..` is *not* here either, and deliberately:
  * it is inline on the path, because it is what the document said rather than

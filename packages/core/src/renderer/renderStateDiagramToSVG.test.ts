@@ -33,6 +33,14 @@ const stateLabel = (text: string, y: number) => ({
   y,
 });
 
+/**
+ * Whether `a` comes before `b` in document order — which, SVG having no
+ * z-index, is whether `a` is painted under `b`.
+ */
+function paintsBefore(a: Element, b: Element): boolean {
+  return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
 const DIAGRAM: PositionedStateDiagram = {
   states: [
     {
@@ -182,12 +190,13 @@ describe("renderStateDiagramToSVG", () => {
     expect(link.getAttribute("marker-end")).toBeNull();
 
     // Nothing inside the note wears an id, and no second group appeared for
-    // it: the note is part of its state, not a figure beside it.
+    // it: the note is part of its state, not a figure beside it. (Lines and
+    // then the one label come first: they paint under the states, ADR-0016.)
     expect(
       Array.from(svg.querySelectorAll("[data-siren-id]")).map((e) =>
         e.getAttribute("data-siren-id"),
       ),
-    ).toEqual(["Idle", "Running", "Idle-Running", "Running-Running"]);
+    ).toEqual(["Idle-Running", "Running-Running", "Idle-Running", "Idle", "Running"]);
 
     // A state the author wrote no note on draws none of the three.
     const plain = svg.querySelector('g.siren-state[data-siren-id="Running"]')!;
@@ -208,7 +217,7 @@ describe("renderStateDiagramToSVG", () => {
     const line = groups[0].querySelector("path.siren-transition-line")!;
     expect(line.getAttribute("d")).toBe("M50,60 L60,120");
     // Explicit, not left to CSS: an open multi-segment path would otherwise
-    // be painted as a filled polygon over the states it connects.
+    // be painted as a filled polygon spanning the states it connects.
     expect(line.getAttribute("fill")).toBe("none");
   });
 
@@ -241,14 +250,13 @@ describe("renderStateDiagramToSVG", () => {
   it("draws a transition's label at its anchor, and draws none at all when it carries none", () => {
     const svg = renderStateDiagramToSVG(DIAGRAM);
 
-    const labelled = svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"]')!;
+    const labelled = svg.querySelector('g.siren-transition-labels[data-siren-id="Idle-Running"]')!;
     const label = labelled.querySelector("text.siren-transition-label")!;
     expect(label.textContent).toBe("start");
     expect(label.getAttribute("x")).toBe("70");
     expect(label.getAttribute("y")).toBe("90");
 
-    const unlabelled = svg.querySelector('g.siren-transition[data-siren-id="Running-Running"]')!;
-    expect(unlabelled.querySelector("text")).toBeNull();
+    expect(svg.querySelectorAll('[data-siren-id="Running-Running"] text')).toHaveLength(0);
   });
 
   it("draws the self-transition's whole loop, not just its two ends", () => {
@@ -260,18 +268,41 @@ describe("renderStateDiagramToSVG", () => {
     expect(loop.getAttribute("d")).toBe("M110,130 L140,140 L110,150");
   });
 
-  it("draws the states before the transitions, so a line is never hidden behind a box", () => {
+  it("paints every transition line before the first state, so a line passing a box runs under it (ADR-0016)", () => {
     const svg = renderStateDiagramToSVG(DIAGRAM);
 
-    const drawn = Array.from(svg.querySelectorAll("g.siren-state, g.siren-transition")).map((g) =>
-      g.getAttribute("class"),
-    );
-    expect(drawn).toEqual([
-      "siren-state",
-      "siren-state",
-      "siren-transition",
-      "siren-transition",
+    const firstState = svg.querySelector("g.siren-state")!;
+    const transitions = Array.from(svg.querySelectorAll("g.siren-transition"));
+    // As many line groups as there are transitions: the split adds groups,
+    // it never removes one.
+    expect(transitions).toHaveLength(2);
+    for (const transition of transitions) {
+      expect(paintsBefore(transition, firstState)).toBe(true);
+    }
+  });
+
+  it("draws a transition's label in a label group of its own wearing the transition's id, after every line and before the first state (ADR-0016)", () => {
+    const svg = renderStateDiagramToSVG(DIAGRAM);
+
+    // The line group holds the line and nothing else, so no other
+    // transition's line drawn later can cross this one's label.
+    const lineGroup = svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"]')!;
+    expect(Array.from(lineGroup.children).map((child) => child.getAttribute("class"))).toEqual([
+      "siren-transition-line",
     ]);
+
+    const labelGroups = svg.querySelectorAll("g.siren-transition-labels");
+    // `Running-Running` carries no label, so it draws no label group.
+    expect(labelGroups).toHaveLength(1);
+    const labelGroup = labelGroups[0];
+    expect(labelGroup.getAttribute("data-siren-id")).toBe("Idle-Running");
+    expect(labelGroup.querySelector("text.siren-transition-label")?.textContent).toBe("start");
+
+    const transitions = Array.from(svg.querySelectorAll("g.siren-transition"));
+    const lastTransition = transitions[transitions.length - 1];
+    const firstState = svg.querySelector("g.siren-state")!;
+    expect(paintsBefore(lastTransition, labelGroup)).toBe(true);
+    expect(paintsBefore(labelGroup, firstState)).toBe(true);
   });
 });
 

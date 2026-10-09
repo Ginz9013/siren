@@ -8,6 +8,29 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a stylesheet or script that reaches a connector's label through the connector's
+own group (see **Changed**).
+
+### Changed
+
+- **Connectors paint under the boxes, in Mermaid's layer order** (ADR-0016). Flowchart, class,
+  state and ER diagrams now draw frames, then every connector line, then every connector label,
+  then the boxes. A line routed past a box it does not end at runs under it instead of across
+  its text, and no line crosses a label. A state's composite frame stays among the states, and a
+  class note's box is still drawn last.
+- A class relationship, a state transition and an ER relationship are each drawn as two groups
+  that wear the same `data-siren-id`: the line group (`g.siren-relationship`,
+  `g.siren-transition`, `g.siren-er-relationship`, unchanged in count and in
+  `data-siren-relationship`) and a new label group (`g.siren-relationship-labels`,
+  `g.siren-transition-labels`, `g.siren-er-relationship-labels`) holding the label,
+  multiplicities and interface labels. A connector with no text has no label group. A timeline
+  step on the connector's id still reaches both. A selector such as
+  `g.siren-transition text.siren-transition-label` no longer matches; select the label group,
+  or the label by `data-siren-id`.
+- A class note's connector (`path.siren-note-link`) is drawn outside `g.siren-note`, on the line
+  layer, and wears the note's id itself. A flowchart edge keeps its structure; only the order
+  changes.
+
 ### Fixed
 
 - The README's dark-theme example, and `demos/theme-dark.css` it points to, now redeclare

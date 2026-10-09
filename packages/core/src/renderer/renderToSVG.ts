@@ -163,14 +163,134 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
   svg.appendChild(defs);
 
-  // Frames first, because document order is paint order and a frame is drawn
-  // *behind* what it groups. The class renderer puts namespaces here for the
-  // same reason, and the model's own order — outermost before nested — is
-  // what keeps an inner frame painted over its parent rather than under it.
+  // Four layers, in Mermaid's order — `clusters → edgePaths → edgeLabels →
+  // nodes`, measured against mermaid 11.17.2 (`chunk-ZAI7H55H.mjs`) and
+  // adopted in ADR-0016. Document order is paint order, so the order of the
+  // four loops below *is* the picture's stacking, and it used to be wrong:
+  // nodes were drawn first and edges after, so an edge routed past a node
+  // it does not end at ran across that node's text.
+  //
+  // Frames first, because a frame is drawn *behind* what it groups. The
+  // class renderer puts namespaces here for the same reason, and the
+  // model's own order — outermost before nested — is what keeps an inner
+  // frame painted over its parent rather than under it. A frame is
+  // `fill: none`, so whether a line sits above or below it only decides
+  // which stroke wins where the two cross; first is where Mermaid puts it.
   for (const subgraph of graph.subgraphs) {
     svg.appendChild(buildSubgraph(subgraph));
   }
 
+  // One marker per (shape, colour) pair actually drawn, and not one per
+  // edge. A marker is a pure function of those two things, so two edges
+  // wanting the same pair want the same picture and a second def for it
+  // would be a second copy — fifty edges under one `linkStyle default`
+  // would otherwise mint fifty. Minted lazily, so a document with one
+  // colour and one head shape emits exactly one marker, and one whose
+  // edges are all `---` emits none at all.
+  //
+  // Board 3 keyed this by colour alone; an end has a shape now, so the key
+  // is the pair. Distinctness of a colour is by the declaration's exact
+  // text, so `#f00` and `red` are two: over-minting draws the right picture
+  // from a spare def, and under-minting would not.
+  const markerIdByPair = new Map<string, string>();
+  // The colour half of the id, shared across shapes, so one `linkStyle` that
+  // paints an arrow and a circle numbers them both `-1` rather than giving
+  // one colour two numbers.
+  const suffixByStroke = new Map<string, string>();
+
+  const markerReference = (end: EdgeEnd, stroke: string | null) => {
+    if (end === "none") {
+      return null;
+    }
+    const shape = END_SHAPES[end];
+    const key = `${end}|${stroke ?? ""}`;
+    let id = markerIdByPair.get(key);
+    if (id === undefined) {
+      let suffix = "";
+      if (stroke !== null) {
+        suffix = suffixByStroke.get(stroke) ?? `-${suffixByStroke.size + 1}`;
+        suffixByStroke.set(stroke, suffix);
+      }
+      id = `${shape.name}${suffix}${scope}`;
+      markerIdByPair.set(key, id);
+      defs.appendChild(buildEndMarker(id, end, stroke));
+    }
+    return `url(#${id})`;
+  };
+
+  for (const edge of graph.edges) {
+    const stroke = strokeOf(edge.style.frame);
+
+    const path = document.createElementNS(SVG_NS, "path");
+    // The line style is a second class on the one element the theme paints,
+    // never a second element: `.siren-edge` still selects every edge, an
+    // author's `linkStyle` still lands here, and the animation controller
+    // still adds and removes its own classes alongside.
+    path.setAttribute("class", edgeClasses(edge));
+    path.setAttribute("data-siren-id", edge.id);
+    path.setAttribute("d", pointsToPathData(edge.points));
+    // One marker per end, each pointing outward at the end it is applied
+    // to — the class renderer's `auto-start-reverse` def, which is why
+    // `<-->` needs one def rather than a mirrored pair.
+    const startMarker = markerReference(edge.fromEnd, stroke);
+    if (startMarker !== null) {
+      path.setAttribute("marker-start", startMarker);
+    }
+    const endMarker = markerReference(edge.toEnd, stroke);
+    if (endMarker !== null) {
+      path.setAttribute("marker-end", endMarker);
+    }
+    // The path is the whole drawn edge, so unlike a node there is no frame
+    // to choose: this is the element the theme's `.siren-edge` paints and
+    // the element the animation classes land on alike.
+    //
+    // The markers are the one part of the arrow these declarations cannot
+    // reach: a `<marker>` lives in `<defs>` and its content inherits from
+    // its own ancestors, never from the path referencing it. So an edge that
+    // names a `stroke` is given markers of its own above, carrying that
+    // colour — which is why `stroke` colours the whole arrow here as it does
+    // in Mermaid, rather than the line alone.
+    //
+    // Only the frame half. The text half goes to the label, drawn in the
+    // label layer after every line, which is
+    // the element it means: measured with the probe's `--paint` mode,
+    // mermaid 11.17.2 paints an edge's label with the author's `color` and
+    // paints the line with everything else, so the split a node already
+    // makes is the split an edge makes too.
+    applyInlineStyle(path, edge.style.frame);
+    svg.appendChild(path);
+  }
+
+  // Every label after every line, in a loop of its own rather than beside
+  // its own path. Beside its path, a label would be painted under every
+  // edge drawn after it, and a later edge routed through that slot would
+  // strike its text out; a layer of its own is Mermaid's `edgeLabels`
+  // guarantee that no line crosses a label. Still under every node, so a
+  // node is never hidden by the text of an edge that merely passes it.
+  //
+  // A sibling of the path rather than a child of a wrapping `<g>`, which
+  // is what the class renderer uses. An edge *is* its path here — that
+  // element carries `data-siren-id` and the animation classes, and board
+  // 3 put the author's declarations on it — so introducing a group now
+  // would move the id off the element three other places already find it
+  // on. Two elements wearing one id is exactly what ADR-0009 settles: a
+  // timeline target is an id, not an element, so `exit A-B fade` takes
+  // the label with the line without the controller learning anything —
+  // and that is also why splitting the two into separate layers costs the
+  // flowchart nothing, where the class renderer needs a second group.
+  // What the label paints behind its text goes first, so it sits over
+  // every line and under its own text.
+  for (const edge of graph.edges) {
+    const drawnLabel = buildEdgeLabel(edge);
+    if (drawnLabel !== null) {
+      appendLabel(svg, drawnLabel);
+    }
+  }
+
+  // Nodes last, over every line and every label. A line under an opaque
+  // box disappears only where the two meet, and layout already stops each
+  // line at the edge of the boxes it joins, so what the box hides is a
+  // line that was only passing through — which is the point.
   for (const node of graph.nodes) {
     const g = document.createElementNS(SVG_NS, "g");
     g.setAttribute("class", "siren-node");
@@ -254,101 +374,6 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // extra, an `href` interaction wraps the group in a link, a `call`
     // interaction stamps the click hook `attachClickHooks` reads back.
     svg.appendChild(wrapInteraction(g, node.interaction));
-  }
-
-  // One marker per (shape, colour) pair actually drawn, and not one per
-  // edge. A marker is a pure function of those two things, so two edges
-  // wanting the same pair want the same picture and a second def for it
-  // would be a second copy — fifty edges under one `linkStyle default`
-  // would otherwise mint fifty. Minted lazily, so a document with one
-  // colour and one head shape emits exactly one marker, and one whose
-  // edges are all `---` emits none at all.
-  //
-  // Board 3 keyed this by colour alone; an end has a shape now, so the key
-  // is the pair. Distinctness of a colour is by the declaration's exact
-  // text, so `#f00` and `red` are two: over-minting draws the right picture
-  // from a spare def, and under-minting would not.
-  const markerIdByPair = new Map<string, string>();
-  // The colour half of the id, shared across shapes, so one `linkStyle` that
-  // paints an arrow and a circle numbers them both `-1` rather than giving
-  // one colour two numbers.
-  const suffixByStroke = new Map<string, string>();
-
-  const markerReference = (end: EdgeEnd, stroke: string | null) => {
-    if (end === "none") {
-      return null;
-    }
-    const shape = END_SHAPES[end];
-    const key = `${end}|${stroke ?? ""}`;
-    let id = markerIdByPair.get(key);
-    if (id === undefined) {
-      let suffix = "";
-      if (stroke !== null) {
-        suffix = suffixByStroke.get(stroke) ?? `-${suffixByStroke.size + 1}`;
-        suffixByStroke.set(stroke, suffix);
-      }
-      id = `${shape.name}${suffix}${scope}`;
-      markerIdByPair.set(key, id);
-      defs.appendChild(buildEndMarker(id, end, stroke));
-    }
-    return `url(#${id})`;
-  };
-
-  for (const edge of graph.edges) {
-    const stroke = strokeOf(edge.style.frame);
-
-    const path = document.createElementNS(SVG_NS, "path");
-    // The line style is a second class on the one element the theme paints,
-    // never a second element: `.siren-edge` still selects every edge, an
-    // author's `linkStyle` still lands here, and the animation controller
-    // still adds and removes its own classes alongside.
-    path.setAttribute("class", edgeClasses(edge));
-    path.setAttribute("data-siren-id", edge.id);
-    path.setAttribute("d", pointsToPathData(edge.points));
-    // One marker per end, each pointing outward at the end it is applied
-    // to — the class renderer's `auto-start-reverse` def, which is why
-    // `<-->` needs one def rather than a mirrored pair.
-    const startMarker = markerReference(edge.fromEnd, stroke);
-    if (startMarker !== null) {
-      path.setAttribute("marker-start", startMarker);
-    }
-    const endMarker = markerReference(edge.toEnd, stroke);
-    if (endMarker !== null) {
-      path.setAttribute("marker-end", endMarker);
-    }
-    // The path is the whole drawn edge, so unlike a node there is no frame
-    // to choose: this is the element the theme's `.siren-edge` paints and
-    // the element the animation classes land on alike.
-    //
-    // The markers are the one part of the arrow these declarations cannot
-    // reach: a `<marker>` lives in `<defs>` and its content inherits from
-    // its own ancestors, never from the path referencing it. So an edge that
-    // names a `stroke` is given markers of its own above, carrying that
-    // colour — which is why `stroke` colours the whole arrow here as it does
-    // in Mermaid, rather than the line alone.
-    //
-    // Only the frame half. The text half goes to the label below, which is
-    // the element it means: measured with the probe's `--paint` mode,
-    // mermaid 11.17.2 paints an edge's label with the author's `color` and
-    // paints the line with everything else, so the split a node already
-    // makes is the split an edge makes too.
-    applyInlineStyle(path, edge.style.frame);
-    svg.appendChild(path);
-
-    // A sibling of the path rather than a child of a wrapping `<g>`, which
-    // is what the class renderer uses. An edge *is* its path here — that
-    // element carries `data-siren-id` and the animation classes, and board
-    // 3 put the author's declarations on it — so introducing a group now
-    // would move the id off the element three other places already find it
-    // on. Two elements wearing one id is exactly what ADR-0009 settles: a
-    // timeline target is an id, not an element, so `exit A-B fade` takes
-    // the label with the line without the controller learning anything.
-    // What the label paints behind its text goes first: document order is
-    // paint order.
-    const drawnLabel = buildEdgeLabel(edge);
-    if (drawnLabel !== null) {
-      appendLabel(svg, drawnLabel);
-    }
   }
 
   return svg;
