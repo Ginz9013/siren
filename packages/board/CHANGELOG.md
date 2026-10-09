@@ -37,8 +37,8 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   select between Reset and Full diagram. Play shows Lucide `play` while stopped and `pause`
   while playing, and is `aria-pressed` while playback runs. The select offers 1s, 1.5s, 2s,
   3s and 5s, plus the current `playInterval` when it is none of those (2500 shows as 2.5s).
-  Both are disabled while the full diagram shows and on a document with no steps. A
-  control that is disabled while focused hands focus to Full diagram.
+  Both are disabled while the full diagram shows and on a document with no steps. Either
+  one, disabled while focused, hands focus to Full diagram.
 - The built-in control bar gains a step counter between Next and Reset, reading
   `currentStep / totalSteps` (`0 / 10` at the start). It follows every step change, from the
   bar, from playback or from code, and every `setSource()`. It reads `0 / 0` while the full
