@@ -5,3 +5,4 @@
 {"id":"01M4GHPN0BZFPHA9QVKZE51TQ9","t":5,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M4GJ01W292HYK6NJPB614TYY","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4GJAB6N4BJ059Z2013KKTXY","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4GJE1BWNTD04Z833JK799EZ","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
