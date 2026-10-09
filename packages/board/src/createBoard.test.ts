@@ -161,7 +161,7 @@ class A
     expect(() => board.destroy()).not.toThrow();
   });
 
-  it("renders a default Prev/Next/Reset/Reset view control bar unless controls: false is passed", () => {
+  it("renders a default Prev/Next/Reset/Full diagram/Reset view control bar unless controls: false is passed", () => {
     const container = document.createElement("div");
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
@@ -169,8 +169,9 @@ class A
     const bar = container.querySelector(".siren-board-controls")!;
     expect(bar).not.toBeNull();
     const buttons = Array.from(bar.querySelectorAll("button"));
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Prev", "Next", "Reset", "Reset view"]);
-    expect(buttons.map((b) => b.title)).toEqual(["Prev", "Next", "Reset", "Reset view"]);
+    const labels = ["Prev", "Next", "Reset", "Full diagram", "Reset view"];
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(labels);
+    expect(buttons.map((b) => b.title)).toEqual(labels);
     for (const button of buttons) {
       expect(button.textContent).toBe(""); // icon only: no visible text
       const icons = button.querySelectorAll("svg");
@@ -813,6 +814,101 @@ exit B fade
       expect(changes).toEqual([]);
       expect(board.fullDiagram).toBe(false);
       expect(container.children).toHaveLength(0);
+    });
+
+    describe("the built-in bar's Full diagram button", () => {
+      /** The built-in bar's button with this accessible name. */
+      function button(container: HTMLElement, label: string): HTMLButtonElement {
+        return container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!;
+      }
+
+      /** Which of the bar's buttons are disabled, by name. */
+      function disabledButtons(container: HTMLElement): string[] {
+        return Array.from(container.querySelectorAll<HTMLButtonElement>(".siren-board-controls button"))
+          .filter((b) => b.disabled)
+          .map((b) => b.getAttribute("aria-label")!);
+      }
+
+      it("one click switches the full diagram on, presses the button, and disables Prev, Next and Reset but not Reset view", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
+        expect(disabledButtons(container)).toEqual([]);
+
+        button(container, "Full diagram").click();
+
+        expect(board.fullDiagram).toBe(true);
+        expect(effectClasses(container)).toEqual([]);
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
+        expect(disabledButtons(container)).toEqual(["Prev", "Next", "Reset"]);
+      });
+
+      it("a second click switches it back off, releases the button, re-enables every button, and returns to the step shown before", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+        button(container, "Next").click();
+        button(container, "Full diagram").click();
+
+        button(container, "Full diagram").click();
+
+        expect(board.fullDiagram).toBe(false);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(board.controller!.totalSteps).toBe(2);
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
+        expect(disabledButtons(container)).toEqual([]);
+      });
+
+      it("follows board.setFullDiagram called from code, in both directions", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+
+        board.setFullDiagram(true);
+
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
+        expect(disabledButtons(container)).toEqual(["Prev", "Next", "Reset"]);
+
+        board.setFullDiagram(false);
+
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
+        expect(disabledButtons(container)).toEqual([]);
+      });
+
+      it("without the built-in bar — controls: false or a custom factory — setFullDiagram still switches and fires", () => {
+        for (const controls of [false, () => ({ element: document.createElement("div") })]) {
+          const container = document.createElement("div");
+          const changes: boolean[] = [];
+          const board = createBoard(container, {
+            source: TIMELINE_SOURCE,
+            measureText: FAKE_MEASURER,
+            controls,
+            onFullDiagramChange: (on) => changes.push(on),
+          });
+
+          board.setFullDiagram(true);
+          board.setFullDiagram(false);
+
+          expect(changes).toEqual([true, false]);
+          expect(board.fullDiagram).toBe(false);
+          expect(board.controller!.totalSteps).toBe(2);
+        }
+      });
+
+      it("stays usable on a document with no timeline", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+        expect(board.controller!.totalSteps).toBe(0); // sanity: nothing to step through
+        expect(button(container, "Full diagram").disabled).toBe(false);
+
+        button(container, "Full diagram").click();
+
+        expect(board.fullDiagram).toBe(true);
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
+
+        button(container, "Full diagram").click();
+
+        expect(board.fullDiagram).toBe(false);
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
+      });
     });
   });
 });

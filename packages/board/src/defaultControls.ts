@@ -33,6 +33,11 @@ const ICONS = {
   next: ["m9 18 6-6-6-6"],
   /** Lucide `rotate-ccw` */
   reset: ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"],
+  /** Lucide `eye` — its pupil `<circle cx=12 cy=12 r=3>` redrawn as a path, since makeIcon draws only paths. */
+  fullDiagram: [
+    "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0",
+    "M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+  ],
   /** Lucide `scan` */
   resetView: [
     "M3 7V5a2 2 0 0 1 2-2h2",
@@ -43,25 +48,47 @@ const ICONS = {
 } satisfies Record<string, string[]>;
 
 /**
- * Board's built-in Prev/Next/Reset control bar — the default value of
- * `BoardOptions.controls`. Its buttons are icon-only; each carries its name
- * as `aria-label` and `title` instead of visible text. Reads `board.controller` at click time rather
- * than capturing it once, so it keeps working across `setSource` calls that
- * replace the underlying controller. Turn it off with `controls: false`, or
- * replace it with any other `ControlsFactory` (see ADR-0006).
+ * Board's built-in Prev/Next/Reset/Full diagram/Reset view control bar — the
+ * default value of `BoardOptions.controls`. Its buttons are icon-only; each
+ * carries its name as `aria-label` and `title` instead of visible text. Reads
+ * `board.controller` at click time rather than capturing it once, so it keeps
+ * working across `setSource` and `setFullDiagram` calls that replace the
+ * underlying controller. Turn it off with `controls: false`, or replace it
+ * with any other `ControlsFactory` (see ADR-0006).
+ *
+ * `syncFullDiagram` is board's own wiring, not part of `ControlsFactory`:
+ * board calls it whenever `fullDiagram` changes, wherever the change came
+ * from, so the bar never shows a stale pressed or disabled state.
  */
-export function createDefaultControls(board: Board): { element: HTMLElement; destroy?(): void } {
+export function createDefaultControls(board: Board): {
+  element: HTMLElement;
+  destroy?(): void;
+  syncFullDiagram(): void;
+} {
   const bar = document.createElement("div");
   bar.className = CONTROLS_CLASS;
 
-  bar.append(
-    makeButton("Prev", ICONS.prev, () => board.controller?.prev()),
-    makeButton("Next", ICONS.next, () => board.controller?.next()),
-    makeButton("Reset", ICONS.reset, () => board.controller?.reset()),
-    makeButton("Reset view", ICONS.resetView, () => board.resetView()),
-  );
+  const prev = makeButton("Prev", ICONS.prev, () => board.controller?.prev());
+  const next = makeButton("Next", ICONS.next, () => board.controller?.next());
+  const reset = makeButton("Reset", ICONS.reset, () => board.controller?.reset());
+  const fullDiagram = makeButton("Full diagram", ICONS.fullDiagram, () => {
+    board.setFullDiagram(!board.fullDiagram);
+  });
+  const resetView = makeButton("Reset view", ICONS.resetView, () => board.resetView());
+  bar.append(prev, next, reset, fullDiagram, resetView);
 
-  return { element: bar };
+  /**
+   * Mirrors `board.fullDiagram` onto the bar. The full diagram has no steps,
+   * so the step buttons are disabled rather than left clickable to do
+   * nothing; Reset view stays, since pan/zoom works on any drawing.
+   */
+  function syncFullDiagram(): void {
+    fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
+    for (const stepButton of [prev, next, reset]) stepButton.disabled = board.fullDiagram;
+  }
+  syncFullDiagram();
+
+  return { element: bar, syncFullDiagram };
 }
 
 function makeButton(label: string, iconPaths: string[], onClick: () => void): HTMLButtonElement {
