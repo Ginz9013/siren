@@ -99,11 +99,11 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     board.setFullDiagram(!board.fullDiagram);
   });
   const resetView = makeButton("Reset view", ICONS.resetView, () => board.resetView());
-  const interval = document.createElement("select");
-  interval.className = SELECT_CLASS;
-  interval.setAttribute("aria-label", "Play interval");
-  interval.addEventListener("change", () => board.setPlayInterval(Number(interval.value)));
-  bar.append(prev, play, next, reset, interval, fullDiagram, resetView);
+  const intervalSelect = document.createElement("select");
+  intervalSelect.className = SELECT_CLASS;
+  intervalSelect.setAttribute("aria-label", "Play interval");
+  intervalSelect.addEventListener("change", () => board.setPlayInterval(Number(intervalSelect.value)));
+  bar.append(prev, play, next, reset, intervalSelect, fullDiagram, resetView);
 
   /**
    * Mirrors `board.playing`, `board.playInterval` and `board.fullDiagram`
@@ -122,8 +122,8 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     play.replaceChildren(makeIcon(board.playing ? ICONS.pause : ICONS.play));
     syncIntervalOptions();
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
-    // The icon names what a click switches to, as a play button does; the
-    // pressed state, not the icon, says which drawing is showing now.
+    // Here too the icon names what a click switches to; the pressed state,
+    // not the icon, says which drawing is showing now.
     fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
     const nothingToPlay = board.fullDiagram || (board.controller?.totalSteps ?? 0) === 0;
     const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
@@ -131,7 +131,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
       [play, nothingToPlay],
       [next, board.fullDiagram],
       [reset, board.fullDiagram],
-      [interval, nothingToPlay],
+      [intervalSelect, nothingToPlay],
     ]);
     if ([...disabled].some(([control, off]) => off && control === document.activeElement)) {
       fullDiagram.focus();
@@ -149,9 +149,11 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
    */
   function syncIntervalOptions(): void {
     const wanted = [...new Set([...PLAY_INTERVALS, board.playInterval])].sort((a, b) => a - b);
-    const shown = Array.from(interval.options, (option) => Number(option.value));
-    if (wanted.join() !== shown.join()) interval.replaceChildren(...wanted.map(makeIntervalOption));
-    interval.value = String(board.playInterval);
+    const shown = Array.from(intervalSelect.options, (option) => Number(option.value));
+    if (wanted.join() !== shown.join()) intervalSelect.replaceChildren(...wanted.map(makeIntervalOption));
+    // update() runs on every playback step: leave a select the reader may
+    // have open alone unless the interval really changed.
+    if (intervalSelect.value !== String(board.playInterval)) intervalSelect.value = String(board.playInterval);
   }
 
   return { element: bar, update };

@@ -10,8 +10,8 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * to the window edge or collide with another instance's). Auto-injected
  * rather than a file consumers link themselves. In the bar, a pressed button
  * (Full diagram while the full diagram shows, Play while playing) takes the
- * accent color, and a disabled one (a step button meanwhile) fades and ignores
- * hover. The play interval select wears the buttons' border, surface and
+ * accent color, and a disabled one (a step button or Play while there is
+ * nothing to step through) fades and ignores hover. The play interval select wears the buttons' border, surface and
  * radius, and fades the same way when there is nothing to play.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
