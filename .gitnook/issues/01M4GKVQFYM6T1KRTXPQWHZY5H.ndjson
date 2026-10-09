@@ -5,3 +5,5 @@
 {"id":"01M4GKVTEFANWZQ43PAZM7KYMZ","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4GMEP1B9T9FNXVZMEE5KEXZ","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M4GMEP65HYEANB7B9AN51987","t":7,"a":"83a1","op":"comment","body":"Landed: 42e7d4b, 14aa7af (handled keys stop propagating), 82345cf (review fixes: focus kept on rebuild and on listbox padding mousedown). Review LARGE finding — extract the dropdown into its own module — is follow-up 01M4GMEG7P1DKZRTS2Z5KQ74ZZ. Waiting on the user's browser check."}
+{"id":"01M4GND6QXEBE3DXN99TAT111M","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4GND6WQ3D68ZC3XDSQ8VX0K","t":9,"a":"83a1","op":"comment","body":"Browser check done by the user: the dropdown opens above its trigger, no drift, no scrollbar. Done."}
