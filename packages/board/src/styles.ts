@@ -136,7 +136,7 @@ const CSS = `
 }
 
 .siren-board-controls__select {
-  padding: 0 0.5rem;
+  padding: 0 0.75rem 0 0.5rem;
   border: 1px solid var(--siren-board-border);
   border-radius: 8px;
   background: var(--siren-board-surface);
