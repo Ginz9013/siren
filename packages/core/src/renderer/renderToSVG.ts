@@ -251,14 +251,14 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // colour — which is why `stroke` colours the whole arrow here as it does
     // in Mermaid, rather than the line alone.
     //
-    // Only the frame half. The text half goes to the label below, which is
+    // Only the frame half. The text half goes to the label, drawn in the
+    // label layer after every line, which is
     // the element it means: measured with the probe's `--paint` mode,
     // mermaid 11.17.2 paints an edge's label with the author's `color` and
     // paints the line with everything else, so the split a node already
     // makes is the split an edge makes too.
     applyInlineStyle(path, edge.style.frame);
     svg.appendChild(path);
-
   }
 
   // Every label after every line, in a loop of its own rather than beside
