@@ -109,16 +109,28 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
   bar.append(prev, play, next, stepCounter, reset, intervalSelect, fullDiagram, resetView);
+  /**
+   * Where a step button disabled while focused hands focus: the opposite way,
+   * which is the way left to go. Every other control, and these when the
+   * opposite one is disabled too, hands it to Full diagram.
+   */
+  const handoff = new Map<HTMLButtonElement | HTMLSelectElement, HTMLButtonElement>([
+    [next, prev],
+    [prev, next],
+    [reset, next],
+  ]);
 
   /**
    * Mirrors `board.playing`, `board.playInterval`, `board.fullDiagram` and
-   * the controller's `currentStep / totalSteps` onto the bar. The full
-   * diagram has no steps, so the step buttons are disabled rather than left
-   * clickable to do nothing, and Play and the interval select are disabled
-   * whenever there is nothing to play (the full diagram, or no steps); Reset
-   * view stays, since pan/zoom works on any drawing. A control holding focus
-   * as it is disabled hands it to Full diagram first, so a change made from
-   * code never drops a keyboard reader's focus to the page.
+   * the controller's `currentStep / totalSteps` onto the bar. A step button
+   * that would do nothing is disabled rather than left clickable: Prev and
+   * Reset on step 0, Next on the last step, and all three in the full diagram
+   * or with no steps. Play and the interval select are disabled whenever there
+   * is nothing to play (the full diagram, or no steps), but Play stays on the
+   * last step, where it replays from step 0; Reset view stays, since pan/zoom
+   * works on any drawing. A control holding focus as it is disabled hands it
+   * on first (see `handoff`), so a change made from code never drops a
+   * keyboard reader's focus to the page.
    */
   function update(): void {
     play.setAttribute("aria-pressed", String(board.playing));
@@ -132,20 +144,27 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
     // The full diagram's controller has no steps, and before the first
     // render there is no controller: both read 0 / 0.
+    const currentStep = board.controller?.currentStep ?? 0;
     const totalSteps = board.controller?.totalSteps ?? 0;
-    stepCounter.textContent = `${board.controller?.currentStep ?? 0} / ${totalSteps}`;
+    stepCounter.textContent = `${currentStep} / ${totalSteps}`;
     const nothingToPlay = board.fullDiagram || totalSteps === 0;
     const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
-      [prev, board.fullDiagram],
+      [prev, board.fullDiagram || currentStep === 0],
       [play, nothingToPlay],
-      [next, board.fullDiagram],
-      [reset, board.fullDiagram],
+      [next, board.fullDiagram || currentStep >= totalSteps],
+      [reset, board.fullDiagram || currentStep === 0],
       [intervalSelect, nothingToPlay],
     ]);
-    if ([...disabled].some(([control, off]) => off && control === document.activeElement)) {
-      fullDiagram.focus();
+    // Enable first, so a handoff can land on a control this change enables;
+    // move focus next, while the control losing it can still hold it; and
+    // only then disable.
+    for (const [control, off] of disabled) if (!off) control.disabled = false;
+    const losing = [...disabled].find(([control, off]) => off && control === document.activeElement)?.[0];
+    if (losing !== undefined) {
+      const opposite = handoff.get(losing);
+      (opposite !== undefined && !disabled.get(opposite) ? opposite : fullDiagram).focus();
     }
-    for (const [control, off] of disabled) control.disabled = off;
+    for (const [control, off] of disabled) if (off) control.disabled = true;
   }
   update();
 

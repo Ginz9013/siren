@@ -32,8 +32,8 @@ createBoard(document.getElementById("board"), { source });
 ## Features
 
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
-  (`2 / 10`), Reset, a play interval select, Full diagram and Reset view. Replace it with
-  your own, or turn it off.
+  (`2 / 10`), Reset, a play interval select, Full diagram and Reset view. Prev, Next and
+  Reset are disabled when they have nowhere to go. Replace it with your own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
@@ -157,7 +157,11 @@ The full diagram is the document drawn without its `timeline:` block. While it s
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
 Play, Next, Reset and the play interval select, marks its Full diagram button as pressed,
 and its step counter reads `0 / 0` until you switch back. The counter also reads `0 / 0`
-on a document with no `timeline:` block, and before a first render succeeds. Switching
+on a document with no `timeline:` block, and before a first render succeeds, and Prev,
+Next and Reset stay disabled there too. On the timeline, the bar disables Prev and Reset on
+step 0 and Next on the last step; Play stays enabled there, since it replays from step 0.
+A step button disabled while it has focus hands focus to the opposite one (Next to Prev,
+Prev or Reset to Next), or to Full diagram when that one is disabled too. Switching
 never changes pan and zoom, and `onFullDiagramChange` fires whether the switch came from
 the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
