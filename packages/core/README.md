@@ -64,11 +64,13 @@ once.
 
 ## Concepts
 
-**Siren document.** A plain-text document with a Mermaid diagram, optionally followed by a
-`timeline:` block. The conventional file extension is `.srn`.
+**Siren document.** A plain-text document with a Mermaid diagram, optionally followed by
+one unnamed `timeline:` block or several named `timeline <name>:` blocks. The conventional
+file extension is `.srn`.
 
-**Timeline.** Everything after `timeline:` in a document. Each non-blank line is one
-**step**. Steps are numbered by their position, starting from 1.
+**Timeline.** One block of a document: everything from its `timeline:` or
+`timeline <name>:` header to the next header or the end of the document. Each non-blank line
+is one **step**. Steps are numbered by their position, starting from 1.
 
 **Step 0.** The picture before the first step. Anything the timeline introduces with
 `enter` is hidden at step 0. Everything the timeline never mentions is visible from the
@@ -144,12 +146,12 @@ The package also ships `dist/siren-core.js`, a single ES module that includes ev
 dependency. You can load it directly from a CDN:
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.1/dist/theme.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.4/dist/theme.css" />
 
 <div id="diagram"></div>
 
 <script type="module">
-  import { render } from "https://cdn.jsdelivr.net/npm/siren-core@0.1/dist/siren-core.js";
+  import { render } from "https://cdn.jsdelivr.net/npm/siren-core@0.4/dist/siren-core.js";
 
   const { controller } = render(
     "flowchart LR\n  A --> B\n\ntimeline:\n  enter B fade",
@@ -249,8 +251,8 @@ Each block is a timeline of its own: its steps count from 1, and anything *that 
 mentions is visible at its step 0. A diagnostic about a named block starts with
 `timeline <name>:`. A document uses either one unnamed `timeline:` block or named blocks,
 never both, and a name can be used only once. A header is exactly `timeline:` or
-`timeline <name>:` with nothing between the name and the colon; a name is letters, digits, `_` and
-`-`. Any other line starting with `timeline` is not a header and is read as ordinary syntax.
+`timeline <name>:`, with nothing between the name and the colon. Any other line starting
+with `timeline` is not a header and is read as ordinary syntax.
 
 `render()` applies the first block unless you pass another name (see
 [`RenderOptions`](#renderoptions)). Every block is checked on every render, whichever one is

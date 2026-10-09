@@ -8,8 +8,7 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
-Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<name>"`, and
-`SirenRenderResult.timelines`, which are not released yet.
+Requires `siren-core` ^0.4.0.
 
 ### Added
 
@@ -79,6 +78,21 @@ Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<
   disabled, while focused, it hands focus to Full diagram. It is
   the same dropdown as the play interval's, keyboard included; style it through
   `.siren-board-controls__timeline`.
+
+### Changed
+
+- The built-in control bar grows from Prev, Next, Reset and Reset view to, in order, Prev,
+  Play, Next, the step counter, Reset, Timeline (only while the document names two timelines
+  or more), Play interval, Full diagram and Reset view. Its buttons gain `:disabled` and
+  `[aria-pressed="true"]` styles. A dropdown's listbox opens directly above its trigger,
+  inside the board, so give the board at least about 260px of height, or its top options are
+  cut off.
+- Built against `siren-core` 0.4.0, and `dist/siren-board.js`, which bundles it, carries that
+  release's changes: connectors paint under the boxes, and a class relationship's, state
+  transition's or ER relationship's label is drawn in a label group of its own, outside the
+  connector's group. A stylesheet that reached a label through the connector's group must
+  select the label group instead. See the
+  [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md).
 
 ### Fixed
 

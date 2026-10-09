@@ -116,7 +116,7 @@ height shows nothing.
 <!doctype html>
 <html>
   <head>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.1/dist/theme.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.4/dist/theme.css" />
     <style>
       #board { width: 100vw; height: 100vh; }
       body { margin: 0; }
@@ -125,7 +125,7 @@ height shows nothing.
   <body>
     <div id="board"></div>
     <script type="module">
-      import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.1/dist/siren-board.js";
+      import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.4/dist/siren-board.js";
 
       const source = await fetch("./architecture.srn").then((r) => r.text());
       createBoard(document.getElementById("board"), { source });
@@ -183,8 +183,8 @@ board.pause();
 ```
 
 The built-in bar's Play button does the same. It shows a play icon while stopped and a pause
-icon while playing, and is pressed (`aria-pressed="true"`) while playback runs. The dropdown
-next to Reset picks the interval: 1s, 1.5s, 2s, 3s or 5s, with any other `playInterval` you
+icon while playing, and is pressed (`aria-pressed="true"`) while playback runs. The play
+interval dropdown picks the interval: 1s, 1.5s, 2s, 3s or 5s, with any other `playInterval` you
 set added to the list. Its button shows the current interval; the list always opens directly
 above it, at a fixed place and without a scrollbar. Open it with a click, or with the arrow
 keys, Enter or Space on its button; move with the arrow keys, Home and End; pick with Enter,
@@ -228,8 +228,9 @@ so you can use it to clear an error list.
 ### Live preview
 
 `setSource()` re-renders the same board. A successful render replaces the diagram,
-starts at step 0 and resets pan and zoom. A failed render keeps the previous diagram and
-shows the error banner, so a half-typed document doesn't blank the preview.
+starts at step 0 and resets pan and zoom. It keeps the current timeline when the new
+document declares it, and keeps the full diagram on. A failed render keeps the previous
+diagram and shows the error banner, so a half-typed document doesn't blank the preview.
 
 ```js
 const board = createBoard(preview, { onDiagnostics: showProblems });
