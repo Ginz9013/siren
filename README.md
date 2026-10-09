@@ -52,7 +52,7 @@ error instead of being drawn incorrectly.
 | Package                           | Description                                                                      |
 | --------------------------------- | -------------------------------------------------------------------------------- |
 | [`siren-core`](./packages/core)   | Parser, layout, SVG renderer and animation controller. Start here for the syntax and the API. |
-| [`siren-board`](./packages/board) | A drop-in browser player with step controls, pan and zoom.                        |
+| [`siren-board`](./packages/board) | A drop-in browser player: step controls, playback, the full diagram, switching named timelines, pan and zoom. |
 
 Each package records its releases in its own `CHANGELOG.md`
 ([core](./packages/core/CHANGELOG.md), [board](./packages/board/CHANGELOG.md)).
@@ -147,6 +147,15 @@ Publish with `pnpm`, not `npm`. `pnpm publish` rewrites `siren-board`'s
 
    This is the root script for `pnpm -r publish --access public`. Type `run`: a bare
    `pnpm publish` is pnpm's own command, not this script.
+
+5. Tag the release commit with the version and push the tag:
+
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+   Tags are named `v` plus the version (`v0.1.0`, `v0.1.1`, `v0.3.0`); both packages share it.
 
 Each package's `prepublishOnly` script runs its tests and build before it is published.
 `LICENSE` is copied into each package so it travels in the tarball; npm only picks up the one

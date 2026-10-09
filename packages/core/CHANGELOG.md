@@ -9,7 +9,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 ## [Unreleased]
 
 Breaking for a stylesheet or script that reaches a connector's label through the connector's
-own group (see **Changed**).
+own group, and for a script that matches the old message for a second unnamed `timeline:`
+(see **Changed**). `SirenRenderResult` gains a required `timelines` field, so TypeScript code
+that builds one itself, such as a mock, must add it.
 
 ### Added
 
@@ -24,6 +26,9 @@ own group (see **Changed**).
   unnamed block with named ones, two unnamed blocks, a repeated name and a malformed name are
   each an error. Every block is checked on every render, and a diagnostic about a named block
   starts with `timeline <name>:`. A document with one unnamed block renders as before.
+  A header is exactly `timeline:` or `timeline <name>:`, with nothing between the name and
+  the colon; any other line starting with `timeline` keeps its ordinary meaning, so a document
+  that rendered before renders the same.
 - `RenderOptions.timeline` also takes a string: `render(source, container, { timeline: "wallet" })`
   applies the block of that name. `true`, or leaving the option out, applies the first block.
   A name the document does not declare throws a `RangeError` listing the declared names, and
