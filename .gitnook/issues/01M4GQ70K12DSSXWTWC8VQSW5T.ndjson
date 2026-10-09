@@ -2,3 +2,4 @@
 {"id":"01M4GQ70KAXXK5PE2BWPK0WBPB","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T02-core-named-timeline-blocks.md`（T2）。"}
 {"id":"01M4GQ70KANY9B01HDTZ8A76X3","t":3,"a":"83a1","op":"label.add","v":"core"}
 {"id":"01M4GQHF3C29QYQYEMV321Y82H","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GRHQ0C1H32AAM5AYCJFT9T","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
