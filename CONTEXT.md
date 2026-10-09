@@ -87,6 +87,13 @@ diagram never changes the view, and resetting the view never switches the full d
 _Avoid_: overview, plain mode, "the last step" (the timeline's last step still hides exited
 elements and keeps highlights, so it is not the full diagram)
 
+**Playback**:
+A board advancing its timeline one step per play interval on its own, until the last step.
+Starting playback on the last step replays from step 0. Any step change playback did not make
+itself — a step stepped by hand, a new document, switching to the full diagram — stops it.
+There is nothing to play in the full diagram or in a document without steps.
+_Avoid_: autoplay (reads as "starts playing on page load"), slideshow
+
 **Timeline block**:
 The `timeline:` section of a Siren document. Each non-blank line is one step, and lists the
 timeline actions that fire on it, naming timeline targets by id. Deliberately separate from the diagram's structural definition — see

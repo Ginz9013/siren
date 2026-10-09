@@ -31,8 +31,10 @@ createBoard(document.getElementById("board"), { source });
 
 ## Features
 
-- **Step controls included**: a floating bar with Prev, Next, Reset, Full diagram and Reset
-  view buttons. Replace it with your own, or turn it off.
+- **Step controls included**: a floating bar with Prev, Play, Next, Reset, a play interval
+  select, Full diagram and Reset view. Replace it with your own, or turn it off.
+- **Playback**: press Play and the timeline steps itself forward at the interval you pick,
+  stopping on the last step. Any manual step takes over from playback.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
@@ -152,8 +154,26 @@ board.setFullDiagram(false); // back to the step that was showing
 
 The full diagram is the document drawn without its `timeline:` block. While it shows,
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
-Next and Reset and marks its Full diagram button as pressed. Switching never changes pan
-and zoom, and `onFullDiagramChange` fires whether the switch came from the bar or from code.
+Play, Next, Reset and the play interval select, and marks its Full diagram button as
+pressed. Switching never changes pan and zoom, and `onFullDiagramChange` fires whether the
+switch came from the bar or from code.
+A custom control bar learns about switches through its own `update()` instead (see
+[Custom controls](#custom-controls)).
+
+### Playing the timeline
+
+```js
+board.setPlayInterval(1500); // ms between steps; the default is 2000
+board.play(); // steps at once, then every 1.5s, and stops on the last step
+board.pause();
+```
+
+The built-in bar's Play button does the same. It shows a play icon while stopped and a pause
+icon while playing, and is pressed (`aria-pressed="true"`) while playback runs. The select
+next to Reset picks the interval: 1s, 1.5s, 2s, 3s or 5s, with any other `playInterval` you
+set added to the list. Both are disabled while the full diagram shows and when the document
+has no steps. Any step change playback did not make stops it — Prev, Next or Reset, a new
+document, or switching to the full diagram.
 
 ### Keyboard navigation
 
@@ -203,15 +223,13 @@ Pass a function as `controls` to build your own. It receives the board and retur
 element to mount inside it:
 
 ```js
-let next; // kept so onFullDiagramChange can reach this board's button, not another's
-
 createBoard(container, {
   source,
   controls: (board) => {
     const bar = document.createElement("div");
     bar.className = "my-controls";
 
-    next = document.createElement("button");
+    const next = document.createElement("button");
     next.textContent = "Next";
     // Read board.controller when the button is clicked, not when the bar is built:
     // it is null until the first render, and setSource() and setFullDiagram() replace it.
@@ -222,12 +240,18 @@ createBoard(container, {
     full.onclick = () => board.setFullDiagram(!board.fullDiagram);
 
     bar.append(next, full);
-    return { element: bar, destroy: () => { /* remove listeners, if any */ } };
-  },
-  // A custom bar learns about every switch, including setFullDiagram() calls from code,
-  // through this callback.
-  onFullDiagramChange: (on) => {
-    next.disabled = on; // the full diagram has no steps
+    return {
+      element: bar,
+      // Called after every render, step change and full diagram switch, from your bar or
+      // from code — not at mount, so give the bar its starting state yourself. Read the
+      // new state off the board; board.controller is still null before the first render.
+      update: () => {
+        const controller = board.controller;
+        next.disabled = !controller || controller.currentStep === controller.totalSteps;
+        full.setAttribute("aria-pressed", String(board.fullDiagram));
+      },
+      destroy: () => { /* remove listeners, if any */ },
+    };
   },
 });
 ```
@@ -281,6 +305,8 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onStepChange`  | `(current: number, total: number) => void`     |         | Called whenever the current step changes.                                           |
 | `onDiagnostics` | `(diagnostics: Diagnostic[]) => void`          |         | Called after every render, with every error and warning.                            |
 | `onFullDiagramChange` | `(fullDiagram: boolean) => void`         |         | Called whenever `fullDiagram` changes, from the built-in bar or `setFullDiagram()`. |
+| `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
+| `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
 
 ### `Board`
@@ -292,14 +318,29 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
 | `setSource(src)`  | Renders a new document in place.                                                         |
 | `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
+| `playing`         | Whether playback is running. Starts `false`.                                             |
+| `playInterval`    | Milliseconds between playback steps.                                                     |
+| `play()`          | Starts playback: steps at once, then once per `playInterval`, and stops by itself on the last step. On the last step, it goes back to step 0 and takes step 1 one interval later. Does nothing while playing, while the full diagram shows, or when the document has no steps. |
+| `pause()`         | Stops playback. Playback also stops on any step change it did not make (the built-in bar, `board.controller` in code), on every `setSource()`, and on `setFullDiagram(true)`. |
+| `setPlayInterval(ms)` | Changes `playInterval`. Throws a `RangeError` unless `ms` is finite and greater than 0. While playing, the next step comes `ms` after the call. |
 | `resetView()`     | Resets pan and zoom to fit the container.                                                |
 | `destroy()`       | Removes everything the board added to the container and detaches its listeners.         |
 
 ### `ControlsFactory`
 
 ```ts
-type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): void };
+type ControlsFactory = (board: Board) => {
+  element: HTMLElement;
+  update?(): void;
+  destroy?(): void;
+};
 ```
+
+`update` is called once after each change the bar may show: a `setSource()` that rendered,
+a step change from any source (including `board.controller.next()` in code), a
+`fullDiagram` switch, and a change to `playing` or `playInterval`. It is never called after
+`destroy()`. The built-in bar is an ordinary
+`ControlsFactory` kept in step through this same hook.
 
 `destroy` is called when the board is destroyed.
 
