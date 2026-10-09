@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — multi-timeline demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./theme-dark.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <script src="./theme-toggle.js"></script>
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>Siren multi-timeline demo</h1>
+      <button id="theme-btn" type="button" class="theme-toggle">Theme: Light</button>
+    </div>
+
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Imports the real Vite library build of siren-board
+      (packages/board/dist/siren-board.js), never source files, like
+      demos/step-reveal.html. Run `pnpm --filter siren-core build && pnpm
+      --filter siren-board build` first.
+
+      examples/multi-timeline.srn draws one commerce class diagram and names
+      two timelines over it, `card` and `wallet`. Because the document names
+      two timelines or more, board's built-in control bar shows a Timeline
+      dropdown just before the play interval: picking a name switches to that
+      timeline at step 0 — and leaves the full diagram, if it is showing —
+      while the view stays where it was. This page owns nothing of that; it
+      only fetches the source, reports which timeline and step are showing,
+      and keeps the theme toggle.
+
+      fetch() of a local file is blocked by the browser's file:// CORS
+      policy, so serve this page over http(s), e.g. `python3 -m http.server`
+      from the repo root, and open /demos/multi-timeline.html.
+    -->
+    <script type="module">
+      import { createBoard } from "../packages/board/dist/siren-board.js";
+
+      const source = await fetch("../examples/multi-timeline.srn").then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load examples/multi-timeline.srn: ${response.status}`);
+        }
+        return response.text();
+      });
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+
+      function showStatus() {
+        if (board.controller === null) {
+          statusEl.textContent = "Render failed — see console diagnostics.";
+          return;
+        }
+        const where = board.fullDiagram
+          ? "Full diagram"
+          : `Step ${board.controller.currentStep} of ${board.controller.totalSteps}`;
+        statusEl.textContent = `Timeline: ${board.timeline} · ${where}`;
+      }
+
+      const board = createBoard(container, {
+        source,
+        onStepChange: () => showStatus(),
+        onTimelineChange: () => showStatus(),
+        onFullDiagramChange: () => showStatus(),
+        onDiagnostics: (diagnostics) => {
+          for (const diagnostic of diagnostics) {
+            console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+          }
+        },
+      });
+
+      showStatus();
+    </script>
+  </body>
+</html>

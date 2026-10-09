@@ -182,7 +182,7 @@ class A
       "button Next",
       "span siren-board-controls__step",
       "button Reset",
-      "div siren-board-controls__interval",
+      "div siren-board-controls__dropdown siren-board-controls__interval",
       "button Full diagram",
       "button Reset view",
     ]);
@@ -2608,6 +2608,235 @@ highlight A outline
         { timeline: "wallet", total: 0, fullDiagram: true },
         { timeline: "card", total: 1, fullDiagram: false },
       ]);
+    });
+
+    describe("the built-in bar's timeline dropdown", () => {
+      /** The timeline dropdown's trigger, or null while the bar shows none. */
+      function trigger(container: HTMLElement): HTMLButtonElement | null {
+        return container.querySelector<HTMLButtonElement>('.siren-board-controls button[aria-label="Timeline"]');
+      }
+
+      /** The timeline dropdown's open listbox, or null while it is closed. */
+      function listbox(container: HTMLElement): HTMLElement | null {
+        return container.querySelector<HTMLElement>('.siren-board-controls [role="listbox"][aria-label="Timeline"]');
+      }
+
+      /** The open listbox's options as a reader sees them: label, and whether it is the selected one. */
+      function options(container: HTMLElement): [string | null, boolean][] {
+        return Array.from(listbox(container)?.querySelectorAll('[role="option"]') ?? [], (option) => [
+          option.textContent,
+          option.getAttribute("aria-selected") === "true",
+        ]);
+      }
+
+      /** The open listbox's option labelled `label`. */
+      function option(container: HTMLElement, label: string): HTMLElement {
+        return Array.from(listbox(container)!.querySelectorAll<HTMLElement>('[role="option"]')).find(
+          (o) => o.textContent === label,
+        )!;
+      }
+
+      it("sits just before the interval dropdown, shows the current timeline's name, and opens a listbox of every name with the current one selected", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+        const bar = container.querySelector(".siren-board-controls")!;
+
+        expect(
+          Array.from(bar.children).map((c) => c.getAttribute("aria-label") ?? c.firstElementChild?.getAttribute("aria-label") ?? null),
+        ).toEqual(["Prev", "Play", "Next", null, "Reset", "Timeline", "Play interval", "Full diagram", "Reset view"]);
+        const timeline = trigger(container)!;
+        expect(timeline.getAttribute("aria-haspopup")).toBe("listbox");
+        expect(timeline.textContent).toBe("card");
+        expect(timeline.disabled).toBe(false);
+
+        timeline.click();
+
+        expect(options(container)).toEqual([
+          ["card", true],
+          ["wallet", false],
+        ]);
+        expect(document.activeElement).toBe(option(container, "card"));
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("is in the bar only while the document names two timelines or more, coming and going as setSource crosses that line", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { measureText: FAKE_MEASURER });
+        expect(trigger(container)).toBeNull(); // nothing rendered yet
+
+        board.setSource(TWO_TIMELINES);
+        expect(trigger(container)?.textContent).toBe("card");
+
+        board.setSource(`flowchart TD\nA --> B\ntimeline only:\nenter B fade\n`);
+        expect(trigger(container)).toBeNull(); // one name: nothing to choose
+
+        board.setSource(TWO_TIMELINES);
+        expect(trigger(container)?.textContent).toBe("card");
+
+        board.setSource(`flowchart TD\nA --> B\ntimeline:\nenter B fade\n`);
+        expect(trigger(container)).toBeNull(); // unnamed
+
+        board.setSource(TWO_TIMELINES);
+        board.setSource(VALID_SOURCE);
+        expect(trigger(container)).toBeNull(); // no timeline at all
+        expect(container.querySelectorAll(".siren-board-controls__dropdown")).toHaveLength(1); // the interval's alone
+      });
+
+      it("a click on an option switches to that timeline, closes the listbox onto its trigger and shows the new name", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const timelineChanges: (string | null)[] = [];
+        const board = createBoard(container, {
+          source: TWO_TIMELINES,
+          measureText: FAKE_MEASURER,
+          onTimelineChange: (name) => timelineChanges.push(name),
+        });
+        const timeline = trigger(container)!;
+
+        timeline.click();
+        option(container, "wallet").click();
+
+        expect(board.timeline).toBe("wallet");
+        expect(board.controller!.totalSteps).toBe(3);
+        expect(timelineChanges).toEqual(["wallet"]);
+        expect(listbox(container)).toBeNull();
+        expect(timeline.textContent).toBe("wallet");
+        expect(document.activeElement).toBe(timeline);
+        expect(container.querySelector(".siren-board-controls__step")!.textContent).toBe("0 / 3");
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("follows a switch from code, setTimeline or a setSource that keeps or replaces the current name, even while the listbox is open", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+
+        board.setTimeline("wallet");
+        expect(trigger(container)!.textContent).toBe("wallet");
+
+        trigger(container)!.click();
+        board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+timeline wallet:
+enter B fade
+timeline paypal:
+highlight A outline
+`);
+        expect(trigger(container)!.textContent).toBe("wallet");
+        expect(options(container)).toEqual([
+          ["wallet", true],
+          ["paypal", false],
+        ]);
+
+        board.setSource(TWO_TIMELINES);
+        expect(trigger(container)!.textContent).toBe("wallet");
+
+        board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+timeline paypal:
+enter B fade
+timeline card:
+highlight A outline
+`);
+        expect(trigger(container)!.textContent).toBe("paypal");
+        expect(options(container)).toEqual([
+          ["paypal", true],
+          ["card", false],
+        ]);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("stays enabled in the full diagram, where a pick leaves it — for the step shown before on the same name, step 0 on another — and re-enables the step controls", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+        board.setTimeline("wallet");
+        board.controller!.next();
+        board.controller!.next();
+        board.setFullDiagram(true);
+        const timeline = trigger(container)!;
+        expect(timeline.disabled).toBe(false);
+        expect(timeline.textContent).toBe("wallet");
+
+        timeline.click();
+        option(container, "wallet").click();
+
+        expect(board.fullDiagram).toBe(false);
+        expect(board.controller!.currentStep).toBe(2);
+        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
+        expect(button(container, "Prev").disabled).toBe(false);
+
+        board.setFullDiagram(true);
+        timeline.click();
+        option(container, "card").click();
+
+        expect(board.fullDiagram).toBe(false);
+        expect(board.timeline).toBe("card");
+        expect(board.controller!.currentStep).toBe(0);
+        expect(button(container, "Play").disabled).toBe(false);
+        expect(document.activeElement).toBe(timeline);
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("hands focus to Full diagram when a setSource takes it out of the bar while it holds focus, closing an open listbox first", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+        const timeline = trigger(container)!;
+        const oneTimeline = `flowchart TD\nA --> B\ntimeline only:\nenter B fade\n`;
+
+        timeline.focus();
+        board.setSource(oneTimeline);
+
+        expect(trigger(container)).toBeNull();
+        expect(document.activeElement).toBe(button(container, "Full diagram"));
+
+        board.setSource(TWO_TIMELINES);
+        timeline.click();
+        expect(document.activeElement?.getAttribute("role")).toBe("option"); // sanity
+        board.setSource(oneTimeline);
+
+        expect(document.activeElement).toBe(button(container, "Full diagram"));
+
+        // Back in the bar, it comes back closed rather than with the listbox it left with.
+        board.setSource(TWO_TIMELINES);
+        expect(listbox(container)).toBeNull();
+        expect(timeline.getAttribute("aria-expanded")).toBe("false");
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("destroy() with its listbox open removes it and the listener it put on document", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+        const add = vi.spyOn(document, "addEventListener");
+        const remove = vi.spyOn(document, "removeEventListener");
+        try {
+          trigger(container)!.click();
+          const added = add.mock.calls.map(([type, listener, options]) => [type, listener, options]);
+          expect(added).not.toEqual([]); // sanity: the open listbox listens for a press outside it
+
+          board.destroy();
+
+          expect(listbox(container)).toBeNull();
+          const removed = remove.mock.calls.map(([type, listener, options]) => [type, listener, options]);
+          for (const listener of added) expect(removed).toContainEqual(listener);
+        } finally {
+          vi.restoreAllMocks();
+          container.remove();
+        }
+      });
     });
   });
 });

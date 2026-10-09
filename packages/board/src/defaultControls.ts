@@ -4,11 +4,13 @@ import { createDropdown } from "./dropdown";
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
 const INTERVAL_CLASS = "siren-board-controls__interval";
+const TIMELINE_CLASS = "siren-board-controls__timeline";
 const STEP_CLASS = "siren-board-controls__step";
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** The play intervals the bar's interval dropdown offers, in ms. */
 const PLAY_INTERVALS = [1000, 1500, 2000, 3000, 5000];
 const INTERVAL_LABEL = "Play interval";
+const TIMELINE_LABEL = "Timeline";
 
 /*
  * Icon paths below are copied from Lucide (https://lucide.dev) rather than
@@ -66,7 +68,7 @@ const ICONS = {
     "M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
     "m6.18 5.276 3.1 3.899",
   ],
-  /** Lucide `chevron-up` — the interval trigger's: its listbox opens upward. */
+  /** Lucide `chevron-up` — every dropdown trigger's: its listbox opens upward. */
   chevronUp: ["m18 15-6-6-6 6"],
   /** Lucide `scan` */
   resetView: [
@@ -78,14 +80,15 @@ const ICONS = {
 } satisfies Record<string, string[]>;
 
 /**
- * Board's built-in Prev/Play/Next/step counter/Reset/Play interval/Full
- * diagram/Reset view control bar — the default value of
+ * Board's built-in Prev/Play/Next/step counter/Reset/Timeline/Play
+ * interval/Full diagram/Reset view control bar — the default value of
  * `BoardOptions.controls`. Its buttons are icon-only; each carries its name as
- * `aria-label` and `title` instead of visible text. The interval dropdown's
- * trigger carries its name as `aria-label` too, but shows the current interval
- * as text, and opens a listbox of intervals directly above itself rather than
- * leaving a native select's list to the OS, which places it above or below at
- * will. The step counter is plain text, not a live region:
+ * `aria-label` and `title` instead of visible text. The two dropdowns'
+ * triggers carry their names as `aria-label` too, but show the current value
+ * as text, and open a listbox directly above themselves rather than leaving a
+ * native select's list to the OS, which places it above or below at will. The
+ * timeline dropdown is there only while the document names two timelines or
+ * more. The step counter is plain text, not a live region:
  * playback changes it on every step, and announcing each one would talk over
  * the reader. Reads `board.controller` at click time rather than capturing
  * it once, so it keeps working across `setSource` and `setFullDiagram` calls
@@ -116,6 +119,13 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     onPick: (ms) => board.setPlayInterval(ms),
   });
   const intervalTrigger = intervalDropdown.trigger;
+  /** In the bar only while the document names two timelines or more; see syncTimelineDropdown. */
+  const timelineDropdown = createDropdown<string>({
+    label: TIMELINE_LABEL,
+    className: TIMELINE_CLASS,
+    icon: makeIcon(ICONS.chevronUp),
+    onPick: (name) => board.setTimeline(name),
+  });
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
   bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView);
@@ -131,9 +141,10 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   ]);
 
   /**
-   * Mirrors `board.playing`, `board.playInterval`, `board.fullDiagram` and
-   * the controller's `currentStep / totalSteps` onto the bar. A step button
-   * that would do nothing is disabled rather than left clickable: Prev and
+   * Mirrors `board.playing`, `board.timelines` and `board.timeline`,
+   * `board.playInterval`, `board.fullDiagram` and the controller's
+   * `currentStep / totalSteps` onto the bar. A step button that would do
+   * nothing is disabled rather than left clickable: Prev and
    * Reset on step 0, Next on the last step, and all three in the full diagram
    * or with no steps. Play and the interval trigger are disabled whenever there
    * is nothing to play (the full diagram, or no steps), but Play stays on the
@@ -147,6 +158,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // Like Full diagram's below, the icon names what a click does: play while
     // stopped, pause while playing.
     play.replaceChildren(makeIcon(board.playing ? ICONS.pause : ICONS.play));
+    syncTimelineDropdown();
     syncIntervalOptions();
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
     // Here too the icon names what a click switches to; the pressed state,
@@ -198,8 +210,33 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     );
   }
 
-  /** Closes an open listbox, which takes its document listener with it. */
+  /**
+   * Shows the timeline dropdown just before the interval dropdown while
+   * `board.timelines` offers a choice — two names or more — with each name as
+   * its own label and `board.timeline` selected, and takes it out of the bar
+   * otherwise. It is never disabled: in the full diagram a pick leaves the
+   * full diagram (see `Board.setTimeline`), so there is always something to
+   * pick. Taken out while it holds focus — on its trigger or an open
+   * listbox's option — it closes and hands focus to Full diagram, as a
+   * control disabled under focus does, rather than dropping it to the page.
+   */
+  function syncTimelineDropdown(): void {
+    if (board.timelines.length < 2) {
+      if (timelineDropdown.element.contains(document.activeElement)) fullDiagram.focus();
+      timelineDropdown.close();
+      timelineDropdown.element.remove();
+      return;
+    }
+    if (!bar.contains(timelineDropdown.element)) intervalDropdown.element.before(timelineDropdown.element);
+    timelineDropdown.sync(
+      board.timelines.map((name) => ({ value: name, label: name })),
+      board.timeline!,
+    );
+  }
+
+  /** Closes either dropdown's open listbox, which takes its document listener with it. */
   function destroy(): void {
+    timelineDropdown.destroy();
     intervalDropdown.destroy();
   }
 
