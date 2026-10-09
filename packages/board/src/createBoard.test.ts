@@ -756,6 +756,27 @@ exit B fade
       expect(container.querySelectorAll(".siren-board-viewport svg g.siren-node")).toHaveLength(3);
     });
 
+    it("when the first setSource fails, setFullDiagram still switches and fires, and the next setSource that renders draws the full diagram", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: "this is not a valid siren document",
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => changes.push(on),
+      });
+
+      board.setFullDiagram(true);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(changes).toEqual([true]);
+      expect(board.controller).toBeNull();
+
+      board.setSource(TIMELINE_SOURCE);
+
+      expect(board.controller!.totalSteps).toBe(0);
+      expect(container.querySelectorAll(".siren-board-viewport svg g.siren-node")).toHaveLength(3);
+    });
+
     it("after a setSource that failed, switching re-renders the last source that rendered and keeps the error banner and diagnostics", () => {
       const container = document.createElement("div");
       const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
