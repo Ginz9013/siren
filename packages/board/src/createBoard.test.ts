@@ -829,6 +829,21 @@ exit B fade
           .map((b) => b.getAttribute("aria-label")!);
       }
 
+      it("shows the icon of what a click switches to, and swaps it on every switch, from the bar or from code", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+        const icon = () => button(container, "Full diagram").querySelector("svg")!.outerHTML;
+        const offIcon = icon();
+
+        button(container, "Full diagram").click();
+        const onIcon = icon();
+        expect(onIcon).not.toBe(offIcon);
+
+        board.setFullDiagram(false);
+        expect(icon()).toBe(offIcon);
+        expect(button(container, "Full diagram").querySelectorAll("svg")).toHaveLength(1);
+      });
+
       it("one click switches the full diagram on, presses the button, and disables Prev, Next and Reset but not Reset view", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
