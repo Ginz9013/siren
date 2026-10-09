@@ -31,8 +31,10 @@ createBoard(document.getElementById("board"), { source });
 
 ## Features
 
-- **Step controls included**: a floating bar with Prev, Next, Reset, Full diagram and Reset
-  view buttons. Replace it with your own, or turn it off.
+- **Step controls included**: a floating bar with Prev, Play, Next, Reset, a play interval
+  select, Full diagram and Reset view. Replace it with your own, or turn it off.
+- **Playback**: press Play and the timeline steps itself forward at the interval you pick
+  (1s to 5s), stopping on the last step. Any manual step takes over from playback.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
@@ -152,10 +154,24 @@ board.setFullDiagram(false); // back to the step that was showing
 
 The full diagram is the document drawn without its `timeline:` block. While it shows,
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
-Next and Reset and marks its Full diagram button as pressed. Switching never changes pan
+Play, Next, Reset and the play interval select and marks its Full diagram button as pressed. Switching never changes pan
 and zoom, and `onFullDiagramChange` fires whether the switch came from the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
 [Custom controls](#custom-controls)).
+
+### Playing the timeline
+
+```js
+board.setPlayInterval(1500); // ms between steps; the default is 2000
+board.play(); // steps at once, then every 1.5s, and stops on the last step
+board.pause();
+```
+
+The built-in bar's Play button does the same. It shows a play icon while stopped and a pause
+icon while playing, and is pressed (`aria-pressed="true"`) while playback runs. The select
+next to Reset picks the interval: 1s, 1.5s, 2s, 3s or 5s, with any other `playInterval` you
+set added to the list. Both are disabled while the full diagram shows and when the document
+has no steps. Clicking Prev, Next or Reset during playback stops it.
 
 ### Keyboard navigation
 
