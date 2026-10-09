@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-10
+
 Requires `siren-core` ^0.4.0.
 
 ### Added
@@ -92,7 +94,7 @@ Requires `siren-core` ^0.4.0.
   transition's or ER relationship's label is drawn in a label group of its own, outside the
   connector's group. A stylesheet that reached a label through the connector's group must
   select the label group instead. See the
-  [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md).
+  [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#040---2026-10-10).
 
 ### Fixed
 

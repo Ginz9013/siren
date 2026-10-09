@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-10
+
 Breaking for a stylesheet or script that reaches a connector's label through the connector's
 own group, and for a script that matches the old message for a second unnamed `timeline:`
 (see **Changed**). `SirenRenderResult` gains a required `timelines` field, so TypeScript code
