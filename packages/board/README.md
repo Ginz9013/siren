@@ -157,8 +157,9 @@ The full diagram is the document drawn without its `timeline:` block. While it s
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
 Play, Next, Reset and the play interval select, marks its Full diagram button as pressed,
 and its step counter reads `0 / 0` until you switch back. The counter also reads `0 / 0`
-on a document with no `timeline:` block, and before a first render succeeds. Switching never changes pan and zoom, and `onFullDiagramChange` fires whether the
-switch came from the bar or from code.
+on a document with no `timeline:` block, and before a first render succeeds. Switching
+never changes pan and zoom, and `onFullDiagramChange` fires whether the switch came from
+the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
 [Custom controls](#custom-controls)).
 

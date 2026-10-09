@@ -80,10 +80,9 @@ const ICONS = {
  * `aria-label` and `title` instead of visible text, and the interval select its
  * name as `aria-label`. The step counter is plain text, not a live region:
  * playback changes it on every step, and announcing each one would talk over
- * the reader. Reads
- * `board.controller` at click time rather than capturing it once, so it keeps
- * working across `setSource` and `setFullDiagram` calls that replace the
- * underlying controller. Turn it off with `controls: false`, or replace it
+ * the reader. Reads `board.controller` at click time rather than capturing
+ * it once, so it keeps working across `setSource` and `setFullDiagram` calls
+ * that replace the underlying controller. Turn it off with `controls: false`, or replace it
  * with any other `ControlsFactory` (see ADR-0006) — this one is itself an
  * ordinary `ControlsFactory`, kept in step through the public `update()`
  * hook like any other, so it never shows a stale pressed or disabled state.
@@ -107,19 +106,19 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   intervalSelect.className = SELECT_CLASS;
   intervalSelect.setAttribute("aria-label", "Play interval");
   intervalSelect.addEventListener("change", () => board.setPlayInterval(Number(intervalSelect.value)));
-  const step = document.createElement("span");
-  step.className = STEP_CLASS;
-  bar.append(prev, play, next, step, reset, intervalSelect, fullDiagram, resetView);
+  const stepCounter = document.createElement("span");
+  stepCounter.className = STEP_CLASS;
+  bar.append(prev, play, next, stepCounter, reset, intervalSelect, fullDiagram, resetView);
 
   /**
    * Mirrors `board.playing`, `board.playInterval`, `board.fullDiagram` and
-   * the controller's `currentStep / totalSteps` onto the bar. The full diagram has no steps, so the step buttons are
-   * disabled rather than left clickable to do nothing, and Play and the
-   * interval select are disabled whenever there is nothing to play (the full
-   * diagram, or no steps); Reset view stays, since pan/zoom works on any
-   * drawing. A control holding focus as it is disabled hands it to Full
-   * diagram first, so a change made from code never drops a keyboard
-   * reader's focus to the page.
+   * the controller's `currentStep / totalSteps` onto the bar. The full
+   * diagram has no steps, so the step buttons are disabled rather than left
+   * clickable to do nothing, and Play and the interval select are disabled
+   * whenever there is nothing to play (the full diagram, or no steps); Reset
+   * view stays, since pan/zoom works on any drawing. A control holding focus
+   * as it is disabled hands it to Full diagram first, so a change made from
+   * code never drops a keyboard reader's focus to the page.
    */
   function update(): void {
     play.setAttribute("aria-pressed", String(board.playing));
@@ -133,8 +132,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
     // The full diagram's controller has no steps, and before the first
     // render there is no controller: both read 0 / 0.
-    step.textContent = `${board.controller?.currentStep ?? 0} / ${board.controller?.totalSteps ?? 0}`;
-    const nothingToPlay = board.fullDiagram || (board.controller?.totalSteps ?? 0) === 0;
+    const totalSteps = board.controller?.totalSteps ?? 0;
+    stepCounter.textContent = `${board.controller?.currentStep ?? 0} / ${totalSteps}`;
+    const nothingToPlay = board.fullDiagram || totalSteps === 0;
     const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
       [prev, board.fullDiagram],
       [play, nothingToPlay],
