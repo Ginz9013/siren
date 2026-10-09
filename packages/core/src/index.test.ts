@@ -7997,6 +7997,9 @@ describe("render(…, { timeline: false }) — the document drawn as Mermaid dra
     expect(sameDrawing(asDefault.svg!.outerHTML)).not.toBe(sameDrawing(asPlain.svg!.outerHTML));
 
     expect(result.diagnostics).toEqual(asDefault.diagnostics);
+    // Equal could still mean both are silent: every source names GHOST, so
+    // the timeline's own error has to be among them.
+    expect(result.diagnostics.some((d) => d.message.includes("GHOST"))).toBe(true);
     expect(result.svg).not.toBeNull();
     expect(container.contains(result.svg!)).toBe(true);
     expect(sameDrawing(result.svg!.outerHTML)).toBe(sameDrawing(asPlain.svg!.outerHTML));
@@ -8080,7 +8083,7 @@ highlight GHOST outline
   it("fails exactly when the default render fails, with the same diagnostics", () => {
     // Two different stages failing: the parser refusing the document, and
     // layout refusing a measurer's answer. Leaving the timeline off must not
-    // rescue either, or switching modes would hide a broken document.
+    // rescue either, or drawing without the timeline would hide a broken document.
     const unmeasurable: TextMeasurer = { measure: () => ({ width: NaN, height: 10 }) };
     const cases: Array<[string, { measureText?: TextMeasurer }]> = [
       ["this is not a valid siren document", {}],

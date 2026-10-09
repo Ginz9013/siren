@@ -75,8 +75,8 @@ export interface RenderOptions {
    *
    * The block is still parsed and validated, so `diagnostics` are exactly the
    * default render's, timeline errors included, and the render succeeds or
-   * fails exactly when the default one does. Switching a view between the two
-   * modes therefore never makes a problem in the document appear or vanish.
+   * fails exactly when the default one does. Drawing a document with or
+   * without its timeline therefore never makes a problem in it appear or vanish.
    */
   timeline?: boolean;
 }
