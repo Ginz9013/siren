@@ -1232,7 +1232,7 @@
  * A relationship's line. `fill` is absent for the reason
  * `.siren-relationship-line`'s is: the renderer writes `fill="none"` onto
  * the path itself, since the route is an open, multi-segment path a default
- * fill would paint as a polygon over the entities it joins.
+ * fill would paint as a polygon spanning the entities it joins.
  *
  * The dash that tells `--` from `..` is *not* here either, and deliberately:
  * it is inline on the path, because it is what the document said rather than

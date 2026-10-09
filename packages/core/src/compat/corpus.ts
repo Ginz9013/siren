@@ -5750,8 +5750,8 @@ line2\`"]`,
       "to fix a problem only this one has.",
     assert: (result) => {
       // The whole claim, read off the drawing: every `data-siren-id` the
-      // render stamped. Four elements and four ids — under the old spelling
-      // this was four elements and **three** ids, which is exactly what no
+      // render stamped. Four figures and four ids — under the old spelling
+      // this was four figures and **three** ids, which is exactly what no
       // assert was watching for.
       //
       // Sorted, because what matters here is the id *space* and not the
