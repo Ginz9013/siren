@@ -8113,3 +8113,137 @@ highlight GHOST outline
     expect(result.svg!.querySelector(".siren-pending")).not.toBeNull();
   });
 });
+
+describe("render() — a document with several named timeline blocks", () => {
+  /**
+   * Checks that a document declaring two named blocks plays its first one
+   * exactly as the same document with only that block, written unnamed,
+   * would — same steps, same picture at every step — while the second block
+   * is still validated: it ends in `highlight GHOST outline`, and that error
+   * must be reported under the second block's name.
+   *
+   * The expected behavior comes from the one-block document rather than from
+   * hand-written step states: "the first block applies" means precisely that
+   * the second changes nothing about what is played.
+   */
+  const expectFirstBlockPlayed = (diagram: string, first: string, second: string): void => {
+    const named = `${diagram}timeline card:\n${first}timeline wallet:\n${second}highlight GHOST outline\n`;
+    const alone = `${diagram}timeline:\n${first}`;
+
+    const result = render(named, document.createElement("div"));
+    const expected = render(alone, document.createElement("div"));
+
+    expect(expected.diagnostics).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'timeline wallet: references unknown id "GHOST"',
+        line: named.split("\n").indexOf("highlight GHOST outline") + 1,
+        column: 1,
+      },
+    ]);
+    expect(expected.controller!.totalSteps).toBeGreaterThan(0);
+    expect(result.controller!.totalSteps).toBe(expected.controller!.totalSteps);
+
+    for (let step = 0; step <= expected.controller!.totalSteps; step++) {
+      expect(sameDrawing(result.svg!.outerHTML)).toBe(sameDrawing(expected.svg!.outerHTML));
+      result.controller!.next();
+      expected.controller!.next();
+    }
+  };
+
+  it("plays a flowchart's first block, as if it were the only one", () => {
+    expectFirstBlockPlayed(
+      "flowchart TD\nA[Start] --> B[Middle]\nB --> C[End]\n",
+      "enter B fade\n\nhighlight A outline\n",
+      "enter C fade\nenter B fade\nexit A fade, exit A-B fade\n",
+    );
+  });
+
+  it("plays a class diagram's first block, as if it were the only one", () => {
+    expectFirstBlockPlayed(
+      "classDiagram\nAnimal <|-- Duck\nAnimal <|-- Fish\n",
+      "enter Duck fade\nhighlight Animal outline\n",
+      "enter Fish fade\nexit Duck fade, exit Animal-Duck fade\n",
+    );
+  });
+
+  it("plays a sequence diagram's first block, as if it were the only one", () => {
+    expectFirstBlockPlayed(
+      "sequenceDiagram\nparticipant A\nparticipant B\nA->>B: Hello\nB->>A: Hi\n",
+      "enter B fade\nenter A-B fade\nhighlight A outline\n",
+      "enter B-A fade\n",
+    );
+  });
+
+  it("plays a state diagram's first block, as if it were the only one", () => {
+    expectFirstBlockPlayed(
+      "stateDiagram-v2\n[*] --> Idle\nIdle --> Running : start\nRunning --> Idle : stop\n",
+      "enter Running fade\nhighlight Idle outline\n",
+      "enter Idle-Running fade\n",
+    );
+  });
+
+  it("plays an ER diagram's first block, as if it were the only one", () => {
+    expectFirstBlockPlayed(
+      "erDiagram\nCUSTOMER ||--o{ ORDER : places\nORDER ||--|{ LINE-ITEM : contains\n",
+      "enter ORDER fade\nhighlight CUSTOMER outline\n",
+      "enter LINE-ITEM fade\n",
+    );
+  });
+
+  it("accepts an empty named block: with nothing in it, there are no steps and nothing to report", () => {
+    const result = render(
+      "flowchart TD\nA --> B\ntimeline card:\n\ntimeline wallet:\nenter B fade\n",
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg).not.toBeNull();
+    expect(result.controller!.totalSteps).toBe(0);
+  });
+
+  it("rejects the whole document for each header error, in every diagram kind", () => {
+    const diagrams = {
+      flowchart: "flowchart TD\nA --> B\n",
+      class: "classDiagram\nA <|-- B\n",
+      sequence: "sequenceDiagram\nparticipant A\nparticipant B\nA->>B: Hi\n",
+      state: "stateDiagram-v2\nA --> B\n",
+      er: "erDiagram\nA ||--o{ B : has\n",
+    };
+    // Each header error is on the second header, which every source below
+    // puts on the line after the diagram and the first block's one step.
+    const headerErrors: Array<[string, string]> = [
+      [
+        "timeline:\nenter A fade\ntimeline card:\n",
+        'An unnamed "timeline:" block cannot share a document with named ones; name every block, or declare only the unnamed one',
+      ],
+      [
+        "timeline card:\nenter A fade\ntimeline card:\n",
+        'Timeline "card" is already declared on line HEADER',
+      ],
+      [
+        "timeline card:\nenter A fade\ntimeline pay by card:\n",
+        'Invalid timeline name "pay by card" (a name is letters, digits, "_" and "-")',
+      ],
+    ];
+
+    for (const [kind, diagram] of Object.entries(diagrams)) {
+      const firstHeaderLine = diagram.split("\n").length;
+      for (const [blocks, message] of headerErrors) {
+        const result = render(diagram + blocks, document.createElement("div"));
+
+        expect(result.svg, kind).toBeNull();
+        expect(result.controller, kind).toBeNull();
+        expect(result.diagnostics, kind).toEqual([
+          {
+            severity: "error",
+            message: message.replace("HEADER", String(firstHeaderLine)),
+            line: firstHeaderLine + 2,
+            column: 1,
+          },
+        ]);
+      }
+    }
+  });
+});

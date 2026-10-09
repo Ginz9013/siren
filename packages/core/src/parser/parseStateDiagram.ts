@@ -3,6 +3,7 @@ import type {
   Direction,
   Label,
   ParseResult,
+  NamedTimeline,
   SirenTimeline,
   StateDecl,
   StateDocument,
@@ -20,7 +21,7 @@ import {
   matchClassDirection,
   matchDiagramHeader,
 } from "./parseDirection";
-import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /**
  * The headers this parser accepts, asked for by kind rather than written out
@@ -447,9 +448,9 @@ function unimplementedIn(line: string): string | null {
  * one id are folded here rather than in the model, because a state carries
  * no payload for a later stage to reconcile: it is a name and a position.
  *
- * A `timeline:` block ends the diagram body and runs to the end of the
- * document, exactly as it does in a flowchart and a class diagram — and it is
- * read by the same grammar, `parseTimelineBlock`, rather than by a fourth copy
+ * The first timeline header ends the diagram body, and the timeline blocks
+ * run from there to the end of the document, exactly as they do in a
+ * flowchart and a class diagram — and they are read by the same grammar, `parseTimelineBlock`, rather than by a fourth copy
  * of it here. Nothing about a timeline entry is diagram-kind-specific
  * (ADR-0002 keeps the block separate from the structural definition precisely
  * so it can name any id), so the ids in it are resolved by `buildStateModel`
@@ -524,6 +525,8 @@ export function parseStateDiagram(source: string): ParseResult {
    * (as opposed to declaring an empty block).
    */
   let timeline: SirenTimeline | null = null;
+  /** The named `timeline <name>:` blocks, once the first has been opened. */
+  let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
 
   /** Every state declared so far, by the id the author named it with. */
   const declaredById = new Map<string, StateDecl>();
@@ -834,23 +837,25 @@ export function parseStateDiagram(source: string): ParseResult {
     const column = rawLine.length - rawLine.trimStart().length + 1;
 
     if (isTimelineHeader(line)) {
-      // Read *before* every structural pattern, and once read the block runs
-      // to the end of the document — the same one-way switch `parseFlowchart`
-      // and `parseClassDiagram` make, so a transition written after
-      // `timeline:` is a timeline diagnostic rather than silently parsing as
-      // structure. Draining it is `parseTimelineBody`'s job; what stays here
-      // is only what is this parser's own: where the block starts, and that a
-      // diagnostic inside it costs the whole document.
+      // Read *before* every structural pattern, and once read the diagram
+      // body is over for good — the same one-way switch `parseFlowchart` and
+      // `parseClassDiagram` make, so a transition written after a timeline
+      // header is a timeline diagnostic rather than silently parsing as
+      // structure. Splitting and reading the blocks is `parseTimelineBlocks`'s
+      // job; what stays here is only what is this parser's own: where the
+      // first block starts, and that a diagnostic inside any of them costs the
+      // whole document.
       //
       // An unterminated composite block is still reported below: the loop
       // breaks, and the `openBlocks` pass runs either way, so `state Outer {`
       // followed by `timeline:` is two problems and names both.
-      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(lines, index + 1);
-      diagnostics.push(...bodyDiagnostics);
-      if (bodyDiagnostics.length > 0) {
+      const blocks = parseTimelineBlocks(lines, index);
+      diagnostics.push(...blocks.diagnostics);
+      if (blocks.diagnostics.length > 0) {
         sawError = true;
       }
-      timeline = { entries };
+      timeline = blocks.timeline;
+      namedTimelines = blocks.namedTimelines;
       break;
     }
 
@@ -1257,6 +1262,7 @@ export function parseStateDiagram(source: string): ParseResult {
     regions,
     styles,
     timeline,
+    ...namedTimelinesField(namedTimelines),
   };
 
   return { document, diagnostics };

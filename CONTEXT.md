@@ -98,12 +98,18 @@ _Avoid_: autoplay (reads as "starts playing on page load"), slideshow
 The `timeline:` section of a Siren document. Each non-blank line is one step, and lists the
 timeline actions that fire on it, naming timeline targets by id. Deliberately separate from the diagram's structural definition — see
 [ADR-0002](docs/adr/0002-animation-timeline-is-a-separate-block.md).
-A document declares it at most once. `timeline:` opens the block and nothing closes it: every
-remaining line of the document belongs to it. A second `timeline:` is therefore a line *inside*
-the block, not a new one, and since it is not a timeline action all three diagram kinds report the
-same error-severity diagnostic for it — `Unrecognized timeline action: "timeline:"` — which costs
-the whole document, exactly as any other unrecognized line in the block does.
-_Avoid_: animation block, timeline section
+A document declares either one unnamed `timeline:` block or one or more named
+`timeline <name>:` blocks, never both. A name is letters, digits, `_` and `-`, and is
+case-sensitive. A block runs from its header to the next timeline header or the end of the
+document; nothing else closes it. Each block is a timeline in its own right: its steps count from
+1, and step 0 is its own, so anything *that block* never mentions is visible from its start (see
+decision `01M4GQ70CJ177A029JQV917H2Z`). Every block is validated whichever one is shown.
+_Avoid_: animation block, timeline section, path, track, scenario
+
+**Current timeline**:
+The timeline block a render or a board is applying right now. When nothing names one, it is the
+first block in the document.
+_Avoid_: active path, selected track
 
 **Step**:
 One non-blank line of a timeline block. Its number is never written: it is the line's place among
