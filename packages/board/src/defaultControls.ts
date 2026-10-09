@@ -33,10 +33,11 @@ const ICONS = {
   next: ["m9 18 6-6-6-6"],
   /** Lucide `rotate-ccw` */
   reset: ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"],
-  /** Lucide `eye` — its pupil `<circle cx=12 cy=12 r=3>` redrawn as a path, since makeIcon draws only paths. */
+  /** Lucide `workflow` — its two `<rect>`s (8×8, rx 2) redrawn as paths, since makeIcon draws only paths. */
   fullDiagram: [
-    "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0",
-    "M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+    "M5 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+    "M7 11v4a2 2 0 0 0 2 2h4",
+    "M15 13h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z",
   ],
   /** Lucide `scan` */
   resetView: [
