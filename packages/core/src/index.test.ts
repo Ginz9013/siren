@@ -7390,13 +7390,19 @@ describe("render() — an ER diagram, end to end", () => {
     expect(controller.totalSteps).toBe(6);
 
     const svg = result.svg!;
+    // Ids, not elements: a labelled relationship's line and label are two
+    // groups wearing one id (ADR-0016), and both start hidden.
     const pendingIds = () =>
-      Array.from(svg.querySelectorAll(".siren-pending"))
-        .map((el) => el.getAttribute("data-siren-id"))
-        .sort();
+      [
+        ...new Set(
+          Array.from(svg.querySelectorAll(".siren-pending")).map((el) =>
+            el.getAttribute("data-siren-id"),
+          ),
+        ),
+      ].sort();
 
-    // Exactly the six elements with an `enter` action start hidden, across
-    // all three kinds an author can address here.
+    // Exactly the six ids with an `enter` action start hidden, across all
+    // three kinds an author can address here.
     expect(pendingIds()).toEqual([
       "CUSTOMER",
       "CUSTOMER:ORDER",
@@ -7487,6 +7493,31 @@ describe("render() — an ER diagram, end to end", () => {
       "subgraph:1",
     ]);
     expect(places.classList.contains("siren-highlight-glow")).toBe(false);
+  });
+
+  it("lands a relationship's highlight and exit on both its line group and its label group (ADR-0016)", () => {
+    const { result } = renderEr(
+      "erDiagram\n" +
+        "  CUSTOMER ||--o{ ORDER : places\n" +
+        "timeline:\n" +
+        "  highlight CUSTOMER:ORDER outline\n" +
+        "  exit CUSTOMER:ORDER fade\n",
+    );
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const line = result.svg!.querySelector('g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"]')!;
+    const labels = result.svg!.querySelector(
+      'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"]',
+    );
+    expect(labels).not.toBeNull();
+
+    result.controller!.next();
+    expect(line.classList.contains("siren-highlight-outline")).toBe(true);
+    expect(labels!.classList.contains("siren-highlight-outline")).toBe(true);
+
+    result.controller!.next();
+    expect(line.classList.contains("siren-exit-fade")).toBe(true);
+    expect(labels!.classList.contains("siren-exit-fade")).toBe(true);
   });
 
   it("stamps the same data-siren-id on every figure when one document is rendered twice", () => {

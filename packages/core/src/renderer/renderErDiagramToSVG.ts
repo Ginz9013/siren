@@ -66,7 +66,7 @@ const FOOT_LENGTH = 36;
 /**
  * One relationship's route as an SVG `d`. Shared with the class renderer's
  * convention: an open, multi-segment path, so it is drawn with `fill:
- * none` rather than painted as a polygon over the boxes it joins.
+ * none` rather than painted as a polygon spanning the boxes it joins.
  */
 function pointsToPathData(points: Point[]): string {
   return points
@@ -92,7 +92,13 @@ function pointsToPathData(points: Point[]): string {
  * they do on `.siren-node`, `.siren-class` and `.siren-state`; its two parts
  * carry none of their own, so one timeline entry moves an entity's box and
  * its name together (ADR-0009). A relationship's `<g>` carries its own id
- * the same way, over its line, its two markers and its label.
+ * the same way, over its line and its two markers, and so does the
+ * `<g class="siren-er-relationship-labels">` around its label when it has
+ * one — one id, two groups, both reached by one timeline entry.
+ *
+ * Document order is the paint order, and it is Mermaid's
+ * (`clusters → edgePaths → edgeLabels → nodes`, ADR-0016): subgraph frames,
+ * every relationship line, every relationship label, then the entities.
  *
  * ⚠️ **`fromCardinality` is `marker-start` and `toCardinality` is
  * `marker-end`, with nothing reversed anywhere.** Mermaid records the two
@@ -160,14 +166,27 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
     svg.appendChild(buildSubgraph(subgraph));
   }
 
-  for (const entity of diagram.entities) {
-    svg.appendChild(buildEntity(entity));
-  }
-
-  // After the boxes: SVG has no z-index, and a relationship's marker meets
-  // the edge of a filled box.
+  // Every relationship's line, then every relationship's label, then the
+  // entities: Mermaid's `clusters → edgePaths → edgeLabels → nodes`
+  // (ADR-0016). A line routed past an entity it does not join runs under
+  // that box rather than across its text, and no line — this
+  // relationship's or a later one's — crosses a label, because every label
+  // is drawn after every line. The boxes at a line's own ends change
+  // nothing: layout stops the route on the box's edge, and every marker
+  // glyph sits outside it (`buildMarker`).
   for (const relationship of diagram.relationships) {
     svg.appendChild(buildRelationship(relationship, scope));
+  }
+
+  for (const relationship of diagram.relationships) {
+    const labels = buildRelationshipLabels(relationship);
+    if (labels !== null) {
+      svg.appendChild(labels);
+    }
+  }
+
+  for (const entity of diagram.entities) {
+    svg.appendChild(buildEntity(entity));
   }
 
   return svg;
@@ -223,8 +242,9 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
 
 /**
  * Builds the `<g class="siren-er-relationship">` for one relationship: the
- * line along the layout's route, a cardinality marker at each end, and the
- * label at the anchor the layout reserved room for.
+ * line along the layout's route with a cardinality marker at each end, and
+ * nothing else. Its label is a group of its own —
+ * `buildRelationshipLabels` — drawn after every line (ADR-0016).
  */
 function buildRelationship(
   relationship: PositionedErRelationship,
@@ -238,8 +258,8 @@ function buildRelationship(
   line.setAttribute("class", "siren-er-relationship-line");
   line.setAttribute("d", pointsToPathData(relationship.points));
   // Explicit, not left to CSS: the route is an open, multi-segment path,
-  // which a default fill would paint as a filled polygon over the entities
-  // it joins.
+  // which a default fill would paint as a filled polygon spanning the
+  // entities it joins.
   line.setAttribute("fill", "none");
   // The route runs `from` → `to`, so `marker-start` is the `from` end. No
   // conditional and no reversal — see this module's header.
@@ -253,12 +273,32 @@ function buildRelationship(
   }
   g.appendChild(line);
 
-  if (relationship.label !== null) {
-    // Drawn by `drawLabel` at the anchor the layout reserved room for: one
-    // plain row is the `<text>`'s own `textContent`, anything else a row
-    // tspan per row (ADR-0015).
-    appendLabel(g, drawPlaced(relationship.label, "siren-er-relationship-label"));
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-er-relationship-labels">` for one
+ * relationship — its label — or `null` when the author wrote none: an
+ * unlabelled relationship draws no empty group.
+ *
+ * It wears the relationship's `data-siren-id`, the same id as its line
+ * group. ADR-0009 makes a timeline target an id rather than an element, so
+ * `exit CUSTOMER:ORDER fade` reaches both groups with no help from the
+ * controller (ADR-0016). Its class name is in the theme's shared font rule,
+ * so the text inherits the face and size it had inside the line group.
+ */
+function buildRelationshipLabels(relationship: PositionedErRelationship): SVGGElement | null {
+  if (relationship.label === null) {
+    return null;
   }
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-er-relationship-labels");
+  g.setAttribute("data-siren-id", relationship.id);
+
+  // Drawn by `drawLabel` at the anchor the layout reserved room for: one
+  // plain row is the `<text>`'s own `textContent`, anything else a row
+  // tspan per row (ADR-0015).
+  appendLabel(g, drawPlaced(relationship.label, "siren-er-relationship-label"));
 
   return g;
 }

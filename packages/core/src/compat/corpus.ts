@@ -1010,13 +1010,18 @@ function erCardinalityGlyphs(result: SirenRenderResult, name: string): string[] 
   return placed.sort((a, b) => a.out - b.out).map((entry) => entry.glyph);
 }
 
-/** Where one ER relationship's drawn label sits. */
+/**
+ * Where one ER relationship's drawn label sits.
+ *
+ * The label is found by the relationship's id, not inside its line group: it
+ * is a group of its own, drawn after every line (ADR-0016).
+ */
 function erRelationshipLabelAnchor(
   result: SirenRenderResult,
   id: string,
 ): { text: string; x: number; y: number } {
   const text = svgOf(result).querySelector(
-    `g.siren-er-relationship[data-siren-id="${id}"] text.siren-er-relationship-label`,
+    `g.siren-er-relationship-labels[data-siren-id="${id}"] text.siren-er-relationship-label`,
   );
   if (text === null) throw new Error(`no relationship "${id}" drew a label`);
   return {
@@ -5753,14 +5758,26 @@ line2\`"]`,
       // order the groups happen to sit in the DOM; a row that pinned the
       // drawing order as well would fail for a reason that has nothing to
       // do with what it is about.
-      const ids = elements(result, "[data-siren-id]").map(idOf).sort();
-      expectSame("every drawn element's id", ids, [
+      //
+      // A relationship's label group is left out, and on purpose: it is
+      // part of the relationship's figure, wearing the line's id so one
+      // timeline entry reaches both (ADR-0016) — a sharing that is the
+      // design, not the collision this row watches for.
+      const ids = elements(result, "[data-siren-id]:not(g.siren-er-relationship-labels)")
+        .map(idOf)
+        .sort();
+      expectSame("every drawn figure's id", ids, [
         "ITEM",
         "LINE",
         "LINE-ITEM",
         "LINE:ITEM",
       ]);
       expectSame("no two of them are the same string", new Set(ids).size, ids.length);
+      expectSame(
+        "the label wears its relationship's id",
+        elements(result, "g.siren-er-relationship-labels").map(idOf),
+        ["LINE:ITEM"],
+      );
 
       // And the box that shares the *spelling* is still the box: a reader
       // of the failure above should not have to wonder whether the entity
@@ -6010,7 +6027,7 @@ line2\`"]`,
       "ranks far enough apart for both rows.",
     assert: (result) => {
       const label = svgOf(result).querySelector(
-        'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
       );
       expectSame("the label's rows", labelRows(label), ["places", "many"]);
       expectSame(
