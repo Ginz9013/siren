@@ -23,6 +23,25 @@ timeline:
   enter API-Browser fade, highlight API-Browser glow
 ```
 
+One diagram can also tell several stories. Instead of a single `timeline:`, give each
+story its own named block, and the reader picks which one to play:
+
+```
+timeline card:
+  enter Order fade
+  enter CreditCard fade, highlight CreditCard glow
+
+timeline wallet:
+  enter Order fade
+  enter Wallet fade, highlight Wallet glow
+```
+
+Each block runs from its `timeline <name>:` header to the next one, counts its own steps,
+and is checked on every render whichever one is shown. A document uses either one unnamed
+`timeline:` or named blocks, never both. `render()` plays the first block unless you pass
+another name, and `siren-board` shows a dropdown to switch between them (see
+[`examples/multi-timeline.srn`](./examples/multi-timeline.srn)).
+
 It supports flowchart, sequence, class, state and ER diagrams. Siren draws the diagrams
 itself and follows one rule for Mermaid compatibility: a document that renders in Mermaid
 must render here, and a construct that isn't implemented yet is rejected with a clear
