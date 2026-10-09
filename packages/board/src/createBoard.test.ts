@@ -2753,35 +2753,28 @@ highlight A outline
         container.remove();
       });
 
-      it("stays enabled in the full diagram, where a pick leaves it — for the step shown before on the same name, step 0 on another — and re-enables the step controls", () => {
+      it("is disabled in the full diagram, like Play and the play interval, closing an open listbox and handing its focus to Full diagram, and comes back on the timeline it left", () => {
         const container = document.createElement("div");
         document.body.appendChild(container);
         const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
         board.setTimeline("wallet");
         board.controller!.next();
-        board.controller!.next();
-        board.setFullDiagram(true);
         const timeline = trigger(container)!;
-        expect(timeline.disabled).toBe(false);
+        timeline.click(); // open, focus on the "wallet" option
+
+        board.setFullDiagram(true);
+
+        expect(timeline.disabled).toBe(true);
+        expect(timeline.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector('[role="listbox"][aria-label="Timeline"]')).toBeNull();
+        expect(document.activeElement).toBe(button(container, "Full diagram"));
         expect(timeline.textContent).toBe("wallet");
 
-        timeline.click();
-        option(container, "wallet").click();
+        board.setFullDiagram(false);
 
-        expect(board.fullDiagram).toBe(false);
-        expect(board.controller!.currentStep).toBe(2);
-        expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
-        expect(button(container, "Prev").disabled).toBe(false);
-
-        board.setFullDiagram(true);
-        timeline.click();
-        option(container, "card").click();
-
-        expect(board.fullDiagram).toBe(false);
-        expect(board.timeline).toBe("card");
-        expect(board.controller!.currentStep).toBe(0);
-        expect(button(container, "Play").disabled).toBe(false);
-        expect(document.activeElement).toBe(timeline);
+        expect(timeline.disabled).toBe(false);
+        expect(board.timeline).toBe("wallet");
+        expect(board.controller!.currentStep).toBe(1);
 
         board.destroy();
         container.remove();
