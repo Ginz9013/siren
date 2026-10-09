@@ -42,7 +42,9 @@ export interface Board {
    * Switches the full diagram on or off by re-rendering the last rendered
    * source; switching off returns to the step shown before. Never changes
    * the view or `diagnostics`, and fires neither `onStepChange` nor
-   * `onDiagnostics`. Setting the current value is a no-op.
+   * `onDiagnostics`. Setting the current value is a no-op. Like
+   * `setSource`, it replaces `controller`: read it again rather than keeping
+   * the old one.
    */
   setFullDiagram(on: boolean): void;
   /** Resets pan/zoom to the initial fit-to-container state (scale 1.0, no offset). */
@@ -117,8 +119,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     canvas.querySelector(`.${ERROR_BANNER_CLASS}`)?.remove();
   }
 
+  /** The one place board calls core's `render()`: `full` draws the full diagram. */
+  function renderDocument(source: string, full: boolean) {
+    return render(source, viewport.content, { measureText, timeline: !full });
+  }
+
   function setSource(source: string): void {
-    const result = render(source, viewport.content, { measureText, timeline: !fullDiagram });
+    const result = renderDocument(source, fullDiagram);
     diagnostics = result.diagnostics;
     if (result.svg === null) {
       // render() leaves the viewport's content layer untouched on failure
@@ -146,17 +153,24 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    */
   function setFullDiagram(on: boolean): void {
     if (destroyed || on === fullDiagram) return;
-    if (on) stepBeforeFullDiagram = wrappedController?.currentStep ?? 0;
-    fullDiagram = on;
     if (renderedSource !== null) {
-      const result = render(renderedSource, viewport.content, { measureText, timeline: !on });
+      const result = renderDocument(renderedSource, on);
+      // This source rendered before, and core resolves the timeline before
+      // dropping it, so it renders again; should it not, render() has left
+      // the previous drawing mounted, and nothing here switches either.
+      if (result.svg === null) return;
       const real = result.controller!;
-      // Stepping the unwrapped controller, in this same synchronous task,
-      // means the reader never sees step 0 flash by and `onStepChange` stays
-      // quiet: the reader is back where they were, not moving.
-      for (let i = 0; i < stepBeforeFullDiagram && real.currentStep < real.totalSteps; i++) real.next();
+      if (on) {
+        stepBeforeFullDiagram = wrappedController?.currentStep ?? 0;
+      } else {
+        // Stepping the unwrapped controller, in this same synchronous task,
+        // means the reader never sees step 0 flash by and `onStepChange`
+        // stays quiet: the reader is back where they were, not moving.
+        for (let i = 0; i < stepBeforeFullDiagram && real.currentStep < real.totalSteps; i++) real.next();
+      }
       wrappedController = wrapController(real);
     }
+    fullDiagram = on;
     options.onFullDiagramChange?.(fullDiagram);
   }
 
