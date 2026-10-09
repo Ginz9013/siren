@@ -1,0 +1,3 @@
+{"id":"01M4GQ7101P9B8BXF6Z58CXYN5","t":1,"a":"83a1","op":"create","title":"board: timelines / timeline / setTimeline / onTimelineChange"}
+{"id":"01M4GQ710ADJKB23WKCPQ2K105","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T04-board-timeline-api.md`（T4）。"}
+{"id":"01M4GQ710A7RMSTDXXHBTTTE0Z","t":3,"a":"83a1","op":"label.add","v":"board api"}
