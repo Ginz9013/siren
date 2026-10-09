@@ -5854,7 +5854,8 @@ describe("render() — a state diagram, end to end", () => {
       ),
     ).toEqual(["Idle-Running", "Running-Idle"]);
     expect(
-      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] text')!.textContent,
+      svg.querySelector('g.siren-transition-labels[data-siren-id="Idle-Running"] text')!
+        .textContent,
     ).toBe("start");
   });
 
@@ -5872,7 +5873,12 @@ describe("render() — a state diagram, end to end", () => {
     const points = (path.getAttribute("d") ?? "").split(" ");
     expect(points.length).toBeGreaterThanOrEqual(2);
     expect(new Set(points).size).toBeGreaterThanOrEqual(2);
-    expect(loop.querySelector("text")!.textContent).toBe("retry");
+    // The label is a group of its own wearing the same id, drawn after every
+    // line (ADR-0016).
+    expect(
+      svg.querySelector('g.siren-transition-labels[data-siren-id="Running-Running"] text')!
+        .textContent,
+    ).toBe("retry");
   });
 
   it("still draws a state a transition names, even when a `state X` line names it too", () => {
@@ -6157,10 +6163,16 @@ describe("render() — a state diagram, end to end", () => {
     // the renderer stamps no `siren-pending` of its own. Exactly the three
     // ids with an `enter` action start hidden; the start pseudo-state and
     // the composite's members, which the block never names, are visible.
+    // Ids, not elements: a labelled transition's line and label are two
+    // groups wearing one id (ADR-0016), and both start hidden.
     const pendingIds = () =>
-      Array.from(svg.querySelectorAll(".siren-pending"))
-        .map((el) => el.getAttribute("data-siren-id"))
-        .sort();
+      [
+        ...new Set(
+          Array.from(svg.querySelectorAll(".siren-pending")).map((el) =>
+            el.getAttribute("data-siren-id"),
+          ),
+        ),
+      ].sort();
     expect(pendingIds()).toEqual(["Idle", "Idle-Outer", "Outer"]);
 
     controller.next();
@@ -6194,6 +6206,31 @@ describe("render() — a state diagram, end to end", () => {
     expect(controller.currentStep).toBe(0);
     expect(pendingIds()).toEqual(["Idle", "Idle-Outer", "Outer"]);
     expect(outer.classList.contains("siren-highlight-outline")).toBe(false);
+  });
+
+  it("lands a transition's highlight and exit on both its line group and its label group (ADR-0016)", () => {
+    const { result } = renderState(
+      "stateDiagram-v2\n" +
+        "  Idle --> Running : start\n" +
+        "timeline:\n" +
+        "  highlight Idle-Running outline\n" +
+        "  exit Idle-Running fade\n",
+    );
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const line = result.svg!.querySelector('g.siren-transition[data-siren-id="Idle-Running"]')!;
+    const labels = result.svg!.querySelector(
+      'g.siren-transition-labels[data-siren-id="Idle-Running"]',
+    );
+    expect(labels).not.toBeNull();
+
+    result.controller!.next();
+    expect(line.classList.contains("siren-highlight-outline")).toBe(true);
+    expect(labels!.classList.contains("siren-highlight-outline")).toBe(true);
+
+    result.controller!.next();
+    expect(line.classList.contains("siren-exit-fade")).toBe(true);
+    expect(labels!.classList.contains("siren-exit-fade")).toBe(true);
   });
 
   it("animates a pseudo-state under the generated id it already carries", () => {
@@ -6396,10 +6433,16 @@ describe("render() — a state diagram, end to end", () => {
 
     const svg = result.svg!;
     const byId = (id: string) => svg.querySelector(`[data-siren-id="${id}"]`)!;
+    // Ids, not elements: a labelled transition's line and label are two
+    // groups wearing one id (ADR-0016), and both start hidden.
     const pendingIds = () =>
-      Array.from(svg.querySelectorAll(".siren-pending"))
-        .map((el) => el.getAttribute("data-siren-id"))
-        .sort();
+      [
+        ...new Set(
+          Array.from(svg.querySelectorAll(".siren-pending")).map((el) =>
+            el.getAttribute("data-siren-id"),
+          ),
+        ),
+      ].sort();
 
     // The example's own structure, asserted — the frame is addressed by the
     // author's own name `Working`, unlike a flowchart subgraph's generated
