@@ -1177,6 +1177,54 @@ unhighlight Duck
     expect(relationship.classList.contains("siren-pending")).toBe(true);
   });
 
+  it("lands a classDiagram relationship's highlight and exit on both its line group and its label group (ADR-0016)", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+Animal "1" --> "*" Duck : feeds
+timeline:
+highlight Animal-Duck glow
+exit Animal-Duck fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const line = result.svg!.querySelector('g.siren-relationship[data-siren-id="Animal-Duck"]')!;
+    const labels = result.svg!.querySelector(
+      'g.siren-relationship-labels[data-siren-id="Animal-Duck"]',
+    );
+    expect(labels).not.toBeNull();
+
+    result.controller!.next();
+    expect(line.classList.contains("siren-highlight-glow")).toBe(true);
+    expect(labels!.classList.contains("siren-highlight-glow")).toBe(true);
+
+    result.controller!.next();
+    expect(line.classList.contains("siren-exit-fade")).toBe(true);
+    expect(labels!.classList.contains("siren-exit-fade")).toBe(true);
+  });
+
+  it("lands a classDiagram note's exit on both its box and its connector, though the connector paints under the classes (ADR-0016)", () => {
+    const container = document.createElement("div");
+    const source = `classDiagram
+class Duck
+note for Duck "can fly"
+timeline:
+exit note:1 fade
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const box = result.svg!.querySelector('g.siren-note[data-siren-id="note:1"]')!;
+    const link = result.svg!.querySelector('path.siren-note-link[data-siren-id="note:1"]');
+    expect(link).not.toBeNull();
+
+    result.controller!.next();
+    expect(box.classList.contains("siren-exit-fade")).toBe(true);
+    expect(link!.classList.contains("siren-exit-fade")).toBe(true);
+  });
+
   it("renders demos/class-diagram.html's example source (examples/class-core.srn) end to end with no error diagnostics, every declaration form, member text verbatim, and all eight relationship kinds", () => {
     const container = document.createElement("div");
 
@@ -1247,7 +1295,7 @@ unhighlight Duck
 
     // The one relationship carrying both a label and multiplicity at each end.
     const cares = result.svg!.querySelector(
-      'g.siren-relationship[data-siren-id="Keeper-Animal"]',
+      'g.siren-relationship-labels[data-siren-id="Keeper-Animal"]',
     )!;
     expect(
       cares.querySelector("text.siren-relationship-label")!.textContent,
@@ -1357,8 +1405,8 @@ unhighlight Duck
       "Every structural feature in one document",
       "One registry per shape kind",
     ]);
-    expect(noteGroups[0].querySelector("path.siren-note-link")).toBeNull();
-    expect(noteGroups[1].querySelector("path.siren-note-link")).not.toBeNull();
+    expect(result.svg!.querySelector('path.siren-note-link[data-siren-id="note:1"]')).toBeNull();
+    expect(result.svg!.querySelector('path.siren-note-link[data-siren-id="note:2"]')).not.toBeNull();
   });
 
   it("lays a classDiagram out left-to-right for `direction LR` — subclasses beside their parent rather than below it — where the same document without the statement stacks them top-to-bottom", () => {
@@ -1750,9 +1798,7 @@ Plain -- Bare
     expect(result.diagnostics).toEqual([]);
     const textsOf = (id: string, selector: string) =>
       Array.from(
-        result
-          .svg!.querySelector(`g.siren-relationship[data-siren-id="${id}"]`)!
-          .querySelectorAll(selector),
+        result.svg!.querySelectorAll(`[data-siren-id="${id}"] ${selector}`),
       ).map((t) => t.textContent);
 
     expect(textsOf("Fleet-Vehicle", "text.siren-relationship-label")).toEqual(["owns"]);
@@ -2168,9 +2214,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
     // one on a decorated from-end (composition), one on a to-end (association).
     const textsOf = (id: string, selector: string) =>
       Array.from(
-        result
-          .svg!.querySelector(`g.siren-relationship[data-siren-id="${id}"]`)!
-          .querySelectorAll(selector),
+        result.svg!.querySelectorAll(`[data-siren-id="${id}"] ${selector}`),
       ).map((t) => t.textContent);
     expect(textsOf("Shelf-Media", "text.siren-relationship-label")).toEqual(["holds"]);
     expect(textsOf("Shelf-Media", "text.siren-multiplicity")).toEqual(["1", "0..*"]);
@@ -2184,8 +2228,8 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "Every class-diagram feature Siren draws, in one document",
       "One shelf per media kind",
     ]);
-    expect(notes[0].querySelector("path.siren-note-link")).toBeNull();
-    expect(notes[1].querySelector("path.siren-note-link")).not.toBeNull();
+    expect(result.svg!.querySelector('path.siren-note-link[data-siren-id="note:1"]')).toBeNull();
+    expect(result.svg!.querySelector('path.siren-note-link[data-siren-id="note:2"]')).not.toBeNull();
 
     // --- direction LR: the realization runs along x, so the interface it
     // points at is to the right of the class implementing it ---
@@ -2227,10 +2271,16 @@ click Sneaky call inspect() "<b>tooltip</b>"
     const controller = result.controller!;
     expect(controller.totalSteps).toBe(7);
 
+    // Ids, not elements: an attached note's box and its connector are two
+    // elements wearing one id (ADR-0016), and both start hidden.
     const pendingIds = () =>
-      Array.from(result.svg!.querySelectorAll(".siren-pending"))
-        .map((el) => el.getAttribute("data-siren-id"))
-        .sort();
+      [
+        ...new Set(
+          Array.from(result.svg!.querySelectorAll(".siren-pending")).map((el) =>
+            el.getAttribute("data-siren-id"),
+          ),
+        ),
+      ].sort();
 
     // Exactly the eight elements with an `enter` action start hidden, across
     // all four kinds an author can address. The free note (`note:1`) and

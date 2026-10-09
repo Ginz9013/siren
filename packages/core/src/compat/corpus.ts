@@ -3266,7 +3266,7 @@ line2\`"]`,
         "the label's rows",
         labelRows(
           svgOf(result).querySelector(
-            'g.siren-relationship[data-siren-id="Order-Line"] text.siren-relationship-label',
+            'g.siren-relationship-labels[data-siren-id="Order-Line"] text.siren-relationship-label',
           ),
         ),
         ["holds", "many"],
