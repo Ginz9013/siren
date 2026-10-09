@@ -60,17 +60,15 @@ Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<
   `setSource()`. A step button disabled while focused hands focus to the opposite one (Next
   to Prev, Prev or Reset to Next), or to Full diagram when that one is disabled too.
 - **Named timelines**: `board.timelines` lists the document's `timeline <name>:` blocks in
-  document order, and `board.timeline` is the one applied (the first by default; `null` when
-  the document has only an unnamed `timeline:` or none). `board.setTimeline(name)` switches to
-  another block from step 0, stopping playback; it never changes pan and zoom or
-  `diagnostics`, and fires `onTimelineChange` but not `onStepChange` or `onDiagnostics`.
-  Setting the current timeline does nothing, except while the full diagram shows: then it
-  switches the full diagram off, back to the step that was showing; another name also
-  switches it off, from step 0. A name the document does not declare throws a `RangeError`
-  and changes nothing. `setSource()` keeps the current timeline when the new document
-  declares that name, and otherwise applies its first, firing `onTimelineChange` when the name
-  changes; the first render's timeline is the initial one and fires nothing. Switching the full diagram off applies the current timeline, not the first. A
-  `ControlsFactory`'s `update()` is also called after every timeline switch.
+  document order, and `board.timeline` names the one applied: the first by default, `null`
+  when there are none. `board.setTimeline(name)` applies another from step 0 and stops
+  playback, keeping pan and zoom and `diagnostics`; from the full diagram it also switches
+  that off, and the current name then returns to the step that was showing. A name the
+  document does not declare throws a `RangeError` and changes nothing. `setSource()` keeps
+  the current timeline when the new document declares it, else applies its first, and
+  switching the full diagram off applies the current one. `onTimelineChange` fires whenever
+  `timeline` changes after the first render, and a `ControlsFactory`'s `update()` is called
+  after every switch.
 
 ### Fixed
 

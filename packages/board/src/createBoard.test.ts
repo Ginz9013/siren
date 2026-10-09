@@ -2436,6 +2436,28 @@ enter B fade
       expect(timelineChanges).toEqual([]);
     });
 
+    it("after a setSource that failed, setTimeline re-renders the last source that rendered with that timeline, keeping the error banner and diagnostics", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+      board.setSource("this is not a valid siren document");
+      const failedDiagnostics = board.diagnostics;
+      expect(failedDiagnostics.some((d) => d.severity === "error")).toBe(true); // sanity
+
+      board.setTimeline("wallet");
+
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(3);
+      expect(container.querySelectorAll(".siren-board-viewport svg g.siren-node")).toHaveLength(3);
+      expect(container.querySelector(".siren-board-error")).not.toBeNull();
+      expect(board.diagnostics).toBe(failedDiagnostics);
+
+      board.setTimeline("card");
+
+      expect(board.controller!.totalSteps).toBe(1);
+      expect(container.querySelector(".siren-board-error")).not.toBeNull();
+      expect(board.diagnostics).toBe(failedDiagnostics);
+    });
+
     it("switching the full diagram off returns to the current timeline, at the step shown before, not to the first", () => {
       const board = createBoard(document.createElement("div"), { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
       board.setTimeline("wallet");
