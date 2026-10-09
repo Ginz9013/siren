@@ -59,7 +59,6 @@ const diagram = (
   entities,
   relationships,
   subgraphs,
-  timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
   ...bounds,

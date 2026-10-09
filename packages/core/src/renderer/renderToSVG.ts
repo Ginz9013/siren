@@ -113,8 +113,9 @@ const END_SHAPES = {
  * name — and its label, one `<path class="siren-edge">` per edge, and
  * `data-siren-id` on the group and the path.
  *
- * Nothing here reads `graph.timeline`. The initial `siren-pending` state is
- * not this function's to decide: `createAnimationController(...).reset()`
+ * This function never sees a timeline: `render()` hands it to the animation
+ * controller alone. The initial `siren-pending` state is therefore not this
+ * function's to decide: `createAnimationController(...).reset()`
  * establishes it in `render()` for all three diagram kinds, out of the same
  * `computeClassStateAtStep` that every later step comes from. A copy of that
  * rule here would be a second opinion on step 0 that has to agree with the

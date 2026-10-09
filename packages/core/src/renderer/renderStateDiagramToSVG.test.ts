@@ -93,7 +93,6 @@ const DIAGRAM: PositionedStateDiagram = {
       label: null,
     },
   ],
-  timeline: { totalSteps: 0, entries: [] },
   width: 200,
   height: 180,
 };
@@ -341,7 +340,6 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
       label: null,
     },
   ],
-  timeline: { totalSteps: 0, entries: [] },
   width: 200,
   height: 180,
 };
@@ -399,7 +397,6 @@ const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
     },
   ],
   transitions: [],
-  timeline: { totalSteps: 0, entries: [] },
   width: 300,
   height: 360,
 };
@@ -573,7 +570,6 @@ const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
     },
   ],
   transitions: [],
-  timeline: { totalSteps: 0, entries: [] },
   width: 200,
   height: 260,
 };
@@ -669,7 +665,6 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         },
       ],
       transitions: [],
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 180,
     });
@@ -733,7 +728,6 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         },
       ],
       transitions: [],
-      timeline: { totalSteps: 0, entries: [] },
       width: 340,
       height: 180,
     });
@@ -793,16 +787,6 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
           label: null,
         },
       ],
-      // Every one of the three kinds given an `enter` at step 1, so a
-      // renderer deciding step 0 for itself would hide all of them.
-      timeline: {
-        totalSteps: 1,
-        entries: [
-          { kind: "enter", step: 1, targetId: "Outer", effect: "fade" },
-          { kind: "enter", step: 1, targetId: "Idle", effect: "fade" },
-          { kind: "enter", step: 1, targetId: "Idle-Outer", effect: "fade" },
-        ],
-      },
       width: 220,
       height: 180,
     });
@@ -860,7 +844,6 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         },
       ],
       transitions: [],
-      timeline: { totalSteps: 0, entries: [] },
       width: 200,
       height: 200,
     });
@@ -908,7 +891,6 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
         },
       ],
       transitions: [],
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 180,
     });
@@ -962,7 +944,6 @@ describe("renderStateDiagramToSVG, on a concurrent region", () => {
         },
       ],
       transitions: [],
-      timeline: { totalSteps: 0, entries: [] },
       width: 320,
       height: 220,
     });

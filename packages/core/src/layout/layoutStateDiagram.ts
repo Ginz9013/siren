@@ -373,7 +373,6 @@ export function layoutStateDiagram(
   return {
     states,
     transitions,
-    timeline: model.timeline,
     // The core reports the bounds of the graph it placed, which never
     // included the title strip a frame grows upward for; this takes
     // whichever is larger so that neither a frame nor a route the core

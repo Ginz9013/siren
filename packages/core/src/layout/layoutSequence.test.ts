@@ -1388,23 +1388,6 @@ describe("layoutSequence", () => {
     // The background still covers every member lifeline end to end.
     expect(box.y + box.height).toBeGreaterThanOrEqual(positioned.participants[0].bottom);
   });
-  it("carries the model's resolved timeline through to the positioned diagram unchanged", () => {
-    const timeline = {
-      totalSteps: 2,
-      entries: [
-        { kind: "enter" as const, step: 1, targetId: "A", effect: "fade" as const },
-        { kind: "highlight" as const, step: 2, targetId: "B", effect: "glow" as const },
-      ],
-    };
-    const model: SequenceModel = { ...coreModel(), timeline };
-
-    const diagram = layoutSequence(model, { measureText: fakeMeasurer });
-
-    // Carry-through only: the resolution rules belong to `resolveTimeline`,
-    // and layout neither adds to nor reorders what it was handed.
-    expect(diagram.timeline).toEqual(timeline);
-  });
-
 });
 
 describe("layoutSequence's labels", () => {

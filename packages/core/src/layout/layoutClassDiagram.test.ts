@@ -11,7 +11,6 @@ import type {
   ResolvedClassNamespace,
   ResolvedClassNote,
   ResolvedClassRelationship,
-  ResolvedTimeline,
   TextMeasurer,
   Label,
 } from "../contracts";
@@ -1276,29 +1275,6 @@ describe("layoutClassDiagram", () => {
       expect(classById(rightLeft, "B").x).toBeLessThan(
         classById(rightLeft, "A").x,
       );
-    });
-  });
-
-  describe("timeline", () => {
-    it("carries the model's resolved timeline through untouched", () => {
-      const timeline: ResolvedTimeline = {
-        totalSteps: 2,
-        entries: [
-          { kind: "enter", step: 1, targetId: "Duck", effect: "fade" },
-          { kind: "highlight", step: 2, targetId: "Animal-Duck" },
-        ],
-      };
-
-      const diagram = layoutClassDiagram(
-        classModel({
-          classes: [cls("Animal"), cls("Duck")],
-          relationships: [relationship("Animal", "Duck")],
-          timeline,
-        }),
-        { measureText: fakeMeasurer },
-      );
-
-      expect(diagram.timeline).toEqual(timeline);
     });
   });
 

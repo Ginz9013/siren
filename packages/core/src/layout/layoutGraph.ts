@@ -229,9 +229,9 @@ function boxForLabel(shape: NodeShape, label: Box): Box {
  * This is the flowchart adapter over `layoutDirectedGraph`: it measures each
  * node's label, asks the node's shape how much bounding box that label needs
  * (`boxForLabel`), hands the resulting sizes to the shared layout core, and
- * reattaches the flowchart's own data (labels, shapes, the resolved timeline)
- * to the coordinates that come back. All graph-layout math — and the only
- * dependency on the layout engine — lives in the shared core.
+ * reattaches the flowchart's own data (labels, shapes) to the coordinates
+ * that come back. All graph-layout math — and the only dependency on the
+ * layout engine — lives in the shared core.
  *
  * `PositionedNode.x/y` are the top-left corner of the node's bounding box,
  * as the core returns them, so renderer code can place a `<rect>` directly.
@@ -426,7 +426,6 @@ export function layoutGraph(
     subgraphs,
     accTitle: graph.accTitle,
     accDescr: graph.accDescr,
-    timeline: graph.timeline,
     // The core reports the extent of the graph *it* placed, which never
     // included the title strip a frame grows upward for. Taking the larger
     // of the two keeps a frame from being clipped by the `<svg>` it is drawn

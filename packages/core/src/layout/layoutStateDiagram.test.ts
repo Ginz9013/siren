@@ -662,11 +662,6 @@ describe("layoutStateDiagram", () => {
     expect(titled.height).toBeGreaterThan(plain.height);
   });
 
-  it("carries the resolved timeline through untouched", () => {
-    const source = model([{ from: "Idle", to: "Running" }]);
-
-    expect(layoutStateDiagram(source, options).timeline).toBe(source.timeline);
-  });
   it("draws a composite as a frame around the states inside it, with a strip for its title", () => {
     // The figure measured off mermaid 11.17.2 with `--markup`: a
     // `g.statediagram-cluster` is a frame with a title strip along its top
