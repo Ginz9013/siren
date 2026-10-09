@@ -1,0 +1,9 @@
+{"id":"01M4GHJZGRTWYW23J7DZVS2V86","t":1,"a":"83a1","op":"create","title":"step-counter: Prev/Next/Reset 到底時 disable 與焦點交接"}
+{"id":"01M4GHJZH1V3SG2XQ1K3Z54Y7G","t":2,"a":"83a1","op":"set","k":"description","v":"Board：spec issue `01M4GHJC6RK6GDTJMC7H67CHW8`（board-step-counter）。被 T1 `01M4GHJQEBXSV9EXG21JE2D058` 擋。\n\n## Outcome\n\n內建控制列在按了沒作用時 disable 步進按鈕，並把被 disable 按鈕上的焦點交給反方向的按鈕。行為照 spec「行為」3、4。\n\n## Acceptance criteria\n\n- [ ] step 0：Prev、Reset disabled，Next 可按。\n- [ ] 最後一步：Next disabled，Prev、Reset 可按；Play 仍可按（重播）。\n- [ ] 中間的 step：三顆都可按。`totalSteps === 0`、full diagram：三顆都 disabled（同現狀）。\n- [ ] 不論 step 變化的來源（按鈕、播放、程式呼叫 controller、`setSource`），disabled 狀態都正確。\n- [ ] 焦點交接：Next 被 disable → Prev；Prev 被 disable → Next；Reset 被 disable → Next；目標也是 disabled → 退回 Full diagram。各一個測試。\n- [ ] README（full diagram 段落、內建控制列說明）與 CHANGELOG Unreleased 更新。\n\n## Test seam\n\n`createBoard()` 內建控制列 DOM，在 `packages/board/src/createBoard.test.ts`。\n\n## Write ownership\n\n`packages/board/src/defaultControls.ts`、`createBoard.test.ts`、`packages/board/README.md`、`packages/board/CHANGELOG.md`（只限 Unreleased）\n\n## Blocked by\n\nT1 `01M4GHJQEBXSV9EXG21JE2D058`\n\n## Done when\n\n先看到失敗的行為測試再實作；board vitest、tsc、`pnpm test` 通過；在 `demos/` 實際用瀏覽器確認。"}
+{"id":"01M4GHJZH1R38MTBYE4SR5N94V","t":3,"a":"83a1","op":"label.add","v":"board"}
+{"id":"01M4GHJZH155D0G0GYT2A2BT5P","t":4,"a":"83a1","op":"label.add","v":"ui"}
+{"id":"01M4GHPN0BZFPHA9QVKZE51TQ9","t":5,"a":"83a1","op":"set","k":"status","v":"todo"}
+{"id":"01M4GJ01W292HYK6NJPB614TYY","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GJAB6N4BJ059Z2013KKTXY","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4GJE1BWNTD04Z833JK799EZ","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4GJN4M3MPX22CTP6ZZEEG6P","t":9,"a":"83a1","op":"set","k":"archived","v":true}

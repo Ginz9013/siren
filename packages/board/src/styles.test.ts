@@ -132,4 +132,15 @@ describe("board chrome's control bar states", () => {
     expect(disabled).toBeDefined();
     expect(disabled).toMatch(/cursor:\s*not-allowed/);
   });
+
+  it("sets the step counter in tabular figures, colored through the chrome tokens", () => {
+    // The counter changes on every step: tabular figures keep "9 / 10" and
+    // "10 / 10" the same width, so the buttons beside it never shift.
+    const css = injectedChromeCss();
+
+    const step = ruleBody(css, ".siren-board-controls__step");
+    expect(step).toBeDefined();
+    expect(step).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(step).toContain("var(--siren-board-text)");
+  });
 });
