@@ -130,15 +130,20 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     const options = intervalOptions();
     const at = options.indexOf(document.activeElement as HTMLElement);
     const to = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: options.length - 1 }[event.key];
+    // Every key handled here is the listbox's alone: a page shortcut on the
+    // same key (Home, the arrows) must not fire as well.
     if (to !== undefined) {
       event.preventDefault();
+      event.stopPropagation();
       // Stops at either end rather than wrapping, like a native select.
       options[Math.min(options.length - 1, Math.max(0, to))]?.focus();
     } else if ((event.key === "Enter" || event.key === " ") && at !== -1) {
       event.preventDefault();
+      event.stopPropagation();
       pickInterval(Number(options[at].dataset.value));
     } else if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       closeIntervals(true);
     } else if (event.key === "Tab") {
       // Not prevented: with focus back on the trigger, the browser's own Tab
@@ -155,6 +160,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // Handled here rather than left to the button's own click: Space would
     // scroll the page, and the click that follows would shut it again.
     event.preventDefault();
+    event.stopPropagation();
     openIntervals();
   });
   const stepCounter = document.createElement("span");

@@ -881,7 +881,7 @@ exit B fade
         expect(button(container, "Full diagram").querySelectorAll("svg")).toHaveLength(1);
       });
 
-      it("one click switches the full diagram on, presses the button, and disables Prev, Play, Next and Reset but not Reset view", () => {
+      it("one click switches the full diagram on, presses the button, and disables Prev, Play, Next, Reset and Play interval but not Reset view", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
@@ -1872,6 +1872,35 @@ highlight A outline
         expect(trigger.getAttribute("aria-expanded")).toBe("false");
         expect(document.activeElement).toBe(trigger);
 
+        board.destroy();
+        container.remove();
+      });
+
+      it("keys the dropdown handles stay with it, so a page's own keyboard shortcuts do not also fire", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const trigger = control(container, "Play interval");
+        // The README's "Keyboard navigation" example, listening on the page.
+        const pageKeys: string[] = [];
+        const onPageKey = (event: KeyboardEvent) => pageKeys.push(event.key);
+        document.addEventListener("keydown", onPageKey);
+        const press = (k: string) =>
+          (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+
+        trigger.focus();
+        press("ArrowUp"); // opens
+        press("ArrowDown");
+        press("Home");
+        press("End");
+        press("Escape"); // closes onto the trigger
+        press("Enter"); // opens again
+        press("Enter"); // picks
+        press("ArrowLeft"); // not the dropdown's: the page still hears it
+
+        expect(pageKeys).toEqual(["ArrowLeft"]);
+
+        document.removeEventListener("keydown", onPageKey);
         board.destroy();
         container.remove();
       });
