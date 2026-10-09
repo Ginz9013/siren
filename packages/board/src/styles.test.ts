@@ -135,13 +135,16 @@ describe("board chrome's control bar states", () => {
     expect(disabled).toMatch(/cursor:\s*not-allowed/);
   });
 
-  it("opens the interval listbox directly above its trigger, whatever the room, and never scrolls it", () => {
+  it("opens every dropdown's listbox directly above its trigger, whatever the room, and never scrolls it", () => {
     // A native select's list is placed by the OS and drifts up or down; this
-    // one is pinned above the trigger and shows every option at once.
+    // one is pinned above the trigger and shows every option at once. The
+    // anchor is the root class every dropdown carries, not one dropdown's own
+    // className, so the timeline listbox opens where the interval one does.
     const css = injectedChromeCss();
 
-    const interval = ruleBody(css, ".siren-board-controls__interval");
-    expect(interval).toMatch(/position:\s*relative/);
+    const root = ruleBody(css, ".siren-board-controls__dropdown");
+    expect(root).toMatch(/position:\s*relative/);
+    expect(ruleBody(css, ".siren-board-controls__interval")).toBeUndefined();
 
     const listbox = ruleBody(css, ".siren-board-controls__listbox");
     expect(listbox).toBeDefined();

@@ -1,3 +1,5 @@
+/** Every dropdown's root: what the listbox is positioned against, whatever the caller's className. */
+const ROOT_CLASS = "siren-board-controls__dropdown";
 const TRIGGER_CLASS = "siren-board-controls__trigger";
 const LISTBOX_CLASS = "siren-board-controls__listbox";
 const OPTION_CLASS = "siren-board-controls__option";
@@ -35,8 +37,9 @@ export interface Dropdown<T> {
  * Builds a dropdown that calls `onPick` with the value the reader picks — by
  * click, or Enter / Space on a focused option — after closing onto its
  * trigger. It knows nothing about what its values mean; `label` names it for
- * assistive technology on both the trigger and the listbox, and `icon` is
- * drawn after the trigger's text.
+ * assistive technology on both the trigger and the listbox, `className` is
+ * added to its root beside the fixed class every dropdown carries, and `icon`
+ * is drawn after the trigger's text.
  */
 export function createDropdown<T>(config: {
   label: string;
@@ -48,7 +51,7 @@ export function createDropdown<T>(config: {
   let shown: readonly DropdownOption<T>[] = [];
 
   const element = document.createElement("div");
-  element.className = config.className;
+  element.classList.add(ROOT_CLASS, config.className);
   const trigger = document.createElement("button");
   trigger.type = "button";
   trigger.className = TRIGGER_CLASS;

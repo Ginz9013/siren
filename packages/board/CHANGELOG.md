@@ -43,7 +43,8 @@ Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<
   `role="listbox"` that always opens directly above it and never scrolls. It works from the
   keyboard (arrow keys, Home, End, Enter, Space, Escape, Tab) as well as the pointer, closes
   on a press anywhere else, the diagram included, and stays open while playback steps.
-  Style it through `.siren-board-controls__trigger`, `__listbox` and `__option`.
+  Style it through `.siren-board-controls__dropdown` (its root, which anchors the listbox),
+  `__trigger`, `__listbox` and `__option`.
   Both are disabled while the full diagram shows and on a document with no steps. Either
   one, disabled while focused, hands focus to Full diagram.
 - The built-in control bar gains a step counter between Next and Reset, reading
@@ -69,6 +70,14 @@ Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<
   switching the full diagram off applies the current one. `onTimelineChange` fires whenever
   `timeline` changes after the first render, and a `ControlsFactory`'s `update()` is called
   after every switch.
+- The built-in control bar gains a timeline dropdown between Reset and the play interval
+  dropdown, shown only while the document names two timelines or more, so it comes and goes
+  as `setSource()` crosses that line. Its options are the names in `board.timelines`, with
+  `board.timeline` selected; picking one calls `board.setTimeline(name)`, and the dropdown
+  follows every switch made from code. It is never disabled: in the full diagram a pick leaves
+  the full diagram. Taken out of the bar while focused, it hands focus to Full diagram. It is
+  the same dropdown as the play interval's, keyboard included; style it through
+  `.siren-board-controls__timeline`.
 
 ### Fixed
 

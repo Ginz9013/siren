@@ -32,10 +32,14 @@ createBoard(document.getElementById("board"), { source });
 ## Features
 
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
-  (`2 / 10`), Reset, a play interval dropdown, Full diagram and Reset view. Prev, Next and
-  Reset are disabled when they have nowhere to go. Replace it with your own, or turn it off.
+  (`2 / 10`), Reset, a timeline dropdown, a play interval dropdown, Full diagram and Reset
+  view. Prev, Next and Reset are disabled when they have nowhere to go. Replace it with your
+  own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
+- **Named timelines**: a document can tell several stories over one diagram, each in its
+  own `timeline <name>:` block. When it names two or more, the bar shows a dropdown of their
+  names; picking one plays that timeline from the start, even from the full diagram.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
@@ -412,8 +416,9 @@ together — copy it and you have a dark theme for both.
 
 For deeper changes, target the classes `.siren-board-controls`,
 `.siren-board-controls__button`, `.siren-board-controls__step` (the step counter) and
-`.siren-board-controls__trigger`, `__listbox` and `__option` (the play interval dropdown), or
-pass your own `controls`.
+`.siren-board-controls__dropdown`, `__trigger`, `__listbox` and `__option` (the timeline and
+play interval dropdowns, told apart by `__timeline` and `__interval`), or pass your own
+`controls`.
 
 The built-in buttons are icon-only. Each has an `aria-label` and a `title`, so screen
 readers announce it and a tooltip names it.

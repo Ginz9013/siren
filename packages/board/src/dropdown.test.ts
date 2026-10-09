@@ -31,7 +31,7 @@ describe("createDropdown", () => {
       "wallet",
     );
 
-    expect(dropdown.element.className).toBe("siren-board-controls__timeline");
+    expect(dropdown.element.classList.contains("siren-board-controls__timeline")).toBe(true);
     expect(dropdown.trigger.getAttribute("aria-label")).toBe("Timeline");
     expect(dropdown.trigger.textContent).toBe("Wallet");
     expect(optionsOf(dropdown.element)).toEqual([]);
@@ -45,6 +45,22 @@ describe("createDropdown", () => {
     expect(options.map((option) => option.textContent)).toEqual(["Card", "Wallet"]);
     expect(options.map((option) => option.getAttribute("aria-selected"))).toEqual(["false", "true"]);
     expect(document.activeElement).toBe(options[1]);
+  });
+
+  it("carries a fixed root class of its own, with the caller's className only added beside it", () => {
+    // The listbox opens above the trigger by the root's own class, so a
+    // caller's className can name the dropdown without having to position it.
+    const dropdown = createDropdown<string>({
+      label: "Timeline",
+      className: "siren-board-controls__timeline",
+      icon: icon(),
+      onPick: () => {},
+    });
+
+    expect(Array.from(dropdown.element.classList)).toEqual([
+      "siren-board-controls__dropdown",
+      "siren-board-controls__timeline",
+    ]);
   });
 
   it("hands the picked option's own value to onPick, after closing onto its trigger", () => {
