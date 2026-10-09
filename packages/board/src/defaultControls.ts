@@ -66,15 +66,11 @@ const ICONS = {
  * `board.controller` at click time rather than capturing it once, so it keeps
  * working across `setSource` and `setFullDiagram` calls that replace the
  * underlying controller. Turn it off with `controls: false`, or replace it
- * with any other `ControlsFactory` (see ADR-0006).
- *
- * `syncFullDiagram` is board's own wiring, not part of `ControlsFactory`:
- * board calls it whenever `fullDiagram` changes, wherever the change came
- * from, so the bar never shows a stale pressed or disabled state.
+ * with any other `ControlsFactory` (see ADR-0006) — this one is itself an
+ * ordinary `ControlsFactory`, kept in step through the public `update()`
+ * hook like any other, so it never shows a stale pressed or disabled state.
  */
-export function createDefaultControls(
-  board: Board,
-): ReturnType<ControlsFactory> & { syncFullDiagram(): void } {
+export const createDefaultControls: ControlsFactory = (board: Board) => {
   const bar = document.createElement("div");
   bar.className = CONTROLS_CLASS;
 
@@ -94,7 +90,7 @@ export function createDefaultControls(
    * button holding focus hands it to Full diagram first, so a switch made
    * from code never drops a keyboard reader's focus to the page.
    */
-  function syncFullDiagram(): void {
+  function update(): void {
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
     // The icon names what a click switches to, as a play button does; the
     // pressed state, not the icon, says which drawing is showing now.
@@ -104,10 +100,10 @@ export function createDefaultControls(
     }
     for (const stepButton of [prev, next, reset]) stepButton.disabled = board.fullDiagram;
   }
-  syncFullDiagram();
+  update();
 
-  return { element: bar, syncFullDiagram };
-}
+  return { element: bar, update };
+};
 
 function makeButton(label: string, iconPaths: string[], onClick: () => void): HTMLButtonElement {
   const button = document.createElement("button");

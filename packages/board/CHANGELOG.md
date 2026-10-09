@@ -20,6 +20,11 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   shows what a click switches to: Lucide `image` while the timeline shows, `clapperboard`
   while the full diagram shows. It is `aria-pressed` while the full diagram shows, and Prev,
   Next and Reset are disabled meanwhile.
+- A `ControlsFactory` may return `update()`. The board calls it once after a `setSource()`
+  that rendered, after every step change (including `board.controller.next()` called from
+  code) and after every full diagram switch, and never after `destroy()`. A custom bar no
+  longer has to keep its buttons outside the factory to follow the board. The built-in bar
+  uses the same hook.
 
 ## [0.3.0] - 2026-10-05
 
