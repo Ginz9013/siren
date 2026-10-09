@@ -408,6 +408,25 @@ enter B fade
     window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 100 })); // cleanup: stop the drag this started
   });
 
+  it("a mousedown on the board's canvas still takes focus off a control, as a click on the page would — preventDefault() alone would leave the play interval select focused", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    // A timeline, so the select is enabled and can hold focus.
+    const source = `${VALID_SOURCE}timeline:\nexit B fade\n`;
+    createBoard(container, { source, measureText: FAKE_MEASURER });
+    const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    stubRect(canvas, { width: 400, height: 300 });
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Play interval"]')!;
+    select.focus();
+    expect(document.activeElement).toBe(select); // sanity
+
+    canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 100, clientY: 100, button: 0, bubbles: true, cancelable: true }));
+
+    expect(document.activeElement).not.toBe(select);
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 100 })); // cleanup: stop the drag this started
+    container.remove();
+  });
+
   it("a wheel event over the board's canvas zooms cursor-anchored (the content point under the cursor stays under the cursor) and calls preventDefault()", () => {
     const container = document.createElement("div");
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });

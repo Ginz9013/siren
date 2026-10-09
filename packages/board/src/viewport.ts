@@ -87,6 +87,10 @@ export function createViewport(surface: HTMLElement): Viewport {
     // events typically don't, so it doesn't show up under jsdom or CDP-driven
     // testing.
     event.preventDefault();
+    // preventDefault() also cancels the browser moving focus off whatever
+    // held it, so a control the reader just used (the play interval select)
+    // would stay focused; give back that part of the default.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     dragging = true;
     dragStartClientX = event.clientX;
     dragStartClientY = event.clientY;
