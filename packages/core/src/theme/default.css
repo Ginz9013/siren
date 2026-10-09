@@ -300,20 +300,26 @@
    groups belong here rather than in a rule of their own: `layoutClassDiagram`
    sizes every class box from text measured in this font at this size, so a
    group left out renders its members in the browser's default face and the
-   box no longer fits what it holds. */
+   box no longer fits what it holds. A connector's label group is here for
+   the same reason its connector's group is: since ADR-0016 the text sits in
+   a group of its own, drawn after every line, rather than inside the line's
+   group, and it has to inherit the type it inherited there. */
 .siren-participant,
 .siren-message,
 .siren-block,
 .siren-box,
 .siren-class,
 .siren-relationship,
+.siren-relationship-labels,
 .siren-namespace,
 .siren-note,
 .siren-state,
 .siren-transition,
+.siren-transition-labels,
 .siren-er-entity,
 .siren-er-subgraph,
-.siren-er-relationship {
+.siren-er-relationship,
+.siren-er-relationship-labels {
   font-family: var(--siren-font-family);
   font-size: var(--siren-font-size);
 }

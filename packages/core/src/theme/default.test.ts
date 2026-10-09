@@ -1073,6 +1073,30 @@ describe("default theme coverage of the class renderer", () => {
     });
     expect(untyped.map(describeElement)).toEqual([]);
   });
+
+  it("sets the theme's type on every connector's label group, which no longer sits inside the connector's own group (ADR-0016)", () => {
+    // The class diagram's label group is drawn today, so it is checked as
+    // drawn. The state and ER label groups are named by the same decision and
+    // join the same rule now, so those renderers can split their connectors
+    // without touching the theme; until they do, a bare group of each class
+    // stands in for what they will draw.
+    const svg = renderThemedSVG(EVERY_CLASS_FEATURE);
+    const drawn = Array.from(svg.querySelectorAll("g.siren-relationship-labels"));
+    expect(drawn.length).toBeGreaterThan(0);
+
+    const standIns = ["siren-transition-labels", "siren-er-relationship-labels"].map((name) => {
+      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      group.setAttribute("class", name);
+      svg.appendChild(group);
+      return group;
+    });
+
+    const untyped = [...drawn, ...standIns].filter((group) => {
+      const style = getComputedStyle(group);
+      return style.fontFamily === "" || style.fontSize === "";
+    });
+    expect(untyped.map(describeElement)).toEqual([]);
+  });
 });
 
 /*
