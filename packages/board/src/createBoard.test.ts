@@ -44,6 +44,11 @@ function readViewportTransform(container: HTMLElement): { offsetX: number; offse
   return { offsetX: Number(match[1]), offsetY: Number(match[2]), scale: Number(match[3]) };
 }
 
+/** The built-in bar's button with this accessible name. */
+function button(container: HTMLElement, label: string): HTMLButtonElement {
+  return container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!;
+}
+
 describe("createBoard", () => {
   it("mounts a rendered SVG into the container when constructed with a source", () => {
     const container = document.createElement("div");
@@ -849,11 +854,6 @@ exit B fade
     });
 
     describe("the built-in bar's Full diagram button", () => {
-      /** The built-in bar's button with this accessible name. */
-      function button(container: HTMLElement, label: string): HTMLButtonElement {
-        return container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!;
-      }
-
       /** Which of the bar's buttons are disabled, by name. */
       function disabledButtons(container: HTMLElement): string[] {
         return Array.from(container.querySelectorAll<HTMLButtonElement>(".siren-board-controls button"))
@@ -1180,6 +1180,12 @@ highlight A outline
       const step = failed.querySelector(".siren-board-controls__step")!;
       expect(step.previousElementSibling?.getAttribute("aria-label")).toBe("Next");
       expect(step.nextElementSibling?.getAttribute("aria-label")).toBe("Reset");
+      // With no controller there is nowhere to step: every step button is off.
+      expect(["Prev", "Next", "Reset"].filter((label) => button(failed, label).disabled)).toEqual([
+        "Prev",
+        "Next",
+        "Reset",
+      ]);
     });
   });
 
@@ -1192,11 +1198,6 @@ timeline:
 enter B fade
 enter C fade
 `;
-
-    /** The built-in bar's button with this accessible name. */
-    function button(container: HTMLElement, label: string): HTMLButtonElement {
-      return container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!;
-    }
 
     /** Which of Prev, Play, Next and Reset are disabled, by name. */
     function disabledStepButtons(container: HTMLElement): string[] {

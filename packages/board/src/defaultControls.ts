@@ -148,11 +148,13 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     const totalSteps = board.controller?.totalSteps ?? 0;
     stepCounter.textContent = `${currentStep} / ${totalSteps}`;
     const nothingToPlay = board.fullDiagram || totalSteps === 0;
+    const atStart = board.fullDiagram || currentStep === 0;
+    const atEnd = board.fullDiagram || currentStep >= totalSteps;
     const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
-      [prev, board.fullDiagram || currentStep === 0],
+      [prev, atStart],
       [play, nothingToPlay],
-      [next, board.fullDiagram || currentStep >= totalSteps],
-      [reset, board.fullDiagram || currentStep === 0],
+      [next, atEnd],
+      [reset, atStart],
       [intervalSelect, nothingToPlay],
     ]);
     // Enable first, so a handoff can land on a control this change enables;
