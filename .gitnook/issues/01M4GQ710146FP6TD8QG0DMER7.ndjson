@@ -2,3 +2,4 @@
 {"id":"01M4GQ710ADJKB23WKCPQ2K105","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T04-board-timeline-api.md`（T4）。"}
 {"id":"01M4GQ710A7RMSTDXXHBTTTE0Z","t":3,"a":"83a1","op":"label.add","v":"board api"}
 {"id":"01M4GRZJ8R57BTXS5GPGZ47BWB","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GSMT9PGS3T910WSXMZ5XHD","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
