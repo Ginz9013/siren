@@ -265,6 +265,14 @@ function buildNote(overrides: Partial<PositionedClassNote> = {}): PositionedClas
   };
 }
 
+/**
+ * Whether `a` comes before `b` in document order — which, SVG having no
+ * z-index, is whether `a` is painted under `b`.
+ */
+function paintsBefore(a: Element, b: Element): boolean {
+  return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
 /** Hand-built diagram carrying the given classes and relationships, and no timeline. */
 function buildDiagram(
   classes: PositionedClass[],
@@ -376,6 +384,65 @@ describe("renderClassDiagramToSVG", () => {
     expect(line?.getAttribute("fill")).toBe("none");
   });
 
+  it("paints every relationship line before the first class, so a line passing a box runs under it (ADR-0016)", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram(
+        [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
+        [buildRelationship(), buildRelationship({ id: "Duck-Animal", from: "Duck", to: "Animal" })],
+      ),
+    );
+
+    const firstClass = svg.querySelector("g.siren-class")!;
+    const lines = Array.from(svg.querySelectorAll("path.siren-relationship-line"));
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(paintsBefore(line, firstClass)).toBe(true);
+    }
+  });
+
+  it("draws a relationship's text in a label group of its own wearing the relationship's id, after every line and before the first class (ADR-0016)", () => {
+    const svg = renderClassDiagramToSVG(
+      buildDiagram(
+        [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
+        [
+          buildRelationship({
+            ...placed("owns", { x: 150, y: 148 }),
+            fromMultiplicity: "1",
+            fromMultiplicityAnchor: { x: 80, y: 96 },
+            fromEnd: "circle",
+            fromInterfaceLabel: "Swims",
+            fromInterfaceLabelAnchor: { x: 70, y: 80 },
+          }),
+          buildRelationship({ id: "Duck-Animal", from: "Duck", to: "Animal" }),
+        ],
+      ),
+    );
+
+    // The line group holds the line and nothing else, so no other
+    // relationship's line drawn later can cross this one's text.
+    const lineGroup = svg.querySelector('g.siren-relationship[data-siren-id="Animal-Duck"]')!;
+    expect(Array.from(lineGroup.children).map((child) => child.getAttribute("class"))).toEqual([
+      "siren-relationship-line",
+    ]);
+
+    const labelGroups = svg.querySelectorAll("g.siren-relationship-labels");
+    // `Duck-Animal` carries no text at all, so it draws no label group.
+    expect(labelGroups).toHaveLength(1);
+    const labelGroup = labelGroups[0];
+    expect(labelGroup.getAttribute("data-siren-id")).toBe("Animal-Duck");
+    expect(labelGroup.querySelector("text.siren-relationship-label")?.textContent).toBe("owns");
+    expect(labelGroup.querySelector("text.siren-multiplicity")?.textContent).toBe("1");
+    expect(labelGroup.querySelector("text.siren-relationship-interface-label")?.textContent).toBe(
+      "Swims",
+    );
+
+    const lines = Array.from(svg.querySelectorAll("path.siren-relationship-line"));
+    const lastLine = lines[lines.length - 1];
+    const firstClass = svg.querySelector("g.siren-class")!;
+    expect(paintsBefore(lastLine, labelGroup)).toBe(true);
+    expect(paintsBefore(labelGroup, firstClass)).toBe(true);
+  });
+
   it("defines all five endpoint markers as distinct marker defs", () => {
     const svg = renderClassDiagramToSVG(buildDiagram([], []));
 
@@ -454,7 +521,7 @@ describe("renderClassDiagramToSVG", () => {
       ),
     );
 
-    const group = svg.querySelector("g.siren-relationship");
+    const group = svg.querySelector("g.siren-relationship-labels");
     const label = group?.querySelector("text.siren-relationship-label");
     expect(label?.textContent).toBe("owns");
     expect(label?.getAttribute("x")).toBe("150");
@@ -719,11 +786,34 @@ describe("renderClassDiagramToSVG", () => {
       ],
     });
 
-    const link = svg.querySelector("g.siren-note path.siren-note-link");
+    const link = svg.querySelector("path.siren-note-link");
     expect(link?.getAttribute("d")).toBe("M200,60 L160,60 L130,50");
     // An open, multi-segment path, exactly like a relationship line: a default
     // fill would paint it as a polygon across the diagram.
     expect(link?.getAttribute("fill")).toBe("none");
+  });
+
+  it("draws an attached note's connector on the line layer, wearing the note's id, while the note's box still paints last (ADR-0016)", () => {
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram([buildClass()], [buildRelationship()]),
+      notes: [
+        buildNote({
+          linkPoints: [
+            { x: 200, y: 60 },
+            { x: 130, y: 50 },
+          ],
+        }),
+      ],
+    });
+
+    const link = svg.querySelector('path.siren-note-link[data-siren-id="note-1"]');
+    expect(link).not.toBeNull();
+    expect(link!.closest("g.siren-note")).toBeNull();
+
+    const firstClass = svg.querySelector("g.siren-class")!;
+    const note = svg.querySelector("g.siren-note")!;
+    expect(paintsBefore(link!, firstClass)).toBe(true);
+    expect(paintsBefore(firstClass, note)).toBe(true);
   });
 
   it("renders no connector for a free note", () => {
@@ -1055,7 +1145,7 @@ describe("renderClassDiagramToSVG — labels of more than one row", () => {
       ),
     );
 
-    const label = svg.querySelector("g.siren-relationship text.siren-relationship-label");
+    const label = svg.querySelector("g.siren-relationship-labels text.siren-relationship-label");
     expect(rowsOf(label)).toEqual(["holds", "many"]);
     expect(
       Array.from(label?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) =>

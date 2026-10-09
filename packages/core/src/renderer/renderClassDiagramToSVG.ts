@@ -78,11 +78,14 @@ const DASH_PATTERN = "6,4";
  * Builds a real `SVGSVGElement` from a `PositionedClassDiagram`, per the
  * frozen SVG conventions in spec.md ("SVG conventions" bullet list): one
  * `<g class="siren-class">` per class (frame rect, name, compartment
- * dividers, member lines) and one `<g class="siren-relationship">` per
- * relationship (line with the markers and dash its
- * `{ line, fromEnd, toEnd }` triple calls for, label, multiplicity), one
- * `<g class="siren-namespace">` per namespace frame and one
- * `<g class="siren-note">` per note.
+ * dividers, member lines), one `<g class="siren-relationship">` per
+ * relationship (the line, with the markers and dash its
+ * `{ line, fromEnd, toEnd }` triple calls for), one
+ * `<g class="siren-relationship-labels">` per relationship that carries any
+ * text (label, multiplicity, interface label) wearing the same id, one
+ * `<g class="siren-namespace">` per namespace frame, one
+ * `<g class="siren-note">` per note, and one `<path class="siren-note-link">`
+ * per attached note wearing the note's id.
  *
  * Nothing here reads `diagram.timeline`. The initial `siren-pending` state is
  * not this function's to decide: `createAnimationController(...).reset()`
@@ -91,8 +94,15 @@ const DASH_PATTERN = "6,4";
  * rule here would be a second opinion on step 0 that has to agree with the
  * controller's, forever, by hand.
  *
- * Document order is the paint order: namespace frames, then classes, then
- * relationships, then notes.
+ * Document order is the paint order, and it is Mermaid's
+ * (`clusters → edgePaths → edgeLabels → nodes`, ADR-0016): namespace frames,
+ * then every relationship line and note connector, then every relationship's
+ * text, then classes, then note boxes. A line therefore runs under any class
+ * box it passes rather than across its members, and under the boxes at its
+ * own ends too — where it changes nothing, since the layout stops it on the
+ * box's edge. Splitting each relationship's
+ * text from its line is what keeps every label above every line, not just
+ * above its own; a timeline step reaches both because both wear the id.
  *
  * A class the author made interactive or styled also carries that here: the
  * resolved declarations become an inline `style` on the frame rect (ADR-0008),
@@ -114,17 +124,40 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
 
   // Namespaces first, and nothing else before them: SVG has no z-index, so a
   // frame is behind the boxes it encloses only by being drawn before them.
+  // It is behind the lines too, as Mermaid's `clusters` are; a frame is
+  // `fill: none`, so that decides only which stroke wins where the two cross.
   for (const namespace of diagram.namespaces) {
     svg.appendChild(buildNamespace(namespace));
+  }
+
+  // Every relationship's line, then every relationship's text, then the
+  // classes: Mermaid's `edgePaths → edgeLabels → nodes` (ADR-0016). A line
+  // routed past a class it does not end at runs under that box rather than
+  // across its members, and no line — this relationship's or a later one's —
+  // crosses a label, because every label is drawn after every line.
+  for (const relationship of diagram.relationships) {
+    svg.appendChild(buildRelationship(relationship, scope));
+  }
+
+  // A note's connector is a line like any other, so it goes on the line layer
+  // with them, under the class it points at. Its box is still drawn last.
+  for (const note of diagram.notes) {
+    const link = buildNoteLink(note);
+    if (link !== null) {
+      svg.appendChild(link);
+    }
+  }
+
+  for (const relationship of diagram.relationships) {
+    const labels = buildRelationshipLabels(relationship);
+    if (labels !== null) {
+      svg.appendChild(labels);
+    }
   }
 
   for (const positionedClass of diagram.classes) {
     const group = buildClass(positionedClass);
     svg.appendChild(wrapInteraction(group, positionedClass.interaction));
-  }
-
-  for (const relationship of diagram.relationships) {
-    svg.appendChild(buildRelationship(relationship, scope));
   }
 
   // Notes last: a note box is opaque, and it annotates the figure rather than
@@ -138,7 +171,9 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
 
 /**
  * Builds the `<g class="siren-relationship">` for one relationship: a
- * `<path class="siren-relationship-line">` following the layout's points.
+ * `<path class="siren-relationship-line">` following the layout's points, and
+ * nothing else. Its text is a group of its own — `buildRelationshipLabels` —
+ * drawn after every line (ADR-0016).
  */
 function buildRelationship(
   relationship: PositionedClassRelationship,
@@ -154,7 +189,7 @@ function buildRelationship(
   line.setAttribute("d", pointsToPathData(relationship.points));
   // Explicit, not left to CSS: a relationship's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
-  // over the classes it connects.
+  // spanning the classes it connects.
   line.setAttribute("fill", "none");
 
   const startMarker = END_MARKER_NAME[relationship.fromEnd];
@@ -169,6 +204,25 @@ function buildRelationship(
     line.setAttribute("stroke-dasharray", DASH_PATTERN);
   }
   g.appendChild(line);
+
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-relationship-labels">` for one relationship —
+ * its label, multiplicities and interface labels — or `null` when it carries
+ * none of them: a bare relationship draws no empty group.
+ *
+ * It wears the relationship's `data-siren-id`, the same id as its line group.
+ * ADR-0009 makes a timeline target an id rather than an element, so
+ * `exit Animal-Duck fade` reaches both groups with no help from the
+ * controller (ADR-0016). Its class name is in the theme's shared font rule,
+ * so the text inherits the face and size it had inside the line group.
+ */
+function buildRelationshipLabels(relationship: PositionedClassRelationship): SVGGElement | null {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-relationship-labels");
+  g.setAttribute("data-siren-id", relationship.id);
 
   // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
   // shared core kept clear — like every other label here. That gives it
@@ -204,7 +258,7 @@ function buildRelationship(
     }
   }
 
-  return g;
+  return g.childNodes.length > 0 ? g : null;
 }
 
 /**
@@ -521,11 +575,34 @@ function buildNamespace(namespace: PositionedClassNamespace): SVGGElement {
 }
 
 /**
+ * Builds the `<path class="siren-note-link">` for an attached note — along the
+ * connector the layout routed from the note to the class it annotates — or
+ * `null` for a free note, which is a box on its own.
+ *
+ * It is not inside the note's group: it is drawn on the line layer, under the
+ * classes, while the note's box is drawn last (ADR-0016). So it wears the
+ * note's `data-siren-id` itself, and a timeline step on the note reaches the
+ * box and its connector alike (ADR-0009).
+ */
+function buildNoteLink(note: PositionedClassNote): SVGPathElement | null {
+  if (note.linkPoints === null) {
+    return null;
+  }
+  const link = document.createElementNS(SVG_NS, "path");
+  link.setAttribute("class", "siren-note-link");
+  link.setAttribute("data-siren-id", note.id);
+  link.setAttribute("d", pointsToPathData(note.linkPoints));
+  // Explicit, for the same reason a relationship line carries it: an open,
+  // multi-segment path would otherwise be painted as a filled polygon.
+  link.setAttribute("fill", "none");
+  return link;
+}
+
+/**
  * Builds the `<g class="siren-note">` for one note: a
  * `<rect class="siren-note-frame">` at its layout-assigned box with the note's
- * text centered inside it, plus — for an attached note only — a
- * `<path class="siren-note-link">` along the connector the layout routed from
- * the note to the class it annotates. A free note is a box on its own.
+ * text centered inside it. An attached note's connector is not here — see
+ * `buildNoteLink`.
  *
  * The label is centred rather than placed at an anchor of its own because
  * `PositionedClassNote` carries no anchor: `layoutClassDiagram` sizes the box
@@ -536,16 +613,6 @@ function buildNote(note: PositionedClassNote): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("class", "siren-note");
   g.setAttribute("data-siren-id", note.id);
-
-  if (note.linkPoints !== null) {
-    const link = document.createElementNS(SVG_NS, "path");
-    link.setAttribute("class", "siren-note-link");
-    link.setAttribute("d", pointsToPathData(note.linkPoints));
-    // Explicit, for the same reason a relationship line carries it: an open,
-    // multi-segment path would otherwise be painted as a filled polygon.
-    link.setAttribute("fill", "none");
-    g.appendChild(link);
-  }
 
   const frame = document.createElementNS(SVG_NS, "rect");
   frame.setAttribute("class", "siren-note-frame");

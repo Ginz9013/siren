@@ -229,7 +229,9 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
       ]),
     );
 
-    const label = svg.querySelector("g.siren-er-relationship text.siren-er-relationship-label");
+    const label = svg.querySelector(
+      "g.siren-er-relationship-labels text.siren-er-relationship-label",
+    );
     expect(rowsOf(label)).toEqual(["places", "many"]);
     expect(rowYsOf(label)).toEqual([118, 142]);
   });
@@ -565,15 +567,18 @@ describe("renderErDiagramToSVG", () => {
     expect(label?.getAttribute("y")).toBe("130");
   });
 
-  it("puts each relationship's id on its group, so a timeline entry can name it", () => {
-    // ADR-0009 again: the id lands on the enclosing `<g>`, so one entry
-    // moves a relationship's line, its markers and its label together.
+  it("puts each relationship's id on its groups, so a timeline entry can name it", () => {
+    // ADR-0009 again: the id lands on the enclosing `<g>`s — the line's and
+    // the label's (ADR-0016) — so one entry moves a relationship's line, its
+    // markers and its label together.
     const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES]));
 
     const group = svg.querySelector("g.siren-er-relationship");
     expect(group?.getAttribute("data-siren-id")).toBe("CUSTOMER:ORDER");
     expect(group?.querySelector("path.siren-er-relationship-line")).not.toBeNull();
-    expect(group?.querySelector("text.siren-er-relationship-label")).not.toBeNull();
+    const labels = svg.querySelector("g.siren-er-relationship-labels");
+    expect(labels?.getAttribute("data-siren-id")).toBe("CUSTOMER:ORDER");
+    expect(labels?.querySelector("text.siren-er-relationship-label")).not.toBeNull();
   });
 
   it("draws an empty document as an empty picture rather than throwing", () => {
@@ -787,5 +792,84 @@ describe("renderErDiagramToSVG draws subgraph clusters", () => {
       "siren-er-subgraph",
       "siren-er-entity",
     ]);
+  });
+});
+
+/**
+ * Whether `a` comes before `b` in document order — which, SVG having no
+ * z-index, is whether `a` is painted under `b`.
+ */
+function paintsBefore(a: Element, b: Element): boolean {
+  return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
+/**
+ * Mermaid's layer order, `clusters → edgePaths → edgeLabels → nodes`
+ * (ADR-0016): a relationship routed past an entity it does not join runs
+ * under that box rather than across its text.
+ */
+describe("renderErDiagramToSVG paints relationships under the entities", () => {
+  const FRAME = {
+    id: "subgraph:1",
+    label: { ...labelled("sales"), anchor: { x: 104, y: 20 } },
+    x: 4,
+    y: 6,
+    width: 200,
+    height: 120,
+  };
+  // A second relationship with no label, so the two cases sit side by side.
+  const CONTAINS: PositionedErRelationship = {
+    ...PLACES,
+    id: "ORDER:CUSTOMER",
+    from: "ORDER",
+    to: "CUSTOMER",
+    label: null,
+  };
+  const render = () =>
+    renderErDiagramToSVG(
+      diagram([CUSTOMER, ORDER], { width: 400, height: 300 }, [PLACES, CONTAINS], [FRAME]),
+    );
+
+  it("paints every relationship line after the last subgraph and before the first entity (ADR-0016)", () => {
+    const svg = render();
+
+    const subgraphs = Array.from(svg.querySelectorAll("g.siren-er-subgraph"));
+    const lastSubgraph = subgraphs[subgraphs.length - 1];
+    const firstEntity = svg.querySelector("g.siren-er-entity")!;
+    const relationships = Array.from(svg.querySelectorAll("g.siren-er-relationship"));
+    // As many line groups as there are relationships: the split adds
+    // groups, it never removes one.
+    expect(relationships).toHaveLength(2);
+    for (const relationship of relationships) {
+      expect(paintsBefore(lastSubgraph, relationship)).toBe(true);
+      expect(paintsBefore(relationship, firstEntity)).toBe(true);
+    }
+  });
+
+  it("draws a relationship's label in a label group of its own wearing the relationship's id, after every line and before the first entity (ADR-0016)", () => {
+    const svg = render();
+
+    // The line group holds the line and nothing else, so no other
+    // relationship's line drawn later can cross this one's label.
+    const lineGroup = svg.querySelector('g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"]')!;
+    expect(Array.from(lineGroup.children).map((child) => child.getAttribute("class"))).toEqual([
+      "siren-er-relationship-line",
+    ]);
+
+    const labelGroups = svg.querySelectorAll("g.siren-er-relationship-labels");
+    // `ORDER:CUSTOMER` carries no label, so it draws no label group.
+    expect(labelGroups).toHaveLength(1);
+    const labelGroup = labelGroups[0];
+    expect(labelGroup.getAttribute("data-siren-id")).toBe("CUSTOMER:ORDER");
+    expect(labelGroup.querySelector("text.siren-er-relationship-label")?.textContent).toBe(
+      "places",
+    );
+    expect(svg.querySelectorAll('[data-siren-id="ORDER:CUSTOMER"] text')).toHaveLength(0);
+
+    const relationships = Array.from(svg.querySelectorAll("g.siren-er-relationship"));
+    const lastRelationship = relationships[relationships.length - 1];
+    const firstEntity = svg.querySelector("g.siren-er-entity")!;
+    expect(paintsBefore(lastRelationship, labelGroup)).toBe(true);
+    expect(paintsBefore(labelGroup, firstEntity)).toBe(true);
   });
 });

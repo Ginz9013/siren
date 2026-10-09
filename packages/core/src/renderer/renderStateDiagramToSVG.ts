@@ -35,8 +35,9 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * `.siren-state-end-inner` disc) and one
  * `<g class="siren-transition">` per transition (a
  * `<path class="siren-transition-line">` along the layout's points, ending
- * in an arrowhead, plus a `<text class="siren-transition-label">` when the
- * author wrote one).
+ * in an arrowhead), and one `<g class="siren-transition-labels">` wearing the
+ * same id around the `<text class="siren-transition-label">` of each
+ * transition the author wrote one on.
  *
  * A state the author wrote a `note` on carries that note **inside its own
  * group** — the class diagram's three note parts (`.siren-note-link`,
@@ -55,8 +56,15 @@ const ARROW_MARKER_NAME = "siren-transition-arrow";
  * opinion on step 0 that has to agree with the controller's, forever, by
  * hand.
  *
- * Document order is the paint order: states, then transitions — a line drawn
- * under an opaque box would disappear where the two meet.
+ * Document order is the paint order, and it is Mermaid's
+ * (`clusters → edgePaths → edgeLabels → nodes`, ADR-0016): every transition
+ * line, then every transition label, then the states — composite and region
+ * frames among them, which are `fill: none` and so hide nothing. A line
+ * therefore runs under any state it passes rather than across its text, and
+ * under the boxes at its own ends too — where it changes nothing, since the
+ * layout stops it on the box's edge. Splitting each transition's label from
+ * its line is what keeps every label above every line, not just above its
+ * own; a timeline step reaches both because both wear the id.
  */
 export function renderStateDiagramToSVG(diagram: PositionedStateDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -65,12 +73,28 @@ export function renderStateDiagramToSVG(diagram: PositionedStateDiagram): SVGSVG
   const scope = mintIdScope();
   svg.appendChild(buildDefs(scope));
 
-  for (const state of diagram.states) {
-    svg.appendChild(buildState(state));
+  // Every transition's line, then every transition's label, then the states:
+  // Mermaid's `edgePaths → edgeLabels → nodes` (ADR-0016). A line routed past
+  // a state it does not end at runs under that box rather than across its
+  // text, and no line — this transition's or a later one's — crosses a label,
+  // because every label is drawn after every line.
+  for (const transition of diagram.transitions) {
+    svg.appendChild(buildTransition(transition, scope));
   }
 
   for (const transition of diagram.transitions) {
-    svg.appendChild(buildTransition(transition, scope));
+    const labels = buildTransitionLabels(transition);
+    if (labels !== null) {
+      svg.appendChild(labels);
+    }
+  }
+
+  // A composite's frame is drawn here, among the states, rather than first
+  // as the class diagram's namespaces are: it is a state the timeline
+  // addresses, in `diagram.states`, and its frame is `fill: none`, so being
+  // above the lines decides only which stroke wins where the two cross.
+  for (const state of diagram.states) {
+    svg.appendChild(buildState(state));
   }
 
   return svg;
@@ -519,7 +543,8 @@ function buildCircle(
 
 /**
  * Builds the `<g class="siren-transition">` for one transition: the routed
- * line with its arrowhead, and the label when there is one.
+ * line with its arrowhead, and nothing else. Its label is a group of its own
+ * — `buildTransitionLabels` — drawn after every line (ADR-0016).
  */
 function buildTransition(
   transition: PositionedStateTransition,
@@ -534,10 +559,32 @@ function buildTransition(
   line.setAttribute("d", pointsToPathData(transition.points));
   // Explicit, not left to CSS: a transition's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
-  // over the states it connects.
+  // spanning the states it connects.
   line.setAttribute("fill", "none");
   line.setAttribute("marker-end", `url(#${ARROW_MARKER_NAME}${scope})`);
   g.appendChild(line);
+
+  return g;
+}
+
+/**
+ * Builds the `<g class="siren-transition-labels">` for one transition — its
+ * label — or `null` when the author wrote none: an unlabelled transition
+ * draws no empty group.
+ *
+ * It wears the transition's `data-siren-id`, the same id as its line group.
+ * ADR-0009 makes a timeline target an id rather than an element, so
+ * `exit Idle-Running fade` reaches both groups with no help from the
+ * controller (ADR-0016). Its class name is in the theme's shared font rule,
+ * so the text inherits the face and size it had inside the line group.
+ */
+function buildTransitionLabels(transition: PositionedStateTransition): SVGGElement | null {
+  if (transition.label === null) {
+    return null;
+  }
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "siren-transition-labels");
+  g.setAttribute("data-siren-id", transition.id);
 
   // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
   // shared core kept clear — like every other label here. That makes this
@@ -548,9 +595,7 @@ function buildTransition(
   // around them — down by the distance from the alphabetic baseline to the
   // middle one, half the font's x-height (about 0.26em, some 4px at the
   // 14px default), so the text is now centred where layout made room.
-  if (transition.label !== null) {
-    appendLabel(g, drawPlaced(transition.label, "siren-transition-label"));
-  }
+  appendLabel(g, drawPlaced(transition.label, "siren-transition-label"));
 
   return g;
 }
