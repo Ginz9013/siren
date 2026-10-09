@@ -88,7 +88,7 @@ _Avoid_: overview, plain mode, "the last step" (the timeline's last step still h
 elements and keeps highlights, so it is not the full diagram)
 
 **Playback**:
-A board advancing its timeline one step per **play interval** on its own, until the last step.
+A board advancing its timeline one step per play interval on its own, until the last step.
 Starting playback on the last step replays from step 0. Any step change playback did not make
 itself — a step stepped by hand, a new document, switching to the full diagram — stops it.
 There is nothing to play in the full diagram or in a document without steps.

@@ -1263,6 +1263,53 @@ highlight A outline
       expect(playback).toEqual([true]);
     });
 
+    it.each([
+      // A destroyed board reports nothing more, so it never fires the closing `false`.
+      ["pause()", (board: Board) => board.pause(), [true, false]],
+      ["destroy()", (board: Board) => board.destroy(), [true]],
+      ["setSource()", (board: Board) => board.setSource(THREE_STEP_SOURCE), [true, false]],
+      ["setFullDiagram(true)", (board: Board) => board.setFullDiagram(true), [true, false]],
+    ])("%s called from onStepChange during playback stops it for good", (_, stop, expectedPlayback) => {
+      const playback: boolean[] = [];
+      const steps: number[] = [];
+      let board: Board | undefined;
+      board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+        onStepChange: (current) => {
+          steps.push(current);
+          if (current === 1) stop(board!);
+        },
+      });
+
+      board.play();
+      vi.advanceTimersByTime(10000);
+
+      expect(board.playing).toBe(false);
+      expect(playback).toEqual(expectedPlayback);
+      expect(steps).toEqual([1]);
+    });
+
+    it("pause() called from onPlaybackChange(true) stops play() before it steps", () => {
+      const steps: number[] = [];
+      let board: Board | undefined;
+      board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => {
+          if (playing) board!.pause();
+        },
+        onStepChange: (current) => steps.push(current),
+      });
+
+      board.play();
+      vi.advanceTimersByTime(10000);
+
+      expect(board.playing).toBe(false);
+      expect(steps).toEqual([]);
+    });
+
     it("play() after destroy() does nothing", () => {
       const playback: boolean[] = [];
       const steps: number[] = [];
