@@ -3,3 +3,4 @@
 {"id":"01M2FPZ3X963WZBYYGJC7V4K98","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M2FPZ3X92JDSJS4722678N4H","t":4,"a":"83a1","op":"label.add","v":"api"}
 {"id":"01M2NPXJTCMBHWNDHGG1DYT2EY","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec 原話「deferred pending a real consumer need」，目前沒有已知 consumer 在等這組 API。動工前先確認有沒有實際需求，避免做出一套沒人用的公開介面。維持 backlog。"}
+{"id":"01M4GAKA8J570DD79CQ140HHG8","t":6,"a":"83a1","op":"comment","body":"`.scratch/siren-board-viewport-slice/` 已遷移到 nook：`01M4GAJWC3BD8QCXW74D5ZV5DM`"}

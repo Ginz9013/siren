@@ -6,3 +6,4 @@
 {"id":"01M3CXKTMBRMG9GHM9A9RCV1A0","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M3CXQXMEBAYG9K54XE2DB7K8","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M44Z9TGF5A9QJM3VP003T33M","t":8,"a":"83a1","op":"set","k":"archived","v":true}
+{"id":"01M4GAKD4NW3H1P573FT4N4GPN","t":9,"a":"83a1","op":"comment","body":"`.scratch/renderer-violet-theme/` 已遷移到 nook：`01M4GAJRW3V2EWNXNF6K1REY6Y`"}
