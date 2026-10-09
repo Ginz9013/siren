@@ -1656,3 +1656,57 @@ describe("what a label paints behind its text", () => {
     expect(paintedBehind(group, group.querySelector("text.siren-subgraph-label"))).toBe(true);
   });
 });
+
+/**
+ * Mermaid's layer order, which ADR-0016 adopts: `clusters → edgePaths →
+ * edgeLabels → nodes` (mermaid 11.17.2, `chunk-ZAI7H55H.mjs`). SVG has no
+ * z-index, so the order is the document's, and these tests read it there.
+ *
+ * The fixture is the case the order exists for: two labelled edges, a
+ * subgraph, and nodes — enough that "every edge before every node" and
+ * "every label after every edge" are each a claim about more than one
+ * element, so an order that interleaves one edge's path with the next
+ * edge's label cannot pass by having only one of each.
+ */
+describe("the order a flowchart's layers are painted in", () => {
+  function layered(): SVGSVGElement {
+    const graph = buildFixture();
+    const [first, second] = graph.edges;
+    graph.edges = [
+      { ...first!, ...placed("▨ yes", { x: 55, y: 60 }) },
+      { ...second!, ...placed("no", { x: 55, y: 160 }) },
+    ];
+    graph.subgraphs = [
+      { id: "subgraph:1", ...placed("Ingest", { x: 90, y: 38 }), x: 20, y: 20, width: 140, height: 100 },
+    ];
+    return renderToSVG(graph);
+  }
+
+  /** Each match of `selector`, as its position in the document — which is its position in paint order. */
+  function positions(svg: SVGSVGElement, selector: string): number[] {
+    const all = Array.from(svg.querySelectorAll("*"));
+    const found = Array.from(svg.querySelectorAll(selector)).map((el) => all.indexOf(el));
+    expect(found.length).toBeGreaterThan(0);
+    return found;
+  }
+
+  it("draws every edge's line above the frames and under every node", () => {
+    const svg = layered();
+
+    const edges = positions(svg, "path.siren-edge");
+    expect(Math.min(...edges)).toBeGreaterThan(Math.max(...positions(svg, "g.siren-subgraph *")));
+    expect(Math.max(...edges)).toBeLessThan(Math.min(...positions(svg, "g.siren-node")));
+  });
+
+  it("draws every edge label, and what it paints behind its text, above every line and under every node", () => {
+    // Above *every* line, not only its own: an edge drawn after this label's
+    // would otherwise run across it. That is the guarantee ADR-0016 takes
+    // from Mermaid's separate `edgeLabels` layer.
+    const svg = layered();
+
+    const labels = positions(svg, "text.siren-edge-label, svg > rect.test-background");
+    expect(labels).toHaveLength(3);
+    expect(Math.min(...labels)).toBeGreaterThan(Math.max(...positions(svg, "path.siren-edge")));
+    expect(Math.max(...labels)).toBeLessThan(Math.min(...positions(svg, "g.siren-node")));
+  });
+});
