@@ -2,3 +2,5 @@
 {"id":"01M4GRZJFM9XFZ13TCHXZ84T2X","t":2,"a":"83a1","op":"set","k":"description","v":"multi-timeline T3（dbe8705）之後，render() 改從 graph model 選 timeline，renderer 本來就不讀，所以 layout 產出的 positioned diagram 上的 `timeline`（例如 layoutGraph.ts 的 `timeline: graph.timeline`）成了死資料。由 T3 standards review 提出。可移除，或在 contracts 註明只為測試保留。"}
 {"id":"01M4GRZJFMMBP7H6AT75QXNM4J","t":3,"a":"83a1","op":"label.add","v":"core"}
 {"id":"01M4GRZJFMEPTK4QS2ZTDE6SDA","t":4,"a":"83a1","op":"label.add","v":"refactor"}
+{"id":"01M4GV383DQXMJGRQ04ZAE1XFN","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GV38A06ERPS5851PVX5Y8G","t":6,"a":"83a1","op":"comment","body":"使用者選擇做法 A（移除欄位）。納入 multi-timeline board 作為 T7：`.scratch/multi-timeline/T07-drop-positioned-timeline.md`。"}
