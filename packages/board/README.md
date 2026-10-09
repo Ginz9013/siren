@@ -287,6 +287,8 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onStepChange`  | `(current: number, total: number) => void`     |         | Called whenever the current step changes.                                           |
 | `onDiagnostics` | `(diagnostics: Diagnostic[]) => void`          |         | Called after every render, with every error and warning.                            |
 | `onFullDiagramChange` | `(fullDiagram: boolean) => void`         |         | Called whenever `fullDiagram` changes, from the built-in bar or `setFullDiagram()`. |
+| `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
+| `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
 
 ### `Board`
@@ -298,6 +300,11 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
 | `setSource(src)`  | Renders a new document in place.                                                         |
 | `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
+| `playing`         | Whether playback is running. Starts `false`.                                             |
+| `playInterval`    | Milliseconds between playback steps.                                                     |
+| `play()`          | Starts playback: steps at once, then once per `playInterval`, and stops by itself on the last step. On the last step, it goes back to step 0 and takes step 1 one interval later. Does nothing while playing, while the full diagram shows, or when the document has no steps. |
+| `pause()`         | Stops playback. Playback also stops on any step change it did not make (the built-in bar, `board.controller` in code), on every `setSource()`, and on `setFullDiagram(true)`. |
+| `setPlayInterval(ms)` | Changes `playInterval`. Throws a `RangeError` unless `ms` is finite and greater than 0. While playing, the next step comes `ms` after the call. |
 | `resetView()`     | Resets pan and zoom to fit the container.                                                |
 | `destroy()`       | Removes everything the board added to the container and detaches its listeners.         |
 
@@ -312,8 +319,9 @@ type ControlsFactory = (board: Board) => {
 ```
 
 `update` is called once after each change the bar may show: a `setSource()` that rendered,
-a step change from any source (including `board.controller.next()` in code), and a
-`fullDiagram` switch. It is never called after `destroy()`. The built-in bar is an ordinary
+a step change from any source (including `board.controller.next()` in code), a
+`fullDiagram` switch, and a change to `playing` or `playInterval`. It is never called after
+`destroy()`. The built-in bar is an ordinary
 `ControlsFactory` kept in step through this same hook.
 
 `destroy` is called when the board is destroyed.
