@@ -2780,6 +2780,49 @@ highlight A outline
         container.remove();
       });
 
+      it("hands focus to Full diagram when the full diagram disables it while its closed trigger has focus, and comes back enabled when code leaves the full diagram", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_TIMELINES, measureText: FAKE_MEASURER });
+        const timeline = trigger(container)!;
+        timeline.focus();
+
+        board.setFullDiagram(true);
+
+        expect(timeline.disabled).toBe(true);
+        expect(document.activeElement).toBe(button(container, "Full diagram"));
+
+        board.setTimeline("wallet");
+
+        expect(board.fullDiagram).toBe(false);
+        expect(timeline.disabled).toBe(false);
+        expect(timeline.textContent).toBe("wallet");
+
+        board.destroy();
+        container.remove();
+      });
+
+      it("comes into the bar disabled when a setSource in the full diagram brings a second name, and is enabled once the full diagram is off", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const oneTimeline = `flowchart TD\nA --> B\ntimeline only:\nenter B fade\n`;
+        const board = createBoard(container, { source: oneTimeline, measureText: FAKE_MEASURER });
+        board.setFullDiagram(true);
+        expect(trigger(container)).toBeNull();
+
+        board.setSource(TWO_TIMELINES);
+
+        const timeline = trigger(container)!;
+        expect(timeline.disabled).toBe(true);
+
+        board.setFullDiagram(false);
+
+        expect(timeline.disabled).toBe(false);
+
+        board.destroy();
+        container.remove();
+      });
+
       it("hands focus to Full diagram when a setSource takes it out of the bar while it holds focus, closing an open listbox first", () => {
         const container = document.createElement("div");
         document.body.appendChild(container);
