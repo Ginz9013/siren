@@ -7,6 +7,7 @@ import { createViewport } from "./viewport";
 
 const ERROR_BANNER_CLASS = "siren-board-error";
 const CANVAS_CLASS = "siren-board-canvas";
+const DEFAULT_PLAY_INTERVAL = 2000;
 
 /**
  * A caller-supplied replacement for board's default control bar. Board calls
@@ -90,7 +91,7 @@ function checkPlayInterval(ms: number): number {
 
 export function createBoard(container: HTMLElement, options: BoardOptions = {}): Board {
   // Checked before anything is mounted, so a bad option leaves the container untouched.
-  let playInterval = checkPlayInterval(options.playInterval ?? 2000);
+  let playInterval = checkPlayInterval(options.playInterval ?? DEFAULT_PLAY_INTERVAL);
   ensureStylesInjected();
   container.classList.add("siren-board");
 
@@ -243,15 +244,30 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     }
   }
 
-  /** One playback step; the last step ends playback rather than queuing another. */
+  function schedulePlayStep(): void {
+    playTimer = setTimeout(playStep, playInterval);
+  }
+
+  function clearPlayTimer(): void {
+    if (playTimer !== null) clearTimeout(playTimer);
+    playTimer = null;
+  }
+
+  /**
+   * One playback step; the last step ends playback rather than queuing
+   * another. The step's own callbacks may stop playback — `pause()`,
+   * `setSource`, `destroy()` from `onStepChange` — so it re-checks
+   * `playing` before queuing the next one.
+   */
   function playStep(): void {
+    playTimer = null;
     const controller = wrappedController!;
     stepByPlayback(() => controller.next());
+    if (!playing) return;
     if (controller.currentStep === controller.totalSteps) {
-      playTimer = null;
       setPlaying(false);
     } else {
-      playTimer = setTimeout(playStep, playInterval);
+      schedulePlayStep();
     }
   }
 
@@ -263,28 +279,29 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       // Replay: step 0 shows for a whole interval, like every other step.
       stepByPlayback(() => controller.reset());
       setPlaying(true);
-      playTimer = setTimeout(playStep, playInterval);
+      // onPlaybackChange or update() may have paused already.
+      if (playing) schedulePlayStep();
     } else {
       setPlaying(true);
-      playStep();
+      if (playing) playStep();
     }
   }
 
   /** Stops playback, if running: no further step is taken. */
   function pause(): void {
     if (!playing) return;
-    if (playTimer !== null) clearTimeout(playTimer);
-    playTimer = null;
+    clearPlayTimer();
     setPlaying(false);
   }
 
   function setPlayInterval(ms: number): void {
-    const changed = checkPlayInterval(ms) !== playInterval;
-    playInterval = ms;
+    const previous = playInterval;
+    playInterval = checkPlayInterval(ms);
+    const changed = playInterval !== previous;
     // Restarted even for the same value: the call itself is "from now".
     if (playTimer !== null) {
-      clearTimeout(playTimer);
-      playTimer = setTimeout(playStep, playInterval);
+      clearPlayTimer();
+      schedulePlayStep();
     }
     if (changed) updateControls();
   }
@@ -325,8 +342,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       if (destroyed) return;
       destroyed = true;
       // Stopped silently: a destroyed board reports nothing more.
-      if (playTimer !== null) clearTimeout(playTimer);
-      playTimer = null;
+      clearPlayTimer();
       playing = false;
       viewport.destroy();
       controls?.destroy?.();
