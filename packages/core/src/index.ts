@@ -15,6 +15,7 @@ import { createAnimationController } from "./animation/createAnimationController
 import type {
   AnimationController,
   Diagnostic,
+  ResolvedTimeline,
   SirenRenderResult,
   TextMeasurer,
 } from "./contracts";
@@ -63,6 +64,21 @@ export interface RenderOptions {
    * ask for is a name, and what happens next stays the host's decision.
    */
   onClick?: (target: InteractionTarget) => void;
+
+  /**
+   * Whether to apply the document's `timeline:` block. Defaults to `true`.
+   *
+   * `false` draws the **full diagram** — the picture Mermaid draws for the
+   * same document: every element visible, no enter / exit / highlight state,
+   * and a controller with `totalSteps: 0`. It is not the timeline's last
+   * step, which still hides whatever exited and still wears its highlights.
+   *
+   * The block is still parsed and validated, so `diagnostics` are exactly the
+   * default render's, timeline errors included, and the render succeeds or
+   * fails exactly when the default one does. Drawing a document with or
+   * without its timeline therefore never makes a problem in it appear or vanish.
+   */
+  timeline?: boolean;
 }
 
 const DEFAULT_CHAR_WIDTH = 8;
@@ -198,6 +214,50 @@ function establishStepZero(controller: AnimationController): void {
   controller.reset();
 }
 
+/** The timeline a document with no `timeline:` block resolves to. */
+const NO_TIMELINE: ResolvedTimeline = { totalSteps: 0, entries: [] };
+
+/**
+ * The timeline `render()` hands the controller: the document's own, or none
+ * at all when the caller asked for the full diagram.
+ *
+ * Substituted here, at the controller, rather than by dropping the block
+ * before parsing: the block still has to be read for its diagnostics, and no
+ * renderer reads the timeline (step 0 is the controller's, see
+ * `establishStepZero`), so the controller is the one place it takes effect.
+ */
+function timelineToApply(timeline: ResolvedTimeline, options: RenderOptions): ResolvedTimeline {
+  return options.timeline === false ? NO_TIMELINE : timeline;
+}
+
+/**
+ * The controller `render()` returns for a mounted diagram of any kind, already
+ * showing step 0.
+ *
+ * One function rather than the same two calls in each of the five branches so
+ * that a controller-level option — `timeline: false` was the first — is
+ * decided in one place instead of five that must agree. Every kind gets a
+ * controller, even a document declaring no `timeline:` block (it gets
+ * `totalSteps: 0`), because `SirenRenderResult.controller` is null *only* when
+ * rendering failed: a caller that has checked `svg` has already checked this.
+ *
+ * Callers must invoke this in the *same synchronous task* as their
+ * `container.replaceChildren(svg)` — it ends in `establishStepZero`, whose
+ * whole point is that nothing is painted between mounting the SVG and hiding
+ * the elements step 0 says are pending. That is also why it takes an already
+ * rendered `svg` rather than mounting it: the branch keeps the mount, and any
+ * click hooks it attaches, visible at its own call site.
+ */
+function controllerAtStepZero(
+  svg: SVGSVGElement,
+  timeline: ResolvedTimeline,
+  options: RenderOptions,
+): AnimationController {
+  const controller = createAnimationController(svg, timelineToApply(timeline, options));
+  establishStepZero(controller);
+  return controller;
+}
+
 /** What one layout call produced: a positioned diagram, or the reason there is none. */
 type LayoutAttempt<T> =
   | { placed: true; value: T }
@@ -254,6 +314,12 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
  * wrapped in a live `<a>` from `renderSequenceToSVG` itself — nothing here
  * needs to call `attachClickHooks` for it, the same reason a class's own
  * `href` interactions never do either.
+ *
+ * `options.timeline: false` hands every kind's controller an empty timeline
+ * instead of the document's, so the picture is the full diagram and there
+ * are no steps. Everything before that point runs unchanged — the block is
+ * parsed and validated as usual — which is why the diagnostics, and whether
+ * the render succeeds at all, never depend on the option.
  */
 export function render(
   source: string,
@@ -294,12 +360,9 @@ export function render(
 
     container.replaceChildren(erSvg);
 
-    // A controller for this kind too, with `totalSteps: 0` — an ER document
-    // reads no `timeline:` block yet, and `SirenRenderResult.controller` is
-    // null *only* when rendering failed, so a caller that has checked `svg`
-    // has already checked this.
-    const erController = createAnimationController(erSvg, positionedErDiagram.timeline);
-    establishStepZero(erController);
+    // An ER diagram animates on the same terms as every other kind: its
+    // entities and relationships carry `data-siren-id`.
+    const erController = controllerAtStepZero(erSvg, positionedErDiagram.timeline, options);
 
     return { svg: erSvg, controller: erController, diagnostics };
   }
@@ -319,16 +382,12 @@ export function render(
 
     // A state diagram animates on the same terms as every other kind: its
     // states, its composite frames and its transitions all carry
-    // `data-siren-id`, so the one controller drives them unchanged. A
-    // document declaring no `timeline:` block still gets a controller, with
-    // `totalSteps: 0`, because `SirenRenderResult.controller` is null *only*
-    // when rendering failed, and a caller that has checked `svg` has already
-    // checked this.
-    const stateController = createAnimationController(
+    // `data-siren-id`, so the one controller drives them unchanged.
+    const stateController = controllerAtStepZero(
       stateSvg,
       positionedStateDiagram.timeline,
+      options,
     );
-    establishStepZero(stateController);
 
     return { svg: stateSvg, controller: stateController, diagnostics };
   }
@@ -363,11 +422,11 @@ export function render(
     // A class diagram animates: its classes and relationships carry
     // `data-siren-id`, so the same controller that drives flowchart nodes and
     // edges — and sequence participants — drives them unchanged.
-    const classController = createAnimationController(
+    const classController = controllerAtStepZero(
       classSvg,
       positionedClassDiagram.timeline,
+      options,
     );
-    establishStepZero(classController);
 
     return { svg: classSvg, controller: classController, diagnostics };
   }
@@ -398,11 +457,11 @@ export function render(
     // blocks and box groupings all carry `data-siren-id`, and the controller drives every
     // element wearing a named id (ADR-0009) — so a participant's two boxes
     // and its lifeline move together under one timeline entry.
-    const sequenceController = createAnimationController(
+    const sequenceController = controllerAtStepZero(
       sequenceSvg,
       positionedSequence.timeline,
+      options,
     );
-    establishStepZero(sequenceController);
 
     return { svg: sequenceSvg, controller: sequenceController, diagnostics };
   }
@@ -435,8 +494,7 @@ export function render(
     attachClickHooks(svg, options.onClick);
   }
 
-  const controller = createAnimationController(svg, positioned.timeline);
-  establishStepZero(controller);
+  const controller = controllerAtStepZero(svg, positioned.timeline, options);
 
   return { svg, controller, diagnostics };
 }

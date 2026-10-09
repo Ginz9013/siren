@@ -8,7 +8,9 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * board's own container rather than the viewport (see ADR-0006 — a board
  * embedded anywhere, or several on one page, must not have its controls fly
  * to the window edge or collide with another instance's). Auto-injected
- * rather than a file consumers link themselves.
+ * rather than a file consumers link themselves. In the bar, a pressed button
+ * (Full diagram while the full diagram shows) takes the accent color, and a
+ * disabled one (a step button meanwhile) fades and ignores hover.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
@@ -115,6 +117,20 @@ const CSS = `
   border-color: var(--siren-board-accent);
   background: var(--siren-board-surface-hover);
   color: var(--siren-board-accent);
+}
+
+.siren-board-controls__button[aria-pressed="true"] {
+  border-color: var(--siren-board-accent);
+  background: var(--siren-board-surface-hover);
+  color: var(--siren-board-accent);
+}
+
+.siren-board-controls__button:disabled {
+  border-color: var(--siren-board-border);
+  background: var(--siren-board-surface);
+  color: var(--siren-board-text);
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 `;
 

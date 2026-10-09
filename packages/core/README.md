@@ -279,6 +279,15 @@ through diagnostics and does not throw for them.
 | ------------- | -------------------------------------- | ----------------------------------------------------------------------------- |
 | `measureText` | `TextMeasurer`                         | Measures label text to size boxes. See below.                                  |
 | `onClick`     | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.             |
+| `timeline`    | `boolean`                              | `false` draws the document without its timeline. See below.                   |
+
+#### Drawing without the timeline
+
+`timeline: false` draws the picture Mermaid draws for the same document: every element
+visible, no enter, exit or highlight state, and a controller with `totalSteps: 0`. That is
+not the timeline's last step, which still hides whatever exited. The `timeline:` block is
+still parsed and checked, so `diagnostics`, and whether the render succeeds, are the same
+as without the option.
 
 #### Measuring text
 

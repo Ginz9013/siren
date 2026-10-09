@@ -11,6 +11,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 Breaking for a stylesheet or script that reaches a connector's label through the connector's
 own group (see **Changed**).
 
+### Added
+
+- `render(source, container, { timeline: false })` draws the **full diagram**: the picture the
+  same document draws without its `timeline:` block, as Mermaid draws it. Every element is
+  visible, nothing is highlighted, and the controller has `totalSteps: 0`. The block is still
+  parsed and checked, so `diagnostics` are the same as the default render's, and the render
+  fails only when the default one does. Works for all five diagram kinds.
+
 ### Changed
 
 - **Connectors paint under the boxes, in Mermaid's layer order** (ADR-0016). Flowchart, class,

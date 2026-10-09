@@ -31,8 +31,10 @@ createBoard(document.getElementById("board"), { source });
 
 ## Features
 
-- **Step controls included**: a floating bar with Prev, Next, Reset and Reset view buttons.
-  Replace it with your own, or turn it off.
+- **Step controls included**: a floating bar with Prev, Next, Reset, Full diagram and Reset
+  view buttons. Replace it with your own, or turn it off.
+- **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
+  element visible and no step applied. Clicking again returns to the step you were on.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
 - **Accurate layout**: labels are measured with the browser's real text metrics, so boxes
   fit their text.
@@ -141,6 +143,18 @@ const board = createBoard(container, {
 `onStepChange` fires for every step change: from the built-in bar, from your own
 controls, or from calling `board.controller.next()` in code.
 
+### Showing the full diagram
+
+```js
+board.setFullDiagram(true); // every element, no step applied
+board.setFullDiagram(false); // back to the step that was showing
+```
+
+The full diagram is the document drawn without its `timeline:` block. While it shows,
+`board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
+Next and Reset and marks its Full diagram button as pressed. Switching never changes pan
+and zoom, and `onFullDiagramChange` fires whether the switch came from the bar or from code.
+
 ### Keyboard navigation
 
 ```js
@@ -189,20 +203,31 @@ Pass a function as `controls` to build your own. It receives the board and retur
 element to mount inside it:
 
 ```js
+let next; // kept so onFullDiagramChange can reach this board's button, not another's
+
 createBoard(container, {
   source,
   controls: (board) => {
     const bar = document.createElement("div");
     bar.className = "my-controls";
 
-    const next = document.createElement("button");
+    next = document.createElement("button");
     next.textContent = "Next";
     // Read board.controller when the button is clicked, not when the bar is built:
-    // it is null until the first render, and setSource() replaces it.
+    // it is null until the first render, and setSource() and setFullDiagram() replace it.
     next.onclick = () => board.controller?.next();
 
-    bar.append(next);
+    const full = document.createElement("button");
+    full.textContent = "Full diagram";
+    full.onclick = () => board.setFullDiagram(!board.fullDiagram);
+
+    bar.append(next, full);
     return { element: bar, destroy: () => { /* remove listeners, if any */ } };
+  },
+  // A custom bar learns about every switch, including setFullDiagram() calls from code,
+  // through this callback.
+  onFullDiagramChange: (on) => {
+    next.disabled = on; // the full diagram has no steps
   },
 });
 ```
@@ -255,6 +280,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `controls`      | `boolean \| ControlsFactory`                   | `true`  | `true` shows the built-in bar, `false` shows none, and a function builds your own.   |
 | `onStepChange`  | `(current: number, total: number) => void`     |         | Called whenever the current step changes.                                           |
 | `onDiagnostics` | `(diagnostics: Diagnostic[]) => void`          |         | Called after every render, with every error and warning.                            |
+| `onFullDiagramChange` | `(fullDiagram: boolean) => void`         |         | Called whenever `fullDiagram` changes, from the built-in bar or `setFullDiagram()`. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
 
 ### `Board`
@@ -263,7 +289,9 @@ Mounts a board into `container` and renders `options.source`, if given.
 | ----------------- | ---------------------------------------------------------------------------------------- |
 | `controller`      | The current `AnimationController` (`next()`, `prev()`, `reset()`, `currentStep`, `totalSteps`). `null` until a render succeeds. |
 | `diagnostics`     | The diagnostics from the most recent render.                                             |
+| `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
 | `setSource(src)`  | Renders a new document in place.                                                         |
+| `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
 | `resetView()`     | Resets pan and zoom to fit the container.                                                |
 | `destroy()`       | Removes everything the board added to the container and detaches its listeners.         |
 
