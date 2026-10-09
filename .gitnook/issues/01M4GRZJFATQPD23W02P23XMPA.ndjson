@@ -4,3 +4,5 @@
 {"id":"01M4GRZJFMEPTK4QS2ZTDE6SDA","t":4,"a":"83a1","op":"label.add","v":"refactor"}
 {"id":"01M4GV383DQXMJGRQ04ZAE1XFN","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4GV38A06ERPS5851PVX5Y8G","t":6,"a":"83a1","op":"comment","body":"使用者選擇做法 A（移除欄位）。納入 multi-timeline board 作為 T7：`.scratch/multi-timeline/T07-drop-positioned-timeline.md`。"}
+{"id":"01M4GVBVFC4VEV1QW7XDMXYJXK","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4GVBVPWBK6GK4HA0RRJZEAP","t":8,"a":"83a1","op":"comment","body":"完成：6091894＋review fixes。"}
