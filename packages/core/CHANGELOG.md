@@ -18,6 +18,20 @@ own group (see **Changed**).
   visible, nothing is highlighted, and the controller has `totalSteps: 0`. The block is still
   parsed and checked, so `diagnostics` are the same as the default render's, and the render
   fails only when the default one does. Works for all five diagram kinds.
+- **Several timelines in one document.** A document can declare named blocks,
+  `timeline <name>:`, instead of the one unnamed `timeline:`; each runs to the next timeline
+  header or the end of the document and has its own steps and its own step 0. Mixing the
+  unnamed block with named ones, two unnamed blocks, a repeated name and a malformed name are
+  each an error. Every block is checked on every render, and a diagnostic about a named block
+  starts with `timeline <name>:`. A document with one unnamed block renders as before.
+- `RenderOptions.timeline` also takes a string: `render(source, container, { timeline: "wallet" })`
+  applies the block of that name. `true`, or leaving the option out, applies the first block.
+  A name the document does not declare throws a `RangeError` listing the declared names, and
+  leaves the container untouched; a document that fails to render still returns its
+  diagnostics instead. The diagnostics are the same whichever block is applied.
+- `SirenRenderResult.timelines` lists the named blocks in document order, so a viewer can offer
+  them as a choice. It is `[]` for a document with only the unnamed block or none, and when
+  rendering failed.
 
 ### Changed
 

@@ -6,8 +6,9 @@ license: MIT
 
 # Writing Siren documents
 
-A Siren document is a Mermaid diagram followed by an optional `timeline:` block. Each
-line of the timeline is one step, and says what to reveal, highlight or remove. The
+A Siren document is a Mermaid diagram followed by an optional `timeline:` block, or by
+several named `timeline <name>:` blocks when one diagram tells more than one story. Each
+line of a timeline is one step, and says what to reveal, highlight or remove. The
 renderer is `siren-core` (npm), and a document is usually saved with the `.srn`
 extension.
 
@@ -57,15 +58,19 @@ the timeline, unless the diagram uses something Siren rejects.
 <diagram header>          flowchart LR | sequenceDiagram | classDiagram | stateDiagram-v2 | erDiagram
 <diagram body>            Mermaid syntax
 
-timeline:                 optional, at most once
+timeline:                 optional: one unnamed block,
   <step 1>
   <step 2>
+
+timeline <name>:          or several named blocks instead (never both)
+  <step 1>
 ```
 
 - The first non-comment line must be the diagram header. Siren doesn't support YAML
   front matter (`---`) or diagram types other than these five.
 - `timeline:` starts the block, and every remaining line belongs to it. Nothing closes
-  it, so it must come last.
+  it, so it must come last. With named blocks, each one runs from its header to the next
+  `timeline <name>:` header, or to the end of the document.
 - `%%` starts a comment, anywhere in the document. `%%{init: ...}%%` directives are
   treated as comments and ignored.
 
@@ -114,6 +119,35 @@ under both.
 - **Highlights persist** until `unhighlight`. Several targets can be highlighted at
   once. A new `highlight` on the same target replaces its effect.
 - **Ids must exist.** An id that isn't in the diagram is an error.
+
+### Several timelines
+
+Use named blocks when the same diagram should be walked through more than one way, such
+as two checkout paths over one class diagram. Don't copy the diagram into a second file.
+
+```
+timeline card:
+  enter Order fade
+  enter CreditCard fade, highlight CreditCard glow
+
+timeline wallet:
+  enter Order fade
+  enter Wallet fade, highlight Wallet glow
+```
+
+- A header is exactly `timeline <name>:`, with nothing between the name and the colon.
+  A name is letters, digits, `_` and `-`, and is case-sensitive. Any other line starting
+  with `timeline` isn't a header.
+- Use either one unnamed `timeline:` or named blocks, never both. Two unnamed blocks, a
+  repeated name, or a name with other characters is an error.
+- Every block is a timeline of its own: its steps count from 1, and every rule above,
+  step 0 included, applies within that block alone. So **each block must `enter`
+  everything it wants hidden at its start**: an element one block never mentions is
+  visible from that block's step 0, even if another block enters it later.
+- Every block is validated on every render. A diagnostic from a named block starts
+  `timeline <name>:` rather than `timeline:`.
+- `render()` and `siren-board` play the first block by default. `siren-board` shows a
+  dropdown to switch when there are two or more.
 
 ## Target ids
 
@@ -195,6 +229,8 @@ diagram.srn: ERRORS (1 error(s), 0 warning(s), 5 step(s))
   `warning` as a bug unless the user wants that behavior.
 - `OK` means well-formed, not well-staged. The validator doesn't judge the story:
   review step 0 and the order of steps yourself.
+- With named blocks, the errors and warnings cover every block, but the step count is the
+  first block's.
 - Pass `-` to read from stdin. The exit code is 1 when any document has an error.
 - If the timeline rejects an id that `--ids` lists, that kind of element can't be
   animated yet. Leave it out of the timeline.
@@ -215,6 +251,10 @@ the user it hasn't been validated.
 | `"X" already has a "enter" action`                          | Remove the second `enter`. An element enters once.                      |
 | `Unknown highlight effect ""`                               | Add an effect: `highlight X outline`.                                   |
 | `Unrecognized timeline action: "step 1: ..."`               | Remove the step prefix. The line's position is its number.              |
+| `An unnamed "timeline:" block cannot share a document with named ones` | Name every block, or keep only the unnamed one.               |
+| `A document declares at most one unnamed "timeline:" block` | Name each block: `timeline <name>:`.                                    |
+| `Timeline "X" is already declared on line N`                | Give each block a different name.                                       |
+| `Invalid timeline name "X"`                                 | Use only letters, digits, `_` and `-` in the name.                      |
 
 ## Using the result
 

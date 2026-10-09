@@ -24,6 +24,7 @@ function rendered(diagnostics: Diagnostic[] = []): SirenRenderResult {
     svg: document.createElementNS(SVG_NS, "svg") as SVGSVGElement,
     controller: null,
     diagnostics,
+    timelines: [],
   };
 }
 

@@ -11,13 +11,15 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * rather than a file consumers link themselves. In the bar, a pressed button
  * (Full diagram while the full diagram shows, Play while playing) takes the
  * accent color, and a disabled one (a step button or Play while there is
- * nothing to step through) fades and ignores hover. The play interval
- * dropdown's trigger wears the buttons' border, surface and radius, and
- * fades the same way when there is nothing to play; its listbox opens
+ * nothing to step through) fades and ignores hover. A dropdown's trigger —
+ * the timeline's or the play interval's — wears the buttons' border, surface
+ * and radius, and fades the same way when disabled; its listbox opens
  * directly above the trigger — always there, never flipped below for want of
  * room, and never scrolled, since it holds every option at once — with the
- * selected option in the accent color. The step counter sets its digits in
- * tabular figures, so the bar keeps its width as the count changes.
+ * selected option in the accent color. The listbox is anchored by the root
+ * class every dropdown carries, not by a dropdown's own class. The step
+ * counter sets its digits in tabular figures, so the bar keeps its width as
+ * the count changes.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
@@ -140,7 +142,7 @@ const CSS = `
   cursor: not-allowed;
 }
 
-.siren-board-controls__interval {
+.siren-board-controls__dropdown {
   position: relative;
   display: flex;
 }

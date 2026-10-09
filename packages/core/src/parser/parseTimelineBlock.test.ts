@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, parseTimelineBlocks, parseTimelineBody } from "./parseTimelineBlock";
 
 describe("parseTimelineBody", () => {
   it("derives an entry's column from the indentation of the line it was written on", () => {
@@ -159,5 +159,128 @@ describe("parseTimelineBody", () => {
         column: 3,
       },
     ]);
+  });
+});
+
+describe("parseTimelineBlocks", () => {
+  it("splits named blocks at each header and counts every block's steps from 1", () => {
+    const lines = [
+      "flowchart TD",
+      "  A --> B",
+      "timeline card:",
+      "  enter A fade",
+      "",
+      "  enter B fade",
+      "timeline wallet:",
+      "  enter B fade",
+    ];
+
+    const { timeline, namedTimelines, diagnostics } = parseTimelineBlocks(lines, 2);
+
+    expect(diagnostics).toEqual([]);
+    expect(timeline).toBeNull();
+    expect(
+      namedTimelines.map(({ name, timeline: block }) => [
+        name,
+        block.entries.map((entry) => `${entry.step} ${entry.targetId} line ${entry.line}`),
+      ]),
+    ).toEqual([
+      ["card", ["1 A line 4", "2 B line 6"]],
+      ["wallet", ["1 B line 8"]],
+    ]);
+  });
+
+  it("reports a second unnamed header on that header, rather than reading it as an action", () => {
+    const lines = ["timeline:", "  enter A fade", "  timeline:", "  enter B fade"];
+
+    const { diagnostics } = parseTimelineBlocks(lines, 0);
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A document declares at most one unnamed "timeline:" block; name each block ("timeline <name>:") to declare several',
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reports mixing the unnamed header with named ones on whichever header comes later", () => {
+    const unnamedFirst = ["timeline:", "  enter A fade", "timeline card:", "  enter B fade"];
+    const namedFirst = ["timeline card:", "  enter A fade", " timeline:", "  enter B fade"];
+
+    const mixed = {
+      severity: "error",
+      message:
+        'An unnamed "timeline:" block cannot share a document with named ones; name every block, or declare only the unnamed one',
+    };
+    expect(parseTimelineBlocks(unnamedFirst, 0).diagnostics).toEqual([
+      { ...mixed, line: 3, column: 1 },
+    ]);
+    expect(parseTimelineBlocks(namedFirst, 0).diagnostics).toEqual([
+      { ...mixed, line: 3, column: 2 },
+    ]);
+  });
+
+  it("reports a repeated name on the later header, and treats names as case-sensitive", () => {
+    const lines = [
+      "timeline card:",
+      "  enter A fade",
+      "timeline Card:",
+      "  enter A fade",
+      "  timeline card:",
+      "  enter B fade",
+    ];
+
+    expect(parseTimelineBlocks(lines, 0).diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Timeline "card" is already declared on line 1',
+        line: 5,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reports a single-token name outside [A-Za-z0-9_-] on its header, and still reads the block's lines", () => {
+    const lines = ["timeline a.b:", "  enter A fade", "timeline pay/card:", "  wobble"];
+
+    expect(parseTimelineBlocks(lines, 0).diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Invalid timeline name "a.b" (a name is letters, digits, "_" and "-")',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'Invalid timeline name "pay/card" (a name is letters, digits, "_" and "-")',
+        line: 3,
+        column: 1,
+      },
+      {
+        severity: "error",
+        message: 'Unrecognized timeline action: "wobble"',
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+});
+
+describe("isTimelineHeader", () => {
+  it("recognizes exactly `timeline:` and `timeline <one token>:`, with nothing before the colon", () => {
+    expect(["timeline:", "timeline card:", "timeline a.b:", "timeline:  "].map(isTimelineHeader)).toEqual(
+      [true, true, true, true],
+    );
+    // A space before the colon was never a header, and a name of several
+    // words is not one either: those lines fall through to whichever grammar
+    // reads them, as they did before named blocks existed.
+    expect(
+      ["timeline :", "timeline card :", "timeline a b:", "timeline ->> B:", "timeline  card:"].map(
+        isTimelineHeader,
+      ),
+    ).toEqual([false, false, false, false, false]);
   });
 });

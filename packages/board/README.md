@@ -32,10 +32,16 @@ createBoard(document.getElementById("board"), { source });
 ## Features
 
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
-  (`2 / 10`), Reset, a play interval dropdown, Full diagram and Reset view. Prev, Next and
-  Reset are disabled when they have nowhere to go. Replace it with your own, or turn it off.
+  (`2 / 10`), Reset, a timeline dropdown, a play interval dropdown, Full diagram and Reset
+  view. Prev, Next and Reset are disabled when they have nowhere to go, and every step
+  control, the timeline dropdown included, while the full diagram shows. Replace it with your
+  own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
+- **Named timelines**: a document can tell several stories over one diagram, each in its
+  own `timeline <name>:` block. When it names two or more, the bar shows a dropdown of their
+  names; picking one plays that timeline from the start. The dropdown is disabled while the
+  full diagram shows; `board.setTimeline()` from code still switches, leaving it.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
@@ -155,13 +161,14 @@ board.setFullDiagram(false); // back to the step that was showing
 
 The full diagram is the document drawn without its `timeline:` block. While it shows,
 `board.controller` has no steps (`totalSteps` is 0), and the built-in bar disables Prev,
-Play, Next, Reset and the play interval dropdown, marks its Full diagram button as pressed,
+Play, Next, Reset, the timeline dropdown and the play interval dropdown, marks its Full diagram button as pressed,
 and its step counter reads `0 / 0` until you switch back. The counter also reads `0 / 0`
 on a document with no `timeline:` block, and before a first render succeeds, and Prev,
 Next and Reset stay disabled there too. On the timeline, the bar disables Prev and Reset on
 step 0 and Next on the last step; Play stays enabled there, since it replays from step 0.
 A step button disabled while it has focus hands focus to the opposite one (Next to Prev,
-Prev or Reset to Next), or to Full diagram when that one is disabled too. Switching
+Prev or Reset to Next), or to Full diagram when that one is disabled too; a dropdown
+disabled while it has focus closes and hands focus to Full diagram. Switching
 never changes pan and zoom, and `onFullDiagramChange` fires whether the switch came from
 the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
@@ -318,6 +325,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onStepChange`  | `(current: number, total: number) => void`     |         | Called whenever the current step changes.                                           |
 | `onDiagnostics` | `(diagnostics: Diagnostic[]) => void`          |         | Called after every render, with every error and warning.                            |
 | `onFullDiagramChange` | `(fullDiagram: boolean) => void`         |         | Called whenever `fullDiagram` changes, from the built-in bar or `setFullDiagram()`. |
+| `onTimelineChange` | `(name: string \| null) => void`            |         | Called whenever `timeline` changes after the first render: from `setTimeline()`, or from a `setSource()` that changes it, to or from `null` included. |
 | `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
@@ -330,7 +338,10 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `diagnostics`     | The diagnostics from the most recent render.                                             |
 | `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
 | `setSource(src)`  | Renders a new document in place.                                                         |
-| `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
+| `timelines`       | The document's `timeline <name>:` names, in document order. Empty without named blocks. |
+| `timeline`        | The timeline applied: the first by default, `null` when `timelines` is empty. `setSource()` keeps it when the new document declares it. |
+| `setTimeline(name)` | Applies another timeline from step 0 and stops playback. Keeps pan and zoom and `diagnostics`, and replaces `controller`. Leaves the full diagram if it shows, back to the step shown before when `name` is the current one; otherwise the current one does nothing. Throws a `RangeError`, changing nothing, for a name not in `timelines`. |
+| `setFullDiagram(on)` | Shows the full diagram, or returns to the current timeline at the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
 | `playing`         | Whether playback is running. Starts `false`.                                             |
 | `playInterval`    | Milliseconds between playback steps.                                                     |
 | `play()`          | Starts playback: steps at once, then once per `playInterval`, and stops by itself on the last step. On the last step, it goes back to step 0 and takes step 1 one interval later. Does nothing while playing, while the full diagram shows, or when the document has no steps. |
@@ -351,7 +362,7 @@ type ControlsFactory = (board: Board) => {
 
 `update` is called once after each change the bar may show: a `setSource()` that rendered,
 a step change from any source (including `board.controller.next()` in code), a
-`fullDiagram` switch, and a change to `playing` or `playInterval`. It is never called after
+`fullDiagram` or `timeline` switch, and a change to `playing` or `playInterval`. It is never called after
 `destroy()`. The built-in bar is an ordinary
 `ControlsFactory` kept in step through this same hook.
 
@@ -408,8 +419,9 @@ together — copy it and you have a dark theme for both.
 
 For deeper changes, target the classes `.siren-board-controls`,
 `.siren-board-controls__button`, `.siren-board-controls__step` (the step counter) and
-`.siren-board-controls__trigger`, `__listbox` and `__option` (the play interval dropdown), or
-pass your own `controls`.
+`.siren-board-controls__dropdown`, `__trigger`, `__listbox` and `__option` (the timeline and
+play interval dropdowns, told apart by `__timeline` and `__interval`), or pass your own
+`controls`.
 
 The built-in buttons are icon-only. Each has an `aria-label` and a `title`, so screen
 readers announce it and a tooltip names it.

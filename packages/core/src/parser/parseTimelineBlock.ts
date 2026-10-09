@@ -2,34 +2,44 @@ import type {
   Diagnostic,
   EnterExitEffect,
   HighlightEffect,
+  NamedTimeline,
+  SirenTimeline,
   TimelineActionKind,
   TimelineEntry,
 } from "../contracts";
 
 /**
- * The `timeline:` grammar, owned once and shared by every diagram kind that
- * animates.
+ * The timeline grammar, owned once and shared by every diagram kind that
+ * animates: what a timeline header is, what a line inside a block says, and
+ * how the blocks after the first header divide up.
  *
- * ADR-0002 puts the timeline in a block of its own, deliberately separate
+ * ADR-0002 puts the timeline in blocks of its own, deliberately separate
  * from the diagram's structural definition — which is exactly what makes the
- * grammar shareable: the block's contents name ids and verbs and know nothing
- * about the statements above it. So a second diagram kind gains animation by
- * calling this, not by growing a second copy of the grammar that drifts from
- * the first one verb at a time.
+ * grammar shareable: a block's contents name ids and verbs and know nothing
+ * about the statements above them. So all five parsers call this rather than
+ * keeping copies that drift apart one verb, or one header rule, at a time.
  *
- * Lifted verbatim out of `parseFlowchart`, which now calls it: no behavior
- * change for flowcharts, and the class parser gets the identical vocabulary
- * rather than an approximation of it.
- *
- * The same argument covers the block's *body* — skip the blanks, number and
- * measure each line, hand it to the grammar, collect what comes back — which
- * had grown a copy in each of the three parsers. `parseTimelineBody` is that
- * loop, written once. What stays with each
- * parser is only what differs: where the block starts, and what a diagnostic
- * inside it costs that kind's document.
+ * Three layers, each written once. `parseTimelineLine` reads one step's
+ * actions. `parseTimelineBody` is the loop over one block — skip the blanks,
+ * number and measure each line, stop at the next header. `parseTimelineBlocks`
+ * walks every block from the first header to the end of the document and
+ * owns the rules *between* blocks: unnamed or named, never both, no name
+ * twice (decision 01M4GQ70CJ177A029JQV917H2Z). What stays with each parser is
+ * only what differs: where the first header is, and what a diagnostic
+ * inside the blocks costs that kind's document.
  */
 
-const TIMELINE_HEADER_RE = /^timeline:\s*$/;
+// Exactly two header forms: `timeline:` and `timeline <name>:` — one space,
+// one whitespace-free token, the colon straight after it. Anything looser
+// would claim lines that were never headers before named blocks existed:
+// `timeline :` was always an ordinary line of the diagram's own grammar, and
+// so is a sequence message from a participant called `timeline`. The token is
+// captured whatever it contains, so a malformed name such as `a.b` is still
+// read as a header and reported as one.
+const TIMELINE_HEADER_RE = /^timeline(?: (\S+))?:\s*$/;
+// What a well-formed name is: `[A-Za-z0-9_-]+`, case-sensitive, as decision
+// 01M4GQ70CJ177A029JQV917H2Z settles it.
+const TIMELINE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 // A verb, a target id, and an optional trailing effect token (unhighlight
 // takes none; every other verb requires one — validated below, not here).
 const TIMELINE_ACTION_RE = /^(\S+)\s+(\S+)(?:\s+(\S+))?$/;
@@ -51,9 +61,14 @@ const EFFECTS_BY_KIND: Readonly<
   unhighlight: null,
 };
 
-/** Whether `line` (already trimmed) opens the timeline block. */
+/** Whether `line` (already trimmed) opens a timeline block, named or not. */
 export function isTimelineHeader(line: string): boolean {
   return TIMELINE_HEADER_RE.test(line);
+}
+
+/** The name a header line declares, or `null` for the unnamed `timeline:`. */
+function headerName(line: string): string | null {
+  return TIMELINE_HEADER_RE.exec(line)?.[1] ?? null;
 }
 
 /** What one line — or a whole body — inside a `timeline:` block contributed. */
@@ -158,21 +173,19 @@ function parseTimelineLine(
 }
 
 /**
- * Drains a `timeline:` block's body — every line from `startIndex` to the end
- * of the document, since the block is a one-way switch that no statement can
- * close.
+ * Reads one timeline block's body — every line from `startIndex` up to the
+ * next timeline header or the end of the document, whichever comes first. No
+ * statement closes a block; only another block's header does.
  *
  * This is the half of the block every diagram kind repeats: a blank line
  * contributes nothing, and any other line is the next step (ADR-0012),
  * measured for its column and sent through the grammar above. A line counts
  * as a step whether or not its actions parse, so fixing a typo never
- * renumbers the lines after it. A caller keeps only the decision that is its
- * own — where the block starts, and what a diagnostic inside it costs the
- * document.
+ * renumbers the lines after it.
  *
  * Line numbers come from each line's index in `lines`, so a caller hands over
- * the whole document and the index just past its `timeline:` header rather
- * than a slice it would then have to renumber.
+ * the whole document and the index just past the block's header rather than
+ * a slice it would then have to renumber.
  */
 export function parseTimelineBody(
   lines: readonly string[],
@@ -186,6 +199,7 @@ export function parseTimelineBody(
     const rawLine = lines[index];
     const line = rawLine.trim();
     if (line.length === 0) continue;
+    if (isTimelineHeader(line)) break;
 
     step++;
     const column = rawLine.length - rawLine.trimStart().length + 1;
@@ -195,4 +209,129 @@ export function parseTimelineBody(
   }
 
   return { entries, diagnostics };
+}
+
+/** The index of the first timeline header at or after `startIndex`, or `lines.length`. */
+function nextHeaderIndex(lines: readonly string[], startIndex: number): number {
+  for (let index = startIndex; index < lines.length; index++) {
+    if (isTimelineHeader(lines[index].trim())) return index;
+  }
+  return lines.length;
+}
+
+/**
+ * Reported on the later of an unnamed and a named header, whichever order
+ * they come in. The unnamed `timeline:` is shorthand for "this document's one
+ * timeline", which stops being true the moment a second block exists — and
+ * a name for the first block is the author's to choose, not ours to invent.
+ */
+const MIXED_HEADERS = {
+  severity: "error",
+  message:
+    'An unnamed "timeline:" block cannot share a document with named ones; name every block, or declare only the unnamed one',
+} as const;
+
+/**
+ * Every timeline block a document declares: the unnamed `timeline:` block, or
+ * the named `timeline <name>:` blocks in the order written.
+ */
+export interface TimelineBlocks {
+  /** The unnamed `timeline:` block, or `null` when the document has none. */
+  timeline: SirenTimeline | null;
+  /** The named blocks, in document order. */
+  namedTimelines: NamedTimeline<SirenTimeline>[];
+  /** Every problem in any block or header. All are error-severity. */
+  diagnostics: Diagnostic[];
+}
+
+/**
+ * Reads every timeline block from the first header (at `headerIndex`) to the
+ * end of the document.
+ *
+ * The first header is the one-way switch out of the diagram body, so from
+ * here on every line belongs to some block; each header simply ends the block
+ * before it. Every block's steps count from 1, because each is a timeline in
+ * its own right — a named block behaves exactly as it would if it were the
+ * document's only one.
+ */
+export function parseTimelineBlocks(
+  lines: readonly string[],
+  headerIndex: number,
+): TimelineBlocks {
+  let timeline: SirenTimeline | null = null;
+  const namedTimelines: NamedTimeline<SirenTimeline>[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const headerLineByName = new Map<string, number>();
+
+  let index = headerIndex;
+  while (index < lines.length) {
+    const rawHeader = lines[index];
+    const name = headerName(rawHeader.trim());
+    const headerAt = {
+      line: index + 1,
+      column: rawHeader.length - rawHeader.trimStart().length + 1,
+    };
+    const result = parseTimelineBody(lines, index + 1);
+
+    const block: SirenTimeline = { entries: result.entries };
+    if (name === null) {
+      // ADR-0012 used to make a second `timeline:` an unrecognized action,
+      // since nothing could close the first block. Now a header does close
+      // one, so the second is a header in its own right — and the problem
+      // with it is that "unnamed" only means "the one timeline", which a
+      // document cannot have two of.
+      if (namedTimelines.length > 0) {
+        diagnostics.push({ ...MIXED_HEADERS, ...headerAt });
+      } else if (timeline !== null) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            'A document declares at most one unnamed "timeline:" block; name each block ("timeline <name>:") to declare several',
+          ...headerAt,
+        });
+      }
+      timeline = block;
+    } else {
+      const firstDeclaredOn = headerLineByName.get(name);
+      if (!TIMELINE_NAME_RE.test(name)) {
+        diagnostics.push({
+          severity: "error",
+          message: `Invalid timeline name "${name}" (a name is letters, digits, "_" and "-")`,
+          ...headerAt,
+        });
+      } else if (timeline !== null) {
+        diagnostics.push({ ...MIXED_HEADERS, ...headerAt });
+      } else if (firstDeclaredOn !== undefined) {
+        // The later header is the one reported: the earlier block was fine
+        // until this one arrived, and naming the line it is on lets the
+        // author decide which of the two to rename.
+        diagnostics.push({
+          severity: "error",
+          message: `Timeline "${name}" is already declared on line ${firstDeclaredOn}`,
+          ...headerAt,
+        });
+      } else {
+        headerLineByName.set(name, headerAt.line);
+      }
+      namedTimelines.push({ name, timeline: block });
+    }
+    diagnostics.push(...result.diagnostics);
+    index = nextHeaderIndex(lines, index + 1);
+  }
+
+  return { timeline, namedTimelines, diagnostics };
+}
+
+/**
+ * `{ namedTimelines }` when there are any, `{}` when there are none — spread
+ * into a document or a model, so that one without named blocks carries
+ * exactly the fields it always did. A document with one unnamed block is
+ * then not merely rendered the same as before but *is* the same value, and
+ * the field set each stage pins down only grows for a document that uses the
+ * new form.
+ */
+export function namedTimelinesField<T>(
+  namedTimelines: NamedTimeline<T>[],
+): { namedTimelines?: NamedTimeline<T>[] } {
+  return namedTimelines.length > 0 ? { namedTimelines } : {};
 }

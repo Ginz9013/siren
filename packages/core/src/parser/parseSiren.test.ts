@@ -1077,10 +1077,10 @@ classDiagram
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
-  it("reports the same error for a second timeline: inside an open timeline block, in all three diagram kinds", () => {
-    // The block is declared once. A repeated header inside it is not a
-    // second block and not a no-op: it is a line the timeline grammar does
-    // not recognise, in every kind. Each source below puts the repeat at
+  it("reports the same error for a second unnamed timeline: header, in all three diagram kinds", () => {
+    // The unnamed block is declared at most once. A repeated header is not
+    // a second block and not a no-op: it is the error that says only named
+    // blocks may be several, in every kind. Each source below puts the repeat at
     // line 5, column 3, so the three diagnostics must be identical objects
     // — a future divergence between the kinds fails here rather than being
     // discovered by an extraction three boards later.
@@ -1108,7 +1108,8 @@ timeline:
     const expected: Diagnostic[] = [
       {
         severity: "error",
-        message: 'Unrecognized timeline action: "timeline:"',
+        message:
+          'A document declares at most one unnamed "timeline:" block; name each block ("timeline <name>:") to declare several',
         line: 5,
         column: 3,
       },

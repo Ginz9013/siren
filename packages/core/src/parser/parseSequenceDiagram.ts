@@ -16,13 +16,14 @@ import type {
   SequenceParticipantOrigin,
   SequenceParticipantStatement,
   SequenceStatement,
+  NamedTimeline,
   SirenTimeline,
 } from "../contracts";
 import { CSS_NAMED_COLORS } from "../label/cssColor";
 import { plainLabel, type SourcePosition } from "../label/label";
 import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
-import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /**
  * The header this parser accepts, asked for by kind rather than written out
@@ -32,16 +33,19 @@ import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
 const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
 
 /**
- * The pseudo-terminator that ends a statement body at a `timeline:` header.
+ * The pseudo-terminator that ends a statement body at a timeline header of
+ * either form — `timeline:` or `timeline <name>:`.
  *
- * It is passed only to the top-level `parseBody` call, which is what makes
- * `timeline:` end the diagram body there and stay an unrecognized line
- * inside a `loop`/`alt`/`box` body: a block body's terminator set is its
- * own (`end`, `else`, `and`, `option`) and never includes this. Recognized
- * by `isTimelineHeader` rather than by `matchLeadingKeyword`, so the header
- * spelling stays owned by the shared timeline grammar.
+ * It is not a keyword and is never spelled in a document: its value is only
+ * the tag `parseBody` hands back, and the line it stands for is recognized by
+ * `isTimelineHeader` rather than by `matchLeadingKeyword`, so what counts as
+ * a header stays owned by the shared timeline grammar. It is passed only to
+ * the top-level `parseBody` call, which is what makes a header end the
+ * diagram body there and stay an unrecognized line inside a
+ * `loop`/`alt`/`box` body: a block body's terminator set is its own (`end`,
+ * `else`, `and`, `option`) and never includes this.
  */
-const TIMELINE_TERMINATOR = "timeline:";
+const TIMELINE_HEADER_TERMINATOR = "<timeline header>";
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/di;
 const TITLE_RE = /^title\s+(.+)$/i;
 /** `accTitle: text` — screen-reader-only, distinct from the visible `title` above. The colon is required. */
@@ -370,7 +374,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     let matchedTerminator: string | null = null;
     let terminatorLabel: Label | null = null;
     for (const term of terminators) {
-      if (term === TIMELINE_TERMINATOR) {
+      if (term === TIMELINE_HEADER_TERMINATOR) {
         if (isTimelineHeader(line)) {
           matchedTerminator = term;
           break;
@@ -857,27 +861,30 @@ export function parseSequenceDiagram(source: string): ParseResult {
   }
   state.index++;
 
-  const { statements, terminatorKeyword } = parseBody(state, [TIMELINE_TERMINATOR]);
+  const { statements, terminatorKeyword } = parseBody(state, [TIMELINE_HEADER_TERMINATOR]);
 
-  // Once `timeline:` has ended the body the block runs to the end of the
-  // document — the same one-way switch `parseFlowchart` and
+  // Once a timeline header has ended the body, every line after it belongs
+  // to some timeline block — the same one-way switch `parseFlowchart` and
   // `parseClassDiagram` make, so a sequence statement written after it is a
   // timeline diagnostic rather than something that silently parses as
   // structure. Its lines go through the shared grammar, never a
   // sequence-specific copy of it.
   let timeline: SirenTimeline | null = null;
-  if (terminatorKeyword === TIMELINE_TERMINATOR) {
-    const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
-      lines,
-      state.index,
-    );
-    diagnostics.push(...bodyDiagnostics);
-    // Every diagnostic the shared body reports is error-severity, so a
+  let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
+  if (terminatorKeyword === TIMELINE_HEADER_TERMINATOR) {
+    // `parseBody` steps past whichever terminator it stopped at before
+    // returning, so the header that ended the body is the line just behind
+    // `state.index` — and `parseTimelineBlocks` wants the header itself, to
+    // read whether it is named.
+    const blocks = parseTimelineBlocks(lines, state.index - 1);
+    diagnostics.push(...blocks.diagnostics);
+    // Every diagnostic the shared grammar reports is error-severity, so a
     // non-empty list is exactly what used to be a per-line `sawError = true`.
-    if (bodyDiagnostics.length > 0) {
+    if (blocks.diagnostics.length > 0) {
       state.sawError = true;
     }
-    timeline = { entries };
+    timeline = blocks.timeline;
+    namedTimelines = blocks.namedTimelines;
   }
 
   if (state.sawError) {
@@ -909,6 +916,7 @@ export function parseSequenceDiagram(source: string): ParseResult {
     boxes: state.boxes,
     statements,
     timeline,
+    ...namedTimelinesField(namedTimelines),
   };
 
   return { document, diagnostics };

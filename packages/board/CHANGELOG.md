@@ -8,7 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
-Requires the `siren-core` `render()` option `timeline: false`, which is not released yet.
+Requires the `siren-core` `render()` options `timeline: false` and `timeline: "<name>"`, and
+`SirenRenderResult.timelines`, which are not released yet.
 
 ### Added
 
@@ -42,7 +43,8 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   `role="listbox"` that always opens directly above it and never scrolls. It works from the
   keyboard (arrow keys, Home, End, Enter, Space, Escape, Tab) as well as the pointer, closes
   on a press anywhere else, the diagram included, and stays open while playback steps.
-  Style it through `.siren-board-controls__trigger`, `__listbox` and `__option`.
+  Style it through `.siren-board-controls__dropdown` (its root, which anchors the listbox),
+  `__trigger`, `__listbox` and `__option`.
   Both are disabled while the full diagram shows and on a document with no steps. Either
   one, disabled while focused, hands focus to Full diagram.
 - The built-in control bar gains a step counter between Next and Reset, reading
@@ -58,6 +60,25 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   This follows every step change, from the bar, from playback or from code, and every
   `setSource()`. A step button disabled while focused hands focus to the opposite one (Next
   to Prev, Prev or Reset to Next), or to Full diagram when that one is disabled too.
+- **Named timelines**: `board.timelines` lists the document's `timeline <name>:` blocks in
+  document order, and `board.timeline` names the one applied: the first by default, `null`
+  when there are none. `board.setTimeline(name)` applies another from step 0 and stops
+  playback, keeping pan and zoom and `diagnostics`; from the full diagram it also switches
+  that off, and the current name then returns to the step that was showing. A name the
+  document does not declare throws a `RangeError` and changes nothing. `setSource()` keeps
+  the current timeline when the new document declares it, else applies its first, and
+  switching the full diagram off applies the current one. `onTimelineChange` fires whenever
+  `timeline` changes after the first render, and a `ControlsFactory`'s `update()` is called
+  after every switch.
+- The built-in control bar gains a timeline dropdown between Reset and the play interval
+  dropdown, shown only while the document names two timelines or more, so it comes and goes
+  as `setSource()` crosses that line. Its options are the names in `board.timelines`, with
+  `board.timeline` selected; picking one calls `board.setTimeline(name)`, and the dropdown
+  follows every switch made from code. Like the other step controls it is disabled while the
+  full diagram shows (`board.setTimeline()` from code still leaves it). Taken out of the bar, or
+  disabled, while focused, it hands focus to Full diagram. It is
+  the same dropdown as the play interval's, keyboard included; style it through
+  `.siren-board-controls__timeline`.
 
 ### Fixed
 

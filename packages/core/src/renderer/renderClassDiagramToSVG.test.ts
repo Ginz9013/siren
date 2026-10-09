@@ -273,7 +273,7 @@ function paintsBefore(a: Element, b: Element): boolean {
   return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 }
 
-/** Hand-built diagram carrying the given classes and relationships, and no timeline. */
+/** Hand-built diagram carrying the given classes and relationships. */
 function buildDiagram(
   classes: PositionedClass[],
   relationships: PositionedClassRelationship[] = [],
@@ -284,7 +284,6 @@ function buildDiagram(
     relationships,
     namespaces: [],
     notes: [],
-    timeline: { totalSteps: 0, entries: [] },
     width: 400,
     height: 300,
   };
@@ -594,35 +593,9 @@ describe("renderClassDiagramToSVG", () => {
       ),
       namespaces: [buildNamespace({ id: "namespace:1" })],
       notes: [buildNote({ id: "note:1" })],
-      timeline: {
-        totalSteps: 4,
-        entries: [
-          { kind: "enter", step: 1, targetId: "Duck", effect: "fade" },
-          { kind: "enter", step: 2, targetId: "Animal-Duck", effect: "fade" },
-          { kind: "enter", step: 3, targetId: "namespace:1", effect: "fade" },
-          { kind: "enter", step: 4, targetId: "note:1", effect: "fade" },
-        ],
-      },
     } satisfies PositionedClassDiagram;
 
     expect(renderClassDiagramToSVG(diagram).querySelectorAll(".siren-pending")).toHaveLength(0);
-
-    // And the same for a timeline built from the other three verbs, whose
-    // targets were never pending under the deleted rule either.
-    const noEnter = buildDiagram(
-      [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
-      [buildRelationship()],
-    );
-    noEnter.timeline = {
-      totalSteps: 2,
-      entries: [
-        { kind: "exit", step: 1, targetId: "Animal", effect: "fade" },
-        { kind: "highlight", step: 1, targetId: "Duck", effect: "glow" },
-        { kind: "unhighlight", step: 2, targetId: "Animal-Duck" },
-      ],
-    };
-
-    expect(renderClassDiagramToSVG(noEnter).querySelectorAll(".siren-pending")).toHaveLength(0);
   });
 
   // Guard for the hard invariant every Siren renderer holds: author text is

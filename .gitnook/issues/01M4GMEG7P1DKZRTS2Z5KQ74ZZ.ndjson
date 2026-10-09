@@ -2,3 +2,7 @@
 {"id":"01M4GMEG80P1WDA5HW9RX16SKH","t":2,"a":"83a1","op":"set","k":"description","v":"Review of ticket 01M4GKVQFYM6T1KRTXPQWHZY5H (standards axis, judged LARGE): defaultControls.ts now changes for two reasons — the bar, and the interval dropdown's own state (listbox in the DOM only while open, a document capture mousedown listener, trigger and listbox keyboard handling). Suggested shape: createIntervalDropdown({ onPick }) → { element, trigger, sync(intervals, current), close, destroy }, with createDefaultControls only wiring it into its disabled map, focus handoff and destroy. Pure refactor: the existing dropdown tests in createBoard.test.ts are the safety net. Also worth deciding then: whether the listbox should escape .siren-board's overflow: hidden (it is clipped on boards shorter than ~260px; README documents the minimum height for now)."}
 {"id":"01M4GMEG8072P487MXGQ5JKQG1","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M4GMEG801TJVY6GR4G0Z5PYE","t":4,"a":"83a1","op":"label.add","v":"refactor"}
+{"id":"01M4GQ7EMN40V48T1848HQQ59Z","t":5,"a":"83a1","op":"comment","body":"納入 multi-timeline board 作為 T1：`.scratch/multi-timeline/T01-extract-dropdown.md`。抽出的模組不綁定 interval，T5 的 timeline 選單會重用它。"}
+{"id":"01M4GQAFZ78BZ3PBXQ6714B4MD","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GQHEP4QRGJ654W2C9KXR0D","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4GQHEWM8WVXNM94GYVJJB7N","t":8,"a":"83a1","op":"comment","body":"完成：2931d8f＋review fixes。listbox 錨點依賴呼叫端 className 的問題移到 T5（01M4GQ716E0AQ5299S9J7FH8Y8）處理。"}
