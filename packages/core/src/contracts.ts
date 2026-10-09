@@ -1079,9 +1079,8 @@ export interface PositionedBox {
 
 /**
  * The sequence diagram after layout: positioned participants, messages,
- * control-flow blocks, box groupings and destroy marks, plus the resolved
- * timeline, ready for
- * `renderSequenceToSVG`.
+ * control-flow blocks, box groupings and destroy marks, ready for
+ * `renderSequenceToSVG`. No timeline: `render()` takes it from the model.
  */
 export interface PositionedSequenceDiagram {
   title: string | null;
@@ -1093,8 +1092,6 @@ export interface PositionedSequenceDiagram {
   elements: PositionedSequenceElement[];
   /** Every activation bar, independent of block nesting — see `PositionedActivation`. */
   activations: PositionedActivation[];
-  /** Carried through `layoutSequence` unchanged; the rules are `resolveTimeline`'s. */
-  timeline: ResolvedTimeline;
   width: number;
   height: number;
 }
@@ -1325,7 +1322,8 @@ export interface GraphModel {
   /**
    * The current timeline when nothing names one: the unnamed block, or the
    * first named one, or an empty timeline when there is neither. Layout and
-   * the renderers carry only this one; choosing among blocks is `render()`'s.
+   * the renderers never see it; choosing among blocks, and handing the choice
+   * to the animation controller, is `render()`'s.
    */
   timeline: ResolvedTimeline;
   /**
@@ -1458,8 +1456,8 @@ export interface PositionedSubgraph {
 }
 
 /**
- * The graph after layout: positioned nodes/edges plus the resolved
- * timeline, ready for `renderToSVG`.
+ * The graph after layout: positioned nodes/edges, ready for `renderToSVG`.
+ * No timeline: `render()` takes it from the model.
  */
 export interface PositionedGraph {
   direction: Direction;
@@ -1476,7 +1474,6 @@ export interface PositionedGraph {
   accTitle: string | null;
   /** Carried through unchanged from `GraphModel.accDescr`. */
   accDescr: string | null;
-  timeline: ResolvedTimeline;
   width: number;
   height: number;
 }
@@ -2096,8 +2093,8 @@ export interface PositionedClassNote {
 
 /**
  * The class diagram after layout: positioned classes, relationships,
- * namespaces and notes plus the resolved timeline, ready for
- * `renderClassDiagramToSVG`.
+ * namespaces and notes, ready for `renderClassDiagramToSVG`. No timeline:
+ * `render()` takes it from the model.
  */
 export interface PositionedClassDiagram {
   direction: Direction;
@@ -2106,7 +2103,6 @@ export interface PositionedClassDiagram {
   /** Namespace frames, drawn before (behind) the classes they enclose. */
   namespaces: PositionedClassNamespace[];
   notes: PositionedClassNote[];
-  timeline: ResolvedTimeline;
   width: number;
   height: number;
 }
@@ -2876,13 +2872,13 @@ export interface PositionedStateTransition {
 }
 
 /**
- * The state diagram after layout: positioned states and transitions plus the
- * resolved timeline, ready for `renderStateDiagramToSVG`.
+ * The state diagram after layout: positioned states and transitions, ready
+ * for `renderStateDiagramToSVG`. No timeline: `render()` takes it from the
+ * model.
  */
 export interface PositionedStateDiagram {
   states: PositionedState[];
   transitions: PositionedStateTransition[];
-  timeline: ResolvedTimeline;
   width: number;
   height: number;
 }
@@ -3805,7 +3801,6 @@ export interface PositionedErDiagram {
    * would be hidden by the outer one.
    */
   subgraphs: PositionedErSubgraph[];
-  timeline: ResolvedTimeline;
   width: number;
   height: number;
   /** Carried through unchanged from `ErModel.accTitle`. Takes no space on the canvas, so layout places nothing for it — it becomes the rendered root's `<title>`. */

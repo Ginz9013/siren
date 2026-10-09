@@ -548,23 +548,6 @@ describe("layoutGraph", () => {
     }
   });
 
-  it("passes the resolved timeline through unchanged onto PositionedGraph.timeline", () => {
-    const graph: GraphModel = {
-      ...chainGraph("TB"),
-      timeline: {
-        totalSteps: 2,
-        entries: [
-          { kind: "enter", step: 1, targetId: "B", effect: "fade" },
-          { kind: "enter", step: 2, targetId: "C", effect: "fade" },
-        ],
-      },
-    };
-
-    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
-
-    expect(positioned.timeline).toEqual(graph.timeline);
-  });
-
   it("passes accTitle and accDescr through unchanged onto PositionedGraph", () => {
     const graph: GraphModel = {
       ...chainGraph("TB"),

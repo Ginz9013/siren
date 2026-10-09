@@ -45,10 +45,7 @@ const PLAIN_ARROW = {
   label: null,
 } as const;
 
-/**
- * Hand-built fixture: A -> B -> C, B pending at step 1, C pending at step 2,
- * A never mentioned in the timeline (visible from the start).
- */
+/** Hand-built fixture: A -> B -> C. */
 function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
@@ -84,23 +81,12 @@ function buildFixture(): PositionedGraph {
     subgraphs: [],
     accTitle: null,
     accDescr: null,
-    timeline: {
-      totalSteps: 2,
-      entries: [
-        { kind: "enter", step: 1, targetId: "B", effect: "fade" },
-        { kind: "enter", step: 2, targetId: "C", effect: "fade" },
-      ],
-    },
     width: 80,
     height: 240,
   };
 }
 
-/**
- * Hand-built fixture whose timeline mixes the verbs: X has only an `exit`
- * action, Y only a `highlight`, Z an `enter`. None of them may make this
- * renderer stamp anything — step 0 belongs to the controller.
- */
+/** Hand-built fixture: three unconnected nodes X, Y and Z. */
 function buildNonEnterFixture(): PositionedGraph {
   return {
     direction: "TB",
@@ -113,14 +99,6 @@ function buildNonEnterFixture(): PositionedGraph {
     subgraphs: [],
     accTitle: null,
     accDescr: null,
-    timeline: {
-      totalSteps: 2,
-      entries: [
-        { kind: "exit", step: 1, targetId: "X", effect: "fade" },
-        { kind: "highlight", step: 2, targetId: "Y", effect: "outline" },
-        { kind: "enter", step: 1, targetId: "Z", effect: "fade" },
-      ],
-    },
     width: 80,
     height: 240,
   };
@@ -258,7 +236,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 260,
     };
@@ -339,7 +316,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -462,7 +438,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -537,7 +512,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -578,7 +552,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -655,7 +628,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 240,
     };
@@ -709,7 +681,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 180,
       height: 200,
     };
@@ -776,7 +747,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 200,
     };
@@ -1381,7 +1351,6 @@ describe("renderToSVG — a subgraph", () => {
       subgraphs,
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 300,
       height: 300,
     });
@@ -1523,7 +1492,6 @@ describe("a Markdown-labelled node's drawn text", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 80,
       height: 40,
     };

@@ -849,7 +849,6 @@ export function layoutClassDiagram(
     relationships,
     namespaces,
     notes,
-    timeline: model.timeline,
     width: Math.max(laidOut.width + shift.x, bounds.width),
     height: Math.max(laidOut.height + shift.y, bounds.height),
   };

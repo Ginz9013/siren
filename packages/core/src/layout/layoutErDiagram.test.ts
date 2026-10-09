@@ -552,30 +552,7 @@ describe("layoutErDiagram", () => {
   });
 });
 
-describe("layoutErDiagram carries the timeline", () => {
-  it("hands the resolved timeline through to the positioned diagram unchanged", () => {
-    // Layout places boxes and routes lines; it decides nothing about
-    // animation. The timeline was resolved once, against the ids
-    // `buildErModel` assigned, and anything re-derived here would be a
-    // second answer to a settled question — so this asserts *identity*, not
-    // equality: a copy would pass a deep comparison while still being a
-    // second object for a future stage to disagree with.
-    const resolved: ErModel["timeline"] = {
-      totalSteps: 2,
-      entries: [
-        { kind: "enter", step: 1, targetId: "CUSTOMER", effect: "fade" },
-        { kind: "enter", step: 2, targetId: "CUSTOMER:ORDER", effect: "fade" },
-      ],
-    };
-
-    const laidOut = layoutErDiagram(
-      { ...relating(CUSTOMER_PLACES_ORDER), timeline: resolved },
-      options,
-    );
-
-    expect(laidOut.timeline).toBe(resolved);
-  });
-
+describe("layoutErDiagram carries the accessible title and description", () => {
   it("carries the accessible title and description to the positioned diagram", () => {
     // Neither takes any space on the canvas — measured, the document that
     // writes both reports the same entity table as the one that writes
