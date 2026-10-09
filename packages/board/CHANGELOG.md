@@ -20,6 +20,25 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   shows what a click switches to: Lucide `image` while the timeline shows, `clapperboard`
   while the full diagram shows. It is `aria-pressed` while the full diagram shows, and Prev,
   Next and Reset are disabled meanwhile.
+- A `ControlsFactory` may return `update()`. The board calls it once after a `setSource()`
+  that rendered, after every step change (including `board.controller.next()` called from
+  code) and after every full diagram switch, and never after `destroy()`. A custom bar no
+  longer has to keep its buttons outside the factory to follow the board. The built-in bar
+  uses the same hook.
+- **Playback**: `board.play()` advances the timeline one step at once, then one step every
+  `board.playInterval` milliseconds, and stops by itself on the last step. Playing from the
+  last step starts again from step 0. `board.pause()` stops it, and so does any step change
+  playback did not make, every `setSource()` call, and `setFullDiagram(true)`. Set the
+  interval with the `playInterval` option (default 2000) or `board.setPlayInterval(ms)`;
+  an interval that is not a finite number above 0 throws a `RangeError`. `board.playing` and
+  `onPlaybackChange` report whether playback is running, and a `ControlsFactory`'s `update()`
+  is also called when `playing` or `playInterval` changes.
+- The built-in control bar gains a Play button between Prev and Next, and a play interval
+  select between Reset and Full diagram. Play shows Lucide `play` while stopped and `pause`
+  while playing, and is `aria-pressed` while playback runs. The select offers 1s, 1.5s, 2s,
+  3s and 5s, plus the current `playInterval` when it is none of those (2500 shows as 2.5s).
+  Both are disabled while the full diagram shows and on a document with no steps. A
+  control that is disabled while focused hands focus to Full diagram.
 
 ## [0.3.0] - 2026-10-05
 
