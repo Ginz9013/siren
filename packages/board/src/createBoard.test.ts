@@ -858,6 +858,21 @@ exit B fade
         expect(disabledButtons(container)).toEqual([]);
       });
 
+      it("hands focus from a step button to Full diagram when a switch from code disables it", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
+        const next = container.querySelector<HTMLButtonElement>('[aria-label="Next"]')!;
+        next.focus();
+        expect(document.activeElement).toBe(next); // sanity
+
+        board.setFullDiagram(true);
+
+        expect(document.activeElement).toBe(container.querySelector('[aria-label="Full diagram"]'));
+        board.destroy();
+        container.remove();
+      });
+
       it("follows board.setFullDiagram called from code, in both directions", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });

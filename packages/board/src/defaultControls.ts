@@ -1,4 +1,4 @@
-import type { Board } from "./createBoard";
+import type { Board, ControlsFactory } from "./createBoard";
 
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
@@ -60,11 +60,9 @@ const ICONS = {
  * board calls it whenever `fullDiagram` changes, wherever the change came
  * from, so the bar never shows a stale pressed or disabled state.
  */
-export function createDefaultControls(board: Board): {
-  element: HTMLElement;
-  destroy?(): void;
-  syncFullDiagram(): void;
-} {
+export function createDefaultControls(
+  board: Board,
+): ReturnType<ControlsFactory> & { syncFullDiagram(): void } {
   const bar = document.createElement("div");
   bar.className = CONTROLS_CLASS;
 
@@ -80,10 +78,15 @@ export function createDefaultControls(board: Board): {
   /**
    * Mirrors `board.fullDiagram` onto the bar. The full diagram has no steps,
    * so the step buttons are disabled rather than left clickable to do
-   * nothing; Reset view stays, since pan/zoom works on any drawing.
+   * nothing; Reset view stays, since pan/zoom works on any drawing. A step
+   * button holding focus hands it to Full diagram first, so a switch made
+   * from code never drops a keyboard reader's focus to the page.
    */
   function syncFullDiagram(): void {
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
+    if (board.fullDiagram && [prev, next, reset].some((b) => b === document.activeElement)) {
+      fullDiagram.focus();
+    }
     for (const stepButton of [prev, next, reset]) stepButton.disabled = board.fullDiagram;
   }
   syncFullDiagram();

@@ -203,13 +203,15 @@ Pass a function as `controls` to build your own. It receives the board and retur
 element to mount inside it:
 
 ```js
+let next; // kept so onFullDiagramChange can reach this board's button, not another's
+
 createBoard(container, {
   source,
   controls: (board) => {
     const bar = document.createElement("div");
     bar.className = "my-controls";
 
-    const next = document.createElement("button");
+    next = document.createElement("button");
     next.textContent = "Next";
     // Read board.controller when the button is clicked, not when the bar is built:
     // it is null until the first render, and setSource() and setFullDiagram() replace it.
@@ -225,7 +227,7 @@ createBoard(container, {
   // A custom bar learns about every switch, including setFullDiagram() calls from code,
   // through this callback.
   onFullDiagramChange: (on) => {
-    document.querySelector(".my-controls button").disabled = on;
+    next.disabled = on; // the full diagram has no steps
   },
 });
 ```
@@ -289,7 +291,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `diagnostics`     | The diagnostics from the most recent render.                                             |
 | `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
 | `setSource(src)`  | Renders a new document in place.                                                         |
-| `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before. Keeps pan and zoom and `diagnostics`; replaces `controller`. Setting the current value does nothing. |
+| `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
 | `resetView()`     | Resets pan and zoom to fit the container.                                                |
 | `destroy()`       | Removes everything the board added to the container and detaches its listeners.         |
 
