@@ -155,6 +155,6 @@ timeline wallet:
   enter namespace:2 slide-bottom, enter Product slide-bottom, enter Money slide-bottom, enter OrderLine-Product fade, enter OrderLine-Money fade, enter Product-Money fade, enter note:1 fade
   enter namespace:3 slide-right, enter PaymentMethod slide-right, enter CreditCard fade, enter Wallet fade, enter Order-PaymentMethod fade, enter PaymentMethod-CreditCard fade, enter PaymentMethod-Wallet fade
   exit CreditCard fade, exit PaymentMethod-CreditCard fade, highlight Wallet glow
-  enter PaymentResult fade, enter PaymentMethod-PaymentResult fade, highlight PaymentResult outline
-  unhighlight PaymentResult, unhighlight Wallet, enter namespace:4 slide-right, enter Shipment slide-right, enter Address slide-left, enter Order-Shipment fade, enter Customer-Address fade, enter Shipment-Address fade
-  enter Carrier slide-right, enter Shipment-Carrier fade, highlight Carrier glow, exit note:1 fade
+  enter PaymentResult fade, enter PaymentMethod-PaymentResult fade, highlight PaymentMethod-PaymentResult outline
+  unhighlight PaymentMethod-PaymentResult, unhighlight Wallet, enter namespace:4 slide-right, enter Shipment slide-right, enter Address slide-left, enter Order-Shipment fade, enter Customer-Address fade, enter Shipment-Address fade
+  enter Carrier slide-right, enter Shipment-Carrier fade, highlight Shipment glow
