@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../contracts";
-import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
+import {
+  resolveTimeline,
+  resolveTimelineBlocks,
+  warnOnConnectorsOutlivingTheirEndpoints,
+} from "./resolveTimeline";
 
 describe("resolveTimeline", () => {
   it("returns an empty timeline and reports nothing when there is no timeline block", () => {
@@ -242,6 +246,70 @@ describe("warnOnConnectorsOutlivingTheirEndpoints", () => {
     expect(diagnostics.map((d) => d.message)).toEqual([
       'timeline: relationship "E-F" remains visible after its endpoint "E" exits at step 5 — ' +
         'add "exit E-F ..." at or before step 5',
+    ]);
+  });
+});
+
+describe("resolveTimelineBlocks", () => {
+  const connectors = { connectors: [{ id: "A-B", from: "A", to: "B" }], noun: "edge" };
+
+  it("resolves each named block on its own and names it in every message resolution raises", () => {
+    const diagnostics: Diagnostic[] = [];
+
+    const resolved = resolveTimelineBlocks(
+      {
+        timeline: null,
+        namedTimelines: [
+          {
+            name: "card",
+            timeline: {
+              entries: [
+                { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+                { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+              ],
+            },
+          },
+          {
+            name: "wallet",
+            timeline: {
+              entries: [
+                // `B` is never entered in this block, so it is visible from
+                // this block's step 0 — whatever "card" does with it.
+                { kind: "highlight", step: 1, targetId: "B", effect: "glow" },
+                // Entering `A` here is this block's first enter, not a repeat
+                // of "card"'s.
+                { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+                { kind: "enter", step: 2, targetId: "Ghost", effect: "fade", line: 9, column: 3 },
+                { kind: "exit", step: 2, targetId: "A", effect: "fade" },
+              ],
+            },
+          },
+        ],
+      },
+      new Set(["A", "B", "A-B"]),
+      connectors,
+      diagnostics,
+    );
+
+    expect(
+      (resolved.namedTimelines ?? []).map(({ name, timeline }) => [name, timeline.totalSteps]),
+    ).toEqual([
+      ["card", 2],
+      ["wallet", 2],
+    ]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'timeline wallet: references unknown id "Ghost"',
+        line: 9,
+        column: 3,
+      },
+      {
+        severity: "warning",
+        message:
+          'timeline wallet: edge "A-B" remains visible after its endpoint "A" exits at step 2 — ' +
+          'add "exit A-B ..." at or before step 2',
+      },
     ]);
   });
 });

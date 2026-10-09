@@ -10,10 +10,7 @@ import type {
 import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveStyles } from "./resolveStyles";
-import {
-  resolveTimeline,
-  warnOnConnectorsOutlivingTheirEndpoints,
-} from "./resolveTimeline";
+import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `ErDocument` into an `ErModel`: the entities, each named
@@ -163,21 +160,15 @@ export function buildErModel(document: ErDocument): ErModelResult {
     diagnostics,
   );
 
-  const timeline = resolveTimeline(
-    document.timeline,
-    new Set(addressable.map((element) => element.id)),
-    diagnostics,
-  );
-
   // A relationship is a connector — two ids joined by a drawn line — so the
   // rule that already covers a flowchart edge, a class relationship, a
   // sequence message and a state transition covers it, called rather than
   // copied. Advisory only: nothing is dropped, and an author who gives the
   // relationship its own `exit` silences it.
-  warnOnConnectorsOutlivingTheirEndpoints(
-    timeline.entries,
-    relationships,
-    "relationship",
+  const timelines = resolveTimelineBlocks(
+    document,
+    new Set(addressable.map((element) => element.id)),
+    { connectors: relationships, noun: "relationship" },
     diagnostics,
   );
 
@@ -191,7 +182,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
       relationships,
       subgraphs,
       styles,
-      timeline,
+      ...timelines,
       // Plain text with nothing in the document to resolve it against, so
       // this stage has nothing to decide — the same straight-through
       // carriage `GraphModel.accTitle` gets for a flowchart.

@@ -14,7 +14,7 @@ import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
-import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
+import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `ClassDocument` into a validated `ClassModel`: repeat
@@ -74,21 +74,15 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
   // flowchart node and edge ids do, so an author animates any element of the
   // diagram the same way — and the shared resolver never has to learn which
   // kind of element an id belongs to.
-  const timeline = resolveTimeline(
-    document.timeline,
+  const timelines = resolveTimelineBlocks(
+    document,
     new Set([
       ...classes.map((c) => c.id),
       ...relationships.map((r) => r.id),
       ...namespaces.map((n) => n.id),
       ...notes.map((n) => n.id),
     ]),
-    diagnostics,
-  );
-
-  warnOnConnectorsOutlivingTheirEndpoints(
-    timeline.entries,
-    relationships,
-    "relationship",
+    { connectors: relationships, noun: "relationship" },
     diagnostics,
   );
 
@@ -100,7 +94,7 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     notes,
     interactions,
     styles,
-    timeline,
+    ...timelines,
   };
 
   return { model, diagnostics };

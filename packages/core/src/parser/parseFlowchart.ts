@@ -14,6 +14,7 @@ import type {
   SirenEdge,
   SirenNode,
   SirenSubgraph,
+  NamedTimeline,
   SirenTimeline,
   StyleDecl,
   StyleProperty,
@@ -22,7 +23,7 @@ import { plainLabel } from "../label/label";
 import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
-import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /**
  * The headers this parser accepts — its own kind's and no other's, because
@@ -1464,6 +1465,7 @@ export function parseFlowchart(source: string): ParseResult {
   const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
   let timeline: SirenTimeline | null = null;
+  let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
   let accTitle: string | null = null;
   let accDescr: string | null = null;
 
@@ -1713,24 +1715,21 @@ export function parseFlowchart(source: string): ParseResult {
       }
 
       if (isTimelineHeader(line)) {
-        // Once the block is open it runs to the end of the document, so the
-        // header is read once and never looked for again — a second
-        // `timeline:` is a line inside the block, which the shared grammar
-        // reports as unrecognized exactly as it does for the other two kinds.
-        // Draining is `parseTimelineBody`'s job; what stays here is only this
-        // parser's own decision: where the block starts, and that a diagnostic
-        // inside it costs the whole document.
-        const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
-          lines,
-          i + 1,
-        );
-        diagnostics.push(...bodyDiagnostics);
+        // The first header ends the diagram body for good: every line after
+        // it belongs to some timeline block, so a statement written there is
+        // a timeline diagnostic rather than structure. Splitting the blocks
+        // and reading them is `parseTimelineBlocks`'s job; what stays here
+        // is only this parser's own decision: where the first block starts,
+        // and that a diagnostic inside any of them costs the whole document.
+        const blocks = parseTimelineBlocks(lines, i);
+        diagnostics.push(...blocks.diagnostics);
         // Every diagnostic the shared grammar reports is error-severity, so a
         // non-empty list is exactly the old per-branch `sawError = true`.
-        if (bodyDiagnostics.length > 0) {
+        if (blocks.diagnostics.length > 0) {
           sawError = true;
         }
-        timeline = { entries };
+        timeline = blocks.timeline;
+        namedTimelines = blocks.namedTimelines;
         break readLines;
       }
 
@@ -2191,6 +2190,7 @@ export function parseFlowchart(source: string): ParseResult {
     accTitle,
     accDescr,
     timeline,
+    ...namedTimelinesField(namedTimelines),
   };
 
   return { document, diagnostics };

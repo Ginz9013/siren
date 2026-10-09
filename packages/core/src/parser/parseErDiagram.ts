@@ -10,6 +10,7 @@ import type {
   ErSubgraph,
   Label,
   ParseResult,
+  NamedTimeline,
   SirenTimeline,
   StyleDecl,
 } from "../contracts";
@@ -18,7 +19,7 @@ import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
-import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /** The headers a diagnostic here names, asked of the one registry that accepts them. */
 const ER_HEADERS = listAcceptedHeaders(["er"]);
@@ -1659,6 +1660,8 @@ export function parseErDiagram(source: string): ParseResult {
    * all, as opposed to declaring an empty block.
    */
   let timeline: SirenTimeline | null = null;
+  /** The named `timeline <name>:` blocks, once the first has been opened. */
+  let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
   /**
    * The screen-reader-only title and description, `null` until a statement
    * names one. **Last wins** for each, measured rather than assumed:
@@ -1820,12 +1823,12 @@ export function parseErDiagram(source: string): ParseResult {
     const lineNumber = index + 1;
     const column = rawLine.length - rawLine.trimStart().length + 1;
 
-    // The `timeline:` block ends the diagram body and runs to the end of the
-    // document — the one-way switch every other kind makes, so an ER
-    // statement written after it is a timeline diagnostic rather than
-    // silently parsing as structure. Draining the body is
-    // `parseTimelineBody`'s job; what stays here is where the block starts,
-    // and that a diagnostic inside it costs the whole document.
+    // The first timeline header ends the diagram body for good — the
+    // one-way switch every other kind makes, so an ER statement written after
+    // it is a timeline diagnostic rather than silently parsing as structure.
+    // Splitting and reading the blocks is `parseTimelineBlocks`'s job; what
+    // stays here is where the first block starts, and that a diagnostic
+    // inside any of them costs the whole document.
     //
     // ⚠️ Read **after** the header (a document opening with `timeline:` has
     // no diagram to animate, and the header diagnostic is the one that says
@@ -1836,12 +1839,13 @@ export function parseErDiagram(source: string): ParseResult {
     // timeline with "Unrecognized erDiagram attribute", which names the
     // wrong problem.
     if (sawHeader && isTimelineHeader(line)) {
-      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(lines, index + 1);
-      diagnostics.push(...bodyDiagnostics);
-      if (bodyDiagnostics.length > 0) {
+      const blocks = parseTimelineBlocks(lines, index);
+      diagnostics.push(...blocks.diagnostics);
+      if (blocks.diagnostics.length > 0) {
         sawError = true;
       }
-      timeline = { entries };
+      timeline = blocks.timeline;
+      namedTimelines = blocks.namedTimelines;
       break;
     }
 
@@ -2129,6 +2133,7 @@ export function parseErDiagram(source: string): ParseResult {
     subgraphs,
     styles,
     timeline,
+    ...namedTimelinesField(namedTimelines),
     accTitle,
     accDescr,
   };

@@ -243,6 +243,20 @@ export interface SirenTimeline {
 }
 
 /**
+ * One `timeline <name>:` block and its name — raw (`SirenTimeline`) on a
+ * parsed document, resolved (`ResolvedTimeline`) on a model.
+ *
+ * A wrapper rather than a `name` field on the timeline itself, so the shape
+ * the animation controller consumes stays exactly what it was: a named block
+ * is resolved and played on the same terms as the unnamed one, and only the
+ * choice of *which* block to play needs to know names at all.
+ */
+export interface NamedTimeline<T> {
+  name: string;
+  timeline: T;
+}
+
+/**
  * A `linkStyle 0 stroke:#f00` statement, as written — the one author-styling
  * statement that reaches an edge, and the one that does not address its
  * targets by id.
@@ -401,7 +415,17 @@ export interface FlowchartDocument {
    * reaches only the rendered SVG's `<desc>` element.
    */
   accDescr: string | null;
+  /** The unnamed `timeline:` block, or `null` when the document declares none. */
   timeline: SirenTimeline | null;
+  /**
+   * The named `timeline <name>:` blocks, in document order. Absent or empty
+   * when the document declares none — and always so when `timeline` is set,
+   * since a document mixing the two is rejected.
+   *
+   * Optional so that a document built by hand, as most of this package's
+   * tests build one, keeps meaning what it always did: one block or none.
+   */
+  namedTimelines?: NamedTimeline<SirenTimeline>[];
 }
 
 /**
@@ -768,6 +792,8 @@ export interface SequenceDocument {
    * are resolved by `buildSequenceModel` and nowhere else.
    */
   timeline: SirenTimeline | null;
+  /** The named blocks, on the terms of `FlowchartDocument.namedTimelines`. */
+  namedTimelines?: NamedTimeline<SirenTimeline>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -886,6 +912,8 @@ export interface SequenceModel {
   /** Resolved via the shared `resolveInteractions` — the same href allowlist class/flowchart interactions go through. */
   interactions: ResolvedInteraction[];
   timeline: ResolvedTimeline;
+  /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
+  namedTimelines?: NamedTimeline<ResolvedTimeline>[];
 }
 
 /** Result of `buildSequenceModel`. */
@@ -1294,7 +1322,17 @@ export interface GraphModel {
   accTitle: string | null;
   /** Carried through unchanged from `FlowchartDocument.accDescr` — no resolution needed for plain text with no target to validate against. */
   accDescr: string | null;
+  /**
+   * The timeline `render()` applies by default: the unnamed block, or the
+   * first named one, or an empty timeline when there is neither. Layout and
+   * the renderers carry only this one; choosing among blocks is `render()`'s.
+   */
   timeline: ResolvedTimeline;
+  /**
+   * Every named block, each resolved on its own, in document order — what
+   * `render()` chooses from. Absent or empty for a document with none.
+   */
+  namedTimelines?: NamedTimeline<ResolvedTimeline>[];
 }
 
 /**
@@ -1787,6 +1825,8 @@ export interface ClassDocument {
   interactions: Interaction[];
   styles: StyleDecl[];
   timeline: SirenTimeline | null;
+  /** The named blocks, on the terms of `FlowchartDocument.namedTimelines`. */
+  namedTimelines?: NamedTimeline<SirenTimeline>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1912,6 +1952,8 @@ export interface ClassModel {
   interactions: ResolvedInteraction[];
   styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
+  /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
+  namedTimelines?: NamedTimeline<ResolvedTimeline>[];
 }
 
 /** Result of `buildClassModel`. */
@@ -2512,6 +2554,8 @@ export interface StateDocument {
    * `buildStateModel` and validated nowhere else.
    */
   timeline: SirenTimeline | null;
+  /** The named blocks, on the terms of `FlowchartDocument.namedTimelines`. */
+  namedTimelines?: NamedTimeline<SirenTimeline>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -2647,6 +2691,8 @@ export interface StateModel {
    */
   styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
+  /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
+  namedTimelines?: NamedTimeline<ResolvedTimeline>[];
 }
 
 /** Result of `buildStateModel`. */
@@ -3166,6 +3212,8 @@ export interface ErDocument {
    * `parseTimelineBlock` rather than by a fifth copy of it.
    */
   timeline: SirenTimeline | null;
+  /** The named blocks, on the terms of `FlowchartDocument.namedTimelines`. */
+  namedTimelines?: NamedTimeline<SirenTimeline>[];
   /**
    * The diagram's screen-reader-only title — Mermaid's `accTitle:`
    * statement. Draws nothing on the canvas and declares no entity
@@ -3503,6 +3551,8 @@ export interface ErModel {
    * something has to be handed to it either way.
    */
   timeline: ResolvedTimeline;
+  /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
+  namedTimelines?: NamedTimeline<ResolvedTimeline>[];
   /** Carried through unchanged from `ErDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
   accTitle: string | null;
   /** Carried through unchanged from `ErDocument.accDescr` — no resolution needed for plain text with no target to validate against. */
