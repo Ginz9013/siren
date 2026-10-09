@@ -8,8 +8,13 @@ import { createViewport } from "./viewport";
 const ERROR_BANNER_CLASS = "siren-board-error";
 const CANVAS_CLASS = "siren-board-canvas";
 
-/** A caller-supplied replacement for board's default control bar. */
-export type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): void };
+/**
+ * A caller-supplied replacement for board's default control bar. Board calls
+ * `update` once after anything a bar shows may have changed — a `setSource`
+ * that rendered, a step change from any source, a `fullDiagram` switch — and
+ * never after `destroy()`; read the new state off `board` there.
+ */
+export type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): void; update?(): void };
 
 /** Options accepted by `createBoard`. */
 export interface BoardOptions {
@@ -79,6 +84,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   function wrapController(real: AnimationController): AnimationController {
     function afterCall(previousStep: number): void {
       if (real.currentStep !== previousStep) {
+        updateControls();
         options.onStepChange?.(real.currentStep, real.totalSteps);
       }
     }
@@ -140,6 +146,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       stepBeforeFullDiagram = 0;
       wrappedController = wrapController(result.controller!);
       viewport.resetView();
+      updateControls();
     }
     options.onDiagnostics?.(diagnostics);
   }
@@ -171,17 +178,17 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       wrappedController = wrapController(real);
     }
     fullDiagram = on;
-    syncFullDiagram?.();
+    updateControls();
     options.onFullDiagramChange?.(fullDiagram);
   }
 
-  let controlsDestroy: (() => void) | undefined;
-  /**
-   * Set only when the built-in bar is mounted. A custom `ControlsFactory`
-   * reads `board.fullDiagram` and listens through `onFullDiagramChange`
-   * instead; there is deliberately no public hook for this.
-   */
-  let syncFullDiagram: (() => void) | undefined;
+  /** The mounted control bar, built-in or custom; unset with `controls: false`. */
+  let controls: ReturnType<ControlsFactory> | undefined;
+
+  /** Tells the mounted bar the board changed; a destroyed board has no bar left to tell. */
+  function updateControls(): void {
+    if (!destroyed) controls?.update?.();
+  }
 
   const board: Board = {
     get controller() {
@@ -202,23 +209,17 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       if (destroyed) return;
       destroyed = true;
       viewport.destroy();
-      controlsDestroy?.();
+      controls?.destroy?.();
       container.replaceChildren();
       container.classList.remove("siren-board");
     },
   };
 
   if (options.controls !== false) {
-    let controls: ReturnType<ControlsFactory>;
-    if (typeof options.controls === "function") {
-      controls = options.controls(board);
-    } else {
-      const builtIn = createDefaultControls(board);
-      syncFullDiagram = builtIn.syncFullDiagram;
-      controls = builtIn;
-    }
+    // The built-in bar is an ordinary ControlsFactory (ADR-0006).
+    const factory = typeof options.controls === "function" ? options.controls : createDefaultControls;
+    controls = factory(board);
     container.appendChild(controls.element);
-    controlsDestroy = controls.destroy;
   }
 
   if (options.source !== undefined) {

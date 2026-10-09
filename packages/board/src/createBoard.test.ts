@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createBoard } from "./createBoard";
+import type { Board } from "./createBoard";
 
 /** A minimal valid document: two nodes, one edge, no timeline. */
 const VALID_SOURCE = `flowchart TD
@@ -939,6 +940,112 @@ exit B fade
         expect(board.fullDiagram).toBe(false);
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
       });
+    });
+  });
+
+  describe("a ControlsFactory's update()", () => {
+    /** Two steps, so a step change has somewhere to go in both directions. */
+    const TWO_STEP_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+`;
+
+    /** What the board shows, as a custom bar would read it inside update(). */
+    type Seen = { total: number | null; current: number | null; fullDiagram: boolean };
+
+    /** A custom factory whose update() records what it sees on the board each time it is called. */
+    function recordingControls(seen: Seen[]) {
+      return (board: Board) => ({
+        element: document.createElement("div"),
+        update() {
+          seen.push({
+            total: board.controller?.totalSteps ?? null,
+            current: board.controller?.currentStep ?? null,
+            fullDiagram: board.fullDiagram,
+          });
+        },
+      });
+    }
+
+    it("is called once after every setSource that renders, and not after one that fails", () => {
+      const seen: Seen[] = [];
+      const board = createBoard(document.createElement("div"), {
+        measureText: FAKE_MEASURER,
+        controls: recordingControls(seen),
+      });
+      expect(seen).toEqual([]); // nothing has changed yet
+
+      board.setSource(TWO_STEP_SOURCE);
+      expect(seen).toEqual([{ total: 2, current: 0, fullDiagram: false }]);
+
+      board.setSource("this is not a valid siren document");
+      expect(seen).toHaveLength(1);
+
+      board.setSource(VALID_SOURCE);
+      expect(seen).toEqual([
+        { total: 2, current: 0, fullDiagram: false },
+        { total: 0, current: 0, fullDiagram: false },
+      ]);
+    });
+
+    it("is called once after every step change, including a direct board.controller call, and not after a call that changes nothing", () => {
+      const seen: Seen[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: recordingControls(seen),
+      });
+      seen.length = 0; // drop the construction-time setSource
+
+      board.controller!.next();
+      board.controller!.next();
+      board.controller!.next(); // already at the last step
+      board.controller!.prev();
+      board.controller!.reset();
+      board.controller!.reset(); // already at step 0
+
+      expect(seen.map((s) => s.current)).toEqual([1, 2, 1, 0]);
+    });
+
+    it("is called once after every fullDiagram switch, and not after setting the value it already has", () => {
+      const seen: Seen[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: recordingControls(seen),
+      });
+      board.controller!.next();
+      seen.length = 0; // drop the setSource and the step
+
+      board.setFullDiagram(true);
+      board.setFullDiagram(true); // no change
+      board.setFullDiagram(false);
+
+      expect(seen).toEqual([
+        { total: 0, current: 0, fullDiagram: true },
+        { total: 2, current: 1, fullDiagram: false },
+      ]);
+    });
+
+    it("is never called after destroy(), whatever is called on the board afterwards", () => {
+      const seen: Seen[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: recordingControls(seen),
+      });
+      const controller = board.controller!;
+      seen.length = 0; // drop the construction-time setSource
+
+      board.destroy();
+      controller.next();
+      board.setSource(VALID_SOURCE);
+      board.setFullDiagram(true);
+
+      expect(seen).toEqual([]);
     });
   });
 });

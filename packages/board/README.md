@@ -203,15 +203,13 @@ Pass a function as `controls` to build your own. It receives the board and retur
 element to mount inside it:
 
 ```js
-let next; // kept so onFullDiagramChange can reach this board's button, not another's
-
 createBoard(container, {
   source,
   controls: (board) => {
     const bar = document.createElement("div");
     bar.className = "my-controls";
 
-    next = document.createElement("button");
+    const next = document.createElement("button");
     next.textContent = "Next";
     // Read board.controller when the button is clicked, not when the bar is built:
     // it is null until the first render, and setSource() and setFullDiagram() replace it.
@@ -222,12 +220,17 @@ createBoard(container, {
     full.onclick = () => board.setFullDiagram(!board.fullDiagram);
 
     bar.append(next, full);
-    return { element: bar, destroy: () => { /* remove listeners, if any */ } };
-  },
-  // A custom bar learns about every switch, including setFullDiagram() calls from code,
-  // through this callback.
-  onFullDiagramChange: (on) => {
-    next.disabled = on; // the full diagram has no steps
+    return {
+      element: bar,
+      // Called after every render, step change and full diagram switch, from your bar or
+      // from code. Read the new state off the board.
+      update: () => {
+        const controller = board.controller;
+        next.disabled = !controller || controller.currentStep === controller.totalSteps;
+        full.setAttribute("aria-pressed", String(board.fullDiagram));
+      },
+      destroy: () => { /* remove listeners, if any */ },
+    };
   },
 });
 ```
@@ -298,8 +301,17 @@ Mounts a board into `container` and renders `options.source`, if given.
 ### `ControlsFactory`
 
 ```ts
-type ControlsFactory = (board: Board) => { element: HTMLElement; destroy?(): void };
+type ControlsFactory = (board: Board) => {
+  element: HTMLElement;
+  update?(): void;
+  destroy?(): void;
+};
 ```
+
+`update` is called once after each change the bar may show: a `setSource()` that rendered,
+a step change from any source (including `board.controller.next()` in code), and a
+`fullDiagram` switch. It is never called after `destroy()`. The built-in bar is an ordinary
+`ControlsFactory` kept in step through this same hook.
 
 `destroy` is called when the board is destroyed.
 

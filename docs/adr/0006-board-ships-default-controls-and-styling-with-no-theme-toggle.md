@@ -10,12 +10,18 @@ status: accepted
 > stands for the reason given below. Board's chrome tokens follow core's shape: one set,
 > declared once.
 
+> Amended by the board-playback change (decision `01M4GA`): the built-in control bar is now an
+> ordinary `ControlsFactory`. A factory may return an optional `update()`, which board calls
+> after every `setSource` that renders, every step change and every full diagram switch, and
+> never after `destroy()`. The built-in bar stays in step through that public hook rather than a
+> private sync channel, so anything it does a replacement can do too.
+
 `siren-board`'s `createBoard()` ships a default Prev/Next/Reset control bar and its own chrome
 CSS out of the box, so a consumer gets a fully working, styled diagram with one function call — no
 separate `<link>` tag to remember, unlike `siren-core`'s theme, which ADR-0004 deliberately ships
 as a CSS file consumers must link themselves. Board's styles are instead injected via JS on first
 use (deduplicated across instances), and the default control bar can be turned off
-(`controls: false`) or fully replaced (`controls: (board) => ({ element, destroy? })`) so the
+(`controls: false`) or fully replaced (`controls: (board) => ({ element, update?, destroy? })`) so the
 built-in default doesn't lock a consumer in. The control bar does not include a Theme/dark-mode
 toggle: `siren-core` doesn't ship an official dark theme (ADR-0004 defines exactly one token set;
 `demos/theme-dark-override.css` (since removed, see ADR-0011) explicitly documents itself as demonstration scaffolding, not a
