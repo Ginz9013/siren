@@ -2,3 +2,5 @@
 {"id":"01M4GQ716R40SQQ3S6HD2C2ZEZ","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T05-default-controls-timeline-dropdown.md`（T5）。"}
 {"id":"01M4GQ716R7VY22GQ7NMF9JCE1","t":3,"a":"83a1","op":"label.add","v":"board"}
 {"id":"01M4GSMTH2HRRBDQTDFJ40TVVV","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GTSVNSXA75GEZW6P70PH13","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4GTSVW6JQF0AR676DHZ3HW5","t":6,"a":"83a1","op":"comment","body":"瀏覽器確認通過。使用者提出 full diagram 下選單應停用，另開 T6（01M4GTSKGPSG507DMA0V2KA5BZ）。"}
