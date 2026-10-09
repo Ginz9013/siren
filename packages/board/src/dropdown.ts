@@ -106,6 +106,8 @@ export function createDropdown<T>(config: {
       // Rebuilding drops the focused option from the DOM; keep the reader on
       // the same value in the new list.
       const focusedAt = optionElements().indexOf(document.activeElement as HTMLElement);
+      // Boxed, so "no option focused" stays distinct from a focused option
+      // whose value is itself `undefined`.
       const focusedValue = focusedAt === -1 ? undefined : { value: shown[focusedAt].value };
       shown = [...options];
       listbox.replaceChildren(...shown.map((option) => makeOption(option)));
@@ -113,10 +115,10 @@ export function createDropdown<T>(config: {
         optionElements()[shown.findIndex((option) => Object.is(option.value, focusedValue.value))]?.focus();
       }
     }
-    const optionEls = optionElements();
+    const elements = optionElements();
     shown.forEach((option, i) => {
       const selected = Object.is(option.value, current);
-      optionEls[i].setAttribute("aria-selected", String(selected));
+      elements[i].setAttribute("aria-selected", String(selected));
       if (selected) triggerText.textContent = option.label;
     });
   }
@@ -157,13 +159,13 @@ export function createDropdown<T>(config: {
 
   /** The listbox's option for `option`: a click picks it and closes the listbox. */
   function makeOption(option: DropdownOption<T>): HTMLElement {
-    const el = document.createElement("div");
-    el.className = OPTION_CLASS;
-    el.setAttribute("role", "option");
-    el.tabIndex = -1;
-    el.textContent = option.label;
-    el.addEventListener("click", () => pick(option.value));
-    return el;
+    const element = document.createElement("div");
+    element.className = OPTION_CLASS;
+    element.setAttribute("role", "option");
+    element.tabIndex = -1;
+    element.textContent = option.label;
+    element.addEventListener("click", () => pick(option.value));
+    return element;
   }
 
   return {
