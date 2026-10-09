@@ -318,7 +318,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onStepChange`  | `(current: number, total: number) => void`     |         | Called whenever the current step changes.                                           |
 | `onDiagnostics` | `(diagnostics: Diagnostic[]) => void`          |         | Called after every render, with every error and warning.                            |
 | `onFullDiagramChange` | `(fullDiagram: boolean) => void`         |         | Called whenever `fullDiagram` changes, from the built-in bar or `setFullDiagram()`. |
-| `onTimelineChange` | `(name: string \| null) => void`            |         | Called whenever `timeline` changes: from `setTimeline()`, or from a `setSource()` whose document does not declare the current name. Not called for the initial timeline of the first render. |
+| `onTimelineChange` | `(name: string \| null) => void`            |         | Called whenever `timeline` changes after the first render: from `setTimeline()`, or from a `setSource()` that changes it, to or from `null` included. |
 | `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
@@ -331,10 +331,10 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `diagnostics`     | The diagnostics from the most recent render.                                             |
 | `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
 | `setSource(src)`  | Renders a new document in place.                                                         |
-| `timelines`       | The names of the document's `timeline <name>:` blocks, in document order. Empty when it has only an unnamed `timeline:` or none. Follows the last render that succeeded. |
-| `timeline`        | The name of the timeline being applied: the first by default. `null` when `timelines` is empty. Kept while the full diagram shows. |
-| `setTimeline(name)` | Applies another timeline, from step 0, and stops playback. Keeps pan and zoom and `diagnostics`, and replaces `controller`. Setting the current one does nothing, unless the full diagram shows: any name then switches it off — the current one back to the step shown before, another from step 0. Throws a `RangeError`, changing nothing, for a name not in `timelines`. `setSource()` keeps the current timeline when the new document declares it, and otherwise applies its first. |
-| `setFullDiagram(on)` | Shows the full diagram, or returns to the step shown before on the current timeline. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
+| `timelines`       | The document's `timeline <name>:` names, in document order. Empty without named blocks. |
+| `timeline`        | The timeline applied: the first by default, `null` when `timelines` is empty. `setSource()` keeps it when the new document declares it. |
+| `setTimeline(name)` | Applies another timeline from step 0 and stops playback. Keeps pan and zoom and `diagnostics`, and replaces `controller`. Leaves the full diagram if it shows, back to the step shown before when `name` is the current one; otherwise the current one does nothing. Throws a `RangeError`, changing nothing, for a name not in `timelines`. |
+| `setFullDiagram(on)` | Shows the full diagram, or returns to the current timeline at the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
 | `playing`         | Whether playback is running. Starts `false`.                                             |
 | `playInterval`    | Milliseconds between playback steps.                                                     |
 | `play()`          | Starts playback: steps at once, then once per `playInterval`, and stops by itself on the last step. On the last step, it goes back to step 0 and takes step 1 one interval later. Does nothing while playing, while the full diagram shows, or when the document has no steps. |
