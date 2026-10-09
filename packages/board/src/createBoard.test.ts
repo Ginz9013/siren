@@ -44,6 +44,11 @@ function readViewportTransform(container: HTMLElement): { offsetX: number; offse
   return { offsetX: Number(match[1]), offsetY: Number(match[2]), scale: Number(match[3]) };
 }
 
+/** The built-in bar's button with this accessible name. */
+function button(container: HTMLElement, label: string): HTMLButtonElement {
+  return container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!;
+}
+
 describe("createBoard", () => {
   it("mounts a rendered SVG into the container when constructed with a source", () => {
     const container = document.createElement("div");
@@ -162,17 +167,20 @@ class A
     expect(() => board.destroy()).not.toThrow();
   });
 
-  it("renders a default Prev/Play/Next/Reset/Play interval/Full diagram/Reset view control bar unless controls: false is passed", () => {
+  it("renders a default Prev/Play/Next/step counter/Reset/Play interval/Full diagram/Reset view control bar unless controls: false is passed", () => {
     const container = document.createElement("div");
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
 
     const bar = container.querySelector(".siren-board-controls")!;
     expect(bar).not.toBeNull();
-    expect(Array.from(bar.children).map((c) => `${c.tagName.toLowerCase()} ${c.getAttribute("aria-label")}`)).toEqual([
+    expect(
+      Array.from(bar.children).map((c) => `${c.tagName.toLowerCase()} ${c.getAttribute("aria-label") ?? c.className}`),
+    ).toEqual([
       "button Prev",
       "button Play",
       "button Next",
+      "span siren-board-controls__step",
       "button Reset",
       "select Play interval",
       "button Full diagram",
@@ -846,11 +854,6 @@ exit B fade
     });
 
     describe("the built-in bar's Full diagram button", () => {
-      /** The built-in bar's button with this accessible name. */
-      function button(container: HTMLElement, label: string): HTMLButtonElement {
-        return container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!;
-      }
-
       /** Which of the bar's buttons are disabled, by name. */
       function disabledButtons(container: HTMLElement): string[] {
         return Array.from(container.querySelectorAll<HTMLButtonElement>(".siren-board-controls button"))
@@ -877,7 +880,7 @@ exit B fade
         const container = document.createElement("div");
         const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
-        expect(disabledButtons(container)).toEqual([]);
+        expect(disabledButtons(container)).toEqual(["Prev", "Reset"]); // step 0: nothing to go back to
 
         button(container, "Full diagram").click();
 
@@ -929,7 +932,7 @@ exit B fade
         board.setFullDiagram(false);
 
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
-        expect(disabledButtons(container)).toEqual([]);
+        expect(disabledButtons(container)).toEqual(["Prev", "Reset"]); // back on step 0
       });
 
       it("without the built-in bar — controls: false or a custom factory with no update — stepping and setFullDiagram still work and fire", () => {
@@ -1076,6 +1079,240 @@ enter C fade
       board.setFullDiagram(true);
 
       expect(seen).toEqual([]);
+    });
+  });
+
+  describe("the built-in bar's step counter", () => {
+    /** Two steps, so the counter has somewhere to go in both directions. */
+    const TWO_STEP_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+`;
+
+    /** The counter's text, as a reader sees it. */
+    function counter(container: HTMLElement): string | null {
+      return container.querySelector(".siren-board-controls .siren-board-controls__step")?.textContent ?? null;
+    }
+
+    it("sits between Next and Reset and starts at 0 of the timeline's steps, as plain text rather than a live region", () => {
+      const container = document.createElement("div");
+
+      createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(counter(container)).toBe("0 / 2");
+      const step = container.querySelector(".siren-board-controls__step")!;
+      expect(step.previousElementSibling?.getAttribute("aria-label")).toBe("Next");
+      expect(step.nextElementSibling?.getAttribute("aria-label")).toBe("Reset");
+      // Playback changes it on every step: announcing each one would talk over the reader.
+      expect(step.hasAttribute("aria-live")).toBe(false);
+      expect(step.hasAttribute("role")).toBe(false);
+    });
+
+    it("follows every step change: Next, Prev and Reset from the bar, a direct board.controller call, and setSource", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+      const click = (label: string) =>
+        container.querySelector<HTMLButtonElement>(`.siren-board-controls button[aria-label="${label}"]`)!.click();
+
+      click("Next");
+      expect(counter(container)).toBe("1 / 2");
+      click("Next");
+      expect(counter(container)).toBe("2 / 2");
+      click("Prev");
+      expect(counter(container)).toBe("1 / 2");
+      click("Reset");
+      expect(counter(container)).toBe("0 / 2");
+
+      board.controller!.next();
+      expect(counter(container)).toBe("1 / 2");
+
+      board.setSource(`flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+highlight A outline
+`);
+      expect(counter(container)).toBe("0 / 3");
+    });
+
+    it("follows playback, one step per play interval", () => {
+      vi.useFakeTimers();
+      try {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+        board.play();
+        expect(counter(container)).toBe("1 / 2");
+
+        vi.advanceTimersByTime(board.playInterval);
+        expect(counter(container)).toBe("2 / 2");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reads 0 / 0 in the full diagram, and the step shown before once switched back", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+      board.controller!.next();
+
+      board.setFullDiagram(true);
+      expect(counter(container)).toBe("0 / 0");
+
+      board.setFullDiagram(false);
+      expect(counter(container)).toBe("1 / 2");
+    });
+
+    it("reads 0 / 0, in the same place, on a document with no timeline and on a board whose render failed", () => {
+      const noTimeline = document.createElement("div");
+      createBoard(noTimeline, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+      expect(counter(noTimeline)).toBe("0 / 0");
+
+      const failed = document.createElement("div");
+      const board = createBoard(failed, { source: "this is not a valid siren document", measureText: FAKE_MEASURER });
+      expect(board.controller).toBeNull(); // sanity: nothing rendered
+      expect(counter(failed)).toBe("0 / 0");
+      const step = failed.querySelector(".siren-board-controls__step")!;
+      expect(step.previousElementSibling?.getAttribute("aria-label")).toBe("Next");
+      expect(step.nextElementSibling?.getAttribute("aria-label")).toBe("Reset");
+      // With no controller there is nowhere to step: every step button is off.
+      expect(["Prev", "Next", "Reset"].filter((label) => button(failed, label).disabled)).toEqual([
+        "Prev",
+        "Next",
+        "Reset",
+      ]);
+    });
+  });
+
+  describe("the built-in bar's step buttons", () => {
+    /** Two steps, so there is a step strictly between the first and the last. */
+    const TWO_STEP_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+`;
+
+    /** Which of Prev, Play, Next and Reset are disabled, by name. */
+    function disabledStepButtons(container: HTMLElement): string[] {
+      return ["Prev", "Play", "Next", "Reset"].filter((label) => button(container, label).disabled);
+    }
+
+    it("disables Prev and Reset on step 0, whether reached at construction, by Reset, by a direct board.controller call or by setSource, and enables every step button on a middle step", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+      expect(disabledStepButtons(container)).toEqual(["Prev", "Reset"]);
+
+      button(container, "Next").click();
+      expect(disabledStepButtons(container)).toEqual([]);
+
+      button(container, "Reset").click();
+      expect(disabledStepButtons(container)).toEqual(["Prev", "Reset"]);
+
+      board.controller!.next();
+      expect(disabledStepButtons(container)).toEqual([]);
+      board.controller!.prev();
+      expect(disabledStepButtons(container)).toEqual(["Prev", "Reset"]);
+
+      board.controller!.next();
+      board.setSource(TWO_STEP_SOURCE);
+      expect(disabledStepButtons(container)).toEqual(["Prev", "Reset"]);
+    });
+
+    it("disables Next, but not Play, on the last step, whether reached by Next, by a direct board.controller call or by playback", () => {
+      vi.useFakeTimers();
+      try {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+        button(container, "Next").click();
+        button(container, "Next").click();
+        expect(disabledStepButtons(container)).toEqual(["Next"]);
+        button(container, "Prev").click();
+        expect(disabledStepButtons(container)).toEqual([]);
+
+        board.controller!.next();
+        expect(disabledStepButtons(container)).toEqual(["Next"]);
+
+        board.controller!.reset();
+        board.play();
+        expect(disabledStepButtons(container)).toEqual([]); // step 1, mid-playback
+        vi.advanceTimersByTime(board.playInterval);
+        expect(board.controller!.currentStep).toBe(2); // sanity: played to the end
+        expect(disabledStepButtons(container)).toEqual(["Next"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    describe("focus handoff", () => {
+      /** One step, so Next on step 0 goes straight to the last step. */
+      const ONE_STEP_SOURCE = `flowchart TD
+A[Start] --> B[End]
+timeline:
+enter B fade
+`;
+
+      let container: HTMLElement;
+      beforeEach(() => {
+        container = document.createElement("div");
+        document.body.appendChild(container);
+      });
+      afterEach(() => container.remove());
+
+      it("hands focus from Next to Prev when reaching the last step disables Next, even though Prev was disabled the step before", () => {
+        const board = createBoard(container, { source: ONE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        button(container, "Next").focus();
+        expect(document.activeElement).toBe(button(container, "Next")); // sanity
+
+        button(container, "Next").click();
+
+        expect(document.activeElement).toBe(button(container, "Prev"));
+        board.destroy();
+      });
+
+      it("hands focus from Prev to Next when going back to step 0 disables Prev, even though Next was disabled the step before", () => {
+        const board = createBoard(container, { source: ONE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        board.controller!.next();
+        button(container, "Prev").focus();
+        expect(document.activeElement).toBe(button(container, "Prev")); // sanity
+
+        button(container, "Prev").click();
+
+        expect(document.activeElement).toBe(button(container, "Next"));
+        board.destroy();
+      });
+
+      it("hands focus from Reset to Next when a click on Reset disables it", () => {
+        const board = createBoard(container, { source: ONE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        board.controller!.next();
+        button(container, "Reset").focus();
+        expect(document.activeElement).toBe(button(container, "Reset")); // sanity
+
+        button(container, "Reset").click();
+
+        expect(document.activeElement).toBe(button(container, "Next"));
+        board.destroy();
+      });
+
+      it("falls back to Full diagram when the button focus would go to is disabled too: Reset on a setSource with no timeline", () => {
+        const board = createBoard(container, { source: ONE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        board.controller!.next();
+        button(container, "Reset").focus();
+        expect(document.activeElement).toBe(button(container, "Reset")); // sanity
+
+        board.setSource(VALID_SOURCE);
+
+        expect(disabledStepButtons(container)).toEqual(["Prev", "Play", "Next", "Reset"]); // 0 / 0
+        expect(document.activeElement).toBe(button(container, "Full diagram"));
+        board.destroy();
+      });
     });
   });
 

@@ -12,7 +12,9 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * (Full diagram while the full diagram shows, Play while playing) takes the
  * accent color, and a disabled one (a step button or Play while there is
  * nothing to step through) fades and ignores hover. The play interval select wears the buttons' border, surface and
- * radius, and fades the same way when there is nothing to play.
+ * radius, and fades the same way when there is nothing to play. The step
+ * counter sets its digits in tabular figures, so the bar keeps its width as
+ * the count changes.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
@@ -155,6 +157,16 @@ const CSS = `
   background: var(--siren-board-surface);
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.siren-board-controls__step {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.25rem;
+  color: var(--siren-board-text);
+  font: 14px system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 `;
 
