@@ -46,6 +46,12 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   text, not a live region, so playback is not announced step by step. Style it through
   `.siren-board-controls__step`; its digits are tabular, so the bar keeps its width as the
   count changes.
+- The built-in control bar disables its step buttons when they have nowhere to go: Prev and
+  Reset on step 0, Next on the last step, all three while the full diagram shows and on a
+  document with no steps. Play stays enabled on the last step, since it replays from step 0.
+  This follows every step change, from the bar, from playback or from code, and every
+  `setSource()`. A step button disabled while focused hands focus to the opposite one (Next
+  to Prev, Prev or Reset to Next), or to Full diagram when that one is disabled too.
 
 ## [0.3.0] - 2026-10-05
 
