@@ -14,7 +14,7 @@ import type {
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
-import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
+import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `FlowchartDocument` into a validated `GraphModel`:
@@ -117,9 +117,12 @@ export function buildFlowchartModel(
     ...subgraphs.map((s) => s.id),
   ]);
 
-  const { entries, totalSteps } = resolveTimeline(document.timeline, validTargetIds, diagnostics);
-
-  warnOnConnectorsOutlivingTheirEndpoints(entries, edges, "edge", diagnostics);
+  const timelines = resolveTimelineBlocks(
+    document,
+    validTargetIds,
+    { connectors: edges, noun: "edge" },
+    diagnostics,
+  );
 
   const graph: GraphModel = {
     direction: document.direction,
@@ -128,7 +131,7 @@ export function buildFlowchartModel(
     subgraphs,
     accTitle: document.accTitle,
     accDescr: document.accDescr,
-    timeline: { totalSteps, entries },
+    ...timelines,
   };
 
   return { graph, diagnostics };

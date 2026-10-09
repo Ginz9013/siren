@@ -8,10 +8,7 @@ import type {
 } from "../contracts";
 import { generatedId } from "./generatedId";
 import { resolveStyles } from "./resolveStyles";
-import {
-  resolveTimeline,
-  warnOnConnectorsOutlivingTheirEndpoints,
-} from "./resolveTimeline";
+import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
  * Resolves a parsed `StateDocument` into a validated `StateModel`: every
@@ -134,21 +131,16 @@ export function buildStateModel(document: StateDocument): StateModelResult {
   // `states`, wearing the author's own name — unlike a flowchart subgraph,
   // whose id has to be minted), and so is a **pseudo-state**, which arrives
   // here already carrying the generated id assigned above.
-  const timeline = resolveTimeline(
-    document.timeline,
-    new Set([...states.map((state) => state.id), ...transitions.map((t) => t.id)]),
-    diagnostics,
-  );
-
+  //
   // A transition is a connector — two ids joined by a drawn line — so the
   // rule that already covers a flowchart edge, a class relationship and a
   // sequence message covers it, called rather than copied. Advisory only:
   // nothing is dropped, and an author who gives the transition its own
   // `exit` silences it.
-  warnOnConnectorsOutlivingTheirEndpoints(
-    timeline.entries,
-    transitions,
-    "transition",
+  const timelines = resolveTimelineBlocks(
+    document,
+    new Set([...states.map((state) => state.id), ...transitions.map((t) => t.id)]),
+    { connectors: transitions, noun: "transition" },
     diagnostics,
   );
 
@@ -159,7 +151,7 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     states,
     transitions,
     styles,
-    timeline,
+    ...timelines,
   };
 
   return { model, diagnostics };

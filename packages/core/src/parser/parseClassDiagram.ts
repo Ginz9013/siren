@@ -13,6 +13,7 @@ import type {
   Diagnostic,
   Label,
   ParseResult,
+  NamedTimeline,
   SirenTimeline,
   StyleDecl,
   StyleProperty,
@@ -20,7 +21,7 @@ import type {
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
-import { isTimelineHeader, parseTimelineBody } from "./parseTimelineBlock";
+import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /**
  * The headers this parser accepts, asked for by kind rather than written out
@@ -372,9 +373,10 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * reported as the error it is. Every value captured by this function is
  * therefore untrusted until the model has passed it.
  *
- * A `timeline:` block ends the diagram body and runs to the end of the
- * document, exactly as it does in a flowchart — and it is parsed by the same
- * grammar, `parseTimelineBlock`, rather than by a second copy of it here.
+ * The first timeline header ends the diagram body, and the timeline blocks
+ * run from there to the end of the document, exactly as they do in a
+ * flowchart — and they are parsed by the same grammar, `parseTimelineBlock`,
+ * rather than by a second copy of it here.
  * Nothing about a timeline entry is diagram-kind-specific (ADR-0002 keeps the
  * block separate from the structural definition precisely so it can name any
  * id), so the ids in it are resolved by `buildClassModel` and validated
@@ -434,6 +436,8 @@ export function parseClassDiagram(source: string): ParseResult {
    * (as opposed to declaring an empty block).
    */
   let timeline: SirenTimeline | null = null;
+  /** The named `timeline <name>:` blocks, once the first has been opened. */
+  let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
 
   /**
    * Adds a declaration to the document, and — when it was written inside a
@@ -944,21 +948,20 @@ export function parseClassDiagram(source: string): ParseResult {
     const line = rawLine.trim();
 
     if (isTimelineHeader(line)) {
-      // Once the block is open it runs to the end of the document — the same
-      // one-way switch `parseFlowchart` makes, so a class statement written
-      // after `timeline:` is a timeline diagnostic rather than silently
-      // parsing as structure. Draining it is `parseTimelineBody`'s job, so
-      // this parser keeps only the decision that is its own: where the block
-      // starts, and that a diagnostic inside it costs the whole document.
-      const { entries, diagnostics: bodyDiagnostics } = parseTimelineBody(
-        lines,
-        index + 1,
-      );
-      diagnostics.push(...bodyDiagnostics);
-      if (bodyDiagnostics.length > 0) {
+      // The first header ends the diagram body for good — the same one-way
+      // switch `parseFlowchart` makes, so a class statement written after it
+      // is a timeline diagnostic rather than silently parsing as structure.
+      // Splitting and reading the blocks is `parseTimelineBlocks`'s job, so
+      // this parser keeps only the decision that is its own: where the first
+      // block starts, and that a diagnostic inside any of them costs the
+      // whole document.
+      const blocks = parseTimelineBlocks(lines, index);
+      diagnostics.push(...blocks.diagnostics);
+      if (blocks.diagnostics.length > 0) {
         sawError = true;
       }
-      timeline = { entries };
+      timeline = blocks.timeline;
+      namedTimelines = blocks.namedTimelines;
       break;
     }
 
@@ -979,6 +982,7 @@ export function parseClassDiagram(source: string): ParseResult {
     interactions,
     styles,
     timeline,
+    ...namedTimelinesField(namedTimelines),
   };
 
   return { document, diagnostics };

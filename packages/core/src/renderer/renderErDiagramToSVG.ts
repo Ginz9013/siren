@@ -109,9 +109,9 @@ function pointsToPathData(points: Point[]): string {
  * second reversal here would cancel out on `||--||`, `}|--|{` and `|o--o|`
  * and draw every other relationship backwards.
  *
- * Nothing here reads `diagram.timeline` — step 0 is
- * `createAnimationController(...).reset()`'s to establish, in `render()`, for
- * every diagram kind.
+ * This function never sees a timeline: `render()` hands it to the animation
+ * controller alone, and step 0 is `createAnimationController(...).reset()`'s
+ * to establish, for every diagram kind.
  */
 export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");

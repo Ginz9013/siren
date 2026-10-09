@@ -15,6 +15,7 @@ import { createAnimationController } from "./animation/createAnimationController
 import type {
   AnimationController,
   Diagnostic,
+  GraphModel,
   ResolvedTimeline,
   SirenRenderResult,
   TextMeasurer,
@@ -66,19 +67,31 @@ export interface RenderOptions {
   onClick?: (target: InteractionTarget) => void;
 
   /**
-   * Whether to apply the document's `timeline:` block. Defaults to `true`.
+   * Which of the document's timeline blocks to apply. Defaults to `true`.
+   *
+   * **A document may declare several timelines, and by default only the first
+   * applies.** `true` (or leaving this out) applies the unnamed `timeline:`
+   * block, or else the first `timeline <name>:` block; a viewer that never
+   * passes a name therefore still shows the first block, just never the
+   * others. A string applies the named block of that name — the names are
+   * `SirenRenderResult.timelines`, which is how a viewer offers the rest. A
+   * name the document does not declare throws a `RangeError`: it is the
+   * caller's mistake, not the author's, so it is not a diagnostic, and the
+   * container is left untouched. A document that fails to render reports its
+   * diagnostics instead, whatever name was asked for.
    *
    * `false` draws the **full diagram** — the picture Mermaid draws for the
    * same document: every element visible, no enter / exit / highlight state,
    * and a controller with `totalSteps: 0`. It is not the timeline's last
    * step, which still hides whatever exited and still wears its highlights.
    *
-   * The block is still parsed and validated, so `diagnostics` are exactly the
-   * default render's, timeline errors included, and the render succeeds or
-   * fails exactly when the default one does. Drawing a document with or
-   * without its timeline therefore never makes a problem in it appear or vanish.
+   * Every block is still parsed and validated, whichever is applied or none,
+   * so `diagnostics` are exactly the default render's, timeline errors
+   * included, and the render succeeds or fails exactly when the default one
+   * does. Choosing a timeline therefore never makes a problem in the document
+   * appear or vanish.
    */
-  timeline?: boolean;
+  timeline?: boolean | string;
 }
 
 const DEFAULT_CHAR_WIDTH = 8;
@@ -218,42 +231,70 @@ function establishStepZero(controller: AnimationController): void {
 const NO_TIMELINE: ResolvedTimeline = { totalSteps: 0, entries: [] };
 
 /**
- * The timeline `render()` hands the controller: the document's own, or none
- * at all when the caller asked for the full diagram.
+ * The timeline `render()` hands the controller: the current timeline — the
+ * one the caller named, or by default the model's own (the unnamed block, else
+ * the first named one) — or none at all when the caller asked for the full
+ * diagram.
  *
- * Substituted here, at the controller, rather than by dropping the block
- * before parsing: the block still has to be read for its diagnostics, and no
- * renderer reads the timeline (step 0 is the controller's, see
- * `establishStepZero`), so the controller is the one place it takes effect.
+ * Chosen from the *model*, once: layout and the renderers never see a
+ * timeline, since no renderer needs one (step 0 is the controller's, see
+ * `establishStepZero`).
+ * Substituting at the controller rather than dropping blocks before parsing is
+ * what keeps every block read and validated whichever one applies.
  */
-function timelineToApply(timeline: ResolvedTimeline, options: RenderOptions): ResolvedTimeline {
-  return options.timeline === false ? NO_TIMELINE : timeline;
+function timelineToApply(model: TimelineChoices, options: RenderOptions): ResolvedTimeline {
+  if (options.timeline === false) return NO_TIMELINE;
+  if (typeof options.timeline === "string") {
+    const name = options.timeline;
+    const named = model.namedTimelines ?? [];
+    const chosen = named.find((block) => block.name === name);
+    if (chosen === undefined) {
+      const declared =
+        named.length > 0
+          ? `this document declares: ${named.map((block) => block.name).join(", ")}`
+          : "this document declares no named timelines";
+      throw new RangeError(`No timeline named ${JSON.stringify(name)}; ${declared}`);
+    }
+    return chosen.timeline;
+  }
+  return model.timeline;
 }
 
+/** The part of every kind's model that `render()` chooses a timeline from. */
+type TimelineChoices = Pick<GraphModel, "timeline" | "namedTimelines">;
+
 /**
- * The controller `render()` returns for a mounted diagram of any kind, already
- * showing step 0.
+ * Mounts a freshly rendered diagram of any kind into `container` and returns
+ * its controller, already showing step 0 of the timeline the caller chose.
  *
- * One function rather than the same two calls in each of the five branches so
- * that a controller-level option — `timeline: false` was the first — is
- * decided in one place instead of five that must agree. Every kind gets a
- * controller, even a document declaring no `timeline:` block (it gets
- * `totalSteps: 0`), because `SirenRenderResult.controller` is null *only* when
- * rendering failed: a caller that has checked `svg` has already checked this.
+ * One function rather than the same steps in each of the five branches, for
+ * two orderings that must hold in every one of them:
  *
- * Callers must invoke this in the *same synchronous task* as their
- * `container.replaceChildren(svg)` — it ends in `establishStepZero`, whose
- * whole point is that nothing is painted between mounting the SVG and hiding
- * the elements step 0 says are pending. That is also why it takes an already
- * rendered `svg` rather than mounting it: the branch keeps the mount, and any
- * click hooks it attaches, visible at its own call site.
+ * - **The timeline is chosen before the container is touched.** A name the
+ *   document does not declare throws, and it must throw with the caller's
+ *   container exactly as it was. Choosing only *after* layout succeeded is
+ *   what lets a document that fails to render report its diagnostics instead
+ *   of throwing, whatever name was asked for: the author's problem is
+ *   reported first, since the caller cannot see it any other way.
+ * - **Mounting and step 0 happen in the same synchronous task.** It ends in
+ *   `establishStepZero`, whose whole point is that nothing is painted between
+ *   mounting the SVG and hiding the elements step 0 says are pending.
+ *
+ * Every kind gets a controller, even a document declaring no `timeline:`
+ * block (it gets `totalSteps: 0`), because `SirenRenderResult.controller` is
+ * null *only* when rendering failed: a caller that has checked `svg` has
+ * already checked this. A branch attaches any click hooks before calling
+ * this, so a diagram is complete when it is mounted.
  */
-function controllerAtStepZero(
+function mountAtStepZero(
+  container: HTMLElement,
   svg: SVGSVGElement,
-  timeline: ResolvedTimeline,
+  model: TimelineChoices,
   options: RenderOptions,
 ): AnimationController {
-  const controller = createAnimationController(svg, timelineToApply(timeline, options));
+  const timeline = timelineToApply(model, options);
+  container.replaceChildren(svg);
+  const controller = createAnimationController(svg, timeline);
   establishStepZero(controller);
   return controller;
 }
@@ -296,6 +337,15 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
 }
 
 /**
+ * What `render()` returns when there is no diagram to mount: no SVG, no
+ * controller (the two are null together), and no timelines to offer. One
+ * place, so a field the result gains is added to every failure at once.
+ */
+function failedRender(diagnostics: Diagnostic[]): SirenRenderResult {
+  return { svg: null, controller: null, diagnostics, timelines: [] };
+}
+
+/**
  * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
  * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
  * createAnimationController; a class diagram runs layoutClassDiagram ->
@@ -315,11 +365,15 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
  * needs to call `attachClickHooks` for it, the same reason a class's own
  * `href` interactions never do either.
  *
- * `options.timeline: false` hands every kind's controller an empty timeline
- * instead of the document's, so the picture is the full diagram and there
- * are no steps. Everything before that point runs unchanged — the block is
- * parsed and validated as usual — which is why the diagnostics, and whether
- * the render succeeds at all, never depend on the option.
+ * `options.timeline` chooses what every kind's controller is handed — the
+ * current timeline: the first block when nothing names one, the named block a
+ * string names, or an empty timeline for `false`, so the picture is the full
+ * diagram and there are no steps. Everything before that point runs unchanged — every block is parsed
+ * and validated as usual — which is why the diagnostics, and whether the
+ * render succeeds at all, never depend on the option. The one way the option
+ * changes the outcome is a name the document does not declare, which throws a
+ * `RangeError` once the diagram is otherwise ready to mount (see
+ * `mountAtStepZero`).
  */
 export function render(
   source: string,
@@ -333,11 +387,13 @@ export function render(
   diagnostics.push(...parseResult.diagnostics);
 
   if (parseResult.document === null) {
-    return { svg: null, controller: null, diagnostics };
+    return failedRender(diagnostics);
   }
 
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
+
+  const timelines = (graphResult.model.namedTimelines ?? []).map((block) => block.name);
 
   // Dispatch on the *result's* tag rather than on the document's. They are
   // the same word — `buildGraphModel` carries the document's kind out
@@ -352,19 +408,17 @@ export function render(
     const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
     if (!erLayout.placed) {
       diagnostics.push(erLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics };
+      return failedRender(diagnostics);
     }
 
     const positionedErDiagram = erLayout.value;
     const erSvg = renderErDiagramToSVG(positionedErDiagram);
 
-    container.replaceChildren(erSvg);
-
     // An ER diagram animates on the same terms as every other kind: its
     // entities and relationships carry `data-siren-id`.
-    const erController = controllerAtStepZero(erSvg, positionedErDiagram.timeline, options);
+    const erController = mountAtStepZero(container, erSvg, graphResult.model, options);
 
-    return { svg: erSvg, controller: erController, diagnostics };
+    return { svg: erSvg, controller: erController, diagnostics, timelines };
   }
 
   if (graphResult.kind === "state") {
@@ -372,24 +426,18 @@ export function render(
     const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
     if (!stateLayout.placed) {
       diagnostics.push(stateLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics };
+      return failedRender(diagnostics);
     }
 
     const positionedStateDiagram = stateLayout.value;
     const stateSvg = renderStateDiagramToSVG(positionedStateDiagram);
 
-    container.replaceChildren(stateSvg);
-
     // A state diagram animates on the same terms as every other kind: its
     // states, its composite frames and its transitions all carry
     // `data-siren-id`, so the one controller drives them unchanged.
-    const stateController = controllerAtStepZero(
-      stateSvg,
-      positionedStateDiagram.timeline,
-      options,
-    );
+    const stateController = mountAtStepZero(container, stateSvg, graphResult.model, options);
 
-    return { svg: stateSvg, controller: stateController, diagnostics };
+    return { svg: stateSvg, controller: stateController, diagnostics, timelines };
   }
 
   if (graphResult.kind === "class") {
@@ -407,13 +455,11 @@ export function render(
     const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
     if (!classLayout.placed) {
       diagnostics.push(classLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics };
+      return failedRender(diagnostics);
     }
 
     const positionedClassDiagram = classLayout.value;
     const classSvg = renderClassDiagramToSVG(positionedClassDiagram);
-
-    container.replaceChildren(classSvg);
 
     if (options.onClick !== undefined) {
       attachClickHooks(classSvg, options.onClick);
@@ -422,13 +468,9 @@ export function render(
     // A class diagram animates: its classes and relationships carry
     // `data-siren-id`, so the same controller that drives flowchart nodes and
     // edges — and sequence participants — drives them unchanged.
-    const classController = controllerAtStepZero(
-      classSvg,
-      positionedClassDiagram.timeline,
-      options,
-    );
+    const classController = mountAtStepZero(container, classSvg, graphResult.model, options);
 
-    return { svg: classSvg, controller: classController, diagnostics };
+    return { svg: classSvg, controller: classController, diagnostics, timelines };
   }
 
   if (graphResult.kind === "sequence") {
@@ -444,26 +486,20 @@ export function render(
     const sequenceLayout = attemptLayout(() => layoutSequence(model, { measureText }));
     if (!sequenceLayout.placed) {
       diagnostics.push(sequenceLayout.diagnostic);
-      return { svg: null, controller: null, diagnostics };
+      return failedRender(diagnostics);
     }
 
     const positionedSequence = sequenceLayout.value;
     const sequenceSvg = renderSequenceToSVG(positionedSequence);
-
-    container.replaceChildren(sequenceSvg);
 
     // A sequence diagram animates on the same terms as the other two kinds:
     // its participants, lifelines, destroy marks, messages, control-flow
     // blocks and box groupings all carry `data-siren-id`, and the controller drives every
     // element wearing a named id (ADR-0009) — so a participant's two boxes
     // and its lifeline move together under one timeline entry.
-    const sequenceController = controllerAtStepZero(
-      sequenceSvg,
-      positionedSequence.timeline,
-      options,
-    );
+    const sequenceController = mountAtStepZero(container, sequenceSvg, graphResult.model, options);
 
-    return { svg: sequenceSvg, controller: sequenceController, diagnostics };
+    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines };
   }
 
   // Bound to a local here, and in the three branches above, to give the model
@@ -477,13 +513,11 @@ export function render(
   const flowchartLayout = attemptLayout(() => layoutGraph(graph, { measureText }));
   if (!flowchartLayout.placed) {
     diagnostics.push(flowchartLayout.diagnostic);
-    return { svg: null, controller: null, diagnostics };
+    return failedRender(diagnostics);
   }
 
   const positioned = flowchartLayout.value;
   const svg = renderToSVG(positioned);
-
-  container.replaceChildren(svg);
 
   // A flowchart's `call` interactions are hooked on the same terms as a
   // class diagram's: `wrapInteraction` stamped `data-siren-click` (and, when
@@ -494,7 +528,7 @@ export function render(
     attachClickHooks(svg, options.onClick);
   }
 
-  const controller = controllerAtStepZero(svg, positioned.timeline, options);
+  const controller = mountAtStepZero(container, svg, graphResult.model, options);
 
-  return { svg, controller, diagnostics };
+  return { svg, controller, diagnostics, timelines };
 }

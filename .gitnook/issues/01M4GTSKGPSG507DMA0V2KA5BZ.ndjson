@@ -1,0 +1,6 @@
+{"id":"01M4GTSKGPS49QVFHTG6JYNNA8","t":1,"a":"83a1","op":"create","title":"board: full diagram 模式下，內建控制列的 timeline 選單停用"}
+{"id":"01M4GTSKGZNZ0JN9ZT6DBFR0PJ","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/multi-timeline/spec.md`，ticket 檔 `.scratch/multi-timeline/T06-timeline-dropdown-disabled-in-full-diagram.md`（T6）。T5 瀏覽器確認時使用者提出：full diagram 下其他控制項都停用，只剩 timeline 選單可選很奇怪。程式 API setTimeline() 不變。Decision 01M4GQ70CJ177A029JQV917H2Z 已補 amendment。"}
+{"id":"01M4GTSKGZFZXN165QZ9NKE0GY","t":3,"a":"83a1","op":"label.add","v":"board"}
+{"id":"01M4GTSW2P0YHMRWMD93ACANC1","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4GTYSRMG1RNCCG0BYH3CQKX","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4GTYSZF9YCHFM6JYWA52BB7","t":6,"a":"83a1","op":"comment","body":"瀏覽器確認通過（17803fe＋b2338c6）。"}

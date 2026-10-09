@@ -401,7 +401,6 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     entities,
     relationships,
     subgraphs,
-    timeline: model.timeline,
     // The core reports the extent of the graph *it* placed, which never
     // included the strip a frame grows upward for. Taking the larger of the
     // two keeps a frame from being clipped by the `<svg>` it is drawn in —

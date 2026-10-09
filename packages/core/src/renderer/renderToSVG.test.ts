@@ -45,10 +45,7 @@ const PLAIN_ARROW = {
   label: null,
 } as const;
 
-/**
- * Hand-built fixture: A -> B -> C, B pending at step 1, C pending at step 2,
- * A never mentioned in the timeline (visible from the start).
- */
+/** Hand-built fixture: A -> B -> C. */
 function buildFixture(): PositionedGraph {
   return {
     direction: "TB",
@@ -84,43 +81,6 @@ function buildFixture(): PositionedGraph {
     subgraphs: [],
     accTitle: null,
     accDescr: null,
-    timeline: {
-      totalSteps: 2,
-      entries: [
-        { kind: "enter", step: 1, targetId: "B", effect: "fade" },
-        { kind: "enter", step: 2, targetId: "C", effect: "fade" },
-      ],
-    },
-    width: 80,
-    height: 240,
-  };
-}
-
-/**
- * Hand-built fixture whose timeline mixes the verbs: X has only an `exit`
- * action, Y only a `highlight`, Z an `enter`. None of them may make this
- * renderer stamp anything — step 0 belongs to the controller.
- */
-function buildNonEnterFixture(): PositionedGraph {
-  return {
-    direction: "TB",
-    nodes: [
-      { id: "X", ...labelled("ExitOnly"), x: 0, y: 0, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "Y", ...labelled("HighlightOnly"), x: 0, y: 100, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-      { id: "Z", ...labelled("EntersLater"), x: 0, y: 200, width: 80, height: 40, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null },
-    ],
-    edges: [],
-    subgraphs: [],
-    accTitle: null,
-    accDescr: null,
-    timeline: {
-      totalSteps: 2,
-      entries: [
-        { kind: "exit", step: 1, targetId: "X", effect: "fade" },
-        { kind: "highlight", step: 2, targetId: "Y", effect: "outline" },
-        { kind: "enter", step: 1, targetId: "Z", effect: "fade" },
-      ],
-    },
     width: 80,
     height: 240,
   };
@@ -165,13 +125,12 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("leaves step-0 pending state to the controller, stamping siren-pending on nothing whatever the timeline declares", () => {
+  it("leaves step-0 pending state to the controller, stamping siren-pending on nothing", () => {
     // The renderer draws the diagram; `createAnimationController.reset()`
-    // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. Held
-    // here so a private "which elements start pending" copy cannot grow back
-    // in this file and drift from the controller's own notion of step 0.
+    // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. The
+    // renderer cannot see a timeline at all, so this guards only against an
+    // unconditional `siren-pending` creeping back into this file.
     expect(renderToSVG(buildFixture()).querySelectorAll(".siren-pending")).toHaveLength(0);
-    expect(renderToSVG(buildNonEnterFixture()).querySelectorAll(".siren-pending")).toHaveLength(0);
   });
 
   it("gives every node a rect sized to width/height and a text with the node's exact label", () => {
@@ -258,7 +217,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 260,
     };
@@ -339,7 +297,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -462,7 +419,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -537,7 +493,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -578,7 +533,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 100,
     };
@@ -655,7 +609,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 240,
     };
@@ -709,7 +662,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 180,
       height: 200,
     };
@@ -776,7 +728,6 @@ describe("renderToSVG", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 220,
       height: 200,
     };
@@ -1381,7 +1332,6 @@ describe("renderToSVG — a subgraph", () => {
       subgraphs,
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 300,
       height: 300,
     });
@@ -1523,7 +1473,6 @@ describe("a Markdown-labelled node's drawn text", () => {
       subgraphs: [],
       accTitle: null,
       accDescr: null,
-      timeline: { totalSteps: 0, entries: [] },
       width: 80,
       height: 40,
     };

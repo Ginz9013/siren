@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../contracts";
-import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
+import {
+  resolveTimeline,
+  resolveTimelineBlocks,
+  warnOnConnectorsOutlivingTheirEndpoints,
+} from "./resolveTimeline";
 
 describe("resolveTimeline", () => {
   it("returns an empty timeline and reports nothing when there is no timeline block", () => {
@@ -243,5 +247,141 @@ describe("warnOnConnectorsOutlivingTheirEndpoints", () => {
       'timeline: relationship "E-F" remains visible after its endpoint "E" exits at step 5 — ' +
         'add "exit E-F ..." at or before step 5',
     ]);
+  });
+});
+
+describe("resolveTimelineBlocks", () => {
+  const connectors = { connectors: [{ id: "A-B", from: "A", to: "B" }], noun: "edge" };
+
+  it("resolves each named block on its own and names it in every message resolution raises", () => {
+    const diagnostics: Diagnostic[] = [];
+
+    const resolved = resolveTimelineBlocks(
+      {
+        timeline: null,
+        namedTimelines: [
+          {
+            name: "card",
+            timeline: {
+              entries: [
+                { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+                { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+              ],
+            },
+          },
+          {
+            name: "wallet",
+            timeline: {
+              entries: [
+                // `B` is never entered in this block, so it is visible from
+                // this block's step 0 — whatever "card" does with it.
+                { kind: "highlight", step: 1, targetId: "B", effect: "glow" },
+                // Entering `A` here is this block's first enter, not a repeat
+                // of "card"'s.
+                { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+                { kind: "enter", step: 2, targetId: "Ghost", effect: "fade", line: 9, column: 3 },
+                { kind: "exit", step: 2, targetId: "A", effect: "fade" },
+              ],
+            },
+          },
+        ],
+      },
+      new Set(["A", "B", "A-B"]),
+      connectors,
+      diagnostics,
+    );
+
+    expect(
+      (resolved.namedTimelines ?? []).map(({ name, timeline }) => [name, timeline.totalSteps]),
+    ).toEqual([
+      ["card", 2],
+      ["wallet", 2],
+    ]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'timeline wallet: references unknown id "Ghost"',
+        line: 9,
+        column: 3,
+      },
+      {
+        severity: "warning",
+        message:
+          'timeline wallet: edge "A-B" remains visible after its endpoint "A" exits at step 2 — ' +
+          'add "exit A-B ..." at or before step 2',
+      },
+    ]);
+  });
+
+  it("names the block in every message resolution raises, whichever rule raised it", () => {
+    // One fault of every kind the two resolvers report: an unknown id, a
+    // repeated enter, an action before its target is visible, and a
+    // connector outliving its endpoint. If any of them is ever worded
+    // without the leading `timeline:` the prefix rewrite depends on, it
+    // reaches the author unnamed and this fails.
+    const diagnostics: Diagnostic[] = [];
+
+    resolveTimelineBlocks(
+      {
+        timeline: null,
+        namedTimelines: [
+          {
+            name: "wallet",
+            timeline: {
+              entries: [
+                { kind: "enter", step: 1, targetId: "Ghost", effect: "fade" },
+                { kind: "highlight", step: 1, targetId: "B", effect: "glow" },
+                { kind: "enter", step: 2, targetId: "B", effect: "fade" },
+                { kind: "enter", step: 3, targetId: "B", effect: "fade" },
+                { kind: "exit", step: 3, targetId: "A", effect: "fade" },
+              ],
+            },
+          },
+        ],
+      },
+      new Set(["A", "B", "A-B"]),
+      connectors,
+      diagnostics,
+    );
+
+    expect(diagnostics).toHaveLength(4);
+    for (const diagnostic of diagnostics) {
+      expect(diagnostic.message.startsWith("timeline wallet: "), diagnostic.message).toBe(true);
+    }
+  });
+
+  it("gives every block its own step 0: what a block never mentions is visible from its start", () => {
+    // "card" enters `B` at step 2, so in "card" `B` is hidden until then. In
+    // "wallet", which never mentions `B`, it is on screen from step 0 — so
+    // highlighting it at step 1 there is no error, while the same highlight
+    // in "card" is.
+    const diagnostics: Diagnostic[] = [];
+    const highlightB = { kind: "highlight", step: 1, targetId: "B", effect: "glow" } as const;
+
+    const resolved = resolveTimelineBlocks(
+      {
+        timeline: null,
+        namedTimelines: [
+          {
+            name: "card",
+            timeline: {
+              entries: [highlightB, { kind: "enter", step: 2, targetId: "B", effect: "fade" }],
+            },
+          },
+          { name: "wallet", timeline: { entries: [highlightB] } },
+        ],
+      },
+      new Set(["A", "B", "A-B"]),
+      connectors,
+      diagnostics,
+    );
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'timeline card: "highlight" on "B" at step 1 comes before it becomes visible (step 2)',
+    ]);
+    expect(resolved.namedTimelines![1].timeline).toEqual({
+      totalSteps: 1,
+      entries: [{ kind: "highlight", step: 1, targetId: "B", effect: "glow" }],
+    });
   });
 });

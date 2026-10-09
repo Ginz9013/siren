@@ -23,7 +23,7 @@ import type {
 import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
-import { resolveTimeline, warnOnConnectorsOutlivingTheirEndpoints } from "./resolveTimeline";
+import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
  * A block-kind `SequenceStatement` — everything left once `message`,
@@ -158,8 +158,6 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   for (const box of boxes) validTargetIds.add(box.id);
   collectStatementIds(statements, validTargetIds);
 
-  const timeline = resolveTimeline(document.timeline, validTargetIds, diagnostics);
-
   // A message is the sequence diagram's connector and its endpoints are the
   // two participants it joins, so the rule flowchart applies to an edge and
   // class applies to a relationship applies here unchanged — one arrow left
@@ -170,10 +168,10 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   // frame, and fires whether or not anything animates; this one is about the
   // timeline, and an author reading both is being told about two different
   // defects in the same arrow.
-  warnOnConnectorsOutlivingTheirEndpoints(
-    timeline.entries,
-    collectMessages(statements),
-    "message",
+  const timelines = resolveTimelineBlocks(
+    document,
+    validTargetIds,
+    { connectors: collectMessages(statements), noun: "message" },
     diagnostics,
   );
 
@@ -184,7 +182,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     boxes,
     statements,
     interactions,
-    timeline,
+    ...timelines,
   };
 
   return { model, diagnostics };
