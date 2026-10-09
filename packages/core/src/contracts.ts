@@ -1511,6 +1511,18 @@ export interface SirenRenderResult {
    */
   controller: AnimationController | null;
   diagnostics: Diagnostic[];
+  /**
+   * The names of the document's `timeline <name>:` blocks, in document order
+   * — what `RenderOptions.timeline` accepts as a string, and what a viewer
+   * offers as a choice of timeline.
+   *
+   * Empty for a document with only the unnamed `timeline:` block or none:
+   * there is nothing to choose between, and the unnamed block has no name to
+   * pass back. Empty too when rendering failed, like `svg` and `controller`,
+   * so a caller never offers a choice of timelines over a diagram that is not
+   * there.
+   */
+  timelines: string[];
 }
 
 // ---------------------------------------------------------------------------

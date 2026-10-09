@@ -224,6 +224,36 @@ third `A-B#3`, and so on.
 If an action names an id that doesn't exist, `render()` reports a diagnostic that points to
 that line.
 
+### Several timelines in one document
+
+When one diagram has more than one story to tell, give each its own named block instead of
+copying the diagram into a second file. A named block starts with `timeline <name>:` and
+runs to the next timeline header or the end of the document. A name is letters, digits, `_`
+and `-`, and is case-sensitive.
+
+```
+flowchart LR
+  Cart --> Card --> Done
+  Cart --> Wallet --> Done
+
+timeline card:
+  enter Card fade, enter Cart-Card fade
+  enter Done fade, enter Card-Done fade
+
+timeline wallet:
+  enter Wallet fade, enter Cart-Wallet fade
+  enter Done fade, enter Wallet-Done fade
+```
+
+Each block is a timeline of its own: its steps count from 1, and anything *that block* never
+mentions is visible at its step 0. A diagnostic about a named block starts with
+`timeline <name>:`. A document uses either one unnamed `timeline:` block or named blocks,
+never both, and a name can be used only once.
+
+`render()` applies the first block unless you pass another name (see
+[`RenderOptions`](#renderoptions)). Every block is checked on every render, whichever one is
+shown. A viewer that never passes a name still works, but only ever shows the first block.
+
 ## API
 
 ### `render(source, container, options?)`
@@ -245,6 +275,7 @@ the container is left untouched, so a previously rendered diagram stays on scree
 | `svg`         | `SVGSVGElement \| null`        | The rendered diagram, or `null` if rendering failed.                        |
 | `controller`  | `AnimationController \| null`  | Plays the timeline. It is `null` exactly when `svg` is `null`.               |
 | `diagnostics` | `Diagnostic[]`                 | Every error and warning, from all stages. Can be non-empty on success.       |
+| `timelines`   | `string[]`                     | The names of the named timeline blocks, in document order. `[]` when there are none, when the only block is the unnamed `timeline:`, or when rendering failed. |
 
 A document without a `timeline:` block still gets a controller, with `totalSteps: 0`.
 
@@ -279,13 +310,30 @@ through diagnostics and does not throw for them.
 | ------------- | -------------------------------------- | ----------------------------------------------------------------------------- |
 | `measureText` | `TextMeasurer`                         | Measures label text to size boxes. See below.                                  |
 | `onClick`     | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.             |
-| `timeline`    | `boolean`                              | `false` draws the document without its timeline. See below.                   |
+| `timeline`    | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
+
+#### Choosing a timeline
+
+`true`, or leaving the option out, applies the unnamed `timeline:` block, or else the first
+named block. A string applies the named block of that name; `result.timelines` lists the
+names a document declares, so a viewer can offer them as a choice.
+
+```ts
+const { timelines } = render(source, container);              // ["card", "wallet"]
+const wallet = render(source, container, { timeline: "wallet" });
+```
+
+A name the document does not declare throws a `RangeError` that lists the names it does
+declare. That is a mistake in the calling code, not in the document, so it is not a
+diagnostic, and the container is left untouched. A document that fails to render returns
+its diagnostics as usual instead, whatever name you passed. The diagnostics never depend on
+which timeline is applied.
 
 #### Drawing without the timeline
 
 `timeline: false` draws the picture Mermaid draws for the same document: every element
 visible, no enter, exit or highlight state, and a controller with `totalSteps: 0`. That is
-not the timeline's last step, which still hides whatever exited. The `timeline:` block is
+not the timeline's last step, which still hides whatever exited. Every timeline block is
 still parsed and checked, so `diagnostics`, and whether the render succeeds, are the same
 as without the option.
 
