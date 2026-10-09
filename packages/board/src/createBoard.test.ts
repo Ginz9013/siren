@@ -162,15 +162,24 @@ class A
     expect(() => board.destroy()).not.toThrow();
   });
 
-  it("renders a default Prev/Next/Reset/Full diagram/Reset view control bar unless controls: false is passed", () => {
+  it("renders a default Prev/Play/Next/Reset/Play interval/Full diagram/Reset view control bar unless controls: false is passed", () => {
     const container = document.createElement("div");
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
 
     const bar = container.querySelector(".siren-board-controls")!;
     expect(bar).not.toBeNull();
+    expect(Array.from(bar.children).map((c) => `${c.tagName.toLowerCase()} ${c.getAttribute("aria-label")}`)).toEqual([
+      "button Prev",
+      "button Play",
+      "button Next",
+      "button Reset",
+      "select Play interval",
+      "button Full diagram",
+      "button Reset view",
+    ]);
     const buttons = Array.from(bar.querySelectorAll("button"));
-    const labels = ["Prev", "Next", "Reset", "Full diagram", "Reset view"];
+    const labels = ["Prev", "Play", "Next", "Reset", "Full diagram", "Reset view"];
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(labels);
     expect(buttons.map((b) => b.title)).toEqual(labels);
     for (const button of buttons) {
@@ -845,7 +854,7 @@ exit B fade
         expect(button(container, "Full diagram").querySelectorAll("svg")).toHaveLength(1);
       });
 
-      it("one click switches the full diagram on, presses the button, and disables Prev, Next and Reset but not Reset view", () => {
+      it("one click switches the full diagram on, presses the button, and disables Prev, Play, Next and Reset but not Reset view", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: TIMELINE_SOURCE, measureText: FAKE_MEASURER });
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("false");
@@ -856,7 +865,7 @@ exit B fade
         expect(board.fullDiagram).toBe(true);
         expect(effectClasses(container)).toEqual([]);
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
-        expect(disabledButtons(container)).toEqual(["Prev", "Next", "Reset"]);
+        expect(disabledButtons(container)).toEqual(["Prev", "Play", "Next", "Reset"]);
       });
 
       it("a second click switches it back off, releases the button, re-enables every button, and returns to the step shown before", () => {
@@ -896,7 +905,7 @@ exit B fade
         board.setFullDiagram(true);
 
         expect(button(container, "Full diagram").getAttribute("aria-pressed")).toBe("true");
-        expect(disabledButtons(container)).toEqual(["Prev", "Next", "Reset"]);
+        expect(disabledButtons(container)).toEqual(["Prev", "Play", "Next", "Reset"]);
 
         board.setFullDiagram(false);
 
@@ -1417,6 +1426,148 @@ highlight A outline
       board.setPlayInterval(2000);
 
       expect(updates).toBe(0);
+    });
+
+    describe("the built-in bar's Play button and interval select", () => {
+      /** The built-in bar's control with this accessible name. */
+      function control<T extends HTMLElement = HTMLButtonElement>(container: HTMLElement, label: string): T {
+        return container.querySelector<T>(`.siren-board-controls [aria-label="${label}"]`)!;
+      }
+
+      it("a click plays, presses the button and swaps its icon to pause; a second click pauses and swaps it back", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const play = control(container, "Play");
+        const icon = () => play.querySelector("svg")!.outerHTML;
+        expect(play.title).toBe("Play");
+        expect(play.getAttribute("aria-pressed")).toBe("false");
+        const playIcon = icon();
+
+        play.click();
+
+        expect(board.playing).toBe(true);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(play.getAttribute("aria-pressed")).toBe("true");
+        const pauseIcon = icon();
+        expect(pauseIcon).not.toBe(playIcon);
+        expect(play.querySelectorAll("svg")).toHaveLength(1);
+
+        play.click();
+
+        expect(board.playing).toBe(false);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(play.getAttribute("aria-pressed")).toBe("false");
+        expect(icon()).toBe(playIcon);
+      });
+
+      it("is released by itself when playback reaches the last step, and when a click on Next interrupts it", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const play = control(container, "Play");
+
+        play.click();
+        vi.advanceTimersByTime(4000);
+
+        expect(board.controller!.currentStep).toBe(3);
+        expect(board.playing).toBe(false);
+        expect(play.getAttribute("aria-pressed")).toBe("false");
+
+        play.click(); // from the last step: back to step 0
+        expect(play.getAttribute("aria-pressed")).toBe("true");
+
+        control(container, "Next").click();
+
+        expect(board.playing).toBe(false);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(play.getAttribute("aria-pressed")).toBe("false");
+      });
+
+      it("the interval select offers 1s, 1.5s, 2s, 3s and 5s with 2s selected, and choosing one sets the play interval", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const select = control<HTMLSelectElement>(container, "Play interval");
+
+        expect(Array.from(select.options).map((o) => [o.textContent, o.value])).toEqual([
+          ["1s", "1000"],
+          ["1.5s", "1500"],
+          ["2s", "2000"],
+          ["3s", "3000"],
+          ["5s", "5000"],
+        ]);
+        expect(select.value).toBe("2000");
+
+        select.value = "1500";
+        select.dispatchEvent(new Event("change"));
+
+        expect(board.playInterval).toBe(1500);
+      });
+
+      it("an interval the select does not offer — the playInterval option or setPlayInterval from code — gets an option of its own, in order, and is selected", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, {
+          source: THREE_STEP_SOURCE,
+          measureText: FAKE_MEASURER,
+          playInterval: 2500,
+        });
+        const select = control<HTMLSelectElement>(container, "Play interval");
+        const labels = () => Array.from(select.options).map((o) => o.textContent);
+
+        expect(labels()).toEqual(["1s", "1.5s", "2s", "2.5s", "3s", "5s"]);
+        expect(select.value).toBe("2500");
+        expect(select.selectedOptions[0].textContent).toBe("2.5s");
+
+        board.setPlayInterval(750);
+
+        expect(labels()).toEqual(["0.75s", "1s", "1.5s", "2s", "3s", "5s"]);
+        expect(select.value).toBe("750");
+
+        board.setPlayInterval(3000);
+
+        expect(labels()).toEqual(["1s", "1.5s", "2s", "3s", "5s"]);
+        expect(select.value).toBe("3000");
+      });
+
+      it("Play and the interval select are disabled with nothing to play — before the first render, without steps, in the full diagram — and enabled again once there is", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { measureText: FAKE_MEASURER });
+        const play = control(container, "Play");
+        const select = control<HTMLSelectElement>(container, "Play interval");
+        const disabled = () => [play.disabled, select.disabled];
+        expect(disabled()).toEqual([true, true]); // no controller yet
+
+        board.setSource(VALID_SOURCE);
+        expect(board.controller!.totalSteps).toBe(0); // sanity
+        expect(disabled()).toEqual([true, true]);
+
+        board.setSource(THREE_STEP_SOURCE);
+        expect(disabled()).toEqual([false, false]);
+
+        board.setFullDiagram(true);
+        expect(disabled()).toEqual([true, true]);
+
+        control(container, "Full diagram").click();
+        expect(disabled()).toEqual([false, false]);
+      });
+
+      it("hands focus from Play or the interval select to Full diagram when a change from code disables it", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const fullDiagram = control(container, "Full diagram");
+
+        control(container, "Play").focus();
+        expect(document.activeElement).toBe(control(container, "Play")); // sanity
+        board.setFullDiagram(true);
+        expect(document.activeElement).toBe(fullDiagram);
+
+        board.setFullDiagram(false);
+        control<HTMLSelectElement>(container, "Play interval").focus();
+        board.setSource(VALID_SOURCE); // no steps: nothing to play
+        expect(document.activeElement).toBe(fullDiagram);
+
+        board.destroy();
+        container.remove();
+      });
     });
 
     it("when play()'s immediate step is already the last, onPlaybackChange fires true and then false", () => {

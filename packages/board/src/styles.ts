@@ -9,8 +9,10 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * embedded anywhere, or several on one page, must not have its controls fly
  * to the window edge or collide with another instance's). Auto-injected
  * rather than a file consumers link themselves. In the bar, a pressed button
- * (Full diagram while the full diagram shows) takes the accent color, and a
- * disabled one (a step button meanwhile) fades and ignores hover.
+ * (Full diagram while the full diagram shows, Play while playing) takes the
+ * accent color, and a disabled one (a step button meanwhile) fades and ignores
+ * hover. The play interval select wears the buttons' border, surface and
+ * radius, and fades the same way when there is nothing to play.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
@@ -129,6 +131,28 @@ const CSS = `
   border-color: var(--siren-board-border);
   background: var(--siren-board-surface);
   color: var(--siren-board-text);
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.siren-board-controls__select {
+  padding: 0 0.5rem;
+  border: 1px solid var(--siren-board-border);
+  border-radius: 8px;
+  background: var(--siren-board-surface);
+  color: var(--siren-board-text);
+  font: 14px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.siren-board-controls__select:hover {
+  border-color: var(--siren-board-accent);
+  background: var(--siren-board-surface-hover);
+}
+
+.siren-board-controls__select:disabled {
+  border-color: var(--siren-board-border);
+  background: var(--siren-board-surface);
   opacity: 0.4;
   cursor: not-allowed;
 }

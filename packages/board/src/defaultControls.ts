@@ -2,7 +2,10 @@ import type { Board, ControlsFactory } from "./createBoard";
 
 const CONTROLS_CLASS = "siren-board-controls";
 const BUTTON_CLASS = "siren-board-controls__button";
+const SELECT_CLASS = "siren-board-controls__select";
 const SVG_NS = "http://www.w3.org/2000/svg";
+/** The play intervals the bar's select offers, in ms. */
+const PLAY_INTERVALS = [1000, 1500, 2000, 3000, 5000];
 
 /*
  * Icon paths below are copied from Lucide (https://lucide.dev) rather than
@@ -29,6 +32,16 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const ICONS = {
   /** Lucide `chevron-left` */
   prev: ["m15 18-6-6 6-6"],
+  /** Lucide `play` — the Play button's icon while stopped: what a click starts. */
+  play: ["M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"],
+  /**
+   * Lucide `pause` — its two `<rect>`s redrawn as paths, like `image` below.
+   * The Play button's icon while playing: what a click does then.
+   */
+  pause: [
+    "M15 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z",
+    "M6 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z",
+  ],
   /** Lucide `chevron-right` */
   next: ["m9 18 6-6-6-6"],
   /** Lucide `rotate-ccw` */
@@ -60,9 +73,10 @@ const ICONS = {
 } satisfies Record<string, string[]>;
 
 /**
- * Board's built-in Prev/Next/Reset/Full diagram/Reset view control bar — the
- * default value of `BoardOptions.controls`. Its buttons are icon-only; each
- * carries its name as `aria-label` and `title` instead of visible text. Reads
+ * Board's built-in Prev/Play/Next/Reset/Play interval/Full diagram/Reset view
+ * control bar — the default value of `BoardOptions.controls`. Its buttons are
+ * icon-only; each carries its name as `aria-label` and `title` instead of
+ * visible text, and the interval select its name as `aria-label`. Reads
  * `board.controller` at click time rather than capturing it once, so it keeps
  * working across `setSource` and `setFullDiagram` calls that replace the
  * underlying controller. Turn it off with `controls: false`, or replace it
@@ -75,32 +89,70 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   bar.className = CONTROLS_CLASS;
 
   const prev = makeButton("Prev", ICONS.prev, () => board.controller?.prev());
+  const play = makeButton("Play", ICONS.play, () => {
+    if (board.playing) board.pause();
+    else board.play();
+  });
   const next = makeButton("Next", ICONS.next, () => board.controller?.next());
   const reset = makeButton("Reset", ICONS.reset, () => board.controller?.reset());
   const fullDiagram = makeButton("Full diagram", ICONS.fullDiagram, () => {
     board.setFullDiagram(!board.fullDiagram);
   });
   const resetView = makeButton("Reset view", ICONS.resetView, () => board.resetView());
-  bar.append(prev, next, reset, fullDiagram, resetView);
+  const interval = document.createElement("select");
+  interval.className = SELECT_CLASS;
+  interval.setAttribute("aria-label", "Play interval");
+  interval.addEventListener("change", () => board.setPlayInterval(Number(interval.value)));
+  bar.append(prev, play, next, reset, interval, fullDiagram, resetView);
 
   /**
-   * Mirrors `board.fullDiagram` onto the bar. The full diagram has no steps,
-   * so the step buttons are disabled rather than left clickable to do
-   * nothing; Reset view stays, since pan/zoom works on any drawing. A step
-   * button holding focus hands it to Full diagram first, so a switch made
-   * from code never drops a keyboard reader's focus to the page.
+   * Mirrors `board.playing`, `board.playInterval` and `board.fullDiagram`
+   * onto the bar. The full diagram has no steps, so the step buttons are
+   * disabled rather than left clickable to do nothing, and Play and the
+   * interval select are disabled whenever there is nothing to play (the full
+   * diagram, or no steps); Reset view stays, since pan/zoom works on any
+   * drawing. A control holding focus as it is disabled hands it to Full
+   * diagram first, so a change made from code never drops a keyboard
+   * reader's focus to the page.
    */
   function update(): void {
+    play.setAttribute("aria-pressed", String(board.playing));
+    // Like Full diagram's below, the icon names what a click does: play while
+    // stopped, pause while playing.
+    play.replaceChildren(makeIcon(board.playing ? ICONS.pause : ICONS.play));
+    syncIntervalOptions();
     fullDiagram.setAttribute("aria-pressed", String(board.fullDiagram));
     // The icon names what a click switches to, as a play button does; the
     // pressed state, not the icon, says which drawing is showing now.
     fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
-    if (board.fullDiagram && [prev, next, reset].some((b) => b === document.activeElement)) {
+    const nothingToPlay = board.fullDiagram || (board.controller?.totalSteps ?? 0) === 0;
+    const disabled = new Map<HTMLButtonElement | HTMLSelectElement, boolean>([
+      [prev, board.fullDiagram],
+      [play, nothingToPlay],
+      [next, board.fullDiagram],
+      [reset, board.fullDiagram],
+      [interval, nothingToPlay],
+    ]);
+    if ([...disabled].some(([control, off]) => off && control === document.activeElement)) {
       fullDiagram.focus();
     }
-    for (const stepButton of [prev, next, reset]) stepButton.disabled = board.fullDiagram;
+    for (const [control, off] of disabled) control.disabled = off;
   }
   update();
+
+  /**
+   * Offers `PLAY_INTERVALS` plus `board.playInterval` when it is not one of
+   * them (2500 from the option or from code shows as "2.5s", in order), and
+   * selects the current one. The options are rebuilt only when that list
+   * changes: update() runs on every playback step, and rebuilding an open
+   * select would close it under the reader's pointer.
+   */
+  function syncIntervalOptions(): void {
+    const wanted = [...new Set([...PLAY_INTERVALS, board.playInterval])].sort((a, b) => a - b);
+    const shown = Array.from(interval.options, (option) => Number(option.value));
+    if (wanted.join() !== shown.join()) interval.replaceChildren(...wanted.map(makeIntervalOption));
+    interval.value = String(board.playInterval);
+  }
 
   return { element: bar, update };
 }
@@ -114,6 +166,14 @@ function makeButton(label: string, iconPaths: string[], onClick: () => void): HT
   button.append(makeIcon(iconPaths));
   button.addEventListener("click", onClick);
   return button;
+}
+
+/** The select's option for `ms`, labelled in seconds: 1500 reads "1.5s". */
+function makeIntervalOption(ms: number): HTMLOptionElement {
+  const option = document.createElement("option");
+  option.value = String(ms);
+  option.textContent = `${ms / 1000}s`;
+  return option;
 }
 
 /** A 24×24 stroke icon drawn in `currentColor`, so it follows the button's hover color. */

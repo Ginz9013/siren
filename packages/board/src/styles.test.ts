@@ -81,6 +81,7 @@ describe("board chrome's color tokens", () => {
 
     // Not vacuous: the chrome rules themselves are in what is left.
     expect(outside).toContain(".siren-board-controls__button:hover");
+    expect(outside).toContain(".siren-board-controls__select");
     expect(outside).toContain(".siren-board-error");
     // A literal in a chrome rule is a color no page theme can reach.
     expect(outside.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g) ?? []).toEqual([]);
@@ -114,5 +115,21 @@ describe("board chrome's control bar states", () => {
     const pressed = ruleBody(css, '.siren-board-controls__button[aria-pressed="true"]');
     expect(pressed).toBeDefined();
     expect(pressed).toContain("var(--siren-board-accent)");
+  });
+
+  it("styles the interval select like the bar's buttons, unavailable when disabled", () => {
+    // Play and the interval select are disabled together, with nothing to
+    // play: the select must fade and refuse the pointer just as Play does.
+    const css = injectedChromeCss();
+
+    const select = ruleBody(css, ".siren-board-controls__select");
+    expect(select).toBeDefined();
+    expect(select).toContain("var(--siren-board-border)");
+    expect(select).toContain("var(--siren-board-surface)");
+    expect(select).toContain("var(--siren-board-text)");
+
+    const disabled = ruleBody(css, ".siren-board-controls__select:disabled");
+    expect(disabled).toBeDefined();
+    expect(disabled).toMatch(/cursor:\s*not-allowed/);
   });
 });
