@@ -11,8 +11,9 @@ const CANVAS_CLASS = "siren-board-canvas";
 /**
  * A caller-supplied replacement for board's default control bar. Board calls
  * `update` once after anything a bar shows may have changed — a `setSource`
- * that rendered, a step change from any source, a `fullDiagram` switch — and
- * never after `destroy()`; read the new state off `board` there.
+ * that rendered, a step change from any source, a `fullDiagram` switch, a
+ * `playing` or `playInterval` change — and never after `destroy()`; read the
+ * new state off `board` there.
  */
 export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(): void; destroy?(): void };
 
@@ -30,6 +31,10 @@ export interface BoardOptions {
   controls?: boolean | ControlsFactory;
   /** Fired whenever `fullDiagram` changes, from the built-in bar or a direct `setFullDiagram` call. */
   onFullDiagramChange?: (fullDiagram: boolean) => void;
+  /** Milliseconds between playback steps; must be finite and > 0 (see `Board.setPlayInterval`). */
+  playInterval?: number;
+  /** Fired whenever `playing` changes: `play()`, `pause()`, the last step, or anything else that stops playback. */
+  onPlaybackChange?: (playing: boolean) => void;
 }
 
 /**
@@ -52,12 +57,40 @@ export interface Board {
    * the old one.
    */
   setFullDiagram(on: boolean): void;
+  /** Whether playback is running (see CONTEXT.md's "Playback"). */
+  readonly playing: boolean;
+  /** Milliseconds between playback steps. */
+  readonly playInterval: number;
+  /**
+   * Starts playback: steps at once, then once per `playInterval`, stopping
+   * by itself on the last step. On the last step it resets to step 0 and
+   * waits one interval first. A no-op while playing, in the full diagram, or
+   * with no steps to play.
+   */
+  play(): void;
+  /** Stops playback; a no-op when not playing. */
+  pause(): void;
+  /**
+   * Changes `playInterval`; `ms` must be finite and > 0, or this throws a
+   * `RangeError`. While playing, the next step comes `ms` after this call.
+   */
+  setPlayInterval(ms: number): void;
   /** Resets pan/zoom to the initial fit-to-container state (scale 1.0, no offset). */
   resetView(): void;
   destroy(): void;
 }
 
+/** Throws unless `ms` can time a playback step: finite and > 0. */
+function checkPlayInterval(ms: number): number {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    throw new RangeError(`playInterval must be a finite number of milliseconds > 0, got ${ms}`);
+  }
+  return ms;
+}
+
 export function createBoard(container: HTMLElement, options: BoardOptions = {}): Board {
+  // Checked before anything is mounted, so a bad option leaves the container untouched.
+  let playInterval = checkPlayInterval(options.playInterval ?? 2000);
   ensureStylesInjected();
   container.classList.add("siren-board");
 
@@ -80,10 +113,18 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   let renderedSource: string | null = null;
   /** The timeline step to return to when the full diagram is switched off. */
   let stepBeforeFullDiagram = 0;
+  let playing = false;
+  /** The pending playback step while playing, else `null`. */
+  let playTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while playback itself is stepping, so that step does not stop playback. */
+  let playbackStepping = false;
 
   function wrapController(real: AnimationController): AnimationController {
     function afterCall(previousStep: number): void {
       if (real.currentStep !== previousStep) {
+        // Any step playback did not take itself — the built-in bar, a
+        // custom bar, code — means the reader took over (CONTEXT.md's "Playback").
+        if (!playbackStepping) pause();
         updateControls();
         options.onStepChange?.(real.currentStep, real.totalSteps);
       }
@@ -131,6 +172,8 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   }
 
   function setSource(source: string): void {
+    // Rendered or not, the reader asked for another document: stop either way.
+    pause();
     const result = renderDocument(source, fullDiagram);
     diagnostics = result.diagnostics;
     if (result.svg === null) {
@@ -160,6 +203,8 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    */
   function setFullDiagram(on: boolean): void {
     if (destroyed || on === fullDiagram) return;
+    // The full diagram has no steps to play.
+    if (on) pause();
     if (renderedSource !== null) {
       const result = renderDocument(renderedSource, on);
       // This source rendered before, and core resolves the timeline before
@@ -182,6 +227,68 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     options.onFullDiagramChange?.(fullDiagram);
   }
 
+  function setPlaying(on: boolean): void {
+    playing = on;
+    updateControls();
+    options.onPlaybackChange?.(playing);
+  }
+
+  /** Steps `controller` as playback, which `wrapController` tells apart from any other step. */
+  function stepByPlayback(step: () => void): void {
+    playbackStepping = true;
+    try {
+      step();
+    } finally {
+      playbackStepping = false;
+    }
+  }
+
+  /** One playback step; the last step ends playback rather than queuing another. */
+  function playStep(): void {
+    const controller = wrappedController!;
+    stepByPlayback(() => controller.next());
+    if (controller.currentStep === controller.totalSteps) {
+      playTimer = null;
+      setPlaying(false);
+    } else {
+      playTimer = setTimeout(playStep, playInterval);
+    }
+  }
+
+  function play(): void {
+    const controller = wrappedController;
+    // The full diagram's controller has no steps, so it is caught here too.
+    if (destroyed || playing || controller === null || controller.totalSteps === 0) return;
+    if (controller.currentStep === controller.totalSteps) {
+      // Replay: step 0 shows for a whole interval, like every other step.
+      stepByPlayback(() => controller.reset());
+      setPlaying(true);
+      playTimer = setTimeout(playStep, playInterval);
+    } else {
+      setPlaying(true);
+      playStep();
+    }
+  }
+
+  /** Stops playback, if running: no further step is taken. */
+  function pause(): void {
+    if (!playing) return;
+    if (playTimer !== null) clearTimeout(playTimer);
+    playTimer = null;
+    setPlaying(false);
+  }
+
+  function setPlayInterval(ms: number): void {
+    const changed = checkPlayInterval(ms) !== playInterval;
+    playInterval = ms;
+    // Restarted even for the same value: the call itself is "from now".
+    if (playTimer !== null) {
+      clearTimeout(playTimer);
+      playTimer = setTimeout(playStep, playInterval);
+    }
+    if (changed) updateControls();
+  }
+
   /** The mounted control bar, built-in or custom; unset with `controls: false`. */
   let controls: ReturnType<ControlsFactory> | undefined;
 
@@ -200,14 +307,27 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     get fullDiagram() {
       return fullDiagram;
     },
+    get playing() {
+      return playing;
+    },
+    get playInterval() {
+      return playInterval;
+    },
     setSource,
     setFullDiagram,
+    play,
+    pause,
+    setPlayInterval,
     resetView() {
       viewport.resetView();
     },
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      // Stopped silently: a destroyed board reports nothing more.
+      if (playTimer !== null) clearTimeout(playTimer);
+      playTimer = null;
+      playing = false;
       viewport.destroy();
       controls?.destroy?.();
       container.replaceChildren();

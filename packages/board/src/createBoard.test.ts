@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBoard } from "./createBoard";
 import type { Board } from "./createBoard";
 
@@ -1048,6 +1048,347 @@ enter C fade
       board.setFullDiagram(true);
 
       expect(seen).toEqual([]);
+    });
+  });
+
+  describe("playback", () => {
+    /** Three steps, so playback has a middle step to pass through on its way to the last. */
+    const THREE_STEP_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+highlight A outline
+`;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("from step 0, play() steps at once, then once per play interval, and stops by itself on the last step", () => {
+      const playback: boolean[] = [];
+      const steps: number[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+        onStepChange: (current) => steps.push(current),
+      });
+
+      board.play();
+      expect(board.playing).toBe(true);
+      expect(board.controller!.currentStep).toBe(1);
+
+      vi.advanceTimersByTime(1999);
+      expect(board.controller!.currentStep).toBe(1); // the default interval is 2000 ms
+      vi.advanceTimersByTime(1);
+      expect(board.controller!.currentStep).toBe(2);
+      expect(board.playing).toBe(true);
+
+      vi.advanceTimersByTime(2000);
+      expect(board.controller!.currentStep).toBe(3);
+      expect(board.playing).toBe(false);
+
+      vi.advanceTimersByTime(10000);
+      expect(board.controller!.currentStep).toBe(3);
+      expect(playback).toEqual([true, false]);
+      expect(steps).toEqual([1, 2, 3]); // playback's own steps fire onStepChange
+    });
+
+    it("on the last step, play() goes back to step 0 at once and takes step 1 one interval later", () => {
+      const playback: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+      });
+      board.controller!.next();
+      board.controller!.next();
+      board.controller!.next();
+
+      board.play();
+      expect(board.controller!.currentStep).toBe(0);
+      expect(board.playing).toBe(true);
+      expect(playback).toEqual([true]);
+
+      vi.advanceTimersByTime(1999);
+      expect(board.controller!.currentStep).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(board.controller!.currentStep).toBe(1);
+      expect(board.playing).toBe(true);
+    });
+
+    it("play() does nothing — no callback, no throw — before the first render, without steps, in the full diagram, or while already playing", () => {
+      const playback: boolean[] = [];
+      const onPlaybackChange = (playing: boolean) => playback.push(playing);
+
+      const empty = createBoard(document.createElement("div"), { measureText: FAKE_MEASURER, onPlaybackChange });
+      empty.play();
+      expect(empty.playing).toBe(false);
+
+      const stepless = createBoard(document.createElement("div"), {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange,
+      });
+      stepless.play();
+      expect(stepless.playing).toBe(false);
+
+      const full = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange,
+      });
+      full.setFullDiagram(true);
+      full.play();
+      expect(full.playing).toBe(false);
+      vi.advanceTimersByTime(10000);
+      expect(playback).toEqual([]);
+
+      const playing = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange,
+      });
+      playing.play();
+      playing.play();
+      expect(playing.controller!.currentStep).toBe(1);
+      expect(playback).toEqual([true]);
+    });
+
+    it("pause() stops playback where it is, and does nothing when not playing", () => {
+      const playback: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+      });
+      board.pause();
+      expect(playback).toEqual([]);
+
+      board.play();
+      board.pause();
+      expect(board.playing).toBe(false);
+      vi.advanceTimersByTime(10000);
+      expect(board.controller!.currentStep).toBe(1);
+      expect(playback).toEqual([true, false]);
+
+      board.pause();
+      expect(playback).toEqual([true, false]);
+    });
+
+    it.each(["next", "prev", "reset"] as const)(
+      "a step changed by board.controller.%s() during playback stops it, and the step stays where it was put",
+      (method) => {
+        const playback: boolean[] = [];
+        const board = createBoard(document.createElement("div"), {
+          source: THREE_STEP_SOURCE,
+          measureText: FAKE_MEASURER,
+          onPlaybackChange: (playing) => playback.push(playing),
+        });
+        board.play(); // at step 1, so next, prev and reset all change the step
+
+        board.controller![method]();
+        const stepAfterCall = board.controller!.currentStep;
+
+        expect(board.playing).toBe(false);
+        expect(playback).toEqual([true, false]);
+        vi.advanceTimersByTime(10000);
+        expect(board.controller!.currentStep).toBe(stepAfterCall);
+      },
+    );
+
+    it.each([
+      ["renders", THREE_STEP_SOURCE],
+      ["fails", "this is not a valid siren document"],
+    ])("a setSource call that %s stops playback", (_, source) => {
+      const playback: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+      });
+      board.play();
+
+      board.setSource(source);
+      const stepAfterSetSource = board.controller!.currentStep;
+
+      expect(board.playing).toBe(false);
+      expect(playback).toEqual([true, false]);
+      vi.advanceTimersByTime(10000);
+      expect(board.controller!.currentStep).toBe(stepAfterSetSource);
+    });
+
+    it("switching to the full diagram stops playback, and switching back does not resume it", () => {
+      const playback: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+      });
+      board.play();
+
+      board.setFullDiagram(true);
+      expect(board.playing).toBe(false);
+      expect(playback).toEqual([true, false]);
+
+      vi.advanceTimersByTime(10000);
+      board.setFullDiagram(false);
+      expect(board.controller!.currentStep).toBe(1);
+      expect(board.playing).toBe(false);
+    });
+
+    it("destroy() during playback takes no further step and fires no callback", () => {
+      const playback: boolean[] = [];
+      const steps: number[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+        onStepChange: (current) => steps.push(current),
+      });
+      board.play();
+      const controller = board.controller!;
+
+      board.destroy();
+      vi.advanceTimersByTime(10000);
+
+      expect(controller.currentStep).toBe(1);
+      expect(steps).toEqual([1]);
+      expect(playback).toEqual([true]);
+    });
+
+    it("play() after destroy() does nothing", () => {
+      const playback: boolean[] = [];
+      const steps: number[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+        onStepChange: (current) => steps.push(current),
+      });
+      board.destroy();
+
+      board.play();
+      vi.advanceTimersByTime(10000);
+
+      expect(board.playing).toBe(false);
+      expect(playback).toEqual([]);
+      expect(steps).toEqual([]);
+    });
+
+    it("setPlayInterval() during playback times the next step from the moment it is called", () => {
+      const board = createBoard(document.createElement("div"), { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+      board.play();
+      vi.advanceTimersByTime(1500); // 500 ms short of the default 2000
+
+      board.setPlayInterval(1000);
+      expect(board.playInterval).toBe(1000);
+
+      vi.advanceTimersByTime(999);
+      expect(board.controller!.currentStep).toBe(1);
+      vi.advanceTimersByTime(1);
+      expect(board.controller!.currentStep).toBe(2);
+      vi.advanceTimersByTime(1000);
+      expect(board.controller!.currentStep).toBe(3);
+    });
+
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+      "setPlayInterval(%s) throws a RangeError and keeps the interval it had",
+      (ms) => {
+        const board = createBoard(document.createElement("div"), { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+        expect(() => board.setPlayInterval(ms)).toThrow(RangeError);
+        expect(board.playInterval).toBe(2000);
+      },
+    );
+
+    it("BoardOptions.playInterval sets the interval playback steps by", () => {
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        playInterval: 500,
+      });
+      expect(board.playInterval).toBe(500);
+
+      board.play();
+      vi.advanceTimersByTime(500);
+      expect(board.controller!.currentStep).toBe(2);
+    });
+
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+      "createBoard with playInterval %s throws a RangeError and mounts nothing",
+      (playInterval) => {
+        const container = document.createElement("div");
+
+        expect(() => createBoard(container, { source: THREE_STEP_SOURCE, measureText: FAKE_MEASURER, playInterval })).toThrow(
+          RangeError,
+        );
+        expect(container.childNodes).toHaveLength(0);
+        expect(container.classList.contains("siren-board")).toBe(false);
+      },
+    );
+
+    it("a ControlsFactory's update() sees every change to playing and playInterval", () => {
+      const seen: { playing: boolean; playInterval: number }[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({
+          element: document.createElement("div"),
+          update: () => seen.push({ playing: b.playing, playInterval: b.playInterval }),
+        }),
+      });
+
+      board.play();
+      expect(seen).toContainEqual({ playing: true, playInterval: 2000 });
+
+      board.setPlayInterval(1000);
+      expect(seen.at(-1)).toEqual({ playing: true, playInterval: 1000 });
+
+      board.pause();
+      expect(seen.at(-1)).toEqual({ playing: false, playInterval: 1000 });
+
+      board.setPlayInterval(3000); // not playing: the bar still shows the interval
+      expect(seen.at(-1)).toEqual({ playing: false, playInterval: 3000 });
+    });
+
+    it("a ControlsFactory's update() is not called by setPlayInterval with the interval it already has", () => {
+      let updates = 0;
+      const board = createBoard(document.createElement("div"), {
+        source: THREE_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: () => ({ element: document.createElement("div"), update: () => updates++ }),
+      });
+      updates = 0; // drop the construction-time setSource
+
+      board.setPlayInterval(2000);
+
+      expect(updates).toBe(0);
+    });
+
+    it("when play()'s immediate step is already the last, onPlaybackChange fires true and then false", () => {
+      const playback: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: `flowchart TD
+A[Start] --> B[End]
+timeline:
+enter B fade
+`,
+        measureText: FAKE_MEASURER,
+        onPlaybackChange: (playing) => playback.push(playing),
+      });
+
+      board.play();
+
+      expect(board.controller!.currentStep).toBe(1);
+      expect(board.playing).toBe(false);
+      expect(playback).toEqual([true, false]);
     });
   });
 });

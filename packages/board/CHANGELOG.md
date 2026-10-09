@@ -25,6 +25,14 @@ Requires the `siren-core` `render()` option `timeline: false`, which is not rele
   code) and after every full diagram switch, and never after `destroy()`. A custom bar no
   longer has to keep its buttons outside the factory to follow the board. The built-in bar
   uses the same hook.
+- **Playback**: `board.play()` advances the timeline one step at once, then one step every
+  `board.playInterval` milliseconds, and stops by itself on the last step. Playing from the
+  last step starts again from step 0. `board.pause()` stops it, and so does any step change
+  playback did not make, every `setSource()` call, and `setFullDiagram(true)`. Set the
+  interval with the `playInterval` option (default 2000) or `board.setPlayInterval(ms)`;
+  an interval that is not a finite number above 0 throws a `RangeError`. `board.playing` and
+  `onPlaybackChange` report whether playback is running, and a `ControlsFactory`'s `update()`
+  is also called when `playing` or `playInterval` changes.
 
 ## [0.3.0] - 2026-10-05
 
