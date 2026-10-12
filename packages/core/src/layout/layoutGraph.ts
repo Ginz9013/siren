@@ -10,11 +10,11 @@ import type {
   TextMeasurer,
 } from "../contracts";
 import {
-  atEdgeLabelSize,
   clipRouteEndToBox,
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
+import { atConnectorLabelSize } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
@@ -257,7 +257,7 @@ export function layoutGraph(
 
   // At the 12px an edge label is drawn at, not the node's 14px: the box
   // handed to dagre below and the one the renderer draws in are this one.
-  const edgeLabelMeasurer = atEdgeLabelSize(options.measureText);
+  const edgeLabelMeasurer = atConnectorLabelSize(options.measureText);
   const edgeLabelBoxById = new Map(
     graph.edges.flatMap((edge) =>
       edge.label === null ? [] : [[edge.id, layoutLabel(edge.label, edgeLabelMeasurer)] as const],

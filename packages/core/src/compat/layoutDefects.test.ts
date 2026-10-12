@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { CONNECTOR_LABEL_SCALE } from "../label/label";
 import { render } from "../index";
 import {
   edgesThroughNodes,
@@ -190,11 +191,11 @@ describe("the garden-network diagram, under the default measurer", () => {
    * A row of an edge label as the default measurer sizes it, at the 12px it
    * is drawn at: `index.ts`'s fallback answers 8 per character plus 16 by
    * 24 plus 8, for 14px text, and an edge label is measured at 12/14 of
-   * that (`atEdgeLabelSize`).
+   * that (`atConnectorLabelSize`).
    */
   const drawnRow = (text: string) => ({
-    width: ((text.length * 8 + 16) * 12) / 14,
-    height: ((24 + 8) * 12) / 14,
+    width: (text.length * 8 + 16) * CONNECTOR_LABEL_SCALE,
+    height: (24 + 8) * CONNECTOR_LABEL_SCALE,
   });
 
   it("draws no edge label over a node", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Direction, Label, StateModel, TextMeasurer } from "../contracts";
-import { plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutStateDiagram } from "./layoutStateDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -1256,8 +1256,8 @@ describe("layoutStateDiagram — labels", () => {
     // Measured at the 12px `.siren-transition-label` is drawn at
     // (`--siren-label-font-size`), not the measurer's 14px: two 24-tall rows
     // and a 32-wide `wxyz`, each 12/14 as large.
-    expect(transition.label!.labelBox.height).toBeCloseTo((48 * 12) / 14, 6);
-    expect(transition.label!.labelBox.width).toBeCloseTo((32 * 12) / 14, 6);
+    expect(transition.label!.labelBox.height).toBeCloseTo(48 * CONNECTOR_LABEL_SCALE, 6);
+    expect(transition.label!.labelBox.width).toBeCloseTo(32 * CONNECTOR_LABEL_SCALE, 6);
     // The anchor is the box's centre, so its lower row ends half the box below it.
     expect(laid.height).toBeGreaterThanOrEqual(
       transition.label!.anchor.y + transition.label!.labelBox.height / 2,

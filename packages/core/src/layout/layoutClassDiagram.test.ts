@@ -14,7 +14,7 @@ import type {
   TextMeasurer,
   Label,
 } from "../contracts";
-import { plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
@@ -1538,8 +1538,8 @@ describe("layoutClassDiagram", () => {
       // Measured at the 12px `.siren-relationship-label` is drawn at
       // (`--siren-label-font-size`), not the 14px the measurer measures at:
       // the same text 12/14 as large is 12/14 the size.
-      expect(routed.label!.labelBox.height).toBeCloseTo((LINE_HEIGHT * 2 * 12) / 14, 6);
-      expect(routed.label!.labelBox.width).toBeCloseTo((measuredWidth("holds") * 12) / 14, 6);
+      expect(routed.label!.labelBox.height).toBeCloseTo(LINE_HEIGHT * 2 * CONNECTOR_LABEL_SCALE, 6);
+      expect(routed.label!.labelBox.width).toBeCloseTo(measuredWidth("holds") * CONNECTOR_LABEL_SCALE, 6);
       expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
     });
 

@@ -211,6 +211,59 @@ export function relativeScale(run: LabelRun): number | null {
 export const BASE_FONT_SIZE_PX = 14;
 
 /**
+ * The px a connector's label is drawn at: Siren's default
+ * `--siren-label-font-size`, which `label.test.ts` holds this to. Every
+ * connector label laid out by `layoutDirectedGraph` — a flowchart edge's
+ * `.siren-edge-label`, a class relationship's `.siren-relationship-label`, a
+ * state transition's `.siren-transition-label`, an ER relationship's
+ * `.siren-er-relationship-label` — takes that token, where a measurer
+ * measures at `BASE_FONT_SIZE_PX`.
+ */
+export const CONNECTOR_LABEL_FONT_SIZE_PX = 12;
+
+/**
+ * How large a connector label is drawn relative to what the measurer
+ * measured: `CONNECTOR_LABEL_FONT_SIZE_PX` over `BASE_FONT_SIZE_PX`.
+ */
+export const CONNECTOR_LABEL_SCALE = CONNECTOR_LABEL_FONT_SIZE_PX / BASE_FONT_SIZE_PX;
+
+/**
+ * `measureText` answering for text set at a connector label's 12px rather
+ * than the 14px it measures at — what each of the four connector adapters
+ * measures a connector's label with, so the room dagre keeps on the line is
+ * the size the label is drawn at.
+ *
+ * **Scaled, because `TextMeasurer` cannot be asked about a font size.** Its
+ * one method takes a string and nothing else, and widening it would change
+ * the public interface every consumer implements (`render()`'s
+ * `measureText`, `siren-board`'s canvas measurer). The same text at 12/14
+ * the size is 12/14 as wide and as tall, so the whole answer is scaled —
+ * the measurer's own padding with it, since the interface cannot say which
+ * part of an answer is glyphs and which is padding, and treating the box as
+ * proportional to the font is the one reading that needs no such split.
+ *
+ * Two approximations follow, both on runs the author sized themselves: a run
+ * with an absolute px size (`font-size:20px`) is drawn at that size but
+ * measured here at 12/14 of it, and an `em` letter- or word-spacing is
+ * counted against the 14px base by `layoutLabel`. Neither occurs in a label
+ * written without inline styles.
+ *
+ * The measurer is spelled structurally rather than as `contracts.ts`'s
+ * `TextMeasurer` for the reason `PlacedLabel` gives: this module imports
+ * nothing from the contract that re-exports it.
+ */
+export function atConnectorLabelSize(measureText: {
+  measure(text: string): { width: number; height: number };
+}): { measure(text: string): { width: number; height: number } } {
+  return {
+    measure(text: string) {
+      const size = measureText.measure(text);
+      return { width: size.width * CONNECTOR_LABEL_SCALE, height: size.height * CONNECTOR_LABEL_SCALE };
+    },
+  };
+}
+
+/**
  * The factor `run` is *measured* at relative to one measured line: its
  * scale, or, for an absolute size the author wrote in px, that size over
  * the 14px base. Any other absolute size (`large`, `1.2rem`) has no number

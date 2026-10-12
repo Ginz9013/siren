@@ -14,9 +14,10 @@ import type {
   ResolvedErEntity,
   ResolvedErSubgraph,
 } from "../contracts";
+import { atConnectorLabelSize } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
-import { atEdgeLabelSize, layoutDirectedGraph } from "./layoutDirectedGraph";
+import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
 /**
  * Horizontal padding between an entity box's edge and its name, and vertical
@@ -230,9 +231,9 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   );
   /**
    * Each relationship's label as `layoutLabel` measured it at the 12px it is
-   * drawn at (`atEdgeLabelSize`), by the relationship's id.
+   * drawn at (`atConnectorLabelSize`), by the relationship's id.
    */
-  const relationshipLabelMeasurer = atEdgeLabelSize(options.measureText);
+  const relationshipLabelMeasurer = atConnectorLabelSize(options.measureText);
   const relationshipLabelBoxById = new Map(
     model.relationships.map(
       (relationship) =>

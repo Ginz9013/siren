@@ -8,7 +8,7 @@ import type {
   PositionedErDiagram,
   TextMeasurer,
 } from "../contracts";
-import { plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutErDiagram } from "./layoutErDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -447,8 +447,8 @@ describe("layoutErDiagram", () => {
     const laidOut = layoutErDiagram(relating(CUSTOMER_PLACES_ORDER), options);
     const [relationship] = laidOut.relationships;
 
-    expect(relationship.label!.labelBox.width).toBeCloseTo((48 * 12) / 14, 6);
-    expect(relationship.label!.labelBox.height).toBeCloseTo((24 * 12) / 14, 6);
+    expect(relationship.label!.labelBox.width).toBeCloseTo(48 * CONNECTOR_LABEL_SCALE, 6);
+    expect(relationship.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
   });
 
   it("reserves room for a relationship's label and reports where it goes", () => {
@@ -469,7 +469,7 @@ describe("layoutErDiagram", () => {
 
     // The label is drawn at 12px and measured at 14px, so the room it needs
     // is the measurer's answer at 12/14 of the size.
-    const drawn = (height: number) => (height * 12) / 14;
+    const drawn = (height: number) => height * CONNECTOR_LABEL_SCALE;
     const gapFor = (laidOut: PositionedErDiagram) =>
       boxOf(laidOut.entities, "ORDER").top - boxOf(laidOut.entities, "CUSTOMER").bottom;
     expect(gapFor(shortLabel)).toBeGreaterThanOrEqual(

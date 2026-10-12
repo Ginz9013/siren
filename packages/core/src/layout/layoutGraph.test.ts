@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GraphModel, TextMeasurer } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
-import { plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { readLabel } from "../label/readLabel";
 import { layoutGraph } from "./layoutGraph";
 
@@ -857,8 +857,8 @@ describe("the room an edge label is given", () => {
     const laid = laidOut("yes");
     const [edge] = laid.edges;
 
-    expect(edge.label!.labelBox.width).toBeCloseTo((24 * 12) / 14, 6);
-    expect(edge.label!.labelBox.height).toBeCloseTo((24 * 12) / 14, 6);
+    expect(edge.label!.labelBox.width).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
+    expect(edge.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
     // A node's label is drawn at the 14px it was measured at, unchanged.
     expect(laid.nodes.find((node) => node.id === "A")!.labelBox.height).toBe(24);
   });
@@ -869,8 +869,8 @@ describe("the room an edge label is given", () => {
     const [twoRows] = laidOut("yes<br/>no").edges;
     const [oneRow] = laidOut("yes").edges;
 
-    expect(oneRow.label?.labelBox.height).toBeCloseTo((24 * 12) / 14, 6);
-    expect(twoRows.label?.labelBox.height).toBeCloseTo((48 * 12) / 14, 6);
+    expect(oneRow.label?.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
+    expect(twoRows.label?.labelBox.height).toBeCloseTo(48 * CONNECTOR_LABEL_SCALE, 6);
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
   });
 });

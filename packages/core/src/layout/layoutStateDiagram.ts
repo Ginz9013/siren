@@ -13,12 +13,11 @@ import type {
   StateModel,
 } from "../contracts";
 import {
-  atEdgeLabelSize,
   clipRouteEndToBox,
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
-import { plainLabel } from "../label/label";
+import { atConnectorLabelSize, plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 
 /** Horizontal padding between a state box's edge and its widest label. */
@@ -173,11 +172,11 @@ export function layoutStateDiagram(
 
   /**
    * Each labelled transition's label as `layoutLabel` measured it at the
-   * 12px it is drawn at (`atEdgeLabelSize`), by the
+   * 12px it is drawn at (`atConnectorLabelSize`), by the
    * transition's id — measured once, so the box the core keeps clear and the
    * box the renderer draws in are the same box.
    */
-  const transitionLabelMeasurer = atEdgeLabelSize(options.measureText);
+  const transitionLabelMeasurer = atConnectorLabelSize(options.measureText);
   const transitionLabelBoxById = new Map(
     model.transitions.flatMap((transition) =>
       transition.label === null

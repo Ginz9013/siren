@@ -1,6 +1,5 @@
 import dagre from "@dagrejs/dagre";
-import type { Direction, Point, TextMeasurer } from "../contracts";
-import { BASE_FONT_SIZE_PX } from "../label/label";
+import type { Direction, Point } from "../contracts";
 
 /** A box to place. Sizes are given by the caller; this module never measures. */
 export interface DirectedGraphLayoutNode {
@@ -452,49 +451,6 @@ export class UnplacedNodesError extends Error {
     this.name = "UnplacedNodesError";
     this.nodeIds = nodeIds;
   }
-}
-
-/**
- * The px an edge label is drawn at: `--siren-label-font-size` in
- * `theme/default.css`. Every edge label of the four diagrams this module lays
- * out — `.siren-edge-label`, `.siren-relationship-label`,
- * `.siren-transition-label`, `.siren-er-relationship-label` — takes that
- * token, where the measurer measures at the node's 14px
- * (`BASE_FONT_SIZE_PX`).
- */
-const EDGE_LABEL_FONT_SIZE_PX = 12;
-
-/**
- * `measureText` answering for text set at the edge label's 12px rather than
- * the 14px it measures at — what each of the four adapters measures an edge
- * label with, so the room dagre keeps on the line is the size the label is
- * drawn at. Lives here, beside the engine call, only because this is the one
- * module all four adapters share; `layoutDirectedGraph` itself still takes
- * the sizes it is handed and measures nothing.
- *
- * **Scaled, because `TextMeasurer` cannot be asked about a font size.** Its
- * one method takes a string and nothing else, and widening it would change
- * the public interface every consumer implements (`render()`'s
- * `measureText`, `siren-board`'s canvas measurer). The same text at 12/14
- * the size is 12/14 as wide and as tall, so the whole answer is scaled —
- * the measurer's own padding with it, since the interface cannot say which
- * part of an answer is glyphs and which is padding, and treating the box as
- * proportional to the font is the one reading that needs no such split.
- *
- * Two approximations follow, both on runs the author sized themselves: a run
- * with an absolute px size (`font-size:20px`) is drawn at that size but
- * measured here at 12/14 of it, and an `em` letter- or word-spacing is
- * counted against the 14px base by `layoutLabel`. Neither occurs in a label
- * written without inline styles.
- */
-export function atEdgeLabelSize(measureText: TextMeasurer): TextMeasurer {
-  const scale = EDGE_LABEL_FONT_SIZE_PX / BASE_FONT_SIZE_PX;
-  return {
-    measure(text: string) {
-      const size = measureText.measure(text);
-      return { width: size.width * scale, height: size.height * scale };
-    },
-  };
 }
 
 /** Whether the engine really placed this node: four finite numbers, not `undefined`. */

@@ -253,6 +253,25 @@ function labelDistanceFromLine(
 const ON_THE_LINE = 0.5;
 
 /**
+ * Throws unless the label `labelDistanceFromLine` reads is on its line,
+ * naming how far off it was drawn — the number a reader needs to tell a
+ * rounding slip from a label placed beside the line.
+ */
+function expectOnTheLine(
+  what: string,
+  result: SirenRenderResult,
+  labelSelector: string,
+  lineSelector: string,
+): void {
+  const distance = labelDistanceFromLine(result, labelSelector, lineSelector);
+  if (!(distance <= ON_THE_LINE)) {
+    throw new Error(
+      `${what} is drawn ${distance} from its line, not on it (within ${ON_THE_LINE})`,
+    );
+  }
+}
+
+/**
  * The two ends of one edge's drawn path, read off the `d` attribute itself.
  *
  * Where a path *starts* and *stops* is the whole of what "this edge joins
@@ -2074,14 +2093,11 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         );
       }
       // And on the line, as Mermaid draws it (`labelpos: "c"`), not beside it.
-      expectSame(
-        "the label is centred on the edge's line",
-        labelDistanceFromLine(
-          result,
-          'text.siren-edge-label[data-siren-id="A-B"]',
-          'path.siren-edge[data-siren-id="A-B"]',
-        ) <= ON_THE_LINE,
-        true,
+      expectOnTheLine(
+        "the label",
+        result,
+        'text.siren-edge-label[data-siren-id="A-B"]',
+        'path.siren-edge[data-siren-id="A-B"]',
       );
     },
   },
@@ -3214,14 +3230,11 @@ line2\`"]`,
       expectSame("relationship label", texts(result, "text.siren-relationship-label"), ["places"]);
       expectSame("multiplicities", texts(result, "text.siren-multiplicity"), ["1", "*"]);
       // Drawn on its line, as Mermaid draws an edge label (`labelpos: "c"`).
-      expectSame(
-        "the label is centred on the relationship's line",
-        labelDistanceFromLine(
-          result,
-          'g.siren-relationship-labels[data-siren-id="Customer-Order"] text.siren-relationship-label',
-          'g.siren-relationship[data-siren-id="Customer-Order"] path.siren-relationship-line',
-        ) <= ON_THE_LINE,
-        true,
+      expectOnTheLine(
+        "the label",
+        result,
+        'g.siren-relationship-labels[data-siren-id="Customer-Order"] text.siren-relationship-label',
+        'g.siren-relationship[data-siren-id="Customer-Order"] path.siren-relationship-line',
       );
     },
   },
@@ -4457,14 +4470,11 @@ line2\`"]`,
         ["start the job"],
       );
       // And centred on that line, as Mermaid draws an edge label (`labelpos: "c"`).
-      expectSame(
-        "the label is centred on the transition's line",
-        labelDistanceFromLine(
-          result,
-          'g.siren-transition-labels[data-siren-id="Idle-Running"] text.siren-transition-label',
-          'g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line',
-        ) <= ON_THE_LINE,
-        true,
+      expectOnTheLine(
+        "the label",
+        result,
+        'g.siren-transition-labels[data-siren-id="Idle-Running"] text.siren-transition-label',
+        'g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line',
       );
     },
   },
@@ -5847,14 +5857,11 @@ line2\`"]`,
       );
       // And centred on the relationship's own line, as Mermaid draws an edge
       // label (`labelpos: "c"`).
-      expectSame(
-        "`places` is centred on its relationship's line",
-        labelDistanceFromLine(
-          result,
-          'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
-          'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] path.siren-er-relationship-line',
-        ) <= ON_THE_LINE,
-        true,
+      expectOnTheLine(
+        "`places`",
+        result,
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+        'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] path.siren-er-relationship-line',
       );
 
       // And the relationship really moved the boxes apart: two entities a
