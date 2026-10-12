@@ -6703,10 +6703,14 @@ ${inner}
   it("places the same boxes for no direction anywhere", () => {
     // No frame carries a direction, so this document goes through the layout
     // engine's ordinary compound path and must keep doing so.
+    // (Since the 8 dagre margin: x is +8, because the outer frame's left
+    // edge is the engine's own cluster box and needs no shift; y is
+    // unchanged, because the frame's title strip already reached above 0 and
+    // the adapter's shift absorbs the margin.)
     expect(nodeCentres(renderInto(nested("", "")))).toEqual({
-      A: { x: 141, y: 128 },
-      B: { x: 151, y: 210 },
-      C: { x: 47, y: 210 },
+      A: { x: 149, y: 128 },
+      B: { x: 159, y: 210 },
+      C: { x: 55, y: 210 },
     });
   });
 });

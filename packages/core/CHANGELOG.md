@@ -38,6 +38,13 @@ While the version is 0.x, a minor release may contain breaking changes.
   sit 10px to the right of the line. The room the layout keeps for a label is now the size it is
   drawn at (`--siren-label-font-size`, 12px) rather than the node text's 14px, so a diagram with
   labelled connectors comes out slightly more compact.
+- Flowcharts, class diagrams, state diagrams and ER diagrams are laid out with an **8px margin
+  around the drawing**, as Mermaid lays them out (`marginx`/`marginy: 8`). This is inside the
+  canvas gutter the `<svg>` already had. A diagram without frames moves 8 right and 8 down and
+  its `viewBox` grows by 16 on each axis. A diagram whose subgraph, composite state, namespace or
+  ER subgraph frames reached past the top or left edge was already moved to keep them on the
+  canvas; there the margin takes up part or all of that move instead, so it moves, and grows,
+  by less.
 
 ## [0.4.0] - 2026-10-10
 

@@ -38,6 +38,21 @@ function expectEveryBoxPlaced(boxes: readonly DirectedGraphLayoutNodeBox[]): voi
   }
 }
 
+describe("the margin layoutDirectedGraph leaves around the drawing", () => {
+  // Mermaid lays every dagre diagram out with `marginx: 8`, `marginy: 8`.
+  it("is 8 on every side: a lone box sits at (8, 8) inside bounds 16 larger than it", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [{ id: "A", width: 100, height: 40 }],
+      edges: [],
+    });
+
+    expect(result.nodes).toEqual([{ id: "A", x: 8, y: 8, width: 100, height: 40 }]);
+    expect(result.width).toBe(116);
+    expect(result.height).toBe(56);
+  });
+});
+
 describe("layoutDirectedGraph", () => {
   it("positions a two-node, one-edge graph as top-left boxes inside the reported graph bounds", () => {
     const result = layoutDirectedGraph({
@@ -61,16 +76,16 @@ describe("layoutDirectedGraph", () => {
     expect(byId.B.y).toBeGreaterThan(byId.A.y);
 
     // x/y are the box's top-left, so every box lies within [0,width] x [0,height],
-    // flush against the origin on both axes.
+    // 8 in from the origin and from the far edge on both axes — the margin.
     const xs = result.nodes.map((n) => n.x);
     const ys = result.nodes.map((n) => n.y);
-    expect(Math.min(...xs)).toBe(0);
-    expect(Math.min(...ys)).toBe(0);
+    expect(Math.min(...xs)).toBe(8);
+    expect(Math.min(...ys)).toBe(8);
     expect(Math.max(...result.nodes.map((n) => n.x + n.width))).toBe(
-      result.width,
+      result.width - 8,
     );
     expect(Math.max(...result.nodes.map((n) => n.y + n.height))).toBe(
-      result.height,
+      result.height - 8,
     );
 
     // The edge is routed as a path from the source's boundary to the target's.
@@ -519,9 +534,9 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
   it("is grown from its members, and encloses them, when no cluster above it carries a direction", () => {
     const boxes = boxesOf(nestedFrames({}));
 
-    expect(boxes.I).toEqual({ id: "I", x: 130, y: 25, width: 140, height: 180 });
-    expect(boxes.A).toEqual({ id: "A", x: 165, y: 50, width: 60, height: 40 });
-    expect(boxes.B).toEqual({ id: "B", x: 175, y: 140, width: 60, height: 40 });
+    expect(boxes.I).toEqual({ id: "I", x: 138, y: 33, width: 140, height: 180 });
+    expect(boxes.A).toEqual({ id: "A", x: 173, y: 58, width: 60, height: 40 });
+    expect(boxes.B).toEqual({ id: "B", x: 183, y: 148, width: 60, height: 40 });
 
     // 140x180 is nothing like the 60x40 handed in, which is the visible half
     // of the engine having sized this frame itself.
@@ -545,12 +560,12 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
       });
 
     const lr = alone("LR");
-    expect(lr.S).toEqual({ id: "S", x: 0, y: 0, width: 170, height: 40 });
+    expect(lr.S).toEqual({ id: "S", x: 8, y: 8, width: 170, height: 40 });
     expect(encloses(lr.S, lr.A)).toBe(true);
     expect(encloses(lr.S, lr.B)).toBe(true);
 
     const tb = alone("TB");
-    expect(tb.S).toEqual({ id: "S", x: 0, y: 0, width: 60, height: 130 });
+    expect(tb.S).toEqual({ id: "S", x: 8, y: 8, width: 60, height: 130 });
     expect(encloses(tb.S, tb.A)).toBe(true);
     expect(encloses(tb.S, tb.B)).toBe(true);
   });
@@ -568,7 +583,7 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
       // this frame at the size the caller supplied.
       expect(boxes.I.width).toBe(BOX.width);
       expect(boxes.I.height).toBe(BOX.height);
-      expect(boxes.I).toEqual({ id: "I", x: 0, y: 0, width: 60, height: 40 });
+      expect(boxes.I).toEqual({ id: "I", x: 8, y: 8, width: 60, height: 40 });
 
       // Its members are placed — `01M2XJWM4`'s fix is what gives them
       // coordinates at all — but outside the frame rather than inside it.
@@ -578,11 +593,11 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
       // here — `A -> C` leaves `I` — so `I` follows `O`'s LR (the
       // boundary-crossing rule) and they stand side by side instead.
       if (inner === undefined) {
-        expect(boxes.A).toEqual({ id: "A", x: 0, y: -45, width: 60, height: 40 });
-        expect(boxes.B).toEqual({ id: "B", x: 0, y: 45, width: 60, height: 40 });
+        expect(boxes.A).toEqual({ id: "A", x: 8, y: -37, width: 60, height: 40 });
+        expect(boxes.B).toEqual({ id: "B", x: 8, y: 53, width: 60, height: 40 });
       } else {
-        expect(boxes.A).toEqual({ id: "A", x: -55, y: 0, width: 60, height: 40 });
-        expect(boxes.B).toEqual({ id: "B", x: 55, y: 0, width: 60, height: 40 });
+        expect(boxes.A).toEqual({ id: "A", x: -47, y: 8, width: 60, height: 40 });
+        expect(boxes.B).toEqual({ id: "B", x: 63, y: 8, width: 60, height: 40 });
       }
 
       expect(encloses(boxes.I, boxes.A)).toBe(false);
@@ -662,6 +677,10 @@ function inside(box: DirectedGraphLayoutNodeBox, point: Point): boolean {
  * the change, and they are asserted whole rather than as inequalities: what
  * is being pinned is "not one of these moved", and an inequality that held
  * either side of a shift would not pin it.
+ *
+ * Since dagre was given Mermaid's `marginx`/`marginy: 8` (T5), every number
+ * below is the pre-margin one translated by +8, and every graph extent is
+ * 16 larger — the margin on both sides.
  */
 describe("the coordinates an edge that is not a self-loop is drawn at", () => {
   it("are what they were, for a chain with a self-loop in the middle of it", () => {
@@ -681,24 +700,24 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     const byId = Object.fromEntries(result.edges.map((e) => [e.id, e.points]));
     expect(byId["X-Y"]).toEqual([
-      { x: 20, y: 20 },
-      { x: 20, y: 45 },
-      { x: 20, y: 70 },
+      { x: 28, y: 28 },
+      { x: 28, y: 53 },
+      { x: 28, y: 78 },
     ]);
     expect(byId["Y-Z"]).toEqual([
-      { x: 20, y: 90 },
-      { x: 20, y: 115 },
-      { x: 20, y: 140 },
+      { x: 28, y: 98 },
+      { x: 28, y: 123 },
+      { x: 28, y: 148 },
     ]);
     // The boxes those routes run between, and the reserved lane the graph
-    // width is the evidence of: 90 wide for three 40-wide boxes in one
-    // column.
+    // width is the evidence of: 90 wide (106 with the margin) for three
+    // 40-wide boxes in one column.
     expect(result.nodes).toEqual([
-      { id: "X", x: 0, y: 0, width: 40, height: 20 },
-      { id: "Y", x: 0, y: 70, width: 40, height: 20 },
-      { id: "Z", x: 0, y: 140, width: 40, height: 20 },
+      { id: "X", x: 8, y: 8, width: 40, height: 20 },
+      { id: "Y", x: 8, y: 78, width: 40, height: 20 },
+      { id: "Z", x: 8, y: 148, width: 40, height: 20 },
     ]);
-    expect([result.width, result.height]).toEqual([90, 160]);
+    expect([result.width, result.height]).toEqual([106, 176]);
   });
 
   it("are what they were, for the same chain laid out LR", () => {
@@ -718,24 +737,24 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     const byId = Object.fromEntries(result.edges.map((e) => [e.id, e.points]));
     expect(byId["X-Y"]).toEqual([
-      { x: 40, y: 10 },
-      { x: 65, y: 10 },
-      { x: 90, y: 10 },
+      { x: 48, y: 18 },
+      { x: 73, y: 18 },
+      { x: 98, y: 18 },
     ]);
     expect(byId["Y-Z"]).toEqual([
-      { x: 130, y: 10 },
-      { x: 155, y: 10 },
-      { x: 180, y: 10 },
+      { x: 138, y: 18 },
+      { x: 163, y: 18 },
+      { x: 188, y: 18 },
     ]);
-    // The lane is reserved on the other axis under `LR` — 60 tall for one
-    // row of 20-tall boxes — which is why the two directions are pinned
+    // The lane is reserved on the other axis under `LR` — 60 tall (76 with
+    // the margin) for one row of 20-tall boxes — which is why the two directions are pinned
     // separately.
     expect(result.nodes).toEqual([
-      { id: "X", x: 0, y: 0, width: 40, height: 20 },
-      { id: "Y", x: 90, y: 0, width: 40, height: 20 },
-      { id: "Z", x: 180, y: 0, width: 40, height: 20 },
+      { id: "X", x: 8, y: 8, width: 40, height: 20 },
+      { id: "Y", x: 98, y: 8, width: 40, height: 20 },
+      { id: "Z", x: 188, y: 8, width: 40, height: 20 },
     ]);
-    expect([result.width, result.height]).toEqual([220, 60]);
+    expect([result.width, result.height]).toEqual([236, 76]);
   });
 
   it("are what they were, for an edge between two frames", () => {
@@ -752,15 +771,15 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     // The proxy-and-clip route, whose ends sit on the two cluster boxes.
     expect(result.edges[0].points).toEqual([
-      { x: 55, y: 70 },
-      { x: 55, y: 95 },
-      { x: 55, y: 120 },
+      { x: 63, y: 78 },
+      { x: 63, y: 103 },
+      { x: 63, y: 128 },
     ]);
     expect(result.nodes).toEqual([
-      { id: "one", x: 0, y: 0, width: 110, height: 70 },
-      { id: "A", x: 35, y: 25, width: 40, height: 20 },
-      { id: "two", x: 0, y: 120, width: 110, height: 70 },
-      { id: "B", x: 35, y: 145, width: 40, height: 20 },
+      { id: "one", x: 8, y: 8, width: 110, height: 70 },
+      { id: "A", x: 43, y: 33, width: 40, height: 20 },
+      { id: "two", x: 8, y: 128, width: 110, height: 70 },
+      { id: "B", x: 43, y: 153, width: 40, height: 20 },
     ]);
   });
 
@@ -779,14 +798,14 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     const route = result.edges.find((e) => e.id === "X-Y")!;
     expect(route.points).toEqual([
-      { x: 20, y: 20 },
-      { x: 20, y: 50 },
-      { x: 20, y: 80 },
+      { x: 28, y: 28 },
+      { x: 28, y: 58 },
+      { x: 28, y: 88 },
     ]);
     // On the route's own middle point, `labelpos: "c"`. It was `{ x: 45 }`
-    // under dagre's default `"r"`: 15 (half the label) plus `labeloffset`
+    // (53 with today's margin) under dagre's default `"r"`: 15 (half the label) plus `labeloffset`
     // 10 to the right of the line, which the points above never moved with.
-    expect(route.labelAnchor).toEqual({ x: 20, y: 50 });
+    expect(route.labelAnchor).toEqual({ x: 28, y: 58 });
   });
 });
 

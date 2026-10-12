@@ -25,6 +25,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 - With `siren-core`'s change: connector labels in all four connector diagrams (flowchart, class,
   state, ER) are drawn on the line rather than 10px beside it, and laid out at the 12px they are
   drawn at, as in Mermaid.
+- With `siren-core`'s change: flowchart, class, state and ER diagrams have an 8px margin around
+  the drawing, as in Mermaid, so a diagram's extent grows by up to 16 on each axis.
 
 ## [0.4.0] - 2026-10-10
 

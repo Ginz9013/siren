@@ -19,13 +19,13 @@ export interface DirectedGraphLayoutNode {
    * Both halves of that were measured directly against `@dagrejs/dagre@3.1.1`
    * at this seam (`01M2YKWQP`) — every box handed in 60x40, graph `TB`,
    * `O > I > {A, B}` with `C` beside `I` under `O`, edges `A -> B` and
-   * `A -> C`:
+   * `A -> C` (coordinates include the 8 margin; see `layoutDirectedGraph`):
    *
    * | directions | `I` comes back as | `A` | `B` | `I` holds them |
    * | --- | --- | --- | --- | --- |
-   * | neither frame declares one | (130,25) 140x180 | (165,50) | (175,140) | yes |
-   * | `O` is `LR`, `I` declares none | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
-   * | `O` is `LR`, `I` is `TB` | (0,0) **60x40** | (**-55**,0) | (55,0) | no |
+   * | neither frame declares one | (138,33) 140x180 | (173,58) | (183,148) | yes |
+   * | `O` is `LR`, `I` declares none | (8,8) **60x40** | (8,**-37**) | (8,53) | no |
+   * | `O` is `LR`, `I` is `TB` | (8,8) **60x40** | (**-47**,8) | (63,8) | no |
    *
    * (In the last row `I`'s `TB` is void — `A -> C` leaves `I` — so `I` is
    * laid out in `O`'s `LR`; see `rankdirFor`.)
@@ -492,7 +492,24 @@ export function layoutDirectedGraph(
     multigraph: true,
     compound: hasClusters,
   });
-  g.setGraph({ rankdir: input.rankdir });
+  // `marginx`/`marginy: 8` is Mermaid's own setting for every dagre diagram.
+  // The engine applies it in its final translation: everything it placed moves
+  // 8 right and 8 down, and the reported bounds grow by 16 on each axis — the
+  // margin is on all four sides, not only the top-left.
+  //
+  // How that reaches the canvas depends on the caller, and neither caller-side
+  // offset changes meaning:
+  //
+  // - A diagram with no frames (no subgraph, composite state, namespace or ER
+  //   subgraph) moves +8 as a whole, inside the same `CANVAS_GUTTER` that
+  //   `sizeCanvas` still adds around the extent.
+  // - A diagram with frames still has each adapter (`layoutGraph`,
+  //   `layoutStateDiagram`, `layoutClassDiagram`, `layoutErDiagram`) shift
+  //   everything by however far a frame, grown outward from its members,
+  //   reaches past 0. The margin is room the frame grows into first, so that
+  //   shift shrinks by up to 8: part or all of the +8 is absorbed by it, and
+  //   only the remainder shows up as movement.
+  g.setGraph({ rankdir: input.rankdir, marginx: 8, marginy: 8 });
   g.setDefaultEdgeLabel(() => ({}));
 
   // Which nodes have children, and each node by its id. Both are needed
