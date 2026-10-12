@@ -23,12 +23,6 @@
 import type { Point } from "../contracts";
 import type { Curve } from "../curve/curve";
 
-/**
- * Re-exported for `compat/layoutDefects.test.ts`, which draws with it beside
- * `connectorPathData`; the names themselves live in `curve/curve.ts`.
- */
-export { DEFAULT_CURVE } from "../curve/curve";
-
 /** The corner radius `rounded` draws with — mermaid's, passed as `5`. */
 const ROUNDED_ARCHIV = 5;
 

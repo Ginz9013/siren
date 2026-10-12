@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CURVE } from "../curve/curve";
+import { buildGraphModel } from "../graph-model/buildGraphModel";
 import { CONNECTOR_LABEL_SCALE } from "../label/label";
 import { render } from "../index";
-import { connectorPathData, DEFAULT_CURVE } from "../renderer/connectorCurve";
+import { parseSiren } from "../parser/parseSiren";
+import { connectorPathData } from "../renderer/connectorCurve";
 import {
   edgesThroughNodes,
   labelsOverNodes,
@@ -64,19 +67,64 @@ describe("overlappingFrames", () => {
   });
 });
 
+/**
+ * Who belongs to which group, as the model says: `A` and `B` are members of
+ * the subgraph titled "one", drawn at 0..100 by 0..100; `X` and `Y` are
+ * outside it.
+ */
+const ONE = "subgraph:1";
+function grouping(edges: { id: string; from: string; to: string }[]) {
+  return {
+    nodes: [
+      { id: "A", parentId: ONE },
+      { id: "B", parentId: ONE },
+      { id: "X", parentId: null },
+      { id: "Y", parentId: null },
+    ],
+    subgraphs: [{ id: ONE, parentId: null }],
+    edges,
+  };
+}
+
 describe("straightBoundaryCrossingEdges", () => {
-  it("names the edges with exactly one end in a frame that are drawn as two points", () => {
+  it("names the edges with exactly one end among a group's members drawn as two points", () => {
     const svg = svgOf(
       frame("one", 0, 0, 100, 100) +
-        edge("out-straight", [[50, 50], [150, 50]]) +
-        edge("out-bent", [[50, 50], [50, 120], [150, 120]]) +
-        // An edge leaving the frame itself starts on its outline.
-        edge("frame-straight", [[100, 50], [150, 50]]) +
-        edge("inside", [[10, 10], [90, 90]]) +
-        edge("outside", [[200, 0], [300, 0]]),
+        edge("A-X", [[50, 50], [150, 50]]) +
+        edge("B-X", [[50, 50], [50, 120], [150, 120]]) +
+        edge("A-B", [[10, 10], [90, 90]]) +
+        edge("X-Y", [[200, 0], [300, 0]]),
     );
+    const members = grouping([
+      { id: "A-X", from: "A", to: "X" },
+      { id: "B-X", from: "B", to: "X" },
+      { id: "A-B", from: "A", to: "B" },
+      { id: "X-Y", from: "X", to: "Y" },
+    ]);
 
-    expect(straightBoundaryCrossingEdges(svg)).toEqual(["out-straight", "frame-straight"]);
+    expect(straightBoundaryCrossingEdges(svg, members)).toEqual(["A-X"]);
+  });
+
+  it("does not name a straight edge from outside that names the group itself", () => {
+    // Neither end is among the group's members: the group keeps its
+    // direction, and dagre routes such an edge as one between two frames.
+    const svg = svgOf(
+      frame("one", 0, 0, 100, 100) + edge(`X-${ONE}`, [[150, 50], [100, 50]]),
+    );
+    const members = grouping([{ id: `X-${ONE}`, from: "X", to: ONE }]);
+
+    expect(straightBoundaryCrossingEdges(svg, members)).toEqual([]);
+  });
+
+  it("names a straight edge from a member to its own group", () => {
+    // Exactly one end — the member — is among the group's members, though
+    // the whole line lies within the frame.
+    const svg = svgOf(
+      frame("one", 0, 0, 100, 100) + edge(`A-${ONE}`, [[50, 50], [100, 50]]),
+    );
+    const members = grouping([{ id: `A-${ONE}`, from: "A", to: ONE }]);
+
+    expect(straightBoundaryCrossingEdges(svg, members)).toEqual([`A-${ONE}`]);
   });
 });
 
@@ -200,6 +248,11 @@ describe("the garden-network diagram, under the default measurer", () => {
   );
   const result = render(source, document.createElement("div"));
   const svg = result.svg!;
+  // Who belongs to which subgraph — the model's, which the picture does not record.
+  const parsed = parseSiren(source).document!;
+  const built = buildGraphModel(parsed);
+  if (built.kind !== "flowchart") throw new Error("garden-network.mmd is not a flowchart");
+  const grouping = built.model;
 
   it("renders with no diagnostics", () => {
     expect(result.diagnostics).toEqual([]);
@@ -211,7 +264,7 @@ describe("the garden-network diagram, under the default measurer", () => {
   });
 
   it("draws no boundary-crossing edge as a two-point straight line", () => {
-    expect(straightBoundaryCrossingEdges(svg)).toEqual([]);
+    expect(straightBoundaryCrossingEdges(svg, grouping)).toEqual([]);
   });
 
   /**

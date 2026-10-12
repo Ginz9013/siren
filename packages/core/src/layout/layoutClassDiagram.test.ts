@@ -14,6 +14,7 @@ import type {
   TextMeasurer,
   Label,
 } from "../contracts";
+import { distanceToPolyline } from "../compat/svgGeometry";
 import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
 
@@ -156,33 +157,6 @@ function pathLength(points: Point[]): number {
   let total = 0;
   for (let i = 1; i < points.length; i += 1) total += distance(points[i - 1], points[i]);
   return total;
-}
-
-/** Shortest distance from `point` to a routed path, over all its segments. */
-function distanceToPath(point: Point, points: Point[]): number {
-  let nearest = Infinity;
-  for (let i = 1; i < points.length; i += 1) {
-    const a = points[i - 1];
-    const b = points[i];
-    const span = distance(a, b);
-    // How far along `a`→`b` the nearest point lies, clamped to the segment.
-    const t =
-      span === 0
-        ? 0
-        : Math.min(
-            1,
-            Math.max(
-              0,
-              ((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)) /
-                (span * span),
-            ),
-          );
-    nearest = Math.min(
-      nearest,
-      distance(point, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }),
-    );
-  }
-  return nearest;
 }
 
 /**
@@ -976,7 +950,7 @@ describe("layoutClassDiagram", () => {
           expect(distance(anchor, own)).toBeLessThan(distance(anchor, other));
           expect(distance(anchor, own)).toBeLessThanOrEqual(half);
           // Off the stroke, which is what the across-offset buys.
-          expect(distanceToPath(anchor, points)).toBeGreaterThanOrEqual(8);
+          expect(distanceToPolyline(anchor, points)).toBeGreaterThanOrEqual(8);
         }
 
         // Each sits on the same hand of its *own* outward direction, and the

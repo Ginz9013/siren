@@ -17,6 +17,15 @@
  */
 import type { SirenRenderResult } from "../contracts";
 import { LABEL_CASES, labelRows, labelRuns } from "./labelCorpus";
+import {
+  type Box,
+  distanceToPolyline,
+  encloses,
+  interiorsMeet,
+  rectBox,
+  routeOf,
+  subgraphFrames,
+} from "./svgGeometry";
 
 /** Which Mermaid diagram kind a case is written in. */
 export type CompatKind = "flowchart" | "class" | "sequence" | "state" | "er";
@@ -238,20 +247,7 @@ function labelDistanceFromLine(
   const text = svgOf(result).querySelector(labelSelector);
   if (text === null) throw new Error(`nothing matched "${labelSelector}"`);
   const label = { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
-  const points = pathPoints(result, lineSelector);
-  return Math.min(
-    ...points.slice(1).map((end, i) => {
-      const start = points[i];
-      const dx = end.x - start.x;
-      const dy = end.y - start.y;
-      const length = dx * dx + dy * dy;
-      const t =
-        length === 0
-          ? 0
-          : Math.max(0, Math.min(1, ((label.x - start.x) * dx + (label.y - start.y) * dy) / length));
-      return Math.hypot(label.x - (start.x + t * dx), label.y - (start.y + t * dy));
-    }),
-  );
+  return distanceToPolyline(label, pathPoints(result, lineSelector));
 }
 
 /**
@@ -336,18 +332,6 @@ function pathPoints(
   return routeOf(path);
 }
 
-/** The route a connector `<path>` was drawn through: its `data-siren-points`. */
-function routeOf(path: Element): { x: number; y: number }[] {
-  const route = path.getAttribute("data-siren-points");
-  if (route === null) {
-    throw new Error(`the connector "${path.getAttribute("class")}" carries no data-siren-points`);
-  }
-  return route
-    .split(" ")
-    .map((pair) => pair.split(","))
-    .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
-}
-
 /**
  * How one flowchart edge's line joins its route — the **Curve** it was
  * drawn with, read as geometry off `d` against the route in
@@ -409,12 +393,7 @@ function transitionPath(
  * exactly that risk, because the room for one is reserved by the layout
  * engine around a node and never around a frame.
  */
-function pictureBox(result: SirenRenderResult): {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-} {
+function pictureBox(result: SirenRenderResult): Box {
   const [x, y, width, height] = (svgOf(result).getAttribute("viewBox") ?? "")
     .split(/\s+/)
     .map(Number);
@@ -423,7 +402,7 @@ function pictureBox(result: SirenRenderResult): {
 
 /** Whether `box` holds `point`, boundary included — `insideBox`'s question, less strictly. */
 function holds(
-  box: { top: number; bottom: number; left: number; right: number },
+  box: Box,
   point: { x: number; y: number },
 ): boolean {
   const tolerance = 1e-6;
@@ -441,7 +420,7 @@ function holds(
  * with, so that the two never disagree about a point on the line.
  */
 function insideBox(
-  box: { top: number; bottom: number; left: number; right: number },
+  box: Box,
   point: { x: number; y: number },
 ): boolean {
   const tolerance = 1e-6;
@@ -459,7 +438,7 @@ function insideBox(
  * row already has in hand rather than over a state it names.
  */
 function onBoxBoundary(
-  box: { top: number; bottom: number; left: number; right: number },
+  box: Box,
   point: { x: number; y: number },
 ): boolean {
   const tolerance = 1e-6;
@@ -512,19 +491,12 @@ function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: numb
 function nodeBox(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const frame = svgOf(result).querySelector(
     `g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`,
   );
   if (frame === null) throw new Error(`no node "${id}" was drawn`);
-  const x = Number(frame.getAttribute("x"));
-  const y = Number(frame.getAttribute("y"));
-  return {
-    top: y,
-    bottom: y + Number(frame.getAttribute("height")),
-    left: x,
-    right: x + Number(frame.getAttribute("width")),
-  };
+  return rectBox(frame);
 }
 
 /**
@@ -543,35 +515,10 @@ function nodeBox(
 function subgraphBox(
   result: SirenRenderResult,
   title: string,
-): { top: number; bottom: number; left: number; right: number } {
-  const group = elements(result, "g.siren-subgraph").find(
-    (g) => g.querySelector("text.siren-subgraph-label")?.textContent === title,
-  );
-  const frame = group?.querySelector("rect.siren-subgraph-frame");
-  if (frame === undefined || frame === null) {
-    throw new Error(`no subgraph titled "${title}" was drawn`);
-  }
-  const x = Number(frame.getAttribute("x"));
-  const y = Number(frame.getAttribute("y"));
-  return {
-    top: y,
-    bottom: y + Number(frame.getAttribute("height")),
-    left: x,
-    right: x + Number(frame.getAttribute("width")),
-  };
-}
-
-/** Whether `outer` wholly contains `inner` — how "it groups them" is read off a picture. */
-function encloses(
-  outer: { top: number; bottom: number; left: number; right: number },
-  inner: { top: number; bottom: number; left: number; right: number },
-): boolean {
-  return (
-    outer.left <= inner.left &&
-    outer.top <= inner.top &&
-    outer.right >= inner.right &&
-    outer.bottom >= inner.bottom
-  );
+): Box {
+  const frame = subgraphFrames(svgOf(result)).find((drawn) => drawn.title === title);
+  if (frame === undefined) throw new Error(`no subgraph titled "${title}" was drawn`);
+  return frame.box;
 }
 
 /**
@@ -1041,7 +988,7 @@ function erEntities(result: SirenRenderResult): string[] {
 function erSubgraphBox(
   result: SirenRenderResult,
   title: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const group = elements(result, "g.siren-er-subgraph").find(
     (g) => g.querySelector("text.siren-er-subgraph-label")?.textContent === title,
   );
@@ -1049,13 +996,7 @@ function erSubgraphBox(
   if (frame === undefined || frame === null) {
     throw new Error(`no ER cluster titled "${title}" was drawn`);
   }
-  const number = (name: string) => Number(frame.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(frame);
 }
 
 /**
@@ -1066,18 +1007,12 @@ function erSubgraphBox(
 function erEntityRect(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const rect = svgOf(result).querySelector(
     `g.siren-er-entity[data-siren-id="${id}"] rect.siren-er-entity-frame`,
   );
   if (rect === null) throw new Error(`no entity "${id}" was drawn with a rectangle`);
-  const number = (name: string) => Number(rect.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(rect);
 }
 
 /**
@@ -1456,16 +1391,10 @@ function stateCenter(result: SirenRenderResult, id: string): { x: number; y: num
 function stateRect(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const rect = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"] rect`);
   if (rect === null) throw new Error(`no state "${id}" was drawn with a rectangle`);
-  const number = (name: string) => Number(rect.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(rect);
 }
 
 /**
@@ -1491,18 +1420,12 @@ function stateNoteText(result: SirenRenderResult, id: string): string[] {
 function stateNoteRect(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const rect = svgOf(result).querySelector(
     `g.siren-state[data-siren-id="${id}"] rect.siren-note-frame`,
   );
   if (rect === null) throw new Error(`no note was drawn on state "${id}"`);
-  const number = (name: string) => Number(rect.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(rect);
 }
 
 /**
@@ -1518,14 +1441,6 @@ function stateNoteConnectorMarker(result: SirenRenderResult, id: string): string
   );
   if (path === null) throw new Error(`no note connector was drawn on state "${id}"`);
   return path.getAttribute("marker-end");
-}
-
-/** Whether two rectangles share any area — "these are two figures, not one". */
-function overlaps(
-  a: { top: number; bottom: number; left: number; right: number },
-  b: { top: number; bottom: number; left: number; right: number },
-): boolean {
-  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
 /** One state's centre, for a row reading a direction off the picture. */
@@ -5571,7 +5486,7 @@ line2\`"]`,
       // the state's rect do not overlap.
       expectSame(
         `the note is a separate box (${JSON.stringify([stateRect(result, "Idle"), stateNoteRect(result, "Idle")])})`,
-        overlaps(stateRect(result, "Idle"), stateNoteRect(result, "Idle")),
+        interiorsMeet(stateRect(result, "Idle"), stateNoteRect(result, "Idle")),
         false,
       );
       // Placed as the author's `right of` asks under this document's own
@@ -5945,8 +5860,8 @@ line2\`"]`,
       expectSame(
         "the three boxes are drawn clear of one another",
         [
-          overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
-          overlaps(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
+          interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+          interiorsMeet(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
         ],
         [false, false],
       );
@@ -6060,8 +5975,8 @@ line2\`"]`,
       expectSame(
         "the three boxes are drawn clear of one another",
         [
-          overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
-          overlaps(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
+          interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+          interiorsMeet(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
         ],
         [false, false],
       );
@@ -6265,7 +6180,7 @@ line2\`"]`,
       // would be invisible to every check above and obvious here.
       expectSame(
         "the two boxes are drawn clear of one another",
-        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
       );
     },
@@ -6334,7 +6249,7 @@ line2\`"]`,
       );
       expectSame(
         "the two boxes are drawn clear of one another",
-        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
       );
     },
@@ -6387,7 +6302,7 @@ line2\`"]`,
       expectSame("the label's rows", labelRows(label), ["places", "many"]);
       expectSame(
         "the two boxes are drawn clear of one another",
-        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
       );
     },

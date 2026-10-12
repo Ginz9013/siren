@@ -7,54 +7,23 @@
  * straight segment, a line drawn through a box it does not belong to, an
  * edge label drawn over a box or over another label.
  *
- * Read from the finished SVG the way `corpus.ts`'s readers read it — frames
- * by their `rect.siren-subgraph-frame` keyed by the title drawn on them,
- * edges by the points in `path.siren-edge`'s `d` — so what is counted is the
- * picture, not the layout's intermediate numbers.
+ * Read from the finished SVG with the readers `corpus.ts` reads it with
+ * (`svgGeometry.ts`) — frames by their `rect.siren-subgraph-frame` keyed by
+ * the title drawn on them, edges by the route in `path.siren-edge`'s
+ * `data-siren-points` — so what is counted is the picture, not the layout's
+ * intermediate numbers. Only which group a node belongs to, which the picture
+ * does not record, is asked of the caller (`Grouping`).
  */
 
-/** An axis-aligned box as its four sides. */
-interface Box {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-}
-
-/** Every subgraph frame drawn, with the title it carries. */
-function frames(svg: SVGSVGElement): { title: string; box: Box }[] {
-  return Array.from(svg.querySelectorAll("g.siren-subgraph")).flatMap((group) => {
-    const rect = group.querySelector("rect.siren-subgraph-frame");
-    if (rect === null) return [];
-    const number = (name: string) => Number(rect.getAttribute(name));
-    return [
-      {
-        title: group.querySelector("text.siren-subgraph-label")?.textContent ?? "",
-        box: {
-          top: number("y"),
-          bottom: number("y") + number("height"),
-          left: number("x"),
-          right: number("x") + number("width"),
-        },
-      },
-    ];
-  });
-}
-
-/** Whether `outer` wholly contains `inner`. */
-function encloses(outer: Box, inner: Box): boolean {
-  return (
-    outer.left <= inner.left &&
-    outer.top <= inner.top &&
-    outer.right >= inner.right &&
-    outer.bottom >= inner.bottom
-  );
-}
-
-/** Whether two boxes share interior — touching along an edge is not sharing. */
-function interiorsMeet(a: Box, b: Box): boolean {
-  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-}
+import {
+  type Box,
+  encloses,
+  interiorsMeet,
+  type Point,
+  rectBox,
+  routeOf,
+  subgraphFrames,
+} from "./svgGeometry";
 
 /**
  * Every pair of subgraph frames that overlap without one holding the other,
@@ -62,7 +31,7 @@ function interiorsMeet(a: Box, b: Box): boolean {
  * defect, so containment either way is not counted.
  */
 export function overlappingFrames(svg: SVGSVGElement): [string, string][] {
-  const drawn = frames(svg);
+  const drawn = subgraphFrames(svg);
   const pairs: [string, string][] = [];
   drawn.forEach((a, i) => {
     for (const b of drawn.slice(i + 1)) {
@@ -78,27 +47,14 @@ export function overlappingFrames(svg: SVGSVGElement): [string, string][] {
   return pairs;
 }
 
-/** A point drawn in the picture. */
-interface Point {
-  x: number;
-  y: number;
-}
-
 /**
  * Every flowchart edge drawn, with the points its route passes through —
- * read off the `data-siren-points` the renderer writes beside `d`, as
- * `corpus.ts`'s `pathPoints` reads it. Not off `d`: an edge is drawn as a
- * curve (`basis` by default), whose `d` lists control points rather than the
- * route.
+ * `routeOf`, the reader `corpus.ts`'s `pathPoints` reads it with.
  */
 function edgeLines(svg: SVGSVGElement): { id: string; points: Point[] }[] {
   return Array.from(svg.querySelectorAll("path.siren-edge")).map((path) => ({
     id: path.getAttribute("data-siren-id") ?? "<no id>",
-    points: (path.getAttribute("data-siren-points") ?? "")
-      .trim()
-      .split(/\s+/)
-      .map((pair) => pair.split(","))
-      .map(([x, y]) => ({ x: Number(x), y: Number(y) })),
+    points: routeOf(path),
   }));
 }
 
@@ -110,22 +66,60 @@ function holds(box: Box, point: Point): boolean {
 }
 
 /**
- * The edges that cross some frame's boundary — exactly one end of the drawn
- * line in that frame, an end on the outline counting as in — and are drawn
- * as a two-point straight segment, by id in draw order.
+ * Who belongs to which group, and which two things each edge joins — the
+ * model's answer, handed in by the caller because the picture does not
+ * record it. A flowchart's `GraphModel` is one as it stands.
+ *
+ * Asked for rather than read off the frames: an edge from outside that names
+ * a group ends on that group's outline, which a frame's geometry cannot tell
+ * from an end among its members.
+ */
+export interface Grouping {
+  /** Every node, by id, with the group it was declared inside, or `null`. */
+  nodes: readonly { id: string; parentId: string | null }[];
+  /** Every group, by id, with the group it is nested in, or `null`. */
+  subgraphs: readonly { id: string; parentId: string | null }[];
+  /** Every edge, by the id it is drawn with, with the ids at its two ends. */
+  edges: readonly { id: string; from: string; to: string }[];
+}
+
+/**
+ * The edges that are a **Boundary-crossing edge** of some group — exactly
+ * one end among the group's descendants, members or nested groups at any
+ * depth — and are drawn as a two-point straight segment, by id in draw
+ * order. An edge from outside that names the group itself has neither end
+ * among its descendants and is not one; an edge from a member to its own
+ * group is.
  *
  * That straight segment is the fallback `layoutDirectedGraph` draws when the
  * engine returned no route (a cluster laid out in a direction of its own);
  * an edge the engine routed comes back with at least one bend point.
  */
-export function straightBoundaryCrossingEdges(svg: SVGSVGElement): string[] {
-  const boxes = frames(svg).map(({ box }) => box);
+export function straightBoundaryCrossingEdges(svg: SVGSVGElement, grouping: Grouping): string[] {
+  const parentOf = new Map(
+    [...grouping.nodes, ...grouping.subgraphs].map(({ id, parentId }) => [id, parentId]),
+  );
+  /** Whether `id` lies strictly below `group` — a group is not its own descendant. */
+  const isDescendantOf = (id: string, group: string): boolean => {
+    for (
+      let parent = parentOf.get(id) ?? null;
+      parent !== null;
+      parent = parentOf.get(parent) ?? null
+    ) {
+      if (parent === group) return true;
+    }
+    return false;
+  };
+  const edgeById = new Map(grouping.edges.map((edge) => [edge.id, edge]));
   return edgeLines(svg)
-    .filter(({ points }) => {
-      const start = points[0];
-      const end = points[points.length - 1];
-      return (
-        points.length === 2 && boxes.some((box) => holds(box, start) !== holds(box, end))
+    .filter(({ id, points }) => {
+      if (points.length !== 2) return false;
+      const edge = edgeById.get(id);
+      if (edge === undefined) {
+        throw new Error(`edge "${id}" was drawn but the grouping does not name it`);
+      }
+      return grouping.subgraphs.some(
+        ({ id: group }) => isDescendantOf(edge.from, group) !== isDescendantOf(edge.to, group),
       );
     })
     .map(({ id }) => id);
@@ -159,22 +153,14 @@ function pathExtent(d: string): Box {
 
 /**
  * Every flowchart node drawn, with the extent of its frame: a `<rect>` read
- * the way `corpus.ts`'s `nodeBox` reads it, any other frame element by the
+ * with `rectBox`, as `corpus.ts`'s `nodeBox` reads it, any other frame element by the
  * extent of its outline. A subroutine draws one box and two bars, all frames;
  * the extent is taken over all of them.
  */
 function nodeBoxes(svg: SVGSVGElement): { id: string; box: Box }[] {
   return Array.from(svg.querySelectorAll("g.siren-node")).flatMap((group) => {
     const parts = Array.from(group.querySelectorAll(".siren-node-frame")).map((frame) => {
-      if (frame.tagName.toLowerCase() === "rect") {
-        const number = (name: string) => Number(frame.getAttribute(name));
-        return {
-          top: number("y"),
-          bottom: number("y") + number("height"),
-          left: number("x"),
-          right: number("x") + number("width"),
-        };
-      }
+      if (frame.tagName.toLowerCase() === "rect") return rectBox(frame);
       return pathExtent(frame.getAttribute("d") ?? "");
     });
     if (parts.length === 0) return [];

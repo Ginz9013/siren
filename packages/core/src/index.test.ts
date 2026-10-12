@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, type InteractionTarget } from "./index";
 import type { SirenRenderResult, TextMeasurer } from "./contracts";
+import { routeOf } from "./compat/svgGeometry";
 import { readdirSync, readFileSync } from "node:fs";
 
 /**
@@ -5873,7 +5874,7 @@ describe("render() — a state diagram, end to end", () => {
     // would draw nothing at all and still have a `<path>` to find. Read off
     // the route (`data-siren-points`), not `d`: a curve's `d` spells even a
     // collapsed route with several distinct commands (`M`, `L`, `C`).
-    const points = (path.getAttribute("data-siren-points") ?? "").split(" ");
+    const points = routeOf(path).map(({ x, y }) => `${x},${y}`);
     expect(points.length).toBeGreaterThanOrEqual(2);
     expect(new Set(points).size).toBeGreaterThanOrEqual(2);
     // The label is a group of its own wearing the same id, drawn after every
@@ -6399,9 +6400,7 @@ describe("render() — a state diagram, end to end", () => {
     expect(loop).not.toBeNull();
     // The route (`data-siren-points`), not `d`: a curve's `d` lists control
     // points the line never passes through.
-    const loopPoints = [
-      ...new Set((loop!.getAttribute("data-siren-points") ?? "").split(" ")),
-    ]
+    const loopPoints = [...new Set(routeOf(loop!).map(({ x, y }) => `${x},${y}`))]
       .map((pair) => pair.split(",").map(Number))
       .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
     expect(loopPoints.length).toBeGreaterThan(1);

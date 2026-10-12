@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { distanceToPolyline } from "../compat/svgGeometry";
 import type { Direction, Point } from "../contracts";
 import {
   layoutDirectedGraph,
@@ -1218,23 +1219,6 @@ describe("a cluster with a boundary-crossing edge", () => {
   });
 });
 
-/** How far `point` is from the nearest segment of the polyline `points`. */
-function distanceToRoute(point: Point, points: Point[]): number {
-  return Math.min(
-    ...points.slice(1).map((end, i) => {
-      const start = points[i];
-      const dx = end.x - start.x;
-      const dy = end.y - start.y;
-      const length = dx * dx + dy * dy;
-      const t =
-        length === 0
-          ? 0
-          : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length));
-      return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
-    }),
-  );
-}
-
 /**
  * Mermaid hands dagre every edge label with `labelpos: "c"`: the label's
  * space is reserved *on* the line and its centre is a point the line passes
@@ -1266,7 +1250,9 @@ describe("where a labelled edge's label is anchored", () => {
     // could ever account for and far less than the 10 the old `"r"`
     // placement put between them.
     for (const route of layoutDirectedGraph(fanOut(rankdir)).edges) {
-      expect(distanceToRoute(route.labelAnchor!, route.points), route.id).toBeLessThanOrEqual(0.5);
+      expect(distanceToPolyline(route.labelAnchor!, route.points), route.id).toBeLessThanOrEqual(
+        0.5,
+      );
     }
   });
 });
