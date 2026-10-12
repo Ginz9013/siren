@@ -301,6 +301,13 @@ function straightLineRoute(
 const SELF_LOOP_REACH = 30;
 
 /**
+ * The room dagre leaves around the drawing, on all four sides: Mermaid's own
+ * `marginx`/`marginy` for every dagre diagram. See `layoutDirectedGraph` for
+ * how it reaches the canvas.
+ */
+export const DAGRE_MARGIN = 8;
+
+/**
  * The loop an edge onto its own endpoint is drawn as: five points around
  * `box`, **both ends on `box`'s own boundary and every point between them
  * outside it**.
@@ -492,13 +499,15 @@ export function layoutDirectedGraph(
     multigraph: true,
     compound: hasClusters,
   });
-  // `marginx`/`marginy: 8` is Mermaid's own setting for every dagre diagram.
-  // The engine applies it in its final translation: everything it placed moves
-  // 8 right and 8 down, and the reported bounds grow by 16 on each axis — the
-  // margin is on all four sides, not only the top-left.
+  // `DAGRE_MARGIN` (8) is Mermaid's own `marginx`/`marginy` for every dagre
+  // diagram. Dagre applies it in its final translation: everything it placed
+  // moves 8 right and 8 down, and the reported bounds grow by 16 on each
+  // axis — the margin is on all four sides, not only the top-left. A
+  // synthesised self-loop that reaches past those bounds gets the margin
+  // beyond it too (see the bounds at the end).
   //
-  // How that reaches the canvas depends on the caller, and neither caller-side
-  // offset changes meaning:
+  // How that reaches the canvas depends on the caller, and neither
+  // caller-side offset changes meaning:
   //
   // - A diagram with no frames (no subgraph, composite state, namespace or ER
   //   subgraph) moves +8 as a whole, inside the same `CANVAS_GUTTER` that
@@ -509,7 +518,7 @@ export function layoutDirectedGraph(
   //   reaches past 0. The margin is room the frame grows into first, so that
   //   shift shrinks by up to 8: part or all of the +8 is absorbed by it, and
   //   only the remainder shows up as movement.
-  g.setGraph({ rankdir: input.rankdir, marginx: 8, marginy: 8 });
+  g.setGraph({ rankdir: input.rankdir, marginx: DAGRE_MARGIN, marginy: DAGRE_MARGIN });
   g.setDefaultEdgeLabel(() => ({}));
 
   // Which nodes have children, and each node by its id. Both are needed
@@ -873,7 +882,12 @@ export function layoutDirectedGraph(
   // `TB`). What they do not hold is a *frame's*: the lane is reserved beside
   // the proxy member, inside the cluster, so nothing was ever set aside
   // outside the frame. Measured, `subgraph one { A }` with `one --> one`
-  // reported 140 wide for a loop reaching 155.
+  // reported 140 wide for a loop reaching 155 (before the margin).
+  //
+  // Where a loop does reach past dagre's bounds, `DAGRE_MARGIN` is added
+  // beyond it, as dagre's own margin would be: Mermaid routes loops through
+  // dagre, so its margin lies outside them. Without it the far side of such
+  // a loop would sit flush against the extent.
   //
   // Only the synthesised routes are measured (`loopExtent`, filled in as
   // each loop is drawn). Dagre's own routes lie inside the bounds it reports
@@ -882,7 +896,7 @@ export function layoutDirectedGraph(
   return {
     nodes,
     edges,
-    width: Math.max(graphLabel.width ?? 0, loopExtent.x),
-    height: Math.max(graphLabel.height ?? 0, loopExtent.y),
+    width: Math.max(graphLabel.width ?? 0, loopExtent.x + DAGRE_MARGIN),
+    height: Math.max(graphLabel.height ?? 0, loopExtent.y + DAGRE_MARGIN),
   };
 }

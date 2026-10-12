@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Direction, Point } from "../contracts";
 import {
   layoutDirectedGraph,
+  DAGRE_MARGIN,
   UnplacedNodesError,
   type DirectedGraphLayoutInput,
   type DirectedGraphLayoutNodeBox,
@@ -41,16 +42,50 @@ function expectEveryBoxPlaced(boxes: readonly DirectedGraphLayoutNodeBox[]): voi
 describe("the margin layoutDirectedGraph leaves around the drawing", () => {
   // Mermaid lays every dagre diagram out with `marginx: 8`, `marginy: 8`.
   it("is 8 on every side: a lone box sits at (8, 8) inside bounds 16 larger than it", () => {
+    expect(DAGRE_MARGIN).toBe(8);
+
     const result = layoutDirectedGraph({
       rankdir: "TB",
       nodes: [{ id: "A", width: 100, height: 40 }],
       edges: [],
     });
 
-    expect(result.nodes).toEqual([{ id: "A", x: 8, y: 8, width: 100, height: 40 }]);
-    expect(result.width).toBe(116);
-    expect(result.height).toBe(56);
+    expect(result.nodes).toEqual([
+      { id: "A", x: DAGRE_MARGIN, y: DAGRE_MARGIN, width: 100, height: 40 },
+    ]);
+    expect(result.width).toBe(100 + 2 * DAGRE_MARGIN);
+    expect(result.height).toBe(40 + 2 * DAGRE_MARGIN);
   });
+
+  // A frame's self-loop is synthesised outside the bounds dagre reports (the
+  // lane dagre reserves for it is inside the cluster), so the bounds are
+  // grown to hold it. Mermaid routes loops through dagre, whose margin then
+  // lies beyond the loop too; grown here, the margin has to be added back.
+  for (const rankdir of ["TB", "LR"] as const) {
+    it(`is 8 past the far side of a frame's self-loop that reaches beyond dagre's bounds, laid out ${rankdir}`, () => {
+      const result = layoutDirectedGraph({
+        rankdir,
+        nodes: [
+          { id: "one", width: 0, height: 0, isCluster: true },
+          { id: "A", width: 40, height: 20, parentId: "one" },
+        ],
+        edges: [{ id: "one-one", from: "one", to: "one" }],
+      });
+
+      const loop = result.edges[0].points;
+      const frame = result.nodes.find((n) => n.id === "one")!;
+      if (rankdir === "TB") {
+        const tip = Math.max(...loop.map((p) => p.x));
+        // The premise: the loop does reach past the frame's own right side.
+        expect(tip).toBeGreaterThan(frame.x + frame.width + DAGRE_MARGIN);
+        expect(result.width).toBe(tip + DAGRE_MARGIN);
+      } else {
+        const tip = Math.max(...loop.map((p) => p.y));
+        expect(tip).toBeGreaterThan(frame.y + frame.height + DAGRE_MARGIN);
+        expect(result.height).toBe(tip + DAGRE_MARGIN);
+      }
+    });
+  }
 });
 
 describe("layoutDirectedGraph", () => {
@@ -79,13 +114,13 @@ describe("layoutDirectedGraph", () => {
     // 8 in from the origin and from the far edge on both axes — the margin.
     const xs = result.nodes.map((n) => n.x);
     const ys = result.nodes.map((n) => n.y);
-    expect(Math.min(...xs)).toBe(8);
-    expect(Math.min(...ys)).toBe(8);
+    expect(Math.min(...xs)).toBe(DAGRE_MARGIN);
+    expect(Math.min(...ys)).toBe(DAGRE_MARGIN);
     expect(Math.max(...result.nodes.map((n) => n.x + n.width))).toBe(
-      result.width - 8,
+      result.width - DAGRE_MARGIN,
     );
     expect(Math.max(...result.nodes.map((n) => n.y + n.height))).toBe(
-      result.height - 8,
+      result.height - DAGRE_MARGIN,
     );
 
     // The edge is routed as a path from the source's boundary to the target's.
@@ -678,9 +713,10 @@ function inside(box: DirectedGraphLayoutNodeBox, point: Point): boolean {
  * is being pinned is "not one of these moved", and an inequality that held
  * either side of a shift would not pin it.
  *
- * Since dagre was given Mermaid's `marginx`/`marginy: 8` (T5), every number
- * below is the pre-margin one translated by +8, and every graph extent is
- * 16 larger — the margin on both sides.
+ * Since dagre was given Mermaid's `marginx`/`marginy: 8`
+ * (`01M4QA7Z97WNBF2PJZKJFKDV4T`), every number below is the pre-margin one
+ * translated by +8, and every graph extent is 16 larger — the margin on both
+ * sides.
  */
 describe("the coordinates an edge that is not a self-loop is drawn at", () => {
   it("are what they were, for a chain with a self-loop in the middle of it", () => {
@@ -747,8 +783,8 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
       { x: 188, y: 18 },
     ]);
     // The lane is reserved on the other axis under `LR` — 60 tall (76 with
-    // the margin) for one row of 20-tall boxes — which is why the two directions are pinned
-    // separately.
+    // the margin) for one row of 20-tall boxes — which is why the two
+    // directions are pinned separately.
     expect(result.nodes).toEqual([
       { id: "X", x: 8, y: 8, width: 40, height: 20 },
       { id: "Y", x: 98, y: 8, width: 40, height: 20 },
@@ -803,8 +839,9 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
       { x: 28, y: 88 },
     ]);
     // On the route's own middle point, `labelpos: "c"`. It was `{ x: 45 }`
-    // (53 with today's margin) under dagre's default `"r"`: 15 (half the label) plus `labeloffset`
-    // 10 to the right of the line, which the points above never moved with.
+    // (53 with the margin) under dagre's default `"r"`: 15 (half the label)
+    // plus `labeloffset` 10 to the right of the line, which the points above
+    // never moved with.
     expect(route.labelAnchor).toEqual({ x: 28, y: 58 });
   });
 });
