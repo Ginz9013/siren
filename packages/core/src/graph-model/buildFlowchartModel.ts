@@ -11,7 +11,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { CURVES, DEFAULT_CURVE, type Curve } from "../renderer/connectorCurve";
+import { CURVES, DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
@@ -350,19 +350,27 @@ function assignEdgeIds(
 }
 
 /**
+ * The two tiers a `linkStyle` document has: `default`'s fallback, and the
+ * numbered statements that beat it for the edges they name.
+ */
+type LinkStyleTier = "fallback" | "specific";
+
+/**
+ * One value per tier, each made fresh by `make` — the one shape both things
+ * a `linkStyle` says (its declarations, its curve) are sorted into, so each
+ * caller writes `tiers[tier]` rather than choosing between two variables.
+ */
+function byTier<T>(make: () => T): Record<LinkStyleTier, T> {
+  return { fallback: make(), specific: make() };
+}
+
+/**
  * One `linkStyle` statement with its addresses spent: the edge ids it names
  * and the tier it sits on.
- *
- * A statement lands in `fallback` when it names `default` and in `specific`
- * otherwise. A statement naming `default` beside an index is wholly a
- * fallback statement: `default` already covers every edge of that same
- * statement, index included, with those same declarations, so the index
- * changes nothing it says — it only still has to resolve, so that an index
- * naming no edge is diagnosed rather than waved through.
  */
 interface AddressedLinkStyle {
   linkStyle: LinkStyleDecl;
-  tier: "fallback" | "specific";
+  tier: LinkStyleTier;
   targetIds: string[];
 }
 
@@ -376,6 +384,14 @@ interface AddressedLinkStyle {
  * its declaration position and everything downstream of the model addresses
  * it by id, so one of the two has to end somewhere; it ends here, in the
  * one function that can see both.
+ *
+ * It is also where a statement's tier is decided. A statement lands in
+ * `fallback` when it names `default` and in `specific` otherwise. A
+ * statement naming `default` beside an index is wholly a fallback statement:
+ * `default` already covers every edge of that same statement, index
+ * included, with those same declarations, so the index changes nothing it
+ * says — it only still has to resolve, so that an index naming no edge is
+ * diagnosed rather than waved through.
  */
 function addressLinkStyles(
   linkStyles: readonly LinkStyleDecl[],
@@ -405,9 +421,8 @@ function addressLinkStyles(
  */
 function asStyleDeclarations(
   addressed: readonly AddressedLinkStyle[],
-): { fallback: StyleDecl[]; specific: StyleDecl[] } {
-  const fallback: StyleDecl[] = [];
-  const specific: StyleDecl[] = [];
+): Record<LinkStyleTier, StyleDecl[]> {
+  const tiers = byTier<StyleDecl[]>(() => []);
 
   for (const { linkStyle, tier, targetIds } of addressed) {
     const declaration: StyleDecl = {
@@ -422,10 +437,10 @@ function asStyleDeclarations(
     // Every statement reaches exactly one tier, so the gate inside
     // `resolveStyles` still sees each written declaration once and a
     // refused value is still reported once, at the line that wrote it.
-    (tier === "fallback" ? fallback : specific).push(declaration);
+    tiers[tier].push(declaration);
   }
 
-  return { fallback, specific };
+  return tiers;
 }
 
 /**
@@ -448,20 +463,20 @@ function resolveCurves(
   // `null` is a statement that chose a curve Siren cannot draw: it still
   // takes its tier's place for the edges it names, so the edge falls through
   // to the tier below rather than to an earlier statement of its own tier.
-  const fallback = new Map<string, Curve | null>();
-  const specific = new Map<string, Curve | null>();
+  const tiers = byTier(() => new Map<string, Curve | null>());
   for (const { linkStyle, tier, targetIds } of addressed) {
-    if (linkStyle.interpolate === undefined) {
+    const { interpolate, line, column } = linkStyle;
+    if (interpolate === undefined) {
       continue;
     }
-    const curve = drawableCurve(linkStyle, diagnostics);
+    const curve = drawableCurve(interpolate, line, column, diagnostics);
     for (const id of targetIds) {
-      (tier === "fallback" ? fallback : specific).set(id, curve);
+      tiers[tier].set(id, curve);
     }
   }
 
   const curves = new Map<string, Curve>();
-  for (const tier of [fallback, specific]) {
+  for (const tier of [tiers.fallback, tiers.specific]) {
     for (const [id, curve] of tier) {
       if (curve !== null) {
         curves.set(id, curve);
@@ -470,20 +485,6 @@ function resolveCurves(
   }
   return curves;
 }
-
-/**
- * The curves Mermaid 11.17.2 draws that Siren does not implement yet — the
- * rest of the `switch` in mermaid's `insertEdge`, beside the six `CURVES`.
- */
-const MERMAID_ONLY_CURVES: ReadonlySet<string> = new Set([
-  "cardinal",
-  "bumpX",
-  "bumpY",
-  "catmullRom",
-  "monotoneX",
-  "monotoneY",
-  "natural",
-]);
 
 /**
  * The curve an `interpolate` clause's name draws, diagnosing the two names
@@ -496,14 +497,18 @@ const MERMAID_ONLY_CURVES: ReadonlySet<string> = new Set([
  *   that is the picture Mermaid draws for it, so Siren can match it and
  *   only needs to say the name was not a curve.
  */
-function drawableCurve(linkStyle: LinkStyleDecl, diagnostics: Diagnostic[]): Curve | null {
-  const name = linkStyle.interpolate!;
-  if (MERMAID_ONLY_CURVES.has(name)) {
+function drawableCurve(
+  name: string,
+  line: number | undefined,
+  column: number | undefined,
+  diagnostics: Diagnostic[],
+): Curve | null {
+  if (isMermaidOnlyCurve(name)) {
     diagnostics.push({
       severity: "error",
       message: `linkStyle interpolate "${name}" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.`,
-      line: linkStyle.line,
-      column: linkStyle.column,
+      line,
+      column,
     });
     return null;
   }
@@ -514,17 +519,12 @@ function drawableCurve(linkStyle: LinkStyleDecl, diagnostics: Diagnostic[]): Cur
     diagnostics.push({
       severity: "warning",
       message: `linkStyle interpolate "${name}" names no curve; drawing ${DEFAULT_CURVE}, as Mermaid does. Curves: ${CURVES.join(", ")}.`,
-      line: linkStyle.line,
-      column: linkStyle.column,
+      line,
+      column,
     });
     return DEFAULT_CURVE;
   }
   return name;
-}
-
-/** Whether `name` is one of the curves Siren draws, spelled exactly — Mermaid's match is case-sensitive too. */
-function isCurve(name: string): name is Curve {
-  return (CURVES as readonly string[]).includes(name);
 }
 
 /** A zero-based edge declaration index, and nothing else — not `-1`, not `1.5`. */

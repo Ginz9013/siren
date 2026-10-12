@@ -7,10 +7,11 @@ import type {
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
+import { DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
-import { DEFAULT_CURVE, drawConnectorRoute } from "./connectorCurve";
+import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";

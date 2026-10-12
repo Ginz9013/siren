@@ -6,9 +6,10 @@ import type {
   PositionedStateTransition,
   StyleProperty,
 } from "../contracts";
+import { DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel } from "../label/drawPlaced";
-import { DEFAULT_CURVE, drawConnectorRoute } from "./connectorCurve";
+import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 

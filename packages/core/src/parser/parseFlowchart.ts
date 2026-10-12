@@ -1365,6 +1365,10 @@ const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
  * - The curve name is any run of non-space characters, where Mermaid's is
  *   its `alphaNum` token run. No curve name either side recognizes contains
  *   anything else, and an unrecognized one is diagnosed by the model.
+ * - An index past the last edge: Mermaid's `updateLinkInterpolate` has no
+ *   bounds check (unlike `updateLink`), so it throws a `TypeError` writing
+ *   to `this.edges[pos].interpolate`. Siren reports the index error every
+ *   `linkStyle` gets (`buildFlowchartModel`) and draws the rest.
  * - `interpolate` is matched case-sensitively, as Mermaid's lexer
  *   (`/^(?:interpolate\b)/`) does. The address list is lazy so that it
  *   stops at the first `interpolate`.
@@ -1560,6 +1564,31 @@ export function parseFlowchart(source: string): ParseResult {
     }
     return properties;
   };
+
+  /**
+   * One `linkStyle` statement, in either spelling — plain, or with an
+   * `interpolate` clause — built in one place so the two cannot drift.
+   *
+   * The addresses go through untouched — see `LINK_STYLE_RE` — and so does
+   * the curve name: which edges an address names, and which names Siren
+   * draws, are the model's questions. The declarations do not: they are read
+   * by the same splitter `style` and `classDef` use, so all three statements
+   * accept one declaration list and diagnose a bad segment in one wording.
+   */
+  const readLinkStyle = (
+    addresses: string,
+    declarations: string | undefined,
+    lineNumber: number,
+    column: number,
+    interpolate?: string,
+  ): LinkStyleDecl => ({
+    targets: splitTargetIds(addresses),
+    ...(interpolate === undefined ? {} : { interpolate }),
+    properties:
+      declarations === undefined ? [] : readStyleProperties(declarations, lineNumber, column),
+    line: lineNumber,
+    column,
+  });
 
   /**
    * Records the `:::name` shorthand as what it is: the apply-directive,
@@ -2056,34 +2085,15 @@ export function parseFlowchart(source: string): ParseResult {
 
       const interpolateMatch = LINK_STYLE_INTERPOLATE_RE.exec(line);
       if (interpolateMatch !== null) {
-        // The curve name goes through as written, like the addresses: which
-        // names Siren draws is the model's question. Declarations after it
-        // are read exactly as a plain `linkStyle`'s are.
-        linkStyles.push({
-          targets: splitTargetIds(interpolateMatch[1]),
-          interpolate: interpolateMatch[2],
-          properties:
-            interpolateMatch[3] === undefined
-              ? []
-              : readStyleProperties(interpolateMatch[3], lineNumber, column),
-          line: lineNumber,
-          column,
-        });
+        linkStyles.push(
+          readLinkStyle(interpolateMatch[1], interpolateMatch[3], lineNumber, column, interpolateMatch[2]),
+        );
         continue;
       }
 
       const linkStyleMatch = LINK_STYLE_RE.exec(line);
       if (linkStyleMatch !== null) {
-        // The address goes through untouched — see `LINK_STYLE_RE`. The
-        // declarations do not: they are read by the same splitter `style` and
-        // `classDef` use, so all three statements accept one declaration list
-        // and diagnose a bad segment in one wording.
-        linkStyles.push({
-          targets: splitTargetIds(linkStyleMatch[1]),
-          properties: readStyleProperties(linkStyleMatch[2], lineNumber, column),
-          line: lineNumber,
-          column,
-        });
+        linkStyles.push(readLinkStyle(linkStyleMatch[1], linkStyleMatch[2], lineNumber, column));
         continue;
       }
 

@@ -21,21 +21,13 @@
  */
 
 import type { Point } from "../contracts";
+import type { Curve } from "../curve/curve";
 
 /**
- * Every curve a connector can be drawn with, by its Mermaid name. Exported
- * as a value so a parser can tell a supported name from any other.
+ * Re-exported for `compat/layoutDefects.test.ts`, which draws with it beside
+ * `connectorPathData`; the names themselves live in `curve/curve.ts`.
  */
-export const CURVES = ["basis", "linear", "step", "stepBefore", "stepAfter", "rounded"] as const;
-
-/** How a connector's routed points are joined into the drawn line. */
-export type Curve = (typeof CURVES)[number];
-
-/**
- * The curve every connector is drawn with unless told otherwise — Mermaid's
- * default, `basis`, for all four directed-graph kinds.
- */
-export const DEFAULT_CURVE: Curve = "basis";
+export { DEFAULT_CURVE } from "../curve/curve";
 
 /** The corner radius `rounded` draws with — mermaid's, passed as `5`. */
 const ROUNDED_ARCHIV = 5;

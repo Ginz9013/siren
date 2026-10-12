@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connectorPathData, CURVES } from "./connectorCurve";
+import { CURVES } from "../curve/curve";
+import { connectorPathData } from "./connectorCurve";
 
 // Expected values are worked by hand from the two definitions the curves
 // copy, never read back from this module:

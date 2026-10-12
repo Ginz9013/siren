@@ -98,7 +98,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  * here so every other module still finds its cross-module types in one place.
  */
 import type { Label, LabelBox, PlacedLabel } from "./label/label";
-import type { Curve } from "./renderer/connectorCurve";
+import type { Curve } from "./curve/curve";
 
 export type {
   Label,
