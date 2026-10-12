@@ -1377,6 +1377,32 @@ describe("the label drawn on an edge", () => {
     expect(at).toBeLessThan(all.indexOf(svg.querySelector("text.siren-edge-label")!));
   });
 
+  it("paints the background over a wrapped label's whole box, every row inside it", () => {
+    // T2: an edge label wider than 150px of 12px text is wrapped by layout,
+    // and the background covers the wrapped box — the wrap width plus the
+    // measurer's padding, and both rows — not the one long row it was
+    // written as. Through the public `render()`, whose default measurer is
+    // 8px a character plus 16px, 24px a line plus 8px, at 14px; at the 12px
+    // an edge label is drawn at that is 12/14 of each, so 21 characters fit
+    // in 150px and 22 do not.
+    const container = document.createElement("div");
+    const { svg } = render("flowchart TD\nA -->|alpha beta gamma delta epsilon zeta| B\n", container);
+
+    const text = svg!.querySelector("text.siren-edge-label")!;
+    expect(Array.from(text.querySelectorAll("tspan.siren-label-row")).map((row) => row.textContent)).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    const background = svg!.querySelector("rect.siren-connector-label-background")!;
+    const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(background.getAttribute(name)));
+    expect(width).toBeCloseTo(150 + (16 * 12) / 14, 3);
+    // One measured line at 12px, and the second row's 12 × 1.5 = 18px.
+    expect(height).toBeCloseTo((32 * 12) / 14 + 18, 3);
+    // Centred on the label's anchor, where its text is drawn.
+    expect(x + width / 2).toBeCloseTo(Number(text.getAttribute("x")), 3);
+    expect(y + height / 2).toBeCloseTo(Number(text.getAttribute("y")), 3);
+  });
+
   it("gives the background no paint of its own, so the theme fills it and an author's text color stays on the text", () => {
     // `linkStyle 0 color:#f00` paints the label's text, as Mermaid does; the
     // background is the theme's `--siren-edge-label-fill` and nothing else.

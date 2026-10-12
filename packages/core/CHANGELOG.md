@@ -47,6 +47,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   can change. A subgraph's title is not wrapped. The width is fixed: `flowchart.wrappingWidth` is
   not read. `PositionedNode.label` is the wrapped label (its rows are what is drawn); `wrapLabel`
   and `wrapWidthAt` are internal.
+- **A flowchart edge's label wraps** too, once its text is wider than 150px: Mermaid's 200px
+  scaled to the 12px an edge label is drawn at, by the same rules as a node's. A wrapped edge
+  label's text is 150px wide and its box that plus the measurer's padding (scaled to 12px); its
+  background covers the wrapped box, and dagre keeps that box clear, so a diagram with long edge
+  labels is laid out differently. `PositionedEdge.label.label` is the wrapped label.
 - **A label's rows are closer together**: one line apart, a line being 1.5 times the size the
   label is drawn at, as Mermaid's HTML labels draw 16px text on 24px lines (measured). A node's,
   a class's, a state's or a subgraph title's rows are 21px apart (14px), a connector label's 18px

@@ -2858,6 +2858,38 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-edge-label-wrap",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[Start] -->|this edge label is long enough to go well past two hundred pixels wide| B[End]`,
+    status: "supported",
+    meaning:
+      "An edge label wider than Mermaid's wrapping width (200px of its 16px " +
+      "text) is wrapped as a node's is: mermaid 11.17.2 draws `this edge " +
+      "label is long ` / `enough to go well past two ` / `hundred pixels " +
+      "wide` in a 200px-wide `<div>` (measured). Siren draws an edge label " +
+      "at 12px, so it wraps at 150px of text, the same number of characters " +
+      "to a row, and the label's background covers the wrapped box.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character and
+      // 16px of padding, so 21 characters fit in 150px and 22 do not.
+      const text = svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]');
+      expectSame("label rows", labelRows(text), [
+        "this edge label is",
+        "long enough to go",
+        "well past two hundred",
+        "pixels wide",
+      ]);
+      // The background is the wrapped box: 150px of text and the padding.
+      const background = svgOf(result).querySelector('rect.siren-connector-label-background[data-siren-id="A-B"]')!;
+      expectSame(
+        "background width",
+        Math.round(Number(background.getAttribute("width")) * 1000) / 1000,
+        Math.round((150 + (16 * 12) / 14) * 1000) / 1000,
+      );
+    },
+  },
+  {
     id: "fc-subgraph-title-no-wrap",
     kind: "flowchart",
     source: `flowchart TD

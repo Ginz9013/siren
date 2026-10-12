@@ -75,6 +75,9 @@ flowchart LR
 - Chains: `A --> B --> C`. Fan-out and fan-in: `A --> B & C`, `B & C --> D`.
 - `;` separates statements on one line: `A --> B; B --> C`.
 - Each edge gets its own id, `A-B`, and repeats of the same pair get `A-B#2`, ...
+- A long edge label wraps by itself, as a node label does, once its text is wider than 150px
+  (Mermaid's 200px at 16px, scaled to the 12px an edge label is drawn at). `<br>` still forces a
+  row break.
 
 ### Subgraphs
 

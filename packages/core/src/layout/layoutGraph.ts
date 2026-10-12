@@ -15,8 +15,8 @@ import {
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
 import { BASE_FONT_SIZE_PX, wrapWidthAt } from "../label/label";
-import { layoutConnectorLabel, layoutLabel } from "../label/layoutLabel";
-import { wrapLabel } from "../label/wrapLabel";
+import { layoutLabel } from "../label/layoutLabel";
+import { wrapConnectorLabel, wrapLabel } from "../label/wrapLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
 const SUBGRAPH_PADDING = 12;
@@ -263,11 +263,13 @@ export function layoutGraph(
     graph.subgraphs.map((subgraph) => [subgraph.id, layoutLabel(subgraph.label, options.measureText)]),
   );
 
-  // At the 12px an edge label is drawn at, not the node's 14px: the box
-  // handed to dagre below and the one the renderer draws in are this one.
-  const edgeLabelBoxById = new Map(
+  // At the 12px an edge label is drawn at, not the node's 14px, and wrapped
+  // at Mermaid's 200px scaled to that size (the label-wrap ADR, nook
+  // `01M4R4WDZ`): the box handed to dagre below and the one the renderer
+  // draws in are this one, and the rows drawn are the wrapped label's.
+  const wrappedEdgeLabelById = new Map(
     graph.edges.flatMap((edge) =>
-      edge.label === null ? [] : [[edge.id, layoutConnectorLabel(edge.label, options.measureText)] as const],
+      edge.label === null ? [] : [[edge.id, wrapConnectorLabel(edge.label, options.measureText)] as const],
     ),
   );
 
@@ -346,7 +348,7 @@ export function layoutGraph(
       // piece of text in this pipeline goes through, so a long label
       // reserves more room than a short one for the same reason a long node
       // label makes a wider box.
-      ...(edge.label === null ? {} : { label: edgeLabelBoxById.get(edge.id)! }),
+      ...(edge.label === null ? {} : { label: wrappedEdgeLabelById.get(edge.id)!.labelBox }),
     })),
   });
 
@@ -422,7 +424,7 @@ export function layoutGraph(
       label:
         edge.label === null || route.labelAnchor === undefined
           ? null
-          : { label: edge.label, labelBox: edgeLabelBoxById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
+          : { ...wrappedEdgeLabelById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
     };
   });
 

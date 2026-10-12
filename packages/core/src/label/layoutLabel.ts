@@ -132,7 +132,8 @@ export interface LineSpacing {
  * measurer scaled to that size (`atConnectorLabelSize`) and rows a 12px
  * line apart (12 × 1.5 = 18px), the two always together, since a line
  * height for one size with a measurer for another would pad the label by
- * the difference.
+ * the difference. A connector label that wraps is laid out by
+ * `wrapConnectorLabel` (`wrapLabel.ts`), which pairs the same two.
  */
 export function layoutConnectorLabel(label: Label, measureText: TextMeasurer): LabelBox {
   return layoutLabel(label, atConnectorLabelSize(measureText), { fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX });

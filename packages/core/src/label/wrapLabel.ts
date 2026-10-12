@@ -1,6 +1,13 @@
 import type { TextMeasurer } from "../contracts";
-import type { Label, LabelBox, LabelRun } from "./label";
-import { layoutLabel, measurerPadding } from "./layoutLabel";
+import {
+  atConnectorLabelSize,
+  CONNECTOR_LABEL_FONT_SIZE_PX,
+  wrapWidthAt,
+  type Label,
+  type LabelBox,
+  type LabelRun,
+} from "./label";
+import { layoutLabel, measurerPadding, type LineSpacing } from "./layoutLabel";
 
 /**
  * Wraps a label at `wrapWidth` and measures what is drawn: the **Wrap** of
@@ -44,14 +51,17 @@ import { layoutLabel, measurerPadding } from "./layoutLabel";
  * `\n`, as `Label.text` is defined. Pure: nothing is written to `label`.
  *
  * Which labels wrap, and at what width, is the caller's: `wrapWidthAt`
- * gives the width for the size a label is drawn at.
+ * gives the width for the size a label is drawn at. `spacing` is
+ * `layoutLabel`'s, and has to match the size `measureText` measures at; a
+ * connector's label is wrapped with both by `wrapConnectorLabel`.
  */
 export function wrapLabel(
   label: Label,
   measureText: TextMeasurer,
   wrapWidth: number | undefined,
+  spacing: LineSpacing = {},
 ): { label: Label; labelBox: LabelBox } {
-  const box = layoutLabel(label, measureText);
+  const box = layoutLabel(label, measureText, spacing);
   if (wrapWidth === undefined) {
     return { label, labelBox: box };
   }
@@ -70,7 +80,7 @@ export function wrapLabel(
   const widest = Math.max(...rows.map((row) => drawnWidth(row, measureText)));
   return {
     label: wrapped,
-    labelBox: { ...layoutLabel(wrapped, measureText), width: Math.max(paddedWrapWidth, widest) },
+    labelBox: { ...layoutLabel(wrapped, measureText, spacing), width: Math.max(paddedWrapWidth, widest) },
   };
 }
 
@@ -196,4 +206,22 @@ function drawnWidth(row: LabelRun[], measureText: TextMeasurer): number {
 /** `layoutLabel`'s width for a label of the one row `row`. */
 function widthOf(row: LabelRun[], measureText: TextMeasurer): number {
   return layoutLabel({ text: "", rows: [row] }, measureText).width;
+}
+
+/** A connector's label wraps at Mermaid's 200px scaled to the 12px it is drawn at: 150px of text. */
+const CONNECTOR_LABEL_WRAP_WIDTH = wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX);
+
+/**
+ * Wraps a connector's label — a flowchart edge's, and by the label-wrap ADR
+ * a state transition's and a class or ER relationship's — at the 12px it is
+ * drawn at: `layoutConnectorLabel`'s measurer and line spacing, and the wrap
+ * width for that size (150px of text), all three together, so no caller can
+ * pair a width, a measurer and a line height meant for different sizes.
+ * Here rather than beside `layoutConnectorLabel` because `layoutLabel.ts`
+ * is what this module is built on.
+ */
+export function wrapConnectorLabel(label: Label, measureText: TextMeasurer): { label: Label; labelBox: LabelBox } {
+  return wrapLabel(label, atConnectorLabelSize(measureText), CONNECTOR_LABEL_WRAP_WIDTH, {
+    fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX,
+  });
 }

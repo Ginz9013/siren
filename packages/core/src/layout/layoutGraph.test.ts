@@ -928,6 +928,33 @@ describe("the room an edge label is given", () => {
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
   });
 
+  // T2: an edge label wraps at Mermaid's 200px scaled to the 12px it is
+  // drawn at, 150px of text (decision 1); once wrapped its box is that width
+  // plus the measurer's padding (none here), and the positioned edge carries
+  // the wrapped rows for the renderer to draw. `fakeMeasurer` at 12px is
+  // 8 × 12/14 ≈ 6.86px a character, so 21 characters fit and 22 do not.
+  it("wraps an edge label wider than 150px at its spaces, and the edge carries the wrapped rows", () => {
+    const [edge] = laidOut("alpha beta gamma delta epsilon zeta").edges;
+
+    // `alpha beta gamma delta` is 22 characters, about 151px.
+    expect(edge.label!.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    expect(edge.label!.labelBox.width).toBe(150);
+    expect(edge.label!.labelBox.rows).toHaveLength(2);
+    // One measured line at 12px, and a second 18px row.
+    expect(edge.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
+  });
+
+  it("leaves an edge label of 150px or less on one row", () => {
+    // 21 characters, 144px at 12px.
+    const [edge] = laidOut("alpha beta gamma delt").edges;
+
+    expect(edge.label!.label.rows).toHaveLength(1);
+    expect(edge.label!.labelBox.width).toBeCloseTo(21 * 8 * CONNECTOR_LABEL_SCALE, 6);
+  });
+
   // An edge label is drawn at 12px, so its line is 12 × 1.5 = 18px — Mermaid's
   // 24px line at 16px, scaled to the size the label is drawn at.
   it("spaces a <br> edge label's rows 18px apart, the 12px it is drawn at times 1.5", () => {

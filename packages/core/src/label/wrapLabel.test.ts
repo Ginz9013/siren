@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { TextMeasurer } from "../contracts";
-import { layoutLabel } from "./layoutLabel";
+import { layoutConnectorLabel, layoutLabel } from "./layoutLabel";
 import { readLabel } from "./readLabel";
-import { wrapLabel } from "./wrapLabel";
+import { wrapConnectorLabel, wrapLabel } from "./wrapLabel";
 
 /**
  * 10px a character, 20px a row, and 10px of the measurer's own padding on
@@ -240,5 +240,79 @@ describe("wrapLabel's rows", () => {
     const wrapped = wrapLabel(label, measurer, 50);
 
     expect(rowTexts(wrapped.label)).toEqual(["  abcdefgh", "ij"]);
+  });
+});
+
+describe("wrapLabel's line spacing", () => {
+  // T2 (connector labels): a label drawn at another size than the 14px base
+  // is laid out a line of that size apart, wrapped or not, as `layoutLabel`
+  // lays it out with the same `LineSpacing`.
+  it("lays the wrapped rows out at the line spacing it is given", () => {
+    const { label } = readLabel("alpha beta gamma delta", { dialect: "html" });
+
+    const wrapped = wrapLabel(label, measurer, 100, { fontSizePx: 12 });
+
+    // The rows of the Latin case above, each a 12 × 1.5 = 18px line, padded
+    // once by the measurer's 20 − 18 = 2px: 1px above, 1px below.
+    expect(rowTexts(wrapped.label)).toEqual(["alpha beta", "gamma", "delta"]);
+    expect(wrapped.labelBox.rows.map((row) => [row.y, row.height])).toEqual([
+      [10, 18],
+      [28, 18],
+      [46, 18],
+    ]);
+    expect(wrapped.labelBox.height).toBe(56);
+    expect(wrapped.labelBox.width).toBe(110);
+  });
+
+  it("measures a label that needs no wrapping at that spacing too", () => {
+    const { label } = readLabel("ab<br>cd", { dialect: "html" });
+
+    const wrapped = wrapLabel(label, measurer, 100, { fontSizePx: 12 });
+
+    expect(wrapped.label).toBe(label);
+    // Two 18px lines and the measurer's 2px of padding.
+    expect(wrapped.labelBox.height).toBe(38);
+    expect(wrapped.labelBox).toEqual(layoutLabel(label, measurer, { fontSizePx: 12 }));
+  });
+});
+
+describe("wrapConnectorLabel", () => {
+  // T2: a connector's label is drawn at 12px, so it wraps at Mermaid's 200px
+  // scaled to 12px — 150px of text (decision 1) — measured at 12px and laid
+  // out on 12 × 1.5 = 18px lines, the three always together.
+  //
+  // 14px a character, 14px of padding and a 28px line at the measurer's
+  // 14px: at 12px that is 12px a character, 12px of padding and 24px.
+  const measurer14: TextMeasurer = {
+    measure(text: string) {
+      return { width: Array.from(text).length * 14 + 14, height: 28 };
+    },
+  };
+
+  it("wraps at 150px of 12px text, on 18px lines", () => {
+    const { label } = readLabel("alpha beta gamma delta", { dialect: "html" });
+
+    const wrapped = wrapConnectorLabel(label, measurer14);
+
+    // 150px holds 12 of these 12px characters: `alpha beta` (10) fits and
+    // ` gamma` would make 16; `gamma delta` is 11.
+    expect(rowTexts(wrapped.label)).toEqual(["alpha beta", "gamma delta"]);
+    // The wrap width plus the 12px padding.
+    expect(wrapped.labelBox.width).toBe(162);
+    // Two 18px lines, padded once by 24 − 18 = 6px: 3px above, 3px below.
+    expect(wrapped.labelBox.rows.map((row) => [row.y, row.height])).toEqual([
+      [12, 18],
+      [30, 18],
+    ]);
+    expect(wrapped.labelBox.height).toBe(42);
+  });
+
+  it("measures a connector label that fits exactly as layoutConnectorLabel does", () => {
+    const { label } = readLabel("yes<br>no", { dialect: "html" });
+
+    const wrapped = wrapConnectorLabel(label, measurer14);
+
+    expect(wrapped.label).toBe(label);
+    expect(wrapped.labelBox).toEqual(layoutConnectorLabel(label, measurer14));
   });
 });

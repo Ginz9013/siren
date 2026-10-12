@@ -326,6 +326,19 @@ describe("the garden-network diagram, under the default measurer", () => {
     expect(overlappingLabels(svg, drawnRow)).toEqual([]);
   });
 
+  // T2: an edge label wraps at 150px of its 12px text, and the two checks
+  // above read every drawn row, so they hold for the wrapped label too. Under
+  // the default measurer (8 × 12/14 px a character) 21 characters fit and 22
+  // do not: `volunteer / plot-signup`, 23, is garden-network's one edge label that
+  // wraps, broken at its spaces.
+  it("wraps its one edge label wider than 150px of 12px text", () => {
+    const wrapped = Array.from(svg.querySelectorAll("text.siren-edge-label"))
+      .map((text) => labelRows(text))
+      .filter((rows) => rows.length > 1);
+
+    expect(wrapped).toEqual([["volunteer /", "plot-signup"]]);
+  });
+
   // The label-wrap ADR: a node's label wraps at 175px of text, so no drawn
   // row of one holds more — except a single piece too long to break, which
   // overflows; garden-network has no such piece, so the exceptions are none. The
