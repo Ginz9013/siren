@@ -17,8 +17,8 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
-import { atConnectorLabelSize, plainLabel } from "../label/label";
-import { CONNECTOR_LINE, layoutLabel } from "../label/layoutLabel";
+import { plainLabel } from "../label/label";
+import { layoutConnectorLabel, layoutLabel } from "../label/layoutLabel";
 
 /** Horizontal padding between a state box's edge and its widest label. */
 const STATE_PADDING_X = 14;
@@ -171,17 +171,15 @@ export function layoutStateDiagram(
   const noteLabelBoxById = new Map(notedStates.map(({ state, labelBox }) => [state.id, labelBox]));
 
   /**
-   * Each labelled transition's label as `layoutLabel` measured it at the
-   * 12px it is drawn at (`atConnectorLabelSize`), by the
-   * transition's id — measured once, so the box the core keeps clear and the
+   * Each labelled transition's label measured at the 12px it is drawn at
+   * (`layoutConnectorLabel`), by the transition's id — measured once, so the box the core keeps clear and the
    * box the renderer draws in are the same box.
    */
-  const transitionLabelMeasurer = atConnectorLabelSize(options.measureText);
   const transitionLabelBoxById = new Map(
     model.transitions.flatMap((transition) =>
       transition.label === null
         ? []
-        : [[transition.id, layoutLabel(transition.label, transitionLabelMeasurer, CONNECTOR_LINE)] as const],
+        : [[transition.id, layoutConnectorLabel(transition.label, options.measureText)] as const],
     ),
   );
 

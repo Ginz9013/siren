@@ -1,8 +1,8 @@
 import type { TextMeasurer } from "../contracts";
 import {
+  atConnectorLabelSize,
   BASE_FONT_SIZE_PX,
   CONNECTOR_LABEL_FONT_SIZE_PX,
-  LINE_HEIGHT_RATIO,
   measuredScale,
   type Label,
   type LabelBox,
@@ -37,7 +37,7 @@ import {
  * **Heights.** A row is as tall as its tallest run, and a run is one line
  * times its font-size scale (`measuredScale`: an author's absolute px size
  * counts as a scale of the 14px base). A line is Mermaid's: the size the
- * label is drawn at times its line-height ratio (`LabelLine`; 14px × 1.5 =
+ * label is drawn at times its line-height ratio (`LineSpacing`; 14px × 1.5 =
  * 21px unless the caller says otherwise) — never the measurer's height,
  * which is a line *plus* its padding and cannot say which is which. The
  * rows are stacked with no gap, and the measurer's vertical padding — its
@@ -68,8 +68,8 @@ import {
  *
  * Pure: no call leaves anything behind but the measurer's own.
  */
-export function layoutLabel(label: Label, measureText: TextMeasurer, line: LabelLine = {}): LabelBox {
-  const { fontSizePx = BASE_FONT_SIZE_PX, lineHeightRatio = LINE_HEIGHT_RATIO } = line;
+export function layoutLabel(label: Label, measureText: TextMeasurer, spacing: LineSpacing = {}): LabelBox {
+  const { fontSizePx = BASE_FONT_SIZE_PX, lineHeightRatio = LINE_HEIGHT_RATIO } = spacing;
   const measured = label.rows.map((row) =>
     row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run), spacing: spacingOf(run) })),
   );
@@ -104,42 +104,39 @@ export function layoutLabel(label: Label, measureText: TextMeasurer, line: Label
 }
 
 /**
- * The size a label is drawn at, which its line height follows: `layoutLabel`
- * cannot read it off `TextMeasurer`, which answers for a string and nothing
- * else. `fontSizePx` is the px a run of scale 1 is drawn at — the 14px base
- * (`BASE_FONT_SIZE_PX`) unless the caller says otherwise, as a connector
- * label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`) does. It has to be the size
- * `measureText` measures at, since the measurer's answer for one line is that
- * line plus its padding.
+ * A label line's height over its font size: Mermaid's HTML labels are 16px
+ * text on 24px lines (measured in headless Chrome, mermaid 11.17.2 — a
+ * flowchart node of two `<br>` rows is a 48px `<div>`, of five wrapped rows
+ * 120px; state, class and ER labels the same ratio at their own sizes). So
+ * a row of Siren's 14px text is 21px tall.
  */
-export interface LabelLine {
+export const LINE_HEIGHT_RATIO = 24 / 16;
+
+/**
+ * How far apart a label's rows are: `layoutLabel` cannot read it off
+ * `TextMeasurer`, which answers for a string and nothing else.
+ * `fontSizePx` is the px a run of scale 1 is drawn at — the 14px base
+ * (`BASE_FONT_SIZE_PX`) unless the caller says otherwise — and has to be
+ * the size `measureText` measures at, since the measurer's answer for one
+ * line is that line plus its padding. `lineHeightRatio` is a line's height
+ * over that size, `LINE_HEIGHT_RATIO` unless the caller says otherwise.
+ */
+export interface LineSpacing {
   fontSizePx?: number;
-  /** A line's height over its font size: `LINE_HEIGHT_RATIO` unless given. */
   lineHeightRatio?: number;
 }
 
 /**
- * A connector label's line: drawn at `CONNECTOR_LABEL_FONT_SIZE_PX`, and
- * measured with `atConnectorLabelSize`, so its rows are 12 × 1.5 = 18px.
+ * Measures a connector's label — a flowchart edge's, a class or ER
+ * relationship's, a state transition's — at the 12px it is drawn at: the
+ * measurer scaled to that size (`atConnectorLabelSize`) and rows a 12px
+ * line apart (12 × 1.5 = 18px), the two always together, since a line
+ * height for one size with a measurer for another would pad the label by
+ * the difference.
  */
-export const CONNECTOR_LINE: LabelLine = { fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX };
-
-/**
- * A sequence diagram's line for a message, a note, and a block's or a
- * divider's condition. Mermaid draws sequence text as SVG `<text>`, and these
- * rows sit 19px apart at 16px (measured in headless Chrome, mermaid 11.17.2:
- * a two-row message, note, `alt` condition and `else` condition alike) — not
- * the 1.5 of its HTML labels — so at Siren's 14px a row is 16.625px.
- */
-export const SEQUENCE_LINE: LabelLine = { lineHeightRatio: 19 / 16 };
-
-/**
- * A sequence diagram's line for a participant and a box's caption, which
- * Mermaid spaces closer than its other sequence text: one font size apart,
- * each row's `dy` 8px either side of the centre at 16px (measured, mermaid
- * 11.17.2). At Siren's 14px a row is 14px.
- */
-export const SEQUENCE_PARTICIPANT_LINE: LabelLine = { lineHeightRatio: 1 };
+export function layoutConnectorLabel(label: Label, measureText: TextMeasurer): LabelBox {
+  return layoutLabel(label, atConnectorLabelSize(measureText), { fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX });
+}
 
 /**
  * The padding `measureText` adds to every string it measures: its answer

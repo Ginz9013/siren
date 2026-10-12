@@ -1490,6 +1490,38 @@ describe("layoutSequence's labels", () => {
     expect(rows[1]!.y - rows[0]!.y).toBe(16.625);
   });
 
+  // A one-row label adds nothing to the band a message or a condition is
+  // laid out in: messages are MESSAGE_ROW_HEIGHT (40) apart, and a branch's
+  // first message sits a header or divider band (30) and a message row (40)
+  // below the block's top or the divider's line — however much of the
+  // measurer's answer for one line is padding rather than row.
+  it("keeps one-row messages and conditions where the bands alone put them", () => {
+    const block: ResolvedSequenceBlock = {
+      id: "alt:1",
+      kind: "alt",
+      touchedParticipantIds: ["A", "B"],
+      color: null,
+      branches: [
+        { label: rowsLabel("c"), statements: [labelled("m2", rowsLabel("x"))] },
+        { label: rowsLabel("e"), statements: [labelled("m3", rowsLabel("x"))] },
+      ],
+    };
+    const model: SequenceModel = {
+      ...coreModel(),
+      statements: [labelled("m0", rowsLabel("x")), labelled("m1", rowsLabel("x")), { kind: "block", block }],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const [m0, m1] = messagesOf(positioned);
+    const element = positioned.elements.find((e) => e.kind === "block");
+    if (element?.kind !== "block") throw new Error("expected a block");
+    const [m2, m3] = messagesOf({ elements: element.block.children });
+
+    expect(m1!.y - m0!.y).toBe(40);
+    expect(m2!.y - element.block.y).toBe(30 + 40);
+    expect(m3!.y - element.block.dividers[0]!.y).toBe(30 + 40);
+  });
+
   it("stands a message's label on its arrow, centred between its ends and clear of the arrow above", () => {
     const model: SequenceModel = {
       ...coreModel(),

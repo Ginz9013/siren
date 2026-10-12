@@ -14,8 +14,8 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
-import { atConnectorLabelSize, BASE_FONT_SIZE_PX, wrapWidthAt } from "../label/label";
-import { CONNECTOR_LINE, layoutLabel } from "../label/layoutLabel";
+import { BASE_FONT_SIZE_PX, wrapWidthAt } from "../label/label";
+import { layoutConnectorLabel, layoutLabel } from "../label/layoutLabel";
 import { wrapLabel } from "../label/wrapLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
@@ -265,10 +265,9 @@ export function layoutGraph(
 
   // At the 12px an edge label is drawn at, not the node's 14px: the box
   // handed to dagre below and the one the renderer draws in are this one.
-  const edgeLabelMeasurer = atConnectorLabelSize(options.measureText);
   const edgeLabelBoxById = new Map(
     graph.edges.flatMap((edge) =>
-      edge.label === null ? [] : [[edge.id, layoutLabel(edge.label, edgeLabelMeasurer, CONNECTOR_LINE)] as const],
+      edge.label === null ? [] : [[edge.id, layoutConnectorLabel(edge.label, options.measureText)] as const],
     ),
   );
 

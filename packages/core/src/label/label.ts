@@ -211,15 +211,6 @@ export function relativeScale(run: LabelRun): number | null {
 export const BASE_FONT_SIZE_PX = 14;
 
 /**
- * A label line's height over its font size: Mermaid's HTML labels are 16px
- * text on 24px lines (measured in headless Chrome, mermaid 11.17.2 — a
- * flowchart node of two `<br>` rows is a 48px `<div>`, of five wrapped rows
- * 120px; state, class and ER labels the same ratio at their own sizes). So
- * a row of Siren's 14px text is 21px tall.
- */
-export const LINE_HEIGHT_RATIO = 24 / 16;
-
-/**
  * The px a connector's label is drawn at: Siren's default
  * `--siren-label-font-size`, which `label.test.ts` holds this to. Every
  * connector label laid out by `layoutDirectedGraph` — a flowchart edge's

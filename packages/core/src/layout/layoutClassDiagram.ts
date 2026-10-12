@@ -16,8 +16,8 @@ import type {
   Label,
   LabelBox,
 } from "../contracts";
-import { atConnectorLabelSize, plainLabel } from "../label/label";
-import { CONNECTOR_LINE, layoutLabel } from "../label/layoutLabel";
+import { plainLabel } from "../label/label";
+import { layoutConnectorLabel, layoutLabel } from "../label/layoutLabel";
 import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
@@ -538,17 +538,15 @@ export function layoutClassDiagram(
   );
 
   /**
-   * Each labelled relationship's label as `layoutLabel` measured it at the
-   * 12px it is drawn at (`atConnectorLabelSize`), by the
-   * relationship's id — measured once, so the box the core keeps clear and
+   * Each labelled relationship's label measured at the 12px it is drawn at
+   * (`layoutConnectorLabel`), by the relationship's id — measured once, so the box the core keeps clear and
    * the box the renderer draws in are the same box.
    */
-  const relationshipLabelMeasurer = atConnectorLabelSize(options.measureText);
   const relationshipLabelBoxById = new Map(
     model.relationships.flatMap((rel) =>
       rel.label === null
         ? []
-        : [[rel.id, layoutLabel(rel.label, relationshipLabelMeasurer, CONNECTOR_LINE)] as const],
+        : [[rel.id, layoutConnectorLabel(rel.label, options.measureText)] as const],
     ),
   );
 

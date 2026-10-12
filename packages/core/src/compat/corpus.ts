@@ -4342,6 +4342,34 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-one-row-label-spacing",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: a
+      A->>B: b
+      alt c
+        A->>B: d
+      else e
+        A->>B: f
+      end`,
+    status: "supported",
+    meaning:
+      "A one-row message or condition takes no more room than its band: " +
+      "consecutive messages are one 40px message row apart, a block's first " +
+      "message sits its 20px margin, 30px header band and a message row below " +
+      "the message before it, and an `else` branch's first message a 10px gap, " +
+      "a 30px divider band and a message row below the last message of the " +
+      "branch before. Only a label's rows past the first add height — never " +
+      "the measurer's padding around them.",
+    assert: (result) => {
+      const arrowYs = elements(result, "g.siren-message").map((g) =>
+        Number(/,(-?[\d.]+)/.exec(g.querySelector("path")?.getAttribute("d") ?? "")?.[1]),
+      );
+      const gaps = arrowYs.slice(1).map((y, index) => y - arrowYs[index]!);
+      expectSame("gaps between the message arrows", gaps, [40, 20 + 30 + 40, 10 + 30 + 40]);
+    },
+  },
+  {
     id: "seq-participant-label-br",
     kind: "sequence",
     source: `sequenceDiagram

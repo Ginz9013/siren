@@ -20,7 +20,7 @@ import type {
   ResolvedSequenceStatement,
   SequenceModel,
 } from "../contracts";
-import { layoutLabel, SEQUENCE_LINE, SEQUENCE_PARTICIPANT_LINE } from "../label/layoutLabel";
+import { layoutLabel, type LineSpacing } from "../label/layoutLabel";
 
 /** Horizontal padding added around a participant's measured label. */
 const PARTICIPANT_PADDING_X = 16;
@@ -44,6 +44,23 @@ const LEFT_MARGIN = 20;
  * by that row's height (see `layoutStatements`).
  */
 const MESSAGE_ROW_HEIGHT = 40;
+
+/**
+ * The line of a message, a note, and a block's or a divider's condition.
+ * Mermaid draws sequence text as SVG `<text>`, and these rows sit 19px apart
+ * at 16px (measured in headless Chrome, mermaid 11.17.2: a two-row message,
+ * note, `alt` condition and `else` condition alike) — not the 1.5 of its
+ * HTML labels — so at Siren's 14px a row is 16.625px.
+ */
+const SEQUENCE_LINE: LineSpacing = { lineHeightRatio: 19 / 16 };
+
+/**
+ * The line of a participant and a box's caption, which Mermaid spaces closer
+ * than its other sequence text: one font size apart, each row's `dy` 8px
+ * either side of the centre at 16px (measured, mermaid 11.17.2). At Siren's
+ * 14px a row is 14px.
+ */
+const SEQUENCE_PARTICIPANT_LINE: LineSpacing = { lineHeightRatio: 1 };
 /** Vertical gap between the bottom of a message's label and its arrow. */
 const MESSAGE_LABEL_GAP = 4;
 /** Horizontal padding added around a note's measured text. */
@@ -539,12 +556,19 @@ function placeCondition(
 }
 
 /**
- * How much taller `box` is than its row `kept` alone: what a label of
- * several rows adds to a band sized for one, where `kept` is the row that
- * sits where a one-row label would — and `0` for no label at all.
+ * The height of every row of `box` but `kept`: what a label of several rows
+ * adds to a band sized for one, where `kept` is the row that sits where a
+ * one-row label would — and `0` for no label at all, or a label of one row.
+ * Counted from the rows alone, not from `box.height`, which also holds the
+ * measurer's vertical padding: the band sized for one row already has room
+ * for that, so adding it again would push every one-row message and
+ * condition down by it.
  */
 function heightBesides(box: LabelBox | null, kept: number): number {
-  return box === null ? 0 : box.height - box.rows[kept]!.height;
+  if (box === null) {
+    return 0;
+  }
+  return box.rows.reduce((sum, row, index) => (index === kept ? sum : sum + row.height), 0);
 }
 
 function layoutMessage(
