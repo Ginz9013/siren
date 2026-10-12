@@ -60,7 +60,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { exitCodeFor, formatText, parseArgs } from "./parity/cli.mjs";
+import { exitCodeFor, failedSides, formatText, parseArgs } from "./parity/cli.mjs";
 import { compareLayouts } from "./parity/metrics.mjs";
 import { buildPage, PENDING, RESULT_ID } from "./parity/page.mjs";
 
@@ -101,8 +101,14 @@ function diagramFiles(files) {
   if (files.length > 0) {
     // pnpm runs package scripts from the package directory; INIT_CWD is where
     // the developer typed the command, which is what a relative path means.
+    // A bare name that is not there is looked up among the fixtures, so
+    // `parity long-edges.mmd` works from anywhere.
     const base = process.env.INIT_CWD ?? process.cwd();
-    return files.map((f) => resolve(base, f));
+    return files.map((f) => {
+      const typed = resolve(base, f);
+      const fixture = join(FIXTURES, f);
+      return !existsSync(typed) && existsSync(fixture) ? fixture : typed;
+    });
   }
   return readdirSync(FIXTURES)
     .filter((f) => f.endsWith(".mmd"))
@@ -184,7 +190,7 @@ async function main() {
 
   const drawn = readResult(await dumpDom(chrome, pathToFileURL(pagePath).href));
   const results = drawn.map((r) =>
-    r.mermaid.error === undefined && r.siren.error === undefined
+    failedSides(r).length === 0
       ? { ...r, metrics: compareLayouts(r.mermaid.nodes, r.siren.nodes) }
       : r,
   );
@@ -194,9 +200,7 @@ async function main() {
   } else {
     process.stdout.write(formatText(results));
     for (const r of results) {
-      for (const side of ["mermaid", "siren"]) {
-        if (r[side].error !== undefined) process.stderr.write(`parity: ${side} could not draw ${r.file}\n`);
-      }
+      for (const side of failedSides(r)) process.stderr.write(`parity: ${side} could not draw ${r.file}\n`);
     }
   }
   process.exitCode = exitCodeFor(results);

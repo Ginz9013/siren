@@ -109,6 +109,8 @@ function drawSiren(source, host) {
     if (g.querySelector(COMPOSITE)) clusters[id] = box(g);
     else nodes[id] = box(g);
   }
+  // "clusters" is the key both sides share, Mermaid's own word for a group;
+  // on this side it holds subgraphs, composite states and ER subgraph blocks.
   for (const g of host.querySelectorAll("g.siren-subgraph, g.siren-er-subgraph")) {
     clusters[g.getAttribute("data-siren-id")] = box(g);
   }
@@ -145,6 +147,9 @@ out.textContent = JSON.stringify(results);
 export function buildPage({ mermaidUrl, sirenUrl, idsUrl, diagrams }) {
   // `</` inside a <script> element would end it early; `<\/` is the same
   // string to JSON.parse and invisible to the HTML parser.
+  // The pictures' container is far wider than any fixture so neither picture
+  // is squeezed: Mermaid's useMaxWidth caps its SVG at the container's width,
+  // and a scaled picture would hand back scaled boxes.
   const data = JSON.stringify(diagrams).replaceAll("</", "<\\/");
   return `<!doctype html>
 <html>

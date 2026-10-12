@@ -21,7 +21,12 @@
  * out of every metric.
  */
 
-/** Normalized distance under which two centers count as level on an axis. */
+/**
+ * Normalized distance under which two centers count as level on an axis.
+ * Chosen, not measured: half a percent of the picture is below a pixel for
+ * every fixture here (the widest is under 2000px), so it only absorbs the
+ * rounding of two renderers placing a row at the same height.
+ */
 export const LEVEL_TOLERANCE = 0.005;
 
 /** How many of the most-displaced nodes a comparison reports. */

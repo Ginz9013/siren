@@ -29,7 +29,17 @@ export function parseArgs(argv) {
  * @param {{ mermaid: { error?: string }, siren: { error?: string } }[]} results
  */
 export function exitCodeFor(results) {
-  return results.some((r) => r.mermaid.error !== undefined || r.siren.error !== undefined) ? 1 : 0;
+  return results.some((r) => failedSides(r).length > 0) ? 1 : 0;
+}
+
+/**
+ * Which renderers could not draw this diagram: `[]` when both did.
+ *
+ * @param {{ mermaid: { error?: string }, siren: { error?: string } }} result
+ * @returns {("mermaid" | "siren")[]}
+ */
+export function failedSides(result) {
+  return ["mermaid", "siren"].filter((side) => result[side].error !== undefined);
 }
 
 const percent = (v) => (v === null ? "n/a" : `${(v * 100).toFixed(1)}%`);
@@ -38,7 +48,7 @@ const offset = (v) => (v === null ? "n/a" : v.toFixed(3));
 /** One diagram's section of the text report. */
 function formatOne(result) {
   const lines = [result.file];
-  const failed = ["mermaid", "siren"].filter((side) => result[side].error !== undefined);
+  const failed = failedSides(result);
   if (failed.length > 0) {
     for (const side of failed) lines.push(`  FAILED      ${side} could not draw it: ${result[side].error}`);
     return lines;
