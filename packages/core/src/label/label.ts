@@ -291,13 +291,13 @@ export function plainLabel(text: string): Label {
  * The width, in px, Mermaid wraps a label's text at: `labelHelper` and
  * `createText` lay a label out single-line and, once it reaches this width,
  * fix it at this width and let the browser break it (mermaid 11.17.2,
- * measured; see the label-wrap ADR, nook `01M4R4WDZ`). Not configurable here: an author's
- * `flowchart.wrappingWidth` is not read.
+ * measured; see the label-wrap ADR, nook `01M4R4WDZ`). Not configurable
+ * here: an author's `flowchart.wrappingWidth` is not read.
  */
-export const MERMAID_WRAPPING_WIDTH_PX = 200;
+const MERMAID_WRAPPING_WIDTH_PX = 200;
 
 /** The px Mermaid draws label text at, which `MERMAID_WRAPPING_WIDTH_PX` is measured against. */
-export const MERMAID_FONT_SIZE_PX = 16;
+const MERMAID_FONT_SIZE_PX = 16;
 
 /**
  * The width a label drawn at `fontSizePx` wraps at: Mermaid's 200px scaled

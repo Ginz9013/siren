@@ -58,17 +58,17 @@ test("a diagram one side could not draw says which side and why", () => {
   );
 });
 
-test("the text report gives the mean size ratios and the five nodes furthest from Mermaid's size", () => {
+test("the text report gives the mean size ratios, normalized and raw, and the five nodes furthest from Mermaid's size", () => {
   const box = (width, height) => ({ width, height });
   const metrics = {
     mermaidNodes: 2, sirenNodes: 2, matched: 2, mermaidOnly: [], sirenOnly: [],
     verticalAgreement: 1, horizontalAgreement: 1, meanOffset: 0, maxOffset: 0,
     worst: [{ id: "A", offset: 0 }],
     sizes: {
-      meanWidthRatio: 0.75, meanHeightRatio: 2,
+      meanWidthRatio: 0.75, meanHeightRatio: 2, rawMeanWidthRatio: 0.65625, rawMeanHeightRatio: 1.75,
       nodes: [
-        { id: "B", mermaid: box(100, 100), siren: box(100, 300) },
-        { id: "A", mermaid: box(200, 50.4), siren: box(100, 50) },
+        { id: "B", mermaid: box(100, 100), siren: box(87.5, 262.5) },
+        { id: "A", mermaid: box(200, 50.4), siren: box(87.5, 43.75) },
       ],
     },
   };
@@ -80,8 +80,8 @@ test("the text report gives the mean size ratios and the five nodes furthest fro
       "  agreement   vertical 100.0%  horizontal 100.0%",
       "  offset      mean 0.000  max 0.000",
       "  worst       A 0.000",
-      "  size        siren/mermaid width ×0.75  height ×2.00",
-      "  size worst  B 100×100 → 100×300, A 200×50 → 100×50",
+      "  size        siren/mermaid at one font size: width ×0.75  height ×2.00  (raw width ×0.66  height ×1.75)",
+      "  size worst  B 100×100 → 88×263, A 200×50 → 88×44",
       "",
     ].join("\n"),
   );

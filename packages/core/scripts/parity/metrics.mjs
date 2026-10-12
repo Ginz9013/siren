@@ -116,35 +116,52 @@ export function compareLayouts(mermaid, siren) {
 }
 
 /**
+ * The px each side draws a node's text at: Mermaid's default 16px, Siren's
+ * `--siren-font-size` 14px. A Siren node `SIREN_FONT_SIZE_PX /
+ * MERMAID_FONT_SIZE_PX` the size of Mermaid's is the same node drawn
+ * smaller, so sizes are compared after scaling Siren's up by the inverse.
+ */
+export const MERMAID_FONT_SIZE_PX = 16;
+export const SIREN_FONT_SIZE_PX = 14;
+
+/**
  * Compare the sizes of the nodes two pictures drew — the measurement the
  * label-wrap board added, since a wrapped label changes a node's box before
  * it changes where the node goes.
  *
- * Raw px on both sides: unlike positions, a node's size is not relative to
- * the picture around it, so nothing is normalized. Each ratio is Siren's
- * over Mermaid's, and the means are over matched nodes only.
+ * Each ratio is Siren's over Mermaid's, **normalized for font size**: Siren's
+ * box is scaled by 16/14 first, so a node drawn exactly as Mermaid draws it,
+ * at Siren's smaller text, reads ×1. The raw ratios (no scaling) are
+ * reported beside them. Means are over matched nodes only; positions play
+ * no part, so nothing is normalized to the picture.
  *
  * @param {Record<string,{width:number,height:number}>} mermaid node boxes in Mermaid's picture
  * @param {Record<string,{width:number,height:number}>} siren   node boxes in Siren's picture
  * @returns {{
  *   meanWidthRatio: number|null, meanHeightRatio: number|null,
+ *   rawMeanWidthRatio: number|null, rawMeanHeightRatio: number|null,
  *   nodes: {id:string, mermaid:{width:number,height:number}, siren:{width:number,height:number}}[],
  * }}
- * `nodes` holds every matched node, the one furthest from its Mermaid size
- * first: by the larger of its two ratios' distance from 1 on a log scale, so
- * half as wide and twice as wide count alike. Means are `null` with no
- * matched node.
+ * `nodes` holds every matched node's two raw boxes, the one furthest from
+ * its Mermaid size first: by the larger of its two normalized ratios'
+ * distance from 1 on a log scale, so half as wide and twice as wide count
+ * alike. Means are `null` with no matched node.
  */
 export function compareSizes(mermaid, siren) {
   const ids = Object.keys(mermaid).filter((id) => Object.hasOwn(siren, id));
   const size = ({ width, height }) => ({ width, height });
   const nodes = ids.map((id) => ({ id, mermaid: size(mermaid[id]), siren: size(siren[id]) }));
-  const ratio = (node, axis) => node.siren[axis] / node.mermaid[axis];
-  const distance = (node) => Math.max(Math.abs(Math.log(ratio(node, "width"))), Math.abs(Math.log(ratio(node, "height"))));
-  const mean = (axis) => (nodes.length > 0 ? nodes.reduce((sum, node) => sum + ratio(node, axis), 0) / nodes.length : null);
+  const raw = (node, axis) => node.siren[axis] / node.mermaid[axis];
+  const normalized = (node, axis) => (raw(node, axis) * MERMAID_FONT_SIZE_PX) / SIREN_FONT_SIZE_PX;
+  const distance = (node) =>
+    Math.max(Math.abs(Math.log(normalized(node, "width"))), Math.abs(Math.log(normalized(node, "height"))));
+  const mean = (ratio, axis) =>
+    nodes.length > 0 ? nodes.reduce((sum, node) => sum + ratio(node, axis), 0) / nodes.length : null;
   return {
-    meanWidthRatio: mean("width"),
-    meanHeightRatio: mean("height"),
+    meanWidthRatio: mean(normalized, "width"),
+    meanHeightRatio: mean(normalized, "height"),
+    rawMeanWidthRatio: mean(raw, "width"),
+    rawMeanHeightRatio: mean(raw, "height"),
     nodes: [...nodes].sort((a, b) => distance(b) - distance(a)),
   };
 }

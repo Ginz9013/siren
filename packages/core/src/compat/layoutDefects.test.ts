@@ -7,6 +7,8 @@ import { render } from "../index";
 import { parseSiren } from "../parser/parseSiren";
 import { connectorPathData } from "../renderer/connectorCurve";
 import { labelRows } from "./labelCorpus";
+import { measurerPadding } from "../label/layoutLabel";
+import type { TextMeasurer } from "../contracts";
 import {
   edgesThroughNodes,
   labelsOverNodes,
@@ -325,27 +327,43 @@ describe("the garden-network diagram, under the default measurer", () => {
   });
 
   // The label-wrap ADR: a node's label wraps at 175px of text, so no drawn
-  // row of one holds more text — under this measurer, 8 per character, no
-  // more than 21 characters — except a single piece too long to break,
-  // which overflows. garden-network has no such piece, so the exceptions are none.
-  // The measurer's 16px of padding is outside the wrap width, and a node
-  // drawn as a rectangle takes its label box unchanged, so its frame is no
-  // wider than 175 + 16.
+  // row of one holds more — except a single piece too long to break, which
+  // overflows; garden-network has no such piece, so the exceptions are none. The
+  // measurer's padding is outside the wrap width, and a node drawn as a
+  // rectangle takes its label box unchanged, so its frame is no wider than
+  // 175 and the padding.
+  //
+  // Read with a measurer of its own rather than the default's 8px a
+  // character, so the bound is checked by measuring each drawn row the way
+  // layout measured it: CJK twice as wide as Latin, as in a real font, and
+  // the board's 24px of padding. Its padding is asked of the measurer, as
+  // layout asks it.
   it("wraps every node's label to rows of no more than 175px of text, and no rectangle wider than that and its padding", () => {
+    const proportional: TextMeasurer = {
+      measure(text: string) {
+        const wide = (character: string) => /[\u3000-\u9fff\uff00-\uffef]/.test(character);
+        const width = Array.from(text).reduce((sum, character) => sum + (wide(character) ? 14 : 7), 0);
+        return { width: width + 24, height: 32 };
+      },
+    };
+    const padding = measurerPadding(proportional);
+    const drawn = render(source, document.createElement("div"), { measureText: proportional }).svg!;
     const LONG_WORD_EXCEPTIONS: string[] = [];
-    const tooWide = Array.from(svg.querySelectorAll("g.siren-node")).flatMap((node) => {
+
+    const tooWide = Array.from(drawn.querySelectorAll("g.siren-node")).flatMap((node) => {
       const id = node.getAttribute("data-siren-id")!;
-      const rows = labelRows(node.querySelector("text"));
-      return rows
-        .filter((row) => row.length * 8 > 175 && !LONG_WORD_EXCEPTIONS.includes(id))
+      return labelRows(node.querySelector("text"))
+        .filter((row) => proportional.measure(row).width - padding > 175 && !LONG_WORD_EXCEPTIONS.includes(id))
         .map((row) => `${id}: ${row}`);
     });
     expect(tooWide).toEqual([]);
 
-    const wideRectangles = Array.from(svg.querySelectorAll("g.siren-node rect.siren-node-frame"))
-      .filter((rect) => Number(rect.getAttribute("width")) > 175 + 16)
+    const wideRectangles = Array.from(drawn.querySelectorAll("g.siren-node rect.siren-node-frame"))
+      .filter((rect) => Number(rect.getAttribute("width")) > 175 + padding)
       .map((rect) => rect.closest("g.siren-node")!.getAttribute("data-siren-id"));
     expect(wideRectangles).toEqual([]);
+    // And the labels did wrap: Tasks alone is far wider than 175px of text.
+    expect(labelRows(drawn.querySelector('g.siren-node[data-siren-id="Tasks"] text')).length).toBeGreaterThan(1);
   });
 
   it("reports how many lines pass through a node that is not their own — reported, not bounded", () => {

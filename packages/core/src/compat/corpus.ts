@@ -2705,13 +2705,13 @@ line2\`"]`,
     },
   },
 
-  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`). Mermaid wraps a node's label
-  // at 200px of its 16px text; Siren at 175px of its 14px, the same number
-  // of characters to a line. The wrap width bounds the text alone, as
-  // Mermaid's `<div>` does; the measurer's padding goes outside it. Under the
-  // default measurer (8px a character, plus 16px of padding) 21 characters
-  // fit in 175px and 22 do not, and a wrapped label's box — a rectangle
-  // node's width — is 175 + 16 = 191. Each
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`). Mermaid
+  // wraps a node's label at 200px of its 16px text; Siren at 175px of its
+  // 14px, the same number of characters to a row. The wrap width bounds the
+  // text alone, as Mermaid's `<div>` does; the measurer's padding goes
+  // outside it. Under the default measurer (8px a character, plus 16px of
+  // padding) 21 characters fit in 175px and 22 do not, and a wrapped
+  // label's box — a rectangle node's width — is 175 + 16 = 191. Each
   // `meaning` quotes the lines mermaid 11.17.2 drew (headless Chrome, one
   // line per distinct glyph top in the label's `<div>`); the rows Siren
   // draws differ only because the default measurer is wider than Chrome's
@@ -2803,6 +2803,29 @@ line2\`"]`,
       ]);
       const box = nodeBox(result, "A");
       expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-long-word",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[a Pneumonoultramicroscopicsilicovolcanoconiosis case]`,
+    status: "supported",
+    meaning:
+      "A word wider than the wrapping width is not cut: it stands on a row " +
+      "of its own and the label widens to it. mermaid 11.17.2 draws `a ` / " +
+      "`Pneumonoultramicroscopicsilicovolcanoconiosis ` / `case` in a " +
+      "`<div>` widened from 200px to 346px, in a 406px-wide node (measured).",
+    assert: (result) => {
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "a",
+        "Pneumonoultramicroscopicsilicovolcanoconiosis",
+        "case",
+      ]);
+      // The word's 45 characters are 360px of text, and the box is that
+      // row with the measurer's 16px of padding — wider than 175 + 16.
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 45 * 8 + 16);
     },
   },
   {

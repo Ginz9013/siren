@@ -25,8 +25,9 @@
  *   0..1 on each axis, then the mean and max distance between a node's two
  *   centers, and the five nodes that moved most;
  * - **node size**: the mean of Siren's width over Mermaid's, and of the
- *   heights, and the five nodes whose size is furthest from Mermaid's (every
- *   node's two boxes are in the `--json` output).
+ *   heights, with Siren's 14px text scaled to Mermaid's 16px and then raw,
+ *   and the five nodes whose size is furthest from Mermaid's (every node's
+ *   two boxes are in the `--json` output).
  *
  * The metrics are pure functions in `scripts/parity/metrics.mjs`, tested with
  * `node --test scripts/parity`; this file is the part that needs Chrome.

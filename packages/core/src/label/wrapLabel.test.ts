@@ -5,7 +5,7 @@ import { readLabel } from "./readLabel";
 import { wrapLabel } from "./wrapLabel";
 
 /**
- * 10px a character, 20px a line, and 10px of the measurer's own padding on
+ * 10px a character, 20px a row, and 10px of the measurer's own padding on
  * every answer — the shape of both real measurers (a fixed padding added to
  * the text's width), with round numbers so every width below is worked out
  * by hand: a row of `n` characters is `10n + 10` wide.
@@ -63,7 +63,7 @@ describe("wrapLabel on Latin text", () => {
     ]);
   });
 
-  it("never breaks inside a word that fits on a line of its own", () => {
+  it("never breaks inside a word that fits on a row of its own", () => {
     const { label } = readLabel("abc defghij", { dialect: "html" });
 
     const wrapped = wrapLabel(label, measurer, 90);
@@ -90,6 +90,31 @@ describe("wrapLabel's wrap width", () => {
   });
 });
 
+describe("wrapLabel and the spaces that end a row", () => {
+  // Review item 1: spaces that end a row draw nothing, so they neither make
+  // a row too wide to fit nor widen a wrapped box.
+  it("does not let the spaces ending the last row widen the wrapped box", () => {
+    const { label } = readLabel("aaa bbb    ", { dialect: "html" });
+
+    const wrapped = wrapLabel(label, measurer, 50);
+
+    // `aaa bbb` is 70px of text: it wraps after `aaa`. The box is the wrap
+    // width and the padding, 60 — not the 80 that `bbb` and its four
+    // spaces would measure.
+    expect(rowTexts(wrapped.label).map((row) => row.trimEnd())).toEqual(["aaa", "bbb"]);
+    expect(wrapped.labelBox.width).toBe(60);
+  });
+
+  it("does not wrap a row whose text fits once the spaces ending it are left out", () => {
+    const { label } = readLabel("aaaa      ", { dialect: "html" });
+
+    const wrapped = wrapLabel(label, measurer, 50);
+
+    // `aaaa` is 40px of text; the six spaces after it do not count.
+    expect(wrapped.label).toBe(label);
+  });
+});
+
 describe("wrapLabel on CJK text", () => {
   // The spec: any two CJK characters may be broken between. Measured in
   // mermaid 11.17.2 (headless Chrome): a CJK character beside a Latin one
@@ -99,7 +124,7 @@ describe("wrapLabel on CJK text", () => {
 
     const wrapped = wrapLabel(label, measurer, 40);
 
-    // Four characters, 40px of text, to a line.
+    // Four characters, 40px of text, to a row.
     expect(rowTexts(wrapped.label)).toEqual(["中文字元", "測試"]);
     expect(wrapped.labelBox.width).toBe(50);
   });
@@ -109,23 +134,23 @@ describe("wrapLabel on CJK text", () => {
 
     const wrapped = wrapLabel(label, measurer, 40);
 
-    // `abcd` fills a line, so `中` begins the next; `efgh` cannot join it
-    // (five characters, 60px) and is broken from it onto a line of its own.
+    // `abcd` fills a row, so `中` begins the next; `efgh` cannot join it
+    // (five characters, 60px) and is broken from it onto a row of its own.
     expect(rowTexts(wrapped.label)).toEqual(["abcd", "中", "efgh"]);
   });
 });
 
-describe("wrapLabel's line-start rule", () => {
-  // The spec: none of `，。、；：？！」』）】》,.;:?!)]}` may begin a line, so
+describe("wrapLabel's row-start rule", () => {
+  // The spec: none of `，。、；：？！」』）】》,.;:?!)]}` may begin a row, so
   // the character before it goes down with it.
   it.each(["，", "。", "、", "；", "：", "？", "！", "」", "』", "）", "】", "》", ",", ".", ";", ":", "?", "!", ")", "]", "}"])(
-    "carries the character before %s onto the next line rather than begin one with it",
+    "carries the character before %s onto the next row rather than begin one with it",
     (mark) => {
       const { label } = readLabel(`中文字元${mark}測試`, { dialect: "html" });
 
       const wrapped = wrapLabel(label, measurer, 40);
 
-      // Four characters fill a line; `元${mark}` cannot be split, and does
+      // Four characters fill a row; `元${mark}` cannot be split, and does
       // not fit after `中文字`.
       expect(rowTexts(wrapped.label)).toEqual(["中文字", `元${mark}測試`]);
     },
@@ -134,8 +159,8 @@ describe("wrapLabel's line-start rule", () => {
 
 describe("wrapLabel on a word longer than the wrap width", () => {
   // The spec (Mermaid's HTML labels): a piece that cannot be broken and does
-  // not fit is not cut; its line overflows, and the box is the widest line.
-  it("leaves the word whole on a line of its own and widens the box to it", () => {
+  // not fit is not cut; its row overflows, and the box is the widest row.
+  it("leaves the word whole on a row of its own and widens the box to it", () => {
     const { label } = readLabel("ab abcdefghijkl cd", { dialect: "html" });
 
     const wrapped = wrapLabel(label, measurer, 50);
@@ -162,10 +187,10 @@ describe("wrapLabel on a label with forced breaks", () => {
 });
 
 describe("wrapLabel on a styled label", () => {
-  // The spec: a run broken across lines keeps its styles in every piece,
+  // The spec: a run broken across rows keeps its styles in every piece,
   // nothing about a run but its text changes, and the pieces read in order
   // are the text written, less the spaces at the breaks.
-  it("keeps each run's styles on every line it is broken across", () => {
+  it("keeps each run's styles on every row it is broken across", () => {
     const { label } = readLabel("plain **bold words here** end", { dialect: "html", markdown: true });
     const before = structuredClone(label);
 
@@ -207,7 +232,7 @@ describe("wrapLabel on mixed CJK and Latin text", () => {
 describe("wrapLabel's rows", () => {
   // The spec: wrapping never makes an empty row. Spaces that begin a row
   // are not a piece of their own to break after.
-  it("keeps the spaces a row begins with on its first line", () => {
+  it("keeps the spaces a row begins with on its first row", () => {
     const { label } = readLabel("  abcdefgh ij", { dialect: "html" });
 
     const wrapped = wrapLabel(label, measurer, 50);

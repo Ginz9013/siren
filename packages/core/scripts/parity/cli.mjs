@@ -68,7 +68,10 @@ function formatOne(result) {
   lines.push(`  worst       ${m.worst.map((w) => `${w.id} ${offset(w.offset)}`).join(", ")}`);
   if (m.sizes !== undefined) {
     const s = m.sizes;
-    lines.push(`  size        siren/mermaid width ${ratio(s.meanWidthRatio)}  height ${ratio(s.meanHeightRatio)}`);
+    lines.push(
+      `  size        siren/mermaid at one font size: width ${ratio(s.meanWidthRatio)}  height ${ratio(s.meanHeightRatio)}` +
+        `  (raw width ${ratio(s.rawMeanWidthRatio)}  height ${ratio(s.rawMeanHeightRatio)})`,
+    );
     const furthest = s.nodes.slice(0, WORST_COUNT).map((n) => `${n.id} ${dimensions(n.mermaid)} → ${dimensions(n.siren)}`);
     lines.push(`  size worst  ${furthest.join(", ")}`);
   }
@@ -79,8 +82,8 @@ function formatOne(result) {
  * The human-readable report: one section per diagram, separated by a blank
  * line. Agreements print as percentages, offsets in normalized units (the
  * diagonal of the 0..1 frame is 1.414), node sizes as Siren's over
- * Mermaid's and, for the nodes furthest from Mermaid's size, both boxes in
- * whole px. Every node's two boxes are in the `--json` output.
+ * Mermaid's — at one font size, then raw — and, for the nodes furthest from
+ * Mermaid's size, both raw boxes in whole px. Every node's two boxes are in the `--json` output.
  */
 export function formatText(results) {
   return results.map((r) => [...formatOne(r), ""].join("\n")).join("\n");

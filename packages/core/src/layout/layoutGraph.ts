@@ -254,7 +254,6 @@ export function layoutGraph(
   const wrappedById = new Map(
     graph.nodes.map((node) => [node.id, wrapLabel(node.label, options.measureText, NODE_LABEL_WRAP_WIDTH)]),
   );
-  const labelBoxById = new Map([...wrappedById].map(([id, wrapped]) => [id, wrapped.labelBox]));
 
   // A subgraph's title is measured once too, for the same two readers: the
   // cluster size handed to the core below, and the frame grown afterwards.
@@ -281,7 +280,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...boxForLabel(node.shape, labelBoxById.get(node.id)!),
+        ...boxForLabel(node.shape, wrappedById.get(node.id)!.labelBox),
         // Grouping, and the only thing about a subgraph the shared core is
         // told. `undefined` rather than `null` when the node is in no
         // subgraph, because the core switches dagre's compound mode on by
@@ -383,8 +382,9 @@ export function layoutGraph(
       ...shifted(box),
       width: box.width,
       height: box.height,
-      label: wrappedById.get(node.id)!.label,
-      labelBox: labelBoxById.get(node.id)!,
+      // The wrapped label and the box it was measured into: what the
+      // shape was sized around and what the renderer draws.
+      ...wrappedById.get(node.id)!,
     };
   });
 

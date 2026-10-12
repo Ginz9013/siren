@@ -55,7 +55,7 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
   const measured = label.rows.map((row) =>
     row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run), spacing: spacingOf(run) })),
   );
-  const padding = measureText.measure("").width;
+  const padding = measurerPadding(measureText);
 
   let top = 0;
   const rows: LabelBoxRow[] = measured.map((runs) => {
@@ -76,6 +76,17 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
     height: top,
     rows,
   };
+}
+
+/**
+ * The padding `measureText` adds to every string it measures: its answer
+ * for `""`, which is by definition what it adds to every string (see
+ * `layoutLabel`). A row is that much wider than its text — counted once per
+ * row, half on each side — which is how `wrapLabel` tells a row's text from
+ * its padding.
+ */
+export function measurerPadding(measureText: TextMeasurer): number {
+  return measureText.measure("").width;
 }
 
 /**
