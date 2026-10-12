@@ -52,6 +52,12 @@ While the version is 0.x, a minor release may contain breaking changes.
   label's text is 150px wide and its box that plus the measurer's padding (scaled to 12px); its
   background covers the wrapped box, and dagre keeps that box clear, so a diagram with long edge
   labels is laid out differently. `PositionedEdge.label.label` is the wrapped label.
+- **A state diagram's labels wrap** as Mermaid's do (measured, mermaid 11.17.2): a state's
+  description (and a quoted name, `state "…" as S`) and a note once their text is wider than
+  175px, a transition label once its text is wider than 150px, by the same rules as a flowchart's.
+  A long-described state and a long note are drawn narrower and taller, and the diagram's layout
+  can change. A composite state's title is not wrapped. `PositionedStateLabel.label`,
+  `PositionedStateNote.label` and `PositionedStateTransition.label.label` are the wrapped labels.
 - **A label's rows are closer together**: one line apart, a line being 1.5 times the size the
   label is drawn at, as Mermaid's HTML labels draw 16px text on 24px lines (measured). A node's,
   a class's, a state's or a subgraph title's rows are 21px apart (14px), a connector label's 18px

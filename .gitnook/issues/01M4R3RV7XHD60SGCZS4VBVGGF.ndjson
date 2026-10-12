@@ -2,3 +2,4 @@
 {"id":"01M4R3RV87NCJ28S3A21MTH38Y","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/flowchart-mermaid-parity-2/spec.md`（spec issue `01M4R3RTMERFCJ9ZPXMZ2GE32A`），ticket 檔 `.scratch/flowchart-mermaid-parity-2/T03-wrap-state-labels.md`。"}
 {"id":"01M4R3RV87JJ6XZA7NYTJZT3YE","t":3,"a":"83a1","op":"label.add","v":"state"}
 {"id":"01M4R3S6FQBT8EZR07C7PB9Q8Z","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
+{"id":"01M4R6YDJ6HZ575N176W326XKB","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}

@@ -470,10 +470,11 @@ is outside it, so once a label wraps its box is the wrap width plus that padding
 overflowing row — and its runs keep their properties across the breaks. `wrapLabel` in
 `packages/core/src/label/` does it, and `wrapConnectorLabel` beside it wraps a connector label at
 150 with the 12px measurer and line spacing; the caller decides which labels wrap. Wrapped today: a
-flowchart node's label and a flowchart edge's label; the decision also covers state descriptions
-and transition labels, and class and ER relationship labels, which follow. Never wrapped: a
-subgraph's title, a class name, an ER entity name, anything in a sequence diagram, a note (Mermaid
-wraps none of them).
+flowchart node's label and a flowchart edge's label, and a state's description, a state diagram's
+note (at 175) and a transition label (at 150); the decision also covers class and ER relationship
+labels, which follow. Never wrapped: a subgraph's title, a composite state's title, a class name,
+an ER entity name, anything in a sequence diagram, including its notes (Mermaid wraps none of
+them).
 _Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row — it is a row)
 
 **Edge**:

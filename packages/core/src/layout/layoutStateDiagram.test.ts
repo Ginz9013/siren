@@ -1249,6 +1249,83 @@ describe("layoutStateDiagram — labels", () => {
     expect(note.labelBox.rows).toHaveLength(2);
   });
 
+  /** A label's rows, each read back as the text drawn on it. */
+  const rowTexts = (label: Label): string[] =>
+    label.rows.map((row) => row.map((run) => run.text).join(""));
+
+  // The spec (decision 1, measured on mermaid 11.17.2): a state's
+  // description wraps at Mermaid's 200px scaled to the 14px it is drawn at,
+  // 175px of text, and once wrapped its box is that width. `fakeMeasurer`
+  // is 8px a character with no padding, so 21 characters fit and 22 do not.
+  it("wraps a description wider than 175px at its spaces, and the state carries the wrapped rows", () => {
+    const [state] = layoutStateDiagram(
+      described(plainLabel("alpha beta gamma delta epsilon zeta")),
+      options,
+    ).states;
+
+    // `alpha beta gamma delta` is 22 characters, 176px.
+    expect(rowTexts(state.labels[0].label)).toEqual(["alpha beta gamma", "delta epsilon zeta"]);
+    expect(state.labels[0].labelBox.width).toBe(175);
+    expect(state.labels[0].labelBox.rows).toHaveLength(2);
+    // STATE_PADDING_X (14) either side of the 175px text.
+    expect(state.width).toBe(14 + 175 + 14);
+    // STATE_PADDING_Y (8) above and below two 21px rows and 3px of the
+    // measurer's padding.
+    expect(state.height).toBe(8 + 45 + 8);
+  });
+
+  // The spec (decision 5): measured on mermaid 11.17.2, a composite's title
+  // is drawn `nowrap` on one row however long it is, as a subgraph's is.
+  it("leaves a composite's title on one row however long it is", () => {
+    const laid = layoutStateDiagram(
+      {
+        ...model([], ["Outer", "Inner"]),
+        states: [
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [plainLabel("alpha beta gamma delta epsilon zeta")], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+        ],
+      },
+      options,
+    );
+    const [outer] = laid.states;
+
+    expect(rowTexts(outer.labels[0].label)).toEqual(["alpha beta gamma delta epsilon zeta"]);
+    expect(outer.labels[0].labelBox.width).toBe(measuredWidth("alpha beta gamma delta epsilon zeta"));
+  });
+
+  // The spec (decision 5 as amended, measured on mermaid 11.17.2): a state
+  // diagram's note wraps at 200px, both `note right of A : …` and the block
+  // form — 175px of text at the 14px Siren draws it at.
+  it("wraps a note wider than 175px at its spaces, and the note carries the wrapped rows", () => {
+    const noted = described(rowsLabel("s"));
+    noted.states[0].note = { position: "right of", label: plainLabel("alpha beta gamma delta epsilon zeta") };
+
+    const note = layoutStateDiagram(noted, options).states[0].note!;
+
+    expect(rowTexts(note.label)).toEqual(["alpha beta gamma", "delta epsilon zeta"]);
+    expect(note.labelBox.width).toBe(175);
+    // NOTE_PADDING_X (10) either side of the 175px text, NOTE_PADDING_Y (8)
+    // above and below two 21px rows and 3px of the measurer's padding.
+    expect(note.width).toBe(10 + 175 + 10);
+    expect(note.height).toBe(8 + 45 + 8);
+  });
+
+  // The spec (decision 1, measured on mermaid 11.17.2): a transition label
+  // wraps at Mermaid's 200px scaled to the 12px it is drawn at, 150px of
+  // text. `fakeMeasurer` at 12px is 8 × 12/14 px a character, so 21
+  // characters (144px) fit and 22 (150.86px) do not.
+  it("wraps a transition label wider than 150px at its spaces, and the transition carries the wrapped rows", () => {
+    const [transition] = layoutStateDiagram(
+      model([{ from: "a", to: "b", label: "alpha beta gamma delta epsilon zeta" }]),
+      options,
+    ).transitions;
+
+    expect(rowTexts(transition.label!.label)).toEqual(["alpha beta gamma", "delta epsilon zeta"]);
+    expect(transition.label!.labelBox.width).toBe(150);
+    // A 12px line of the measurer's 24 × 12/14, then one 12px × 1.5 = 18px row.
+    expect(transition.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
+  });
+
   it("measures a transition label of two rows, and keeps the canvas around both", () => {
     const labelled = model([{ from: "a", to: "b" }]);
     labelled.transitions[0].label = rowsLabel("ab", "wxyz");

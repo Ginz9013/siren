@@ -27,6 +27,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 - With `siren-core`'s change: a flowchart edge's label wraps once its text is wider than 150px
   (Mermaid's 200px at the 12px an edge label is drawn at), and its background covers the wrapped
   rows.
+- With `siren-core`'s change: in a state diagram, a state's description and a note wrap once
+  their text is wider than 175px, and a transition label once its text is wider than 150px, as
+  in Mermaid. A composite state's title does not wrap.
 - With `siren-core`'s change: a label of several rows draws them closer together, 1.5 times the
   font size apart as in Mermaid (21px for a node's 14px text, 18px for a connector label's 12px),
   with the canvas measurer's padding around the rows once; a one-row label is the same height as

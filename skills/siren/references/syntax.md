@@ -333,6 +333,9 @@ stateDiagram-v2
 - `Name : text` adds a description line to a state.
 - `--` inside a composite state splits it into concurrent regions (`region:1`, ...).
 - `state "Label" as Id` gives a state a display name. Its timeline id is `Id`.
+- A long description, display name or note wraps by itself once its text is wider than 175px, and
+  a long transition label once it is wider than 150px, as in Mermaid. A composite state's title
+  does not wrap. `<br>` still forces a row break.
 - Styling: `classDef`, `class` and `:::` work as in flowcharts. `style` is not supported.
 
 ## ER diagram
