@@ -85,17 +85,19 @@ interface Point {
 }
 
 /**
- * Every flowchart edge drawn, with the points its line passes through —
- * read off `d` the way `corpus.ts`'s `pathPoints` reads it, which holds for
- * the `M`/`L` polyline the renderer writes.
+ * Every flowchart edge drawn, with the points its route passes through —
+ * read off the `data-siren-points` the renderer writes beside `d`, as
+ * `corpus.ts`'s `pathPoints` reads it. Not off `d`: an edge is drawn as a
+ * curve (`basis` by default), whose `d` lists control points rather than the
+ * route.
  */
 function edgeLines(svg: SVGSVGElement): { id: string; points: Point[] }[] {
   return Array.from(svg.querySelectorAll("path.siren-edge")).map((path) => ({
     id: path.getAttribute("data-siren-id") ?? "<no id>",
-    points: (path.getAttribute("d") ?? "")
+    points: (path.getAttribute("data-siren-points") ?? "")
       .trim()
       .split(/\s+/)
-      .map((command) => command.slice(1).split(","))
+      .map((pair) => pair.split(","))
       .map(([x, y]) => ({ x: Number(x), y: Number(y) })),
   }));
 }

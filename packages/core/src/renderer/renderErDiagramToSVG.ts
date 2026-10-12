@@ -9,6 +9,7 @@ import type {
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
+import { DEFAULT_CURVE, drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -62,17 +63,6 @@ const DASH_PATTERN = "8,8";
  */
 const GLYPH_HEIGHT = 18;
 const FOOT_LENGTH = 36;
-
-/**
- * One relationship's route as an SVG `d`. Shared with the class renderer's
- * convention: an open, multi-segment path, so it is drawn with `fill:
- * none` rather than painted as a polygon spanning the boxes it joins.
- */
-function pointsToPathData(points: Point[]): string {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
-}
 
 /**
  * Builds a real `SVGSVGElement` from a `PositionedErDiagram`: one
@@ -256,7 +246,7 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-er-relationship-line");
-  line.setAttribute("d", pointsToPathData(relationship.points));
+  drawConnectorRoute(line, relationship.points, DEFAULT_CURVE);
   // Explicit, not left to CSS: the route is an open, multi-segment path,
   // which a default fill would paint as a filled polygon spanning the
   // entities it joins.

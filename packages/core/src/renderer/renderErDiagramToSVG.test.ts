@@ -530,6 +530,33 @@ describe("renderErDiagramToSVG", () => {
     expect(ORDER.y).toBe(200);
   });
 
+  it("draws a relationship as d3's basis curve, keeping the route as data-siren-points", () => {
+    // mermaid 11.17.2's ER database hands every edge `curve: "basis"`
+    // (`erDiagram-RLTQ6QDP.mjs`). d3-shape 3.2.0 curveBasis
+    // (src/curve/basis.js) through (70,80), (70,140), (130,140): L to
+    // (5·p0 + p1)/6 = (70,90); C (2·p0 + p1)/3, (p0 + 2·p1)/3,
+    // (p0 + 4·p1 + p2)/6; the closing C (2·p1 + p2)/3, (p1 + 2·p2)/3,
+    // (p1 + 5·p2)/6; L onto p2.
+    const svg = renderErDiagramToSVG(
+      diagram([CUSTOMER, ORDER], undefined, [
+        {
+          ...PLACES,
+          points: [
+            { x: 70, y: 80 },
+            { x: 70, y: 140 },
+            { x: 130, y: 140 },
+          ],
+        },
+      ]),
+    );
+
+    const line = svg.querySelector("path.siren-er-relationship-line")!;
+    expect(line.getAttribute("d")).toBe(
+      "M70,80 L70,90 C70,100 70,120 80,130 C90,140 110,140 120,140 L130,140",
+    );
+    expect(line.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+  });
+
   it("draws the two line types differently, and only one of them dashed", () => {
     // Measured: Mermaid gives an `IDENTIFYING` relationship the class
     // `edge-pattern-solid` and a `NON_IDENTIFYING` one `edge-pattern-dashed`,

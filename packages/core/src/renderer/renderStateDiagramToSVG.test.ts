@@ -275,13 +275,57 @@ describe("renderStateDiagramToSVG", () => {
     expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-transition-label")!)).toBe(true);
   });
 
+  it("draws a transition and a note's connector as d3's basis curve, keeping the route as data-siren-points", () => {
+    // mermaid 11.17.2 sets no `curve` on a state diagram's edges, its note
+    // edges included, so `insertEdge` falls back to `flowchart.curve`, whose
+    // default is `basis`. d3-shape 3.2.0 curveBasis (src/curve/basis.js)
+    // through (70,80), (70,140), (130,140): L to (5·p0 + p1)/6 = (70,90);
+    // C (2·p0 + p1)/3, (p0 + 2·p1)/3, (p0 + 4·p1 + p2)/6; the closing C
+    // (2·p1 + p2)/3, (p1 + 2·p2)/3, (p1 + 5·p2)/6; L onto p2.
+    const route = [
+      { x: 70, y: 80 },
+      { x: 70, y: 140 },
+      { x: 130, y: 140 },
+    ];
+    const svg = renderStateDiagramToSVG({
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          note: {
+            label: plainLabel("waiting for work"),
+            labelBox: boxOf("waiting for work"),
+            x: 120,
+            y: 10,
+            width: 60,
+            height: 30,
+            connector: route,
+          },
+        },
+        DIAGRAM.states[1],
+      ],
+      transitions: [{ ...DIAGRAM.transitions[0], points: route }, ...DIAGRAM.transitions.slice(1)],
+    });
+    const basis = "M70,80 L70,90 C70,100 70,120 80,130 C90,140 110,140 120,140 L130,140";
+
+    for (const path of [
+      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line')!,
+      svg.querySelector("path.siren-note-link")!,
+    ]) {
+      expect(path.getAttribute("d")).toBe(basis);
+      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+    }
+  });
+
   it("draws the self-transition's whole loop, not just its two ends", () => {
     const svg = renderStateDiagramToSVG(DIAGRAM);
 
     const loop = svg.querySelector(
       'g.siren-transition[data-siren-id="Running-Running"] path.siren-transition-line',
     )!;
-    expect(loop.getAttribute("d")).toBe("M110,130 L140,140 L110,150");
+    // The route, not `d`: under the default curve `d` carries the spline's
+    // control points, and the route is what says a loop was drawn.
+    expect(loop.getAttribute("data-siren-points")).toBe("110,130 140,140 110,150");
   });
 
   it("paints every transition line before the first state, so a line passing a box runs under it (ADR-0016)", () => {

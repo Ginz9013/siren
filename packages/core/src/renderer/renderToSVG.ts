@@ -10,6 +10,7 @@ import type {
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
+import { DEFAULT_CURVE, drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -229,7 +230,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // still adds and removes its own classes alongside.
     path.setAttribute("class", edgeClasses(edge));
     path.setAttribute("data-siren-id", edge.id);
-    path.setAttribute("d", pointsToPathData(edge.points));
+    drawConnectorRoute(path, edge.points, DEFAULT_CURVE);
     // One marker per end, each pointing outward at the end it is applied
     // to — the class renderer's `auto-start-reverse` def, which is why
     // `<-->` needs one def rather than a mirrored pair.
@@ -975,11 +976,4 @@ function buildEndShape(end: Exclude<EdgeEnd, "none">): SVGElement {
       : `M1,1 L${width - 1},${height - 1} M${width - 1},1 L1,${height - 1}`,
   );
   return path;
-}
-
-/** Converts a layout-assigned point path into an SVG `<path>` `d` attribute. */
-function pointsToPathData(points: { x: number; y: number }[]): string {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
 }

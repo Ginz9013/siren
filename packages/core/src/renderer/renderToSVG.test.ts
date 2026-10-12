@@ -126,6 +126,74 @@ describe("renderToSVG", () => {
     ]);
   });
 
+  it("draws an edge's route as d3's basis curve, Mermaid's default, ending on the route's last point", () => {
+    // d3-shape 3.2.0 curveBasis (src/curve/basis.js) through (40,20),
+    // (100,20), (100,80) — the worked example of connectorCurve.test.ts moved
+    // by (40,20): L to (5·p0 + p1)/6, one cubic per point after the second,
+    // a closing cubic and a final L onto the last point.
+    const graph = buildFixture();
+    graph.edges[0] = {
+      ...graph.edges[0],
+      points: [
+        { x: 40, y: 20 },
+        { x: 100, y: 20 },
+        { x: 100, y: 80 },
+      ],
+    };
+    const svg = renderToSVG(graph);
+
+    expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")).toBe(
+      "M40,20 L50,20 C60,20 80,20 90,30 C100,40 100,60 100,70 L100,80",
+    );
+  });
+
+  it("keeps the route a curve was drawn through readable on the path, as data-siren-points", () => {
+    // A curve's `d` carries control points rather than the route, so the
+    // points layout routed through are written beside it, in the spelling
+    // of an SVG `points` attribute.
+    const graph = buildFixture();
+    graph.edges[0] = {
+      ...graph.edges[0],
+      points: [
+        { x: 40, y: 20 },
+        { x: 100, y: 20 },
+        { x: 100, y: 80 },
+      ],
+    };
+    const svg = renderToSVG(graph);
+
+    expect(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("data-siren-points"),
+    ).toBe("40,20 100,20 100,80");
+  });
+
+  it("keeps the arrowhead pointing along the route's last segment under the curve", () => {
+    // `marker-end` is oriented `auto`, along the direction the path arrives
+    // in — its last command. The route's last segment runs (100,20) →
+    // (100,80), straight down; the drawn line must arrive heading down too.
+    const graph = buildFixture();
+    graph.edges[0] = {
+      ...graph.edges[0],
+      points: [
+        { x: 40, y: 20 },
+        { x: 100, y: 20 },
+        { x: 100, y: 80 },
+      ],
+    };
+    const svg = renderToSVG(graph);
+    const pairs = Array.from(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")!.matchAll(
+        /(-?[\d.]+),(-?[\d.]+)/g,
+      ),
+      ([, x, y]) => ({ x: Number(x), y: Number(y) }),
+    );
+    const [from, to] = pairs.slice(-2);
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+
+    expect(to).toEqual({ x: 100, y: 80 });
+    expect({ x: (to.x - from.x) / length, y: (to.y - from.y) / length }).toEqual({ x: 0, y: 1 });
+  });
+
   it("leaves step-0 pending state to the controller, stamping siren-pending on nothing", () => {
     // The renderer draws the diagram; `createAnimationController.reset()`
     // establishes step 0, from `computeClassStateAtStep(timeline, 0)`. The

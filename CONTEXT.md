@@ -500,7 +500,14 @@ How a connector's routed points are joined into the line that is drawn: `basis` 
 the default, as in Mermaid), `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. It changes
 how a route looks, never where the route goes. A flowchart author picks one with `linkStyle default
 interpolate <curve>` or `linkStyle <n> interpolate <curve>`; any other curve name is rejected as
-not implemented.
+not implemented. Class, state and ER connectors, and the connector from a note to what it is
+about, are always `basis`, as Mermaid draws them. Every curve starts on the route's first point
+and ends on its last, arriving along the route's last segment, so an arrowhead points the same way
+under any of them. The curves are d3's (`curveBasis`, `curveLinear`, `curveStep`,
+`curveStepBefore`, `curveStepAfter`) and Mermaid's own `rounded` (corners cut back and rounded
+with a radius of 5). The `step` curves draw a staircase even between two points; the rest draw two
+points as one straight segment. Because a curve's `d` holds control points rather than the route,
+a connector's `<path>` also carries the route itself as `data-siren-points`.
 _Avoid_: interpolation (`interpolate` survives only as the authored keyword), line (that is the
 **edge**'s solid/thick/dotted axis), routing (that decides where the points are, which a curve does
 not)

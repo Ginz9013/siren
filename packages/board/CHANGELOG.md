@@ -27,6 +27,10 @@ While the version is 0.x, a minor release may contain breaking changes.
   drawn at, as in Mermaid.
 - With `siren-core`'s change: flowchart, class, state and ER diagrams have an 8px margin around
   the drawing, as in Mermaid, so a diagram's extent grows by up to 16 on each axis.
+- With `siren-core`'s change: connectors in flowchart, class, state and ER diagrams are drawn
+  as smooth `basis` curves through their routes, as in Mermaid, instead of polylines with
+  corners. Every diagram with a bent connector looks different; arrowheads still point the same
+  way.
 
 ## [0.4.0] - 2026-10-10
 

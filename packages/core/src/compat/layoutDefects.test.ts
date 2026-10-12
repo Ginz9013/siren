@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CONNECTOR_LABEL_SCALE } from "../label/label";
 import { render } from "../index";
+import { connectorPathData, DEFAULT_CURVE } from "../renderer/connectorCurve";
 import {
   edgesThroughNodes,
   labelsOverNodes,
@@ -27,10 +28,16 @@ function frame(title: string, x: number, y: number, width: number, height: numbe
   );
 }
 
-/** A flowchart edge as the renderer draws one: `M` then `L` per point. */
+/**
+ * A flowchart edge as the renderer draws one: its route as the default
+ * `basis` curve in `d`, and the route itself in `data-siren-points`.
+ */
 function edge(id: string, points: [number, number][]): string {
-  const d = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
-  return `<path class="siren-edge" data-siren-id="${id}" d="${d}"/>`;
+  const route = points.map(([x, y]) => ({ x, y }));
+  return (
+    `<path class="siren-edge" data-siren-id="${id}" d="${connectorPathData(route, DEFAULT_CURVE)}" ` +
+    `data-siren-points="${points.map(([x, y]) => `${x},${y}`).join(" ")}"/>`
+  );
 }
 
 /** A flowchart node drawn with a `<rect>` frame. */
@@ -95,6 +102,26 @@ describe("edgesThroughNodes", () => {
       { edge: "A-B", node: "C" },
       { edge: "through-P", node: "P" },
     ]);
+  });
+});
+
+describe("edgesThroughNodes under a curve", () => {
+  it("follows the edge's route, not the coordinates written in its curved d", () => {
+    // The route runs down x = 20 and then along y = 140. Its `basis` d,
+    // `M20,20 L20,40 C20,60 20,100 40,120 C60,140 100,140 120,140 L140,140`,
+    // read as `M`/`L` points would put a corner at (0,100)–(0,120), where
+    // no line is drawn: through Y, beside the route.
+    const svg = svgOf(
+      box("A", 0, 0, 40, 20) +
+        box("B", 140, 130, 40, 20) +
+        // On the route's vertical run.
+        box("X", 0, 70, 40, 20) +
+        // On x = 0, 20 left of the route: clear of it.
+        box("Y", -10, 105, 15, 10) +
+        edge("bend", [[20, 20], [20, 140], [140, 140]]),
+    );
+
+    expect(edgesThroughNodes(svg)).toEqual([{ edge: "bend", node: "X" }]);
   });
 });
 

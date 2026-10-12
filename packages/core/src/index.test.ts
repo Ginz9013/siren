@@ -5870,8 +5870,10 @@ describe("render() — a state diagram, end to end", () => {
     const loop = svg.querySelector('g.siren-transition[data-siren-id="Running-Running"]')!;
     const path = loop.querySelector("path.siren-transition-line")!;
     // A drawn loop, not a point: a route that collapsed onto one coordinate
-    // would draw nothing at all and still have a `<path>` to find.
-    const points = (path.getAttribute("d") ?? "").split(" ");
+    // would draw nothing at all and still have a `<path>` to find. Read off
+    // the route (`data-siren-points`), not `d`: a curve's `d` spells even a
+    // collapsed route with several distinct commands (`M`, `L`, `C`).
+    const points = (path.getAttribute("data-siren-points") ?? "").split(" ");
     expect(points.length).toBeGreaterThanOrEqual(2);
     expect(new Set(points).size).toBeGreaterThanOrEqual(2);
     // The label is a group of its own wearing the same id, drawn after every
@@ -6395,10 +6397,12 @@ describe("render() — a state diagram, end to end", () => {
       'g.siren-transition[data-siren-id="Running-Running"] path.siren-transition-line',
     );
     expect(loop).not.toBeNull();
+    // The route (`data-siren-points`), not `d`: a curve's `d` lists control
+    // points the line never passes through.
     const loopPoints = [
-      ...new Set((loop!.getAttribute("d") ?? "").split(" ")),
+      ...new Set((loop!.getAttribute("data-siren-points") ?? "").split(" ")),
     ]
-      .map((step) => step.replace(/^[ML]/, "").split(",").map(Number))
+      .map((pair) => pair.split(",").map(Number))
       .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
     expect(loopPoints.length).toBeGreaterThan(1);
 

@@ -8,6 +8,7 @@ import type {
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel } from "../label/drawPlaced";
+import { DEFAULT_CURVE, drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -234,7 +235,7 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
 
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
-  link.setAttribute("d", pointsToPathData(note.connector));
+  drawConnectorRoute(link, note.connector, DEFAULT_CURVE);
   // Explicit, for the same reason a transition line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.
   link.setAttribute("fill", "none");
@@ -557,7 +558,7 @@ function buildTransition(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-transition-line");
-  line.setAttribute("d", pointsToPathData(transition.points));
+  drawConnectorRoute(line, transition.points, DEFAULT_CURVE);
   // Explicit, not left to CSS: a transition's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
   // spanning the states it connects.
@@ -635,11 +636,4 @@ function buildDefs(scope: string): SVGDefsElement {
 
   defs.appendChild(marker);
   return defs;
-}
-
-/** Converts a layout-assigned point path into an SVG `<path>` `d` attribute. */
-function pointsToPathData(points: Point[]): string {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
 }

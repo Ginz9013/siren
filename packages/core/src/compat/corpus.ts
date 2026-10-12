@@ -213,8 +213,9 @@ function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y:
 /**
  * How far a label's centre is drawn from the line it labels: the distance
  * from the `<text>` matched by `labelSelector` (its `x`/`y`, the anchor it is
- * centred on) to the nearest segment of the `<path>` matched by
- * `lineSelector`.
+ * centred on) to the nearest segment of the route of the `<path>` matched by
+ * `lineSelector` (`pathPoints`: the routed points, not the curve's control
+ * points).
  *
  * The reader for "the label is on its line", which is where Mermaid puts one
  * (`labelpos: "c"`): the label's space is reserved at a point the route
@@ -279,6 +280,10 @@ function expectOnTheLine(
  * can tell an edge that meets a frame from one that stops at a box inside
  * it. Everything between the ends is left alone on purpose: how many bends
  * the route takes is the layout engine's, not a fact about Mermaid.
+ *
+ * Off `d` still, though a connector is drawn as a curve: every curve starts
+ * with `M` on the route's first point and ends with `L` on its last, so the
+ * first and last commands are the route's ends whatever lies between.
  */
 function edgeEnds(
   result: SirenRenderResult,
@@ -294,7 +299,8 @@ function edgeEnds(
 }
 
 /**
- * **Every** point one line is drawn through, read off a `<path>`'s own `d`.
+ * **Every** point one connector's route passes through, read off the
+ * `data-siren-points` its renderer writes beside `d`.
  *
  * The reader a *self-loop* needs, and the reason it is not `edgeEnds`. A
  * loop's two ends say whether it is joined to the right figure; they say
@@ -302,6 +308,13 @@ function edgeEnds(
  * a frame and a loop buried inside one can share both ends. Only the points
  * between them tell those two pictures apart, so a row asking "is this drawn
  * outside the frame" has to see all of them.
+ *
+ * Not off `d`: a connector is drawn as a curve (`basis` by default, as in
+ * Mermaid), and a curve's `d` lists control points the line never passes
+ * through, not the route. The route is kept on the path for readers like
+ * this one (`drawConnectorRoute` in `renderer/connectorCurve.ts`). A path
+ * without it throws rather than reading as an empty route, so a renderer
+ * that stopped writing it fails every row that asks.
  *
  * Takes the selector rather than assuming one, because a flowchart edge and
  * a state transition are two elements with two class names and one question.
@@ -312,9 +325,18 @@ function pathPoints(
 ): { x: number; y: number }[] {
   const path = svgOf(result).querySelector(selector);
   if (path === null) throw new Error(`nothing matched "${selector}"`);
-  return (path.getAttribute("d") ?? "")
-    .split(/\s+/)
-    .map((command) => command.slice(1).split(","))
+  return routeOf(path);
+}
+
+/** The route a connector `<path>` was drawn through: its `data-siren-points`. */
+function routeOf(path: Element): { x: number; y: number }[] {
+  const route = path.getAttribute("data-siren-points");
+  if (route === null) {
+    throw new Error(`the connector "${path.getAttribute("class")}" carries no data-siren-points`);
+  }
+  return route
+    .split(" ")
+    .map((pair) => pair.split(","))
     .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
 }
 
@@ -1516,8 +1538,8 @@ function transitionTouches(
 }
 
 /**
- * The distinct coordinates one transition's line is drawn through, read off
- * the `<path>`'s own `d`.
+ * The distinct coordinates one transition's route passes through, read off
+ * the `<path>`'s `data-siren-points` (see `pathPoints` for why not `d`).
  *
  * Distinct, because the question a self-loop raises is whether a *loop* was
  * drawn: a route that collapsed onto a single point still leaves a `<path>`
@@ -1528,7 +1550,7 @@ function transitionPoints(result: SirenRenderResult, id: string): string[] {
     `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
   );
   if (path === null) throw new Error(`no transition "${id}" was drawn`);
-  return [...new Set((path.getAttribute("d") ?? "").split(" "))];
+  return [...new Set(routeOf(path).map(({ x, y }) => `${x},${y}`))];
 }
 
 /** Whether the diagram drew anything at all under `selector`. */

@@ -45,6 +45,15 @@ While the version is 0.x, a minor release may contain breaking changes.
   ER subgraph frames reached past the top or left edge was already moved to keep them on the
   canvas; there the margin takes up part or all of that move instead, so it moves, and grows,
   by less.
+- **Connectors are drawn as curves**, as Mermaid draws them. Every flowchart edge, class
+  relationship, state transition, ER relationship and note connector is a `basis` spline (d3's
+  `curveBasis`, Mermaid's default) through its routed points instead of a polyline with corners.
+  The route itself is unchanged: the curve starts and ends where the polyline did and still
+  arrives along the route's last segment, so arrowheads and other end markers point as before.
+  A connector `<path>`'s `d` now holds the curve's control points rather than the route; the
+  routed points are on the same element as `data-siren-points` (`"x,y x,y …"`). A script or test
+  that read the route off `d` should read `data-siren-points`. Every diagram with a bent connector
+  looks different.
 
 ## [0.4.0] - 2026-10-10
 
