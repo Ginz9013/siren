@@ -14,7 +14,8 @@ import type {
   ResolvedErEntity,
   ResolvedErSubgraph,
 } from "../contracts";
-import { layoutConnectorLabel, layoutLabel } from "../label/layoutLabel";
+import { layoutLabel } from "../label/layoutLabel";
+import { wrapConnectorLabel } from "../label/wrapLabel";
 import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
@@ -229,13 +230,16 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
   );
   /**
-   * Each relationship's label measured at the 12px it is drawn at
-   * (`layoutConnectorLabel`), by the relationship's id.
+   * Each relationship's label wrapped and measured at the 12px it is drawn
+   * at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled to that
+   * size, by the label-wrap ADR, nook `01M4R4WDZ`), by the relationship's
+   * id — once, so the box the core keeps clear and the box the renderer
+   * draws in are the same box, and the rows drawn are the wrapped label's.
    */
-  const relationshipLabelBoxById = new Map(
+  const wrappedRelationshipLabelById = new Map(
     model.relationships.map(
       (relationship) =>
-        [relationship.id, layoutConnectorLabel(relationship.label, options.measureText)] as const,
+        [relationship.id, wrapConnectorLabel(relationship.label, options.measureText)] as const,
     ),
   );
 
@@ -296,7 +300,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       // required — so the core is always asked to hold the ranks apart for
       // one, and it reports back where that space ended up. Sized from
       // every row of the label (ADR-0015), so a `<br>` holds them further.
-      label: relationshipLabelBoxById.get(relationship.id)!,
+      label: wrappedRelationshipLabelById.get(relationship.id)!.labelBox,
     })),
   });
 
@@ -386,8 +390,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
           route.labelAnchor === undefined
             ? null
             : {
-                label: relationship.label,
-                labelBox: relationshipLabelBoxById.get(relationship.id)!,
+                ...wrappedRelationshipLabelById.get(relationship.id)!,
                 anchor: shifted(route.labelAnchor),
               },
       };

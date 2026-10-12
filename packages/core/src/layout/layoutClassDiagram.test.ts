@@ -1523,6 +1523,27 @@ describe("layoutClassDiagram", () => {
       expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
     });
 
+    // The spec (decision 1, measured on mermaid 11.17.2): a class
+    // relationship's label wraps at Mermaid's 200px scaled to the 12px it is
+    // drawn at, 150px of text. `fakeMeasurer` at 12px is 8 × 12/14 px a
+    // character, so 21 characters (144px) fit and 22 (150.86px) do not.
+    it("wraps a relationship label wider than 150px at its spaces, and the relationship carries the wrapped rows", () => {
+      const [routed] = layoutClassDiagram(
+        classModel({
+          classes: [cls("Order"), cls("Line")],
+          relationships: [
+            relationship("Order", "Line", { label: plainLabel("alpha beta gamma delta epsilon zeta") }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      ).relationships;
+
+      expect(routed.label!.label).toEqual(rowsLabel("alpha beta gamma", "delta epsilon zeta"));
+      expect(routed.label!.labelBox.width).toBe(150);
+      // A 12px line of the measurer's 24 × 12/14, then one 12px × 1.5 = 18px row.
+      expect(routed.label!.labelBox.height).toBeCloseTo(LINE_HEIGHT * CONNECTOR_LABEL_SCALE + 18, 6);
+    });
+
     it("gives a namespace's label strip room for every row of its label, clear of the boxes it frames", () => {
       const diagram = layoutClassDiagram(
         classModel({

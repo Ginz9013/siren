@@ -58,6 +58,13 @@ While the version is 0.x, a minor release may contain breaking changes.
   A long-described state and a long note are drawn narrower and taller, and the diagram's layout
   can change. A composite state's title is not wrapped. `PositionedStateLabel.label`,
   `PositionedStateNote.label` and `PositionedStateTransition.label.label` are the wrapped labels.
+- **A class or ER relationship's label wraps** as Mermaid's does (measured, mermaid 11.17.2) once
+  its text is wider than 150px, Mermaid's 200px scaled to the 12px it is drawn at, by the same
+  rules as a flowchart edge's label; the layout keeps the wrapped box clear, so a diagram with long
+  relationship labels is laid out differently. A class name, a class diagram's note, an ER entity
+  name and an attribute's comment are not wrapped, as Mermaid wraps none of them.
+  `PositionedClassRelationship.label.label` and `PositionedErRelationship.label.label` are the
+  wrapped labels.
 - **A label's rows are closer together**: one line apart, a line being 1.5 times the size the
   label is drawn at, as Mermaid's HTML labels draw 16px text on 24px lines (measured). A node's,
   a class's, a state's or a subgraph title's rows are 21px apart (14px), a connector label's 18px

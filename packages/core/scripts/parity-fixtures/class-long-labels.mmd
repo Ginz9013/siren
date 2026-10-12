@@ -1,0 +1,13 @@
+classDiagram
+%% Long class labels: Mermaid 11.17.2 wraps a relationship label at 200px, and
+%% leaves a class name, a member and a note on one row.
+
+class Animal["This is a fairly long English class label that should exceed two hundred pixels"]
+class VeryLongClassNameThatKeepsGoingWellPastTwoHundredPixelsWide
+class Dog {
+  +String aVeryLongMemberNameThatGoesOnAndOn with some words past two hundred pixels
+  +bark(int times, string loudness, boolean repeated, string anotherArgument) void
+}
+Animal --> Dog : this relation label is long enough to go well past two hundred pixels wide
+VeryLongClassNameThatKeepsGoingWellPastTwoHundredPixelsWide --> Dog : short
+note for Dog "this note text is long enough to go well past two hundred pixels wide surely"

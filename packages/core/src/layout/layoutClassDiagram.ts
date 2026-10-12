@@ -17,7 +17,8 @@ import type {
   LabelBox,
 } from "../contracts";
 import { plainLabel } from "../label/label";
-import { layoutConnectorLabel, layoutLabel } from "../label/layoutLabel";
+import { layoutLabel } from "../label/layoutLabel";
+import { wrapConnectorLabel } from "../label/wrapLabel";
 import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
@@ -538,15 +539,18 @@ export function layoutClassDiagram(
   );
 
   /**
-   * Each labelled relationship's label measured at the 12px it is drawn at
-   * (`layoutConnectorLabel`), by the relationship's id — measured once, so the box the core keeps clear and
-   * the box the renderer draws in are the same box.
+   * Each labelled relationship's label wrapped and measured at the 12px it
+   * is drawn at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled
+   * to that size, by the label-wrap ADR, nook `01M4R4WDZ`), by the
+   * relationship's id — once, so the box the core keeps clear and the box
+   * the renderer draws in are the same box, and the rows drawn are the
+   * wrapped label's.
    */
-  const relationshipLabelBoxById = new Map(
+  const wrappedRelationshipLabelById = new Map(
     model.relationships.flatMap((rel) =>
       rel.label === null
         ? []
-        : [[rel.id, layoutConnectorLabel(rel.label, options.measureText)] as const],
+        : [[rel.id, wrapConnectorLabel(rel.label, options.measureText)] as const],
     ),
   );
 
@@ -627,7 +631,7 @@ export function layoutClassDiagram(
         // apart for the text, and reports back where that space ended up.
         ...(rel.label === null
           ? {}
-          : { label: relationshipLabelBoxById.get(rel.id)! }),
+          : { label: wrappedRelationshipLabelById.get(rel.id)!.labelBox }),
       })),
       // An attached note is joined to its class by an edge that is never
       // drawn as a relationship: it is what puts the note beside the class it
@@ -778,8 +782,7 @@ export function layoutClassDiagram(
           rel.label === null || route.labelAnchor === undefined
             ? null
             : {
-                label: rel.label,
-                labelBox: relationshipLabelBoxById.get(rel.id)!,
+                ...wrappedRelationshipLabelById.get(rel.id)!,
                 anchor: route.labelAnchor,
               },
         fromMultiplicity: rel.fromMultiplicity,

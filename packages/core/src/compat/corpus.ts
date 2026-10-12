@@ -3720,6 +3720,86 @@ line2\`"]`,
       );
     },
   },
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`, and its
+  // amendment `01M4R7HBG`), measured on mermaid 11.17.2: a relationship's
+  // label wraps at 200px of its 16px text; a class's name and a note do not.
+  {
+    id: "cls-relationship-label-wrap",
+    kind: "class",
+    source: `classDiagram
+      Animal --> Dog : this relation label is long enough to go well past two hundred pixels wide`,
+    status: "supported",
+    meaning:
+      "A relationship label wider than Mermaid's wrapping width wraps: " +
+      "mermaid 11.17.2 draws this one as `this relation label is long ` / " +
+      "`enough to go well past two ` / `hundred pixels wide` in a 200px " +
+      "`<div>` (measured), as a flowchart edge label. Siren draws a " +
+      "relationship label at 12px, so it wraps at 150px of text, the same " +
+      "number of characters to a row.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character, so 21
+      // characters fit in 150px and 22 do not.
+      expectSame(
+        "relationship label rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-relationship-labels[data-siren-id="Animal-Dog"] text.siren-relationship-label',
+          ),
+        ),
+        ["this relation label", "is long enough to go", "well past two hundred", "pixels wide"],
+      );
+    },
+  },
+  {
+    id: "cls-class-name-no-wrap",
+    kind: "class",
+    source: `classDiagram
+      class Animal["This is a fairly long English class label that should exceed two hundred pixels"]`,
+    status: "supported",
+    meaning:
+      "A class's name is never wrapped, however long: mermaid 11.17.2 draws " +
+      "this one `white-space: nowrap` on one 577px row, in a 601px box " +
+      "(measured), and a long unspaced name the same. Siren keeps it on one " +
+      "row and grows the box to hold it.",
+    assert: (result) => {
+      const name = "This is a fairly long English class label that should exceed two hundred pixels";
+      expectSame(
+        "class name rows",
+        labelRows(svgOf(result).querySelector('g.siren-class[data-siren-id="Animal"] text.siren-class-name')),
+        [name],
+      );
+      const frame = svgOf(result).querySelector('g.siren-class[data-siren-id="Animal"] rect.siren-class-frame');
+      expectSame(
+        "the box holds the name",
+        Number(frame?.getAttribute("width")) >= name.length * 8 + 16,
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-note-no-wrap",
+    kind: "class",
+    source: `classDiagram
+      class Dog
+      note for Dog "this note text is long enough to go well past two hundred pixels wide surely"`,
+    status: "supported",
+    meaning:
+      "A class diagram's note is not wrapped, unlike a state diagram's: " +
+      "mermaid 11.17.2 gives its `<div>` `white-space: break-spaces` and a " +
+      "200px `max-width`, but draws it as a table, which `max-width` does " +
+      "not narrow, so the text stays on one 544px row in a 556 × 36 note " +
+      "(measured). Siren keeps it on one row.",
+    assert: (result) => {
+      const note = "this note text is long enough to go well past two hundred pixels wide surely";
+      expectSame("note rows", labelRows(svgOf(result).querySelector("g.siren-note text.siren-note-text")), [note]);
+      const frame = svgOf(result).querySelector("g.siren-note rect.siren-note-frame");
+      expectSame(
+        "the note holds the text",
+        Number(frame?.getAttribute("width")) >= note.length * 8 + 16,
+        true,
+      );
+    },
+  },
   {
     id: "cls-note-br",
     kind: "class",
@@ -6742,6 +6822,64 @@ line2\`"]`,
         rowGaps(result, 'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label'),
         [18],
       );
+    },
+  },
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`), measured on
+  // mermaid 11.17.2: a relationship's label wraps at 200px of its 14px
+  // text; an entity's name does not.
+  {
+    id: "er-relationship-label-wrap",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "this relationship label is long enough to go well past two hundred pixels wide"`,
+    status: "supported",
+    meaning:
+      "A relationship label wider than Mermaid's wrapping width wraps: " +
+      "mermaid 11.17.2 draws this one, at 14px on 21px lines, as `this " +
+      "relationship label is long ` / `enough to go well past two ` / " +
+      "`hundred pixels wide` in a 200px `<div>` (measured). Siren draws a " +
+      "relationship label at 12px, so it wraps at 150px of text (Mermaid's " +
+      "200px scaled from 16px, decision 1 of the board), and the layout " +
+      "holds the two entities apart for every row.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character, so 21
+      // characters fit in 150px and 22 do not.
+      expectSame(
+        "relationship label rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+          ),
+        ),
+        ["this relationship", "label is long enough", "to go well past two", "hundred pixels wide"],
+      );
+      expectSame(
+        "the two boxes are drawn clear of one another",
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        false,
+      );
+    },
+  },
+  {
+    id: "er-entity-name-no-wrap",
+    kind: "er",
+    source: `erDiagram
+      P["This is a fairly long English entity label that should exceed two hundred pixels"]`,
+    status: "supported",
+    meaning:
+      "An entity's name is never wrapped, however long: mermaid 11.17.2 " +
+      "draws this alias `white-space: nowrap` on one 561px row, in a 611px " +
+      "box (measured), and a long unspaced name on one row too. Siren keeps " +
+      "it on one row and grows the box to hold it.",
+    assert: (result) => {
+      const name = "This is a fairly long English entity label that should exceed two hundred pixels";
+      expectSame(
+        "entity name rows",
+        labelRows(svgOf(result).querySelector('g.siren-er-entity[data-siren-id="P"] text.siren-er-entity-label')),
+        [name],
+      );
+      const box = erEntityRect(result, "P");
+      expectSame("the box holds the name", box.right - box.left >= name.length * 8 + 16, true);
     },
   },
   {

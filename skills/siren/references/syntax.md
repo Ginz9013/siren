@@ -288,6 +288,8 @@ classDiagram
 - A relationship's id is `Left-Right` in the order written: `Media <|-- Track` is
   `Media-Track`.
 - `namespace:1`, `note:1`, ... are the generated ids for namespaces and notes.
+- A long relationship label wraps by itself once its text is wider than 150px, as in Mermaid. A
+  class name, a member and a note do not wrap. `<br>` still forces a row break.
 
 ## State diagram
 
@@ -374,6 +376,8 @@ erDiagram
 - `NAME["Display name"]` is an alias. The timeline still uses `NAME`.
 - A relationship's id joins the entity names with a colon: `CUSTOMER:ORDER`.
 - `subgraph` groups entities (`subgraph:1`, ...).
+- A long relationship label wraps by itself once its text is wider than 150px, as in Mermaid. An
+  entity name, an alias and an attribute's comment do not wrap. `<br>` still forces a row break.
 
 ## Not supported
 
