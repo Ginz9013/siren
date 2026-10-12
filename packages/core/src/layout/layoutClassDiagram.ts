@@ -19,6 +19,7 @@ import type {
 import { plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import {
+  atEdgeLabelSize,
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
@@ -538,15 +539,17 @@ export function layoutClassDiagram(
   );
 
   /**
-   * Each labelled relationship's label as `layoutLabel` measured it, by the
+   * Each labelled relationship's label as `layoutLabel` measured it at the
+   * 12px it is drawn at (`atEdgeLabelSize`), by the
    * relationship's id — measured once, so the box the core keeps clear and
    * the box the renderer draws in are the same box.
    */
+  const relationshipLabelMeasurer = atEdgeLabelSize(options.measureText);
   const relationshipLabelBoxById = new Map(
     model.relationships.flatMap((rel) =>
       rel.label === null
         ? []
-        : [[rel.id, layoutLabel(rel.label, options.measureText)] as const],
+        : [[rel.id, layoutLabel(rel.label, relationshipLabelMeasurer)] as const],
     ),
   );
 

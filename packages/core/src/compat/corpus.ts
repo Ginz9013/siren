@@ -211,6 +211,48 @@ function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y:
 }
 
 /**
+ * How far a label's centre is drawn from the line it labels: the distance
+ * from the `<text>` matched by `labelSelector` (its `x`/`y`, the anchor it is
+ * centred on) to the nearest segment of the `<path>` matched by
+ * `lineSelector`.
+ *
+ * The reader for "the label is on its line", which is where Mermaid puts one
+ * (`labelpos: "c"`): the label's space is reserved at a point the route
+ * passes through. Distance rather than equality with one of the points, so
+ * the reading does not depend on how many bends the engine drew.
+ */
+function labelDistanceFromLine(
+  result: SirenRenderResult,
+  labelSelector: string,
+  lineSelector: string,
+): number {
+  const text = svgOf(result).querySelector(labelSelector);
+  if (text === null) throw new Error(`nothing matched "${labelSelector}"`);
+  const label = { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
+  const points = pathPoints(result, lineSelector);
+  return Math.min(
+    ...points.slice(1).map((end, i) => {
+      const start = points[i];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = dx * dx + dy * dy;
+      const t =
+        length === 0
+          ? 0
+          : Math.max(0, Math.min(1, ((label.x - start.x) * dx + (label.y - start.y) * dy) / length));
+      return Math.hypot(label.x - (start.x + t * dx), label.y - (start.y + t * dy));
+    }),
+  );
+}
+
+/**
+ * How close is "on the line": half a pixel. The anchor is a point the engine
+ * routed the line through, so the distance is 0 up to rounding; the old
+ * placement beside the line was at least 10 away (`labeloffset`).
+ */
+const ON_THE_LINE = 0.5;
+
+/**
  * The two ends of one edge's drawn path, read off the `d` attribute itself.
  *
  * Where a path *starts* and *stops* is the whole of what "this edge joins
@@ -2031,6 +2073,16 @@ export const COMPAT_CASES: readonly CompatCase[] = [
           `the label is drawn at y=${label.y}, not between A (ends ${nodeBox(result, "A").bottom}) and B (starts ${nodeBox(result, "B").top})`,
         );
       }
+      // And on the line, as Mermaid draws it (`labelpos: "c"`), not beside it.
+      expectSame(
+        "the label is centred on the edge's line",
+        labelDistanceFromLine(
+          result,
+          'text.siren-edge-label[data-siren-id="A-B"]',
+          'path.siren-edge[data-siren-id="A-B"]',
+        ) <= ON_THE_LINE,
+        true,
+      );
     },
   },
   {
@@ -3161,6 +3213,16 @@ line2\`"]`,
       expectSame("relationships", relationships(result), ["Customer-Order:association"]);
       expectSame("relationship label", texts(result, "text.siren-relationship-label"), ["places"]);
       expectSame("multiplicities", texts(result, "text.siren-multiplicity"), ["1", "*"]);
+      // Drawn on its line, as Mermaid draws an edge label (`labelpos: "c"`).
+      expectSame(
+        "the label is centred on the relationship's line",
+        labelDistanceFromLine(
+          result,
+          'g.siren-relationship-labels[data-siren-id="Customer-Order"] text.siren-relationship-label',
+          'g.siren-relationship[data-siren-id="Customer-Order"] path.siren-relationship-line',
+        ) <= ON_THE_LINE,
+        true,
+      );
     },
   },
   {
@@ -4393,6 +4455,16 @@ line2\`"]`,
         "the label is drawn in the transition's label group",
         texts(result, 'g.siren-transition-labels[data-siren-id="Idle-Running"] text'),
         ["start the job"],
+      );
+      // And centred on that line, as Mermaid draws an edge label (`labelpos: "c"`).
+      expectSame(
+        "the label is centred on the transition's line",
+        labelDistanceFromLine(
+          result,
+          'g.siren-transition-labels[data-siren-id="Idle-Running"] text.siren-transition-label',
+          'g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line',
+        ) <= ON_THE_LINE,
+        true,
       );
     },
   },
@@ -5771,6 +5843,17 @@ line2\`"]`,
         "`places` is drawn in the gap between CUSTOMER and ORDER",
         places.y > erEntityRect(result, "CUSTOMER").bottom &&
           places.y < erEntityRect(result, "ORDER").top,
+        true,
+      );
+      // And centred on the relationship's own line, as Mermaid draws an edge
+      // label (`labelpos: "c"`).
+      expectSame(
+        "`places` is centred on its relationship's line",
+        labelDistanceFromLine(
+          result,
+          'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+          'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] path.siren-er-relationship-line',
+        ) <= ON_THE_LINE,
         true,
       );
 

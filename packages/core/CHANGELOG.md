@@ -20,6 +20,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   ordinary layout: connectors crossing it are routed instead of drawn as two-point straight lines
   through other boxes, and its frame no longer overlaps the frames beside it. A diagram whose
   grouped direction relied on a crossing connector draws differently.
+- **Connector labels are drawn on the line**, centred on a point the connector passes through, in
+  flowcharts, class diagrams, state diagrams and ER diagrams, as Mermaid draws them. They used to
+  sit 10px to the right of the line. The room the layout keeps for a label is now the size it is
+  drawn at (`--siren-label-font-size`, 12px) rather than the node text's 14px, so a diagram with
+  labelled connectors comes out slightly more compact.
 
 ## [0.4.0] - 2026-10-10
 

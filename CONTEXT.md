@@ -474,8 +474,12 @@ and `A -- yes --> B`, plus the dotted stroke's `A -. yes .-> B` — with nothing
 recording which was written, exactly as nothing records `graph` versus `flowchart`. It is `null`
 and never `""` when there is none: mermaid 11.17.2 rejects `A -->|| B`, so "labelled with nothing"
 is not a state an author can reach. Layout reserves dagre space for it, which makes the label the
-one part of an edge that changes *where the line goes* as well as what is drawn on it; the
-renderer draws it as a `<text class="siren-edge-label">` **beside** the path rather than inside a
+one part of an edge that changes *where the line goes* as well as what is drawn on it. The space
+is reserved **on the line**, centred on a point the route passes through — dagre's
+`labelpos: "c"`, which is what Mermaid hands it, rather than dagre's default `"r"` (10px to the
+right of the line) — and measured at the 12px the label is drawn at, not the node's 14px; class
+relationships, state transitions and ER relationships place theirs the same way. In the markup the
+label is a `<text class="siren-edge-label">` drawn as a sibling of the path rather than inside a
 wrapping group, wearing the same `data-siren-id`, so one timeline target moves two elements
 ([ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md)).
 `linkStyle`'s two halves therefore land on two elements: `stroke` paints the line and the

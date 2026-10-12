@@ -440,6 +440,17 @@ describe("layoutErDiagram", () => {
     expect(order.top).toBeGreaterThanOrEqual(customer.bottom);
   });
 
+  it("measures a relationship's label at the 12px it is drawn at, not the 14px it is measured at", () => {
+    // `.siren-er-relationship-label` takes `--siren-label-font-size` (12px)
+    // and the measurer answers for the entity's 14px: `places` is 48 x 24
+    // there, and the same text 12/14 as large is 12/14 the size.
+    const laidOut = layoutErDiagram(relating(CUSTOMER_PLACES_ORDER), options);
+    const [relationship] = laidOut.relationships;
+
+    expect(relationship.label!.labelBox.width).toBeCloseTo((48 * 12) / 14, 6);
+    expect(relationship.label!.labelBox.height).toBeCloseTo((24 * 12) / 14, 6);
+  });
+
   it("reserves room for a relationship's label and reports where it goes", () => {
     // The label is not optional in ER — measured, `CUSTOMER ||--o{ ORDER`
     // with no colon is a Mermaid parse error — so every relationship has
@@ -456,13 +467,16 @@ describe("layoutErDiagram", () => {
       measureText: tall,
     });
 
+    // The label is drawn at 12px and measured at 14px, so the room it needs
+    // is the measurer's answer at 12/14 of the size.
+    const drawn = (height: number) => (height * 12) / 14;
     const gapFor = (laidOut: PositionedErDiagram) =>
       boxOf(laidOut.entities, "ORDER").top - boxOf(laidOut.entities, "CUSTOMER").bottom;
     expect(gapFor(shortLabel)).toBeGreaterThanOrEqual(
-      fakeMeasurer.measure("places").height,
+      drawn(fakeMeasurer.measure("places").height),
     );
     expect(gapFor(tallLabel) - gapFor(shortLabel)).toBeGreaterThanOrEqual(
-      tall.measure("places").height - fakeMeasurer.measure("places").height,
+      drawn(tall.measure("places").height - fakeMeasurer.measure("places").height) - 1e-9,
     );
 
     // And it is reported somewhere on the way between the two boxes, not at

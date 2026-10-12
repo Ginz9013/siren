@@ -849,13 +849,28 @@ describe("the room an edge label is given", () => {
     expect(labelled.label!.anchor.y).toBeLessThan(byId.B.y);
   });
 
+  it("measures an edge label at the size it is drawn, 12px, while a node's stays at 14px", () => {
+    // `.siren-edge-label` is drawn at `--siren-label-font-size` (12px in
+    // `theme/default.css`), and the measurer measures at the node's 14px.
+    // The same text set 12/14 as large is 12/14 the size, so `yes` —
+    // `fakeMeasurer`'s 24 x 24 at 14px — is 24 * 12/14 square on the line.
+    const laid = laidOut("yes");
+    const [edge] = laid.edges;
+
+    expect(edge.label!.labelBox.width).toBeCloseTo((24 * 12) / 14, 6);
+    expect(edge.label!.labelBox.height).toBeCloseTo((24 * 12) / 14, 6);
+    // A node's label is drawn at the 14px it was measured at, unchanged.
+    expect(laid.nodes.find((node) => node.id === "A")!.labelBox.height).toBe(24);
+  });
+
   it("reserves one line height per row for a label broken with <br>", () => {
-    // `fakeMeasurer`'s line is 24px, so a label of two rows is a 48px box.
+    // `fakeMeasurer`'s line is 24px at 14px, so 24 * 12/14 at the 12px an
+    // edge label is drawn at, and a label of two rows is twice that.
     const [twoRows] = laidOut("yes<br/>no").edges;
     const [oneRow] = laidOut("yes").edges;
 
-    expect(oneRow.label?.labelBox.height).toBe(24);
-    expect(twoRows.label?.labelBox.height).toBe(48);
+    expect(oneRow.label?.labelBox.height).toBeCloseTo((24 * 12) / 14, 6);
+    expect(twoRows.label?.labelBox.height).toBeCloseTo((48 * 12) / 14, 6);
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
   });
 });

@@ -16,7 +16,7 @@ import type {
 } from "../contracts";
 import { layoutLabel } from "../label/layoutLabel";
 import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
-import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import { atEdgeLabelSize, layoutDirectedGraph } from "./layoutDirectedGraph";
 
 /**
  * Horizontal padding between an entity box's edge and its name, and vertical
@@ -228,11 +228,15 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   const planById = new Map(
     model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
   );
-  /** Each relationship's label as `layoutLabel` measured it, by the relationship's id. */
+  /**
+   * Each relationship's label as `layoutLabel` measured it at the 12px it is
+   * drawn at (`atEdgeLabelSize`), by the relationship's id.
+   */
+  const relationshipLabelMeasurer = atEdgeLabelSize(options.measureText);
   const relationshipLabelBoxById = new Map(
     model.relationships.map(
       (relationship) =>
-        [relationship.id, layoutLabel(relationship.label, options.measureText)] as const,
+        [relationship.id, layoutLabel(relationship.label, relationshipLabelMeasurer)] as const,
     ),
   );
 

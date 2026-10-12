@@ -13,6 +13,7 @@ import type {
   StateModel,
 } from "../contracts";
 import {
+  atEdgeLabelSize,
   clipRouteEndToBox,
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
@@ -171,15 +172,17 @@ export function layoutStateDiagram(
   const noteLabelBoxById = new Map(notedStates.map(({ state, labelBox }) => [state.id, labelBox]));
 
   /**
-   * Each labelled transition's label as `layoutLabel` measured it, by the
+   * Each labelled transition's label as `layoutLabel` measured it at the
+   * 12px it is drawn at (`atEdgeLabelSize`), by the
    * transition's id — measured once, so the box the core keeps clear and the
    * box the renderer draws in are the same box.
    */
+  const transitionLabelMeasurer = atEdgeLabelSize(options.measureText);
   const transitionLabelBoxById = new Map(
     model.transitions.flatMap((transition) =>
       transition.label === null
         ? []
-        : [[transition.id, layoutLabel(transition.label, options.measureText)] as const],
+        : [[transition.id, layoutLabel(transition.label, transitionLabelMeasurer)] as const],
     ),
   );
 

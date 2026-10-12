@@ -15,6 +15,9 @@ While the version is 0.x, a minor release may contain breaking changes.
   otherwise it follows the nearest enclosing group's direction, or else the diagram's. A connector naming the group itself from outside
   does not count. Connectors that used to be drawn as straight lines through
   other boxes are routed, and frames that used to overlap no longer do.
+- With `siren-core`'s change: connector labels in all four connector diagrams (flowchart, class,
+  state, ER) are drawn on the line rather than 10px beside it, and laid out at the 12px they are
+  drawn at, as in Mermaid.
 
 ## [0.4.0] - 2026-10-10
 

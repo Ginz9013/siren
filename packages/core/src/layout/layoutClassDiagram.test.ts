@@ -1535,8 +1535,11 @@ describe("layoutClassDiagram", () => {
 
       const routed = twoRows.relationships[0];
       expect(routed.label?.label).toEqual(rowsLabel("holds", "many"));
-      expect(routed.label!.labelBox.height).toBe(LINE_HEIGHT * 2);
-      expect(routed.label!.labelBox.width).toBe(measuredWidth("holds"));
+      // Measured at the 12px `.siren-relationship-label` is drawn at
+      // (`--siren-label-font-size`), not the 14px the measurer measures at:
+      // the same text 12/14 as large is 12/14 the size.
+      expect(routed.label!.labelBox.height).toBeCloseTo((LINE_HEIGHT * 2 * 12) / 14, 6);
+      expect(routed.label!.labelBox.width).toBeCloseTo((measuredWidth("holds") * 12) / 14, 6);
       expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
     });
 

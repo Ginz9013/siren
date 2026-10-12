@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { render } from "../index";
 import {
   edgesThroughNodes,
+  labelsOverNodes,
   overlappingFrames,
+  overlappingLabels,
   straightBoundaryCrossingEdges,
 } from "./layoutDefects";
 
@@ -95,6 +97,61 @@ describe("edgesThroughNodes", () => {
   });
 });
 
+/** A flowchart edge label as the renderer draws one: centred on its anchor. */
+function label(id: string, x: number, y: number, ...rows: string[]): string {
+  const body =
+    rows.length === 1
+      ? rows[0]
+      : rows.map((row) => `<tspan class="siren-label-row">${row}</tspan>`).join("");
+  return `<text class="siren-edge-label" data-siren-id="${id}" x="${x}" y="${y}">${body}</text>`;
+}
+
+/**
+ * A row's size as a test measurer gives it: 10 per character, 20 tall — the
+ * label's box is not in the SVG, so the caller says how big a row is drawn.
+ */
+const rowSize = (text: string) => ({ width: text.length * 10, height: 20 });
+
+describe("labelsOverNodes", () => {
+  it("names each label whose drawn box shares interior with a node", () => {
+    const svg = svgOf(
+      box("A", 0, 0, 40, 20) +
+        box("B", 100, 0, 40, 20) +
+        // 60 x 20 centred at (50, 10): 20..80 by 0..20 — over A's right end.
+        label("over-A", 50, 10, "abcdef") +
+        // 40 x 20 centred at (70, 50): 50..90 by 40..60 — clear of both.
+        label("clear", 70, 50, "abcd") +
+        // 20 x 20 centred at (90, 10): 80..100 — touches B's left side only.
+        label("touching-B", 90, 10, "ab") +
+        // Two rows, 40 x 40 centred at (120, 35): 100..140 by 15..55 —
+        // reaches 5 into B's bottom.
+        label("two-rows", 120, 35, "abcd", "ab"),
+    );
+
+    expect(labelsOverNodes(svg, rowSize)).toEqual([
+      { label: "over-A", node: "A" },
+      { label: "two-rows", node: "B" },
+    ]);
+  });
+});
+
+describe("overlappingLabels", () => {
+  it("names each pair of labels whose drawn boxes share interior", () => {
+    const svg = svgOf(
+      // 0..40 by 0..20.
+      label("one", 20, 10, "abcd") +
+        // 30..70 by 10..30: overlaps `one`.
+        label("two", 50, 20, "abcd") +
+        // 70..110 by 0..20: touches `two` along x = 70 only.
+        label("three", 90, 10, "abcd") +
+        // Far away.
+        label("four", 300, 300, "abcd"),
+    );
+
+    expect(overlappingLabels(svg, rowSize)).toEqual([["one", "two"]]);
+  });
+});
+
 /**
  * Bound once rather than written inline: Vite rewrites the literal
  * `new URL("...", import.meta.url)` form into a dev-server URL that
@@ -127,6 +184,25 @@ describe("the garden-network diagram, under the default measurer", () => {
 
   it("draws no boundary-crossing edge as a two-point straight line", () => {
     expect(straightBoundaryCrossingEdges(svg)).toEqual([]);
+  });
+
+  /**
+   * A row of an edge label as the default measurer sizes it, at the 12px it
+   * is drawn at: `index.ts`'s fallback answers 8 per character plus 16 by
+   * 24 plus 8, for 14px text, and an edge label is measured at 12/14 of
+   * that (`atEdgeLabelSize`).
+   */
+  const drawnRow = (text: string) => ({
+    width: ((text.length * 8 + 16) * 12) / 14,
+    height: ((24 + 8) * 12) / 14,
+  });
+
+  it("draws no edge label over a node", () => {
+    expect(labelsOverNodes(svg, drawnRow)).toEqual([]);
+  });
+
+  it("draws no two edge labels over each other", () => {
+    expect(overlappingLabels(svg, drawnRow)).toEqual([]);
   });
 
   it("reports how many lines pass through a node that is not their own — reported, not bounded", () => {

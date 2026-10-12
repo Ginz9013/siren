@@ -783,7 +783,10 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
       { x: 20, y: 50 },
       { x: 20, y: 80 },
     ]);
-    expect(route.labelAnchor).toEqual({ x: 45, y: 50 });
+    // On the route's own middle point, `labelpos: "c"`. It was `{ x: 45 }`
+    // under dagre's default `"r"`: 15 (half the label) plus `labeloffset`
+    // 10 to the right of the line, which the points above never moved with.
+    expect(route.labelAnchor).toEqual({ x: 20, y: 50 });
   });
 });
 
@@ -1156,5 +1159,58 @@ describe("a cluster with a boundary-crossing edge", () => {
     // see "the box layoutDirectedGraph returns for a cluster".)
     expect(byId.D.y).toBe(byId.A.y);
     expect(byId.D.x).toBeGreaterThan(byId.A.x + byId.A.width);
+  });
+});
+
+/** How far `point` is from the nearest segment of the polyline `points`. */
+function distanceToRoute(point: Point, points: Point[]): number {
+  return Math.min(
+    ...points.slice(1).map((end, i) => {
+      const start = points[i];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = dx * dx + dy * dy;
+      const t =
+        length === 0
+          ? 0
+          : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length));
+      return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+    }),
+  );
+}
+
+/**
+ * Mermaid hands dagre every edge label with `labelpos: "c"`: the label's
+ * space is reserved *on* the line and its centre is a point the line passes
+ * through. Dagre's own default, `"r"`, puts it `labeloffset` (10) to the
+ * right of the line instead — the picture Siren drew before.
+ */
+describe("where a labelled edge's label is anchored", () => {
+  // A fan-out, so at least one route bends and "on the line" is not the
+  // same claim as "on the straight segment between the two centres".
+  const fanOut = (rankdir: Direction): DirectedGraphLayoutInput => ({
+    rankdir,
+    nodes: [
+      { id: "A", width: 40, height: 20 },
+      { id: "B", width: 40, height: 20 },
+      { id: "C", width: 40, height: 20 },
+      { id: "D", width: 40, height: 20 },
+    ],
+    edges: [
+      { id: "A-B", from: "A", to: "B", label: { width: 60, height: 20 } },
+      { id: "A-C", from: "A", to: "C", label: { width: 30, height: 20 } },
+      { id: "A-D", from: "A", to: "D", label: { width: 90, height: 20 } },
+    ],
+  });
+
+  it.each(["TB", "LR", "BT", "RL"] as const)("is a point on the edge's own route under %s", (rankdir) => {
+    // Tolerance 0.5: the anchor is the label dummy's position, which dagre
+    // also writes into the route as one of its points, so the distance is
+    // 0 up to floating-point rounding. Half a pixel is the most rounding
+    // could ever account for and far less than the 10 the old `"r"`
+    // placement put between them.
+    for (const route of layoutDirectedGraph(fanOut(rankdir)).edges) {
+      expect(distanceToRoute(route.labelAnchor!, route.points), route.id).toBeLessThanOrEqual(0.5);
+    }
   });
 });
