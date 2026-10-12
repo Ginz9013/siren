@@ -1,0 +1,8 @@
+flowchart TB
+  %% A TB diagram whose subgraph declares direction LR and has no edge
+  %% leaving it. Mermaid honours the declared direction: one row, left to right.
+  Top[Top] --> Middle[Middle] --> Bottom[Bottom]
+  subgraph Lane [Isolated lane]
+    direction LR
+    A[Alpha] --> B[Beta] --> C[Gamma]
+  end

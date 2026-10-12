@@ -1,0 +1,10 @@
+flowchart TB
+  %% Several labelled edges, including two between the same endpoints in
+  %% opposite directions (Client -> Server and Server -> Client).
+  Client[Client] -->|request| Server[Server]
+  Server -->|response| Client
+  Server -->|query| DB[(Database)]
+  DB -->|rows| Cache[Cache]
+  Server -- writes to --> Log[Audit log]
+  Cache -.->|invalidate| Server
+  Log ==>|ship| Archive[Archive]

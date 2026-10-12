@@ -1,0 +1,9 @@
+flowchart TB
+  %% A TB diagram with a subgraph that declares no direction and has no edge
+  %% leaving it. Reading Mermaid's source says it lays such a subgraph out
+  %% perpendicular to its parent (LR inside a TB diagram); this fixture lets
+  %% the parity report show whether it actually does.
+  Top[Top] --> Middle[Middle] --> Bottom[Bottom]
+  subgraph Lane [Isolated lane, no direction]
+    A[Alpha] --> B[Beta] --> C[Gamma]
+  end

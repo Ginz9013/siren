@@ -1,0 +1,88 @@
+flowchart TB
+  classDef external fill:#0f172a,stroke:#020617,stroke-width:2,color:#f8fafc
+  classDef care fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2,color:#ffffff
+  classDef season fill:#b45309,stroke:#78350f,stroke-width:2,color:#ffffff
+  classDef beds fill:#15803d,stroke:#14532d,stroke-width:2,color:#ffffff
+  classDef seeds fill:#be185d,stroke:#831843,stroke-width:2,color:#ffffff
+  classDef common fill:#6d28d9,stroke:#4c1d95,stroke-width:2,color:#ffffff
+  linkStyle default stroke:#334155,stroke-width:2
+
+  Gardener([園丁用的手機]):::external
+  Hub[社區花園 Hub]:::external
+
+  subgraph L2 [第二層 溫室 Greenhouses 要種哪些苗]
+    direction LR
+    Beds[Greenhouses 苗床與灑水]:::beds
+    Valve["Watering 灌溉控制器 (Rain / Pump / Wells)"]:::beds
+    Planner["Plots / Seasonal Planner 寫進 diary 的筆記"]:::beds
+    Compost["Compost (Worms / Leaf / MANURE)"]:::beds
+  end
+
+  subgraph L4 [第四層 節氣 Season 在什麼時節下]
+    direction LR
+    Climate["Season (Frostlines / Zones / ...)"]:::season
+    Almanac[Season Almanac 對到菜畦]:::season
+  end
+
+  subgraph L3 [第三層 照護 Care 菜苗會經歷什麼照料]
+    direction LR
+    Sowing[Sowingschedule care 播種]:::care
+    Weeding[Morning weeding rota 交給 us]:::care
+    Clearing[Fallclearing rota 收畦]:::care
+    Tasks["Tasks (Seed selection / Thinning / Hoe / Mulches / Bean Stakes / Tallying)"]:::care
+  end
+
+  subgraph L1 [第一層 種子 Seedbank 是哪種]
+    direction LR
+    Silo[(地窖 Silo)]:::external
+    Sorter[Silo Sorter 清點與驗芽率]:::seeds
+    Tagging[Heirloom Tagging Silo 品系對應]:::seeds
+    Seed[Seed]:::seeds
+    Taxon[Taxon 科屬分類]:::seeds
+  end
+
+  subgraph L5 [第五層 共用 Common 預設值與紀錄]
+    direction LR
+    Guide[Guide 全園預設 rota]:::common
+    Toolbox[community Toolbox 即 one toolbox]:::common
+    Record[Record 所有播種收成紀錄]:::common
+  end
+
+  style L2 fill:#f1f5f9,stroke:#15803d,stroke-width:2,color:#0f172a
+  style L4 fill:#f1f5f9,stroke:#b45309,stroke-width:2,color:#0f172a
+  style L3 fill:#f1f5f9,stroke:#1d4ed8,stroke-width:2,color:#0f172a
+  style L1 fill:#f1f5f9,stroke:#be185d,stroke-width:2,color:#0f172a
+  style L5 fill:#f1f5f9,stroke:#6d28d9,stroke-width:2,color:#0f172a
+
+  Gardener --> Hub
+  Hub -->|volunteer / plot-signup| Valve
+  Valve -->|water / schedules| Hub
+
+  Beds --> Valve
+  Planner --> Valve
+  Compost -.-> Valve
+
+  Silo --> Sorter
+  Tagging -.-> Sorter
+  Sorter --> Seed
+  Sorter --> Taxon
+  Seed --> Planner
+
+  Valve -->|每天清晨都做| Weeding
+  Valve -->|入冬時做| Clearing
+  Valve -.->|可略過| Sowing
+  Sowing --> Tasks
+  Weeding --> Tasks
+  Clearing --> Tasks
+  Tasks -->|Thinning check 驗密度| Sorter
+  Sowing -->|Seed Order check 登記| Toolbox
+  Clearing -->|Beds Closed check 結算| Toolbox
+
+  Taxon --> Almanac
+  Climate --> Almanac
+  Almanac -->|誰能借用| Beds
+  Almanac -.->|這一項要不要照做| Tasks
+
+  Guide -->|沒指定時的預設| Sowing
+  Guide -->|沒指定時的預設| Clearing
+  Toolbox -.-> Record
