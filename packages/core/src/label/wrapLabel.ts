@@ -1,6 +1,7 @@
 import type { TextMeasurer } from "../contracts";
 import {
   atConnectorLabelSize,
+  BASE_FONT_SIZE_PX,
   CONNECTOR_LABEL_FONT_SIZE_PX,
   wrapWidthAt,
   type Label,
@@ -8,6 +9,23 @@ import {
   type LabelRun,
 } from "./label";
 import { layoutLabel, measurerPadding, type LineSpacing } from "./layoutLabel";
+
+/**
+ * A label as it is drawn once wrapped, and the box it was measured into —
+ * what `wrapLabel` answers. A positioned element carries both, so the
+ * renderer draws the rows the layout measured.
+ */
+export interface WrappedLabel {
+  label: Label;
+  labelBox: LabelBox;
+}
+
+/**
+ * The wrap width that wraps nothing: for a label Mermaid draws on one row
+ * however long it is, such as a composite state's title. `wrapLabel` hands
+ * such a label back as it is, measured as `layoutLabel` measures it.
+ */
+export const NO_WRAP = undefined;
 
 /**
  * Wraps a label at `wrapWidth` and measures what is drawn: the **Wrap** of
@@ -60,7 +78,7 @@ export function wrapLabel(
   measureText: TextMeasurer,
   wrapWidth: number | undefined,
   spacing: LineSpacing = {},
-): { label: Label; labelBox: LabelBox } {
+): WrappedLabel {
   const box = layoutLabel(label, measureText, spacing);
   if (wrapWidth === undefined) {
     return { label, labelBox: box };
@@ -220,8 +238,22 @@ const CONNECTOR_LABEL_WRAP_WIDTH = wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX);
  * Here rather than beside `layoutConnectorLabel` because `layoutLabel.ts`
  * is what this module is built on.
  */
-export function wrapConnectorLabel(label: Label, measureText: TextMeasurer): { label: Label; labelBox: LabelBox } {
+export function wrapConnectorLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
   return wrapLabel(label, atConnectorLabelSize(measureText), CONNECTOR_LABEL_WRAP_WIDTH, {
     fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX,
   });
+}
+
+/** A label at the 14px base size wraps at Mermaid's 200px scaled to 14px: 175px of text. */
+const NODE_LABEL_WRAP_WIDTH = wrapWidthAt(BASE_FONT_SIZE_PX);
+
+/**
+ * Wraps a label drawn at the 14px base size — a flowchart node's, and by
+ * the label-wrap ADR a state's description and a state diagram's note — at
+ * 175px of text, Mermaid's 200px scaled to that size. The counterpart of
+ * `wrapConnectorLabel` for the base size, so every caller wrapping at 14px
+ * shares the one width.
+ */
+export function wrapNodeLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
+  return wrapLabel(label, measureText, NODE_LABEL_WRAP_WIDTH);
 }

@@ -5433,6 +5433,36 @@ line2\`"]`,
     },
   },
   {
+    id: "st-composite-description-no-wrap",
+    kind: "state",
+    source: `stateDiagram-v2
+      Outer : The quick brown fox jumps over the lazy dog and keeps running far away
+      state Outer {
+        A --> B
+      }`,
+    status: "supported",
+    meaning:
+      "A composite's own description is its title, and is not wrapped: " +
+      "mermaid 11.17.2 draws `Outer : …` beside `state Outer { … }` (written " +
+      "in either order) as the cluster's label, `white-space: nowrap`, one " +
+      "525px row (measured) — not as a wrapped description. Mermaid cannot " +
+      "give a composite both a quoted title and a description (`Group nodes " +
+      "can only have label`), so there is never a description row below a " +
+      "title to wrap on its own.",
+    assert: (result) => {
+      const title = "The quick brown fox jumps over the lazy dog and keeps running far away";
+      expectSame(
+        "title rows",
+        labelRows(
+          svgOf(result).querySelector('g.siren-state[data-siren-id="Outer"] text.siren-composite-label'),
+        ),
+        [title],
+      );
+      const frame = stateRect(result, "Outer");
+      expectSame("frame holds the title", frame.right - frame.left >= title.length * 8 + 16, true);
+    },
+  },
+  {
     id: "st-composite",
     kind: "state",
     source: `stateDiagram-v2

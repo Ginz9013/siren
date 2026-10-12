@@ -1,7 +1,6 @@
 import type {
   Direction,
   Label,
-  LabelBox,
   LayoutOptions,
   Point,
   PositionedState,
@@ -17,16 +16,14 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
-import { BASE_FONT_SIZE_PX, plainLabel, wrapWidthAt } from "../label/label";
-import { wrapConnectorLabel, wrapLabel } from "../label/wrapLabel";
-
-/**
- * The width a state's description and a note wrap at: Mermaid's 200px at
- * the 14px they are drawn at (the label-wrap ADR, nook `01M4R4WDZ`).
- * Measured, mermaid 11.17.2 wraps a state's description, its quoted name
- * and its note (one-line and block form) at 200px.
- */
-const STATE_LABEL_WRAP_WIDTH = wrapWidthAt(BASE_FONT_SIZE_PX);
+import { plainLabel } from "../label/label";
+import {
+  NO_WRAP,
+  wrapConnectorLabel,
+  wrapLabel,
+  wrapNodeLabel,
+  type WrappedLabel,
+} from "../label/wrapLabel";
 
 /** Horizontal padding between a state box's edge and its widest label. */
 const STATE_PADDING_X = 14;
@@ -160,7 +157,8 @@ export function layoutStateDiagram(
 
   /**
    * The states carrying a note, each with the note itself and its label
-   * wrapped at `STATE_LABEL_WRAP_WIDTH` and measured — narrowed and measured
+   * wrapped at the 14px it is drawn at (`wrapNodeLabel`: measured, mermaid
+   * 11.17.2 wraps a note, one-line or block, at 200px) — narrowed and measured
    * here once so that the three places below that add a node, add an edge
    * and read the result back all work from the same list, and the box and
    * rows the note was sized around are the ones it is drawn with.
@@ -172,11 +170,11 @@ export function layoutStateDiagram(
           {
             state,
             note: state.note,
-            ...wrapLabel(state.note.label, options.measureText, STATE_LABEL_WRAP_WIDTH),
+            ...wrapNodeLabel(state.note.label, options.measureText),
           },
         ],
   );
-  const wrappedNoteById = new Map(
+  const wrappedNoteById = new Map<string, WrappedLabel>(
     notedStates.map(({ state, label, labelBox }) => [state.id, { label, labelBox }]),
   );
 
@@ -452,7 +450,7 @@ function levelDirections(model: StateModel): (state: ResolvedState) => Direction
  */
 function placeNote(
   state: ResolvedState,
-  wrappedNoteById: ReadonlyMap<string, { label: Label; labelBox: LabelBox }>,
+  wrappedNoteById: ReadonlyMap<string, WrappedLabel>,
   boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
   routeById: ReadonlyMap<string, { points: Point[] }>,
   frameById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
@@ -689,7 +687,9 @@ function planStateBox(
       dividerY = bottom;
       bottom += STATE_PADDING_Y;
     }
-    const placed = placeLabel(label, bottom, options, STATE_LABEL_WRAP_WIDTH);
+    // Wrapped at the 14px it is drawn at: measured, mermaid 11.17.2 wraps a
+    // state's description and its quoted name at 200px.
+    const placed = placeLabel(wrapNodeLabel(label, options.measureText), bottom);
     planned.push(placed);
     bottom += placed.labelBox.height;
   });
@@ -723,9 +723,10 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   let bottom = COMPOSITE_PADDING;
 
   for (const label of labels) {
-    // Never wrapped: measured, mermaid 11.17.2 draws a composite's title
-    // on one row however long it is, as it does a flowchart subgraph's.
-    const placed = placeLabel(label, bottom, options, undefined);
+    // Never wrapped: measured, mermaid 11.17.2 draws a composite's title —
+    // its quoted name, or the description `Outer : …` gives it — on one row
+    // however long it is, as it does a flowchart subgraph's.
+    const placed = placeLabel(wrapLabel(label, options.measureText, NO_WRAP), bottom);
     planned.push(placed);
     bottom += placed.labelBox.height;
   }
@@ -739,19 +740,13 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
 }
 
 /**
- * `label` wrapped at `wrapWidth` (none when `undefined`), measured, and
- * placed with its top edge at `top` — the step every stack of labels in a
- * state's box repeats: the caller moves `top` down by the label's height
- * for the next one. The placed label is the wrapped one, so the renderer
- * draws the rows the box was measured around.
+ * A label, already wrapped (or not) and measured, placed with its top edge
+ * at `top` — the step every stack of labels in a state's box repeats: the
+ * caller moves `top` down by the label's height for the next one. The
+ * placed label is the wrapped one, so the renderer draws the rows the box
+ * was measured around.
  */
-function placeLabel(
-  label: Label,
-  top: number,
-  options: LayoutOptions,
-  wrapWidth: number | undefined,
-): PositionedStateLabel {
-  const wrapped = wrapLabel(label, options.measureText, wrapWidth);
+function placeLabel(wrapped: WrappedLabel, top: number): PositionedStateLabel {
   return { ...wrapped, y: top + wrapped.labelBox.height / 2 };
 }
 

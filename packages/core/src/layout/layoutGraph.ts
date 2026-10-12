@@ -14,9 +14,8 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
-import { BASE_FONT_SIZE_PX, wrapWidthAt } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
-import { wrapConnectorLabel, wrapLabel } from "../label/wrapLabel";
+import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
 const SUBGRAPH_PADDING = 12;
@@ -77,9 +76,6 @@ export const SHAPE_LEAN = {
   "double-circle": 1 / 16,
   cylinder: 1 / 8,
 } as const satisfies Partial<Record<NodeShape, number>>;
-
-/** The width a node's label wraps at: Mermaid's 200px at the node's 14px. */
-const NODE_LABEL_WRAP_WIDTH = wrapWidthAt(BASE_FONT_SIZE_PX);
 
 /** A measured label, and the bounding box a shape needs to hold one. */
 interface Box {
@@ -250,9 +246,9 @@ export function layoutGraph(
   // wrapped rows are drawn where it says they sit. The renderer has no
   // measurer, so a second opinion there was never an option. A node's text
   // is drawn at the 14px base, so it wraps at Mermaid's 200px scaled to 14
-  // (the label-wrap ADR, nook `01M4R4WDZ`).
+  // (`wrapNodeLabel`; the label-wrap ADR, nook `01M4R4WDZ`).
   const wrappedById = new Map(
-    graph.nodes.map((node) => [node.id, wrapLabel(node.label, options.measureText, NODE_LABEL_WRAP_WIDTH)]),
+    graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText)]),
   );
 
   // A subgraph's title is measured once too, for the same two readers: the

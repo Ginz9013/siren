@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TextMeasurer } from "../contracts";
 import { layoutConnectorLabel, layoutLabel } from "./layoutLabel";
 import { readLabel } from "./readLabel";
-import { wrapConnectorLabel, wrapLabel } from "./wrapLabel";
+import { wrapConnectorLabel, wrapLabel, wrapNodeLabel } from "./wrapLabel";
 
 /**
  * 10px a character, 20px a row, and 10px of the measurer's own padding on
@@ -314,5 +314,31 @@ describe("wrapConnectorLabel", () => {
 
     expect(wrapped.label).toBe(label);
     expect(wrapped.labelBox).toEqual(layoutConnectorLabel(label, measurer14));
+  });
+});
+
+describe("wrapNodeLabel", () => {
+  // A label drawn at the 14px base size — a flowchart node's, a state's
+  // description, a state diagram's note — wraps at Mermaid's 200px scaled to
+  // 14px: 175px of text (decision 1), measured as the measurer measures.
+  it("wraps at 175px of 14px text", () => {
+    const { label } = readLabel("alpha beta gamma delta epsilon", { dialect: "html" });
+
+    const wrapped = wrapNodeLabel(label, measurer);
+
+    // 175px holds 17 of these 10px characters: `alpha beta gamma` (16)
+    // fits and ` delta` would make 22.
+    expect(rowTexts(wrapped.label)).toEqual(["alpha beta gamma", "delta epsilon"]);
+    // The wrap width plus the measurer's 10px padding.
+    expect(wrapped.labelBox.width).toBe(185);
+  });
+
+  it("measures a label that fits as layoutLabel does", () => {
+    const { label } = readLabel("yes<br>no", { dialect: "html" });
+
+    const wrapped = wrapNodeLabel(label, measurer);
+
+    expect(wrapped.label).toBe(label);
+    expect(wrapped.labelBox).toEqual(layoutLabel(label, measurer));
   });
 });

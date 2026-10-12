@@ -96,6 +96,18 @@ async function drawMermaid(index, source, host) {
 // composite state is a .siren-state too, but it is drawn as a frame around
 // its children — Mermaid's cluster — so it is counted as a cluster.
 const COMPOSITE = ":scope > .siren-composite-frame, :scope > .siren-state-region";
+// A state's note — its frame, its text and the connector to it — is drawn
+// inside the state's own group, but Mermaid draws it as a node of its own,
+// so the state is sized from its own figure: the note is hidden while the
+// group is measured.
+const STATE_NOTE = ":scope > .siren-note-frame, :scope > .siren-note-text, :scope > .siren-note-link";
+const ownBox = (g) => {
+  const note = [...g.querySelectorAll(STATE_NOTE)];
+  for (const element of note) element.style.display = "none";
+  const measured = box(g);
+  for (const element of note) element.style.display = "";
+  return measured;
+};
 function drawSiren(source, host) {
   const result = sirenRender(source, host, { measureText: createCanvasTextMeasurer() });
   if (result.svg === null) {
@@ -106,8 +118,8 @@ function drawSiren(source, host) {
   const clusters = {};
   for (const g of host.querySelectorAll("g.siren-node, g.siren-state, g.siren-er-entity")) {
     const id = g.getAttribute("data-siren-id");
-    if (g.querySelector(COMPOSITE)) clusters[id] = box(g);
-    else nodes[id] = box(g);
+    if (g.querySelector(COMPOSITE)) clusters[id] = ownBox(g);
+    else nodes[id] = ownBox(g);
   }
   // "clusters" is the key both sides share, Mermaid's own word for a group;
   // on this side it holds subgraphs, composite states and ER subgraph blocks.
