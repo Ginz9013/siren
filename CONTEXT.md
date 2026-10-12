@@ -281,6 +281,15 @@ _Avoid_: test corpus, fixtures, compatibility matrix, "supported" as loose prais
 three states with a rule attached), "silently wrong" as a description of any old bug (it names the
 state a corpus row declares)
 
+**Layout parity report**:
+What the parity script prints after drawing the same Mermaid document with real Mermaid and with
+Siren, in one browser: how far Siren's picture is from Mermaid's. It is a measurement for a
+developer, not a test. Nothing fails on its numbers, because they move with fonts and browsers.
+Where the **compatibility corpus** asks whether Siren means what Mermaid means, this asks how close
+the two pictures are.
+_Avoid_: visual diff, snapshot (this repo has no snapshot tests), screenshot comparison (it compares
+geometry, not pixels)
+
 **Diagram kind**:
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
 `sequenceDiagram`, `classDiagram`, `stateDiagram`, or `erDiagram` (`stateDiagram-v2` is the same
@@ -482,6 +491,16 @@ _Avoid_: link, arrow (say "arrow" for the drawn line and its ends, or "arrow tok
 spelling that wrote them — never for the edge itself, the same split **message** makes),
 connector, relationship (class-diagram vocabulary), message (sequence vocabulary)
 
+**Curve**:
+How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline,
+the default, as in Mermaid), `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. It changes
+how a route looks, never where the route goes. A flowchart author picks one with `linkStyle default
+interpolate <curve>` or `linkStyle <n> interpolate <curve>`; any other curve name is rejected as
+not implemented.
+_Avoid_: interpolation (`interpolate` survives only as the authored keyword), line (that is the
+**edge**'s solid/thick/dotted axis), routing (that decides where the points are, which a curve does
+not)
+
 **Subgraph**:
 A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around the nodes declared
 inside it and laid out as a dagre compound-graph cluster. The **fourth** grouping construct here,
@@ -506,12 +525,10 @@ is cosmetic:
   declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. dagre cannot route
   that edge as written (it throws on an endpoint that *is* a cluster), so `layoutDirectedGraph`
   hands it a member of the frame instead and clips the returned route back to the frame's own
-  boundary — Mermaid's own strategy for the same construct, arrived at independently. **One
-  spelling of it is still drawn wrongly and is written down as such**: a block naming *itself* at
-  both ends (`one --> one`) draws its loop around that stand-in member, inside the frame, rather
-  than around the frame — the clip has nothing to bite on, since a self-loop never leaves the box
-  it belongs to. That is the corpus's one `silently-wrong` row, `fc-subgraph-self-edge`, and its
-  exit is drawing the loop around the frame rather than refusing the line.
+  boundary — Mermaid's own strategy for the same construct, arrived at independently. A block
+  naming *itself* at both ends (`one --> one`) is the one spelling the clip cannot serve, since a
+  self-loop never leaves the box it belongs to; its loop is synthesised around the frame instead
+  (`selfLoopAroundBox`), and `fc-subgraph-self-edge` asserts that picture.
 
 **Its id is generated, not authored** — `subgraph:1`, `subgraph:2`, … in the order the keywords
 open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) —
@@ -527,6 +544,14 @@ cluster (that is the dagre-side word `layoutDirectedGraph` uses for the mechanis
 **namespace**'s entry reserves it), namespace (that is the class-diagram construct), group, box
 (overloaded three ways already — see **Box grouping**), container, frame (that is the drawn
 `<rect>`, one of the two elements a subgraph is drawn with)
+
+**Boundary-crossing edge**:
+A connector with exactly one end inside a group — a **subgraph**, a **composite state**, or an ER
+subgraph block, nested at any depth. One such connector is enough to make the group lay out in the
+diagram's own **direction** rather than the one it declared, which is Mermaid's rule, measured in
+its renderer. A connector that names the group itself at one end counts.
+_Avoid_: external connection (Mermaid's internal field name), cross edge, outgoing edge (direction
+does not matter: an edge into the group counts the same as one out of it)
 
 **Participant**:
 One vertical lane in a sequence diagram, declared as `participant X` (drawn as a box) or
