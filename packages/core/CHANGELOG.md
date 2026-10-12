@@ -20,6 +20,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   0.8 opacity) fills that background. It sits outside the five-color palette, but **a second theme
   must redeclare it**: on a dark canvas the default draws a white background behind every connector
   label. `demos/theme-dark.css` declares a dark value.
+- Every connector `<path>` (flowchart edge, class relationship, state transition, ER
+  relationship, note connector) carries **`data-siren-points`**: the points its route passes
+  through, as `"x,y x,y …"` (the spelling of an SVG `points` attribute). A connector is now drawn
+  as a curve whose `d` holds control points rather than the route (see **Changed**), so this
+  attribute is where a script or test reads the route.
 
 ### Changed
 
@@ -50,10 +55,9 @@ While the version is 0.x, a minor release may contain breaking changes.
   `curveBasis`, Mermaid's default) through its routed points instead of a polyline with corners.
   The route itself is unchanged: the curve starts and ends where the polyline did and still
   arrives along the route's last segment, so arrowheads and other end markers point as before.
-  A connector `<path>`'s `d` now holds the curve's control points rather than the route; the
-  routed points are on the same element as `data-siren-points` (`"x,y x,y …"`). A script or test
-  that read the route off `d` should read `data-siren-points`. Every diagram with a bent connector
-  looks different.
+  A connector `<path>`'s `d` now holds the curve's control points rather than the route, so a
+  script or test that read the route off `d` should read `data-siren-points` (see **Added**).
+  Every diagram with a bent connector looks different.
 
 ## [0.4.0] - 2026-10-10
 

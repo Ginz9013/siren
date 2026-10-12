@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Label, LabelBox, PositionedStateDiagram } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
+import { connectorPathData } from "./connectorCurve";
 import { renderStateDiagramToSVG } from "./renderStateDiagramToSVG";
 import { CANVAS_GUTTER } from "./sizeCanvas";
 
@@ -278,10 +279,8 @@ describe("renderStateDiagramToSVG", () => {
   it("draws a transition and a note's connector as d3's basis curve, keeping the route as data-siren-points", () => {
     // mermaid 11.17.2 sets no `curve` on a state diagram's edges, its note
     // edges included, so `insertEdge` falls back to `flowchart.curve`, whose
-    // default is `basis`. d3-shape 3.2.0 curveBasis (src/curve/basis.js)
-    // through (70,80), (70,140), (130,140): L to (5·p0 + p1)/6 = (70,90);
-    // C (2·p0 + p1)/3, (p0 + 2·p1)/3, (p0 + 4·p1 + p2)/6; the closing C
-    // (2·p1 + p2)/3, (p1 + 2·p2)/3, (p1 + 5·p2)/6; L onto p2.
+    // default is `basis`. What `basis` draws is connectorCurve.test.ts's to
+    // pin against d3; here the question is only which curve this kind uses.
     const route = [
       { x: 70, y: 80 },
       { x: 70, y: 140 },
@@ -306,7 +305,7 @@ describe("renderStateDiagramToSVG", () => {
       ],
       transitions: [{ ...DIAGRAM.transitions[0], points: route }, ...DIAGRAM.transitions.slice(1)],
     });
-    const basis = "M70,80 L70,90 C70,100 70,120 80,130 C90,140 110,140 120,140 L130,140";
+    const basis = connectorPathData(route, "basis");
 
     for (const path of [
       svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line')!,

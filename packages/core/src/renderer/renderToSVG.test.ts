@@ -88,6 +88,24 @@ function buildFixture(): PositionedGraph {
 }
 
 /**
+ * `buildFixture` with A-B bent once: (40,20) → (100,20) → (100,80), a right
+ * turn and then straight down — a route whose curve differs from its
+ * polyline, for the tests about how a route is drawn.
+ */
+function buildBentFixture(): PositionedGraph {
+  const graph = buildFixture();
+  graph.edges[0] = {
+    ...graph.edges[0],
+    points: [
+      { x: 40, y: 20 },
+      { x: 100, y: 20 },
+      { x: 100, y: 80 },
+    ],
+  };
+  return graph;
+}
+
+/**
  * The `<marker>` one edge path points at, found by following its own
  * `marker-end` rather than by naming an id.
  *
@@ -131,16 +149,7 @@ describe("renderToSVG", () => {
     // (100,20), (100,80) — the worked example of connectorCurve.test.ts moved
     // by (40,20): L to (5·p0 + p1)/6, one cubic per point after the second,
     // a closing cubic and a final L onto the last point.
-    const graph = buildFixture();
-    graph.edges[0] = {
-      ...graph.edges[0],
-      points: [
-        { x: 40, y: 20 },
-        { x: 100, y: 20 },
-        { x: 100, y: 80 },
-      ],
-    };
-    const svg = renderToSVG(graph);
+    const svg = renderToSVG(buildBentFixture());
 
     expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")).toBe(
       "M40,20 L50,20 C60,20 80,20 90,30 C100,40 100,60 100,70 L100,80",
@@ -151,16 +160,7 @@ describe("renderToSVG", () => {
     // A curve's `d` carries control points rather than the route, so the
     // points layout routed through are written beside it, in the spelling
     // of an SVG `points` attribute.
-    const graph = buildFixture();
-    graph.edges[0] = {
-      ...graph.edges[0],
-      points: [
-        { x: 40, y: 20 },
-        { x: 100, y: 20 },
-        { x: 100, y: 80 },
-      ],
-    };
-    const svg = renderToSVG(graph);
+    const svg = renderToSVG(buildBentFixture());
 
     expect(
       svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("data-siren-points"),
@@ -171,16 +171,7 @@ describe("renderToSVG", () => {
     // `marker-end` is oriented `auto`, along the direction the path arrives
     // in — its last command. The route's last segment runs (100,20) →
     // (100,80), straight down; the drawn line must arrive heading down too.
-    const graph = buildFixture();
-    graph.edges[0] = {
-      ...graph.edges[0],
-      points: [
-        { x: 40, y: 20 },
-        { x: 100, y: 20 },
-        { x: 100, y: 80 },
-      ],
-    };
-    const svg = renderToSVG(graph);
+    const svg = renderToSVG(buildBentFixture());
     const pairs = Array.from(
       svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")!.matchAll(
         /(-?[\d.]+),(-?[\d.]+)/g,

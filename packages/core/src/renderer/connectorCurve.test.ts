@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectorPathData } from "./connectorCurve";
+import { connectorPathData, CURVES } from "./connectorCurve";
 
 // Expected values are worked by hand from the two definitions the curves
 // copy, never read back from this module:
@@ -210,14 +210,17 @@ describe("connectorPathData", () => {
     });
 
     it("draws a single point as a bare move and no points as an empty path, under every curve", () => {
-      // Siren's own choice, not d3's: d3 closes a one-point line (`M6,12Z`)
-      // and returns null for none; generateRoundedPath returns "" for both.
-      // A bare move draws nothing either way, and keeps the point readable.
-      const every = ["basis", "linear", "step", "stepBefore", "stepAfter", "rounded"] as const;
-      expect(every.map((curve) => connectorPathData([{ x: 6, y: 12 }], curve))).toEqual(
-        every.map(() => "M6,12"),
+      // Deliberately neither d3's nor mermaid's output. d3 3.2.0 closes a
+      // one-point line (`line()([[6,12]])` is `M6,12Z`) and returns null for
+      // none; mermaid 11.17.2's generateRoundedPath returns "" for both. All
+      // three draw nothing, so the choice is about what is left to read:
+      // `M6,12` still says where the connector is, is the same under every
+      // curve, and needs no `Z` that would mean "closed" on an open line.
+      // No points have nowhere to be, so "" — d3's null as a string.
+      expect(CURVES.map((curve) => connectorPathData([{ x: 6, y: 12 }], curve))).toEqual(
+        CURVES.map(() => "M6,12"),
       );
-      expect(every.map((curve) => connectorPathData([], curve))).toEqual(every.map(() => ""));
+      expect(CURVES.map((curve) => connectorPathData([], curve))).toEqual(CURVES.map(() => ""));
     });
   });
 });
