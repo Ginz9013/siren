@@ -15,12 +15,14 @@
  * Mermaid, its meaning in prose, and — for anything but a `rejected` row — an
  * assert that says which picture was drawn.
  */
-import type { SirenRenderResult } from "../contracts";
+import type { Point, SirenRenderResult } from "../contracts";
 import { LABEL_CASES, labelRows, labelRuns } from "./labelCorpus";
 import {
   type Box,
   distanceToPolyline,
   encloses,
+  ER_SUBGRAPH,
+  holds,
   interiorsMeet,
   rectBox,
   routeOf,
@@ -221,7 +223,7 @@ function edgeLabelStyle(result: SirenRenderResult, id: string): string {
 }
 
 /** Where one edge's label was drawn — the anchor layout reserved space at. */
-function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+function edgeLabelCenter(result: SirenRenderResult, id: string): Point {
   const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
   if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
   return { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
@@ -292,7 +294,7 @@ function expectOnTheLine(
 function edgeEnds(
   result: SirenRenderResult,
   id: string,
-): { start: { x: number; y: number }; end: { x: number; y: number } } {
+): { start: Point; end: Point } {
   const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
   if (path === null) throw new Error(`no edge "${id}" was drawn`);
   const points = (path.getAttribute("d") ?? "").split(/\s+/).map((command) => {
@@ -326,7 +328,7 @@ function edgeEnds(
 function pathPoints(
   result: SirenRenderResult,
   selector: string,
-): { x: number; y: number }[] {
+): Point[] {
   const path = svgOf(result).querySelector(selector);
   if (path === null) throw new Error(`nothing matched "${selector}"`);
   return routeOf(path);
@@ -368,7 +370,7 @@ function edgeCurve(result: SirenRenderResult, id: string): string {
 function edgePoints(
   result: SirenRenderResult,
   id: string,
-): { x: number; y: number }[] {
+): Point[] {
   return pathPoints(result, `path.siren-edge[data-siren-id="${id}"]`);
 }
 
@@ -376,7 +378,7 @@ function edgePoints(
 function transitionPath(
   result: SirenRenderResult,
   id: string,
-): { x: number; y: number }[] {
+): Point[] {
   return pathPoints(
     result,
     `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
@@ -400,19 +402,13 @@ function pictureBox(result: SirenRenderResult): Box {
   return { top: y, bottom: y + height, left: x, right: x + width };
 }
 
-/** Whether `box` holds `point`, boundary included — `insideBox`'s question, less strictly. */
-function holds(
-  box: Box,
-  point: { x: number; y: number },
-): boolean {
-  const tolerance = 1e-6;
-  return (
-    point.x >= box.left - tolerance &&
-    point.x <= box.right + tolerance &&
-    point.y >= box.top - tolerance &&
-    point.y <= box.bottom + tolerance
-  );
-}
+/**
+ * How near a computed point has to be to an outline to count as on it: a
+ * rounding allowance, so a point the layout put exactly on a side is not
+ * read as one side of it or the other. `holds`, `insideBox`, `onBoxBoundary`
+ * and `transitionTouches` all read with it, so they never disagree about a point.
+ */
+const ON_OUTLINE = 1e-6;
 
 /**
  * Whether `point` lies strictly within `box` — on the outline is not inside,
@@ -421,14 +417,13 @@ function holds(
  */
 function insideBox(
   box: Box,
-  point: { x: number; y: number },
+  point: Point,
 ): boolean {
-  const tolerance = 1e-6;
   return (
-    point.x > box.left + tolerance &&
-    point.x < box.right - tolerance &&
-    point.y > box.top + tolerance &&
-    point.y < box.bottom - tolerance
+    point.x > box.left + ON_OUTLINE &&
+    point.x < box.right - ON_OUTLINE &&
+    point.y > box.top + ON_OUTLINE &&
+    point.y < box.bottom - ON_OUTLINE
   );
 }
 
@@ -439,19 +434,14 @@ function insideBox(
  */
 function onBoxBoundary(
   box: Box,
-  point: { x: number; y: number },
+  point: Point,
 ): boolean {
-  const tolerance = 1e-6;
-  const within =
-    point.x >= box.left - tolerance &&
-    point.x <= box.right + tolerance &&
-    point.y >= box.top - tolerance &&
-    point.y <= box.bottom + tolerance;
+  const within = holds(box, point, ON_OUTLINE);
   const level =
-    Math.abs(point.x - box.left) < tolerance ||
-    Math.abs(point.x - box.right) < tolerance ||
-    Math.abs(point.y - box.top) < tolerance ||
-    Math.abs(point.y - box.bottom) < tolerance;
+    Math.abs(point.x - box.left) < ON_OUTLINE ||
+    Math.abs(point.x - box.right) < ON_OUTLINE ||
+    Math.abs(point.y - box.top) < ON_OUTLINE ||
+    Math.abs(point.y - box.bottom) < ON_OUTLINE;
   return within && level;
 }
 
@@ -482,7 +472,7 @@ function edgeSpan(result: SirenRenderResult, from: string, to: string): number {
  * with a `<path>`, and throws rather than returning a wrong centre, so a
  * row that needs a diamond's position has to widen this first.
  */
-function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+function nodeCenter(result: SirenRenderResult, id: string): Point {
   const { top, bottom, left, right } = nodeBox(result, id);
   return { x: (left + right) / 2, y: (top + bottom) / 2 };
 }
@@ -516,9 +506,11 @@ function subgraphBox(
   result: SirenRenderResult,
   title: string,
 ): Box {
-  const frame = subgraphFrames(svgOf(result)).find((drawn) => drawn.title === title);
-  if (frame === undefined) throw new Error(`no subgraph titled "${title}" was drawn`);
-  return frame.box;
+  const box = subgraphFrames(svgOf(result)).find((drawn) => drawn.title === title)?.box;
+  if (box === undefined || box === null) {
+    throw new Error(`no subgraph titled "${title}" was drawn`);
+  }
+  return box;
 }
 
 /**
@@ -887,7 +879,7 @@ function classes(result: SirenRenderResult): string[] {
 }
 
 /** The top-left corner of one class's frame — how a direction is visible in the result. */
-function classBox(result: SirenRenderResult, id: string): { x: number; y: number } {
+function classBox(result: SirenRenderResult, id: string): Point {
   const frame = svgOf(result).querySelector(
     `g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`,
   );
@@ -989,14 +981,13 @@ function erSubgraphBox(
   result: SirenRenderResult,
   title: string,
 ): Box {
-  const group = elements(result, "g.siren-er-subgraph").find(
-    (g) => g.querySelector("text.siren-er-subgraph-label")?.textContent === title,
-  );
-  const frame = group?.querySelector("rect.siren-er-subgraph-frame");
-  if (frame === undefined || frame === null) {
+  const box = subgraphFrames(svgOf(result), ER_SUBGRAPH).find(
+    (drawn) => drawn.title === title,
+  )?.box;
+  if (box === undefined || box === null) {
     throw new Error(`no ER cluster titled "${title}" was drawn`);
   }
-  return rectBox(frame);
+  return box;
 }
 
 /**
@@ -1176,7 +1167,7 @@ function erEntityDividers(result: SirenRenderResult, id: string): string[] {
 }
 
 /** Where one ER entity's drawn name sits, so a row can ask whether it is inside its own box. */
-function erLabelAnchor(result: SirenRenderResult, id: string): { x: number; y: number } {
+function erLabelAnchor(result: SirenRenderResult, id: string): Point {
   const text = svgOf(result).querySelector(
     `g.siren-er-entity[data-siren-id="${id}"] text.siren-er-entity-label`,
   );
@@ -1367,7 +1358,7 @@ function stateRowGeometry(
  * One state box's centre — how a state diagram's top-to-bottom direction is
  * visible in the result rather than merely claimed.
  */
-function stateCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+function stateCenter(result: SirenRenderResult, id: string): Point {
   const frame = svgOf(result).querySelector(
     `g.siren-state[data-siren-id="${id}"] rect.siren-state-frame`,
   );
@@ -1447,7 +1438,7 @@ function stateNoteConnectorMarker(result: SirenRenderResult, id: string): string
 function stateRectCenter(
   result: SirenRenderResult,
   id: string,
-): { x: number; y: number } {
+): Point {
   const box = stateRect(result, id);
   return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
 }
@@ -1478,17 +1469,12 @@ function transitionTouches(
   const point = end === "start" ? points[0] : points[points.length - 1];
 
   const box = stateRect(result, stateId);
-  const tolerance = 1e-6;
-  const within =
-    point.x >= box.left - tolerance &&
-    point.x <= box.right + tolerance &&
-    point.y >= box.top - tolerance &&
-    point.y <= box.bottom + tolerance;
+  const within = holds(box, point, ON_OUTLINE);
   const onAnEdge =
-    Math.abs(point.x - box.left) < tolerance ||
-    Math.abs(point.x - box.right) < tolerance ||
-    Math.abs(point.y - box.top) < tolerance ||
-    Math.abs(point.y - box.bottom) < tolerance;
+    Math.abs(point.x - box.left) < ON_OUTLINE ||
+    Math.abs(point.x - box.right) < ON_OUTLINE ||
+    Math.abs(point.y - box.top) < ON_OUTLINE ||
+    Math.abs(point.y - box.bottom) < ON_OUTLINE;
   return within && onAnEdge;
 }
 
@@ -2201,7 +2187,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -2243,7 +2229,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -4629,7 +4615,7 @@ line2\`"]`,
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -5231,7 +5217,7 @@ line2\`"]`,
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },

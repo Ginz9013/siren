@@ -12,12 +12,13 @@
  * the title drawn on them, edges by the route in `path.siren-edge`'s
  * `data-siren-points` — so what is counted is the picture, not the layout's
  * intermediate numbers. Only which group a node belongs to, which the picture
- * does not record, is asked of the caller (`Grouping`).
+ * does not record, is asked of the caller (`GroupMembership`).
  */
 
 import {
   type Box,
   encloses,
+  holds,
   interiorsMeet,
   type Point,
   rectBox,
@@ -31,7 +32,9 @@ import {
  * defect, so containment either way is not counted.
  */
 export function overlappingFrames(svg: SVGSVGElement): [string, string][] {
-  const drawn = subgraphFrames(svg);
+  const drawn = subgraphFrames(svg).flatMap(({ title, box }) =>
+    box === null ? [] : [{ title, box }],
+  );
   const pairs: [string, string][] = [];
   drawn.forEach((a, i) => {
     for (const b of drawn.slice(i + 1)) {
@@ -58,23 +61,17 @@ function edgeLines(svg: SVGSVGElement): { id: string; points: Point[] }[] {
   }));
 }
 
-/** Whether `point` lies in `box`, its outline included. */
-function holds(box: Box, point: Point): boolean {
-  return (
-    point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom
-  );
-}
-
 /**
- * Who belongs to which group, and which two things each edge joins — the
- * model's answer, handed in by the caller because the picture does not
- * record it. A flowchart's `GraphModel` is one as it stands.
+ * Who belongs to which group, and which two things each edge joins — a slice
+ * of a flowchart's `GraphModel` (its `nodes`, `subgraphs` and `edges`, each
+ * narrowed to the fields read here), so a `GraphModel` is one as it stands.
+ * Handed in by the caller because the picture does not record it.
  *
  * Asked for rather than read off the frames: an edge from outside that names
  * a group ends on that group's outline, which a frame's geometry cannot tell
  * from an end among its members.
  */
-export interface Grouping {
+export interface GroupMembership {
   /** Every node, by id, with the group it was declared inside, or `null`. */
   nodes: readonly { id: string; parentId: string | null }[];
   /** Every group, by id, with the group it is nested in, or `null`. */
@@ -95,10 +92,14 @@ export interface Grouping {
  * engine returned no route (a cluster laid out in a direction of its own);
  * an edge the engine routed comes back with at least one bend point.
  */
-export function straightBoundaryCrossingEdges(svg: SVGSVGElement, grouping: Grouping): string[] {
+export function straightBoundaryCrossingEdges(
+  svg: SVGSVGElement,
+  membership: GroupMembership,
+): string[] {
   const parentOf = new Map(
-    [...grouping.nodes, ...grouping.subgraphs].map(({ id, parentId }) => [id, parentId]),
+    [...membership.nodes, ...membership.subgraphs].map(({ id, parentId }) => [id, parentId]),
   );
+  // Deliberately independent of layoutDirectedGraph's own walk: this is its oracle.
   /** Whether `id` lies strictly below `group` — a group is not its own descendant. */
   const isDescendantOf = (id: string, group: string): boolean => {
     for (
@@ -110,15 +111,15 @@ export function straightBoundaryCrossingEdges(svg: SVGSVGElement, grouping: Grou
     }
     return false;
   };
-  const edgeById = new Map(grouping.edges.map((edge) => [edge.id, edge]));
+  const edgeById = new Map(membership.edges.map((edge) => [edge.id, edge]));
   return edgeLines(svg)
     .filter(({ id, points }) => {
       if (points.length !== 2) return false;
       const edge = edgeById.get(id);
       if (edge === undefined) {
-        throw new Error(`edge "${id}" was drawn but the grouping does not name it`);
+        throw new Error(`edge "${id}" was drawn but the membership does not name it`);
       }
-      return grouping.subgraphs.some(
+      return membership.subgraphs.some(
         ({ id: group }) => isDescendantOf(edge.from, group) !== isDescendantOf(edge.to, group),
       );
     })
@@ -230,7 +231,7 @@ export function edgesThroughNodes(svg: SVGSVGElement): { edge: string; node: str
   return edgeLines(svg).flatMap(({ id, points }) => {
     const ends = [points[0], points[points.length - 1]];
     return nodes
-      .filter(({ box }) => !ends.some((end) => holds(grown(box, TOLERANCE), end)))
+      .filter(({ box }) => !ends.some((end) => holds(grown(box, TOLERANCE), end, 0)))
       .filter(({ box }) =>
         points.slice(1).some((point, i) => segmentEnters(points[i], point, grown(box, -TOLERANCE))),
       )

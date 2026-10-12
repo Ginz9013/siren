@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, type InteractionTarget } from "./index";
-import type { SirenRenderResult, TextMeasurer } from "./contracts";
+import type { Point, SirenRenderResult, TextMeasurer } from "./contracts";
 import { routeOf } from "./compat/svgGeometry";
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -5874,9 +5874,9 @@ describe("render() — a state diagram, end to end", () => {
     // would draw nothing at all and still have a `<path>` to find. Read off
     // the route (`data-siren-points`), not `d`: a curve's `d` spells even a
     // collapsed route with several distinct commands (`M`, `L`, `C`).
-    const points = routeOf(path).map(({ x, y }) => `${x},${y}`);
+    const points = routeOf(path);
     expect(points.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(points).size).toBeGreaterThanOrEqual(2);
+    expect(distinctPoints(points).length).toBeGreaterThanOrEqual(2);
     // The label is a group of its own wearing the same id, drawn after every
     // line (ADR-0016).
     expect(
@@ -6400,18 +6400,18 @@ describe("render() — a state diagram, end to end", () => {
     expect(loop).not.toBeNull();
     // The route (`data-siren-points`), not `d`: a curve's `d` lists control
     // points the line never passes through.
-    const loopPoints = [...new Set(routeOf(loop!).map(({ x, y }) => `${x},${y}`))]
-      .map((pair) => pair.split(",").map(Number))
-      .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+    const loopPoints = distinctPoints(routeOf(loop!)).filter(
+      ({ x, y }) => Number.isFinite(x) && Number.isFinite(y),
+    );
     expect(loopPoints.length).toBeGreaterThan(1);
 
     const insideFrame = loopPoints.filter(
-      ([x, y]) =>
+      ({ x, y }) =>
         x > running.x && x < running.x + running.w && y > running.y && y < running.y + running.h,
     );
     expect(insideFrame).toEqual([]);
 
-    const onFrameOutline = ([x, y]: number[]) =>
+    const onFrameOutline = ({ x, y }: Point) =>
       Math.abs(x - running.x) < 0.5 ||
       Math.abs(x - (running.x + running.w)) < 0.5 ||
       Math.abs(y - running.y) < 0.5 ||
@@ -6420,7 +6420,7 @@ describe("render() — a state diagram, end to end", () => {
 
     const [vx, vy, vw, vh] = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
     expect(
-      loopPoints.filter(([x, y]) => x < vx || x > vx + vw || y < vy || y > vy + vh),
+      loopPoints.filter(({ x, y }) => x < vx || x > vx + vw || y < vy || y > vy + vh),
     ).toEqual([]);
   });
 
@@ -6545,6 +6545,19 @@ describe("render() — a state diagram, end to end", () => {
     expect(byId("Working").classList.contains("siren-highlight-outline")).toBe(false);
   });
 });
+
+/**
+ * `points` with each coordinate pair kept once, at its first occurrence.
+ * Compared with `Object.is`, so a `NaN` pair is one pair like any other —
+ * as the attribute text it was read from would be — and not a fresh point
+ * every time.
+ */
+function distinctPoints(points: readonly Point[]): Point[] {
+  return points.filter(
+    (point, i) =>
+      points.findIndex(({ x, y }) => Object.is(x, point.x) && Object.is(y, point.y)) === i,
+  );
+}
 
 /**
  * Whether the layout stage ever hands the renderer a coordinate that is not a

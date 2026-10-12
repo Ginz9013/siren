@@ -1,12 +1,19 @@
 /**
- * Geometry read off a rendered `<svg>`, shared by the compat tests' readers —
- * `corpus.ts`'s asserts, `layoutDefects.ts`'s defect counts, and the layout
- * and render tests that ask how far a point lies from a drawn line.
+ * Geometry for the compat tests, in one copy: what is read off a rendered
+ * `<svg>` (a frame's box, a connector's route) and the plain geometry asked
+ * of what was read (containment, overlap, a point's distance from a line).
+ * Shared by `corpus.ts`'s asserts, `layoutDefects.ts`'s defect counts, and
+ * the layout and render tests that ask how far a point lies from a route —
+ * some of which never had an `<svg>`, only the layout's own points.
  *
- * One copy of each reading, so two readers never disagree about where a box
- * is or which points a line passes through. For tests only: nothing in the
- * renderer reads its own picture back.
+ * One copy of each, so two readers never disagree about where a box is,
+ * which points a line passes through, or when a point counts as in. For
+ * tests only: nothing in the renderer reads its own picture back.
  */
+
+import type { Point } from "../contracts";
+
+export type { Point };
 
 /** An axis-aligned box as its four sides. */
 export interface Box {
@@ -14,12 +21,6 @@ export interface Box {
   bottom: number;
   left: number;
   right: number;
-}
-
-/** A point drawn in the picture. */
-export interface Point {
-  x: number;
-  y: number;
 }
 
 /**
@@ -37,21 +38,44 @@ export function rectBox(rect: Element): Box {
   };
 }
 
+/** Where one kind of group frame is drawn: its group, the frame in it, the title in it. */
+export interface FrameSelectors {
+  group: string;
+  frame: string;
+  title: string;
+}
+
+/** A flowchart `subgraph`, as `renderToSVG` draws one. */
+export const FLOWCHART_SUBGRAPH: FrameSelectors = {
+  group: "g.siren-subgraph",
+  frame: "rect.siren-subgraph-frame",
+  title: "text.siren-subgraph-label",
+};
+
+/** An ER diagram's subgraph block, as `renderErDiagramToSVG` draws one. */
+export const ER_SUBGRAPH: FrameSelectors = {
+  group: "g.siren-er-subgraph",
+  frame: "rect.siren-er-subgraph-frame",
+  title: "text.siren-er-subgraph-label",
+};
+
 /**
- * Every flowchart subgraph frame drawn, in draw order, with the title drawn
- * on it: each `g.siren-subgraph`'s `rect.siren-subgraph-frame`, keyed by its
- * `text.siren-subgraph-label`.
+ * Every group of one kind drawn — a flowchart subgraph unless `kind` says
+ * otherwise — in draw order, with the title drawn on it and its frame's box,
+ * or `null` for a group drawn with no frame `<rect>`. Kept rather than
+ * skipped, so a reader asking after one title can tell "drawn without a
+ * frame" from "not drawn".
  */
-export function subgraphFrames(svg: Element): { title: string; box: Box }[] {
-  return Array.from(svg.querySelectorAll("g.siren-subgraph")).flatMap((group) => {
-    const rect = group.querySelector("rect.siren-subgraph-frame");
-    if (rect === null) return [];
-    return [
-      {
-        title: group.querySelector("text.siren-subgraph-label")?.textContent ?? "",
-        box: rectBox(rect),
-      },
-    ];
+export function subgraphFrames(
+  svg: Element,
+  kind: FrameSelectors = FLOWCHART_SUBGRAPH,
+): { title: string; box: Box | null }[] {
+  return Array.from(svg.querySelectorAll(kind.group)).map((group) => {
+    const rect = group.querySelector(kind.frame);
+    return {
+      title: group.querySelector(kind.title)?.textContent ?? "",
+      box: rect === null ? null : rectBox(rect),
+    };
   });
 }
 
@@ -62,6 +86,22 @@ export function encloses(outer: Box, inner: Box): boolean {
     outer.top <= inner.top &&
     outer.right >= inner.right &&
     outer.bottom >= inner.bottom
+  );
+}
+
+/**
+ * Whether `point` lies in `box`, its outline included, to within `tolerance`
+ * on every side. Explicit, because the callers differ on purpose: an exact
+ * reading (`0`) where a pixel of slack is already added to the box, a
+ * rounding allowance (`1e-6`) where a point computed onto an outline is
+ * asked about.
+ */
+export function holds(box: Box, point: Point, tolerance: number): boolean {
+  return (
+    point.x >= box.left - tolerance &&
+    point.x <= box.right + tolerance &&
+    point.y >= box.top - tolerance &&
+    point.y <= box.bottom + tolerance
   );
 }
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { distanceToPolyline, rectBox, routeOf, subgraphFrames } from "./svgGeometry";
+import {
+  distanceToPolyline,
+  ER_SUBGRAPH,
+  holds,
+  rectBox,
+  routeOf,
+  subgraphFrames,
+} from "./svgGeometry";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -24,6 +31,8 @@ describe("subgraphFrames", () => {
       `<g class="siren-subgraph">` +
         `<rect class="siren-subgraph-frame" x="0" y="0" width="100" height="50"/>` +
         `<text class="siren-subgraph-label">one</text></g>` +
+        // A group drawn without its frame: kept, with no box.
+        `<g class="siren-subgraph"><text class="siren-subgraph-label">bare</text></g>` +
         `<g class="siren-subgraph">` +
         `<rect class="siren-subgraph-frame" x="5" y="5" width="10" height="10"/>` +
         `<text class="siren-subgraph-label">two</text></g>`,
@@ -31,8 +40,37 @@ describe("subgraphFrames", () => {
 
     expect(subgraphFrames(svg)).toEqual([
       { title: "one", box: { top: 0, bottom: 50, left: 0, right: 100 } },
+      { title: "bare", box: null },
       { title: "two", box: { top: 5, bottom: 15, left: 5, right: 15 } },
     ]);
+  });
+
+  it("reads another kind's groups by that kind's selectors", () => {
+    const svg = svgOf(
+      `<g class="siren-subgraph">` +
+        `<rect class="siren-subgraph-frame" x="0" y="0" width="100" height="50"/>` +
+        `<text class="siren-subgraph-label">flowchart</text></g>` +
+        `<g class="siren-er-subgraph">` +
+        `<rect class="siren-er-subgraph-frame" x="1" y="2" width="3" height="4"/>` +
+        `<text class="siren-er-subgraph-label">sales</text></g>`,
+    );
+
+    expect(subgraphFrames(svg, ER_SUBGRAPH)).toEqual([
+      { title: "sales", box: { top: 2, bottom: 6, left: 1, right: 4 } },
+    ]);
+  });
+});
+
+describe("holds", () => {
+  const box = { top: 0, bottom: 10, left: 0, right: 10 };
+
+  it("counts the outline as in", () => {
+    expect(holds(box, { x: 10, y: 5 }, 0)).toBe(true);
+  });
+
+  it("allows exactly the tolerance it is given past the outline", () => {
+    expect(holds(box, { x: 10.5, y: 5 }, 0)).toBe(false);
+    expect(holds(box, { x: 10.5, y: 5 }, 1)).toBe(true);
   });
 });
 

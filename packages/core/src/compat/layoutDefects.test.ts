@@ -71,9 +71,13 @@ describe("overlappingFrames", () => {
  * Who belongs to which group, as the model says: `A` and `B` are members of
  * the subgraph titled "one", drawn at 0..100 by 0..100; `X` and `Y` are
  * outside it.
+ *
+ * Spelled the way a real model spells them (ADR-0010): the subgraph's id is
+ * generated, `subgraph:1`, while an edge naming it is id'd by the author's
+ * handle for it, `one` — so no edge id holds a colon.
  */
 const ONE = "subgraph:1";
-function grouping(edges: { id: string; from: string; to: string }[]) {
+function membershipOf(edges: { id: string; from: string; to: string }[]) {
   return {
     nodes: [
       { id: "A", parentId: ONE },
@@ -95,7 +99,7 @@ describe("straightBoundaryCrossingEdges", () => {
         edge("A-B", [[10, 10], [90, 90]]) +
         edge("X-Y", [[200, 0], [300, 0]]),
     );
-    const members = grouping([
+    const members = membershipOf([
       { id: "A-X", from: "A", to: "X" },
       { id: "B-X", from: "B", to: "X" },
       { id: "A-B", from: "A", to: "B" },
@@ -109,9 +113,9 @@ describe("straightBoundaryCrossingEdges", () => {
     // Neither end is among the group's members: the group keeps its
     // direction, and dagre routes such an edge as one between two frames.
     const svg = svgOf(
-      frame("one", 0, 0, 100, 100) + edge(`X-${ONE}`, [[150, 50], [100, 50]]),
+      frame("one", 0, 0, 100, 100) + edge("X-one", [[150, 50], [100, 50]]),
     );
-    const members = grouping([{ id: `X-${ONE}`, from: "X", to: ONE }]);
+    const members = membershipOf([{ id: "X-one", from: "X", to: ONE }]);
 
     expect(straightBoundaryCrossingEdges(svg, members)).toEqual([]);
   });
@@ -120,11 +124,44 @@ describe("straightBoundaryCrossingEdges", () => {
     // Exactly one end — the member — is among the group's members, though
     // the whole line lies within the frame.
     const svg = svgOf(
-      frame("one", 0, 0, 100, 100) + edge(`A-${ONE}`, [[50, 50], [100, 50]]),
+      frame("one", 0, 0, 100, 100) + edge("A-one", [[50, 50], [100, 50]]),
     );
-    const members = grouping([{ id: `A-${ONE}`, from: "A", to: ONE }]);
+    const members = membershipOf([{ id: "A-one", from: "A", to: ONE }]);
 
-    expect(straightBoundaryCrossingEdges(svg, members)).toEqual([`A-${ONE}`]);
+    expect(straightBoundaryCrossingEdges(svg, members)).toEqual(["A-one"]);
+  });
+
+  it("counts a nested group as its enclosing group's descendant, not its own", () => {
+    // `inner` (subgraph:2, 20..80) is nested in `outer` (subgraph:1,
+    // 0..100); `M` is a member of `inner`, `X` is outside both.
+    const OUTER = "subgraph:1";
+    const INNER = "subgraph:2";
+    const svg = svgOf(
+      frame("outer", 0, 0, 100, 100) +
+        frame("inner", 20, 20, 60, 60) +
+        // One end, `inner`, is among `outer`'s descendants; for `inner`
+        // itself it has neither end. A boundary-crossing edge of `outer`.
+        edge("X-inner", [[150, 50], [100, 50]]) +
+        // One end, `M`, is among `inner`'s descendants; for `outer` both
+        // ends are. A boundary-crossing edge of `inner` only.
+        edge("M-inner", [[50, 50], [80, 50]]),
+    );
+    const members = {
+      nodes: [
+        { id: "M", parentId: INNER },
+        { id: "X", parentId: null },
+      ],
+      subgraphs: [
+        { id: OUTER, parentId: null },
+        { id: INNER, parentId: OUTER },
+      ],
+      edges: [
+        { id: "X-inner", from: "X", to: INNER },
+        { id: "M-inner", from: "M", to: INNER },
+      ],
+    };
+
+    expect(straightBoundaryCrossingEdges(svg, members)).toEqual(["X-inner", "M-inner"]);
   });
 });
 
@@ -252,7 +289,7 @@ describe("the garden-network diagram, under the default measurer", () => {
   const parsed = parseSiren(source).document!;
   const built = buildGraphModel(parsed);
   if (built.kind !== "flowchart") throw new Error("garden-network.mmd is not a flowchart");
-  const grouping = built.model;
+  const membership = built.model;
 
   it("renders with no diagnostics", () => {
     expect(result.diagnostics).toEqual([]);
@@ -264,7 +301,7 @@ describe("the garden-network diagram, under the default measurer", () => {
   });
 
   it("draws no boundary-crossing edge as a two-point straight line", () => {
-    expect(straightBoundaryCrossingEdges(svg, grouping)).toEqual([]);
+    expect(straightBoundaryCrossingEdges(svg, membership)).toEqual([]);
   });
 
   /**
