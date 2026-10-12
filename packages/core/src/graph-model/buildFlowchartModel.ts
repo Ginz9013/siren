@@ -11,6 +11,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { CURVES, DEFAULT_CURVE, type Curve } from "../renderer/connectorCurve";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
@@ -91,7 +92,8 @@ export function buildFlowchartModel(
   // that rule, and it is the whole of it.
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
   const edgeIds = new Set(edgeById.keys());
-  const { fallback, specific } = asStyleDeclarations(document.linkStyles, edges, diagnostics);
+  const addressed = addressLinkStyles(document.linkStyles, edges, diagnostics);
+  const { fallback, specific } = asStyleDeclarations(addressed);
 
   // Within each tier nothing changes: one `resolveStyles` call per tier
   // means two `linkStyle default` statements still settle between
@@ -103,6 +105,14 @@ export function buildFlowchartModel(
   for (const { targetId, style } of resolveStyles(specific, edgeIds, diagnostics)) {
     const edge = edgeById.get(targetId)!;
     edge.style = overriding(edge.style, style);
+  }
+
+  // The curve rides the same two tiers, from the same resolved addresses,
+  // so an index that names no edge is diagnosed once, above, and not again.
+  // An edge no `interpolate` reached is left without one, which the
+  // renderer draws on the default — see `GraphEdge.curve`.
+  for (const [targetId, curve] of resolveCurves(addressed, diagnostics)) {
+    edgeById.get(targetId)!.curve = curve;
   }
 
   // A subgraph is a timeline target on the same terms as a node and an edge:
@@ -340,10 +350,8 @@ function assignEdgeIds(
 }
 
 /**
- * Rewrites each `linkStyle` statement as the `StyleDecl` the shared
- * resolver reads, turning every address the author wrote into the id of the
- * edge it names, and sorting the statements into the two tiers a
- * `linkStyle` document has.
+ * One `linkStyle` statement with its addresses spent: the edge ids it names
+ * and the tier it sits on.
  *
  * A statement lands in `fallback` when it names `default` and in `specific`
  * otherwise. A statement naming `default` beside an index is wholly a
@@ -351,33 +359,61 @@ function assignEdgeIds(
  * statement, index included, with those same declarations, so the index
  * changes nothing it says — it only still has to resolve, so that an index
  * naming no edge is diagnosed rather than waved through.
+ */
+interface AddressedLinkStyle {
+  linkStyle: LinkStyleDecl;
+  tier: "fallback" | "specific";
+  targetIds: string[];
+}
+
+/**
+ * Turns every address each `linkStyle` statement wrote into the ids of the
+ * edges it names, once, for both things a statement can say about them —
+ * its declarations and its curve — so an address that names nothing is
+ * reported once however many of the two the statement wrote.
  *
  * **This is where an index stops existing.** Mermaid addresses an edge by
  * its declaration position and everything downstream of the model addresses
  * it by id, so one of the two has to end somewhere; it ends here, in the
- * one function that can see both. The result is indistinguishable from a
- * `style` statement — same kind, same `targetIds`, same trip through the
- * same gate — which is why no layout, renderer or timeline code has to know
- * that `linkStyle` exists.
+ * one function that can see both.
+ */
+function addressLinkStyles(
+  linkStyles: readonly LinkStyleDecl[],
+  edges: readonly GraphEdge[],
+  diagnostics: Diagnostic[],
+): AddressedLinkStyle[] {
+  return linkStyles.map((linkStyle) => ({
+    linkStyle,
+    tier: linkStyle.targets.includes(EVERY_EDGE) ? "fallback" : "specific",
+    targetIds: linkStyle.targets.flatMap((target) =>
+      resolveAddress(target, edges, linkStyle, diagnostics),
+    ),
+  }));
+}
+
+/**
+ * Rewrites each addressed `linkStyle` statement as the `StyleDecl` the
+ * shared resolver reads, sorted into the two tiers a `linkStyle` document
+ * has.
+ *
+ * The result is indistinguishable from a `style` statement — same kind,
+ * same `targetIds`, same trip through the same gate — which is why no
+ * layout, renderer or timeline code has to know that `linkStyle` exists.
  *
  * `authoredAs` stays `linkStyle` because a diagnostic may quote it, and an
  * author who wrote `linkStyle 0` never wrote the word `style`.
  */
 function asStyleDeclarations(
-  linkStyles: readonly LinkStyleDecl[],
-  edges: readonly GraphEdge[],
-  diagnostics: Diagnostic[],
+  addressed: readonly AddressedLinkStyle[],
 ): { fallback: StyleDecl[]; specific: StyleDecl[] } {
   const fallback: StyleDecl[] = [];
   const specific: StyleDecl[] = [];
 
-  for (const linkStyle of linkStyles) {
+  for (const { linkStyle, tier, targetIds } of addressed) {
     const declaration: StyleDecl = {
       styleKind: "style",
       authoredAs: "linkStyle",
-      targetIds: linkStyle.targets.flatMap((target) =>
-        resolveAddress(target, edges, linkStyle, diagnostics),
-      ),
+      targetIds,
       name: null,
       properties: linkStyle.properties,
       line: linkStyle.line,
@@ -386,10 +422,109 @@ function asStyleDeclarations(
     // Every statement reaches exactly one tier, so the gate inside
     // `resolveStyles` still sees each written declaration once and a
     // refused value is still reported once, at the line that wrote it.
-    (linkStyle.targets.includes(EVERY_EDGE) ? fallback : specific).push(declaration);
+    (tier === "fallback" ? fallback : specific).push(declaration);
   }
 
   return { fallback, specific };
+}
+
+/**
+ * The curve each edge a `linkStyle … interpolate` reached is drawn with.
+ * Edges absent from the result carry no curve and are drawn on the default.
+ *
+ * The tiers are the declarations' tiers: an index's curve beats
+ * `default`'s for the edge it names whichever is written first, and within
+ * a tier the last statement written wins. Mermaid reads it the same way at
+ * draw time (`rawEdge.interpolate || edges.defaultInterpolate`), with one
+ * quirk not copied: it also stamps the `default` curve current when an edge
+ * is *declared* onto that edge, so a second `linkStyle default interpolate`
+ * written after the edge does not reach it (measured, 11.17.2). Here a tier
+ * is one setting, wherever the edges sit.
+ */
+function resolveCurves(
+  addressed: readonly AddressedLinkStyle[],
+  diagnostics: Diagnostic[],
+): Map<string, Curve> {
+  // `null` is a statement that chose a curve Siren cannot draw: it still
+  // takes its tier's place for the edges it names, so the edge falls through
+  // to the tier below rather than to an earlier statement of its own tier.
+  const fallback = new Map<string, Curve | null>();
+  const specific = new Map<string, Curve | null>();
+  for (const { linkStyle, tier, targetIds } of addressed) {
+    if (linkStyle.interpolate === undefined) {
+      continue;
+    }
+    const curve = drawableCurve(linkStyle, diagnostics);
+    for (const id of targetIds) {
+      (tier === "fallback" ? fallback : specific).set(id, curve);
+    }
+  }
+
+  const curves = new Map<string, Curve>();
+  for (const tier of [fallback, specific]) {
+    for (const [id, curve] of tier) {
+      if (curve !== null) {
+        curves.set(id, curve);
+      }
+    }
+  }
+  return curves;
+}
+
+/**
+ * The curves Mermaid 11.17.2 draws that Siren does not implement yet — the
+ * rest of the `switch` in mermaid's `insertEdge`, beside the six `CURVES`.
+ */
+const MERMAID_ONLY_CURVES: ReadonlySet<string> = new Set([
+  "cardinal",
+  "bumpX",
+  "bumpY",
+  "catmullRom",
+  "monotoneX",
+  "monotoneY",
+  "natural",
+]);
+
+/**
+ * The curve an `interpolate` clause's name draws, diagnosing the two names
+ * that are not one of Siren's `CURVES` differently:
+ *
+ * - a curve Mermaid draws and Siren does not is an **error** and `null` —
+ *   the author asked for a picture this renderer cannot give them, so the
+ *   edge keeps its fallback rather than pretending;
+ * - a name Mermaid does not know either is a **warning** and `basis` —
+ *   that is the picture Mermaid draws for it, so Siren can match it and
+ *   only needs to say the name was not a curve.
+ */
+function drawableCurve(linkStyle: LinkStyleDecl, diagnostics: Diagnostic[]): Curve | null {
+  const name = linkStyle.interpolate!;
+  if (MERMAID_ONLY_CURVES.has(name)) {
+    diagnostics.push({
+      severity: "error",
+      message: `linkStyle interpolate "${name}" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.`,
+      line: linkStyle.line,
+      column: linkStyle.column,
+    });
+    return null;
+  }
+  if (!isCurve(name)) {
+    // Mermaid draws a name it does not know with its default, `basis`
+    // (`insertEdge`'s `default:` branch), and the edge still leaves the
+    // tier below — so this is a picture Siren *can* match, and only a warning.
+    diagnostics.push({
+      severity: "warning",
+      message: `linkStyle interpolate "${name}" names no curve; drawing ${DEFAULT_CURVE}, as Mermaid does. Curves: ${CURVES.join(", ")}.`,
+      line: linkStyle.line,
+      column: linkStyle.column,
+    });
+    return DEFAULT_CURVE;
+  }
+  return name;
+}
+
+/** Whether `name` is one of the curves Siren draws, spelled exactly — Mermaid's match is case-sensitive too. */
+function isCurve(name: string): name is Curve {
+  return (CURVES as readonly string[]).includes(name);
 }
 
 /** A zero-based edge declaration index, and nothing else — not `-1`, not `1.5`. */

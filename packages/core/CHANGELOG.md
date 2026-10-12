@@ -25,6 +25,15 @@ While the version is 0.x, a minor release may contain breaking changes.
   through, as `"x,y x,y …"` (the spelling of an SVG `points` attribute). A connector is now drawn
   as a curve whose `d` holds control points rather than the route (see **Changed**), so this
   attribute is where a script or test reads the route.
+- **`linkStyle … interpolate`** picks the curve a flowchart edge is drawn with, as in Mermaid:
+  `linkStyle default interpolate <curve>` or `linkStyle <n>[,<m>…] interpolate <curve>`, optionally
+  followed by declarations (`linkStyle 0 interpolate step stroke:#f00`). The curves are `basis`,
+  `linear`, `step`, `stepBefore`, `stepAfter` and `rounded`; a numbered statement's curve beats
+  `default`'s in either order. These lines used to fail with `Unrecognized style declaration`. The
+  seven curves Mermaid draws and Siren does not yet (`cardinal`, `bumpX`, `bumpY`, `catmullRom`,
+  `monotoneX`, `monotoneY`, `natural`) are reported as an error and the edge keeps its fallback
+  curve; a name Mermaid does not know either is drawn as `basis`, as Mermaid draws it, with a
+  warning. `GraphEdge` (and so `PositionedEdge`) gains an optional `curve`.
 
 ### Changed
 

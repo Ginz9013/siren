@@ -58,7 +58,22 @@ function violationOf(entry: CompatCase, result: SirenRenderResult): string | nul
         `move the case to the status it deserves.`
       );
     }
-    const noise = describeDiagnostics(result);
+    // A warning the row declares is part of the picture it claims; it is
+    // required, not merely tolerated, so a row cannot outlive its warning.
+    const declared = entry.warnings ?? [];
+    const missing = declared.filter(
+      (message) =>
+        !result.diagnostics.some((d) => d.severity === "warning" && d.message === message),
+    );
+    if (missing.length > 0) {
+      return `${entry.id} claims "supported" with the warning "${missing[0]}", which render() did not report.`;
+    }
+    const noise = describeDiagnostics({
+      ...result,
+      diagnostics: result.diagnostics.filter(
+        (d) => !(d.severity === "warning" && declared.includes(d.message)),
+      ),
+    });
     if (noise !== null) {
       return `${entry.id} claims "supported" but ${noise}`;
     }
@@ -154,6 +169,42 @@ describe("the runner's verdict on a `supported` entry", () => {
       rendered(),
     );
     expect(violation).toMatch(/expected \["Start"\], got \["\(Start\)"\]/);
+  });
+
+  it("passes a `supported` entry whose only diagnostics are the warnings it declares", () => {
+    const violation = violationOf(
+      anyCase({ status: "supported", assert: () => {}, warnings: ["Drawn as Mermaid draws it"] }),
+      rendered([{ severity: "warning", message: "Drawn as Mermaid draws it" }]),
+    );
+    expect(violation).toBeNull();
+  });
+
+  it("fails a `supported` entry whose declared warning was not reported", () => {
+    const violation = violationOf(
+      anyCase({ status: "supported", assert: () => {}, warnings: ["Drawn as Mermaid draws it"] }),
+      rendered(),
+    );
+    expect(violation).toMatch(/Drawn as Mermaid draws it/);
+  });
+
+  it("still fails a `supported` entry on an error, or on a warning it did not declare", () => {
+    const declared = { status: "supported" as const, assert: () => {}, warnings: ["Drawn as Mermaid draws it"] };
+    const error = violationOf(
+      anyCase(declared),
+      rendered([
+        { severity: "warning", message: "Drawn as Mermaid draws it" },
+        { severity: "error", message: "Drawn as Mermaid draws it" },
+      ]),
+    );
+    const otherWarning = violationOf(
+      anyCase(declared),
+      rendered([
+        { severity: "warning", message: "Drawn as Mermaid draws it" },
+        { severity: "warning", message: "Node redeclared" },
+      ]),
+    );
+    expect(error).toMatch(/error: Drawn as Mermaid draws it/);
+    expect(otherWarning).toMatch(/Node redeclared/);
   });
 });
 
@@ -1375,8 +1426,17 @@ const SILENTLY_WRONG = 2;
  * `supported`, and each of the four rejected rows still holds a tag that is
  * refused, so the net is still 14. `silently-wrong` does not move: these
  * refuse pictures Mermaid draws as written, not wrong ones.
+ *
+ * **14 → 15: a curve written down for the first time.** Case (2) above.
+ * The Mermaid-parity board's T7 made `linkStyle … interpolate` a supported
+ * spelling for the six curves Siren draws, and wrote down one row,
+ * `fc-linkstyle-interpolate-unimplemented-rejected`, for the seven Mermaid
+ * draws that Siren does not (`cardinal` and its kin) — refused with an
+ * error-severity diagnostic naming the curve. Nothing broke: before T7 every
+ * `interpolate` line was refused as an unrecognized style declaration, and
+ * no row recorded it. `silently-wrong` does not move.
  */
-const REJECTED = 14;
+const REJECTED = 15;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

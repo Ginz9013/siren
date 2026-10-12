@@ -1340,6 +1340,38 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
 
 /**
+ * `linkStyle default interpolate step` and `linkStyle 0,2 interpolate linear
+ * stroke:#f00` — a `linkStyle` that chooses the **Curve** its edges are
+ * drawn with, optionally followed by the declarations an ordinary
+ * `linkStyle` takes. Tried before `LINK_STYLE_RE`, which would otherwise
+ * read `default interpolate` as an address list and the curve name as a
+ * declaration.
+ *
+ * Mermaid 11.17.2's grammar (`linkStyleStatement`, productions 124-127 of
+ * the flowchart parser in `dist/mermaid.js`) is
+ *
+ *     LINKSTYLE SPACE (DEFAULT | numList) SPACE INTERPOLATE SPACE alphaNum
+ *       [SPACE stylesOpt]
+ *
+ * with `numList` = `NUM (COMMA NUM)*`, and the action calls
+ * `updateLinkInterpolate(addresses, alphaNum)` before `updateLink` for the
+ * declarations. Differences, all on the lenient side and all shared with
+ * `LINK_STYLE_RE`:
+ *
+ * - The address list is the same `[\w,\s]` run `LINK_STYLE_RE` reads, so
+ *   `0, 1` (a parse error in Mermaid, measured) and `default,0` (likewise)
+ *   are read here, and a non-index address is diagnosed by the model in the
+ *   one wording every `linkStyle` gets.
+ * - The curve name is any run of non-space characters, where Mermaid's is
+ *   its `alphaNum` token run. No curve name either side recognizes contains
+ *   anything else, and an unrecognized one is diagnosed by the model.
+ * - `interpolate` is matched case-sensitively, as Mermaid's lexer
+ *   (`/^(?:interpolate\b)/`) does. The address list is lazy so that it
+ *   stops at the first `interpolate`.
+ */
+const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s+(\S+)(?:\s+(.+))?$/;
+
+/**
  * `class A,B emphasis` — this kind's spelling of the apply-directive, which
  * a class diagram spells `cssClass "A,B" emphasis`. Both normalize to the
  * one `apply` kind here, so no model, renderer or test downstream learns
@@ -2016,6 +2048,24 @@ export function parseFlowchart(source: string): ParseResult {
           targetIds: splitTargetIds(classApplyMatch[1]),
           name: classApplyMatch[2],
           properties: [],
+          line: lineNumber,
+          column,
+        });
+        continue;
+      }
+
+      const interpolateMatch = LINK_STYLE_INTERPOLATE_RE.exec(line);
+      if (interpolateMatch !== null) {
+        // The curve name goes through as written, like the addresses: which
+        // names Siren draws is the model's question. Declarations after it
+        // are read exactly as a plain `linkStyle`'s are.
+        linkStyles.push({
+          targets: splitTargetIds(interpolateMatch[1]),
+          interpolate: interpolateMatch[2],
+          properties:
+            interpolateMatch[3] === undefined
+              ? []
+              : readStyleProperties(interpolateMatch[3], lineNumber, column),
           line: lineNumber,
           column,
         });

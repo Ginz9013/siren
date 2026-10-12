@@ -14,6 +14,10 @@ While the version is 0.x, a minor release may contain breaking changes.
   painted on a translucent background, `--siren-edge-label-fill`, so a line under a label no
   longer crosses its text. A consumer that declares its own dark (or any non-white) theme should
   redeclare `--siren-edge-label-fill` with it, as `demos/theme-dark.css` does.
+- With `siren-core`'s change: a flowchart can pick the curve its edges are drawn with,
+  `linkStyle default interpolate <curve>` or `linkStyle <n> interpolate <curve>`, from `basis`,
+  `linear`, `step`, `stepBefore`, `stepAfter` and `rounded`. Documents using such a line used to be
+  refused.
 
 ### Changed
 

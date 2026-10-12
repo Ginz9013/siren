@@ -499,8 +499,12 @@ connector, relationship (class-diagram vocabulary), message (sequence vocabulary
 How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline,
 the default, as in Mermaid), `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. It changes
 how a route looks, never where the route goes. A flowchart author picks one with `linkStyle default
-interpolate <curve>` or `linkStyle <n> interpolate <curve>`; any other curve name is rejected as
-not implemented. Class, state and ER connectors, and the connector from a note to what it is
+interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations may follow on the same
+line); a numbered statement's curve beats `default`'s whichever is written first. The seven other
+curves Mermaid draws (`cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`, `monotoneY`,
+`natural`) are rejected as not implemented, and the edge keeps its fallback curve (`default`'s, or
+`basis`); a name Mermaid does not know either is drawn as `basis`, as Mermaid draws it, with a
+warning. Class, state and ER connectors, and the connector from a note to what it is
 about, are always `basis`, as Mermaid draws them. Every curve starts on the route's first point
 and ends on its last, arriving along the route's last segment, so an arrowhead points the same way
 under any of them. The curves are d3's (`curveBasis`, `curveLinear`, `curveStep`,

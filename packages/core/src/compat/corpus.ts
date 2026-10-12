@@ -49,6 +49,14 @@ export interface CompatCase {
    * than a label.
    */
   assert?: (result: SirenRenderResult) => void;
+  /**
+   * Warning messages a `supported` construct is expected to report, word
+   * for word — for a picture Siren draws exactly as Mermaid does while still
+   * telling the author something (`linkStyle 0 interpolate zigzag` draws
+   * `basis`, as Mermaid does, and names no curve). The runner fails the row
+   * if one is missing, and still counts every other diagnostic as noise.
+   */
+  warnings?: readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +346,38 @@ function routeOf(path: Element): { x: number; y: number }[] {
     .split(" ")
     .map((pair) => pair.split(","))
     .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
+}
+
+/**
+ * How one flowchart edge's line joins its route — the **Curve** it was
+ * drawn with, read as geometry off `d` against the route in
+ * `data-siren-points`, never off a curve name:
+ *
+ * - `curved` — `d` holds a cubic (`C`), as `basis` draws;
+ * - `through its route` — straight segments through exactly the routed
+ *   points, as `linear` draws;
+ * - `axis-aligned steps` — straight segments, every one horizontal or
+ *   vertical, as `step`, `stepBefore` and `stepAfter` draw.
+ *
+ * Meaningful on a route with a diagonal leg (a fan, say): on a route that is
+ * already one straight vertical line the last two pictures are the same.
+ */
+function edgeCurve(result: SirenRenderResult, id: string): string {
+  const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+  if (path === null) throw new Error(`no edge "${id}" was drawn`);
+  const d = path.getAttribute("d") ?? "";
+  if (d.includes("C")) return "curved";
+  const drawn = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(([, x, y]) => `${Number(x)},${Number(y)}`);
+  const route = routeOf(path).map(({ x, y }) => `${x},${y}`);
+  if (JSON.stringify(drawn) === JSON.stringify(route)) return "through its route";
+  const axisAligned = drawn.every((point, i) => {
+    if (i === 0) return true;
+    const [x0, y0] = drawn[i - 1].split(",");
+    const [x1, y1] = point.split(",");
+    return x0 === x1 || y0 === y1;
+  });
+  if (axisAligned) return "axis-aligned steps";
+  throw new Error(`edge "${id}" is drawn with an unrecognized line: "${d}"`);
 }
 
 /** Every point one flowchart edge's line is drawn through. */
@@ -2918,6 +2958,116 @@ line2\`"]`,
       // the translation is ADR-0008's and is made once, in the model.
       expectSame("edge A-B's label style", edgeLabelStyle(result, "A-B"), "fill:#0f0");
       expectSame("edge A-B's line style", edgeStyle(result, "A-B"), "stroke:#f00");
+    },
+  },
+
+  // A fan in every `interpolate` row below: each route has a diagonal leg,
+  // which is what makes `step`, `linear` and `basis` three different
+  // pictures (`edgeCurve`).
+  {
+    id: "fc-linkstyle-interpolate-default",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle default interpolate step`,
+    status: "supported",
+    meaning:
+      "`linkStyle default interpolate step` draws every edge with d3's " +
+      "`curveStep`: horizontal and vertical segments only.",
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "axis-aligned steps");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-index",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 0 interpolate linear`,
+    status: "supported",
+    meaning:
+      "`linkStyle 0 interpolate linear` draws the first declared edge as " +
+      "straight segments through its route; the other edge keeps Mermaid's " +
+      "default, `basis`.",
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "through its route");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "curved");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-with-declarations",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 1 interpolate step stroke:#f00`,
+    status: "supported",
+    meaning:
+      "`interpolate` and declarations on one line: Mermaid's grammar reads " +
+      "`linkStyle <n> interpolate <curve> <styles>` as both a curve and a " +
+      "style for the same edges.",
+    assert: (result) => {
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
+      expectSame("edge A-C's inline style", edgeStyle(result, "A-C"), "stroke:#f00");
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "curved");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-index-beats-default",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 0 interpolate linear
+      linkStyle default interpolate step`,
+    status: "supported",
+    meaning:
+      "An index's curve beats `default`'s for the edge it names, even when " +
+      "`default` is written after it — Mermaid draws " +
+      "`rawEdge.interpolate || edges.defaultInterpolate` (measured, 11.17.2).",
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "through its route");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-unimplemented-rejected",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 0 interpolate cardinal`,
+    status: "rejected",
+    meaning:
+      "`cardinal` is one of seven curves Mermaid draws (with `bumpX`, " +
+      "`bumpY`, `catmullRom`, `monotoneX`, `monotoneY`, `natural`) that " +
+      "Siren does not implement yet. Refused with an error naming it; the " +
+      "edge is drawn with its fallback curve.",
+  },
+  {
+    id: "fc-linkstyle-interpolate-unknown",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle default interpolate step
+      linkStyle 0 interpolate zigzag`,
+    status: "supported",
+    meaning:
+      "A name that is no curve at all is drawn as `basis`, as Mermaid " +
+      "draws it (`insertEdge`'s `default:` branch, measured: an unknown " +
+      "name on an index still takes that edge off `default`'s curve). " +
+      "Siren also warns that the name exists nowhere.",
+    warnings: [
+      'linkStyle interpolate "zigzag" names no curve; drawing basis, as Mermaid does. ' +
+        "Curves: basis, linear, step, stepBefore, stepAfter, rounded.",
+    ],
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "curved");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
     },
   },
 

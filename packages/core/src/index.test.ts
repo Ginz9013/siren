@@ -8457,3 +8457,74 @@ describe("render(…, { timeline: name }) — choosing which named timeline appl
     }
   });
 });
+
+describe("render() — a flowchart's `linkStyle … interpolate` chooses the curve an edge is drawn with", () => {
+  /** The `[x, y]` points a path's `d` is written through, in order — every `M`, `L` and `C` coordinate. */
+  const dPoints = (d: string): number[][] =>
+    [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+
+  it("draws `default`'s `step` as axis-aligned segments, and an index's `linear` through its routed points", () => {
+    const container = document.createElement("div");
+    // A fan, so the routes are diagonal and a step curve has corners to make.
+    const source = `flowchart TD
+A --> B
+A --> C
+A --> D
+linkStyle default interpolate step
+linkStyle 2 interpolate linear
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const path = (id: string) => result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    for (const id of ["A-B", "A-C"]) {
+      const d = path(id).getAttribute("d")!;
+      expect(d, id).not.toMatch(/C/);
+      const points = dPoints(d);
+      for (let i = 1; i < points.length; i += 1) {
+        const [[x0, y0], [x1, y1]] = [points[i - 1], points[i]];
+        expect(x0 === x1 || y0 === y1, `${id} segment ${i}: ${d}`).toBe(true);
+      }
+    }
+    const linear = path("A-D");
+    expect(linear.getAttribute("d")).not.toMatch(/C/);
+    expect(dPoints(linear.getAttribute("d")!).map(([x, y]) => `${x},${y}`).join(" ")).toBe(
+      linear.getAttribute("data-siren-points"),
+    );
+  });
+
+  it("reports an unimplemented curve as an error and an unknown one as a warning, at the statement, and still draws", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A --> B
+A --> C
+  linkStyle 0 interpolate natural
+  linkStyle 1 interpolate wobbly stroke:#f00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'linkStyle interpolate "natural" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.',
+        line: 4,
+        column: 3,
+      },
+      {
+        severity: "warning",
+        message:
+          'linkStyle interpolate "wobbly" names no curve; drawing basis, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+        line: 5,
+        column: 3,
+      },
+    ]);
+    // Both edges fall to `basis`: one by falling back, one as Mermaid draws.
+    const path = (id: string) => result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    expect(path("A-B").getAttribute("d")).toMatch(/C/);
+    expect(path("A-C").getAttribute("d")).toMatch(/C/);
+    expect(path("A-C").getAttribute("style")).toBe("stroke:#f00");
+  });
+});

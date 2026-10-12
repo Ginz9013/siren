@@ -309,3 +309,115 @@ describe("buildFlowchartModel's accTitle/accDescr", () => {
     expect(graph.accDescr).toBeNull();
   });
 });
+
+/**
+ * The **Curve** each edge is drawn with, resolved from `linkStyle …
+ * interpolate` on the two tiers a `linkStyle` already has: `default` is the
+ * fallback, an index beats it whichever is written first.
+ */
+describe("buildFlowchartModel's edge curve", () => {
+  /** A chain `A --> B --> C`, so the document has edges `0` and `1`. */
+  function chain(linkStyles: FlowchartDocument["linkStyles"]): FlowchartDocument {
+    const edge = (from: string, to: string) => ({
+      from,
+      to,
+      line: "solid" as const,
+      fromEnd: "none" as const,
+      toEnd: "arrow" as const,
+      minLength: 1,
+      label: null,
+    });
+    return flowchartDocument({
+      nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" }), sirenNode({ id: "C" })],
+      edges: [edge("A", "B"), edge("B", "C")],
+      linkStyles,
+    });
+  }
+
+  /** A `linkStyle` statement on line `line`, with no declarations. */
+  function interpolate(targets: string[], name: string, line = 4) {
+    return { targets, interpolate: name, properties: [], line, column: 3 };
+  }
+
+  it("leaves an edge no statement chose a curve for without one, for the renderer to draw as `basis`", () => {
+    const { graph, diagnostics } = buildFlowchartModel(chain([]));
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges.map((edge) => "curve" in edge)).toEqual([false, false]);
+  });
+
+  it("draws every edge with the curve `linkStyle default interpolate` chose", () => {
+    const { graph, diagnostics } = buildFlowchartModel(chain([interpolate(["default"], "step")]));
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges.map((edge) => edge.curve)).toEqual(["step", "step"]);
+  });
+
+  it("lets an index's curve beat `default`'s for the edge it names, whichever is written first", () => {
+    const defaultFirst = buildFlowchartModel(
+      chain([interpolate(["default"], "step", 4), interpolate(["0"], "linear", 5)]),
+    );
+    const indexFirst = buildFlowchartModel(
+      chain([interpolate(["0"], "linear", 4), interpolate(["default"], "step", 5)]),
+    );
+
+    expect(defaultFirst.graph.edges.map((edge) => edge.curve)).toEqual(["linear", "step"]);
+    expect(indexFirst.graph.edges.map((edge) => edge.curve)).toEqual(["linear", "step"]);
+  });
+
+  it("settles two statements on the same tier by the last one written", () => {
+    const { graph } = buildFlowchartModel(
+      chain([
+        interpolate(["default"], "step", 4),
+        interpolate(["default"], "rounded", 5),
+        interpolate(["1"], "stepBefore", 6),
+        interpolate(["1"], "stepAfter", 7),
+      ]),
+    );
+
+    expect(graph.edges.map((edge) => edge.curve)).toEqual(["rounded", "stepAfter"]);
+  });
+
+  it("reports a curve Mermaid draws and Siren does not as an error, and leaves the edge on its fallback", () => {
+    // `default` chose `step`; edge 0's `cardinal` is not drawable, so edge 0
+    // falls back to `default`'s curve. A `default` that names one falls back
+    // to `basis`, the curve below every tier.
+    const overIndex = buildFlowchartModel(
+      chain([interpolate(["default"], "step", 4), interpolate(["0"], "cardinal", 5)]),
+    );
+    const overDefault = buildFlowchartModel(chain([interpolate(["default"], "monotoneX", 4)]));
+
+    expect(overIndex.graph.edges.map((edge) => edge.curve)).toEqual(["step", "step"]);
+    expect(overIndex.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'linkStyle interpolate "cardinal" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.',
+        line: 5,
+        column: 3,
+      },
+    ]);
+    // No curve: below `default` there is only the renderer's `basis`.
+    expect(overDefault.graph.edges.map((edge) => edge.curve)).toEqual([undefined, undefined]);
+    expect(overDefault.diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 4]]);
+  });
+
+  it("draws a name no curve has as `basis`, as Mermaid does, overriding `default`, with a warning listing the six curves", () => {
+    // Mermaid matches the name exactly, so `Step` is as unknown as `zigzag`:
+    // it still takes edge 0 off `default`'s `step`, onto `basis`.
+    const { graph, diagnostics } = buildFlowchartModel(
+      chain([interpolate(["default"], "step", 4), interpolate(["0"], "Step", 5)]),
+    );
+
+    expect(graph.edges.map((edge) => edge.curve)).toEqual(["basis", "step"]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          'linkStyle interpolate "Step" names no curve; drawing basis, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+        line: 5,
+        column: 3,
+      },
+    ]);
+  });
+});

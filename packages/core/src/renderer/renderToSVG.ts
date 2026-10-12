@@ -230,7 +230,9 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // still adds and removes its own classes alongside.
     path.setAttribute("class", edgeClasses(edge));
     path.setAttribute("data-siren-id", edge.id);
-    drawConnectorRoute(path, edge.points, DEFAULT_CURVE);
+    // The curve the model resolved from `linkStyle … interpolate`; an edge
+    // built without one (a hand-made fixture) is drawn on the default.
+    drawConnectorRoute(path, edge.points, edge.curve ?? DEFAULT_CURVE);
     // One marker per end, each pointing outward at the end it is applied
     // to — the class renderer's `auto-start-reverse` def, which is why
     // `<-->` needs one def rather than a mirrored pair.

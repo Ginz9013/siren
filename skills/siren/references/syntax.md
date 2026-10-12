@@ -114,6 +114,14 @@ flowchart LR
 - `:::name` goes after the node's shape: `Output[(Output)]:::terminal`.
 - `linkStyle` numbers edges from 0 in the order they're written. `linkStyle default`
   styles every edge that no numbered statement names.
+- `interpolate <curve>` after the edge numbers picks how an edge's line bends:
+  `linkStyle default interpolate step`, `linkStyle 0,2 interpolate linear`, or with styles on
+  the same line, `linkStyle 1 interpolate step stroke:#f43f5e`. The curves are `basis` (smooth,
+  the default), `linear`, `step`, `stepBefore`, `stepAfter` and `rounded`. Names are
+  case-sensitive. A numbered statement wins over `default`.
+- `cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`, `monotoneY` and `natural` are an
+  error: Mermaid draws them, Siren doesn't yet. Use one of the six. Any other name draws `basis`
+  with a warning.
 - `color` sets a node's label color.
 - `style` on a subgraph is accepted but has no effect. Subgraphs keep the theme's colors.
 - Every value here overrides the theme. Read SKILL.md's "Color and styling" before

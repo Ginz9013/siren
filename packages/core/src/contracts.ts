@@ -98,6 +98,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  * here so every other module still finds its cross-module types in one place.
  */
 import type { Label, LabelBox, PlacedLabel } from "./label/label";
+import type { Curve } from "./renderer/connectorCurve";
 
 export type {
   Label,
@@ -281,6 +282,15 @@ export interface LinkStyleDecl {
    * the statement's shape.
    */
   targets: string[];
+  /**
+   * The curve name an `interpolate` clause wrote (`linkStyle 0 interpolate
+   * step`), exactly as authored — absent when the statement has none.
+   *
+   * A name, not yet a `Curve`: whether Siren draws it, whether Mermaid
+   * knows it at all, and which edges it lands on are `buildFlowchartModel`'s
+   * questions, answered with the addresses beside it.
+   */
+  interpolate?: string;
   /** The declarations to apply, in author order. Values are not validated
    * here — the gate is `resolveStyles`', reached once the addresses have
    * become ids. */
@@ -1281,6 +1291,22 @@ export interface GraphEdge {
    * name downstream of the model rather than a name and a position.
    */
   style: AuthorStyle;
+  /**
+   * The **Curve** the renderer joins this edge's routed points with, when
+   * a `linkStyle … interpolate` chose one for it.
+   *
+   * Resolved here, on `linkStyle`'s two tiers (an index beats `default`),
+   * so the renderer draws what it is handed and never sees a curve name it
+   * cannot draw: a name Siren does not implement, or one nobody knows, was
+   * diagnosed and settled to a drawable curve by `buildFlowchartModel`.
+   *
+   * Absent when no `interpolate` statement reached the edge, and the
+   * renderer reads absent as `DEFAULT_CURVE` (`basis`): an edge's shape only
+   * grows a field when the author wrote something for it, so a document
+   * with no `interpolate` builds exactly the edges it built before. An
+   * unknown name the author did write is present, as the `basis` it draws.
+   */
+  curve?: Curve;
 }
 
 /**
