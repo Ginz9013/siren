@@ -4,6 +4,8 @@
  * `layout-parity.mjs`.
  */
 
+import { WORST_COUNT } from "./metrics.mjs";
+
 /**
  * `parity [file…] [--json]`. No files means every fixture.
  *
@@ -44,6 +46,8 @@ export function failedSides(result) {
 
 const percent = (v) => (v === null ? "n/a" : `${(v * 100).toFixed(1)}%`);
 const offset = (v) => (v === null ? "n/a" : v.toFixed(3));
+const ratio = (v) => (v === null ? "n/a" : `×${v.toFixed(2)}`);
+const dimensions = ({ width, height }) => `${Math.round(width)}×${Math.round(height)}`;
 
 /** One diagram's section of the text report. */
 function formatOne(result) {
@@ -62,13 +66,21 @@ function formatOne(result) {
   lines.push(`  agreement   vertical ${percent(m.verticalAgreement)}  horizontal ${percent(m.horizontalAgreement)}`);
   lines.push(`  offset      mean ${offset(m.meanOffset)}  max ${offset(m.maxOffset)}`);
   lines.push(`  worst       ${m.worst.map((w) => `${w.id} ${offset(w.offset)}`).join(", ")}`);
+  if (m.sizes !== undefined) {
+    const s = m.sizes;
+    lines.push(`  size        siren/mermaid width ${ratio(s.meanWidthRatio)}  height ${ratio(s.meanHeightRatio)}`);
+    const furthest = s.nodes.slice(0, WORST_COUNT).map((n) => `${n.id} ${dimensions(n.mermaid)} → ${dimensions(n.siren)}`);
+    lines.push(`  size worst  ${furthest.join(", ")}`);
+  }
   return lines;
 }
 
 /**
  * The human-readable report: one section per diagram, separated by a blank
  * line. Agreements print as percentages, offsets in normalized units (the
- * diagonal of the 0..1 frame is 1.414).
+ * diagonal of the 0..1 frame is 1.414), node sizes as Siren's over
+ * Mermaid's and, for the nodes furthest from Mermaid's size, both boxes in
+ * whole px. Every node's two boxes are in the `--json` output.
  */
 export function formatText(results) {
   return results.map((r) => [...formatOne(r), ""].join("\n")).join("\n");

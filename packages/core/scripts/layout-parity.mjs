@@ -23,7 +23,10 @@
  *   the share whose left/right relation is;
  * - **normalized position error**: each picture's node centers scaled to
  *   0..1 on each axis, then the mean and max distance between a node's two
- *   centers, and the five nodes that moved most.
+ *   centers, and the five nodes that moved most;
+ * - **node size**: the mean of Siren's width over Mermaid's, and of the
+ *   heights, and the five nodes whose size is furthest from Mermaid's (every
+ *   node's two boxes are in the `--json` output).
  *
  * The metrics are pure functions in `scripts/parity/metrics.mjs`, tested with
  * `node --test scripts/parity`; this file is the part that needs Chrome.
@@ -61,7 +64,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { exitCodeFor, failedSides, formatText, parseArgs } from "./parity/cli.mjs";
-import { compareLayouts } from "./parity/metrics.mjs";
+import { compareLayouts, compareSizes } from "./parity/metrics.mjs";
 import { buildPage, PENDING, RESULT_ID } from "./parity/page.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -191,7 +194,13 @@ async function main() {
   const drawn = readResult(await dumpDom(chrome, pathToFileURL(pagePath).href));
   const results = drawn.map((r) =>
     failedSides(r).length === 0
-      ? { ...r, metrics: compareLayouts(r.mermaid.nodes, r.siren.nodes) }
+      ? {
+          ...r,
+          metrics: {
+            ...compareLayouts(r.mermaid.nodes, r.siren.nodes),
+            sizes: compareSizes(r.mermaid.nodes, r.siren.nodes),
+          },
+        }
       : r,
   );
 

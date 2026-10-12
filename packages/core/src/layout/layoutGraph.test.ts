@@ -686,6 +686,58 @@ describe("a node's box, sized around its label", () => {
   });
 });
 
+describe("a node's label, wrapped", () => {
+  const oneNode = (label: GraphModel["nodes"][number]["label"]): GraphModel => ({
+    direction: "TB",
+    nodes: [{ id: "A", label, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null }],
+    edges: [],
+    subgraphs: [],
+    accTitle: null,
+    accDescr: null,
+    timeline: { totalSteps: 0, entries: [] },
+  });
+
+  // The spec: a node's label wraps at 175px of text (Mermaid's 200 at 16px,
+  // scaled to the node's 14px), its box is then that plus the measurer's
+  // padding, and the node is drawn with the wrapped rows. `fakeMeasurer` is
+  // 8px a character with no padding, so 21 characters fit, 22 do not, and
+  // the box is exactly 175.
+  it("wraps a label wider than 175px at its spaces, and the node carries the wrapped rows", () => {
+    const positioned = layoutGraph(oneNode(plainLabel("alpha beta gamma delta epsilon zeta")), {
+      measureText: fakeMeasurer,
+    });
+
+    const [node] = positioned.nodes;
+    // `alpha beta gamma delta` is 22 characters, 176px.
+    expect(node!.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    expect(node!.labelBox.width).toBe(175);
+    expect(node!.labelBox.rows).toHaveLength(2);
+    expect(node!.width).toBe(175);
+    expect(node!.height).toBe(48);
+  });
+
+  // The spec: a subgraph's title is plain text in Mermaid and is never
+  // wrapped (measured, mermaid 11.17.2).
+  it("leaves a subgraph's title on one row however long it is", () => {
+    const graph: GraphModel = {
+      ...oneNode(plainLabel("A")),
+      nodes: [{ ...oneNode(plainLabel("A")).nodes[0]!, parentId: "subgraph:1" }],
+      subgraphs: [
+        { id: "subgraph:1", label: plainLabel("alpha beta gamma delta epsilon zeta"), parentId: null, direction: null },
+      ],
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    const [frame] = positioned.subgraphs;
+    expect(frame!.label.label.rows).toHaveLength(1);
+    expect(frame!.label.labelBox.width).toBe(35 * 8);
+  });
+});
+
 /**
  * A long arrow is the one part of an arrow token that is not about drawing:
  * `A ----> B` puts B further down the rank order, so the claim is about

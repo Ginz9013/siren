@@ -114,3 +114,37 @@ export function compareLayouts(mermaid, siren) {
     worst,
   };
 }
+
+/**
+ * Compare the sizes of the nodes two pictures drew — the measurement the
+ * label-wrap board added, since a wrapped label changes a node's box before
+ * it changes where the node goes.
+ *
+ * Raw px on both sides: unlike positions, a node's size is not relative to
+ * the picture around it, so nothing is normalized. Each ratio is Siren's
+ * over Mermaid's, and the means are over matched nodes only.
+ *
+ * @param {Record<string,{width:number,height:number}>} mermaid node boxes in Mermaid's picture
+ * @param {Record<string,{width:number,height:number}>} siren   node boxes in Siren's picture
+ * @returns {{
+ *   meanWidthRatio: number|null, meanHeightRatio: number|null,
+ *   nodes: {id:string, mermaid:{width:number,height:number}, siren:{width:number,height:number}}[],
+ * }}
+ * `nodes` holds every matched node, the one furthest from its Mermaid size
+ * first: by the larger of its two ratios' distance from 1 on a log scale, so
+ * half as wide and twice as wide count alike. Means are `null` with no
+ * matched node.
+ */
+export function compareSizes(mermaid, siren) {
+  const ids = Object.keys(mermaid).filter((id) => Object.hasOwn(siren, id));
+  const size = ({ width, height }) => ({ width, height });
+  const nodes = ids.map((id) => ({ id, mermaid: size(mermaid[id]), siren: size(siren[id]) }));
+  const ratio = (node, axis) => node.siren[axis] / node.mermaid[axis];
+  const distance = (node) => Math.max(Math.abs(Math.log(ratio(node, "width"))), Math.abs(Math.log(ratio(node, "height"))));
+  const mean = (axis) => (nodes.length > 0 ? nodes.reduce((sum, node) => sum + ratio(node, axis), 0) / nodes.length : null);
+  return {
+    meanWidthRatio: mean("width"),
+    meanHeightRatio: mean("height"),
+    nodes: [...nodes].sort((a, b) => distance(b) - distance(a)),
+  };
+}

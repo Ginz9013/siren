@@ -45,3 +45,38 @@ test("a node in only one picture is counted as unmatched and kept out of the met
   assert.equal(r.meanOffset, 0);
   assert.equal(r.maxOffset, 0);
 });
+
+import { compareSizes } from "./metrics.mjs";
+
+// Node sizes, compared as Siren's over Mermaid's. Mermaid A 200x50, B 100x100;
+// Siren A 100x50, B 100x300. Width ratios: A 0.5, B 1 => mean 0.75. Height
+// ratios: A 1, B 3 => mean 2. Unmatched X and Y are kept out. Nodes are
+// listed furthest from their Mermaid size first, by the larger of the two
+// ratios' distance from 1 on a log scale: B |ln 3| = 1.10 before A
+// |ln 0.5| = 0.69.
+test("node sizes: each matched node's two boxes, and the mean ratio on each axis", () => {
+  const mermaid = {
+    A: { x: 0, y: 0, width: 200, height: 50 },
+    B: { x: 0, y: 100, width: 100, height: 100 },
+    X: { x: 9, y: 9, width: 1, height: 1 },
+  };
+  const siren = {
+    A: { x: 0, y: 0, width: 100, height: 50 },
+    B: { x: 0, y: 100, width: 100, height: 300 },
+    Y: { x: 9, y: 9, width: 1, height: 1 },
+  };
+  const r = compareSizes(mermaid, siren);
+  assert.equal(r.meanWidthRatio, 0.75);
+  assert.equal(r.meanHeightRatio, 2);
+  assert.deepEqual(r.nodes, [
+    { id: "B", mermaid: { width: 100, height: 100 }, siren: { width: 100, height: 300 } },
+    { id: "A", mermaid: { width: 200, height: 50 }, siren: { width: 100, height: 50 } },
+  ]);
+});
+
+test("node sizes with no matched node: no ratio to take", () => {
+  const r = compareSizes({ X: { x: 0, y: 0, width: 1, height: 1 } }, {});
+  assert.equal(r.meanWidthRatio, null);
+  assert.equal(r.meanHeightRatio, null);
+  assert.deepEqual(r.nodes, []);
+});

@@ -286,3 +286,26 @@ export function measuredScale(run: LabelRun): number {
 export function plainLabel(text: string): Label {
   return { text, rows: [[plainRun(text)]] };
 }
+
+/**
+ * The width, in px, Mermaid wraps a label's text at: `labelHelper` and
+ * `createText` lay a label out single-line and, once it reaches this width,
+ * fix it at this width and let the browser break it (mermaid 11.17.2,
+ * measured; see the label-wrap ADR, nook `01M4R4WDZ`). Not configurable here: an author's
+ * `flowchart.wrappingWidth` is not read.
+ */
+export const MERMAID_WRAPPING_WIDTH_PX = 200;
+
+/** The px Mermaid draws label text at, which `MERMAID_WRAPPING_WIDTH_PX` is measured against. */
+export const MERMAID_FONT_SIZE_PX = 16;
+
+/**
+ * The width a label drawn at `fontSizePx` wraps at: Mermaid's 200px scaled
+ * by the size the label is drawn at over Mermaid's 16px, so a line holds as
+ * many characters as Mermaid's does. A node's 14px (`BASE_FONT_SIZE_PX`)
+ * wraps at 175, a connector label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`)
+ * at 150. `wrapLabel` takes the result.
+ */
+export function wrapWidthAt(fontSizePx: number): number {
+  return (MERMAID_WRAPPING_WIDTH_PX * fontSizePx) / MERMAID_FONT_SIZE_PX;
+}

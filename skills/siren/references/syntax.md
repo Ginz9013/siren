@@ -41,6 +41,14 @@ flowchart LR
 - A node defined once can be referenced by id alone afterwards.
 - A bare id on its own line (`Q`) declares a node labeled with its id.
 - Quote a label that contains punctuation such as `,`, `(`, `[` or `:`.
+- A long node label wraps by itself, as in Mermaid: once its text is wider than 175px (Mermaid's
+  200px at 16px, scaled to Siren's 14px), it breaks at spaces, or between any two CJK
+  characters, onto more rows, and the node grows taller instead of wider. Closing punctuation
+  (`，` `。` `)` and the like) never begins a row; a single word too long for the width is left
+  whole. The width is fixed (`flowchart.wrappingWidth` is not read).
+- `<br>` forces a row break where you want one: `A["first line<br>second line"]`. Each row is
+  then wrapped on its own if it is still too long.
+- A subgraph's title never wraps.
 
 ### Edges
 

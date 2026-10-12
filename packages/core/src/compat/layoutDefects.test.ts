@@ -6,6 +6,7 @@ import { CONNECTOR_LABEL_SCALE } from "../label/label";
 import { render } from "../index";
 import { parseSiren } from "../parser/parseSiren";
 import { connectorPathData } from "../renderer/connectorCurve";
+import { labelRows } from "./labelCorpus";
 import {
   edgesThroughNodes,
   labelsOverNodes,
@@ -321,6 +322,30 @@ describe("the garden-network diagram, under the default measurer", () => {
 
   it("draws no two edge labels over each other", () => {
     expect(overlappingLabels(svg, drawnRow)).toEqual([]);
+  });
+
+  // The label-wrap ADR: a node's label wraps at 175px of text, so no drawn
+  // row of one holds more text — under this measurer, 8 per character, no
+  // more than 21 characters — except a single piece too long to break,
+  // which overflows. garden-network has no such piece, so the exceptions are none.
+  // The measurer's 16px of padding is outside the wrap width, and a node
+  // drawn as a rectangle takes its label box unchanged, so its frame is no
+  // wider than 175 + 16.
+  it("wraps every node's label to rows of no more than 175px of text, and no rectangle wider than that and its padding", () => {
+    const LONG_WORD_EXCEPTIONS: string[] = [];
+    const tooWide = Array.from(svg.querySelectorAll("g.siren-node")).flatMap((node) => {
+      const id = node.getAttribute("data-siren-id")!;
+      const rows = labelRows(node.querySelector("text"));
+      return rows
+        .filter((row) => row.length * 8 > 175 && !LONG_WORD_EXCEPTIONS.includes(id))
+        .map((row) => `${id}: ${row}`);
+    });
+    expect(tooWide).toEqual([]);
+
+    const wideRectangles = Array.from(svg.querySelectorAll("g.siren-node rect.siren-node-frame"))
+      .filter((rect) => Number(rect.getAttribute("width")) > 175 + 16)
+      .map((rect) => rect.closest("g.siren-node")!.getAttribute("data-siren-id"));
+    expect(wideRectangles).toEqual([]);
   });
 
   it("reports how many lines pass through a node that is not their own — reported, not bounded", () => {

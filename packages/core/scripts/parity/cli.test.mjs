@@ -57,3 +57,32 @@ test("a diagram one side could not draw says which side and why", () => {
     ["bad.mmd", "  FAILED      siren could not draw it: Unexpected token", ""].join("\n"),
   );
 });
+
+test("the text report gives the mean size ratios and the five nodes furthest from Mermaid's size", () => {
+  const box = (width, height) => ({ width, height });
+  const metrics = {
+    mermaidNodes: 2, sirenNodes: 2, matched: 2, mermaidOnly: [], sirenOnly: [],
+    verticalAgreement: 1, horizontalAgreement: 1, meanOffset: 0, maxOffset: 0,
+    worst: [{ id: "A", offset: 0 }],
+    sizes: {
+      meanWidthRatio: 0.75, meanHeightRatio: 2,
+      nodes: [
+        { id: "B", mermaid: box(100, 100), siren: box(100, 300) },
+        { id: "A", mermaid: box(200, 50.4), siren: box(100, 50) },
+      ],
+    },
+  };
+  assert.equal(
+    formatText([{ file: "sizes.mmd", mermaid: { nodes: {} }, siren: { nodes: {} }, metrics }]),
+    [
+      "sizes.mmd",
+      "  nodes       mermaid 2  siren 2  matched 2",
+      "  agreement   vertical 100.0%  horizontal 100.0%",
+      "  offset      mean 0.000  max 0.000",
+      "  worst       A 0.000",
+      "  size        siren/mermaid width ×0.75  height ×2.00",
+      "  size worst  B 100×100 → 100×300, A 200×50 → 100×50",
+      "",
+    ].join("\n"),
+  );
+});

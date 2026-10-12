@@ -14,8 +14,9 @@ import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
-import { atConnectorLabelSize } from "../label/label";
+import { atConnectorLabelSize, BASE_FONT_SIZE_PX, wrapWidthAt } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
+import { wrapLabel } from "../label/wrapLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
 const SUBGRAPH_PADDING = 12;
@@ -76,6 +77,9 @@ export const SHAPE_LEAN = {
   "double-circle": 1 / 16,
   cylinder: 1 / 8,
 } as const satisfies Partial<Record<NodeShape, number>>;
+
+/** The width a node's label wraps at: Mermaid's 200px at the node's 14px. */
+const NODE_LABEL_WRAP_WIDTH = wrapWidthAt(BASE_FONT_SIZE_PX);
 
 /** A measured label, and the bounding box a shape needs to hold one. */
 interface Box {
@@ -241,16 +245,21 @@ export function layoutGraph(
   graph: GraphModel,
   options: LayoutOptions,
 ): PositionedGraph {
-  // Each label measured once, here, and carried to the renderer on the
-  // positioned node: the shape is sized around this box, and the rows are
-  // drawn where it says they sit. The renderer has no measurer, so a second
-  // opinion there was never an option.
-  const labelBoxById = new Map(
-    graph.nodes.map((node) => [node.id, layoutLabel(node.label, options.measureText)]),
+  // Each label wrapped and measured once, here, and carried to the renderer
+  // on the positioned node: the shape is sized around this box, and the
+  // wrapped rows are drawn where it says they sit. The renderer has no
+  // measurer, so a second opinion there was never an option. A node's text
+  // is drawn at the 14px base, so it wraps at Mermaid's 200px scaled to 14
+  // (the label-wrap ADR, nook `01M4R4WDZ`).
+  const wrappedById = new Map(
+    graph.nodes.map((node) => [node.id, wrapLabel(node.label, options.measureText, NODE_LABEL_WRAP_WIDTH)]),
   );
+  const labelBoxById = new Map([...wrappedById].map(([id, wrapped]) => [id, wrapped.labelBox]));
 
   // A subgraph's title is measured once too, for the same two readers: the
   // cluster size handed to the core below, and the frame grown afterwards.
+  // Never wrapped: Mermaid draws a subgraph's title as plain text, which it
+  // does not wrap (the label-wrap ADR, nook `01M4R4WDZ`).
   const titleBoxById = new Map(
     graph.subgraphs.map((subgraph) => [subgraph.id, layoutLabel(subgraph.label, options.measureText)]),
   );
@@ -374,6 +383,7 @@ export function layoutGraph(
       ...shifted(box),
       width: box.width,
       height: box.height,
+      label: wrappedById.get(node.id)!.label,
       labelBox: labelBoxById.get(node.id)!,
     };
   });

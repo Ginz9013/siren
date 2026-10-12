@@ -37,6 +37,16 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Changed
 
+- **A flowchart node's label wraps** once its text is wider than 175px, as Mermaid wraps its labels
+  at 200px of 16px text (scaled to the 14px a node is drawn at): Latin text at its spaces, CJK text
+  between any two characters, never with closing punctuation such as `，` or `)` beginning a row.
+  A `<br>` still breaks a row, and each row is then wrapped on its own; a word too long for 175px is
+  left whole and widens the label. A wrapped label's text is 175px wide and its box that plus the
+  measurer's padding (the padding is outside the wrap width, as Mermaid's shape padding is outside
+  its label), so a long-labelled node is now narrower and taller, and the whole diagram's layout
+  can change. A subgraph's title is not wrapped. The width is fixed: `flowchart.wrappingWidth` is
+  not read. `PositionedNode.label` is the wrapped label (its rows are what is drawn); `wrapLabel`
+  and `wrapWidthAt` are internal.
 - A flowchart subgraph, a state diagram's composite state or an ER subgraph that declares a
   `direction` now uses it **only when no connector crosses its boundary**: a connector with
   exactly one end inside the group, at any depth. A group with such a connector is laid out in the

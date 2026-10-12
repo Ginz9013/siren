@@ -449,6 +449,22 @@ and the renderer puts it before the `<text>`, since document order is paint orde
 _Avoid_: text, caption, string (for the read label — say "flattened text" for the string); line (for
 a drawn row — a Markdown string's plain *line* break is one way to start a row, `<br>` is another)
 
+**Wrap**:
+Breaking a **label**'s rows into more rows so that none is wider than the label's **wrap width**,
+as Mermaid wraps its HTML labels (the label-wrap ADR, nook `01M4R4WDZ`). The wrap width is Mermaid's 200px scaled to
+the size the label is drawn at, `200 × px / 16`: **175** for a flowchart node's 14px text, **150**
+for a connector label's 12px. Not configurable — Mermaid's `flowchart.wrappingWidth` is not read. A
+row that fits is left as written; each row the author wrote (a `<br>` still ends one) is wrapped on
+its own. A row breaks after a space, which is not drawn, and between two characters either of which
+is CJK, but never before closing punctuation (`，。、；：？！」』）】》,.;:?!)]}`); a piece that cannot be
+broken and is wider than the wrap width stands on its own row and overflows it. The wrap width
+bounds the **text** alone, as Mermaid's fixed-width `<div>` does: the measurer's padding is outside
+it, so once a label wraps its box is the wrap width plus that padding — or as wide as an overflowing
+row — and its runs keep their properties across the breaks. `wrapLabel` in `packages/core/src/label/` does it; the caller decides
+which labels wrap. Wrapped: a flowchart node's label. Never wrapped: a subgraph's title, a class
+name, an ER entity name, anything in a sequence diagram, a note (Mermaid wraps none of them).
+_Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row — it is a row)
+
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.

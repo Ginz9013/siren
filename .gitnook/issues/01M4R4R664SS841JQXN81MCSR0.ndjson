@@ -1,0 +1,4 @@
+{"id":"01M4R4R664BR0AMP0S8BD2YG67","t":1,"a":"83a1","op":"create","title":"label: 多行標籤行高照 Mermaid（字級 × 1.5），padding 只在外圍一次"}
+{"id":"01M4R4R66E1P7K9VXYP2SE6M35","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/flowchart-mermaid-parity-2/spec.md`（spec issue `01M4R3RTMERFCJ9ZPXMZ2GE32A`），ticket 檔 `.scratch/flowchart-mermaid-parity-2/T05-label-line-height.md`。插在 T1 之後、T2 之前。"}
+{"id":"01M4R4R66ERWZAPGZMB3F5ZQAH","t":3,"a":"83a1","op":"label.add","v":"layout"}
+{"id":"01M4R4R6CPAKEY9D10AB05QBX8","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}

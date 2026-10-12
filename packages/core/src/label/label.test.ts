@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONNECTOR_LABEL_FONT_SIZE_PX } from "./label";
+import { BASE_FONT_SIZE_PX, CONNECTOR_LABEL_FONT_SIZE_PX, wrapWidthAt } from "./label";
 
 /**
  * `theme/default.css`'s own text, read off disk for the reasons
@@ -27,5 +27,16 @@ describe("the size a connector label is measured at", () => {
 
     expect(declared?.[1]).toBeDefined();
     expect(Number(declared![1])).toBe(CONNECTOR_LABEL_FONT_SIZE_PX);
+  });
+});
+
+describe("the width a label wraps at", () => {
+  // The spec (decision 1): Mermaid wraps at 200px of 16px text, so a label
+  // drawn at another size wraps at 200 × size / 16 — a node's 14px at 175,
+  // a connector label's 12px at 150.
+  it("is Mermaid's 200px scaled to the size the label is drawn at", () => {
+    expect(wrapWidthAt(16)).toBe(200);
+    expect(wrapWidthAt(BASE_FONT_SIZE_PX)).toBe(175);
+    expect(wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX)).toBe(150);
   });
 });

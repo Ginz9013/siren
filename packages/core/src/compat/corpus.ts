@@ -2705,6 +2705,128 @@ line2\`"]`,
     },
   },
 
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`). Mermaid wraps a node's label
+  // at 200px of its 16px text; Siren at 175px of its 14px, the same number
+  // of characters to a line. The wrap width bounds the text alone, as
+  // Mermaid's `<div>` does; the measurer's padding goes outside it. Under the
+  // default measurer (8px a character, plus 16px of padding) 21 characters
+  // fit in 175px and 22 do not, and a wrapped label's box — a rectangle
+  // node's width — is 175 + 16 = 191. Each
+  // `meaning` quotes the lines mermaid 11.17.2 drew (headless Chrome, one
+  // line per distinct glyph top in the label's `<div>`); the rows Siren
+  // draws differ only because the default measurer is wider than Chrome's
+  // font.
+  {
+    id: "fc-label-wrap-latin",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[This is a fairly long English label that should certainly exceed two hundred pixels of width]`,
+    status: "supported",
+    meaning:
+      "A node label wider than Mermaid's wrapping width (200px) is wrapped, " +
+      "Latin text at its spaces only, and the label's box is then exactly " +
+      "that width: mermaid 11.17.2 draws it in a 200px-wide `<div>` as " +
+      "`This is a fairly long English ` / `label that should certainly ` / " +
+      "`exceed two hundred pixels ` / `of width`, in a 260px-wide node " +
+      "(measured).",
+    assert: (result) => {
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "This is a fairly long",
+        "English label that",
+        "should certainly",
+        "exceed two hundred",
+        "pixels of width",
+      ]);
+      // A rectangle takes its label box unchanged: 175px of text and the
+      // measurer's 16px of padding.
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-cjk",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[這是一個沒有任何空白而且相當長的中文節點標籤用來測試換行行為是否會在字元之間斷開]`,
+    status: "supported",
+    meaning:
+      "A CJK label with no space in it is wrapped between any two " +
+      "characters: mermaid 11.17.2 draws `這是一個沒有任何空白而且` / " +
+      "`相當長的中文節點標籤用來` / `測試換行行為是否會在字元` / `之間斷開` " +
+      "in a 200px-wide `<div>` (measured).",
+    assert: (result) => {
+      // 21 characters, then the other 19.
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "這是一個沒有任何空白而且相當長的中文節點標",
+        "籤用來測試換行行為是否會在字元之間斷開",
+      ]);
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-mixed",
+    kind: "flowchart",
+    source: `flowchart TD
+      P["Watering 灌溉控制器 (Rain / Pump / Wells)"]`,
+    status: "supported",
+    meaning:
+      "A label mixing CJK and Latin text is wrapped by both rules at once — " +
+      "garden-network's watering node: mermaid 11.17.2 draws " +
+      "`Watering 灌溉控制器 (Rain ` / `/ Pump / Wells)` in a 200px-wide " +
+      "`<div>` (measured).",
+    assert: (result) => {
+      // Mermaid's own two lines, less the space each first line ends with.
+      expectSame("label rows", nodeLabelRows(result, "P"), ["Watering 灌溉控制器 (Rain", "/ Pump / Wells)"]);
+      const box = nodeBox(result, "P");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-br",
+    kind: "flowchart",
+    source: `flowchart TD
+      A["short<br>a much longer second line that goes well past two hundred pixels"]`,
+    status: "supported",
+    meaning:
+      "A `<br>` still ends its line, and each line it leaves is wrapped on " +
+      "its own: mermaid 11.17.2 draws `short` / `a much longer second line ` " +
+      "/ `that goes well past two ` / `hundred pixels` in a 200px-wide " +
+      "`<div>` (measured) — the short first line is not filled from the next.",
+    assert: (result) => {
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "short",
+        "a much longer second",
+        "line that goes well",
+        "past two hundred",
+        "pixels",
+      ]);
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-subgraph-title-no-wrap",
+    kind: "flowchart",
+    source: `flowchart TD
+      subgraph G[This subgraph title is long enough to go well past two hundred pixels wide in Mermaid]
+        A[One] --> B[Two]
+      end`,
+    status: "supported",
+    meaning:
+      "A subgraph's title is never wrapped, however long: mermaid 11.17.2 " +
+      "draws it on one line in a 617px-wide `<div>` with " +
+      "`white-space: nowrap`, and the frame grows to hold it (625px, " +
+      "measured).",
+    assert: (result) => {
+      const title = "This subgraph title is long enough to go well past two hundred pixels wide in Mermaid";
+      expectSame("title rows", labelRows(svgOf(result).querySelector("text.siren-subgraph-label")), [title]);
+      // The frame holds the whole unwrapped title: its 85 characters, 696px.
+      const frame = subgraphBox(result, title);
+      expectSame("frame holds the title", frame.right - frame.left >= title.length * 8 + 16, true);
+    },
+  },
+
   {
     id: "fc-label-tag-quotes",
     kind: "flowchart",
