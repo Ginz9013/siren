@@ -18,7 +18,7 @@ While the version is 0.x, a minor release may contain breaking changes.
   author's `linkStyle … color:` still paints only the text.
 - Token `--siren-edge-label-fill` (default `rgb(255 255 255 / 0.8)`, the white canvas at Mermaid's
   0.8 opacity) fills that background. It sits outside the five-color palette, but **a second theme
-  must redeclare it**: on a dark canvas the default draws a white plate behind every connector
+  must redeclare it**: on a dark canvas the default draws a white background behind every connector
   label. `demos/theme-dark.css` declares a dark value.
 
 ### Changed

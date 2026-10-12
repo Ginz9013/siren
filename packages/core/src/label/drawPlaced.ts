@@ -37,11 +37,17 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * since it is the same thing in each; "connector" is the word the four
  * share.
  *
+ * The rect is also handed back on its own as `background`, so a caller that
+ * marks it does not depend on where it sits among `backgrounds`.
+ *
  * The rect wears no `data-siren-id`: where the label is a group with the
  * id, the rect inherits the timeline's classes from it, and where it is a
  * bare `<text>` (the flowchart) the renderer stamps the id on both.
  */
-export function drawConnectorLabel(placed: PlacedLabel, className: string): DrawnLabel {
+export function drawConnectorLabel(
+  placed: PlacedLabel,
+  className: string,
+): DrawnLabel & { background: SVGElement } {
   const drawn = drawPlaced(placed, className);
   const { labelBox, anchor } = placed;
   const rect = document.createElementNS(SVG_NS, "rect");
@@ -50,5 +56,5 @@ export function drawConnectorLabel(placed: PlacedLabel, className: string): Draw
   rect.setAttribute("y", String(anchor.y - labelBox.height / 2));
   rect.setAttribute("width", String(labelBox.width));
   rect.setAttribute("height", String(labelBox.height));
-  return { text: drawn.text, backgrounds: [rect, ...drawn.backgrounds] };
+  return { text: drawn.text, background: rect, backgrounds: [rect, ...drawn.backgrounds] };
 }

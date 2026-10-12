@@ -410,10 +410,10 @@ function buildEdgeLabel(
   const drawn = drawConnectorLabel(edge.label, "siren-edge-label");
   const { text } = drawn;
   // The same id the path wears — see ADR-0009, and the call site above —
-  // on the text and on the background `drawConnectorLabel` puts first
-  // behind it, which is part of the label and has to enter and exit with it.
+  // on the text and on the background `drawConnectorLabel` draws behind
+  // it, which is part of the label and has to enter and exit with it.
   text.setAttribute("data-siren-id", edge.id);
-  drawn.backgrounds[0]!.setAttribute("data-siren-id", edge.id);
+  drawn.background.setAttribute("data-siren-id", edge.id);
   // The author's text half, on the one element an edge has to put it on.
   //
   // **Measured, not chosen.** `linkStyle 0 color:#f00` used to be resolved,

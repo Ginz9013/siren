@@ -39,7 +39,7 @@
   --siren-label-link: #9cc7ff;
   --siren-label-mark-fill: #ff0;
   --siren-label-mark-text: #000;
-  /* The plate behind a connector's label: the dark canvas (#14111d, the
+  /* The background behind a connector's label: the dark canvas (#14111d, the
      demos' and board's surface) at the default's 0.8, so a label reads as
      the page with the line faintly through it, not as a white sticker. */
   --siren-edge-label-fill: rgb(20 17 29 / 0.8);

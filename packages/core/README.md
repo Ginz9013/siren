@@ -404,7 +404,7 @@ and yours to decide when it applies. Redeclare the color tokens under whatever s
 fits — a media query, a theme attribute your app already sets, a container class. That is
 the five-color palette, plus `--siren-label-link`: its default is the browser's link blue,
 which is unreadable on a dark node; and `--siren-edge-label-fill`, whose default is a
-translucent white plate behind every connector label, made for a white canvas:
+translucent white background behind every connector label, made for a white canvas:
 
 ```css
 /* Follow the reader's system preference... */
@@ -464,7 +464,7 @@ Override any `--siren-*` custom property in your own CSS:
 | Label paint | `--siren-label-mark-fill` (`#ff0`, the rect behind `<mark>` text), `--siren-label-mark-text` (`#000`, `<mark>` text), `--siren-label-link` (`#0000ee`, `<a href>` link text), `--siren-edge-label-fill` (`rgb(255 255 255 / 0.8)`, the background behind every connector label) |
 
 The first three label-paint tokens are what the browser's default stylesheet paints these tags
-with in Mermaid's HTML labels; `--siren-edge-label-fill` is the translucent plate Mermaid puts
+with in Mermaid's HTML labels; `--siren-edge-label-fill` is the translucent background Mermaid puts
 behind an edge label, so a line passing under the label does not cross its text. They sit outside the five-color palette, so a marked or linked run
 looks the same whichever palette is in use, unless you repaint them — and a dark palette
 should repaint `--siren-label-link`, as in the example above.

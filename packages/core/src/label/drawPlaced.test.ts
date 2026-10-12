@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TextMeasurer } from "../contracts";
-import { drawPlaced } from "./drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "./drawPlaced";
 import { layoutLabel } from "./layoutLabel";
 import { readLabel } from "./readLabel";
 
@@ -28,5 +28,21 @@ describe("drawPlaced", () => {
     ]);
     expect(backgrounds).toEqual([]);
     expect(drawPlaced(placed).text.hasAttribute("class")).toBe(false);
+  });
+
+  it("draws a connector's label with its background, named, over the label's box and first among what is painted behind the text", () => {
+    // "a<br>b" is two 20px rows, the wider 8px wide: an 8 by 40 box centred
+    // on (30, 70).
+    const { label } = readLabel("a<br>b", { dialect: "html" });
+    const placed = { label, labelBox: layoutLabel(label, fakeMeasurer), anchor: { x: 30, y: 70 } };
+
+    const drawn = drawConnectorLabel(placed, "siren-edge-label");
+
+    expect(drawn.text.getAttribute("class")).toBe("siren-edge-label");
+    expect(drawn.background).toBeDefined();
+    expect(
+      ["class", "x", "y", "width", "height"].map((name) => drawn.background.getAttribute(name)),
+    ).toEqual(["siren-connector-label-background", "26", "50", "8", "40"]);
+    expect(drawn.backgrounds[0]).toBe(drawn.background);
   });
 });
