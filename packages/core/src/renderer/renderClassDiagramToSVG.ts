@@ -10,7 +10,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -232,7 +232,9 @@ function buildRelationshipLabels(relationship: PositionedClassRelationship): SVG
   // space reserved for it, the same correction a state diagram's transition
   // label took. Its `x` and `y` are unchanged for a label of one row.
   if (relationship.label !== null) {
-    appendLabel(g, drawPlaced(relationship.label, "siren-relationship-label"));
+    // With the background every connector label is painted on, under the
+    // text; it takes the group's id, and with it the timeline's classes.
+    appendLabel(g, drawConnectorLabel(relationship.label, "siren-relationship-label"));
   }
 
   for (const [text, anchor] of [

@@ -8,6 +8,19 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **Connector labels are painted on a background**, as in Mermaid, so a line running under a
+  label no longer strikes its text out. Every labelled edge, class relationship, state transition
+  and ER relationship gets a `<rect class="siren-connector-label-background">` over the label's
+  box, drawn above every line and under the label's text. It is part of the label: a timeline
+  `enter`/`exit` on the connector moves it with the text, and a highlight leaves its fill alone. An
+  author's `linkStyle … color:` still paints only the text.
+- Token `--siren-edge-label-fill` (default `rgb(255 255 255 / 0.8)`, the white canvas at Mermaid's
+  0.8 opacity) fills that background. It sits outside the five-color palette, but **a second theme
+  must redeclare it**: on a dark canvas the default draws a white plate behind every connector
+  label. `demos/theme-dark.css` declares a dark value.
+
 ### Changed
 
 - A flowchart subgraph, a state diagram's composite state or an ER subgraph that declares a

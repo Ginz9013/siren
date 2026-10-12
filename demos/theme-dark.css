@@ -4,8 +4,9 @@
  * Neither siren-core nor siren-board picks a palette for the page: each ships
  * one set of tokens and nothing that reads a system preference or a theme
  * attribute (ADR-0014). A page that wants a second theme declares it, which is
- * all this file is: core's color tokens (the five-color palette and the three
- * label-paint tokens) and board's six chrome tokens,
+ * all this file is: core's color tokens (the five-color palette, the three
+ * label-paint tokens and the connector label's background) and board's six
+ * chrome tokens,
  * redeclared with the dark column of siren-website's decision 01M3BY1GPP,
  * under the attribute the demos' own switch sets (theme-toggle.js pins
  * `<html data-theme>`; nothing in either package reads it).
@@ -38,6 +39,10 @@
   --siren-label-link: #9cc7ff;
   --siren-label-mark-fill: #ff0;
   --siren-label-mark-text: #000;
+  /* The plate behind a connector's label: the dark canvas (#14111d, the
+     demos' and board's surface) at the default's 0.8, so a label reads as
+     the page with the line faintly through it, not as a white sticker. */
+  --siren-edge-label-fill: rgb(20 17 29 / 0.8);
 
   /* siren-board's chrome tokens. */
   --siren-board-surface: #14111d;

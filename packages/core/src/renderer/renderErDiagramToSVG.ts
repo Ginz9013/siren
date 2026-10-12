@@ -8,7 +8,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -297,8 +297,10 @@ function buildRelationshipLabels(relationship: PositionedErRelationship): SVGGEl
 
   // Drawn by `drawLabel` at the anchor the layout reserved room for: one
   // plain row is the `<text>`'s own `textContent`, anything else a row
-  // tspan per row (ADR-0015).
-  appendLabel(g, drawPlaced(relationship.label, "siren-er-relationship-label"));
+  // tspan per row (ADR-0015). With the background every connector label is
+  // painted on, under the text; it takes the group's id, and with it the
+  // timeline's classes.
+  appendLabel(g, drawConnectorLabel(relationship.label, "siren-er-relationship-label"));
 
   return g;
 }

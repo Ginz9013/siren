@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToSVG } from "./renderToSVG";
+import { render } from "../index";
 import type { PositionedEdge, PositionedGraph } from "../contracts";
 import { CANVAS_GUTTER } from "./sizeCanvas";
 import { layoutLabel } from "../label/layoutLabel";
@@ -1291,9 +1292,72 @@ describe("the label drawn on an edge", () => {
     // sequence participant's several drawn elements move together.
     const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
 
+    // The background behind the text wears the id too: it is part of the
+    // label, so it appears and disappears with it.
     expect(
       Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
-    ).toEqual(["path", "text"]);
+    ).toEqual(["path", "rect", "text"]);
+  });
+
+  it("paints a background behind the label, over the box it was measured in, after every line and before its text", () => {
+    // Mermaid paints a translucent fill behind every edge label (measured,
+    // 11.17.2: `.labelBkg` and `.edgeLabel` over the label's box), so a line
+    // running under the label does not strike its text out. "yes" is 24 by
+    // 20 in the fixture's measurer, centred on (55, 60).
+    const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) =>
+        ["data-siren-id", "x", "y", "width", "height"].map((name) => rect.getAttribute(name)),
+      ),
+    ).toEqual([["A-B", "43", "50", "24", "20"]]);
+    const all = Array.from(svg.querySelectorAll("*"));
+    const at = all.indexOf(backgrounds[0]!);
+    expect(at).toBeGreaterThan(Math.max(...Array.from(svg.querySelectorAll("path.siren-edge")).map((p) => all.indexOf(p))));
+    expect(at).toBeLessThan(all.indexOf(svg.querySelector("text.siren-edge-label")!));
+  });
+
+  it("gives the background no paint of its own, so the theme fills it and an author's text color stays on the text", () => {
+    // `linkStyle 0 color:#f00` paints the label's text, as Mermaid does; the
+    // background is the theme's `--siren-edge-label-fill` and nothing else.
+    const svg = drawLabelled({
+      ...placed("yes", { x: 55, y: 60 }),
+      style: { frame: [], text: [{ property: "fill", value: "#f00" }] },
+    });
+
+    const background = svg.querySelector("rect.siren-connector-label-background");
+    expect(background).not.toBeNull();
+    expect(background!.hasAttribute("style")).toBe(false);
+    expect(background!.hasAttribute("fill")).toBe(false);
+    expect(svg.querySelector("text.siren-edge-label")!.getAttribute("style")).toContain("#f00");
+  });
+
+  it("paints no background for an edge that carries no label", () => {
+    const svg = drawLabelled({ label: null });
+
+    expect(svg.querySelectorAll("rect.siren-connector-label-background")).toHaveLength(0);
+  });
+
+  it("enters and exits with its edge when the timeline moves it", () => {
+    // Through the public `render()`, so the controller is the real one: the
+    // background is hidden before the edge enters, shown when it does, and
+    // leaves when it exits — the timeline's target is the edge's id.
+    const container = document.createElement("div");
+    const { svg, controller } = render(
+      "flowchart TD\nA -->|yes| B\ntimeline:\nenter A-B fade\nexit A-B fade\n",
+      container,
+    );
+    const background = svg!.querySelector("rect.siren-connector-label-background");
+    expect(background).not.toBeNull();
+    if (background === null) return;
+
+    expect(background.classList.contains("siren-pending")).toBe(true);
+    controller!.next();
+    expect(background.classList.contains("siren-pending")).toBe(false);
+    expect(background.classList.contains("siren-enter-fade")).toBe(true);
+    controller!.next();
+    expect(background.classList.contains("siren-exit-fade")).toBe(true);
   });
 });
 
@@ -1657,5 +1721,51 @@ describe("the order a flowchart's layers are painted in", () => {
     expect(labels).toHaveLength(3);
     expect(Math.min(...labels)).toBeGreaterThan(Math.max(...positions(svg, "path.siren-edge")));
     expect(Math.max(...labels)).toBeLessThan(Math.min(...positions(svg, "g.siren-node")));
+  });
+});
+
+/**
+ * The label background's paint, read through the shipped `default.css`: the
+ * one place its color may come from is `--siren-edge-label-fill`, and a
+ * highlight — which reaches the background, since it wears the edge's id —
+ * leaves that fill alone, as highlight only ever restyles lines and frames.
+ */
+describe("the theme's paint for an edge label's background", () => {
+  const themeCss = (
+    globalThis as unknown as {
+      process: { getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string } };
+    }
+  ).process
+    .getBuiltinModule("node:fs")
+    .readFileSync(`${(import.meta as unknown as { dirname: string }).dirname}/../theme/default.css`, "utf8");
+
+  it("fills it from --siren-edge-label-fill, a translucent canvas white, unchanged by a highlight", () => {
+    const style = document.createElement("style");
+    style.textContent = themeCss;
+    document.head.appendChild(style);
+    try {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const { svg, controller } = render(
+        "flowchart TD\nA -->|yes| B\ntimeline:\nhighlight A-B outline\nhighlight A-B glow\n",
+        container,
+      );
+      const background = svg!.querySelector("rect.siren-connector-label-background")!;
+
+      expect(getComputedStyle(background).fill).toBe("var(--siren-edge-label-fill)");
+      expect(
+        getComputedStyle(document.documentElement).getPropertyValue("--siren-edge-label-fill").trim(),
+      ).toBe("rgb(255 255 255 / 0.8)");
+
+      controller!.next();
+      expect(background.classList.contains("siren-highlight-outline")).toBe(true);
+      expect(getComputedStyle(background).fill).toBe("var(--siren-edge-label-fill)");
+      controller!.next();
+      expect(background.classList.contains("siren-highlight-glow")).toBe(true);
+      expect(getComputedStyle(background).fill).toBe("var(--siren-edge-label-fill)");
+      container.remove();
+    } finally {
+      style.remove();
+    }
   });
 });

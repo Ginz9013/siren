@@ -872,3 +872,24 @@ describe("renderErDiagramToSVG paints relationships under the entities", () => {
     expect(paintsBefore(labelGroup, firstEntity)).toBe(true);
   });
 });
+
+describe("renderErDiagramToSVG paints a background behind a relationship's label", () => {
+  it("over the box the label was measured in, inside its label group and before its text — and none for a relationship without a label", () => {
+    // Mermaid paints a translucent fill behind a connector's label (measured,
+    // 11.17.2: `.edgeLabel` over the label's box), so the line running under
+    // it does not strike it out. "places" is 48 by 24 in this file's boxes,
+    // centred on (56, 130). No id on the rect itself: the label group wears
+    // the relationship's, so the timeline reaches it with the text.
+    const unlabelled: PositionedErRelationship = { ...PLACES, id: "ORDER:CUSTOMER", label: null };
+    const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES, unlabelled]));
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) => [
+        rect.parentElement?.getAttribute("data-siren-id"),
+        ...["data-siren-id", "x", "y", "width", "height", "style"].map((name) => rect.getAttribute(name)),
+      ]),
+    ).toEqual([["CUSTOMER:ORDER", null, "32", "118", "48", "24", null]]);
+    expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-er-relationship-label")!)).toBe(true);
+  });
+});

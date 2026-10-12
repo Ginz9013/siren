@@ -258,6 +258,23 @@ describe("renderStateDiagramToSVG", () => {
     expect(svg.querySelectorAll('[data-siren-id="Running-Running"] text')).toHaveLength(0);
   });
 
+  it("paints a background behind a transition's label, over the box it was measured in, before the text — and none for a transition without a label", () => {
+    // Mermaid paints a translucent fill behind a connector's label (measured,
+    // 11.17.2). "start" is 40 by 24 in this file's boxes, centred on
+    // (70, 90). No id on the rect itself: the label group wears the
+    // transition's, so the timeline reaches it with the text.
+    const svg = renderStateDiagramToSVG(DIAGRAM);
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) => [
+        rect.parentElement?.getAttribute("data-siren-id"),
+        ...["data-siren-id", "x", "y", "width", "height", "style"].map((name) => rect.getAttribute(name)),
+      ]),
+    ).toEqual([["Idle-Running", null, "50", "78", "40", "24", null]]);
+    expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-transition-label")!)).toBe(true);
+  });
+
   it("draws the self-transition's whole loop, not just its two ends", () => {
     const svg = renderStateDiagramToSVG(DIAGRAM);
 

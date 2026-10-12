@@ -8,6 +8,13 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- With `siren-core`'s change: connector labels in flowchart, class, state and ER diagrams are
+  painted on a translucent background, `--siren-edge-label-fill`, so a line under a label no
+  longer crosses its text. A consumer that declares its own dark (or any non-white) theme should
+  redeclare `--siren-edge-label-fill` with it, as `demos/theme-dark.css` does.
+
 ### Changed
 
 - With `siren-core`'s change: a subgraph, composite state or ER subgraph that declares a

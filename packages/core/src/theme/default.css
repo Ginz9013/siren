@@ -45,7 +45,9 @@
  * high-contrast, print — redeclares the five palette tokens under a selector
  * of their own and owns when it applies. The three label-paint tokens
  * (`--siren-label-mark-fill`, `--siren-label-mark-text`, `--siren-label-link`)
- * sit outside the palette and may be redeclared the same way. The theme never
+ * and the connector label's plate (`--siren-edge-label-fill`) sit outside the
+ * palette and may be redeclared the same way — the plate should be, on any
+ * canvas that is not white. The theme never
  * picks for them, which is why nothing in this file reads the reader's system
  * color preference or any theme attribute on the page — see
  * packages/core/README.md for the worked example, and demos/theme-dark.css
@@ -68,6 +70,14 @@
   /* What the browser paints a link with in Mermaid's HTML labels (measured):
      its default link blue. Outside the palette for the same reason. */
   --siren-label-link: #0000ee;
+  /* What a connector's label is painted on, so a line running under it does
+     not strike its text out. Mermaid's is translucent (measured, 11.17.2:
+     rgba(232,232,232,0.8) over its label's box); this is the canvas Siren's
+     palette is drawn on — white — at the same 0.8, so the label reads as the
+     page with the line faintly showing through. Outside the palette, like the
+     label paint above, but a second theme has to redeclare it: on a dark
+     canvas a white plate is the one thing on the page. */
+  --siren-edge-label-fill: rgb(255 255 255 / 0.8);
 
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
@@ -258,6 +268,18 @@
   font-family: var(--siren-font-family);
   font-size: var(--siren-label-font-size);
   fill: var(--siren-node-text);
+}
+
+/*
+ * The plate behind every connector's label — a flowchart edge's, a class or
+ * ER relationship's, a state transition's — over the box the label was
+ * measured in. One class for the four kinds, since it is one thing in each.
+ * Filled from its token and nothing else: an author's `linkStyle … color:`
+ * paints the label's text, and no highlight rule names this class, so a
+ * highlighted connector keeps its label readable rather than recolored.
+ */
+.siren-connector-label-background {
+  fill: var(--siren-edge-label-fill);
 }
 
 /*

@@ -8,7 +8,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -407,10 +407,13 @@ function buildEdgeLabel(
   // `.siren-edge` and `.siren-relationship-line` are already two names for
   // two connectors. One shared name would mean a consumer restyling class
   // labels silently restyled every flowchart edge label as well.
-  const drawn = drawPlaced(edge.label, "siren-edge-label");
+  const drawn = drawConnectorLabel(edge.label, "siren-edge-label");
   const { text } = drawn;
-  // The same id the path wears — see ADR-0009, and the call site above.
+  // The same id the path wears — see ADR-0009, and the call site above —
+  // on the text and on the background `drawConnectorLabel` puts first
+  // behind it, which is part of the label and has to enter and exit with it.
   text.setAttribute("data-siren-id", edge.id);
+  drawn.backgrounds[0]!.setAttribute("data-siren-id", edge.id);
   // The author's text half, on the one element an edge has to put it on.
   //
   // **Measured, not chosen.** `linkStyle 0 color:#f00` used to be resolved,

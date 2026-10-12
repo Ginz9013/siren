@@ -5434,7 +5434,8 @@ enter A-B fade
     expect(result.diagnostics).toEqual([]);
 
     const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="A-B"]'));
-    expect(drawn().map((el) => el.tagName)).toEqual(["path", "text"]);
+    // The line, the background behind the label, and the label's text.
+    expect(drawn().map((el) => el.tagName)).toEqual(["path", "rect", "text"]);
     expect(drawn().every((el) => el.classList.contains("siren-pending"))).toBe(true);
 
     result.controller!.next();

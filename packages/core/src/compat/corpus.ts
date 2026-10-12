@@ -2099,6 +2099,24 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         'text.siren-edge-label[data-siren-id="A-B"]',
         'path.siren-edge[data-siren-id="A-B"]',
       );
+      // And readable where the line runs under it: Mermaid paints a
+      // translucent fill behind every edge label (measured, 11.17.2:
+      // `.labelBkg` and `.edgeLabel` over the label's box). Siren's is a rect
+      // wearing the label's id, so a timeline entry on the edge reaches it
+      // with the text (ADR-0009), drawn before the text it sits under.
+      expectSame(
+        "the label's background",
+        elements(result, "rect.siren-connector-label-background").map(idOf),
+        ["A-B"],
+      );
+      const drawn = elements(result, "*");
+      const background = svgOf(result).querySelector("rect.siren-connector-label-background")!;
+      const text = svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]')!;
+      expectSame(
+        "the background is painted under the label's text",
+        drawn.indexOf(background) < drawn.indexOf(text),
+        true,
+      );
     },
   },
   {

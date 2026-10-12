@@ -541,6 +541,43 @@ describe("renderClassDiagramToSVG", () => {
     expect(svg.querySelectorAll("text.siren-multiplicity").length).toBe(0);
   });
 
+  it("paints a background behind a relationship's label, over the box it was measured in, inside the label group and before the text", () => {
+    // Mermaid paints a translucent fill behind a connector's label (measured,
+    // 11.17.2), so the line running under it does not strike it out. "owns"
+    // is 32 by 24 in this file's boxes, centred on (150, 148). The rect
+    // wears no id of its own: the label group carries the relationship's,
+    // so the timeline reaches it with the text.
+    const svg = renderClassDiagramToSVG(
+      buildDiagram(
+        [],
+        [
+          buildRelationship({
+            ...placed("owns", { x: 150, y: 148 }),
+            fromMultiplicity: "1",
+            fromMultiplicityAnchor: { x: 80, y: 96 },
+          }),
+          // Multiplicities but no label: no background.
+          buildRelationship({
+            id: "Duck-Animal",
+            from: "Duck",
+            to: "Animal",
+            toMultiplicity: "*",
+            toMultiplicityAnchor: { x: 244, y: 152 },
+          }),
+        ],
+      ),
+    );
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) => [
+        rect.parentElement?.getAttribute("data-siren-id"),
+        ...["data-siren-id", "x", "y", "width", "height", "style"].map((name) => rect.getAttribute(name)),
+      ]),
+    ).toEqual([["Animal-Duck", null, "134", "136", "32", "24", null]]);
+    expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-relationship-label")!)).toBe(true);
+  });
+
   it("renders only the multiplicity that is present", () => {
     const svg = renderClassDiagramToSVG(
       buildDiagram(

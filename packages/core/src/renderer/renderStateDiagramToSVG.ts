@@ -7,7 +7,7 @@ import type {
   StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -596,7 +596,10 @@ function buildTransitionLabels(transition: PositionedStateTransition): SVGGEleme
   // around them — down by the distance from the alphabetic baseline to the
   // middle one, half the font's x-height (about 0.26em, some 4px at the
   // 14px default), so the text is now centred where layout made room.
-  appendLabel(g, drawPlaced(transition.label, "siren-transition-label"));
+  //
+  // With the background every connector label is painted on, under the
+  // text; it takes the group's id, and with it the timeline's classes.
+  appendLabel(g, drawConnectorLabel(transition.label, "siren-transition-label"));
 
   return g;
 }
