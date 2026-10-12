@@ -296,16 +296,31 @@ export function plainLabel(text: string): Label {
  */
 const MERMAID_WRAPPING_WIDTH_PX = 200;
 
-/** The px Mermaid draws label text at, which `MERMAID_WRAPPING_WIDTH_PX` is measured against. */
+/**
+ * The px Mermaid draws most label text at — a flowchart's, a state
+ * diagram's, a class diagram's — which `MERMAID_WRAPPING_WIDTH_PX` is
+ * measured against unless a label says otherwise.
+ */
 const MERMAID_FONT_SIZE_PX = 16;
 
 /**
- * The width a label drawn at `fontSizePx` wraps at: Mermaid's 200px scaled
- * by the size the label is drawn at over Mermaid's 16px, so a line holds as
- * many characters as Mermaid's does. A node's 14px (`BASE_FONT_SIZE_PX`)
- * wraps at 175, a connector label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`)
- * at 150. `wrapLabel` takes the result.
+ * The px Mermaid draws an ER relationship's label at: 14px on 21px lines
+ * (measured, mermaid 11.17.2), not the 16px of its other labels. It still
+ * wraps at `MERMAID_WRAPPING_WIDTH_PX`.
  */
-export function wrapWidthAt(fontSizePx: number): number {
-  return (MERMAID_WRAPPING_WIDTH_PX * fontSizePx) / MERMAID_FONT_SIZE_PX;
+export const MERMAID_ER_LABEL_FONT_SIZE_PX = 14;
+
+/**
+ * The width a label drawn at `fontSizePx` wraps at: Mermaid's 200px scaled
+ * by the size Siren draws the label at over the size Mermaid draws it at
+ * (`mermaidFontSizePx`, 16px unless given), so a row holds as many
+ * characters as Mermaid's does (the label-wrap ADR, nook `01M4R4WDZ`, as
+ * amended). A node's 14px (`BASE_FONT_SIZE_PX`) wraps at 175, a connector
+ * label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`) at 150, and an ER
+ * relationship's 12px label, which Mermaid draws at 14px
+ * (`MERMAID_ER_LABEL_FONT_SIZE_PX`), at 200 × 12/14 ≈ 171.43. `wrapLabel`
+ * takes the result.
+ */
+export function wrapWidthAt(fontSizePx: number, mermaidFontSizePx: number = MERMAID_FONT_SIZE_PX): number {
+  return (MERMAID_WRAPPING_WIDTH_PX * fontSizePx) / mermaidFontSizePx;
 }

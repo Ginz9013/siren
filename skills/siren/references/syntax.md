@@ -376,7 +376,8 @@ erDiagram
 - `NAME["Display name"]` is an alias. The timeline still uses `NAME`.
 - A relationship's id joins the entity names with a colon: `CUSTOMER:ORDER`.
 - `subgraph` groups entities (`subgraph:1`, ...).
-- A long relationship label wraps by itself once its text is wider than 150px, as in Mermaid. An
+- A long relationship label wraps by itself once its text is wider than 200 × 12/14 ≈ 171px (a
+  row holds as much as Mermaid's, which draws this label at 14px and wraps it at 200px). An
   entity name, an alias and an attribute's comment do not wrap. `<br>` still forces a row break.
 
 ## Not supported

@@ -451,22 +451,25 @@ describe("layoutErDiagram", () => {
     expect(relationship.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
   });
 
-  // The spec (decision 1, measured on mermaid 11.17.2): an ER relationship's
-  // label wraps at Mermaid's 200px scaled to the 12px Siren draws it at,
-  // 150px of text. `fakeMeasurer` at 12px is 8 × 12/14 px a character, so
-  // 21 characters (144px) fit and 22 (150.86px) do not.
-  it("wraps a relationship label wider than 150px at its spaces, and the relationship carries the wrapped rows", () => {
+  // The label-wrap ADR (`01M4R4WDZ`, as amended by `01M4R7HBG` and the
+  // user's choice for T4), measured on mermaid 11.17.2: Mermaid draws an ER
+  // relationship's label at 14px and wraps it at 200px, so Siren's 12px
+  // label wraps at 200 × 12/14 ≈ 171.43px of text. `fakeMeasurer` at 12px
+  // is 8 × 12/14 px a character, so 24 characters (164.57px) fit and 26
+  // (178.29px) do not.
+  it("wraps a relationship label wider than 200 × 12/14 px at its spaces, and the relationship carries the wrapped rows", () => {
     const laidOut = layoutErDiagram(
       relating({ ...CUSTOMER_PLACES_ORDER, label: plainLabel("alpha beta gamma delta epsilon zeta") }),
       options,
     );
     const [relationship] = laidOut.relationships;
 
+    // `alpha beta gamma delta` is 22 characters; with ` epsilon` it is 30.
     expect(relationship.label!.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
-      "alpha beta gamma",
-      "delta epsilon zeta",
+      "alpha beta gamma delta",
+      "epsilon zeta",
     ]);
-    expect(relationship.label!.labelBox.width).toBe(150);
+    expect(relationship.label!.labelBox.width).toBeCloseTo((200 * 12) / 14, 6);
     // A 12px line of the measurer's 24 × 12/14, then one 12px × 1.5 = 18px row.
     expect(relationship.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
   });

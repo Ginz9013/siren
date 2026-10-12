@@ -3,6 +3,7 @@ import {
   atConnectorLabelSize,
   BASE_FONT_SIZE_PX,
   CONNECTOR_LABEL_FONT_SIZE_PX,
+  MERMAID_ER_LABEL_FONT_SIZE_PX,
   wrapWidthAt,
   type Label,
   type LabelBox,
@@ -231,7 +232,8 @@ const CONNECTOR_LABEL_WRAP_WIDTH = wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX);
 
 /**
  * Wraps a connector's label — a flowchart edge's, and by the label-wrap ADR
- * a state transition's and a class or ER relationship's — at the 12px it is
+ * a state transition's and a class relationship's (an ER relationship's is
+ * `wrapErRelationshipLabel`'s) — at the 12px it is
  * drawn at: `layoutConnectorLabel`'s measurer and line spacing, and the wrap
  * width for that size (150px of text), all three together, so no caller can
  * pair a width, a measurer and a line height meant for different sizes.
@@ -240,6 +242,31 @@ const CONNECTOR_LABEL_WRAP_WIDTH = wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX);
  */
 export function wrapConnectorLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
   return wrapLabel(label, atConnectorLabelSize(measureText), CONNECTOR_LABEL_WRAP_WIDTH, {
+    fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX,
+  });
+}
+
+/**
+ * An ER relationship's label, drawn at 12px, wraps at Mermaid's 200px
+ * scaled by 12 over the 14px Mermaid draws that label at: 200 × 12/14 ≈
+ * 171.43px of text.
+ */
+const ER_RELATIONSHIP_LABEL_WRAP_WIDTH = wrapWidthAt(
+  CONNECTOR_LABEL_FONT_SIZE_PX,
+  MERMAID_ER_LABEL_FONT_SIZE_PX,
+);
+
+/**
+ * Wraps an ER relationship's label. Drawn and measured as every connector
+ * label is — `layoutConnectorLabel`'s 12px measurer and 18px line spacing —
+ * but Mermaid draws this one label at 14px rather than 16px and still wraps
+ * it at 200px (measured, mermaid 11.17.2), so its rows are wider: 200 ×
+ * 12/14 px of text, which holds as much as Mermaid's row does (the
+ * label-wrap ADR, nook `01M4R4WDZ`, as amended). Width, measurer and
+ * spacing are paired here for the reason `wrapConnectorLabel` gives.
+ */
+export function wrapErRelationshipLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
+  return wrapLabel(label, atConnectorLabelSize(measureText), ER_RELATIONSHIP_LABEL_WRAP_WIDTH, {
     fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX,
   });
 }

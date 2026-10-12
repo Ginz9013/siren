@@ -58,11 +58,14 @@ While the version is 0.x, a minor release may contain breaking changes.
   A long-described state and a long note are drawn narrower and taller, and the diagram's layout
   can change. A composite state's title is not wrapped. `PositionedStateLabel.label`,
   `PositionedStateNote.label` and `PositionedStateTransition.label.label` are the wrapped labels.
-- **A class or ER relationship's label wraps** as Mermaid's does (measured, mermaid 11.17.2) once
-  its text is wider than 150px, Mermaid's 200px scaled to the 12px it is drawn at, by the same
-  rules as a flowchart edge's label; the layout keeps the wrapped box clear, so a diagram with long
-  relationship labels is laid out differently. A class name, a class diagram's note, an ER entity
-  name and an attribute's comment are not wrapped, as Mermaid wraps none of them.
+- **A class or ER relationship's label wraps** as Mermaid's does (measured, mermaid 11.17.2), by
+  the same rules as a flowchart edge's label: a class relationship's once its text is wider than
+  150px, Mermaid's 200px scaled from its 16px to the 12px Siren draws it at; an ER relationship's
+  once wider than 200 × 12/14 ≈ 171.43px, because Mermaid draws that label at 14px, so a row holds
+  as much as Mermaid's (the wrap width is `200 × Siren px / Mermaid px`). The layout keeps the
+  wrapped box clear, so a diagram with long relationship labels is laid out differently. A class
+  name, a class member, a class diagram's note, an ER entity name and an attribute's comment are
+  not wrapped, as Mermaid wraps none of them.
   `PositionedClassRelationship.label.label` and `PositionedErRelationship.label.label` are the
   wrapped labels.
 - **A label's rows are closer together**: one line apart, a line being 1.5 times the size the

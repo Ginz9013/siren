@@ -15,7 +15,7 @@ import type {
   ResolvedErSubgraph,
 } from "../contracts";
 import { layoutLabel } from "../label/layoutLabel";
-import { wrapConnectorLabel } from "../label/wrapLabel";
+import { wrapErRelationshipLabel } from "../label/wrapLabel";
 import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
@@ -231,15 +231,16 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   );
   /**
    * Each relationship's label wrapped and measured at the 12px it is drawn
-   * at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled to that
-   * size, by the label-wrap ADR, nook `01M4R4WDZ`), by the relationship's
+   * at (`wrapErRelationshipLabel`: 200 × 12/14 ≈ 171.43px of text, as
+   * Mermaid wraps its 14px ER label at 200px — the label-wrap ADR, nook
+   * `01M4R4WDZ`, as amended), by the relationship's
    * id — once, so the box the core keeps clear and the box the renderer
    * draws in are the same box, and the rows drawn are the wrapped label's.
    */
   const wrappedRelationshipLabelById = new Map(
     model.relationships.map(
       (relationship) =>
-        [relationship.id, wrapConnectorLabel(relationship.label, options.measureText)] as const,
+        [relationship.id, wrapErRelationshipLabel(relationship.label, options.measureText)] as const,
     ),
   );
 

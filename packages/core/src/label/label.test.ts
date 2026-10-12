@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BASE_FONT_SIZE_PX, CONNECTOR_LABEL_FONT_SIZE_PX, wrapWidthAt } from "./label";
+import {
+  BASE_FONT_SIZE_PX,
+  CONNECTOR_LABEL_FONT_SIZE_PX,
+  MERMAID_ER_LABEL_FONT_SIZE_PX,
+  wrapWidthAt,
+} from "./label";
 
 /**
  * `theme/default.css`'s own text, read off disk for the reasons
@@ -38,5 +43,15 @@ describe("the width a label wraps at", () => {
     expect(wrapWidthAt(16)).toBe(200);
     expect(wrapWidthAt(BASE_FONT_SIZE_PX)).toBe(175);
     expect(wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX)).toBe(150);
+  });
+
+  // The label-wrap ADR as amended (`01M4R7HBG`, and the user's choice for
+  // T4): the width is 200 × the size Siren draws the label at / the size
+  // Mermaid draws it at. Mermaid draws an ER relationship's label at 14px
+  // (measured, mermaid 11.17.2), so Siren's 12px one wraps at 200 × 12/14.
+  it("scales against the size Mermaid draws the label at, when that is not 16px", () => {
+    expect(MERMAID_ER_LABEL_FONT_SIZE_PX).toBe(14);
+    expect(wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX, MERMAID_ER_LABEL_FONT_SIZE_PX)).toBeCloseTo(171.43, 2);
+    expect(wrapWidthAt(14, 14)).toBe(200);
   });
 });

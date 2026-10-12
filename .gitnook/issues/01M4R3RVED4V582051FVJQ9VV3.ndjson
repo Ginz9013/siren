@@ -3,3 +3,4 @@
 {"id":"01M4R3RVEPXW75W88N061YHHCJ","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M4R3S6P6Y1EN33NGGYY94AYP","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M4R7R2KYVGR3R535SWFWS1XD","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4RA2G8M6651B27XCBCZ6K1N","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

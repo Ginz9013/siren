@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TextMeasurer } from "../contracts";
 import { layoutConnectorLabel, layoutLabel } from "./layoutLabel";
 import { readLabel } from "./readLabel";
-import { wrapConnectorLabel, wrapLabel, wrapNodeLabel } from "./wrapLabel";
+import { wrapConnectorLabel, wrapErRelationshipLabel, wrapLabel, wrapNodeLabel } from "./wrapLabel";
 
 /**
  * 10px a character, 20px a row, and 10px of the measurer's own padding on
@@ -311,6 +311,45 @@ describe("wrapConnectorLabel", () => {
     const { label } = readLabel("yes<br>no", { dialect: "html" });
 
     const wrapped = wrapConnectorLabel(label, measurer14);
+
+    expect(wrapped.label).toBe(label);
+    expect(wrapped.labelBox).toEqual(layoutConnectorLabel(label, measurer14));
+  });
+});
+
+describe("wrapErRelationshipLabel", () => {
+  // The label-wrap ADR as amended (`01M4R7HBG`, and the user's choice for
+  // T4): Mermaid draws an ER relationship's label at 14px and wraps it at
+  // 200px, so Siren's 12px label wraps at 200 × 12/14 ≈ 171.43px of text —
+  // measured at 12px and laid out on 18px lines, as every connector label.
+  //
+  // 14px a character, 14px of padding and a 28px line at the measurer's
+  // 14px: at 12px that is 12px a character, 12px of padding and 24px.
+  const measurer14: TextMeasurer = {
+    measure(text: string) {
+      return { width: Array.from(text).length * 14 + 14, height: 28 };
+    },
+  };
+
+  it("wraps at 200 × 12/14 px of 12px text, on 18px lines", () => {
+    const { label } = readLabel("alpha beta gam delta", { dialect: "html" });
+
+    const wrapped = wrapErRelationshipLabel(label, measurer14);
+
+    // 171.43px holds 14 of these 12px characters (168px): `alpha beta gam`
+    // fits — where a connector's 150px would hold only 12 — and ` delta`
+    // would make 20.
+    expect(rowTexts(wrapped.label)).toEqual(["alpha beta gam", "delta"]);
+    // The wrap width plus the 12px padding.
+    expect(wrapped.labelBox.width).toBeCloseTo(200 * (12 / 14) + 12, 6);
+    // Two 18px lines, padded once by 24 − 18 = 6px.
+    expect(wrapped.labelBox.height).toBe(42);
+  });
+
+  it("measures a label that fits as layoutConnectorLabel does", () => {
+    const { label } = readLabel("yes<br>no", { dialect: "html" });
+
+    const wrapped = wrapErRelationshipLabel(label, measurer14);
 
     expect(wrapped.label).toBe(label);
     expect(wrapped.labelBox).toEqual(layoutConnectorLabel(label, measurer14));

@@ -3734,8 +3734,9 @@ line2\`"]`,
       "mermaid 11.17.2 draws this one as `this relation label is long ` / " +
       "`enough to go well past two ` / `hundred pixels wide` in a 200px " +
       "`<div>` (measured), as a flowchart edge label. Siren draws a " +
-      "relationship label at 12px, so it wraps at 150px of text, the same " +
-      "number of characters to a row.",
+      "relationship label at 12px, so it wraps at 150px of text, Mermaid's " +
+      "200px scaled to that size (the label-wrap ADR, nook `01M4R4WDZ`): " +
+      "the same number of characters to a row.",
     assert: (result) => {
       // At 12px the default measurer is 12/14 of its 8px a character, so 21
       // characters fit in 150px and 22 do not.
@@ -3760,7 +3761,8 @@ line2\`"]`,
       "A class's name is never wrapped, however long: mermaid 11.17.2 draws " +
       "this one `white-space: nowrap` on one 577px row, in a 601px box " +
       "(measured), and a long unspaced name the same. Siren keeps it on one " +
-      "row and grows the box to hold it.",
+      "row and grows the box to hold it (the label-wrap ADR, nook " +
+      "`01M4R4WDZ`).",
     assert: (result) => {
       const name = "This is a fairly long English class label that should exceed two hundred pixels";
       expectSame(
@@ -3788,7 +3790,8 @@ line2\`"]`,
       "mermaid 11.17.2 gives its `<div>` `white-space: break-spaces` and a " +
       "200px `max-width`, but draws it as a table, which `max-width` does " +
       "not narrow, so the text stays on one 544px row in a 556 × 36 note " +
-      "(measured). Siren keeps it on one row.",
+      "(measured). Siren keeps it on one row (the label-wrap ADR's " +
+      "amendment, nook `01M4R7HBG`, leaves a class note to this measurement).",
     assert: (result) => {
       const note = "this note text is long enough to go well past two hundred pixels wide surely";
       expectSame("note rows", labelRows(svgOf(result).querySelector("g.siren-note text.siren-note-text")), [note]);
@@ -3796,6 +3799,34 @@ line2\`"]`,
       expectSame(
         "the note holds the text",
         Number(frame?.getAttribute("width")) >= note.length * 8 + 16,
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-member-no-wrap",
+    kind: "class",
+    source: `classDiagram
+      class Dog {
+        +String aVeryLongMemberNameThatGoesOnAndOn with some words past two hundred pixels
+      }`,
+    status: "supported",
+    meaning:
+      "A class's member line is never wrapped, however long: mermaid 11.17.2 " +
+      "draws this one `white-space: nowrap` on one 661px row, and a long " +
+      "method signature the same (measured). The label-wrap ADR (nook " +
+      "`01M4R4WDZ`, as amended by `01M4R7HBG`) wraps none of a class's " +
+      "compartments; Siren keeps the member on one row and grows the box to " +
+      "hold it.",
+    assert: (result) => {
+      const member = "+String aVeryLongMemberNameThatGoesOnAndOn with some words past two hundred pixels";
+      expectSame("Dog's members", members(result, "Dog"), [member]);
+      const text = svgOf(result).querySelector('g.siren-class[data-siren-id="Dog"] text.siren-member');
+      expectSame("the member is one row", text?.querySelectorAll("tspan.siren-label-row").length ?? 0, 0);
+      const frame = svgOf(result).querySelector('g.siren-class[data-siren-id="Dog"] rect.siren-class-frame');
+      expectSame(
+        "the box holds the member",
+        Number(frame?.getAttribute("width")) >= member.length * 8,
         true,
       );
     },
@@ -6824,26 +6855,29 @@ line2\`"]`,
       );
     },
   },
-  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`), measured on
-  // mermaid 11.17.2: a relationship's label wraps at 200px of its 14px
-  // text; an entity's name does not.
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`, and its
+  // amendment `01M4R7HBG`), measured on mermaid 11.17.2: a relationship's
+  // label wraps at 200px of its 14px text; an entity's name and an
+  // attribute's comment do not.
   {
     id: "er-relationship-label-wrap",
     kind: "er",
     source: `erDiagram
-      CUSTOMER ||--o{ ORDER : "this relationship label is long enough to go well past two hundred pixels wide"`,
+      CUSTOMER ||--o{ ORDER : "every customer may place orders through the web store each week"`,
     status: "supported",
     meaning:
       "A relationship label wider than Mermaid's wrapping width wraps: " +
-      "mermaid 11.17.2 draws this one, at 14px on 21px lines, as `this " +
-      "relationship label is long ` / `enough to go well past two ` / " +
-      "`hundred pixels wide` in a 200px `<div>` (measured). Siren draws a " +
-      "relationship label at 12px, so it wraps at 150px of text (Mermaid's " +
-      "200px scaled from 16px, decision 1 of the board), and the layout " +
-      "holds the two entities apart for every row.",
+      "mermaid 11.17.2 draws this one, at 14px on 21px lines, as `every " +
+      "customer may place ` / `orders through the web store ` / `each week` " +
+      "in a 200px `<div>` (measured). Siren draws it at 12px, so it wraps at " +
+      "200 × 12/14 ≈ 171.43px of text — Mermaid's 200px scaled by the size " +
+      "Siren draws the label at over the 14px Mermaid draws it at (the " +
+      "label-wrap ADR, nook `01M4R4WDZ`, as amended by `01M4R7HBG`), so a " +
+      "row holds as much as Mermaid's — and the layout holds the two " +
+      "entities apart for every row.",
     assert: (result) => {
-      // At 12px the default measurer is 12/14 of its 8px a character, so 21
-      // characters fit in 150px and 22 do not.
+      // At 12px the default measurer is 12/14 of its 8px a character, so 24
+      // characters (164.57px) fit in 171.43px and 26 (178.29px) do not.
       expectSame(
         "relationship label rows",
         labelRows(
@@ -6851,7 +6885,7 @@ line2\`"]`,
             'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
           ),
         ),
-        ["this relationship", "label is long enough", "to go well past two", "hundred pixels wide"],
+        ["every customer may place", "orders through the web", "store each week"],
       );
       expectSame(
         "the two boxes are drawn clear of one another",
@@ -6870,7 +6904,8 @@ line2\`"]`,
       "An entity's name is never wrapped, however long: mermaid 11.17.2 " +
       "draws this alias `white-space: nowrap` on one 561px row, in a 611px " +
       "box (measured), and a long unspaced name on one row too. Siren keeps " +
-      "it on one row and grows the box to hold it.",
+      "it on one row and grows the box to hold it (the label-wrap ADR, nook " +
+      "`01M4R4WDZ`).",
     assert: (result) => {
       const name = "This is a fairly long English entity label that should exceed two hundred pixels";
       expectSame(
@@ -6880,6 +6915,33 @@ line2\`"]`,
       );
       const box = erEntityRect(result, "P");
       expectSame("the box holds the name", box.right - box.left >= name.length * 8 + 16, true);
+    },
+  },
+  {
+    id: "er-attribute-comment-no-wrap",
+    kind: "er",
+    source: `erDiagram
+      ORDER {
+        string id PK "this attribute comment is long enough to go well past two hundred pixels wide"
+      }`,
+    status: "supported",
+    meaning:
+      "An attribute's comment is never wrapped, however long: mermaid " +
+      "11.17.2 draws this one `white-space: nowrap` on one 566px row " +
+      "(measured). The label-wrap ADR (nook `01M4R4WDZ`, as amended by " +
+      "`01M4R7HBG`) wraps only an ER relationship's label; Siren keeps the " +
+      "comment on one row and grows the table to hold it.",
+    assert: (result) => {
+      const comment = "this attribute comment is long enough to go well past two hundred pixels wide";
+      expectSame(
+        "comment rows",
+        labelRows(
+          svgOf(result).querySelector('g.siren-er-entity[data-siren-id="ORDER"] text.siren-er-attribute-comment'),
+        ),
+        [comment],
+      );
+      const box = erEntityRect(result, "ORDER");
+      expectSame("the box holds the comment", box.right - box.left >= comment.length * 8, true);
     },
   },
   {
