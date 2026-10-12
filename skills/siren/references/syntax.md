@@ -92,7 +92,9 @@ flowchart TB
   `subgraph` lines appear. The name or id you write is not its timeline id.
 - An edge may start or end at a subgraph. Its id uses the subgraph's written id:
   `checks-Deploy`.
-- `direction` inside a subgraph lays it out independently.
+- `direction` inside a subgraph lays it out independently, but only when no edge has exactly one
+  end inside the subgraph; with one, the subgraph follows the diagram's direction (as in Mermaid).
+  An edge to the subgraph itself (`one --> C`) does not count.
 
 ### Styling
 

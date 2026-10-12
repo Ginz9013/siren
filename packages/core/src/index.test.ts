@@ -7292,11 +7292,11 @@ describe("render() — an ER diagram, end to end", () => {
     expect(holds(frame, entityRect("LINE-ITEM"))).toBe(true);
     expect(holds(frame, entityRect("PRODUCT"))).toBe(false);
     expect(holds(frame, entityRect("CUSTOMER"))).toBe(false);
-    // The block's own `TB` against the document's `LR`, read as geometry:
-    // its two members stack rather than standing side by side. Nothing but
-    // this line tells that picture from the one a cluster silently taking
-    // the document's direction would draw.
-    expect(entityRect("ORDER").bottom).toBeLessThanOrEqual(entityRect("LINE-ITEM").top);
+    // The block's own `TB` does not apply: `CUSTOMER ||--o{ ORDER` crosses
+    // its boundary, and Mermaid (`adjustClustersAndEdges` /
+    // `externalConnections`) then lays it out in the document's `LR` — its
+    // two members side by side rather than stacked.
+    expect(entityRect("ORDER").right).toBeLessThanOrEqual(entityRect("LINE-ITEM").left);
 
     // The alias renames the box and nothing else: `CUSTOMER` is still the id
     // above, and "Customer Account" is what is drawn.

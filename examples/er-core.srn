@@ -10,9 +10,10 @@ CUSTOMER["Customer Account"] {
   string email UK,FK
 }
 
-%% A cluster: a frame around the entities inside it, with a rank direction
-%% of its own. The document above is LR; these two stack, because a block's
-%% `direction` governs its own members and leaves the document's alone.
+%% A cluster: a frame around the entities inside it. Its `direction TB` does
+%% not apply: relationships cross its boundary (CUSTOMER ||--o{ ORDER), and
+%% then Mermaid lays a block out in the document's direction, LR, instead.
+%% A block's `direction` governs its members only when nothing crosses it.
 subgraph fulfilment
   direction TB
 

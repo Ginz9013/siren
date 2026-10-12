@@ -4,3 +4,7 @@
 {"id":"01M4QA7YPG89N9FRGAK0P188TQ","t":4,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M4QAKBQT9WXYK42C32MSPYFC","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M4QB602H6PYKSRQBXXM4JGS4","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4QBZRZ00TK68X4G3B3PC9NZ","t":7,"a":"83a1","op":"set","k":"status","v":"blocked"}
+{"id":"01M4QBZS5M1PHDJQH13C6YYBBW","t":8,"a":"83a1","op":"comment","body":"Spec 缺陷：實測 mermaid 11.17.2，直接連到群組本身的邊不會讓群組 direction 作廢，只有恰好一端在群組後代節點上的邊才會。spec 寫「連到群組本身的也算」為讀碼錯誤。成果暫存於 stash wip/flowchart-mermaid-parity/02，等待決定。"}
+{"id":"01M4QF6X4XNS8NB23RTJMAR175","t":9,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4QF6XB9A8EWXDQRBGS7TBKX","t":10,"a":"83a1","op":"comment","body":"Spec amended (user chose option A): an edge naming the group itself does not void its direction, matching measured Mermaid 11.17.2. Resuming from the stashed round-2 work."}

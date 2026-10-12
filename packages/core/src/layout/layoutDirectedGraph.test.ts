@@ -401,7 +401,14 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
     // The same document with the direction moved to `L1`: `L2` is the cluster
     // that would have been left unexpanded, and the leaves below it are the
     // ones that would have been lost.
-    const boxes = placed(threeLevels("L1"));
+    //
+    // Without `X -> Z`: that edge leaves `L1`, and a boundary-crossing edge
+    // voids `L1`'s direction (Mermaid's `externalConnections`), which would
+    // take this document off the directed path this test is about.
+    const boxes = placed({
+      ...threeLevels("L1"),
+      edges: [{ id: "X-Y", from: "X", to: "Y" }],
+    });
 
     expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
     expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
@@ -412,7 +419,13 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
   it("places every node, and refuses nothing, when the direction is on the innermost cluster", () => {
     // The measured-correct row of the same table: `L2`'s children are all
     // leaves, so one level of expansion is all this document needs.
-    const result = layoutDirectedGraph(threeLevels("L2"));
+    //
+    // Without `X -> Z`, which leaves `L2` and would void its direction (the
+    // boundary-crossing rule), taking the document off the directed path.
+    const result = layoutDirectedGraph({
+      ...threeLevels("L2"),
+      edges: [{ id: "X-Y", from: "X", to: "Y" }],
+    });
 
     for (const box of result.nodes) {
       for (const value of [box.x, box.y, box.width, box.height]) {
@@ -921,5 +934,187 @@ describe("UnplacedNodesError", () => {
     expect(error.nodeIds).toEqual(["L2", "X", "Y"]);
     expect(error.name).toBe("UnplacedNodesError");
     expect(error.message).toContain('"L2", "X", "Y"');
+  });
+});
+
+/**
+ * Mermaid's rule for a group that declares a direction (mermaid.js 11.17.2,
+ * `adjustClustersAndEdges` / `externalConnections`): a cluster with any
+ * **boundary-crossing edge** — exactly one end among its descendants, a
+ * cluster not being its own — takes the graph's direction instead of its
+ * own. Only a cluster with none keeps its own direction. The callers still
+ * hand in the declared `rankdir`; deciding is this module's job.
+ */
+describe("a cluster with a boundary-crossing edge", () => {
+  const BOX = { width: 40, height: 20 };
+
+  it("lays its members out in the graph's direction when a member's edge leaves it", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", ...BOX, parentId: "group" },
+        { id: "B", ...BOX, parentId: "group" },
+        { id: "C", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-C", from: "B", to: "C" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // TB, not the declared LR: B one rank below A, in the same column.
+    expect(byId.B.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(byId.B.x).toBe(byId.A.x);
+
+    // Back on the engine's ordinary path, so every edge touching the group
+    // carries dagre's own route rather than the two-point fallback.
+    for (const route of result.edges) {
+      expect(route.points.length).toBeGreaterThan(2);
+    }
+  });
+
+  it("keeps the declared direction for an edge from outside naming the cluster itself", () => {
+    // Mermaid's test is `d1 ^ d2` over the cluster's *descendants*, and a
+    // cluster is not its own descendant: `C --> group` has neither end among
+    // them. Measured in Chrome, mermaid 11.17.2 keeps `direction LR` for
+    // `one --> C`, `Before --> Outer` and `Outer --> After`.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", ...BOX, parentId: "group" },
+        { id: "B", ...BOX, parentId: "group" },
+        { id: "C", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "C-group", from: "C", to: "group" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // LR kept: B beside A, on one row.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x + byId.A.width);
+    expect(byId.B.y).toBe(byId.A.y);
+  });
+
+  it("voids the declared direction for an edge from a member to its own cluster", () => {
+    // `B --> group`: `B` is a descendant and `group` is not, so exactly one
+    // end is among the descendants. Measured in Chrome, mermaid 11.17.2
+    // stacks `subgraph one { direction LR; A --> B }` with `B --> one`.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", ...BOX, parentId: "group" },
+        { id: "B", ...BOX, parentId: "group" },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-group", from: "B", to: "group" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    expect(byId.B.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(byId.B.x).toBe(byId.A.x);
+  });
+
+  it("voids the outer cluster's direction and keeps the inner one's when only the outer has a crossing edge", () => {
+    // `Outer` (LR) holds `Inner` (LR) and `D -> F`; `F -> E` leaves `Outer`.
+    // Nothing leaves `Inner`, so it keeps its own LR; `Outer` takes the TB.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, rankdir: "LR", parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "D", ...BOX, parentId: "Outer" },
+        { id: "F", ...BOX, parentId: "Outer" },
+        { id: "E", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "D-F", from: "D", to: "F" },
+        { id: "F-E", from: "F", to: "E" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // Every node placed: the nesting does not trip the engine's one-level
+    // expansion (`UnplacedNodesError`).
+    for (const box of result.nodes) {
+      for (const value of [box.x, box.y, box.width, box.height]) {
+        expect(Number.isFinite(value)).toBe(true);
+      }
+    }
+    // `Outer` follows the graph: F below D.
+    expect(byId.F.y).toBeGreaterThan(byId.D.y + byId.D.height);
+    expect(byId.F.x).toBe(byId.D.x);
+    // `Inner` keeps its own LR: B beside A, on one row.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x + byId.A.width);
+    expect(byId.B.y).toBe(byId.A.y);
+  });
+
+  it("no longer counts a voided cluster as a directed ancestor of the clusters inside it", () => {
+    // `Outer`'s LR is voided by `B -> E`. `Inner` declares nothing, so it is
+    // no longer handed the graph's direction as compensation for a directed
+    // ancestor — it stays on the engine's ordinary path, routes and all.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "E", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-E", from: "B", to: "E" },
+      ],
+    });
+
+    for (const route of result.edges) {
+      expect({ id: route.id, routed: route.points.length > 2 }).toEqual({
+        id: route.id,
+        routed: true,
+      });
+    }
+  });
+
+  it("keeps the outer cluster's direction and voids the inner one's when only the inner has a crossing edge", () => {
+    // `B -> D` leaves `Inner` but stays inside `Outer`. `Inner` takes the
+    // graph's TB — the value the directed-ancestor compensation hands it —
+    // and `Outer` keeps its own LR.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, rankdir: "LR", parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "D", ...BOX, parentId: "Outer" },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-D", from: "B", to: "D" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    for (const box of result.nodes) {
+      for (const value of [box.x, box.y, box.width, box.height]) {
+        expect(Number.isFinite(value)).toBe(true);
+      }
+    }
+    // `Inner` follows the graph: B below A, in one column.
+    expect(byId.B.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(byId.B.x).toBe(byId.A.x);
+    // `Outer` keeps LR: D beside `Inner`'s members, not below them.
+    expect(byId.D.x).toBeGreaterThan(byId.A.x + byId.A.width);
   });
 });

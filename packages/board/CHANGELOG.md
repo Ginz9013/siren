@@ -8,6 +8,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- With `siren-core`'s change: a subgraph, composite state or ER subgraph that declares a
+  `direction` uses it only when no connector has exactly one end inside it, as in Mermaid;
+  otherwise it follows the diagram's direction. A connector naming the group itself from outside
+  does not count. Connectors that used to be drawn as straight lines through
+  other boxes are routed, and frames that used to overlap no longer do.
+
 ## [0.4.0] - 2026-10-10
 
 Requires `siren-core` ^0.4.0.
