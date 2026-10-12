@@ -15,7 +15,7 @@ import {
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
 import { atConnectorLabelSize, BASE_FONT_SIZE_PX, wrapWidthAt } from "../label/label";
-import { layoutLabel } from "../label/layoutLabel";
+import { CONNECTOR_LINE, layoutLabel } from "../label/layoutLabel";
 import { wrapLabel } from "../label/wrapLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
@@ -268,7 +268,7 @@ export function layoutGraph(
   const edgeLabelMeasurer = atConnectorLabelSize(options.measureText);
   const edgeLabelBoxById = new Map(
     graph.edges.flatMap((edge) =>
-      edge.label === null ? [] : [[edge.id, layoutLabel(edge.label, edgeLabelMeasurer)] as const],
+      edge.label === null ? [] : [[edge.id, layoutLabel(edge.label, edgeLabelMeasurer, CONNECTOR_LINE)] as const],
     ),
   );
 

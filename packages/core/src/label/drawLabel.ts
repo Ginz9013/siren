@@ -105,8 +105,8 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  *
  * `backgrounds` are what a run's background paint needs drawn under the
  * text: one `<rect>` per run that has one, as wide as `box` measured the
- * run and as tall as the run's *own* line — one measured line times its
- * scale, not its row — centred on the row's centre and moved with a
+ * run and as tall as the run's *own* line — one line (`layoutLabel`'s font
+ * size × 1.5) times its scale, not its row — centred on the row's centre and moved with a
  * `sub`/`sup` shift. That is CSS's rule, not a measurement: an inline
  * element paints its background over its own inline box, which follows the
  * element's font size and vertical-align, not over the line box around it.
@@ -163,7 +163,7 @@ export function drawLabel(
     const left = anchor.x - measured.width / 2;
     const centre = top + measured.y;
     // One line at the base size: a row is as tall as its tallest run, and
-    // every run is one measured line times its scale (`layoutLabel`).
+    // every run is one line times its scale (`layoutLabel`).
     const line = measured.height / Math.max(...runs.map(measuredScale));
     // How far below the row's baseline the text position is, in the
     // `<text>` element's font size; every row starts at its absolute `y`,

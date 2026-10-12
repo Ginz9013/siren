@@ -24,6 +24,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 - With `siren-core`'s change: a flowchart node's label wraps once its text is wider than 175px, as
   Mermaid's does, so a node with a long label is drawn narrower and taller, and a diagram with
   such nodes is laid out differently. A subgraph's title does not wrap.
+- With `siren-core`'s change: a label of several rows draws them closer together, 1.5 times the
+  font size apart as in Mermaid (21px for a node's 14px text, 18px for a connector label's 12px),
+  with the canvas measurer's padding around the rows once; a one-row label is the same height as
+  before.
 - With `siren-core`'s change: a subgraph, composite state or ER subgraph that declares a
   `direction` uses it only when no connector has exactly one end inside it, as in Mermaid;
   otherwise it follows the nearest enclosing group's direction, or else the diagram's. A connector naming the group itself from outside

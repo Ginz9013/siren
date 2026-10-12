@@ -128,6 +128,17 @@ function nodeLabelRows(result: SirenRenderResult, id: string): string[] {
   return labelRows(svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`));
 }
 
+/**
+ * How far apart the rows of the first `<text>` matching `selector` are drawn:
+ * the gap from each `tspan.siren-label-row`'s `y` to the next, to three
+ * decimals — the line height a reader sees between two rows of one label.
+ */
+function rowGaps(result: SirenRenderResult, selector: string): number[] {
+  const rows = Array.from(svgOf(result).querySelector(selector)?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+  const ys = rows.map((row) => Number(row.getAttribute("y")));
+  return ys.slice(1).map((y, index) => Number((y - ys[index]!).toFixed(3)));
+}
+
 /** Every flowchart node as `id[label]`, in draw order. */
 function nodes(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-node").map((g) => `${idOf(g)}[${textOf(g)}]`);
@@ -2102,6 +2113,24 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-label-line-height",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["first<br/>second"] -->|"yes<br/>no"| B`,
+    status: "supported",
+    meaning:
+      "A label's rows are one line apart, and a line is 1.5 times the font " +
+      "size: mermaid 11.17.2 draws its 16px label text on 24px lines (measured: " +
+      "a node of two `<br>` rows is a 48px `<div>`, of five wrapped rows " +
+      "120px; an edge label the same). Siren's node text is 14px, so its rows " +
+      "are 21px apart; an edge label is 12px, so 18px. The shape's padding is " +
+      "around the rows once, not around each.",
+    assert: (result) => {
+      expectSame("node label row gaps", rowGaps(result, 'g.siren-node[data-siren-id="A"] text'), [21]);
+      expectSame("edge label row gaps", rowGaps(result, 'text.siren-edge-label[data-siren-id="A-B"]'), [18]);
+    },
+  },
+  {
     id: "fc-edge-inline-label",
     kind: "flowchart",
     source: `flowchart TB
@@ -3638,6 +3667,28 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-label-line-height",
+    kind: "class",
+    source: `classDiagram
+      class Order["Order<br/>Line"]
+      Order --> Line : holds<br/>many`,
+    status: "supported",
+    meaning:
+      "A class's label and a relationship's label are rows one line apart, a " +
+      "line being 1.5 times the font size: mermaid 11.17.2 draws a two-row " +
+      "relationship label as a 48px `<div>` of 16px text (measured). Siren's " +
+      "class label is 14px, 21px apart; its relationship label is 12px, 18px " +
+      "apart.",
+    assert: (result) => {
+      expectSame("class label row gaps", rowGaps(result, "text.siren-class-name"), [21]);
+      expectSame(
+        "relationship label row gaps",
+        rowGaps(result, 'g.siren-relationship-labels[data-siren-id="Order-Line"] text.siren-relationship-label'),
+        [18],
+      );
+    },
+  },
+  {
     id: "cls-note-br",
     kind: "class",
     source: `classDiagram
@@ -4268,6 +4319,26 @@ line2\`"]`,
         svgOf(result).querySelector("a.siren-link")?.getAttribute("href"),
         "https://example.com",
       );
+    },
+  },
+  {
+    id: "seq-label-line-height",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A as Web<br/>Client
+      A->>B: first<br/>second
+      Note over A: n one<br/>n two`,
+    status: "supported",
+    meaning:
+      "Sequence text is SVG in Mermaid, not an HTML label, and its rows are " +
+      "not 1.5 font sizes apart. mermaid 11.17.2 at 16px (measured): a " +
+      "message's, a note's and a block condition's rows are 19px apart; a " +
+      "participant's and a box caption's 16px (each row's `dy` 8px either " +
+      "side of the centre). At Siren's 14px: 16.625 and 14.",
+    assert: (result) => {
+      expectSame("participant row gaps", rowGaps(result, 'g.siren-participant[data-siren-id="A"] text'), [14]);
+      expectSame("message row gaps", rowGaps(result, "text.siren-message-label"), [16.625]);
+      expectSame("note row gaps", rowGaps(result, "text.siren-note-text"), [16.625]);
     },
   },
   {
@@ -5114,6 +5185,28 @@ line2\`"]`,
           ),
         ),
         ["a", "b"],
+      );
+    },
+  },
+  {
+    id: "st-label-line-height",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 : a<br/>b
+      s1 --> s2 : t<br/>u`,
+    status: "supported",
+    meaning:
+      "A state's description and a transition label are rows one line apart, " +
+      "a line being 1.5 times the font size: mermaid 11.17.2 draws both on " +
+      "24px lines at 16px (measured: a two-row description is a 48px `<div>` " +
+      "in a 64px state, a one-row one 24px in 40px). Siren's description is " +
+      "14px, 21px apart; its transition label is 12px, 18px apart.",
+    assert: (result) => {
+      expectSame("description row gaps", rowGaps(result, 'g.siren-state[data-siren-id="s1"] text'), [21]);
+      expectSame(
+        "transition label row gaps",
+        rowGaps(result, 'g.siren-transition-labels[data-siren-id="s1-s2"] text.siren-transition-label'),
+        [18],
       );
     },
   },
@@ -6435,6 +6528,25 @@ line2\`"]`,
         "the two boxes are drawn clear of one another",
         interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
+      );
+    },
+  },
+  {
+    id: "er-label-line-height",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "places<br/>many"`,
+    status: "supported",
+    meaning:
+      "A relationship's label is rows one line apart, a line being 1.5 times " +
+      "the font size: mermaid 11.17.2 draws its 14px ER edge label on 21px " +
+      "lines (measured: `places<br/>many` is a 42px `<div>`). Siren draws it " +
+      "at 12px, so 18px apart.",
+    assert: (result) => {
+      expectSame(
+        "relationship label row gaps",
+        rowGaps(result, 'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label'),
+        [18],
       );
     },
   },

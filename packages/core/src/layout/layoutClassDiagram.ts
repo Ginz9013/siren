@@ -17,7 +17,7 @@ import type {
   LabelBox,
 } from "../contracts";
 import { atConnectorLabelSize, plainLabel } from "../label/label";
-import { layoutLabel } from "../label/layoutLabel";
+import { CONNECTOR_LINE, layoutLabel } from "../label/layoutLabel";
 import {
   layoutDirectedGraph,
   type DirectedGraphLayoutNodeBox,
@@ -548,7 +548,7 @@ export function layoutClassDiagram(
     model.relationships.flatMap((rel) =>
       rel.label === null
         ? []
-        : [[rel.id, layoutLabel(rel.label, relationshipLabelMeasurer)] as const],
+        : [[rel.id, layoutLabel(rel.label, relationshipLabelMeasurer, CONNECTOR_LINE)] as const],
     ),
   );
 

@@ -1183,8 +1183,9 @@ describe("layoutStateDiagram — labels", () => {
   it("gives a description of two rows a box two rows tall, sized to its widest row", () => {
     const [state] = layoutStateDiagram(described(rowsLabel("ab", "wxyz")), options).states;
 
-    // STATE_PADDING_Y (8) above and below two 24px rows.
-    expect(state.height).toBe(8 + 24 + 24 + 8);
+    // STATE_PADDING_Y (8) above and below two 14px × 1.5 = 21px rows and
+    // the measurer's 24 − 21 = 3px of padding, which it carries once.
+    expect(state.height).toBe(8 + 21 + 21 + 3 + 8);
     // STATE_PADDING_X (14) either side of the widest row, "wxyz" (32).
     expect(state.width).toBe(14 + 32 + 14);
     expect(state.labels).toHaveLength(1);
@@ -1202,14 +1203,15 @@ describe("layoutStateDiagram — labels", () => {
       options,
     ).states;
 
-    // Padding, the first label's two rows, padding: the line.
-    expect(state.dividerY).toBe(state.y + 8 + 48 + 8);
+    // Padding, the first label's two rows (two 21px lines and 3px of the
+    // measurer's padding, 45), padding: the line.
+    expect(state.dividerY).toBe(state.y + 8 + 45 + 8);
     // Padding below the line, then the second label's two rows centred.
     expect(state.labels.map((planned) => planned.y)).toEqual([
-      state.y + 8 + 24,
-      state.y + 8 + 48 + 8 + 8 + 24,
+      state.y + 8 + 45 / 2,
+      state.y + 8 + 45 + 8 + 8 + 45 / 2,
     ]);
-    expect(state.height).toBe(8 + 48 + 8 + 8 + 48 + 8);
+    expect(state.height).toBe(8 + 45 + 8 + 8 + 45 + 8);
   });
 
   it("gives a composite's title strip a row for every row of its title", () => {
@@ -1227,10 +1229,11 @@ describe("layoutStateDiagram — labels", () => {
 
     expect(outer.labels).toHaveLength(1);
     expect(outer.labels[0].labelBox.rows).toHaveLength(2);
-    // COMPOSITE_PADDING (12) above a title two rows tall.
-    expect(outer.labels[0].y).toBe(outer.y + 12 + 24);
+    // COMPOSITE_PADDING (12) above a title two 21px rows tall, with the
+    // measurer's 3px of padding: 45.
+    expect(outer.labels[0].y).toBe(outer.y + 12 + 45 / 2);
     // And the member starts below both rows, not below the first.
-    expect(inner.y).toBeGreaterThanOrEqual(outer.y + 12 + 48);
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y + 12 + 45);
   });
 
   it("gives a note of two rows a box two rows tall", () => {
@@ -1239,8 +1242,9 @@ describe("layoutStateDiagram — labels", () => {
 
     const note = layoutStateDiagram(noted, options).states[0].note!;
 
-    // NOTE_PADDING_Y (8) above and below, NOTE_PADDING_X (10) either side.
-    expect(note.height).toBe(8 + 48 + 8);
+    // NOTE_PADDING_Y (8) above and below two 21px rows and 3px of the
+    // measurer's padding, NOTE_PADDING_X (10) either side.
+    expect(note.height).toBe(8 + 45 + 8);
     expect(note.width).toBe(10 + 32 + 10);
     expect(note.labelBox.rows).toHaveLength(2);
   });
@@ -1254,9 +1258,10 @@ describe("layoutStateDiagram — labels", () => {
 
     expect(transition.label).not.toBeNull();
     // Measured at the 12px `.siren-transition-label` is drawn at
-    // (`--siren-label-font-size`), not the measurer's 14px: two 24-tall rows
-    // and a 32-wide `wxyz`, each 12/14 as large.
-    expect(transition.label!.labelBox.height).toBeCloseTo(48 * CONNECTOR_LABEL_SCALE, 6);
+    // (`--siren-label-font-size`), not the measurer's 14px: a 24-tall line
+    // and a 32-wide `wxyz`, each 12/14 as large, and a second row of one
+    // 12px × 1.5 = 18px line.
+    expect(transition.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
     expect(transition.label!.labelBox.width).toBeCloseTo(32 * CONNECTOR_LABEL_SCALE, 6);
     // The anchor is the box's centre, so its lower row ends half the box below it.
     expect(laid.height).toBeGreaterThanOrEqual(

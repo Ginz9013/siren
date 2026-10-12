@@ -160,9 +160,9 @@ describe("layoutErDiagram", () => {
 
   it("sizes the name row for every row of a two-row label, and carries the box it measured", () => {
     // `CUSTOMER["Customer<br/>Record"]` draws two rows (ADR-0015; measured,
-    // mermaid 11.17.2, `--html`), so the name row holds two measured lines
-    // — 24 each from the fake measurer — inside the same padding a one-row
-    // name gets: 8 above and 8 below.
+    // mermaid 11.17.2, `--html`), so the name row holds two 14px × 1.5 =
+    // 21px lines and the fake measurer's 24 − 21 = 3px of padding, once —
+    // inside the same padding a one-row name gets: 8 above and 8 below.
     const twoRows = {
       text: "Customer\nRecord",
       rows: [[plainRun("Customer")], [plainRun("Record")]],
@@ -186,19 +186,19 @@ describe("layoutErDiagram", () => {
     );
     const [withTable, plain] = laidOut.entities;
 
-    expect(plain.height).toBe(24 * 2 + 8 * 2);
-    expect(tableOf(laidOut, "C").headerDividerY - withTable.y).toBe(24 * 2 + 8 * 2);
+    expect(plain.height).toBe(21 * 2 + 3 + 8 * 2);
+    expect(tableOf(laidOut, "C").headerDividerY - withTable.y).toBe(21 * 2 + 3 + 8 * 2);
     // As wide as the wider row, "Customer", plus the padding either side.
     expect(plain.width).toBe(measuredWidth("Customer") + 14 * 2);
     expect(plain.label).toEqual(twoRows);
-    expect(plain.labelBox.rows.map((row) => row.y)).toEqual([12, 36]);
+    expect(plain.labelBox.rows.map((row) => row.y)).toEqual([12, 33]);
   });
 
   it("sizes an attribute's row for every row of its comment, and carries the box it measured", () => {
     // `string name "alpha<br/>b"` draws the comment in two rows (ADR-0015;
     // measured, mermaid 11.17.2, `--html`: `<p>alpha<br>b</p>`), so the
-    // attribute's row holds two measured lines — 24 each from the fake
-    // measurer — inside the 8 above and 8 below a one-line row gets.
+    // attribute's row holds two 21px lines and the fake measurer's 3px of
+    // padding, once — inside the 8 above and 8 below a one-line row gets.
     const twoRows = {
       text: "alpha\nb",
       rows: [[plainRun("alpha")], [plainRun("b")]],
@@ -212,15 +212,15 @@ describe("layoutErDiagram", () => {
     const comment = table.rows[0].cells.find((cell) => cell.column === "comment")!;
     if (comment.column !== "comment") throw new Error("no comment cell");
 
-    // The name row (24 + 8 + 8) and then the one attribute row (48 + 8 + 8).
+    // The name row (24 + 8 + 8) and then the one attribute row (45 + 8 + 8).
     expect(table.headerDividerY - entity.y).toBe(40);
-    expect(entity.height).toBe(40 + 64);
-    expect(comment.y - table.headerDividerY).toBe(32);
+    expect(entity.height).toBe(40 + 61);
+    expect(comment.y - table.headerDividerY).toBe(8 + 45 / 2);
     // The column is as wide as the wider row, "alpha", plus its padding.
     expect(table.columnDividerXs.length).toBe(2);
     expect(entity.x + entity.width - table.columnDividerXs[1]).toBe(measuredWidth("alpha") + 14);
     expect(comment.label).toEqual(twoRows);
-    expect(comment.labelBox.height).toBe(48);
+    expect(comment.labelBox.height).toBe(45);
     // Centred on the band its widest row starts at the cell's left edge:
     // the fake measurer adds no padding, so that is half of "alpha" in.
     expect(comment.anchor).toEqual({
@@ -690,7 +690,8 @@ describe("layoutErDiagram places subgraph clusters", () => {
     // `subgraph s1["sales<br/>team"]` draws its title in two rows (ADR-0015;
     // measured, mermaid 11.17.2, `--html`: the cluster label is
     // `<p>sales<br>team</p>`). The strip above the members is 12 of padding,
-    // the title's two 24px lines, and 12 more.
+    // the title's two 21px lines with the measurer's 3px of padding, and 12
+    // more.
     const twoRows = { text: "sales\nteam", rows: [[plainRun("sales")], [plainRun("team")]] };
     const laidOut = layoutErDiagram(
       {
@@ -705,10 +706,10 @@ describe("layoutErDiagram places subgraph clusters", () => {
       boxOf(laidOut.entities, "B").top,
     );
 
-    expect(membersTop - frame.y).toBe(12 + 48 + 12);
+    expect(membersTop - frame.y).toBe(12 + 45 + 12);
     expect(frame.label.label).toEqual(twoRows);
-    expect(frame.label.labelBox.height).toBe(48);
-    expect(frame.label.anchor.y - frame.y).toBe(12 + 24);
+    expect(frame.label.labelBox.height).toBe(45);
+    expect(frame.label.anchor.y - frame.y).toBe(12 + 45 / 2);
   });
 
   it("draws a frame enclosing its members and nothing else", () => {

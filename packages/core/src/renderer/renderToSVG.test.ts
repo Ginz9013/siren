@@ -1636,11 +1636,11 @@ describe("a Markdown-labelled node's drawn text", () => {
     expect(italicRun.getAttribute("font-style")).toBe("italic");
     expect(italicRun.getAttribute("font-weight")).toBeNull();
 
-    // node.y + node.height/2 == 20; two rows of height 20 each, spread
-    // symmetrically above and below that center.
+    // node.y + node.height/2 == 20; two rows of one 14px × 1.5 = 21px line
+    // each, spread symmetrically above and below that center.
     const rowYs = Array.from(rows).map((row) => Number(row.getAttribute("y")));
-    expect(rowYs[0]).toBe(10);
-    expect(rowYs[1]).toBe(30);
+    expect(rowYs[0]).toBe(9.5);
+    expect(rowYs[1]).toBe(30.5);
   });
 
   it("draws a one-row plain label as the text's own textContent, with no row tspans", () => {
@@ -1674,6 +1674,22 @@ vi.mock("../label/drawLabel", async (importOriginal) => {
       return { ...drawn, backgrounds: [rect] };
     },
   };
+});
+
+describe("a multi-row node label's line spacing", () => {
+  // Mermaid draws a label line 1.5 × its font size (24px at 16px, measured in
+  // headless Chrome), so at Siren's 14px the rows sit 21px apart.
+  it("draws the rows of a <br> label 21px apart, centred on the node", () => {
+    const container = document.createElement("div");
+    const { svg } = render("flowchart TD\nA[first<br>second]\n", container);
+
+    const rows = svg!.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-label-row');
+    const ys = Array.from(rows).map((row) => Number(row.getAttribute("y")));
+    const text = svg!.querySelector('g.siren-node[data-siren-id="A"] text')!;
+    expect(ys).toHaveLength(2);
+    expect(ys[1]! - ys[0]!).toBeCloseTo(21);
+    expect((ys[0]! + ys[1]!) / 2).toBeCloseTo(Number(text.getAttribute("y")));
+  });
 });
 
 describe("what a label paints behind its text", () => {

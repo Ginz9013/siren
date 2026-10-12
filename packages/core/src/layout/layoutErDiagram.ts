@@ -15,7 +15,7 @@ import type {
   ResolvedErSubgraph,
 } from "../contracts";
 import { atConnectorLabelSize } from "../label/label";
-import { layoutLabel } from "../label/layoutLabel";
+import { CONNECTOR_LINE, layoutLabel } from "../label/layoutLabel";
 import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 
@@ -237,7 +237,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   const relationshipLabelBoxById = new Map(
     model.relationships.map(
       (relationship) =>
-        [relationship.id, layoutLabel(relationship.label, relationshipLabelMeasurer)] as const,
+        [relationship.id, layoutLabel(relationship.label, relationshipLabelMeasurer, CONNECTOR_LINE)] as const,
     ),
   );
 

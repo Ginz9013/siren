@@ -1,5 +1,14 @@
 import type { TextMeasurer } from "../contracts";
-import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type LabelBoxRow, type LabelRun } from "./label";
+import {
+  BASE_FONT_SIZE_PX,
+  CONNECTOR_LABEL_FONT_SIZE_PX,
+  LINE_HEIGHT_RATIO,
+  measuredScale,
+  type Label,
+  type LabelBox,
+  type LabelBoxRow,
+  type LabelRun,
+} from "./label";
 
 /**
  * Measures a label: the box it needs, and where each row and run sits in it.
@@ -25,12 +34,20 @@ import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type Label
  * measurer that cannot measure at all is reported naming that string
  * (`render()`'s `UnmeasurableTextError`), not an empty one.
  *
- * **Heights.** A row is as tall as its tallest run, and a run is one
- * measured line height times its font-size scale (`measuredScale`: an
- * author's absolute px size counts as a scale of the 14px base); the label is its rows
- * stacked with no gap. Both real measurers answer a height that depends on
- * the font and not on the text, so "one line" is never a guess about which
- * string is representative.
+ * **Heights.** A row is as tall as its tallest run, and a run is one line
+ * times its font-size scale (`measuredScale`: an author's absolute px size
+ * counts as a scale of the 14px base). A line is Mermaid's: the size the
+ * label is drawn at times its line-height ratio (`LabelLine`; 14px × 1.5 =
+ * 21px unless the caller says otherwise) — never the measurer's height,
+ * which is a line *plus* its padding and cannot say which is which. The
+ * rows are stacked with no gap, and the measurer's vertical padding — its
+ * answer for `""` less one line — is added once, half above them and half
+ * below, as Mermaid's shape padding sits outside its label `<div>`. So a
+ * one-row label at scale 1 is exactly as tall as the measurer's answer, the
+ * height every label had before its rows were spaced at Mermaid's line
+ * height, and each row after it adds one line. A measurer whose line is
+ * shorter than Mermaid's (a test's 20px) pads by a negative amount, which
+ * keeps that one-row height all the same.
  *
  * **Spacing.** A run's `letter-spacing` is added once per character and
  * its `word-spacing` once per space, as CSS adds them, so the box — and a
@@ -51,15 +68,23 @@ import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type Label
  *
  * Pure: no call leaves anything behind but the measurer's own.
  */
-export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
+export function layoutLabel(label: Label, measureText: TextMeasurer, line: LabelLine = {}): LabelBox {
+  const { fontSizePx = BASE_FONT_SIZE_PX, lineHeightRatio = LINE_HEIGHT_RATIO } = line;
   const measured = label.rows.map((row) =>
     row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run), spacing: spacingOf(run) })),
   );
   const padding = measurerPadding(measureText);
+  const lineHeight = fontSizePx * lineHeightRatio;
+  // What the measurer adds to one line's height, as `padding` is what it adds
+  // to every width: its answer for `""` less the line itself. Added once,
+  // half above the rows and half below, so a one-row label is exactly as
+  // tall as the measurer's answer — the height every label had before rows
+  // were spaced at Mermaid's line height.
+  const verticalPadding = measureText.measure("").height - lineHeight;
 
-  let top = 0;
+  let top = verticalPadding / 2;
   const rows: LabelBoxRow[] = measured.map((runs) => {
-    const height = Math.max(...runs.map(({ size, scale }) => size.height * scale));
+    const height = Math.max(...runs.map(({ scale }) => lineHeight * scale));
     let x = padding / 2;
     const placed = runs.map(({ size, scale, spacing }) => {
       const run = { x, width: (size.width - padding) * scale + spacing };
@@ -73,10 +98,48 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
 
   return {
     width: Math.max(...rows.map((row) => row.width)),
-    height: top,
+    height: top + verticalPadding / 2,
     rows,
   };
 }
+
+/**
+ * The size a label is drawn at, which its line height follows: `layoutLabel`
+ * cannot read it off `TextMeasurer`, which answers for a string and nothing
+ * else. `fontSizePx` is the px a run of scale 1 is drawn at — the 14px base
+ * (`BASE_FONT_SIZE_PX`) unless the caller says otherwise, as a connector
+ * label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`) does. It has to be the size
+ * `measureText` measures at, since the measurer's answer for one line is that
+ * line plus its padding.
+ */
+export interface LabelLine {
+  fontSizePx?: number;
+  /** A line's height over its font size: `LINE_HEIGHT_RATIO` unless given. */
+  lineHeightRatio?: number;
+}
+
+/**
+ * A connector label's line: drawn at `CONNECTOR_LABEL_FONT_SIZE_PX`, and
+ * measured with `atConnectorLabelSize`, so its rows are 12 × 1.5 = 18px.
+ */
+export const CONNECTOR_LINE: LabelLine = { fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX };
+
+/**
+ * A sequence diagram's line for a message, a note, and a block's or a
+ * divider's condition. Mermaid draws sequence text as SVG `<text>`, and these
+ * rows sit 19px apart at 16px (measured in headless Chrome, mermaid 11.17.2:
+ * a two-row message, note, `alt` condition and `else` condition alike) — not
+ * the 1.5 of its HTML labels — so at Siren's 14px a row is 16.625px.
+ */
+export const SEQUENCE_LINE: LabelLine = { lineHeightRatio: 19 / 16 };
+
+/**
+ * A sequence diagram's line for a participant and a box's caption, which
+ * Mermaid spaces closer than its other sequence text: one font size apart,
+ * each row's `dy` 8px either side of the centre at 16px (measured, mermaid
+ * 11.17.2). At Siren's 14px a row is 14px.
+ */
+export const SEQUENCE_PARTICIPANT_LINE: LabelLine = { lineHeightRatio: 1 };
 
 /**
  * The padding `measureText` adds to every string it measures: its answer

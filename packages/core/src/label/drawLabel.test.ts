@@ -35,8 +35,9 @@ describe("drawLabel", () => {
 
     const rows = Array.from(text.querySelectorAll(":scope > tspan.siren-label-row"));
     expect(rows.map((row) => row.textContent)).toEqual(["a", "b"]);
-    // Two 20px rows make a 40px box centred on y=50: centres at 40 and 60.
-    expect(rows.map((row) => row.getAttribute("y"))).toEqual(["40", "60"]);
+    // Two 14px × 1.5 = 21px rows, padded once by the measurer's 20 − 21 =
+    // −1px, make a 41px box centred on y=50: centres at 39.5 and 60.5.
+    expect(rows.map((row) => row.getAttribute("y"))).toEqual(["39.5", "60.5"]);
     expect(rows.map((row) => row.getAttribute("x"))).toEqual(["100", "100"]);
   });
 
@@ -147,8 +148,9 @@ describe("drawLabel", () => {
   it("puts one rect behind a marked run, at the run's place in its row, and none behind any other", () => {
     // 8px a character plus 16px of the measurer's own padding, 20px a line:
     // the second row, `x mm`, is 8 + 16 + 16 + 8 = 48 wide, centred on
-    // x=100, so it starts at 76 and `mm` at 76 + 8 + 16 = 100. Two 20px rows
-    // centred on y=50 put the second one between 50 and 70.
+    // x=100, so it starts at 76 and `mm` at 76 + 8 + 16 = 100. Two 21px rows
+    // (a 41px box, the measurer's 20px line less 21 padding it by −1px)
+    // centred on y=50 put the second one between 50 and 71.
     const padded: TextMeasurer = {
       measure(text: string) {
         return { width: text.length * 8 + 16, height: 20 };
@@ -167,22 +169,22 @@ describe("drawLabel", () => {
         rect.getAttribute("width"),
         rect.getAttribute("height"),
       ]),
-    ).toEqual([["rect", "siren-label-mark", "100", "50", "16", "20"]]);
+    ).toEqual([["rect", "siren-label-mark", "100", "50", "16", "21"]]);
   });
 
   // Not measured: derived from CSS, where an inline element's background
   // covers its own inline box — one line of its own font size — and not the
   // line box of the row around it. A `<big>` beside the mark makes the row
-  // 1.2 lines tall; the mark's rect stays one line (20px), centred on the
-  // row's centre.
+  // 1.2 lines tall; the mark's rect stays one line (14px × 1.5 = 21px),
+  // centred on the row's centre.
   it("makes a marked run's rect one line of its own size tall, however tall its row is", () => {
     const { label } = readLabel("<big>B</big><mark>m</mark>", { dialect: "html" });
 
     const { backgrounds } = drawLabel(label, layoutLabel(label, fakeMeasurer), { x: 100, y: 50 });
 
-    // The row is 24px tall, centred on y=50; the rect is 20px, 40 to 60.
+    // The row is 25.2px tall, centred on y=50; the rect is 21px, 39.5 to 60.5.
     expect(backgrounds.map((rect) => [rect.getAttribute("y"), rect.getAttribute("height")])).toEqual([
-      ["40", "20"],
+      ["39.5", "21"],
     ]);
   });
 
@@ -197,14 +199,14 @@ describe("drawLabel", () => {
       return [Number(rect!.getAttribute("y")), Number(rect!.getAttribute("height"))];
     };
 
-    // A 0.833 run's line is 16.66px; centred on the row's y=50 it would
-    // start at 41.67. A sub moves it down 0.314 × 16.66 = 5.231, a sup up
-    // 0.475 × 16.66 = 7.914.
+    // A 0.833 run's line is 21 × 0.833 = 17.493px; centred on the row's
+    // y=50 it would start at 41.2535. A sub moves it down 0.314 × 17.493 =
+    // 5.493, a sup up 0.475 × 17.493 = 8.309.
     const [subY, subHeight] = rectOf("H<sub><mark>2</mark></sub>");
-    expect(subHeight).toBeCloseTo(16.66, 3);
-    expect(subY).toBeCloseTo(46.901, 3);
+    expect(subHeight).toBeCloseTo(17.493, 3);
+    expect(subY).toBeCloseTo(46.746, 3);
     const [supY] = rectOf("x<sup><mark>2</mark></sup>");
-    expect(supY).toBeCloseTo(33.757, 3);
+    expect(supY).toBeCloseTo(32.944, 3);
   });
 
   // Mermaid's marked text is black on the yellow, whatever color the label

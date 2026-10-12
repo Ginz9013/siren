@@ -55,11 +55,12 @@ describe("wrapLabel on Latin text", () => {
     expect(rowTexts(wrapped.label)).toEqual(["alpha beta", "gamma", "delta"]);
     expect(wrapped.label.text).toBe("alpha beta\ngamma\ndelta");
     expect(wrapped.labelBox.width).toBe(110);
-    expect(wrapped.labelBox.height).toBe(60);
+    // Three 14px × 1.5 = 21px rows, padded once by the measurer's 20 − 21 = −1px.
+    expect(wrapped.labelBox.height).toBe(62);
     expect(wrapped.labelBox.rows.map((row) => [row.y, row.width])).toEqual([
       [10, 110],
-      [30, 60],
-      [50, 60],
+      [31, 60],
+      [52, 60],
     ]);
   });
 
@@ -182,7 +183,8 @@ describe("wrapLabel on a label with forced breaks", () => {
 
     expect(rowTexts(wrapped.label)).toEqual(["short", "alpha beta", "gamma", "", "end"]);
     expect(wrapped.labelBox.width).toBe(110);
-    expect(wrapped.labelBox.height).toBe(100);
+    // Five 21px rows, padded once by the measurer's −1px.
+    expect(wrapped.labelBox.height).toBe(104);
   });
 });
 

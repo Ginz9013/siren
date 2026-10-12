@@ -371,6 +371,13 @@ independent axis with a neutral value. A run with every axis neutral is a **plai
 that only want a string, such as a diagnostic quoting the label.
 What is drawn is the rows.
 
+A label's rows are one **line** apart, and a line is 1.5 times the size the label is drawn at,
+Mermaid's 24px for 16px text: **21px** at a node's 14px, **18px** at a connector label's 12px. The
+measurer's height for one string is one line plus its vertical padding, and that padding is added
+once around all the rows, never per row — so a one-row label is exactly as tall as the measurer's
+answer. Sequence text follows Mermaid's SVG text instead: a message's, note's and block condition's
+rows are 19/16 of the font size apart, a participant's and a box caption's one font size.
+
 The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the
 **drawing** stays SVG `<text>`/`<tspan>` with author text through `textContent`, never `innerHTML`
 (ADR-0015). Between them, in the `html` dialect, every HTML tag Mermaid lets through is read into

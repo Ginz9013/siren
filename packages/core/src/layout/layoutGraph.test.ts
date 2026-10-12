@@ -654,8 +654,9 @@ describe("a node's box, sized around its label", () => {
 
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
+    // Two 14px × 1.5 = 21px rows, padded once by the 24px line's other 3px.
     expect(positioned.nodes[0].width).toBe(16);
-    expect(positioned.nodes[0].height).toBe(48);
+    expect(positioned.nodes[0].height).toBe(45);
   });
 
   it("sizes a one-row plain label exactly as the measurer sizes its text", () => {
@@ -716,7 +717,8 @@ describe("a node's label, wrapped", () => {
     expect(node!.labelBox.width).toBe(175);
     expect(node!.labelBox.rows).toHaveLength(2);
     expect(node!.width).toBe(175);
-    expect(node!.height).toBe(48);
+    // Two 21px rows and the measurer's 24 − 21 = 3px of padding, once.
+    expect(node!.height).toBe(45);
   });
 
   // The spec: a subgraph's title is plain text in Mermaid and is never
@@ -917,13 +919,23 @@ describe("the room an edge label is given", () => {
 
   it("reserves one line height per row for a label broken with <br>", () => {
     // `fakeMeasurer`'s line is 24px at 14px, so 24 * 12/14 at the 12px an
-    // edge label is drawn at, and a label of two rows is twice that.
+    // edge label is drawn at; a second row adds one 12px × 1.5 = 18px line.
     const [twoRows] = laidOut("yes<br/>no").edges;
     const [oneRow] = laidOut("yes").edges;
 
     expect(oneRow.label?.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
-    expect(twoRows.label?.labelBox.height).toBeCloseTo(48 * CONNECTOR_LABEL_SCALE, 6);
+    expect(twoRows.label?.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
+  });
+
+  // An edge label is drawn at 12px, so its line is 12 × 1.5 = 18px — Mermaid's
+  // 24px line at 16px, scaled to the size the label is drawn at.
+  it("spaces a <br> edge label's rows 18px apart, the 12px it is drawn at times 1.5", () => {
+    const [edge] = laidOut("yes<br/>no").edges;
+    const rows = edge.label!.labelBox.rows;
+
+    expect(rows.map((row) => row.height)).toEqual([18, 18]);
+    expect(rows[1]!.y - rows[0]!.y).toBeCloseTo(18, 6);
   });
 });
 
@@ -1281,8 +1293,9 @@ describe("a subgraph's frame", () => {
     const oneRow = framed("ab");
     const twoRows = framed("a<br/>b");
 
-    // `fakeMeasurer`'s line is 24px: a second row is 24px more strip.
-    expect(twoRows.frame.label.labelBox.height).toBe(48);
-    expect(twoRows.above - oneRow.above).toBe(24);
+    // A second row is one 14px × 1.5 = 21px line more strip; `fakeMeasurer`'s
+    // 24px answer pads the two rows by 3px, once.
+    expect(twoRows.frame.label.labelBox.height).toBe(45);
+    expect(twoRows.above - oneRow.above).toBe(21);
   });
 });

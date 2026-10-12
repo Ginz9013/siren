@@ -47,6 +47,15 @@ While the version is 0.x, a minor release may contain breaking changes.
   can change. A subgraph's title is not wrapped. The width is fixed: `flowchart.wrappingWidth` is
   not read. `PositionedNode.label` is the wrapped label (its rows are what is drawn); `wrapLabel`
   and `wrapWidthAt` are internal.
+- **A label's rows are closer together**: one line apart, a line being 1.5 times the size the
+  label is drawn at, as Mermaid's HTML labels draw 16px text on 24px lines (measured). A node's,
+  a class's, a state's or a subgraph title's rows are 21px apart (14px), a connector label's 18px
+  (12px). The measurer's height for one line is now that line plus a padding added once around
+  all the rows, not once per row, so a one-row label's box is exactly as tall as before and each
+  row after it adds one line rather than the measurer's full height. Sequence text follows
+  Mermaid's SVG text instead: a message's, a note's and a block condition's rows are 14 × 19/16 =
+  16.625px apart, a participant's and a box caption's 14px. A run's mark or background rect is one
+  such line tall. Multi-row labels' boxes, and the layouts around them, are shorter.
 - A flowchart subgraph, a state diagram's composite state or an ER subgraph that declares a
   `direction` now uses it **only when no connector crosses its boundary**: a connector with
   exactly one end inside the group, at any depth. A group with such a connector is laid out in the
