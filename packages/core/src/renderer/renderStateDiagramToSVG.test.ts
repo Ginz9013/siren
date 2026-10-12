@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Label, LabelBox, PositionedStateDiagram } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
+import { connectorPathData } from "./connectorCurve";
 import { renderStateDiagramToSVG } from "./renderStateDiagramToSVG";
 import { CANVAS_GUTTER } from "./sizeCanvas";
 
@@ -258,13 +259,72 @@ describe("renderStateDiagramToSVG", () => {
     expect(svg.querySelectorAll('[data-siren-id="Running-Running"] text')).toHaveLength(0);
   });
 
+  it("paints a background behind a transition's label, over the box it was measured in, before the text — and none for a transition without a label", () => {
+    // Mermaid paints a translucent fill behind a connector's label (measured,
+    // 11.17.2). "start" is 40 by 24 in this file's boxes, centred on
+    // (70, 90). No id on the rect itself: the label group wears the
+    // transition's, so the timeline reaches it with the text.
+    const svg = renderStateDiagramToSVG(DIAGRAM);
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) => [
+        rect.parentElement?.getAttribute("data-siren-id"),
+        ...["data-siren-id", "x", "y", "width", "height", "style"].map((name) => rect.getAttribute(name)),
+      ]),
+    ).toEqual([["Idle-Running", null, "50", "78", "40", "24", null]]);
+    expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-transition-label")!)).toBe(true);
+  });
+
+  it("draws a transition and a note's connector as d3's basis curve, keeping the route as data-siren-points", () => {
+    // mermaid 11.17.2 sets no `curve` on a state diagram's edges, its note
+    // edges included, so `insertEdge` falls back to `flowchart.curve`, whose
+    // default is `basis`. What `basis` draws is connectorCurve.test.ts's to
+    // pin against d3; here the question is only which curve this kind uses.
+    const route = [
+      { x: 70, y: 80 },
+      { x: 70, y: 140 },
+      { x: 130, y: 140 },
+    ];
+    const svg = renderStateDiagramToSVG({
+      ...DIAGRAM,
+      states: [
+        {
+          ...DIAGRAM.states[0],
+          note: {
+            label: plainLabel("waiting for work"),
+            labelBox: boxOf("waiting for work"),
+            x: 120,
+            y: 10,
+            width: 60,
+            height: 30,
+            connector: route,
+          },
+        },
+        DIAGRAM.states[1],
+      ],
+      transitions: [{ ...DIAGRAM.transitions[0], points: route }, ...DIAGRAM.transitions.slice(1)],
+    });
+    const basis = connectorPathData(route, "basis");
+
+    for (const path of [
+      svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line')!,
+      svg.querySelector("path.siren-note-link")!,
+    ]) {
+      expect(path.getAttribute("d")).toBe(basis);
+      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+    }
+  });
+
   it("draws the self-transition's whole loop, not just its two ends", () => {
     const svg = renderStateDiagramToSVG(DIAGRAM);
 
     const loop = svg.querySelector(
       'g.siren-transition[data-siren-id="Running-Running"] path.siren-transition-line',
     )!;
-    expect(loop.getAttribute("d")).toBe("M110,130 L140,140 L110,150");
+    // The route, not `d`: under the default curve `d` carries the spline's
+    // control points, and the route is what says a loop was drawn.
+    expect(loop.getAttribute("data-siren-points")).toBe("110,130 140,140 110,150");
   });
 
   it("paints every transition line before the first state, so a line passing a box runs under it (ADR-0016)", () => {

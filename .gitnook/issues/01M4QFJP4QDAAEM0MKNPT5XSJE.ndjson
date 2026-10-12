@@ -1,0 +1,7 @@
+{"id":"01M4QFJP4QHXZJBFMW8JX1QJZB","t":1,"a":"83a1","op":"create","title":"compat: SVG 幾何讀取合併成一處，收窄跨邊界直線檢查"}
+{"id":"01M4QFJP51EWY1WS061XTJ0S7S","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/flowchart-mermaid-parity/spec.md`（spec issue `01M4QA7Y9GDQNEFPDK9947HYVT`），ticket 檔 `.scratch/flowchart-mermaid-parity/T08-svg-geometry-readers.md`。T2 review 產生的新 ticket：corpus.ts 與 layoutDefects.ts 重複的 SVG 幾何讀取合併；straightBoundaryCrossingEdges 改依群組歸屬判定。"}
+{"id":"01M4QFJP51V0SAWVHARMY4EGRH","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M4QGZQV9MG65NY36EG5NMSGD","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M4QKM97K55Z9Z1WYBRSW3MYN","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4QM9G7CGSY6QBXGGBZWYJBW","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4RBRR060332M6F5HA7PKHBX","t":7,"a":"83a1","op":"set","k":"archived","v":true}

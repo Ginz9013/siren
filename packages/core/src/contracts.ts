@@ -98,6 +98,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  * here so every other module still finds its cross-module types in one place.
  */
 import type { Label, LabelBox, PlacedLabel } from "./label/label";
+import type { Curve } from "./curve/curve";
 
 export type {
   Label,
@@ -281,6 +282,15 @@ export interface LinkStyleDecl {
    * the statement's shape.
    */
   targets: string[];
+  /**
+   * The curve name an `interpolate` clause wrote (`linkStyle 0 interpolate
+   * step`), exactly as authored — absent when the statement has none.
+   *
+   * A name, not yet a `Curve`: whether Siren draws it, whether Mermaid
+   * knows it at all, and which edges it lands on are `buildFlowchartModel`'s
+   * questions, answered with the addresses beside it.
+   */
+  interpolate?: string;
   /** The declarations to apply, in author order. Values are not validated
    * here — the gate is `resolveStyles`', reached once the addresses have
    * become ids. */
@@ -1281,6 +1291,22 @@ export interface GraphEdge {
    * name downstream of the model rather than a name and a position.
    */
   style: AuthorStyle;
+  /**
+   * The **Curve** the renderer joins this edge's routed points with, when
+   * a `linkStyle … interpolate` chose one for it.
+   *
+   * Resolved here, on `linkStyle`'s two tiers (an index beats `default`),
+   * so the renderer draws what it is handed and never sees a curve name it
+   * cannot draw: a name Siren does not implement, or one nobody knows, was
+   * diagnosed and settled to a drawable curve by `buildFlowchartModel`.
+   *
+   * Absent when no `interpolate` statement reached the edge, and the
+   * renderer reads absent as `DEFAULT_CURVE` (`basis`): an edge's shape only
+   * grows a field when the author wrote something for it, so a document
+   * with no `interpolate` builds exactly the edges it built before. An
+   * unknown name the author did write is present, as the `basis` it draws.
+   */
+  curve?: Curve;
 }
 
 /**
@@ -1415,10 +1441,12 @@ export interface PositionedNode extends GraphNode {
 export interface PositionedEdge extends Omit<GraphEdge, "label"> {
   points: Point[];
   /**
-   * `GraphEdge.label`, placed: the text, the box `layoutLabel` measured for
-   * it — the box dagre was asked to keep clear — and the centre of the space
-   * layout kept clear for it. `null` when the edge carries no label and
-   * asked for none.
+   * `GraphEdge.label`, wrapped and placed: the label as drawn — its rows
+   * after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
+   * label-wrap ADR, nook `01M4R4WDZ`), so it may hold more rows than the
+   * author wrote — the box measured for those rows, which is the box dagre
+   * was asked to keep clear, and the centre of the space layout kept clear
+   * for it. `null` when the edge carries no label and asked for none.
    *
    * The anchor is reported by the layout rather than computed by the
    * renderer from `points`, because it is where the *reserved box* ended up
@@ -2037,11 +2065,13 @@ export interface PositionedClassRelationship {
   toEnd: ClassRelationshipEnd;
   points: Point[];
   /**
-   * The relationship's label, placed: its text, the box `layoutLabel`
-   * measured for it — the box the core was asked to keep clear — and the
-   * centre of the space the shared core kept clear for it. `null` when
-   * there is no label. `PositionedStateTransition.label` carries a
-   * transition's the same way.
+   * The relationship's label, wrapped and placed: the label as drawn — its
+   * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
+   * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
+   * which is the box the core was asked to keep clear, and the centre of
+   * the space the shared core kept clear for it. `null` when there is no
+   * label. `PositionedStateTransition.label` carries a transition's the
+   * same way.
    */
   label: PlacedLabel | null;
   fromMultiplicity: string | null;
@@ -2862,9 +2892,11 @@ export interface PositionedStateTransition {
   to: string;
   points: Point[];
   /**
-   * The transition's label, placed: its text, the box `layoutLabel`
-   * measured for it — the box the shared core was asked to keep clear — and
-   * the centre of the space layout kept clear for it. `null` when the
+   * The transition's label, wrapped and placed: the label as drawn — its
+   * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
+   * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
+   * which is the box the shared core was asked to keep clear, and the
+   * centre of the space layout kept clear for it. `null` when the
    * transition carries no label and asked for none — the shape
    * `PositionedEdge.label` has, for the reason given there.
    */
@@ -3748,9 +3780,12 @@ export interface PositionedErRelationship {
   line: ErRelationshipLine;
   points: Point[];
   /**
-   * `ResolvedErRelationship.label`, placed: its text, the box `layoutLabel`
-   * measured for it — the size the layout kept clear — and the centre of
-   * that space, which is what the renderer hands `drawLabel`. `null` when
+   * `ResolvedErRelationship.label`, wrapped and placed: the label as drawn
+   * — its rows after wrapping at 200 × 12/14 ≈ 171.43px of its 12px text
+   * (`wrapErRelationshipLabel`; Mermaid wraps its 14px ER label at 200px,
+   * the label-wrap ADR, nook `01M4R4WDZ`, as amended) — the box measured
+   * for those rows, which is the size the layout kept clear, and the
+   * centre of that space, which is what the renderer hands `drawLabel`. `null` when
    * the shared layout core reserved none. Nullable on the same terms as
    * `PositionedClassRelationship.label`, rather than because an ER
    * relationship can be unlabelled — measured, it cannot be.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, type InteractionTarget } from "./index";
-import type { SirenRenderResult, TextMeasurer } from "./contracts";
+import type { Point, SirenRenderResult, TextMeasurer } from "./contracts";
+import { routeOf } from "./compat/svgGeometry";
 import { readdirSync, readFileSync } from "node:fs";
 
 /**
@@ -5434,7 +5435,8 @@ enter A-B fade
     expect(result.diagnostics).toEqual([]);
 
     const drawn = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="A-B"]'));
-    expect(drawn().map((el) => el.tagName)).toEqual(["path", "text"]);
+    // The line, the background behind the label, and the label's text.
+    expect(drawn().map((el) => el.tagName)).toEqual(["path", "rect", "text"]);
     expect(drawn().every((el) => el.classList.contains("siren-pending"))).toBe(true);
 
     result.controller!.next();
@@ -5869,10 +5871,12 @@ describe("render() — a state diagram, end to end", () => {
     const loop = svg.querySelector('g.siren-transition[data-siren-id="Running-Running"]')!;
     const path = loop.querySelector("path.siren-transition-line")!;
     // A drawn loop, not a point: a route that collapsed onto one coordinate
-    // would draw nothing at all and still have a `<path>` to find.
-    const points = (path.getAttribute("d") ?? "").split(" ");
+    // would draw nothing at all and still have a `<path>` to find. Read off
+    // the route (`data-siren-points`), not `d`: a curve's `d` spells even a
+    // collapsed route with several distinct commands (`M`, `L`, `C`).
+    const points = routeOf(path);
     expect(points.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(points).size).toBeGreaterThanOrEqual(2);
+    expect(distinctPoints(points).length).toBeGreaterThanOrEqual(2);
     // The label is a group of its own wearing the same id, drawn after every
     // line (ADR-0016).
     expect(
@@ -6394,20 +6398,20 @@ describe("render() — a state diagram, end to end", () => {
       'g.siren-transition[data-siren-id="Running-Running"] path.siren-transition-line',
     );
     expect(loop).not.toBeNull();
-    const loopPoints = [
-      ...new Set((loop!.getAttribute("d") ?? "").split(" ")),
-    ]
-      .map((step) => step.replace(/^[ML]/, "").split(",").map(Number))
-      .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+    // The route (`data-siren-points`), not `d`: a curve's `d` lists control
+    // points the line never passes through.
+    const loopPoints = distinctPoints(routeOf(loop!)).filter(
+      ({ x, y }) => Number.isFinite(x) && Number.isFinite(y),
+    );
     expect(loopPoints.length).toBeGreaterThan(1);
 
     const insideFrame = loopPoints.filter(
-      ([x, y]) =>
+      ({ x, y }) =>
         x > running.x && x < running.x + running.w && y > running.y && y < running.y + running.h,
     );
     expect(insideFrame).toEqual([]);
 
-    const onFrameOutline = ([x, y]: number[]) =>
+    const onFrameOutline = ({ x, y }: Point) =>
       Math.abs(x - running.x) < 0.5 ||
       Math.abs(x - (running.x + running.w)) < 0.5 ||
       Math.abs(y - running.y) < 0.5 ||
@@ -6416,7 +6420,7 @@ describe("render() — a state diagram, end to end", () => {
 
     const [vx, vy, vw, vh] = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
     expect(
-      loopPoints.filter(([x, y]) => x < vx || x > vx + vw || y < vy || y > vy + vh),
+      loopPoints.filter(({ x, y }) => x < vx || x > vx + vw || y < vy || y > vy + vh),
     ).toEqual([]);
   });
 
@@ -6541,6 +6545,19 @@ describe("render() — a state diagram, end to end", () => {
     expect(byId("Working").classList.contains("siren-highlight-outline")).toBe(false);
   });
 });
+
+/**
+ * `points` with each coordinate pair kept once, at its first occurrence.
+ * Compared with `Object.is`, so a `NaN` pair is one pair like any other —
+ * as the attribute text it was read from would be — and not a fresh point
+ * every time.
+ */
+function distinctPoints(points: readonly Point[]): Point[] {
+  return points.filter(
+    (point, i) =>
+      points.findIndex(({ x, y }) => Object.is(x, point.x) && Object.is(y, point.y)) === i,
+  );
+}
 
 /**
  * Whether the layout stage ever hands the renderer a coordinate that is not a
@@ -6702,10 +6719,14 @@ ${inner}
   it("places the same boxes for no direction anywhere", () => {
     // No frame carries a direction, so this document goes through the layout
     // engine's ordinary compound path and must keep doing so.
+    // (Since the 8 dagre margin: x is +8, because the outer frame's left
+    // edge is dagre's own cluster box and needs no shift; y is
+    // unchanged, because the frame's title strip already reached above 0 and
+    // the adapter's shift absorbs the margin.)
     expect(nodeCentres(renderInto(nested("", "")))).toEqual({
-      A: { x: 141, y: 128 },
-      B: { x: 151, y: 210 },
-      C: { x: 47, y: 210 },
+      A: { x: 149, y: 128 },
+      B: { x: 159, y: 210 },
+      C: { x: 55, y: 210 },
     });
   });
 });
@@ -7292,11 +7313,11 @@ describe("render() — an ER diagram, end to end", () => {
     expect(holds(frame, entityRect("LINE-ITEM"))).toBe(true);
     expect(holds(frame, entityRect("PRODUCT"))).toBe(false);
     expect(holds(frame, entityRect("CUSTOMER"))).toBe(false);
-    // The block's own `TB` against the document's `LR`, read as geometry:
-    // its two members stack rather than standing side by side. Nothing but
-    // this line tells that picture from the one a cluster silently taking
-    // the document's direction would draw.
-    expect(entityRect("ORDER").bottom).toBeLessThanOrEqual(entityRect("LINE-ITEM").top);
+    // The block's own `TB` does not apply: `CUSTOMER ||--o{ ORDER` crosses
+    // its boundary, and Mermaid (`adjustClustersAndEdges` /
+    // `externalConnections`) then lays it out in the document's `LR` — its
+    // two members side by side rather than stacked.
+    expect(entityRect("ORDER").right).toBeLessThanOrEqual(entityRect("LINE-ITEM").left);
 
     // The alias renames the box and nothing else: `CUSTOMER` is still the id
     // above, and "Customer Account" is what is drawn.
@@ -8446,5 +8467,76 @@ describe("render(…, { timeline: name }) — choosing which named timeline appl
         expect(result.diagnostics, `${kind} ${String(timeline)}`).toEqual(asDefault.diagnostics);
       }
     }
+  });
+});
+
+describe("render() — a flowchart's `linkStyle … interpolate` chooses the curve an edge is drawn with", () => {
+  /** The `[x, y]` points a path's `d` is written through, in order — every `M`, `L` and `C` coordinate. */
+  const dPoints = (d: string): number[][] =>
+    [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+
+  it("draws `default`'s `step` as axis-aligned segments, and an index's `linear` through its routed points", () => {
+    const container = document.createElement("div");
+    // A fan, so the routes are diagonal and a step curve has corners to make.
+    const source = `flowchart TD
+A --> B
+A --> C
+A --> D
+linkStyle default interpolate step
+linkStyle 2 interpolate linear
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    const path = (id: string) => result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    for (const id of ["A-B", "A-C"]) {
+      const d = path(id).getAttribute("d")!;
+      expect(d, id).not.toMatch(/C/);
+      const points = dPoints(d);
+      for (let i = 1; i < points.length; i += 1) {
+        const [[x0, y0], [x1, y1]] = [points[i - 1], points[i]];
+        expect(x0 === x1 || y0 === y1, `${id} segment ${i}: ${d}`).toBe(true);
+      }
+    }
+    const linear = path("A-D");
+    expect(linear.getAttribute("d")).not.toMatch(/C/);
+    expect(dPoints(linear.getAttribute("d")!).map(([x, y]) => `${x},${y}`).join(" ")).toBe(
+      linear.getAttribute("data-siren-points"),
+    );
+  });
+
+  it("reports an unimplemented curve as an error and an unknown one as a warning, at the statement, and still draws", () => {
+    const container = document.createElement("div");
+    const source = `flowchart TD
+A --> B
+A --> C
+  linkStyle 0 interpolate natural
+  linkStyle 1 interpolate wobbly stroke:#f00
+`;
+
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'linkStyle interpolate "natural" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.',
+        line: 4,
+        column: 3,
+      },
+      {
+        severity: "warning",
+        message:
+          'linkStyle interpolate "wobbly" names no curve; drawing basis, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+        line: 5,
+        column: 3,
+      },
+    ]);
+    // Both edges fall to `basis`: one by falling back, one as Mermaid draws.
+    const path = (id: string) => result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    expect(path("A-B").getAttribute("d")).toMatch(/C/);
+    expect(path("A-C").getAttribute("d")).toMatch(/C/);
+    expect(path("A-C").getAttribute("style")).toBe("stroke:#f00");
   });
 });

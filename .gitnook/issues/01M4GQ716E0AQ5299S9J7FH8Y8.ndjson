@@ -4,3 +4,4 @@
 {"id":"01M4GSMTH2HRRBDQTDFJ40TVVV","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4GTSVNSXA75GEZW6P70PH13","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M4GTSVW6JQF0AR676DHZ3HW5","t":6,"a":"83a1","op":"comment","body":"瀏覽器確認通過。使用者提出 full diagram 下選單應停用，另開 T6（01M4GTSKGPSG507DMA0V2KA5BZ）。"}
+{"id":"01M4RBRNJJ26P54F7E1QJYGHFQ","t":7,"a":"83a1","op":"set","k":"archived","v":true}

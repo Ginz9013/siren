@@ -15,8 +15,19 @@
  * Mermaid, its meaning in prose, and — for anything but a `rejected` row — an
  * assert that says which picture was drawn.
  */
-import type { SirenRenderResult } from "../contracts";
+import type { Point, SirenRenderResult } from "../contracts";
 import { LABEL_CASES, labelRows, labelRuns } from "./labelCorpus";
+import {
+  type Box,
+  distanceToPolyline,
+  encloses,
+  ER_SUBGRAPH,
+  holds,
+  interiorsMeet,
+  rectBox,
+  routeOf,
+  subgraphFrames,
+} from "./svgGeometry";
 
 /** Which Mermaid diagram kind a case is written in. */
 export type CompatKind = "flowchart" | "class" | "sequence" | "state" | "er";
@@ -49,6 +60,14 @@ export interface CompatCase {
    * than a label.
    */
   assert?: (result: SirenRenderResult) => void;
+  /**
+   * Warning messages a `supported` construct is expected to report, word
+   * for word — for a picture Siren draws exactly as Mermaid does while still
+   * telling the author something (`linkStyle 0 interpolate zigzag` draws
+   * `basis`, as Mermaid does, and names no curve). The runner fails the row
+   * if one is missing, and still counts every other diagnostic as noise.
+   */
+  warnings?: readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +126,17 @@ function textOf(element: Element): string {
  */
 function nodeLabelRows(result: SirenRenderResult, id: string): string[] {
   return labelRows(svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] text`));
+}
+
+/**
+ * How far apart the rows of the first `<text>` matching `selector` are drawn:
+ * the gap from each `tspan.siren-label-row`'s `y` to the next, to three
+ * decimals — the line height a reader sees between two rows of one label.
+ */
+function rowGaps(result: SirenRenderResult, selector: string): number[] {
+  const rows = Array.from(svgOf(result).querySelector(selector)?.querySelectorAll(":scope > tspan.siren-label-row") ?? []);
+  const ys = rows.map((row) => Number(row.getAttribute("y")));
+  return ys.slice(1).map((y, index) => Number((y - ys[index]!).toFixed(3)));
 }
 
 /** Every flowchart node as `id[label]`, in draw order. */
@@ -204,10 +234,59 @@ function edgeLabelStyle(result: SirenRenderResult, id: string): string {
 }
 
 /** Where one edge's label was drawn — the anchor layout reserved space at. */
-function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+function edgeLabelCenter(result: SirenRenderResult, id: string): Point {
   const text = svgOf(result).querySelector(`text.siren-edge-label[data-siren-id="${id}"]`);
   if (text === null) throw new Error(`no label was drawn on edge "${id}"`);
   return { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
+}
+
+/**
+ * How far a label's centre is drawn from the line it labels: the distance
+ * from the `<text>` matched by `labelSelector` (its `x`/`y`, the anchor it is
+ * centred on) to the nearest segment of the route of the `<path>` matched by
+ * `lineSelector` (`pathPoints`: the routed points, not the curve's control
+ * points).
+ *
+ * The reader for "the label is on its line", which is where Mermaid puts one
+ * (`labelpos: "c"`): the label's space is reserved at a point the route
+ * passes through. Distance rather than equality with one of the points, so
+ * the reading does not depend on how many bends the engine drew.
+ */
+function labelDistanceFromLine(
+  result: SirenRenderResult,
+  labelSelector: string,
+  lineSelector: string,
+): number {
+  const text = svgOf(result).querySelector(labelSelector);
+  if (text === null) throw new Error(`nothing matched "${labelSelector}"`);
+  const label = { x: Number(text.getAttribute("x")), y: Number(text.getAttribute("y")) };
+  return distanceToPolyline(label, pathPoints(result, lineSelector));
+}
+
+/**
+ * How close is "on the line": half a pixel. The anchor is a point the engine
+ * routed the line through, so the distance is 0 up to rounding; the old
+ * placement beside the line was at least 10 away (`labeloffset`).
+ */
+const ON_THE_LINE = 0.5;
+
+/**
+ * Throws unless the label `labelDistanceFromLine` reads is on its line,
+ * naming how far off it was drawn — the number a reader needs to tell a
+ * rounding slip from a label placed beside the line.
+ */
+function expectOnTheLine(
+  what: string,
+  result: SirenRenderResult,
+  labelSelector: string,
+  lineSelector: string,
+): void {
+  const distance = labelDistanceFromLine(result, labelSelector, lineSelector);
+  if (!(distance <= ON_THE_LINE)) {
+    throw new Error(
+      `${what} is drawn ${distance} from its line, not on it (within ${ON_THE_LINE})`,
+    );
+  }
 }
 
 /**
@@ -218,11 +297,15 @@ function edgeLabelCenter(result: SirenRenderResult, id: string): { x: number; y:
  * can tell an edge that meets a frame from one that stops at a box inside
  * it. Everything between the ends is left alone on purpose: how many bends
  * the route takes is the layout engine's, not a fact about Mermaid.
+ *
+ * Off `d` still, though a connector is drawn as a curve: every curve starts
+ * with `M` on the route's first point and ends with `L` on its last, so the
+ * first and last commands are the route's ends whatever lies between.
  */
 function edgeEnds(
   result: SirenRenderResult,
   id: string,
-): { start: { x: number; y: number }; end: { x: number; y: number } } {
+): { start: Point; end: Point } {
   const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
   if (path === null) throw new Error(`no edge "${id}" was drawn`);
   const points = (path.getAttribute("d") ?? "").split(/\s+/).map((command) => {
@@ -233,7 +316,8 @@ function edgeEnds(
 }
 
 /**
- * **Every** point one line is drawn through, read off a `<path>`'s own `d`.
+ * **Every** point one connector's route passes through, read off the
+ * `data-siren-points` its renderer writes beside `d`.
  *
  * The reader a *self-loop* needs, and the reason it is not `edgeEnds`. A
  * loop's two ends say whether it is joined to the right figure; they say
@@ -242,26 +326,62 @@ function edgeEnds(
  * between them tell those two pictures apart, so a row asking "is this drawn
  * outside the frame" has to see all of them.
  *
+ * Not off `d`: a connector is drawn as a curve (`basis` by default, as in
+ * Mermaid), and a curve's `d` lists control points the line never passes
+ * through, not the route. The route is kept on the path for readers like
+ * this one (`drawConnectorRoute` in `renderer/connectorCurve.ts`). A path
+ * without it throws rather than reading as an empty route, so a renderer
+ * that stopped writing it fails every row that asks.
+ *
  * Takes the selector rather than assuming one, because a flowchart edge and
  * a state transition are two elements with two class names and one question.
  */
 function pathPoints(
   result: SirenRenderResult,
   selector: string,
-): { x: number; y: number }[] {
+): Point[] {
   const path = svgOf(result).querySelector(selector);
   if (path === null) throw new Error(`nothing matched "${selector}"`);
-  return (path.getAttribute("d") ?? "")
-    .split(/\s+/)
-    .map((command) => command.slice(1).split(","))
-    .map(([x, y]) => ({ x: Number(x), y: Number(y) }));
+  return routeOf(path);
+}
+
+/**
+ * How one flowchart edge's line joins its route — the **Curve** it was
+ * drawn with, read as geometry off `d` against the route in
+ * `data-siren-points`, never off a curve name:
+ *
+ * - `curved` — `d` holds a cubic (`C`), as `basis` draws;
+ * - `through its route` — straight segments through exactly the routed
+ *   points, as `linear` draws;
+ * - `axis-aligned steps` — straight segments, every one horizontal or
+ *   vertical, as `step`, `stepBefore` and `stepAfter` draw.
+ *
+ * Meaningful on a route with a diagonal leg (a fan, say): on a route that is
+ * already one straight vertical line the last two pictures are the same.
+ */
+function edgeCurve(result: SirenRenderResult, id: string): string {
+  const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
+  if (path === null) throw new Error(`no edge "${id}" was drawn`);
+  const d = path.getAttribute("d") ?? "";
+  if (d.includes("C")) return "curved";
+  const drawn = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(([, x, y]) => `${Number(x)},${Number(y)}`);
+  const route = routeOf(path).map(({ x, y }) => `${x},${y}`);
+  if (JSON.stringify(drawn) === JSON.stringify(route)) return "through its route";
+  const axisAligned = drawn.every((point, i) => {
+    if (i === 0) return true;
+    const [x0, y0] = drawn[i - 1].split(",");
+    const [x1, y1] = point.split(",");
+    return x0 === x1 || y0 === y1;
+  });
+  if (axisAligned) return "axis-aligned steps";
+  throw new Error(`edge "${id}" is drawn with an unrecognized line: "${d}"`);
 }
 
 /** Every point one flowchart edge's line is drawn through. */
 function edgePoints(
   result: SirenRenderResult,
   id: string,
-): { x: number; y: number }[] {
+): Point[] {
   return pathPoints(result, `path.siren-edge[data-siren-id="${id}"]`);
 }
 
@@ -269,7 +389,7 @@ function edgePoints(
 function transitionPath(
   result: SirenRenderResult,
   id: string,
-): { x: number; y: number }[] {
+): Point[] {
   return pathPoints(
     result,
     `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
@@ -286,31 +406,20 @@ function transitionPath(
  * exactly that risk, because the room for one is reserved by the layout
  * engine around a node and never around a frame.
  */
-function pictureBox(result: SirenRenderResult): {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-} {
+function pictureBox(result: SirenRenderResult): Box {
   const [x, y, width, height] = (svgOf(result).getAttribute("viewBox") ?? "")
     .split(/\s+/)
     .map(Number);
   return { top: y, bottom: y + height, left: x, right: x + width };
 }
 
-/** Whether `box` holds `point`, boundary included — `insideBox`'s question, less strictly. */
-function holds(
-  box: { top: number; bottom: number; left: number; right: number },
-  point: { x: number; y: number },
-): boolean {
-  const tolerance = 1e-6;
-  return (
-    point.x >= box.left - tolerance &&
-    point.x <= box.right + tolerance &&
-    point.y >= box.top - tolerance &&
-    point.y <= box.bottom + tolerance
-  );
-}
+/**
+ * How near a computed point has to be to an outline to count as on it: a
+ * rounding allowance, so a point the layout put exactly on a side is not
+ * read as one side of it or the other. `holds`, `insideBox`, `onBoxBoundary`
+ * and `transitionTouches` all read with it, so they never disagree about a point.
+ */
+const ON_OUTLINE = 1e-6;
 
 /**
  * Whether `point` lies strictly within `box` — on the outline is not inside,
@@ -318,15 +427,14 @@ function holds(
  * with, so that the two never disagree about a point on the line.
  */
 function insideBox(
-  box: { top: number; bottom: number; left: number; right: number },
-  point: { x: number; y: number },
+  box: Box,
+  point: Point,
 ): boolean {
-  const tolerance = 1e-6;
   return (
-    point.x > box.left + tolerance &&
-    point.x < box.right - tolerance &&
-    point.y > box.top + tolerance &&
-    point.y < box.bottom - tolerance
+    point.x > box.left + ON_OUTLINE &&
+    point.x < box.right - ON_OUTLINE &&
+    point.y > box.top + ON_OUTLINE &&
+    point.y < box.bottom - ON_OUTLINE
   );
 }
 
@@ -336,20 +444,15 @@ function insideBox(
  * row already has in hand rather than over a state it names.
  */
 function onBoxBoundary(
-  box: { top: number; bottom: number; left: number; right: number },
-  point: { x: number; y: number },
+  box: Box,
+  point: Point,
 ): boolean {
-  const tolerance = 1e-6;
-  const within =
-    point.x >= box.left - tolerance &&
-    point.x <= box.right + tolerance &&
-    point.y >= box.top - tolerance &&
-    point.y <= box.bottom + tolerance;
+  const within = holds(box, point, ON_OUTLINE);
   const level =
-    Math.abs(point.x - box.left) < tolerance ||
-    Math.abs(point.x - box.right) < tolerance ||
-    Math.abs(point.y - box.top) < tolerance ||
-    Math.abs(point.y - box.bottom) < tolerance;
+    Math.abs(point.x - box.left) < ON_OUTLINE ||
+    Math.abs(point.x - box.right) < ON_OUTLINE ||
+    Math.abs(point.y - box.top) < ON_OUTLINE ||
+    Math.abs(point.y - box.bottom) < ON_OUTLINE;
   return within && level;
 }
 
@@ -380,7 +483,7 @@ function edgeSpan(result: SirenRenderResult, from: string, to: string): number {
  * with a `<path>`, and throws rather than returning a wrong centre, so a
  * row that needs a diamond's position has to widen this first.
  */
-function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+function nodeCenter(result: SirenRenderResult, id: string): Point {
   const { top, bottom, left, right } = nodeBox(result, id);
   return { x: (left + right) / 2, y: (top + bottom) / 2 };
 }
@@ -389,19 +492,12 @@ function nodeCenter(result: SirenRenderResult, id: string): { x: number; y: numb
 function nodeBox(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const frame = svgOf(result).querySelector(
     `g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`,
   );
   if (frame === null) throw new Error(`no node "${id}" was drawn`);
-  const x = Number(frame.getAttribute("x"));
-  const y = Number(frame.getAttribute("y"));
-  return {
-    top: y,
-    bottom: y + Number(frame.getAttribute("height")),
-    left: x,
-    right: x + Number(frame.getAttribute("width")),
-  };
+  return rectBox(frame);
 }
 
 /**
@@ -420,35 +516,12 @@ function nodeBox(
 function subgraphBox(
   result: SirenRenderResult,
   title: string,
-): { top: number; bottom: number; left: number; right: number } {
-  const group = elements(result, "g.siren-subgraph").find(
-    (g) => g.querySelector("text.siren-subgraph-label")?.textContent === title,
-  );
-  const frame = group?.querySelector("rect.siren-subgraph-frame");
-  if (frame === undefined || frame === null) {
+): Box {
+  const box = subgraphFrames(svgOf(result)).find((drawn) => drawn.title === title)?.box;
+  if (box === undefined || box === null) {
     throw new Error(`no subgraph titled "${title}" was drawn`);
   }
-  const x = Number(frame.getAttribute("x"));
-  const y = Number(frame.getAttribute("y"));
-  return {
-    top: y,
-    bottom: y + Number(frame.getAttribute("height")),
-    left: x,
-    right: x + Number(frame.getAttribute("width")),
-  };
-}
-
-/** Whether `outer` wholly contains `inner` — how "it groups them" is read off a picture. */
-function encloses(
-  outer: { top: number; bottom: number; left: number; right: number },
-  inner: { top: number; bottom: number; left: number; right: number },
-): boolean {
-  return (
-    outer.left <= inner.left &&
-    outer.top <= inner.top &&
-    outer.right >= inner.right &&
-    outer.bottom >= inner.bottom
-  );
+  return box;
 }
 
 /**
@@ -817,7 +890,7 @@ function classes(result: SirenRenderResult): string[] {
 }
 
 /** The top-left corner of one class's frame — how a direction is visible in the result. */
-function classBox(result: SirenRenderResult, id: string): { x: number; y: number } {
+function classBox(result: SirenRenderResult, id: string): Point {
   const frame = svgOf(result).querySelector(
     `g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`,
   );
@@ -918,21 +991,14 @@ function erEntities(result: SirenRenderResult): string[] {
 function erSubgraphBox(
   result: SirenRenderResult,
   title: string,
-): { top: number; bottom: number; left: number; right: number } {
-  const group = elements(result, "g.siren-er-subgraph").find(
-    (g) => g.querySelector("text.siren-er-subgraph-label")?.textContent === title,
-  );
-  const frame = group?.querySelector("rect.siren-er-subgraph-frame");
-  if (frame === undefined || frame === null) {
+): Box {
+  const box = subgraphFrames(svgOf(result), ER_SUBGRAPH).find(
+    (drawn) => drawn.title === title,
+  )?.box;
+  if (box === undefined || box === null) {
     throw new Error(`no ER cluster titled "${title}" was drawn`);
   }
-  const number = (name: string) => Number(frame.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return box;
 }
 
 /**
@@ -943,18 +1009,12 @@ function erSubgraphBox(
 function erEntityRect(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const rect = svgOf(result).querySelector(
     `g.siren-er-entity[data-siren-id="${id}"] rect.siren-er-entity-frame`,
   );
   if (rect === null) throw new Error(`no entity "${id}" was drawn with a rectangle`);
-  const number = (name: string) => Number(rect.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(rect);
 }
 
 /**
@@ -1118,7 +1178,7 @@ function erEntityDividers(result: SirenRenderResult, id: string): string[] {
 }
 
 /** Where one ER entity's drawn name sits, so a row can ask whether it is inside its own box. */
-function erLabelAnchor(result: SirenRenderResult, id: string): { x: number; y: number } {
+function erLabelAnchor(result: SirenRenderResult, id: string): Point {
   const text = svgOf(result).querySelector(
     `g.siren-er-entity[data-siren-id="${id}"] text.siren-er-entity-label`,
   );
@@ -1309,7 +1369,7 @@ function stateRowGeometry(
  * One state box's centre — how a state diagram's top-to-bottom direction is
  * visible in the result rather than merely claimed.
  */
-function stateCenter(result: SirenRenderResult, id: string): { x: number; y: number } {
+function stateCenter(result: SirenRenderResult, id: string): Point {
   const frame = svgOf(result).querySelector(
     `g.siren-state[data-siren-id="${id}"] rect.siren-state-frame`,
   );
@@ -1333,16 +1393,10 @@ function stateCenter(result: SirenRenderResult, id: string): { x: number; y: num
 function stateRect(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const rect = svgOf(result).querySelector(`g.siren-state[data-siren-id="${id}"] rect`);
   if (rect === null) throw new Error(`no state "${id}" was drawn with a rectangle`);
-  const number = (name: string) => Number(rect.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(rect);
 }
 
 /**
@@ -1368,18 +1422,12 @@ function stateNoteText(result: SirenRenderResult, id: string): string[] {
 function stateNoteRect(
   result: SirenRenderResult,
   id: string,
-): { top: number; bottom: number; left: number; right: number } {
+): Box {
   const rect = svgOf(result).querySelector(
     `g.siren-state[data-siren-id="${id}"] rect.siren-note-frame`,
   );
   if (rect === null) throw new Error(`no note was drawn on state "${id}"`);
-  const number = (name: string) => Number(rect.getAttribute(name));
-  return {
-    top: number("y"),
-    bottom: number("y") + number("height"),
-    left: number("x"),
-    right: number("x") + number("width"),
-  };
+  return rectBox(rect);
 }
 
 /**
@@ -1397,19 +1445,11 @@ function stateNoteConnectorMarker(result: SirenRenderResult, id: string): string
   return path.getAttribute("marker-end");
 }
 
-/** Whether two rectangles share any area — "these are two figures, not one". */
-function overlaps(
-  a: { top: number; bottom: number; left: number; right: number },
-  b: { top: number; bottom: number; left: number; right: number },
-): boolean {
-  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-}
-
 /** One state's centre, for a row reading a direction off the picture. */
 function stateRectCenter(
   result: SirenRenderResult,
   id: string,
-): { x: number; y: number } {
+): Point {
   const box = stateRect(result, id);
   return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
 }
@@ -1440,23 +1480,18 @@ function transitionTouches(
   const point = end === "start" ? points[0] : points[points.length - 1];
 
   const box = stateRect(result, stateId);
-  const tolerance = 1e-6;
-  const within =
-    point.x >= box.left - tolerance &&
-    point.x <= box.right + tolerance &&
-    point.y >= box.top - tolerance &&
-    point.y <= box.bottom + tolerance;
+  const within = holds(box, point, ON_OUTLINE);
   const onAnEdge =
-    Math.abs(point.x - box.left) < tolerance ||
-    Math.abs(point.x - box.right) < tolerance ||
-    Math.abs(point.y - box.top) < tolerance ||
-    Math.abs(point.y - box.bottom) < tolerance;
+    Math.abs(point.x - box.left) < ON_OUTLINE ||
+    Math.abs(point.x - box.right) < ON_OUTLINE ||
+    Math.abs(point.y - box.top) < ON_OUTLINE ||
+    Math.abs(point.y - box.bottom) < ON_OUTLINE;
   return within && onAnEdge;
 }
 
 /**
- * The distinct coordinates one transition's line is drawn through, read off
- * the `<path>`'s own `d`.
+ * The distinct coordinates one transition's route passes through, read off
+ * the `<path>`'s `data-siren-points` (see `pathPoints` for why not `d`).
  *
  * Distinct, because the question a self-loop raises is whether a *loop* was
  * drawn: a route that collapsed onto a single point still leaves a `<path>`
@@ -1467,7 +1502,7 @@ function transitionPoints(result: SirenRenderResult, id: string): string[] {
     `g.siren-transition[data-siren-id="${id}"] path.siren-transition-line`,
   );
   if (path === null) throw new Error(`no transition "${id}" was drawn`);
-  return [...new Set((path.getAttribute("d") ?? "").split(" "))];
+  return [...new Set(routeOf(path).map(({ x, y }) => `${x},${y}`))];
 }
 
 /** Whether the diagram drew anything at all under `selector`. */
@@ -2031,6 +2066,31 @@ export const COMPAT_CASES: readonly CompatCase[] = [
           `the label is drawn at y=${label.y}, not between A (ends ${nodeBox(result, "A").bottom}) and B (starts ${nodeBox(result, "B").top})`,
         );
       }
+      // And on the line, as Mermaid draws it (`labelpos: "c"`), not beside it.
+      expectOnTheLine(
+        "the label",
+        result,
+        'text.siren-edge-label[data-siren-id="A-B"]',
+        'path.siren-edge[data-siren-id="A-B"]',
+      );
+      // And readable where the line runs under it: Mermaid paints a
+      // translucent fill behind every edge label (measured, 11.17.2:
+      // `.labelBkg` and `.edgeLabel` over the label's box). Siren's is a rect
+      // wearing the label's id, so a timeline entry on the edge reaches it
+      // with the text (ADR-0009), drawn before the text it sits under.
+      expectSame(
+        "the label's background",
+        elements(result, "rect.siren-connector-label-background").map(idOf),
+        ["A-B"],
+      );
+      const drawn = elements(result, "*");
+      const background = svgOf(result).querySelector("rect.siren-connector-label-background")!;
+      const text = svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]')!;
+      expectSame(
+        "the background is painted under the label's text",
+        drawn.indexOf(background) < drawn.indexOf(text),
+        true,
+      );
     },
   },
   {
@@ -2050,6 +2110,24 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         labelRows(svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]')),
         ["yes", "no"],
       );
+    },
+  },
+  {
+    id: "fc-label-line-height",
+    kind: "flowchart",
+    source: `flowchart TB
+      A["first<br/>second"] -->|"yes<br/>no"| B`,
+    status: "supported",
+    meaning:
+      "A label's rows are one line apart, and a line is 1.5 times the font " +
+      "size: mermaid 11.17.2 draws its 16px label text on 24px lines (measured: " +
+      "a node of two `<br>` rows is a 48px `<div>`, of five wrapped rows " +
+      "120px; an edge label the same). Siren's node text is 14px, so its rows " +
+      "are 21px apart; an edge label is 12px, so 18px. The shape's padding is " +
+      "around the rows once, not around each.",
+    assert: (result) => {
+      expectSame("node label row gaps", rowGaps(result, 'g.siren-node[data-siren-id="A"] text'), [21]);
+      expectSame("edge label row gaps", rowGaps(result, 'text.siren-edge-label[data-siren-id="A-B"]'), [18]);
     },
   },
   {
@@ -2138,7 +2216,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -2180,7 +2258,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -2347,6 +2425,47 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       expectSame("Inner encloses B", encloses(inner, nodeBox(result, "B")), true);
       expectSame("Outer encloses Inner", encloses(outer, inner), true);
       expectSame("Outer encloses C", encloses(outer, nodeBox(result, "C")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-direction-crossed",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        direction LR
+        A --> B
+      end
+      B --> C`,
+    status: "supported",
+    meaning:
+      "A subgraph's `direction` applies only while it has no " +
+      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid's rule: " +
+      "mermaid.js 11.17.2's `adjustClustersAndEdges` marks such a " +
+      "Mermaid cluster `externalConnections`, and only unmarked Mermaid " +
+      "clusters are laid out in their own `dir`. `B --> C` leaves `one`, " +
+      "so its members follow the header's `TB`, and its edges are routed " +
+      "with the rest of the graph rather than drawn as straight segments.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+
+      // The header's `TB`, read off the picture: `B` a rank below `A`.
+      // `direction LR` reaching layout would put `B` beside `A` instead.
+      expectSame(
+        "B is drawn below A",
+        nodeBox(result, "B").top > nodeBox(result, "A").bottom,
+        true,
+      );
+
+      // Routed by the layout engine like any other edge, not the two-point
+      // straight fallback a directed cluster's edges get.
+      expectSame("A-B is a routed line", edgePoints(result, "A-B").length > 2, true);
+      expectSame("B-C is a routed line", edgePoints(result, "B-C").length > 2, true);
+
+      const frame = subgraphBox(result, "one");
+      expectSame("frame encloses A", encloses(frame, nodeBox(result, "A")), true);
+      expectSame("frame encloses B", encloses(frame, nodeBox(result, "B")), true);
+      expectSame("frame does not enclose C", encloses(frame, nodeBox(result, "C")), false);
     },
   },
   {
@@ -2615,6 +2734,183 @@ line2\`"]`,
     },
   },
 
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`). Mermaid
+  // wraps a node's label at 200px of its 16px text; Siren at 175px of its
+  // 14px, the same number of characters to a row. The wrap width bounds the
+  // text alone, as Mermaid's `<div>` does; the measurer's padding goes
+  // outside it. Under the default measurer (8px a character, plus 16px of
+  // padding) 21 characters fit in 175px and 22 do not, and a wrapped
+  // label's box — a rectangle node's width — is 175 + 16 = 191. Each
+  // `meaning` quotes the lines mermaid 11.17.2 drew (headless Chrome, one
+  // line per distinct glyph top in the label's `<div>`); the rows Siren
+  // draws differ only because the default measurer is wider than Chrome's
+  // font.
+  {
+    id: "fc-label-wrap-latin",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[This is a fairly long English label that should certainly exceed two hundred pixels of width]`,
+    status: "supported",
+    meaning:
+      "A node label wider than Mermaid's wrapping width (200px) is wrapped, " +
+      "Latin text at its spaces only, and the label's box is then exactly " +
+      "that width: mermaid 11.17.2 draws it in a 200px-wide `<div>` as " +
+      "`This is a fairly long English ` / `label that should certainly ` / " +
+      "`exceed two hundred pixels ` / `of width`, in a 260px-wide node " +
+      "(measured).",
+    assert: (result) => {
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "This is a fairly long",
+        "English label that",
+        "should certainly",
+        "exceed two hundred",
+        "pixels of width",
+      ]);
+      // A rectangle takes its label box unchanged: 175px of text and the
+      // measurer's 16px of padding.
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-cjk",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[這是一個沒有任何空白而且相當長的中文節點標籤用來測試換行行為是否會在字元之間斷開]`,
+    status: "supported",
+    meaning:
+      "A CJK label with no space in it is wrapped between any two " +
+      "characters: mermaid 11.17.2 draws `這是一個沒有任何空白而且` / " +
+      "`相當長的中文節點標籤用來` / `測試換行行為是否會在字元` / `之間斷開` " +
+      "in a 200px-wide `<div>` (measured).",
+    assert: (result) => {
+      // 21 characters, then the other 19.
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "這是一個沒有任何空白而且相當長的中文節點標",
+        "籤用來測試換行行為是否會在字元之間斷開",
+      ]);
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-mixed",
+    kind: "flowchart",
+    source: `flowchart TD
+      P["Watering 灌溉控制器 (Rain / Pump / Wells)"]`,
+    status: "supported",
+    meaning:
+      "A label mixing CJK and Latin text is wrapped by both rules at once — " +
+      "garden-network's watering node: mermaid 11.17.2 draws " +
+      "`Watering 灌溉控制器 (Rain ` / `/ Pump / Wells)` in a 200px-wide " +
+      "`<div>` (measured).",
+    assert: (result) => {
+      // Mermaid's own two lines, less the space each first line ends with.
+      expectSame("label rows", nodeLabelRows(result, "P"), ["Watering 灌溉控制器 (Rain", "/ Pump / Wells)"]);
+      const box = nodeBox(result, "P");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-br",
+    kind: "flowchart",
+    source: `flowchart TD
+      A["short<br>a much longer second line that goes well past two hundred pixels"]`,
+    status: "supported",
+    meaning:
+      "A `<br>` still ends its line, and each line it leaves is wrapped on " +
+      "its own: mermaid 11.17.2 draws `short` / `a much longer second line ` " +
+      "/ `that goes well past two ` / `hundred pixels` in a 200px-wide " +
+      "`<div>` (measured) — the short first line is not filled from the next.",
+    assert: (result) => {
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "short",
+        "a much longer second",
+        "line that goes well",
+        "past two hundred",
+        "pixels",
+      ]);
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 175 + 16);
+    },
+  },
+  {
+    id: "fc-label-wrap-long-word",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[a Pneumonoultramicroscopicsilicovolcanoconiosis case]`,
+    status: "supported",
+    meaning:
+      "A word wider than the wrapping width is not cut: it stands on a row " +
+      "of its own and the label widens to it. mermaid 11.17.2 draws `a ` / " +
+      "`Pneumonoultramicroscopicsilicovolcanoconiosis ` / `case` in a " +
+      "`<div>` widened from 200px to 346px, in a 406px-wide node (measured).",
+    assert: (result) => {
+      expectSame("label rows", nodeLabelRows(result, "A"), [
+        "a",
+        "Pneumonoultramicroscopicsilicovolcanoconiosis",
+        "case",
+      ]);
+      // The word's 45 characters are 360px of text, and the box is that
+      // row with the measurer's 16px of padding — wider than 175 + 16.
+      const box = nodeBox(result, "A");
+      expectSame("node width", box.right - box.left, 45 * 8 + 16);
+    },
+  },
+  {
+    id: "fc-edge-label-wrap",
+    kind: "flowchart",
+    source: `flowchart TD
+      A[Start] -->|this edge label is long enough to go well past two hundred pixels wide| B[End]`,
+    status: "supported",
+    meaning:
+      "An edge label wider than Mermaid's wrapping width (200px of its 16px " +
+      "text) is wrapped as a node's is: mermaid 11.17.2 draws `this edge " +
+      "label is long ` / `enough to go well past two ` / `hundred pixels " +
+      "wide` in a 200px-wide `<div>` (measured). Siren draws an edge label " +
+      "at 12px, so it wraps at 150px of text, the same number of characters " +
+      "to a row, and the label's background covers the wrapped box.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character and
+      // 16px of padding, so 21 characters fit in 150px and 22 do not.
+      const text = svgOf(result).querySelector('text.siren-edge-label[data-siren-id="A-B"]');
+      expectSame("label rows", labelRows(text), [
+        "this edge label is",
+        "long enough to go",
+        "well past two hundred",
+        "pixels wide",
+      ]);
+      // The background is the wrapped box: 150px of text and the padding.
+      const background = svgOf(result).querySelector('rect.siren-connector-label-background[data-siren-id="A-B"]')!;
+      expectSame(
+        "background width",
+        Math.round(Number(background.getAttribute("width")) * 1000) / 1000,
+        Math.round((150 + (16 * 12) / 14) * 1000) / 1000,
+      );
+    },
+  },
+  {
+    id: "fc-subgraph-title-no-wrap",
+    kind: "flowchart",
+    source: `flowchart TD
+      subgraph G[This subgraph title is long enough to go well past two hundred pixels wide in Mermaid]
+        A[One] --> B[Two]
+      end`,
+    status: "supported",
+    meaning:
+      "A subgraph's title is never wrapped, however long: mermaid 11.17.2 " +
+      "draws it on one line in a 617px-wide `<div>` with " +
+      "`white-space: nowrap`, and the frame grows to hold it (625px, " +
+      "measured).",
+    assert: (result) => {
+      const title = "This subgraph title is long enough to go well past two hundred pixels wide in Mermaid";
+      expectSame("title rows", labelRows(svgOf(result).querySelector("text.siren-subgraph-label")), [title]);
+      // The frame holds the whole unwrapped title: its 85 characters, 696px.
+      const frame = subgraphBox(result, title);
+      expectSame("frame holds the title", frame.right - frame.left >= title.length * 8 + 16, true);
+    },
+  },
+
   {
     id: "fc-label-tag-quotes",
     kind: "flowchart",
@@ -2769,6 +3065,116 @@ line2\`"]`,
       // the translation is ADR-0008's and is made once, in the model.
       expectSame("edge A-B's label style", edgeLabelStyle(result, "A-B"), "fill:#0f0");
       expectSame("edge A-B's line style", edgeStyle(result, "A-B"), "stroke:#f00");
+    },
+  },
+
+  // A fan in every `interpolate` row below: each route has a diagonal leg,
+  // which is what makes `step`, `linear` and `basis` three different
+  // pictures (`edgeCurve`).
+  {
+    id: "fc-linkstyle-interpolate-default",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle default interpolate step`,
+    status: "supported",
+    meaning:
+      "`linkStyle default interpolate step` draws every edge with d3's " +
+      "`curveStep`: horizontal and vertical segments only.",
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "axis-aligned steps");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-index",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 0 interpolate linear`,
+    status: "supported",
+    meaning:
+      "`linkStyle 0 interpolate linear` draws the first declared edge as " +
+      "straight segments through its route; the other edge keeps Mermaid's " +
+      "default, `basis`.",
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "through its route");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "curved");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-with-declarations",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 1 interpolate step stroke:#f00`,
+    status: "supported",
+    meaning:
+      "`interpolate` and declarations on one line: Mermaid's grammar reads " +
+      "`linkStyle <n> interpolate <curve> <styles>` as both a curve and a " +
+      "style for the same edges.",
+    assert: (result) => {
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
+      expectSame("edge A-C's inline style", edgeStyle(result, "A-C"), "stroke:#f00");
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "curved");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-index-beats-default",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 0 interpolate linear
+      linkStyle default interpolate step`,
+    status: "supported",
+    meaning:
+      "An index's curve beats `default`'s for the edge it names, even when " +
+      "`default` is written after it — Mermaid draws " +
+      "`rawEdge.interpolate || edges.defaultInterpolate` (measured, 11.17.2).",
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "through its route");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
+    },
+  },
+  {
+    id: "fc-linkstyle-interpolate-unimplemented-rejected",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle 0 interpolate cardinal`,
+    status: "rejected",
+    meaning:
+      "`cardinal` is one of seven curves Mermaid draws (with `bumpX`, " +
+      "`bumpY`, `catmullRom`, `monotoneX`, `monotoneY`, `natural`) that " +
+      "Siren does not implement yet. Refused with an error naming it; the " +
+      "edge is drawn with its fallback curve.",
+  },
+  {
+    id: "fc-linkstyle-interpolate-unknown",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      A --> C
+      linkStyle default interpolate step
+      linkStyle 0 interpolate zigzag`,
+    status: "supported",
+    meaning:
+      "A name that is no curve at all is drawn as `basis`, as Mermaid " +
+      "draws it (`insertEdge`'s `default:` branch, measured: an unknown " +
+      "name on an index still takes that edge off `default`'s curve). " +
+      "Siren also warns that the name exists nowhere.",
+    warnings: [
+      'linkStyle interpolate "zigzag" names no curve; drawing basis, as Mermaid does. ' +
+        "Curves: basis, linear, step, stepBefore, stepAfter, rounded.",
+    ],
+    assert: (result) => {
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "curved");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
     },
   },
 
@@ -3120,6 +3526,13 @@ line2\`"]`,
       expectSame("relationships", relationships(result), ["Customer-Order:association"]);
       expectSame("relationship label", texts(result, "text.siren-relationship-label"), ["places"]);
       expectSame("multiplicities", texts(result, "text.siren-multiplicity"), ["1", "*"]);
+      // Drawn on its line, as Mermaid draws an edge label (`labelpos: "c"`).
+      expectOnTheLine(
+        "the label",
+        result,
+        'g.siren-relationship-labels[data-siren-id="Customer-Order"] text.siren-relationship-label',
+        'g.siren-relationship[data-siren-id="Customer-Order"] path.siren-relationship-line',
+      );
     },
   },
   {
@@ -3282,6 +3695,139 @@ line2\`"]`,
           ),
         ),
         ["holds", "many"],
+      );
+    },
+  },
+  {
+    id: "cls-label-line-height",
+    kind: "class",
+    source: `classDiagram
+      class Order["Order<br/>Line"]
+      Order --> Line : holds<br/>many`,
+    status: "supported",
+    meaning:
+      "A class's label and a relationship's label are rows one line apart, a " +
+      "line being 1.5 times the font size: mermaid 11.17.2 draws a two-row " +
+      "relationship label as a 48px `<div>` of 16px text (measured). Siren's " +
+      "class label is 14px, 21px apart; its relationship label is 12px, 18px " +
+      "apart.",
+    assert: (result) => {
+      expectSame("class label row gaps", rowGaps(result, "text.siren-class-name"), [21]);
+      expectSame(
+        "relationship label row gaps",
+        rowGaps(result, 'g.siren-relationship-labels[data-siren-id="Order-Line"] text.siren-relationship-label'),
+        [18],
+      );
+    },
+  },
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`, and its
+  // amendment `01M4R7HBG`), measured on mermaid 11.17.2: a relationship's
+  // label wraps at 200px of its 16px text; a class's name and a note do not.
+  {
+    id: "cls-relationship-label-wrap",
+    kind: "class",
+    source: `classDiagram
+      Animal --> Dog : this relation label is long enough to go well past two hundred pixels wide`,
+    status: "supported",
+    meaning:
+      "A relationship label wider than Mermaid's wrapping width wraps: " +
+      "mermaid 11.17.2 draws this one as `this relation label is long ` / " +
+      "`enough to go well past two ` / `hundred pixels wide` in a 200px " +
+      "`<div>` (measured), as a flowchart edge label. Siren draws a " +
+      "relationship label at 12px, so it wraps at 150px of text, Mermaid's " +
+      "200px scaled to that size (the label-wrap ADR, nook `01M4R4WDZ`): " +
+      "the same number of characters to a row.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character, so 21
+      // characters fit in 150px and 22 do not.
+      expectSame(
+        "relationship label rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-relationship-labels[data-siren-id="Animal-Dog"] text.siren-relationship-label',
+          ),
+        ),
+        ["this relation label", "is long enough to go", "well past two hundred", "pixels wide"],
+      );
+    },
+  },
+  {
+    id: "cls-class-name-no-wrap",
+    kind: "class",
+    source: `classDiagram
+      class Animal["This is a fairly long English class label that should exceed two hundred pixels"]`,
+    status: "supported",
+    meaning:
+      "A class's name is never wrapped, however long: mermaid 11.17.2 draws " +
+      "this one `white-space: nowrap` on one 577px row, in a 601px box " +
+      "(measured), and a long unspaced name the same. Siren keeps it on one " +
+      "row and grows the box to hold it (the label-wrap ADR, nook " +
+      "`01M4R4WDZ`).",
+    assert: (result) => {
+      const name = "This is a fairly long English class label that should exceed two hundred pixels";
+      expectSame(
+        "class name rows",
+        labelRows(svgOf(result).querySelector('g.siren-class[data-siren-id="Animal"] text.siren-class-name')),
+        [name],
+      );
+      const frame = svgOf(result).querySelector('g.siren-class[data-siren-id="Animal"] rect.siren-class-frame');
+      expectSame(
+        "the box holds the name",
+        Number(frame?.getAttribute("width")) >= name.length * 8 + 16,
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-note-no-wrap",
+    kind: "class",
+    source: `classDiagram
+      class Dog
+      note for Dog "this note text is long enough to go well past two hundred pixels wide surely"`,
+    status: "supported",
+    meaning:
+      "A class diagram's note is not wrapped, unlike a state diagram's: " +
+      "mermaid 11.17.2 gives its `<div>` `white-space: break-spaces` and a " +
+      "200px `max-width`, but draws it as a table, which `max-width` does " +
+      "not narrow, so the text stays on one 544px row in a 556 × 36 note " +
+      "(measured). Siren keeps it on one row (the label-wrap ADR's " +
+      "amendment, nook `01M4R7HBG`, leaves a class note to this measurement).",
+    assert: (result) => {
+      const note = "this note text is long enough to go well past two hundred pixels wide surely";
+      expectSame("note rows", labelRows(svgOf(result).querySelector("g.siren-note text.siren-note-text")), [note]);
+      const frame = svgOf(result).querySelector("g.siren-note rect.siren-note-frame");
+      expectSame(
+        "the note holds the text",
+        Number(frame?.getAttribute("width")) >= note.length * 8 + 16,
+        true,
+      );
+    },
+  },
+  {
+    id: "cls-member-no-wrap",
+    kind: "class",
+    source: `classDiagram
+      class Dog {
+        +String aVeryLongMemberNameThatGoesOnAndOn with some words past two hundred pixels
+      }`,
+    status: "supported",
+    meaning:
+      "A class's member line is never wrapped, however long: mermaid 11.17.2 " +
+      "draws this one `white-space: nowrap` on one 661px row, and a long " +
+      "method signature the same (measured). The label-wrap ADR (nook " +
+      "`01M4R4WDZ`, as amended by `01M4R7HBG`) wraps none of a class's " +
+      "compartments; Siren keeps the member on one row and grows the box to " +
+      "hold it.",
+    assert: (result) => {
+      const member = "+String aVeryLongMemberNameThatGoesOnAndOn with some words past two hundred pixels";
+      expectSame("Dog's members", members(result, "Dog"), [member]);
+      const text = svgOf(result).querySelector('g.siren-class[data-siren-id="Dog"] text.siren-member');
+      expectSame("the member is one row", text?.querySelectorAll("tspan.siren-label-row").length ?? 0, 0);
+      const frame = svgOf(result).querySelector('g.siren-class[data-siren-id="Dog"] rect.siren-class-frame');
+      expectSame(
+        "the box holds the member",
+        Number(frame?.getAttribute("width")) >= member.length * 8,
+        true,
       );
     },
   },
@@ -3919,6 +4465,54 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-label-line-height",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A as Web<br/>Client
+      A->>B: first<br/>second
+      Note over A: n one<br/>n two`,
+    status: "supported",
+    meaning:
+      "Sequence text is SVG in Mermaid, not an HTML label, and its rows are " +
+      "not 1.5 font sizes apart. mermaid 11.17.2 at 16px (measured): a " +
+      "message's, a note's and a block condition's rows are 19px apart; a " +
+      "participant's and a box caption's 16px (each row's `dy` 8px either " +
+      "side of the centre). At Siren's 14px: 16.625 and 14.",
+    assert: (result) => {
+      expectSame("participant row gaps", rowGaps(result, 'g.siren-participant[data-siren-id="A"] text'), [14]);
+      expectSame("message row gaps", rowGaps(result, "text.siren-message-label"), [16.625]);
+      expectSame("note row gaps", rowGaps(result, "text.siren-note-text"), [16.625]);
+    },
+  },
+  {
+    id: "seq-one-row-label-spacing",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: a
+      A->>B: b
+      alt c
+        A->>B: d
+      else e
+        A->>B: f
+      end`,
+    status: "supported",
+    meaning:
+      "A one-row message or condition takes no more room than its band: " +
+      "consecutive messages are one 40px message row apart, a block's first " +
+      "message sits its 20px margin, 30px header band and a message row below " +
+      "the message before it, and an `else` branch's first message a 10px gap, " +
+      "a 30px divider band and a message row below the last message of the " +
+      "branch before. Only a label's rows past the first add height — never " +
+      "the measurer's padding around them.",
+    assert: (result) => {
+      const arrowYs = elements(result, "g.siren-message").map((g) =>
+        Number(/,(-?[\d.]+)/.exec(g.querySelector("path")?.getAttribute("d") ?? "")?.[1]),
+      );
+      const gaps = arrowYs.slice(1).map((y, index) => y - arrowYs[index]!);
+      expectSame("gaps between the message arrows", gaps, [40, 20 + 30 + 40, 10 + 30 + 40]);
+    },
+  },
+  {
     id: "seq-participant-label-br",
     kind: "sequence",
     source: `sequenceDiagram
@@ -4353,6 +4947,13 @@ line2\`"]`,
         texts(result, 'g.siren-transition-labels[data-siren-id="Idle-Running"] text'),
         ["start the job"],
       );
+      // And centred on that line, as Mermaid draws an edge label (`labelpos: "c"`).
+      expectOnTheLine(
+        "the label",
+        result,
+        'g.siren-transition-labels[data-siren-id="Idle-Running"] text.siren-transition-label',
+        'g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line',
+      );
     },
   },
   {
@@ -4401,7 +5002,7 @@ line2\`"]`,
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -4759,6 +5360,28 @@ line2\`"]`,
     },
   },
   {
+    id: "st-label-line-height",
+    kind: "state",
+    source: `stateDiagram-v2
+      s1 : a<br/>b
+      s1 --> s2 : t<br/>u`,
+    status: "supported",
+    meaning:
+      "A state's description and a transition label are rows one line apart, " +
+      "a line being 1.5 times the font size: mermaid 11.17.2 draws both on " +
+      "24px lines at 16px (measured: a two-row description is a 48px `<div>` " +
+      "in a 64px state, a one-row one 24px in 40px). Siren's description is " +
+      "14px, 21px apart; its transition label is 12px, 18px apart.",
+    assert: (result) => {
+      expectSame("description row gaps", rowGaps(result, 'g.siren-state[data-siren-id="s1"] text'), [21]);
+      expectSame(
+        "transition label row gaps",
+        rowGaps(result, 'g.siren-transition-labels[data-siren-id="s1-s2"] text.siren-transition-label'),
+        [18],
+      );
+    },
+  },
+  {
     id: "st-composite-title-br",
     kind: "state",
     source: `stateDiagram-v2
@@ -4814,6 +5437,140 @@ line2\`"]`,
         rowYs.length === 2 && rowYs.every((y) => y > box.top && y < box.bottom),
         true,
       );
+    },
+  },
+  {
+    id: "st-description-wrap",
+    kind: "state",
+    source: `stateDiagram-v2
+      S : The quick brown fox jumps over the lazy dog and keeps running far away
+      [*] --> S`,
+    status: "supported",
+    meaning:
+      "A state's description wider than Mermaid's wrapping width wraps: " +
+      "mermaid 11.17.2 draws this one as `The quick brown fox jumps ` / " +
+      "`over the lazy dog and ` / `keeps running far away` in a 200px " +
+      "`<div>`, a 216 × 88 state (measured); a quoted name " +
+      "(`state \"…\" as S`) wraps the same. Siren draws it at 14px, so it " +
+      "wraps at 175px of text, the same number of characters to a row, and " +
+      "the state is that width plus the label's padding and the state's.",
+    assert: (result) => {
+      // The default measurer is 8px a character, so 21 characters fit in
+      // 175px and 22 do not; its 16px of padding sits outside the text.
+      expectSame(
+        "description rows",
+        labelRows(svgOf(result).querySelector('g.siren-state[data-siren-id="S"] text.siren-state-label')),
+        ["The quick brown fox", "jumps over the lazy", "dog and keeps running", "far away"],
+      );
+      const box = stateRect(result, "S");
+      // 175px of text, 16px of measurer padding, 14px of state padding each side.
+      expectSame("state width", box.right - box.left, 175 + 16 + 14 * 2);
+    },
+  },
+  {
+    id: "st-transition-label-wrap",
+    kind: "state",
+    source: `stateDiagram-v2
+      A --> B : The quick brown fox jumps over the lazy dog and keeps running far away`,
+    status: "supported",
+    meaning:
+      "A transition label wider than Mermaid's wrapping width wraps: mermaid " +
+      "11.17.2 draws this one in three rows in a 200px `<div>` (measured), " +
+      "as a flowchart edge label. Siren draws a transition label at 12px, so " +
+      "it wraps at 150px of text, the same number of characters to a row.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character, so 21
+      // characters fit in 150px and 22 do not.
+      expectSame(
+        "transition label rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-transition-labels[data-siren-id="A-B"] text.siren-transition-label',
+          ),
+        ),
+        ["The quick brown fox", "jumps over the lazy", "dog and keeps running", "far away"],
+      );
+    },
+  },
+  {
+    id: "st-note-wrap",
+    kind: "state",
+    source: `stateDiagram-v2
+      A --> B
+      note right of A : The quick brown fox jumps over the lazy dog and keeps running far away`,
+    status: "supported",
+    meaning:
+      "A state diagram's note wider than Mermaid's wrapping width wraps: " +
+      "mermaid 11.17.2 draws this one, and the same text in a " +
+      "`note right of A` … `end note` block, in three rows in a 200px " +
+      "`<div>`, a 230 × 102 note (measured). Siren draws a note at 14px, so " +
+      "it wraps at 175px of text, and the note is that width plus the " +
+      "label's padding and the note's.",
+    assert: (result) => {
+      expectSame(
+        "note rows",
+        labelRows(svgOf(result).querySelector('g.siren-state[data-siren-id="A"] text.siren-note-text')),
+        ["The quick brown fox", "jumps over the lazy", "dog and keeps running", "far away"],
+      );
+      const box = stateNoteRect(result, "A");
+      // 175px of text, 16px of measurer padding, 10px of note padding each side.
+      expectSame("note width", box.right - box.left, 175 + 16 + 10 * 2);
+    },
+  },
+  {
+    id: "st-composite-title-no-wrap",
+    kind: "state",
+    source: `stateDiagram-v2
+      state "The quick brown fox jumps over the lazy dog and keeps running far away" as Outer {
+        A --> B
+      }`,
+    status: "supported",
+    meaning:
+      "A composite's title is never wrapped: mermaid 11.17.2 draws it " +
+      "`white-space: nowrap` on one 525px row however long it is (measured), " +
+      "as it does a flowchart subgraph's title. Siren keeps it on one row and " +
+      "grows the frame to hold it.",
+    assert: (result) => {
+      const title = "The quick brown fox jumps over the lazy dog and keeps running far away";
+      expectSame(
+        "title rows",
+        labelRows(
+          svgOf(result).querySelector('g.siren-state[data-siren-id="Outer"] text.siren-composite-label'),
+        ),
+        [title],
+      );
+      const frame = stateRect(result, "Outer");
+      expectSame("frame holds the title", frame.right - frame.left >= title.length * 8 + 16, true);
+    },
+  },
+  {
+    id: "st-composite-description-no-wrap",
+    kind: "state",
+    source: `stateDiagram-v2
+      Outer : The quick brown fox jumps over the lazy dog and keeps running far away
+      state Outer {
+        A --> B
+      }`,
+    status: "supported",
+    meaning:
+      "A composite's own description is its title, and is not wrapped: " +
+      "mermaid 11.17.2 draws `Outer : …` beside `state Outer { … }` (written " +
+      "in either order) as the cluster's label, `white-space: nowrap`, one " +
+      "525px row (measured) — not as a wrapped description. Mermaid cannot " +
+      "give a composite both a quoted title and a description (`Group nodes " +
+      "can only have label`), so there is never a description row below a " +
+      "title to wrap on its own.",
+    assert: (result) => {
+      const title = "The quick brown fox jumps over the lazy dog and keeps running far away";
+      expectSame(
+        "title rows",
+        labelRows(
+          svgOf(result).querySelector('g.siren-state[data-siren-id="Outer"] text.siren-composite-label'),
+        ),
+        [title],
+      );
+      const frame = stateRect(result, "Outer");
+      expectSame("frame holds the title", frame.right - frame.left >= title.length * 8 + 16, true);
     },
   },
   {
@@ -5003,7 +5760,7 @@ line2\`"]`,
       );
       expectSame(
         `the whole loop is inside the picture ${JSON.stringify(pictureBox(result))}`,
-        loop.filter((point) => !holds(pictureBox(result), point)),
+        loop.filter((point) => !holds(pictureBox(result), point, ON_OUTLINE)),
         [],
       );
     },
@@ -5022,7 +5779,11 @@ line2\`"]`,
       "`direction LR` inside a composite is that block's own rank " +
       "direction. Measured: mermaid 11.17.2 records it on the composite and " +
       "leaves the document's own direction `TB`, so the block alone lays " +
-      "out sideways.",
+      "out sideways — while the composite has no **Boundary-crossing " +
+      "edge** (`CONTEXT.md`). `Before --> Outer` names the composite " +
+      "itself from outside, which is not one: measured in Chrome, " +
+      "mermaid 11.17.2 keeps `direction LR` here " +
+      "(`st-composite-direction-crossed` is the other half).",
     assert: (result) => {
       const centre = (id: string) => stateRectCenter(result, id);
       // Sideways inside the block, read off the picture: `Second` to the
@@ -5044,6 +5805,36 @@ line2\`"]`,
         centre("Outer").y > centre("Before").y,
         true,
       );
+    },
+  },
+  {
+    id: "st-composite-direction-crossed",
+    kind: "state",
+    source: `stateDiagram-v2
+      state Outer {
+        direction LR
+        First --> Second
+      }
+      Second --> After`,
+    status: "supported",
+    meaning:
+      "`st-composite-direction` with one transition leaving the " +
+      "composite. Its `direction` applies only while it has no " +
+      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid's rule: " +
+      "mermaid.js 11.17.2's `adjustClustersAndEdges` marks such a " +
+      "Mermaid cluster `externalConnections`, and only unmarked Mermaid " +
+      "clusters are laid out in their own `dir`. `Second --> After` " +
+      "leaves `Outer`, so its states follow the document's `TB`.",
+    assert: (result) => {
+      const centre = (id: string) => stateRectCenter(result, id);
+      // The document's `TB` inside the block: `Second` below `First`, not
+      // beside it as `direction LR` would put it.
+      expectSame(
+        `Second is drawn below First (${JSON.stringify([centre("First"), centre("Second")])})`,
+        centre("Second").y > centre("First").y,
+        true,
+      );
+      expectSame("After is drawn below Second", centre("After").y > centre("Second").y, true);
     },
   },
   {
@@ -5224,7 +6015,7 @@ line2\`"]`,
       // the state's rect do not overlap.
       expectSame(
         `the note is a separate box (${JSON.stringify([stateRect(result, "Idle"), stateNoteRect(result, "Idle")])})`,
-        overlaps(stateRect(result, "Idle"), stateNoteRect(result, "Idle")),
+        interiorsMeet(stateRect(result, "Idle"), stateNoteRect(result, "Idle")),
         false,
       );
       // Placed as the author's `right of` asks under this document's own
@@ -5598,8 +6389,8 @@ line2\`"]`,
       expectSame(
         "the three boxes are drawn clear of one another",
         [
-          overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
-          overlaps(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
+          interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+          interiorsMeet(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
         ],
         [false, false],
       );
@@ -5698,6 +6489,14 @@ line2\`"]`,
           places.y < erEntityRect(result, "ORDER").top,
         true,
       );
+      // And centred on the relationship's own line, as Mermaid draws an edge
+      // label (`labelpos: "c"`).
+      expectOnTheLine(
+        "`places`",
+        result,
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+        'g.siren-er-relationship[data-siren-id="CUSTOMER:ORDER"] path.siren-er-relationship-line',
+      );
 
       // And the relationship really moved the boxes apart: two entities a
       // relationship joins sit on consecutive ranks, where two unrelated
@@ -5705,8 +6504,8 @@ line2\`"]`,
       expectSame(
         "the three boxes are drawn clear of one another",
         [
-          overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
-          overlaps(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
+          interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+          interiorsMeet(erEntityRect(result, "ORDER"), erEntityRect(result, "LINE-ITEM")),
         ],
         [false, false],
       );
@@ -5910,7 +6709,7 @@ line2\`"]`,
       // would be invisible to every check above and obvious here.
       expectSame(
         "the two boxes are drawn clear of one another",
-        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
       );
     },
@@ -5979,7 +6778,7 @@ line2\`"]`,
       );
       expectSame(
         "the two boxes are drawn clear of one another",
-        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
       );
     },
@@ -6032,9 +6831,117 @@ line2\`"]`,
       expectSame("the label's rows", labelRows(label), ["places", "many"]);
       expectSame(
         "the two boxes are drawn clear of one another",
-        overlaps(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
         false,
       );
+    },
+  },
+  {
+    id: "er-label-line-height",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "places<br/>many"`,
+    status: "supported",
+    meaning:
+      "A relationship's label is rows one line apart, a line being 1.5 times " +
+      "the font size: mermaid 11.17.2 draws its 14px ER edge label on 21px " +
+      "lines (measured: `places<br/>many` is a 42px `<div>`). Siren draws it " +
+      "at 12px, so 18px apart.",
+    assert: (result) => {
+      expectSame(
+        "relationship label row gaps",
+        rowGaps(result, 'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label'),
+        [18],
+      );
+    },
+  },
+  // Automatic wrapping (the label-wrap ADR, nook `01M4R4WDZ`, and its
+  // amendment `01M4R7HBG`), measured on mermaid 11.17.2: a relationship's
+  // label wraps at 200px of its 14px text; an entity's name and an
+  // attribute's comment do not.
+  {
+    id: "er-relationship-label-wrap",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "every customer may place orders through the web store each week"`,
+    status: "supported",
+    meaning:
+      "A relationship label wider than Mermaid's wrapping width wraps: " +
+      "mermaid 11.17.2 draws this one, at 14px on 21px lines, as `every " +
+      "customer may place ` / `orders through the web store ` / `each week` " +
+      "in a 200px `<div>` (measured). Siren draws it at 12px, so it wraps at " +
+      "200 × 12/14 ≈ 171.43px of text — Mermaid's 200px scaled by the size " +
+      "Siren draws the label at over the 14px Mermaid draws it at (the " +
+      "label-wrap ADR, nook `01M4R4WDZ`, as amended by `01M4R7HBG`), so a " +
+      "row holds as much as Mermaid's — and the layout holds the two " +
+      "entities apart for every row.",
+    assert: (result) => {
+      // At 12px the default measurer is 12/14 of its 8px a character, so 24
+      // characters (164.57px) fit in 171.43px and 26 (178.29px) do not.
+      expectSame(
+        "relationship label rows",
+        labelRows(
+          svgOf(result).querySelector(
+            'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+          ),
+        ),
+        ["every customer may place", "orders through the web", "store each week"],
+      );
+      expectSame(
+        "the two boxes are drawn clear of one another",
+        interiorsMeet(erEntityRect(result, "CUSTOMER"), erEntityRect(result, "ORDER")),
+        false,
+      );
+    },
+  },
+  {
+    id: "er-entity-name-no-wrap",
+    kind: "er",
+    source: `erDiagram
+      P["This is a fairly long English entity label that should exceed two hundred pixels"]`,
+    status: "supported",
+    meaning:
+      "An entity's name is never wrapped, however long: mermaid 11.17.2 " +
+      "draws this alias `white-space: nowrap` on one 561px row, in a 611px " +
+      "box (measured), and a long unspaced name on one row too. Siren keeps " +
+      "it on one row and grows the box to hold it (the label-wrap ADR, nook " +
+      "`01M4R4WDZ`).",
+    assert: (result) => {
+      const name = "This is a fairly long English entity label that should exceed two hundred pixels";
+      expectSame(
+        "entity name rows",
+        labelRows(svgOf(result).querySelector('g.siren-er-entity[data-siren-id="P"] text.siren-er-entity-label')),
+        [name],
+      );
+      const box = erEntityRect(result, "P");
+      expectSame("the box holds the name", box.right - box.left >= name.length * 8 + 16, true);
+    },
+  },
+  {
+    id: "er-attribute-comment-no-wrap",
+    kind: "er",
+    source: `erDiagram
+      ORDER {
+        string id PK "this attribute comment is long enough to go well past two hundred pixels wide"
+      }`,
+    status: "supported",
+    meaning:
+      "An attribute's comment is never wrapped, however long: mermaid " +
+      "11.17.2 draws this one `white-space: nowrap` on one 566px row " +
+      "(measured). The label-wrap ADR (nook `01M4R4WDZ`, as amended by " +
+      "`01M4R7HBG`) wraps only an ER relationship's label; Siren keeps the " +
+      "comment on one row and grows the table to hold it.",
+    assert: (result) => {
+      const comment = "this attribute comment is long enough to go well past two hundred pixels wide";
+      expectSame(
+        "comment rows",
+        labelRows(
+          svgOf(result).querySelector('g.siren-er-entity[data-siren-id="ORDER"] text.siren-er-attribute-comment'),
+        ),
+        [comment],
+      );
+      const box = erEntityRect(result, "ORDER");
+      expectSame("the box holds the comment", box.right - box.left >= comment.length * 8, true);
     },
   },
   {
@@ -6596,6 +7503,42 @@ line2\`"]`,
       const customer = erEntityRect(result, "CUSTOMER");
       const order = erEntityRect(result, "ORDER");
       expectSame("ORDER is beside CUSTOMER, not below it", customer.right <= order.left, true);
+    },
+  },
+  {
+    id: "er-subgraph-direction-crossed",
+    kind: "er",
+    source: `erDiagram
+      subgraph sales
+        direction LR
+        CUSTOMER ||--o{ ORDER : places
+      end
+      ORDER ||--|{ LINE-ITEM : contains`,
+    status: "supported",
+    meaning:
+      "`er-subgraph` with one relationship leaving the block. Its " +
+      "`direction` applies only while it has no **Boundary-crossing " +
+      "edge** (`CONTEXT.md`). Mermaid's rule: mermaid.js 11.17.2's " +
+      "`adjustClustersAndEdges` marks such a Mermaid cluster " +
+      "`externalConnections`, and only unmarked Mermaid clusters are " +
+      "laid out in their own `dir`. `ORDER ||--|{ LINE-ITEM` leaves " +
+      "`sales`, so its members follow the document's `TB`.",
+    assert: (result) => {
+      const frame = erSubgraphBox(result, "sales");
+      expectSame("the frame holds CUSTOMER", encloses(frame, erEntityRect(result, "CUSTOMER")), true);
+      expectSame("the frame holds ORDER", encloses(frame, erEntityRect(result, "ORDER")), true);
+      expectSame(
+        "the frame does not hold LINE-ITEM",
+        encloses(frame, erEntityRect(result, "LINE-ITEM")),
+        false,
+      );
+      // The document's `TB` inside the cluster: `ORDER` below `CUSTOMER`,
+      // where `direction LR` would have put it beside.
+      expectSame(
+        "ORDER is below CUSTOMER, not beside it",
+        erEntityRect(result, "CUSTOMER").bottom <= erEntityRect(result, "ORDER").top,
+        true,
+      );
     },
   },
   {

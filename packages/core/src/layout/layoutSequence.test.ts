@@ -1400,6 +1400,16 @@ describe("layoutSequence's labels", () => {
   /** One line is 24 tall and 8 wide a character, with no padding (`fakeMeasurer`). */
   const LINE = 24;
 
+  /**
+   * What each row past the first adds: one line of Mermaid's sequence text,
+   * 19px at 16px (measured), so 14 × 19/16 at Siren's 14px. The rest of
+   * `fakeMeasurer`'s 24px is the padding a label carries once.
+   */
+  const ROW = (14 * 19) / 16;
+
+  /** What each row past the first adds to a participant or a box's caption: one 14px font size (measured). */
+  const PARTICIPANT_ROW = 14;
+
   it("sizes a participant's box for every row of its label, as wide as its widest row", () => {
     const model: SequenceModel = {
       ...coreModel(),
@@ -1414,10 +1424,30 @@ describe("layoutSequence's labels", () => {
       layoutSequence(model, { measureText: fakeMeasurer }).participants.map((p) => [p.id, p]),
     );
 
-    expect(byId.A.height - byId.B.height).toBe(LINE);
+    expect(byId.A.height - byId.B.height).toBe(PARTICIPANT_ROW);
     // "Client" is the wider row: 6 characters, plus 16 of padding a side.
     expect(byId.A.width).toBe(6 * 8 + 2 * 16);
     expect(byId.A.labelBox.rows).toHaveLength(2);
+  });
+
+  // Mermaid draws a participant's and a box's caption rows a font size
+  // apart — `dy` of ∓8 around the centre at 16px (measured in headless
+  // Chrome, mermaid 11.17.2) — closer than its message rows; at Siren's 14px
+  // they sit 14px apart.
+  it("spaces a participant's and a box caption's rows one 14px font size apart", () => {
+    const model: SequenceModel = {
+      ...coreModel(),
+      participants: [{ ...declaredParticipant("A", "x"), label: rowsLabel("Web", "Client") }, declaredParticipant("B", "B")],
+      boxes: [{ id: "box:1", color: null, label: rowsLabel("Grp", "two"), participantIds: ["A", "B"] }],
+      statements: [],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const participantRows = positioned.participants.find((p) => p.id === "A")!.labelBox.rows;
+    const captionRows = positioned.boxes[0]!.label!.labelBox.rows;
+
+    expect(participantRows[1]!.y - participantRows[0]!.y).toBe(14);
+    expect(captionRows[1]!.y - captionRows[0]!.y).toBe(14);
   });
 
   /** A message from A to B labelled `label`. */
@@ -1443,8 +1473,53 @@ describe("layoutSequence's labels", () => {
 
     // The rows stack upward from the arrow, so it is the gap *above* the
     // message that grows, and the one below it stays as it was.
-    expect(two.before - one.before).toBe(LINE);
+    expect(two.before - one.before).toBe(ROW);
     expect(two.after).toBe(one.after);
+  });
+
+  // Mermaid draws sequence text as SVG, its rows 19px apart at 16px
+  // (measured in headless Chrome, mermaid 11.17.2) — not the 1.5 its HTML
+  // labels have — so at Siren's 14px they sit 14 × 19/16 = 16.625px apart.
+  it("spaces a message label's rows 14 × 19/16px apart, the line Mermaid's sequence text has", () => {
+    const model: SequenceModel = { ...coreModel(), statements: [labelled("m1", rowsLabel("first", "second"))] };
+
+    const [m1] = messagesOf(layoutSequence(model, { measureText: fakeMeasurer }));
+    const rows = m1!.label.labelBox.rows;
+
+    expect(rows.map((row) => row.height)).toEqual([16.625, 16.625]);
+    expect(rows[1]!.y - rows[0]!.y).toBe(16.625);
+  });
+
+  // A one-row label adds nothing to the band a message or a condition is
+  // laid out in: messages are MESSAGE_ROW_HEIGHT (40) apart, and a branch's
+  // first message sits a header or divider band (30) and a message row (40)
+  // below the block's top or the divider's line — however much of the
+  // measurer's answer for one line is padding rather than row.
+  it("keeps one-row messages and conditions where the bands alone put them", () => {
+    const block: ResolvedSequenceBlock = {
+      id: "alt:1",
+      kind: "alt",
+      touchedParticipantIds: ["A", "B"],
+      color: null,
+      branches: [
+        { label: rowsLabel("c"), statements: [labelled("m2", rowsLabel("x"))] },
+        { label: rowsLabel("e"), statements: [labelled("m3", rowsLabel("x"))] },
+      ],
+    };
+    const model: SequenceModel = {
+      ...coreModel(),
+      statements: [labelled("m0", rowsLabel("x")), labelled("m1", rowsLabel("x")), { kind: "block", block }],
+    };
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const [m0, m1] = messagesOf(positioned);
+    const element = positioned.elements.find((e) => e.kind === "block");
+    if (element?.kind !== "block") throw new Error("expected a block");
+    const [m2, m3] = messagesOf({ elements: element.block.children });
+
+    expect(m1!.y - m0!.y).toBe(40);
+    expect(m2!.y - element.block.y).toBe(30 + 40);
+    expect(m3!.y - element.block.dividers[0]!.y).toBe(30 + 40);
   });
 
   it("stands a message's label on its arrow, centred between its ends and clear of the arrow above", () => {
@@ -1476,7 +1551,7 @@ describe("layoutSequence's labels", () => {
     const one = noteOf(rowsLabel("aa"));
     const two = noteOf(rowsLabel("aa", "bbbb"));
 
-    expect(two.height - one.height).toBe(LINE);
+    expect(two.height - one.height).toBe(ROW);
     // "bbbb" is two characters wider than "aa".
     expect(two.width - one.width).toBe(2 * 8);
     expect(two.labelBox.rows).toHaveLength(2);
@@ -1507,12 +1582,12 @@ describe("layoutSequence's labels", () => {
     const tallDivider = layoutAlt(rowsLabel("c"), rowsLabel("e1", "e2"));
 
     // The header's second row pushes the first branch's content down a row.
-    expect(tallHeader.m1.y - tallHeader.block.y).toBe(plain.m1.y - plain.block.y + LINE);
+    expect(tallHeader.m1.y - tallHeader.block.y).toBe(plain.m1.y - plain.block.y + ROW);
     // The divider's second row pushes the second branch's content down a row,
     // and leaves where the divider itself is drawn alone.
     expect(tallDivider.block.dividers[0]!.y).toBe(plain.block.dividers[0]!.y);
     expect(tallDivider.m2.y - tallDivider.block.dividers[0]!.y).toBe(
-      plain.m2.y - plain.block.dividers[0]!.y + LINE,
+      plain.m2.y - plain.block.dividers[0]!.y + ROW,
     );
     expect(tallHeader.block.label?.labelBox.rows).toHaveLength(2);
     expect(tallDivider.block.dividers[0]!.label?.labelBox.rows).toHaveLength(2);
@@ -1531,10 +1606,11 @@ describe("layoutSequence's labels", () => {
     const one = captionBand(rowsLabel("Grp"));
     const two = captionBand(rowsLabel("Grp", "two"));
 
-    expect(two.band - one.band).toBe(LINE);
+    expect(two.band - one.band).toBe(PARTICIPANT_ROW);
     expect(two.box.label?.labelBox.rows).toHaveLength(2);
-    // Centred across the box, its two rows filling the top two lines of it.
-    expect(two.box.label?.anchor).toEqual({ x: two.box.x + two.box.width / 2, y: two.box.y + LINE });
+    // Centred across the box, its two rows filling the top of it: one line
+    // and one row more.
+    expect(two.box.label?.anchor).toEqual({ x: two.box.x + two.box.width / 2, y: two.box.y + (LINE + PARTICIPANT_ROW) / 2 });
   });
 
   it("anchors a block's and a divider's condition so its first row sits where a one-row condition does, past the keyword in the header", () => {
@@ -1558,11 +1634,11 @@ describe("layoutSequence's labels", () => {
 
     // The condition's box begins 8 in from the frame — past the 64 reserved
     // for the keyword in the header — and its first row is centred 14 below
-    // the frame's top, or the divider's line: two rows of 24 put the box's
-    // centre a row lower than one row's.
+    // the frame's top, or the divider's line: a second row puts the box's
+    // centre half a row lower than one row's.
     expect(positioned.label?.anchor).toEqual({
       x: positioned.x + 8 + 64 + "[every".length * 4,
-      y: positioned.y + 14 + LINE / 2,
+      y: positioned.y + 14 + ROW / 2,
     });
     expect(divider!.label?.anchor).toEqual({ x: positioned.x + 8 + "[e1]".length * 4, y: divider!.y + 14 });
     expect(bare!.label).toBeNull();

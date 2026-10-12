@@ -281,6 +281,15 @@ _Avoid_: test corpus, fixtures, compatibility matrix, "supported" as loose prais
 three states with a rule attached), "silently wrong" as a description of any old bug (it names the
 state a corpus row declares)
 
+**Layout parity report**:
+What the parity script prints after drawing the same Mermaid document with real Mermaid and with
+Siren, in one browser: how far Siren's picture is from Mermaid's. It is a measurement for a
+developer, not a test. Nothing fails on its numbers, because they move with fonts and browsers.
+Where the **compatibility corpus** asks whether Siren means what Mermaid means, this asks how close
+the two pictures are.
+_Avoid_: visual diff, snapshot (this repo has no snapshot tests), screenshot comparison (it compares
+geometry, not pixels)
+
 **Diagram kind**:
 Which diagram a Siren document declares in its header — `flowchart TB|BT|LR|RL`,
 `sequenceDiagram`, `classDiagram`, `stateDiagram`, or `erDiagram` (`stateDiagram-v2` is the same
@@ -362,6 +371,13 @@ independent axis with a neutral value. A run with every axis neutral is a **plai
 that only want a string, such as a diagnostic quoting the label.
 What is drawn is the rows.
 
+A label's rows are one **line** apart, and a line is 1.5 times the size the label is drawn at,
+Mermaid's 24px for 16px text: **21px** at a node's 14px, **18px** at a connector label's 12px. The
+measurer's height for one string is one line plus its vertical padding, and that padding is added
+once around all the rows, never per row — so a one-row label is exactly as tall as the measurer's
+answer. Sequence text follows Mermaid's SVG text instead: a message's, note's and block condition's
+rows are 19/16 of the font size apart, a participant's and a box caption's one font size.
+
 The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the
 **drawing** stays SVG `<text>`/`<tspan>` with author text through `textContent`, never `innerHTML`
 (ADR-0015). Between them, in the `html` dialect, every HTML tag Mermaid lets through is read into
@@ -440,6 +456,30 @@ and the renderer puts it before the `<text>`, since document order is paint orde
 _Avoid_: text, caption, string (for the read label — say "flattened text" for the string); line (for
 a drawn row — a Markdown string's plain *line* break is one way to start a row, `<br>` is another)
 
+**Wrap**:
+Breaking a **label**'s rows into more rows so that none is wider than the label's **wrap width**,
+as Mermaid wraps its HTML labels (nook decisions `01M4R4WDZ` and `01M4R7HBG`). The wrap width is
+Mermaid's 200px scaled by the size Siren draws the label at over the size Mermaid draws it at,
+`200 × Siren px / Mermaid px`: **175** for a flowchart node's 14px text, **150** for a connector
+label's 12px (Mermaid's 16px), and **200 × 12/14 ≈ 171.43** for an ER relationship's 12px label,
+which Mermaid draws at 14px. Not configurable — Mermaid's `flowchart.wrappingWidth` is not
+read. A row that fits is left as written; each row the author wrote (a `<br>` still ends one) is
+wrapped on its own. A row breaks after a space, which is not drawn, and between two characters
+either of which is CJK, but never before closing punctuation (`，。、；：？！」』）】》,.;:?!)]}`); a piece
+that cannot be broken and is wider than the wrap width stands on its own row and overflows it. The
+wrap width bounds the **text** alone, as Mermaid's fixed-width `<div>` does: the measurer's padding
+is outside it, so once a label wraps its box is the wrap width plus that padding — or as wide as an
+overflowing row — and its runs keep their properties across the breaks. `wrapLabel` in
+`packages/core/src/label/` does it; `wrapNodeLabel` beside it wraps a 14px label at 175, and
+`wrapConnectorLabel` a connector label at 150 with the 12px measurer and line spacing, and
+`wrapErRelationshipLabel` an ER relationship's label the same way at 171.43; the caller decides
+which labels wrap. Wrapped: a flowchart node's label and a flowchart edge's label; a
+state's description, a state diagram's note (at 175) and a transition label (at 150); a class
+**relationship**'s label (at 150) and an ER **relationship**'s label (at 171.43). Never wrapped: a subgraph's
+title, a composite state's title, a class name, a class member, a class diagram's note, an ER
+entity name, an ER attribute's comment, anything in a sequence diagram, including its notes (Mermaid wraps none of them).
+_Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row — it is a row)
+
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
@@ -465,8 +505,12 @@ and `A -- yes --> B`, plus the dotted stroke's `A -. yes .-> B` — with nothing
 recording which was written, exactly as nothing records `graph` versus `flowchart`. It is `null`
 and never `""` when there is none: mermaid 11.17.2 rejects `A -->|| B`, so "labelled with nothing"
 is not a state an author can reach. Layout reserves dagre space for it, which makes the label the
-one part of an edge that changes *where the line goes* as well as what is drawn on it; the
-renderer draws it as a `<text class="siren-edge-label">` **beside** the path rather than inside a
+one part of an edge that changes *where the line goes* as well as what is drawn on it. The space
+is reserved **on the line**, centred on a point the route passes through — dagre's
+`labelpos: "c"`, which is what Mermaid hands it, rather than dagre's default `"r"` (10px to the
+right of the line) — and measured at the 12px the label is drawn at, not the node's 14px; class
+relationships, state transitions and ER relationships place theirs the same way. In the markup the
+label is a `<text class="siren-edge-label">` drawn as a sibling of the path rather than inside a
 wrapping group, wearing the same `data-siren-id`, so one timeline target moves two elements
 ([ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md)).
 `linkStyle`'s two halves therefore land on two elements: `stroke` paints the line and the
@@ -481,6 +525,27 @@ alike — on the one element all three already land on.
 _Avoid_: link, arrow (say "arrow" for the drawn line and its ends, or "arrow token" for the
 spelling that wrote them — never for the edge itself, the same split **message** makes),
 connector, relationship (class-diagram vocabulary), message (sequence vocabulary)
+
+**Curve**:
+How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline,
+the default, as in Mermaid), `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. It changes
+how a route looks, never where the route goes. A flowchart author picks one with `linkStyle default
+interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations may follow on the same
+line); a numbered statement's curve beats `default`'s whichever is written first. The seven other
+curves Mermaid draws (`cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`, `monotoneY`,
+`natural`) are rejected as not implemented, and the edge keeps its fallback curve (`default`'s, or
+`basis`); a name Mermaid does not know either is drawn as `basis`, as Mermaid draws it, with a
+warning. Class, state and ER connectors, and the connector from a note to what it is
+about, are always `basis`, as Mermaid draws them. Every curve starts on the route's first point
+and ends on its last, arriving along the route's last segment, so an arrowhead points the same way
+under any of them. The curves are d3's (`curveBasis`, `curveLinear`, `curveStep`,
+`curveStepBefore`, `curveStepAfter`) and Mermaid's own `rounded` (corners cut back and rounded
+with a radius of 5). The `step` curves draw a staircase even between two points; the rest draw two
+points as one straight segment. Because a curve's `d` holds control points rather than the route,
+a connector's `<path>` also carries the route itself as `data-siren-points`.
+_Avoid_: interpolation (`interpolate` survives only as the authored keyword), line (that is the
+**edge**'s solid/thick/dotted axis), routing (that decides where the points are, which a curve does
+not)
 
 **Subgraph**:
 A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around the nodes declared
@@ -498,20 +563,20 @@ is cosmetic:
 - **A node is claimed by the first block that names it**, measured, so naming it again from
   another block joins it rather than moving it. A class is a member of the namespace it was
   written in.
-- **It lays out in a rank direction of its own.** `direction LR` written inside a block turns that
-  group alone into a row while the document keeps the header's direction — dagre's
-  `recursiveClusterLayout`, one `rankdir` per cluster. A namespace has no such statement.
+- **It lays out in a rank direction of its own — only while it has no boundary-crossing edge.**
+  `direction LR` written inside a block turns that group alone into a row while the document keeps
+  the header's direction — dagre's `recursiveClusterLayout`, one `rankdir` per cluster. One
+  **Boundary-crossing edge** voids it, and the group takes the direction of the nearest enclosing
+  group that keeps one, or else the diagram's — Mermaid's rule. A namespace has no such statement.
 - **An edge may name one at either end.** `one --> two` joins the two *frames*, not two boxes —
   so an endpoint that names a block declares no node of that name, while a node the author
   declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. dagre cannot route
   that edge as written (it throws on an endpoint that *is* a cluster), so `layoutDirectedGraph`
   hands it a member of the frame instead and clips the returned route back to the frame's own
-  boundary — Mermaid's own strategy for the same construct, arrived at independently. **One
-  spelling of it is still drawn wrongly and is written down as such**: a block naming *itself* at
-  both ends (`one --> one`) draws its loop around that stand-in member, inside the frame, rather
-  than around the frame — the clip has nothing to bite on, since a self-loop never leaves the box
-  it belongs to. That is the corpus's one `silently-wrong` row, `fc-subgraph-self-edge`, and its
-  exit is drawing the loop around the frame rather than refusing the line.
+  boundary — Mermaid's own strategy for the same construct, arrived at independently. A block
+  naming *itself* at both ends (`one --> one`) is the one spelling the clip cannot serve, since a
+  self-loop never leaves the box it belongs to; its loop is synthesised around the frame instead
+  (`selfLoopAroundBox`), and `fc-subgraph-self-edge` asserts that picture.
 
 **Its id is generated, not authored** — `subgraph:1`, `subgraph:2`, … in the order the keywords
 open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) —
@@ -527,6 +592,17 @@ cluster (that is the dagre-side word `layoutDirectedGraph` uses for the mechanis
 **namespace**'s entry reserves it), namespace (that is the class-diagram construct), group, box
 (overloaded three ways already — see **Box grouping**), container, frame (that is the drawn
 `<rect>`, one of the two elements a subgraph is drawn with)
+
+**Boundary-crossing edge**:
+A connector with exactly one end among a group's descendants — members or nested groups, at any
+depth — where the group is a **subgraph**, a **composite state**, or an ER subgraph block. One such
+connector is enough to make the group give up the **direction** it declared and follow the one
+around it: the nearest enclosing group that keeps its own, or else the diagram's. That is Mermaid's
+rule, measured in its renderer. A connector from outside that
+names the group itself does not count: the group keeps its declared direction. One from a member to
+its own group does count.
+_Avoid_: external connection (Mermaid's internal field name), cross edge, outgoing edge (direction
+does not matter: an edge into the group counts the same as one out of it)
 
 **Participant**:
 One vertical lane in a sequence diagram, declared as `participant X` (drawn as a box) or
@@ -757,7 +833,9 @@ are nevertheless not the same, and each is measured rather than chosen:
   kind upgraded rather than a second declaration made.
 - **It opens a level of its own**, which is what makes its `[*]` its own rather than the document's
   (see **Pseudo-state**), and it may carry its own `direction LR` — one `rankdir` per cluster, the
-  same per-level, non-cascading rule `SirenSubgraph.direction` follows.
+  same per-level, non-cascading rule `SirenSubgraph.direction` follows, and in effect only while
+  the composite has no **Boundary-crossing edge**; one such transition and it takes the direction
+  of the nearest enclosing composite that keeps one, or else the diagram's.
 
 Membership lives on the member, as `StateDecl.parentId`, in one place — the split the **subgraph**
 entry already argues for, and here it is the only place it *could* live, because a pseudo-state has

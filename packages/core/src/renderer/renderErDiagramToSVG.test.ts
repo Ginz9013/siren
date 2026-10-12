@@ -7,6 +7,7 @@ import type {
   PositionedErRelationship,
 } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
+import { connectorPathData } from "./connectorCurve";
 import { renderErDiagramToSVG } from "./renderErDiagramToSVG";
 import { CANVAS_GUTTER } from "./sizeCanvas";
 
@@ -530,6 +531,25 @@ describe("renderErDiagramToSVG", () => {
     expect(ORDER.y).toBe(200);
   });
 
+  it("draws a relationship as d3's basis curve, keeping the route as data-siren-points", () => {
+    // mermaid 11.17.2's ER database hands every edge `curve: "basis"`
+    // (`erDiagram-RLTQ6QDP.mjs`). What `basis` draws is
+    // connectorCurve.test.ts's to pin against d3; here the question is only
+    // which curve this kind uses.
+    const route = [
+      { x: 70, y: 80 },
+      { x: 70, y: 140 },
+      { x: 130, y: 140 },
+    ];
+    const svg = renderErDiagramToSVG(
+      diagram([CUSTOMER, ORDER], undefined, [{ ...PLACES, points: route }]),
+    );
+
+    const line = svg.querySelector("path.siren-er-relationship-line")!;
+    expect(line.getAttribute("d")).toBe(connectorPathData(route, "basis"));
+    expect(line.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+  });
+
   it("draws the two line types differently, and only one of them dashed", () => {
     // Measured: Mermaid gives an `IDENTIFYING` relationship the class
     // `edge-pattern-solid` and a `NON_IDENTIFYING` one `edge-pattern-dashed`,
@@ -870,5 +890,26 @@ describe("renderErDiagramToSVG paints relationships under the entities", () => {
     const firstEntity = svg.querySelector("g.siren-er-entity")!;
     expect(paintsBefore(lastRelationship, labelGroup)).toBe(true);
     expect(paintsBefore(labelGroup, firstEntity)).toBe(true);
+  });
+});
+
+describe("renderErDiagramToSVG paints a background behind a relationship's label", () => {
+  it("over the box the label was measured in, inside its label group and before its text — and none for a relationship without a label", () => {
+    // Mermaid paints a translucent fill behind a connector's label (measured,
+    // 11.17.2: `.edgeLabel` over the label's box), so the line running under
+    // it does not strike it out. "places" is 48 by 24 in this file's boxes,
+    // centred on (56, 130). No id on the rect itself: the label group wears
+    // the relationship's, so the timeline reaches it with the text.
+    const unlabelled: PositionedErRelationship = { ...PLACES, id: "ORDER:CUSTOMER", label: null };
+    const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES, unlabelled]));
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) => [
+        rect.parentElement?.getAttribute("data-siren-id"),
+        ...["data-siren-id", "x", "y", "width", "height", "style"].map((name) => rect.getAttribute(name)),
+      ]),
+    ).toEqual([["CUSTOMER:ORDER", null, "32", "118", "48", "24", null]]);
+    expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-er-relationship-label")!)).toBe(true);
   });
 });

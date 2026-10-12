@@ -1,0 +1,15 @@
+stateDiagram-v2
+%% Long state labels: Mermaid 11.17.2 wraps a description, a quoted name, a
+%% transition label and a note at 200px, and leaves a composite's title on one row.
+
+[*] --> Waiting
+Waiting : The quick brown fox jumps over the lazy dog and keeps running far away
+state "a state whose quoted display name is long enough to wrap" as Named
+Waiting --> Named : this transition label is long enough to go well past two hundred pixels wide
+note right of Named : The quick brown fox jumps over the lazy dog and keeps running far away
+state "a composite whose title is far too long to fit on a single row" as Outer {
+  [*] --> Inside
+  Inside --> [*]
+}
+Named --> Outer
+Outer --> [*]

@@ -211,6 +211,59 @@ export function relativeScale(run: LabelRun): number | null {
 export const BASE_FONT_SIZE_PX = 14;
 
 /**
+ * The px a connector's label is drawn at: Siren's default
+ * `--siren-label-font-size`, which `label.test.ts` holds this to. Every
+ * connector label laid out by `layoutDirectedGraph` — a flowchart edge's
+ * `.siren-edge-label`, a class relationship's `.siren-relationship-label`, a
+ * state transition's `.siren-transition-label`, an ER relationship's
+ * `.siren-er-relationship-label` — takes that token, where a measurer
+ * measures at `BASE_FONT_SIZE_PX`.
+ */
+export const CONNECTOR_LABEL_FONT_SIZE_PX = 12;
+
+/**
+ * How large a connector label is drawn relative to what the measurer
+ * measured: `CONNECTOR_LABEL_FONT_SIZE_PX` over `BASE_FONT_SIZE_PX`.
+ */
+export const CONNECTOR_LABEL_SCALE = CONNECTOR_LABEL_FONT_SIZE_PX / BASE_FONT_SIZE_PX;
+
+/**
+ * `measureText` answering for text set at a connector label's 12px rather
+ * than the 14px it measures at — what each of the four connector adapters
+ * measures a connector's label with, so the room dagre keeps on the line is
+ * the size the label is drawn at.
+ *
+ * **Scaled, because `TextMeasurer` cannot be asked about a font size.** Its
+ * one method takes a string and nothing else, and widening it would change
+ * the public interface every consumer implements (`render()`'s
+ * `measureText`, `siren-board`'s canvas measurer). The same text at 12/14
+ * the size is 12/14 as wide and as tall, so the whole answer is scaled —
+ * the measurer's own padding with it, since the interface cannot say which
+ * part of an answer is glyphs and which is padding, and treating the box as
+ * proportional to the font is the one reading that needs no such split.
+ *
+ * Two approximations follow, both on runs the author sized themselves: a run
+ * with an absolute px size (`font-size:20px`) is drawn at that size but
+ * measured here at 12/14 of it, and an `em` letter- or word-spacing is
+ * counted against the 14px base by `layoutLabel`. Neither occurs in a label
+ * written without inline styles.
+ *
+ * The measurer is spelled structurally rather than as `contracts.ts`'s
+ * `TextMeasurer` for the reason `PlacedLabel` gives: this module imports
+ * nothing from the contract that re-exports it.
+ */
+export function atConnectorLabelSize(measureText: {
+  measure(text: string): { width: number; height: number };
+}): { measure(text: string): { width: number; height: number } } {
+  return {
+    measure(text: string) {
+      const size = measureText.measure(text);
+      return { width: size.width * CONNECTOR_LABEL_SCALE, height: size.height * CONNECTOR_LABEL_SCALE };
+    },
+  };
+}
+
+/**
  * The factor `run` is *measured* at relative to one measured line: its
  * scale, or, for an absolute size the author wrote in px, that size over
  * the 14px base. Any other absolute size (`large`, `1.2rem`) has no number
@@ -232,4 +285,42 @@ export function measuredScale(run: LabelRun): number {
  */
 export function plainLabel(text: string): Label {
   return { text, rows: [[plainRun(text)]] };
+}
+
+/**
+ * The width, in px, Mermaid wraps a label's text at: `labelHelper` and
+ * `createText` lay a label out single-line and, once it reaches this width,
+ * fix it at this width and let the browser break it (mermaid 11.17.2,
+ * measured; see the label-wrap ADR, nook `01M4R4WDZ`). Not configurable
+ * here: an author's `flowchart.wrappingWidth` is not read.
+ */
+const MERMAID_WRAPPING_WIDTH_PX = 200;
+
+/**
+ * The px Mermaid draws most label text at — a flowchart's, a state
+ * diagram's, a class diagram's — which `MERMAID_WRAPPING_WIDTH_PX` is
+ * measured against unless a label says otherwise.
+ */
+const MERMAID_FONT_SIZE_PX = 16;
+
+/**
+ * The px Mermaid draws an ER relationship's label at: 14px on 21px lines
+ * (measured, mermaid 11.17.2), not the 16px of its other labels. It still
+ * wraps at `MERMAID_WRAPPING_WIDTH_PX`.
+ */
+export const MERMAID_ER_LABEL_FONT_SIZE_PX = 14;
+
+/**
+ * The width a label drawn at `fontSizePx` wraps at: Mermaid's 200px scaled
+ * by the size Siren draws the label at over the size Mermaid draws it at
+ * (`mermaidFontSizePx`, 16px unless given), so a row holds as many
+ * characters as Mermaid's does (the label-wrap ADR, nook `01M4R4WDZ`, as
+ * amended). A node's 14px (`BASE_FONT_SIZE_PX`) wraps at 175, a connector
+ * label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`) at 150, and an ER
+ * relationship's 12px label, which Mermaid draws at 14px
+ * (`MERMAID_ER_LABEL_FONT_SIZE_PX`), at 200 × 12/14 ≈ 171.43. `wrapLabel`
+ * takes the result.
+ */
+export function wrapWidthAt(fontSizePx: number, mermaidFontSizePx: number = MERMAID_FONT_SIZE_PX): number {
+  return (MERMAID_WRAPPING_WIDTH_PX * fontSizePx) / mermaidFontSizePx;
 }

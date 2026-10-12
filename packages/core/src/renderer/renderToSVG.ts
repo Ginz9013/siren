@@ -7,9 +7,11 @@ import type {
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
+import { DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
+import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -229,7 +231,9 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // still adds and removes its own classes alongside.
     path.setAttribute("class", edgeClasses(edge));
     path.setAttribute("data-siren-id", edge.id);
-    path.setAttribute("d", pointsToPathData(edge.points));
+    // The curve the model resolved from `linkStyle … interpolate`; an edge
+    // built without one (a hand-made fixture) is drawn on the default.
+    drawConnectorRoute(path, edge.points, edge.curve ?? DEFAULT_CURVE);
     // One marker per end, each pointing outward at the end it is applied
     // to — the class renderer's `auto-start-reverse` def, which is why
     // `<-->` needs one def rather than a mirrored pair.
@@ -407,10 +411,13 @@ function buildEdgeLabel(
   // `.siren-edge` and `.siren-relationship-line` are already two names for
   // two connectors. One shared name would mean a consumer restyling class
   // labels silently restyled every flowchart edge label as well.
-  const drawn = drawPlaced(edge.label, "siren-edge-label");
+  const drawn = drawConnectorLabel(edge.label, "siren-edge-label");
   const { text } = drawn;
-  // The same id the path wears — see ADR-0009, and the call site above.
+  // The same id the path wears — see ADR-0009, and the call site above —
+  // on the text and on the background `drawConnectorLabel` draws behind
+  // it, which is part of the label and has to enter and exit with it.
   text.setAttribute("data-siren-id", edge.id);
+  drawn.background.setAttribute("data-siren-id", edge.id);
   // The author's text half, on the one element an edge has to put it on.
   //
   // **Measured, not chosen.** `linkStyle 0 color:#f00` used to be resolved,
@@ -972,11 +979,4 @@ function buildEndShape(end: Exclude<EdgeEnd, "none">): SVGElement {
       : `M1,1 L${width - 1},${height - 1} M${width - 1},1 L1,${height - 1}`,
   );
   return path;
-}
-
-/** Converts a layout-assigned point path into an SVG `<path>` `d` attribute. */
-function pointsToPathData(points: { x: number; y: number }[]): string {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
 }

@@ -1,0 +1,3 @@
+{"id":"01M4R3RVMWZARBK5CVRWYQMGBA","t":1,"a":"83a1","op":"create","title":"layout: 確認 mermaid-sample.png 的渲染器與設定；若為 ELK，評估 flowchart 的 ELK 排版"}
+{"id":"01M4R3RVN6CBQ9EQFCXCB8NVJS","t":2,"a":"83a1","op":"set","k":"description","v":"調查（2026-10-12）：mermaid 11.17.2 預設 dagre 對 garden-network 圖反轉 Valve->Hub、Beds->Valve、Planner->Valve、Almanac->Tasks，與 Siren 完全相同（兩種函式庫 × 兩種節點順序皆同）。mermaid-sample.png 反轉 Seed->Planner、Almanac->Beds，且為直角圓角路由，非預設 dagre 可產生；推測 ELK 或其他版本／設定。先確認 mermaid.live 當時的版本與 layout 設定。實驗檔在 session scratchpad cycles/。"}
+{"id":"01M4R3RVN6KW8CADZYEEYGW3T8","t":3,"a":"83a1","op":"label.add","v":"layout"}

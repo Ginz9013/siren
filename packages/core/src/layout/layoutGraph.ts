@@ -15,6 +15,7 @@ import {
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
 import { layoutLabel } from "../label/layoutLabel";
+import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
 
 /** Gap between a subgraph's frame and the boxes and frames it encloses. */
 const SUBGRAPH_PADDING = 12;
@@ -240,23 +241,31 @@ export function layoutGraph(
   graph: GraphModel,
   options: LayoutOptions,
 ): PositionedGraph {
-  // Each label measured once, here, and carried to the renderer on the
-  // positioned node: the shape is sized around this box, and the rows are
-  // drawn where it says they sit. The renderer has no measurer, so a second
-  // opinion there was never an option.
-  const labelBoxById = new Map(
-    graph.nodes.map((node) => [node.id, layoutLabel(node.label, options.measureText)]),
+  // Each label wrapped and measured once, here, and carried to the renderer
+  // on the positioned node: the shape is sized around this box, and the
+  // wrapped rows are drawn where it says they sit. The renderer has no
+  // measurer, so a second opinion there was never an option. A node's text
+  // is drawn at the 14px base, so it wraps at Mermaid's 200px scaled to 14
+  // (`wrapNodeLabel`; the label-wrap ADR, nook `01M4R4WDZ`).
+  const wrappedById = new Map(
+    graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText)]),
   );
 
   // A subgraph's title is measured once too, for the same two readers: the
   // cluster size handed to the core below, and the frame grown afterwards.
+  // Never wrapped: Mermaid draws a subgraph's title as plain text, which it
+  // does not wrap (the label-wrap ADR, nook `01M4R4WDZ`).
   const titleBoxById = new Map(
     graph.subgraphs.map((subgraph) => [subgraph.id, layoutLabel(subgraph.label, options.measureText)]),
   );
 
-  const edgeLabelBoxById = new Map(
+  // At the 12px an edge label is drawn at, not the node's 14px, and wrapped
+  // at Mermaid's 200px scaled to that size (the label-wrap ADR, nook
+  // `01M4R4WDZ`): the box handed to dagre below and the one the renderer
+  // draws in are this one, and the rows drawn are the wrapped label's.
+  const wrappedEdgeLabelById = new Map(
     graph.edges.flatMap((edge) =>
-      edge.label === null ? [] : [[edge.id, layoutLabel(edge.label, options.measureText)] as const],
+      edge.label === null ? [] : [[edge.id, wrapConnectorLabel(edge.label, options.measureText)] as const],
     ),
   );
 
@@ -268,7 +277,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...boxForLabel(node.shape, labelBoxById.get(node.id)!),
+        ...boxForLabel(node.shape, wrappedById.get(node.id)!.labelBox),
         // Grouping, and the only thing about a subgraph the shared core is
         // told. `undefined` rather than `null` when the node is in no
         // subgraph, because the core switches dagre's compound mode on by
@@ -335,7 +344,7 @@ export function layoutGraph(
       // piece of text in this pipeline goes through, so a long label
       // reserves more room than a short one for the same reason a long node
       // label makes a wider box.
-      ...(edge.label === null ? {} : { label: edgeLabelBoxById.get(edge.id)! }),
+      ...(edge.label === null ? {} : { label: wrappedEdgeLabelById.get(edge.id)!.labelBox }),
     })),
   });
 
@@ -370,7 +379,9 @@ export function layoutGraph(
       ...shifted(box),
       width: box.width,
       height: box.height,
-      labelBox: labelBoxById.get(node.id)!,
+      // The wrapped label and the box it was measured into: what the
+      // shape was sized around and what the renderer draws.
+      ...wrappedById.get(node.id)!,
     };
   });
 
@@ -409,7 +420,7 @@ export function layoutGraph(
       label:
         edge.label === null || route.labelAnchor === undefined
           ? null
-          : { label: edge.label, labelBox: edgeLabelBoxById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
+          : { ...wrappedEdgeLabelById.get(edge.id)!, anchor: shifted(route.labelAnchor) },
     };
   });
 

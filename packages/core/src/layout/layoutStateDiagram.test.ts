@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Direction, Label, StateModel, TextMeasurer } from "../contracts";
-import { plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutStateDiagram } from "./layoutStateDiagram";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
@@ -1183,8 +1183,9 @@ describe("layoutStateDiagram — labels", () => {
   it("gives a description of two rows a box two rows tall, sized to its widest row", () => {
     const [state] = layoutStateDiagram(described(rowsLabel("ab", "wxyz")), options).states;
 
-    // STATE_PADDING_Y (8) above and below two 24px rows.
-    expect(state.height).toBe(8 + 24 + 24 + 8);
+    // STATE_PADDING_Y (8) above and below two 14px × 1.5 = 21px rows and
+    // the measurer's 24 − 21 = 3px of padding, which it carries once.
+    expect(state.height).toBe(8 + 21 + 21 + 3 + 8);
     // STATE_PADDING_X (14) either side of the widest row, "wxyz" (32).
     expect(state.width).toBe(14 + 32 + 14);
     expect(state.labels).toHaveLength(1);
@@ -1202,14 +1203,15 @@ describe("layoutStateDiagram — labels", () => {
       options,
     ).states;
 
-    // Padding, the first label's two rows, padding: the line.
-    expect(state.dividerY).toBe(state.y + 8 + 48 + 8);
+    // Padding, the first label's two rows (two 21px lines and 3px of the
+    // measurer's padding, 45), padding: the line.
+    expect(state.dividerY).toBe(state.y + 8 + 45 + 8);
     // Padding below the line, then the second label's two rows centred.
     expect(state.labels.map((planned) => planned.y)).toEqual([
-      state.y + 8 + 24,
-      state.y + 8 + 48 + 8 + 8 + 24,
+      state.y + 8 + 45 / 2,
+      state.y + 8 + 45 + 8 + 8 + 45 / 2,
     ]);
-    expect(state.height).toBe(8 + 48 + 8 + 8 + 48 + 8);
+    expect(state.height).toBe(8 + 45 + 8 + 8 + 45 + 8);
   });
 
   it("gives a composite's title strip a row for every row of its title", () => {
@@ -1227,10 +1229,11 @@ describe("layoutStateDiagram — labels", () => {
 
     expect(outer.labels).toHaveLength(1);
     expect(outer.labels[0].labelBox.rows).toHaveLength(2);
-    // COMPOSITE_PADDING (12) above a title two rows tall.
-    expect(outer.labels[0].y).toBe(outer.y + 12 + 24);
+    // COMPOSITE_PADDING (12) above a title two 21px rows tall, with the
+    // measurer's 3px of padding: 45.
+    expect(outer.labels[0].y).toBe(outer.y + 12 + 45 / 2);
     // And the member starts below both rows, not below the first.
-    expect(inner.y).toBeGreaterThanOrEqual(outer.y + 12 + 48);
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y + 12 + 45);
   });
 
   it("gives a note of two rows a box two rows tall", () => {
@@ -1239,10 +1242,88 @@ describe("layoutStateDiagram — labels", () => {
 
     const note = layoutStateDiagram(noted, options).states[0].note!;
 
-    // NOTE_PADDING_Y (8) above and below, NOTE_PADDING_X (10) either side.
-    expect(note.height).toBe(8 + 48 + 8);
+    // NOTE_PADDING_Y (8) above and below two 21px rows and 3px of the
+    // measurer's padding, NOTE_PADDING_X (10) either side.
+    expect(note.height).toBe(8 + 45 + 8);
     expect(note.width).toBe(10 + 32 + 10);
     expect(note.labelBox.rows).toHaveLength(2);
+  });
+
+  /** A label's rows, each read back as the text drawn on it. */
+  const rowTexts = (label: Label): string[] =>
+    label.rows.map((row) => row.map((run) => run.text).join(""));
+
+  // The spec (decision 1, measured on mermaid 11.17.2): a state's
+  // description wraps at Mermaid's 200px scaled to the 14px it is drawn at,
+  // 175px of text, and once wrapped its box is that width. `fakeMeasurer`
+  // is 8px a character with no padding, so 21 characters fit and 22 do not.
+  it("wraps a description wider than 175px at its spaces, and the state carries the wrapped rows", () => {
+    const [state] = layoutStateDiagram(
+      described(plainLabel("alpha beta gamma delta epsilon zeta")),
+      options,
+    ).states;
+
+    // `alpha beta gamma delta` is 22 characters, 176px.
+    expect(rowTexts(state.labels[0].label)).toEqual(["alpha beta gamma", "delta epsilon zeta"]);
+    expect(state.labels[0].labelBox.width).toBe(175);
+    expect(state.labels[0].labelBox.rows).toHaveLength(2);
+    // STATE_PADDING_X (14) either side of the 175px text.
+    expect(state.width).toBe(14 + 175 + 14);
+    // STATE_PADDING_Y (8) above and below two 21px rows and 3px of the
+    // measurer's padding.
+    expect(state.height).toBe(8 + 45 + 8);
+  });
+
+  // The spec (decision 5): measured on mermaid 11.17.2, a composite's title
+  // is drawn `nowrap` on one row however long it is, as a subgraph's is.
+  it("leaves a composite's title on one row however long it is", () => {
+    const laid = layoutStateDiagram(
+      {
+        ...model([], ["Outer", "Inner"]),
+        states: [
+          { id: "Outer", kind: "composite", stereotype: null, descriptions: [plainLabel("alpha beta gamma delta epsilon zeta")], parentId: null, direction: null, note: null },
+          { id: "Inner", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
+        ],
+      },
+      options,
+    );
+    const [outer] = laid.states;
+
+    expect(rowTexts(outer.labels[0].label)).toEqual(["alpha beta gamma delta epsilon zeta"]);
+    expect(outer.labels[0].labelBox.width).toBe(measuredWidth("alpha beta gamma delta epsilon zeta"));
+  });
+
+  // The spec (decision 5 as amended, measured on mermaid 11.17.2): a state
+  // diagram's note wraps at 200px, both `note right of A : …` and the block
+  // form — 175px of text at the 14px Siren draws it at.
+  it("wraps a note wider than 175px at its spaces, and the note carries the wrapped rows", () => {
+    const noted = described(rowsLabel("s"));
+    noted.states[0].note = { position: "right of", label: plainLabel("alpha beta gamma delta epsilon zeta") };
+
+    const note = layoutStateDiagram(noted, options).states[0].note!;
+
+    expect(rowTexts(note.label)).toEqual(["alpha beta gamma", "delta epsilon zeta"]);
+    expect(note.labelBox.width).toBe(175);
+    // NOTE_PADDING_X (10) either side of the 175px text, NOTE_PADDING_Y (8)
+    // above and below two 21px rows and 3px of the measurer's padding.
+    expect(note.width).toBe(10 + 175 + 10);
+    expect(note.height).toBe(8 + 45 + 8);
+  });
+
+  // The spec (decision 1, measured on mermaid 11.17.2): a transition label
+  // wraps at Mermaid's 200px scaled to the 12px it is drawn at, 150px of
+  // text. `fakeMeasurer` at 12px is 8 × 12/14 px a character, so 21
+  // characters (144px) fit and 22 (150.86px) do not.
+  it("wraps a transition label wider than 150px at its spaces, and the transition carries the wrapped rows", () => {
+    const [transition] = layoutStateDiagram(
+      model([{ from: "a", to: "b", label: "alpha beta gamma delta epsilon zeta" }]),
+      options,
+    ).transitions;
+
+    expect(rowTexts(transition.label!.label)).toEqual(["alpha beta gamma", "delta epsilon zeta"]);
+    expect(transition.label!.labelBox.width).toBe(150);
+    // A 12px line of the measurer's 24 × 12/14, then one 12px × 1.5 = 18px row.
+    expect(transition.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
   });
 
   it("measures a transition label of two rows, and keeps the canvas around both", () => {
@@ -1253,9 +1334,15 @@ describe("layoutStateDiagram — labels", () => {
     const [transition] = laid.transitions;
 
     expect(transition.label).not.toBeNull();
-    expect(transition.label!.labelBox.height).toBe(48);
-    expect(transition.label!.labelBox.width).toBe(32);
-    // The anchor is the box's centre, so its lower row ends 24 below it.
-    expect(laid.height).toBeGreaterThanOrEqual(transition.label!.anchor.y + 24);
+    // Measured at the 12px `.siren-transition-label` is drawn at
+    // (`--siren-label-font-size`), not the measurer's 14px: a 24-tall line
+    // and a 32-wide `wxyz`, each 12/14 as large, and a second row of one
+    // 12px × 1.5 = 18px line.
+    expect(transition.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
+    expect(transition.label!.labelBox.width).toBeCloseTo(32 * CONNECTOR_LABEL_SCALE, 6);
+    // The anchor is the box's centre, so its lower row ends half the box below it.
+    expect(laid.height).toBeGreaterThanOrEqual(
+      transition.label!.anchor.y + transition.label!.labelBox.height / 2,
+    );
   });
 });

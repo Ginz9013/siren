@@ -8,6 +8,51 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- With `siren-core`'s change: connector labels in flowchart, class, state and ER diagrams are
+  painted on a translucent background, `--siren-edge-label-fill`, so a line under a label no
+  longer crosses its text. A consumer that declares its own dark (or any non-white) theme should
+  redeclare `--siren-edge-label-fill` with it, as `demos/theme-dark.css` does.
+- With `siren-core`'s change: a flowchart can pick the curve its edges are drawn with,
+  `linkStyle default interpolate <curve>` or `linkStyle <n> interpolate <curve>`, from `basis`,
+  `linear`, `step`, `stepBefore`, `stepAfter` and `rounded`. Documents using such a line used to be
+  refused.
+
+### Changed
+
+- With `siren-core`'s change: a flowchart node's label wraps once its text is wider than 175px, as
+  Mermaid's does, so a node with a long label is drawn narrower and taller, and a diagram with
+  such nodes is laid out differently. A subgraph's title does not wrap.
+- With `siren-core`'s change: a flowchart edge's label wraps once its text is wider than 150px
+  (Mermaid's 200px at the 12px an edge label is drawn at), and its background covers the wrapped
+  rows.
+- With `siren-core`'s change: in a state diagram, a state's description and a note wrap once
+  their text is wider than 175px, and a transition label once its text is wider than 150px, as
+  in Mermaid. A composite state's title does not wrap.
+- With `siren-core`'s change: a class diagram's relationship label wraps once its text is wider
+  than 150px, and an ER diagram's once wider than about 171px (Mermaid draws that label at 14px),
+  so each row holds as much as Mermaid's. A class name, a member, a class diagram's note, an ER
+  entity name and an attribute's comment do not wrap.
+- With `siren-core`'s change: a label of several rows draws them closer together, 1.5 times the
+  font size apart as in Mermaid (21px for a node's 14px text, 18px for a connector label's 12px),
+  with the canvas measurer's padding around the rows once; a one-row label is the same height as
+  before.
+- With `siren-core`'s change: a subgraph, composite state or ER subgraph that declares a
+  `direction` uses it only when no connector has exactly one end inside it, as in Mermaid;
+  otherwise it follows the nearest enclosing group's direction, or else the diagram's. A connector naming the group itself from outside
+  does not count. Connectors that used to be drawn as straight lines through
+  other boxes are routed, and frames that used to overlap no longer do.
+- With `siren-core`'s change: connector labels in all four connector diagrams (flowchart, class,
+  state, ER) are drawn on the line rather than 10px beside it, and laid out at the 12px they are
+  drawn at, as in Mermaid.
+- With `siren-core`'s change: flowchart, class, state and ER diagrams have an 8px margin around
+  the drawing, as in Mermaid, so a diagram's extent grows by up to 16 on each axis.
+- With `siren-core`'s change: connectors in flowchart, class, state and ER diagrams are drawn
+  as smooth `basis` curves through their routes, as in Mermaid, instead of polylines with
+  corners. Every diagram with a bent connector looks different; arrowheads still point the same
+  way.
+
 ## [0.4.0] - 2026-10-10
 
 Requires `siren-core` ^0.4.0.

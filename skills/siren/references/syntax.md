@@ -41,6 +41,14 @@ flowchart LR
 - A node defined once can be referenced by id alone afterwards.
 - A bare id on its own line (`Q`) declares a node labeled with its id.
 - Quote a label that contains punctuation such as `,`, `(`, `[` or `:`.
+- A long node label wraps by itself, as in Mermaid: once its text is wider than 175px (Mermaid's
+  200px at 16px, scaled to Siren's 14px), it breaks at spaces, or between any two CJK
+  characters, onto more rows, and the node grows taller instead of wider. Closing punctuation
+  (`，` `。` `)` and the like) never begins a row; a single word too long for the width is left
+  whole. The width is fixed (`flowchart.wrappingWidth` is not read).
+- `<br>` forces a row break where you want one: `A["first line<br>second line"]`. Each row is
+  then wrapped on its own if it is still too long.
+- A subgraph's title never wraps.
 
 ### Edges
 
@@ -67,6 +75,9 @@ flowchart LR
 - Chains: `A --> B --> C`. Fan-out and fan-in: `A --> B & C`, `B & C --> D`.
 - `;` separates statements on one line: `A --> B; B --> C`.
 - Each edge gets its own id, `A-B`, and repeats of the same pair get `A-B#2`, ...
+- A long edge label wraps by itself, as a node label does, once its text is wider than 150px
+  (Mermaid's 200px at 16px, scaled to the 12px an edge label is drawn at). `<br>` still forces a
+  row break.
 
 ### Subgraphs
 
@@ -92,7 +103,11 @@ flowchart TB
   `subgraph` lines appear. The name or id you write is not its timeline id.
 - An edge may start or end at a subgraph. Its id uses the subgraph's written id:
   `checks-Deploy`.
-- `direction` inside a subgraph lays it out independently.
+- `direction` inside a subgraph lays it out independently, but only when no edge has exactly one
+  end inside the subgraph; with one, the subgraph follows the direction of the subgraph around it
+  that keeps its own, or else the diagram's (as in Mermaid).
+  An edge from outside the subgraph to the subgraph itself (`C --> one`, or `one --> C`) does
+  not count.
 
 ### Styling
 
@@ -110,6 +125,14 @@ flowchart LR
 - `:::name` goes after the node's shape: `Output[(Output)]:::terminal`.
 - `linkStyle` numbers edges from 0 in the order they're written. `linkStyle default`
   styles every edge that no numbered statement names.
+- `interpolate <curve>` after the edge numbers picks how an edge's line bends:
+  `linkStyle default interpolate step`, `linkStyle 0,2 interpolate linear`, or with styles on
+  the same line, `linkStyle 1 interpolate step stroke:#f43f5e`. The curves are `basis` (smooth,
+  the default), `linear`, `step`, `stepBefore`, `stepAfter` and `rounded`. Names are
+  case-sensitive. A numbered statement wins over `default`.
+- `cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`, `monotoneY` and `natural` are an
+  error: Mermaid draws them, Siren doesn't yet. Use one of the six. Any other name draws `basis`
+  with a warning.
 - `color` sets a node's label color.
 - `style` on a subgraph is accepted but has no effect. Subgraphs keep the theme's colors.
 - Every value here overrides the theme. Read SKILL.md's "Color and styling" before
@@ -265,6 +288,8 @@ classDiagram
 - A relationship's id is `Left-Right` in the order written: `Media <|-- Track` is
   `Media-Track`.
 - `namespace:1`, `note:1`, ... are the generated ids for namespaces and notes.
+- A long relationship label wraps by itself once its text is wider than 150px, as in Mermaid. A
+  class name, a member and a note do not wrap. `<br>` still forces a row break.
 
 ## State diagram
 
@@ -310,6 +335,9 @@ stateDiagram-v2
 - `Name : text` adds a description line to a state.
 - `--` inside a composite state splits it into concurrent regions (`region:1`, ...).
 - `state "Label" as Id` gives a state a display name. Its timeline id is `Id`.
+- A long description, display name or note wraps by itself once its text is wider than 175px, and
+  a long transition label once it is wider than 150px, as in Mermaid. A composite state's title
+  does not wrap. `<br>` still forces a row break.
 - Styling: `classDef`, `class` and `:::` work as in flowcharts. `style` is not supported.
 
 ## ER diagram
@@ -348,6 +376,9 @@ erDiagram
 - `NAME["Display name"]` is an alias. The timeline still uses `NAME`.
 - A relationship's id joins the entity names with a colon: `CUSTOMER:ORDER`.
 - `subgraph` groups entities (`subgraph:1`, ...).
+- A long relationship label wraps by itself once its text is wider than 200 × 12/14 ≈ 171px (a
+  row holds as much as Mermaid's, which draws this label at 14px and wraps it at 200px). An
+  entity name, an alias and an attribute's comment do not wrap. `<br>` still forces a row break.
 
 ## Not supported
 

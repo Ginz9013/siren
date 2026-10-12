@@ -1,7 +1,6 @@
 import type {
   Direction,
   Label,
-  LabelBox,
   LayoutOptions,
   Point,
   PositionedState,
@@ -18,7 +17,13 @@ import {
   type DirectedGraphLayoutNodeBox,
 } from "./layoutDirectedGraph";
 import { plainLabel } from "../label/label";
-import { layoutLabel } from "../label/layoutLabel";
+import {
+  NO_WRAP,
+  wrapConnectorLabel,
+  wrapLabel,
+  wrapNodeLabel,
+  type WrappedLabel,
+} from "../label/wrapLabel";
 
 /** Horizontal padding between a state box's edge and its widest label. */
 const STATE_PADDING_X = 14;
@@ -151,11 +156,12 @@ export function layoutStateDiagram(
   );
 
   /**
-   * The states carrying a note, each with the note itself and the box
-   * `layoutLabel` measured for its label — narrowed and measured here once
-   * so that the three places below that add a node, add an edge and read
-   * the result back all work from the same list, and the box the note was
-   * sized around is the one it is drawn with.
+   * The states carrying a note, each with the note itself and its label
+   * wrapped at the 14px it is drawn at (`wrapNodeLabel`: measured, mermaid
+   * 11.17.2 wraps a note, one-line or block, at 200px) — narrowed and measured
+   * here once so that the three places below that add a node, add an edge
+   * and read the result back all work from the same list, and the box and
+   * rows the note was sized around are the ones it is drawn with.
    */
   const notedStates = model.states.flatMap((state) =>
     state.note === null
@@ -164,22 +170,27 @@ export function layoutStateDiagram(
           {
             state,
             note: state.note,
-            labelBox: layoutLabel(state.note.label, options.measureText),
+            ...wrapNodeLabel(state.note.label, options.measureText),
           },
         ],
   );
-  const noteLabelBoxById = new Map(notedStates.map(({ state, labelBox }) => [state.id, labelBox]));
+  const wrappedNoteById = new Map<string, WrappedLabel>(
+    notedStates.map(({ state, label, labelBox }) => [state.id, { label, labelBox }]),
+  );
 
   /**
-   * Each labelled transition's label as `layoutLabel` measured it, by the
-   * transition's id — measured once, so the box the core keeps clear and the
-   * box the renderer draws in are the same box.
+   * Each labelled transition's label wrapped and measured at the 12px it is
+   * drawn at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled to
+   * that size, by the label-wrap ADR, nook `01M4R4WDZ`), by the
+   * transition's id — once, so the box the core keeps clear and the box the
+   * renderer draws in are the same box, and the rows drawn are the wrapped
+   * label's.
    */
-  const transitionLabelBoxById = new Map(
+  const wrappedTransitionLabelById = new Map(
     model.transitions.flatMap((transition) =>
       transition.label === null
         ? []
-        : [[transition.id, layoutLabel(transition.label, options.measureText)] as const],
+        : [[transition.id, wrapConnectorLabel(transition.label, options.measureText)] as const],
     ),
   );
 
@@ -248,7 +259,7 @@ export function layoutStateDiagram(
         // apart for the text, and reports back where that space ended up.
         ...(transition.label === null
           ? {}
-          : { label: transitionLabelBoxById.get(transition.id)! }),
+          : { label: wrappedTransitionLabelById.get(transition.id)!.labelBox }),
       })),
       // The edge that puts the note beside the state it annotates, and whose
       // route is the note's connector. It is never drawn as a transition:
@@ -327,7 +338,7 @@ export function layoutStateDiagram(
       labels: plan.labels.map((planned) => ({ ...planned, y: placed.y + planned.y })),
       style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
       dividerY: plan.dividerY === null ? null : placed.y + plan.dividerY,
-      note: placeNote(state, noteLabelBoxById, boxById, routeById, frameById, shifted),
+      note: placeNote(state, wrappedNoteById, boxById, routeById, frameById, shifted),
     };
   });
 
@@ -361,8 +372,7 @@ export function layoutStateDiagram(
         transition.label === null || route.labelAnchor === undefined
           ? null
           : {
-              label: transition.label,
-              labelBox: transitionLabelBoxById.get(transition.id)!,
+              ...wrappedTransitionLabelById.get(transition.id)!,
               anchor: shifted(route.labelAnchor),
             },
     };
@@ -440,7 +450,7 @@ function levelDirections(model: StateModel): (state: ResolvedState) => Direction
  */
 function placeNote(
   state: ResolvedState,
-  noteLabelBoxById: ReadonlyMap<string, LabelBox>,
+  wrappedNoteById: ReadonlyMap<string, WrappedLabel>,
   boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
   routeById: ReadonlyMap<string, { points: Point[] }>,
   frameById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
@@ -462,8 +472,7 @@ function placeNote(
   const fromState = state.note.position === "left of" ? [...clipped].reverse() : clipped;
 
   return {
-    label: state.note.label,
-    labelBox: noteLabelBoxById.get(state.id)!,
+    ...wrappedNoteById.get(state.id)!,
     x: placed.x,
     y: placed.y,
     width: box.width,
@@ -678,7 +687,9 @@ function planStateBox(
       dividerY = bottom;
       bottom += STATE_PADDING_Y;
     }
-    const placed = placeLabel(label, bottom, options);
+    // Wrapped at the 14px it is drawn at: measured, mermaid 11.17.2 wraps a
+    // state's description and its quoted name at 200px.
+    const placed = placeLabel(wrapNodeLabel(label, options.measureText), bottom);
     planned.push(placed);
     bottom += placed.labelBox.height;
   });
@@ -712,7 +723,10 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   let bottom = COMPOSITE_PADDING;
 
   for (const label of labels) {
-    const placed = placeLabel(label, bottom, options);
+    // Never wrapped: measured, mermaid 11.17.2 draws a composite's title —
+    // its quoted name, or the description `Outer : …` gives it — on one row
+    // however long it is, as it does a flowchart subgraph's.
+    const placed = placeLabel(wrapLabel(label, options.measureText, NO_WRAP), bottom);
     planned.push(placed);
     bottom += placed.labelBox.height;
   }
@@ -726,13 +740,14 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
 }
 
 /**
- * `label` measured and placed with its top edge at `top` — the step every
- * stack of labels in a state's box repeats: the caller moves `top` down by
- * the label's height for the next one.
+ * A label, already wrapped (or not) and measured, placed with its top edge
+ * at `top` — the step every stack of labels in a state's box repeats: the
+ * caller moves `top` down by the label's height for the next one. The
+ * placed label is the wrapped one, so the renderer draws the rows the box
+ * was measured around.
  */
-function placeLabel(label: Label, top: number, options: LayoutOptions): PositionedStateLabel {
-  const labelBox = layoutLabel(label, options.measureText);
-  return { label, labelBox, y: top + labelBox.height / 2 };
+function placeLabel(wrapped: WrappedLabel, top: number): PositionedStateLabel {
+  return { ...wrapped, y: top + wrapped.labelBox.height / 2 };
 }
 
 /**

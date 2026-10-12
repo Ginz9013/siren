@@ -1,0 +1,12 @@
+erDiagram
+%% Long ER labels: Mermaid 11.17.2 wraps a relationship label at 200px (of 14px
+%% text), and leaves an entity name, an alias and an attribute comment on one row.
+
+CUSTOMER_WITH_AN_EXTREMELY_LONG_ENTITY_NAME_PAST_TWO_HUNDRED ||--o{ ORDER : "this relationship label is long enough to go well past two hundred pixels wide"
+P["This is a fairly long English entity label that should exceed two hundred pixels"] {
+  string name
+}
+P ||--|| ORDER : places
+ORDER {
+  string id PK "this attribute comment is long enough to go well past two hundred pixels wide"
+}

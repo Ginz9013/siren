@@ -25,21 +25,35 @@ describe("layoutLabel", () => {
     expect(box).toEqual({
       width: 50,
       height: 24,
-      rows: [{ y: 12, height: 24, width: 50, runs: [{ x: 5, width: 40 }] }],
+      // The row is one 14px × 1.5 = 21px line; the measurer's other 3px are
+      // its padding, half above the row and half below.
+      rows: [{ y: 12, height: 21, width: 50, runs: [{ x: 5, width: 40 }] }],
     });
   });
 
-  it("stacks rows one line-height apart, as wide as the widest row", () => {
+  // Mermaid's label line is 1.5 × its font size (24px at 16px, measured), and
+  // the measurer's answer for one line is that line plus the padding, so at
+  // the 14px base a row is 21px and the 24px measurer pads 3px — once, split
+  // above and below the rows, not once per row.
+  it("stacks rows one 14px × 1.5 line apart, padding the stack once, as wide as the widest row", () => {
     const { label } = readLabel("a<br>bb", { dialect: "html" });
 
     const box = layoutLabel(label, paddedMeasurer);
 
     expect(box.width).toBe(26);
-    expect(box.height).toBe(48);
+    expect(box.height).toBe(21 + 21 + 3);
     expect(box.rows.map((row) => [row.y, row.height, row.width])).toEqual([
-      [12, 24, 18],
-      [36, 24, 26],
+      [12, 21, 18],
+      [33, 21, 26],
     ]);
+  });
+
+  it("keeps a one-row label's box exactly as tall as the measurer's answer for one line", () => {
+    const tall: TextMeasurer = { measure: (text) => ({ width: text.length * 8 + 16, height: 32 }) };
+
+    expect(layoutLabel(readLabel("Start", { dialect: "html" }).label, tall).height).toBe(32);
+    expect(layoutLabel(readLabel("**Start** here", { dialect: "html", markdown: true }).label, tall).height).toBe(32);
+    expect(layoutLabel(readLabel("Start", { dialect: "html" }).label, paddedMeasurer).height).toBe(24);
   });
 
   it("places a row's runs side by side, counting the measurer's padding once per row", () => {
@@ -59,19 +73,21 @@ describe("layoutLabel", () => {
 
     const box = layoutLabel(label, paddedMeasurer);
 
-    // Row 2: `x` at 8px, then `bb` at 16px × 1.2; as tall as one line × 1.2.
+    // Row 2: `x` at 8px, then `bb` at 16px × 1.2; as tall as one 21px line × 1.2.
     const [first, second] = box.rows;
-    expect(first!.height).toBe(24);
-    expect(second!.height).toBeCloseTo(28.8);
+    expect(first!.height).toBe(21);
+    expect(second!.height).toBeCloseTo(25.2);
     expect(second!.runs[1]!.x).toBe(13);
     expect(second!.runs[1]!.width).toBeCloseTo(19.2);
     expect(second!.width).toBeCloseTo(10 + 8 + 19.2);
-    expect(second!.y).toBeCloseTo(24 + 14.4);
-    expect(box.height).toBeCloseTo(52.8);
+    // Below the 1.5px of padding above the rows and the first 21px row.
+    expect(second!.y).toBeCloseTo(1.5 + 21 + 12.6);
+    expect(box.height).toBeCloseTo(21 + 25.2 + 3);
   });
   // The spec: an absolute px size is measured as a scale of the default
-  // 14px base, so 28px is twice as wide and tall as the measurer's answer; a
-  // size no number of px describes (`large`) is measured at the base size.
+  // 14px base, so 28px is twice as wide as the measurer's answer and two 21px
+  // lines tall; a size no number of px describes (`large`) is measured at the
+  // base size.
   it("measures an absolute px size against a 14px base, and any other absolute size at the base", () => {
     const { label } = readLabel("<span style='font-size:28px'>ab</span><span style='font-size:large'>c</span>", {
       dialect: "html",
@@ -79,7 +95,7 @@ describe("layoutLabel", () => {
 
     const box = layoutLabel(label, paddedMeasurer);
 
-    expect(box.height).toBe(48);
+    expect(box.height).toBe(42 + 3);
     expect(box.rows[0]!.runs).toEqual([
       { x: 5, width: 32 },
       { x: 37, width: 8 },

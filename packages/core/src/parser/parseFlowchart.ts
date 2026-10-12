@@ -1340,6 +1340,42 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const LINK_STYLE_RE = /^linkStyle\s+([\w,\s]*[\w,])\s+(.+)$/;
 
 /**
+ * `linkStyle default interpolate step` and `linkStyle 0,2 interpolate linear
+ * stroke:#f00` — a `linkStyle` that chooses the **Curve** its edges are
+ * drawn with, optionally followed by the declarations an ordinary
+ * `linkStyle` takes. Tried before `LINK_STYLE_RE`, which would otherwise
+ * read `default interpolate` as an address list and the curve name as a
+ * declaration.
+ *
+ * Mermaid 11.17.2's grammar (`linkStyleStatement`, productions 124-127 of
+ * the flowchart parser in `dist/mermaid.js`) is
+ *
+ *     LINKSTYLE SPACE (DEFAULT | numList) SPACE INTERPOLATE SPACE alphaNum
+ *       [SPACE stylesOpt]
+ *
+ * with `numList` = `NUM (COMMA NUM)*`, and the action calls
+ * `updateLinkInterpolate(addresses, alphaNum)` before `updateLink` for the
+ * declarations. Differences, all on the lenient side and all shared with
+ * `LINK_STYLE_RE`:
+ *
+ * - The address list is the same `[\w,\s]` run `LINK_STYLE_RE` reads, so
+ *   `0, 1` (a parse error in Mermaid, measured) and `default,0` (likewise)
+ *   are read here, and a non-index address is diagnosed by the model in the
+ *   one wording every `linkStyle` gets.
+ * - The curve name is any run of non-space characters, where Mermaid's is
+ *   its `alphaNum` token run. No curve name either side recognizes contains
+ *   anything else, and an unrecognized one is diagnosed by the model.
+ * - An index past the last edge: Mermaid's `updateLinkInterpolate` has no
+ *   bounds check (unlike `updateLink`), so it throws a `TypeError` writing
+ *   to `this.edges[pos].interpolate`. Siren reports the index error every
+ *   `linkStyle` gets (`buildFlowchartModel`) and draws the rest.
+ * - `interpolate` is matched case-sensitively, as Mermaid's lexer
+ *   (`/^(?:interpolate\b)/`) does. The address list is lazy so that it
+ *   stops at the first `interpolate`.
+ */
+const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s+(\S+)(?:\s+(.+))?$/;
+
+/**
  * `class A,B emphasis` — this kind's spelling of the apply-directive, which
  * a class diagram spells `cssClass "A,B" emphasis`. Both normalize to the
  * one `apply` kind here, so no model, renderer or test downstream learns
@@ -1528,6 +1564,31 @@ export function parseFlowchart(source: string): ParseResult {
     }
     return properties;
   };
+
+  /**
+   * One `linkStyle` statement, in either spelling — plain, or with an
+   * `interpolate` clause — built in one place so the two cannot drift.
+   *
+   * The addresses go through untouched — see `LINK_STYLE_RE` — and so does
+   * the curve name: which edges an address names, and which names Siren
+   * draws, are the model's questions. The declarations do not: they are read
+   * by the same splitter `style` and `classDef` use, so all three statements
+   * accept one declaration list and diagnose a bad segment in one wording.
+   */
+  const readLinkStyle = (
+    addresses: string,
+    declarations: string | undefined,
+    lineNumber: number,
+    column: number,
+    interpolate?: string,
+  ): LinkStyleDecl => ({
+    targets: splitTargetIds(addresses),
+    ...(interpolate === undefined ? {} : { interpolate }),
+    properties:
+      declarations === undefined ? [] : readStyleProperties(declarations, lineNumber, column),
+    line: lineNumber,
+    column,
+  });
 
   /**
    * Records the `:::name` shorthand as what it is: the apply-directive,
@@ -2022,18 +2083,17 @@ export function parseFlowchart(source: string): ParseResult {
         continue;
       }
 
+      const interpolateMatch = LINK_STYLE_INTERPOLATE_RE.exec(line);
+      if (interpolateMatch !== null) {
+        linkStyles.push(
+          readLinkStyle(interpolateMatch[1], interpolateMatch[3], lineNumber, column, interpolateMatch[2]),
+        );
+        continue;
+      }
+
       const linkStyleMatch = LINK_STYLE_RE.exec(line);
       if (linkStyleMatch !== null) {
-        // The address goes through untouched — see `LINK_STYLE_RE`. The
-        // declarations do not: they are read by the same splitter `style` and
-        // `classDef` use, so all three statements accept one declaration list
-        // and diagnose a bad segment in one wording.
-        linkStyles.push({
-          targets: splitTargetIds(linkStyleMatch[1]),
-          properties: readStyleProperties(linkStyleMatch[2], lineNumber, column),
-          line: lineNumber,
-          column,
-        });
+        linkStyles.push(readLinkStyle(linkStyleMatch[1], linkStyleMatch[2], lineNumber, column));
         continue;
       }
 

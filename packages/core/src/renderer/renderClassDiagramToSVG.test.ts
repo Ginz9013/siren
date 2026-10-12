@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { connectorPathData } from "./connectorCurve";
 import { renderClassDiagramToSVG } from "./renderClassDiagramToSVG";
 import type {
   ClassRelationshipEnd,
@@ -377,7 +378,9 @@ describe("renderClassDiagramToSVG", () => {
     expect(groups[0].getAttribute("data-siren-id")).toBe("Animal-Duck");
 
     const line = groups[0].querySelector("path.siren-relationship-line");
-    expect(line?.getAttribute("d")).toBe("M70,80 L70,160 L260,160");
+    // The route itself, not `d`: under the default curve `d` carries the
+    // spline's control points (see the basis test below).
+    expect(line?.getAttribute("data-siren-points")).toBe("70,80 70,160 260,160");
     // A multi-segment path must never be painted as a filled polygon, however
     // it is themed — same reasoning as the sequence renderer's frames.
     expect(line?.getAttribute("fill")).toBe("none");
@@ -539,6 +542,43 @@ describe("renderClassDiagramToSVG", () => {
 
     expect(svg.querySelectorAll("text.siren-relationship-label").length).toBe(0);
     expect(svg.querySelectorAll("text.siren-multiplicity").length).toBe(0);
+  });
+
+  it("paints a background behind a relationship's label, over the box it was measured in, inside the label group and before the text", () => {
+    // Mermaid paints a translucent fill behind a connector's label (measured,
+    // 11.17.2), so the line running under it does not strike it out. "owns"
+    // is 32 by 24 in this file's boxes, centred on (150, 148). The rect
+    // wears no id of its own: the label group carries the relationship's,
+    // so the timeline reaches it with the text.
+    const svg = renderClassDiagramToSVG(
+      buildDiagram(
+        [],
+        [
+          buildRelationship({
+            ...placed("owns", { x: 150, y: 148 }),
+            fromMultiplicity: "1",
+            fromMultiplicityAnchor: { x: 80, y: 96 },
+          }),
+          // Multiplicities but no label: no background.
+          buildRelationship({
+            id: "Duck-Animal",
+            from: "Duck",
+            to: "Animal",
+            toMultiplicity: "*",
+            toMultiplicityAnchor: { x: 244, y: 152 },
+          }),
+        ],
+      ),
+    );
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) => [
+        rect.parentElement?.getAttribute("data-siren-id"),
+        ...["data-siren-id", "x", "y", "width", "height", "style"].map((name) => rect.getAttribute(name)),
+      ]),
+    ).toEqual([["Animal-Duck", null, "134", "136", "32", "24", null]]);
+    expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-relationship-label")!)).toBe(true);
   });
 
   it("renders only the multiplicity that is present", () => {
@@ -745,6 +785,32 @@ describe("renderClassDiagramToSVG", () => {
     expect(text?.getAttribute("y")).toBe("60");
   });
 
+  it("draws a relationship and a note's connector as d3's basis curve, keeping the route as data-siren-points", () => {
+    // mermaid 11.17.2 sets no `curve` on a class diagram's edges, its note
+    // edges included, so `insertEdge` falls back to `flowchart.curve`, whose
+    // default is `basis`. What `basis` draws is connectorCurve.test.ts's to
+    // pin against d3; here the question is only which curve this kind uses.
+    const route = [
+      { x: 70, y: 80 },
+      { x: 70, y: 140 },
+      { x: 130, y: 140 },
+    ];
+    const svg = renderClassDiagramToSVG({
+      ...buildDiagram(
+        [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
+        [buildRelationship({ points: route })],
+      ),
+      notes: [buildNote({ linkPoints: route })],
+    });
+    const basis = connectorPathData(route, "basis");
+
+    for (const selector of ["path.siren-relationship-line", "path.siren-note-link"]) {
+      const path = svg.querySelector(selector)!;
+      expect(path.getAttribute("d")).toBe(basis);
+      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+    }
+  });
+
   it("renders a connector along the layout's points for an attached note", () => {
     const svg = renderClassDiagramToSVG({
       ...buildDiagram([buildClass()]),
@@ -760,7 +826,7 @@ describe("renderClassDiagramToSVG", () => {
     });
 
     const link = svg.querySelector("path.siren-note-link");
-    expect(link?.getAttribute("d")).toBe("M200,60 L160,60 L130,50");
+    expect(link?.getAttribute("data-siren-points")).toBe("200,60 160,60 130,50");
     // An open, multi-segment path, exactly like a relationship line: a default
     // fill would paint it as a polygon across the diagram.
     expect(link?.getAttribute("fill")).toBe("none");

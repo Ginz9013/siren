@@ -45,9 +45,11 @@
  * high-contrast, print — redeclares the five palette tokens under a selector
  * of their own and owns when it applies. The three label-paint tokens
  * (`--siren-label-mark-fill`, `--siren-label-mark-text`, `--siren-label-link`)
- * sit outside the palette and may be redeclared the same way. The theme never
- * picks for them, which is why nothing in this file reads the reader's system
- * color preference or any theme attribute on the page — see
+ * and the connector label's background (`--siren-edge-label-fill`) sit outside
+ * the palette and may be redeclared the same way — the background should be,
+ * on any canvas that is not white. The theme never picks for them, which is
+ * why nothing in this file reads the reader's system color preference or any
+ * theme attribute on the page — see
  * packages/core/README.md for the worked example, and demos/theme-dark.css
  * for one that runs.
  */
@@ -68,6 +70,14 @@
   /* What the browser paints a link with in Mermaid's HTML labels (measured):
      its default link blue. Outside the palette for the same reason. */
   --siren-label-link: #0000ee;
+  /* What a connector's label is painted on, so a line running under it does
+     not strike its text out. Mermaid's is translucent (measured, 11.17.2:
+     rgba(232,232,232,0.8) over its label's box); this is the canvas Siren's
+     palette is drawn on — white — at the same 0.8, so the label reads as the
+     page with the line faintly showing through. Outside the palette, like the
+     label paint above, but a second theme has to redeclare it: on a dark
+     canvas a white background is the one thing on the page. */
+  --siren-edge-label-fill: rgb(255 255 255 / 0.8);
 
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
@@ -258,6 +268,18 @@
   font-family: var(--siren-font-family);
   font-size: var(--siren-label-font-size);
   fill: var(--siren-node-text);
+}
+
+/*
+ * The background behind every connector's label — a flowchart edge's, a class or
+ * ER relationship's, a state transition's — over the box the label was
+ * measured in. One class for the four kinds, since it is one thing in each.
+ * Filled from its token and nothing else: an author's `linkStyle … color:`
+ * paints the label's text, and no highlight rule names this class, so a
+ * highlighted connector keeps its label readable rather than recolored.
+ */
+.siren-connector-label-background {
+  fill: var(--siren-edge-label-fill);
 }
 
 /*
@@ -1424,6 +1446,30 @@
 }
 
 .siren-highlight-glow {
+  filter: drop-shadow(0 0 4px var(--siren-highlight-color))
+    drop-shadow(0 0 8px var(--siren-highlight-color));
+  transition: filter var(--siren-highlight-duration) ease-out;
+}
+
+/*
+ * A connector label's background takes no glow. A drop-shadow on a rect is a
+ * halo around the rectangle — a lit box around the label rather than a lit
+ * label — so the background stays as it is and the text alone glows, with
+ * the line. In the flowchart the highlight class lands on the background
+ * itself. In the other three kinds it lands on the label's group, and a
+ * filter on a group shadows its whole subtree as one picture, background
+ * included, so the group gives the shadow up and its text takes it instead.
+ */
+.siren-connector-label-background.siren-highlight-glow,
+.siren-relationship-labels.siren-highlight-glow,
+.siren-transition-labels.siren-highlight-glow,
+.siren-er-relationship-labels.siren-highlight-glow {
+  filter: none;
+}
+
+.siren-relationship-labels.siren-highlight-glow > text,
+.siren-transition-labels.siren-highlight-glow > text,
+.siren-er-relationship-labels.siren-highlight-glow > text {
   filter: drop-shadow(0 0 4px var(--siren-highlight-color))
     drop-shadow(0 0 8px var(--siren-highlight-color));
   transition: filter var(--siren-highlight-duration) ease-out;

@@ -9,8 +9,10 @@ import type {
   PositionedClassRelationship,
   StyleProperty,
 } from "../contracts";
+import { DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
+import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -187,7 +189,7 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-relationship-line");
-  line.setAttribute("d", pointsToPathData(relationship.points));
+  drawConnectorRoute(line, relationship.points, DEFAULT_CURVE);
   // Explicit, not left to CSS: a relationship's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
   // spanning the classes it connects.
@@ -232,7 +234,9 @@ function buildRelationshipLabels(relationship: PositionedClassRelationship): SVG
   // space reserved for it, the same correction a state diagram's transition
   // label took. Its `x` and `y` are unchanged for a label of one row.
   if (relationship.label !== null) {
-    appendLabel(g, drawPlaced(relationship.label, "siren-relationship-label"));
+    // With the background every connector label is painted on, under the
+    // text; it takes the group's id, and with it the timeline's classes.
+    appendLabel(g, drawConnectorLabel(relationship.label, "siren-relationship-label"));
   }
 
   for (const [text, anchor] of [
@@ -433,13 +437,6 @@ function buildCircleMarker(
   return marker;
 }
 
-/** Converts a layout-assigned point path into an SVG `<path>` `d` attribute. */
-function pointsToPathData(points: Point[]): string {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
-}
-
 /**
  * Builds the `<g class="siren-class">` for one class: a
  * `<rect class="siren-class-frame">` at its layout-assigned box, a
@@ -592,7 +589,7 @@ function buildNoteLink(note: PositionedClassNote): SVGPathElement | null {
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
   link.setAttribute("data-siren-id", note.id);
-  link.setAttribute("d", pointsToPathData(note.linkPoints));
+  drawConnectorRoute(link, note.linkPoints, DEFAULT_CURVE);
   // Explicit, for the same reason a relationship line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.
   link.setAttribute("fill", "none");

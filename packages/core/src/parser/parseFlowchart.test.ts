@@ -797,3 +797,40 @@ describe("the `;` Mermaid drops from a style line", () => {
     expect(positions(`flowchart TB\n  A["<b style='x:#1'>#35;⚑</b>"] --> C`, parseSiren)).toEqual(["warning 2:26"]);
   });
 });
+
+/**
+ * `linkStyle <address> interpolate <curve> [declarations]` — Mermaid's way
+ * of choosing the **Curve** an edge is drawn with. The parser reads the
+ * curve name as written; whether it names a curve, and which edges it lands
+ * on, is `buildFlowchartModel`'s question.
+ */
+describe("a flowchart's `linkStyle … interpolate` statement", () => {
+  it("reads `linkStyle default interpolate step` as a curve for the default address, with no declarations", () => {
+    const { document, diagnostics } = parseOk("flowchart LR\n  A --> B\n  linkStyle default interpolate step");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.linkStyles).toEqual([
+      { targets: ["default"], interpolate: "step", properties: [], line: 3, column: 3 },
+    ]);
+  });
+
+  it("reads an index list, the curve, and the declarations written after it on the same line", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart LR\n  A --> B --> C\n  linkStyle 0,1 interpolate linear stroke:#f00,stroke-width:2px",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.linkStyles).toEqual([
+      {
+        targets: ["0", "1"],
+        interpolate: "linear",
+        properties: [
+          { property: "stroke", value: "#f00" },
+          { property: "stroke-width", value: "2px" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+});

@@ -1,5 +1,14 @@
 import type { TextMeasurer } from "../contracts";
-import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type LabelBoxRow, type LabelRun } from "./label";
+import {
+  atConnectorLabelSize,
+  BASE_FONT_SIZE_PX,
+  CONNECTOR_LABEL_FONT_SIZE_PX,
+  measuredScale,
+  type Label,
+  type LabelBox,
+  type LabelBoxRow,
+  type LabelRun,
+} from "./label";
 
 /**
  * Measures a label: the box it needs, and where each row and run sits in it.
@@ -25,12 +34,20 @@ import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type Label
  * measurer that cannot measure at all is reported naming that string
  * (`render()`'s `UnmeasurableTextError`), not an empty one.
  *
- * **Heights.** A row is as tall as its tallest run, and a run is one
- * measured line height times its font-size scale (`measuredScale`: an
- * author's absolute px size counts as a scale of the 14px base); the label is its rows
- * stacked with no gap. Both real measurers answer a height that depends on
- * the font and not on the text, so "one line" is never a guess about which
- * string is representative.
+ * **Heights.** A row is as tall as its tallest run, and a run is one line
+ * times its font-size scale (`measuredScale`: an author's absolute px size
+ * counts as a scale of the 14px base). A line is Mermaid's: the size the
+ * label is drawn at times its line-height ratio (`LineSpacing`; 14px × 1.5 =
+ * 21px unless the caller says otherwise) — never the measurer's height,
+ * which is a line *plus* its padding and cannot say which is which. The
+ * rows are stacked with no gap, and the measurer's vertical padding — its
+ * answer for `""` less one line — is added once, half above them and half
+ * below, as Mermaid's shape padding sits outside its label `<div>`. So a
+ * one-row label at scale 1 is exactly as tall as the measurer's answer, the
+ * height every label had before its rows were spaced at Mermaid's line
+ * height, and each row after it adds one line. A measurer whose line is
+ * shorter than Mermaid's (a test's 20px) pads by a negative amount, which
+ * keeps that one-row height all the same.
  *
  * **Spacing.** A run's `letter-spacing` is added once per character and
  * its `word-spacing` once per space, as CSS adds them, so the box — and a
@@ -51,15 +68,23 @@ import { BASE_FONT_SIZE_PX, measuredScale, type Label, type LabelBox, type Label
  *
  * Pure: no call leaves anything behind but the measurer's own.
  */
-export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
+export function layoutLabel(label: Label, measureText: TextMeasurer, spacing: LineSpacing = {}): LabelBox {
+  const { fontSizePx = BASE_FONT_SIZE_PX, lineHeightRatio = LINE_HEIGHT_RATIO } = spacing;
   const measured = label.rows.map((row) =>
     row.map((run) => ({ size: measureText.measure(run.text), scale: measuredScale(run), spacing: spacingOf(run) })),
   );
-  const padding = measureText.measure("").width;
+  const padding = measurerPadding(measureText);
+  const lineHeight = fontSizePx * lineHeightRatio;
+  // What the measurer adds to one line's height, as `padding` is what it adds
+  // to every width: its answer for `""` less the line itself. Added once,
+  // half above the rows and half below, so a one-row label is exactly as
+  // tall as the measurer's answer — the height every label had before rows
+  // were spaced at Mermaid's line height.
+  const verticalPadding = measureText.measure("").height - lineHeight;
 
-  let top = 0;
+  let top = verticalPadding / 2;
   const rows: LabelBoxRow[] = measured.map((runs) => {
-    const height = Math.max(...runs.map(({ size, scale }) => size.height * scale));
+    const height = Math.max(...runs.map(({ scale }) => lineHeight * scale));
     let x = padding / 2;
     const placed = runs.map(({ size, scale, spacing }) => {
       const run = { x, width: (size.width - padding) * scale + spacing };
@@ -73,9 +98,56 @@ export function layoutLabel(label: Label, measureText: TextMeasurer): LabelBox {
 
   return {
     width: Math.max(...rows.map((row) => row.width)),
-    height: top,
+    height: top + verticalPadding / 2,
     rows,
   };
+}
+
+/**
+ * A label line's height over its font size: Mermaid's HTML labels are 16px
+ * text on 24px lines (measured in headless Chrome, mermaid 11.17.2 — a
+ * flowchart node of two `<br>` rows is a 48px `<div>`, of five wrapped rows
+ * 120px; state, class and ER labels the same ratio at their own sizes). So
+ * a row of Siren's 14px text is 21px tall.
+ */
+export const LINE_HEIGHT_RATIO = 24 / 16;
+
+/**
+ * How far apart a label's rows are: `layoutLabel` cannot read it off
+ * `TextMeasurer`, which answers for a string and nothing else.
+ * `fontSizePx` is the px a run of scale 1 is drawn at — the 14px base
+ * (`BASE_FONT_SIZE_PX`) unless the caller says otherwise — and has to be
+ * the size `measureText` measures at, since the measurer's answer for one
+ * line is that line plus its padding. `lineHeightRatio` is a line's height
+ * over that size, `LINE_HEIGHT_RATIO` unless the caller says otherwise.
+ */
+export interface LineSpacing {
+  fontSizePx?: number;
+  lineHeightRatio?: number;
+}
+
+/**
+ * Measures a connector's label — a flowchart edge's, a class or ER
+ * relationship's, a state transition's — at the 12px it is drawn at: the
+ * measurer scaled to that size (`atConnectorLabelSize`) and rows a 12px
+ * line apart (12 × 1.5 = 18px), the two always together, since a line
+ * height for one size with a measurer for another would pad the label by
+ * the difference. A connector label that wraps is laid out by
+ * `wrapConnectorLabel` (`wrapLabel.ts`), which pairs the same two.
+ */
+export function layoutConnectorLabel(label: Label, measureText: TextMeasurer): LabelBox {
+  return layoutLabel(label, atConnectorLabelSize(measureText), { fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX });
+}
+
+/**
+ * The padding `measureText` adds to every string it measures: its answer
+ * for `""`, which is by definition what it adds to every string (see
+ * `layoutLabel`). A row is that much wider than its text — counted once per
+ * row, half on each side — which is how `wrapLabel` tells a row's text from
+ * its padding.
+ */
+export function measurerPadding(measureText: TextMeasurer): number {
+  return measureText.measure("").width;
 }
 
 /**

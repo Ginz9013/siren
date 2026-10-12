@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToSVG } from "./renderToSVG";
+import { render } from "../index";
 import type { PositionedEdge, PositionedGraph } from "../contracts";
 import { CANVAS_GUTTER } from "./sizeCanvas";
 import { layoutLabel } from "../label/layoutLabel";
@@ -87,6 +88,24 @@ function buildFixture(): PositionedGraph {
 }
 
 /**
+ * `buildFixture` with A-B bent once: (40,20) → (100,20) → (100,80), a right
+ * turn and then straight down — a route whose curve differs from its
+ * polyline, for the tests about how a route is drawn.
+ */
+function buildBentFixture(): PositionedGraph {
+  const graph = buildFixture();
+  graph.edges[0] = {
+    ...graph.edges[0],
+    points: [
+      { x: 40, y: 20 },
+      { x: 100, y: 20 },
+      { x: 100, y: 80 },
+    ],
+  };
+  return graph;
+}
+
+/**
  * The `<marker>` one edge path points at, found by following its own
  * `marker-end` rather than by naming an id.
  *
@@ -123,6 +142,47 @@ describe("renderToSVG", () => {
       "A-B",
       "B-C",
     ]);
+  });
+
+  it("draws an edge's route as d3's basis curve, Mermaid's default, ending on the route's last point", () => {
+    // d3-shape 3.2.0 curveBasis (src/curve/basis.js) through (40,20),
+    // (100,20), (100,80) — the worked example of connectorCurve.test.ts moved
+    // by (40,20): L to (5·p0 + p1)/6, one cubic per point after the second,
+    // a closing cubic and a final L onto the last point.
+    const svg = renderToSVG(buildBentFixture());
+
+    expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")).toBe(
+      "M40,20 L50,20 C60,20 80,20 90,30 C100,40 100,60 100,70 L100,80",
+    );
+  });
+
+  it("keeps the route a curve was drawn through readable on the path, as data-siren-points", () => {
+    // A curve's `d` carries control points rather than the route, so the
+    // points layout routed through are written beside it, in the spelling
+    // of an SVG `points` attribute.
+    const svg = renderToSVG(buildBentFixture());
+
+    expect(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("data-siren-points"),
+    ).toBe("40,20 100,20 100,80");
+  });
+
+  it("keeps the arrowhead pointing along the route's last segment under the curve", () => {
+    // `marker-end` is oriented `auto`, along the direction the path arrives
+    // in — its last command. The route's last segment runs (100,20) →
+    // (100,80), straight down; the drawn line must arrive heading down too.
+    const svg = renderToSVG(buildBentFixture());
+    const pairs = Array.from(
+      svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")!.matchAll(
+        /(-?[\d.]+),(-?[\d.]+)/g,
+      ),
+      ([, x, y]) => ({ x: Number(x), y: Number(y) }),
+    );
+    const [from, to] = pairs.slice(-2);
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+
+    expect(to).toEqual({ x: 100, y: 80 });
+    expect({ x: (to.x - from.x) / length, y: (to.y - from.y) / length }).toEqual({ x: 0, y: 1 });
   });
 
   it("leaves step-0 pending state to the controller, stamping siren-pending on nothing", () => {
@@ -1291,9 +1351,98 @@ describe("the label drawn on an edge", () => {
     // sequence participant's several drawn elements move together.
     const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
 
+    // The background behind the text wears the id too: it is part of the
+    // label, so it appears and disappears with it.
     expect(
       Array.from(svg.querySelectorAll('[data-siren-id="A-B"]')).map((el) => el.tagName),
-    ).toEqual(["path", "text"]);
+    ).toEqual(["path", "rect", "text"]);
+  });
+
+  it("paints a background behind the label, over the box it was measured in, after every line and before its text", () => {
+    // Mermaid paints a translucent fill behind every edge label (measured,
+    // 11.17.2: `.labelBkg` and `.edgeLabel` over the label's box), so a line
+    // running under the label does not strike its text out. "yes" is 24 by
+    // 20 in the fixture's measurer, centred on (55, 60).
+    const svg = drawLabelled(placed("yes", { x: 55, y: 60 }));
+
+    const backgrounds = Array.from(svg.querySelectorAll("rect.siren-connector-label-background"));
+    expect(
+      backgrounds.map((rect) =>
+        ["data-siren-id", "x", "y", "width", "height"].map((name) => rect.getAttribute(name)),
+      ),
+    ).toEqual([["A-B", "43", "50", "24", "20"]]);
+    const all = Array.from(svg.querySelectorAll("*"));
+    const at = all.indexOf(backgrounds[0]!);
+    expect(at).toBeGreaterThan(Math.max(...Array.from(svg.querySelectorAll("path.siren-edge")).map((p) => all.indexOf(p))));
+    expect(at).toBeLessThan(all.indexOf(svg.querySelector("text.siren-edge-label")!));
+  });
+
+  it("paints the background over a wrapped label's whole box, every row inside it", () => {
+    // T2: an edge label wider than 150px of 12px text is wrapped by layout,
+    // and the background covers the wrapped box — the wrap width plus the
+    // measurer's padding, and both rows — not the one long row it was
+    // written as. Through the public `render()`, whose default measurer is
+    // 8px a character plus 16px, 24px a line plus 8px, at 14px; at the 12px
+    // an edge label is drawn at that is 12/14 of each, so 21 characters fit
+    // in 150px and 22 do not.
+    const container = document.createElement("div");
+    const { svg } = render("flowchart TD\nA -->|alpha beta gamma delta epsilon zeta| B\n", container);
+
+    const text = svg!.querySelector("text.siren-edge-label")!;
+    expect(Array.from(text.querySelectorAll("tspan.siren-label-row")).map((row) => row.textContent)).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    const background = svg!.querySelector("rect.siren-connector-label-background")!;
+    const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(background.getAttribute(name)));
+    expect(width).toBeCloseTo(150 + (16 * 12) / 14, 3);
+    // One measured line at 12px, and the second row's 12 × 1.5 = 18px.
+    expect(height).toBeCloseTo((32 * 12) / 14 + 18, 3);
+    // Centred on the label's anchor, where its text is drawn.
+    expect(x + width / 2).toBeCloseTo(Number(text.getAttribute("x")), 3);
+    expect(y + height / 2).toBeCloseTo(Number(text.getAttribute("y")), 3);
+  });
+
+  it("gives the background no paint of its own, so the theme fills it and an author's text color stays on the text", () => {
+    // `linkStyle 0 color:#f00` paints the label's text, as Mermaid does; the
+    // background is the theme's `--siren-edge-label-fill` and nothing else.
+    const svg = drawLabelled({
+      ...placed("yes", { x: 55, y: 60 }),
+      style: { frame: [], text: [{ property: "fill", value: "#f00" }] },
+    });
+
+    const background = svg.querySelector("rect.siren-connector-label-background");
+    expect(background).not.toBeNull();
+    expect(background!.hasAttribute("style")).toBe(false);
+    expect(background!.hasAttribute("fill")).toBe(false);
+    expect(svg.querySelector("text.siren-edge-label")!.getAttribute("style")).toContain("#f00");
+  });
+
+  it("paints no background for an edge that carries no label", () => {
+    const svg = drawLabelled({ label: null });
+
+    expect(svg.querySelectorAll("rect.siren-connector-label-background")).toHaveLength(0);
+  });
+
+  it("enters and exits with its edge when the timeline moves it", () => {
+    // Through the public `render()`, so the controller is the real one: the
+    // background is hidden before the edge enters, shown when it does, and
+    // leaves when it exits — the timeline's target is the edge's id.
+    const container = document.createElement("div");
+    const { svg, controller } = render(
+      "flowchart TD\nA -->|yes| B\ntimeline:\nenter A-B fade\nexit A-B fade\n",
+      container,
+    );
+    const background = svg!.querySelector("rect.siren-connector-label-background");
+    expect(background).not.toBeNull();
+    if (background === null) return;
+
+    expect(background.classList.contains("siren-pending")).toBe(true);
+    controller!.next();
+    expect(background.classList.contains("siren-pending")).toBe(false);
+    expect(background.classList.contains("siren-enter-fade")).toBe(true);
+    controller!.next();
+    expect(background.classList.contains("siren-exit-fade")).toBe(true);
   });
 });
 
@@ -1513,11 +1662,11 @@ describe("a Markdown-labelled node's drawn text", () => {
     expect(italicRun.getAttribute("font-style")).toBe("italic");
     expect(italicRun.getAttribute("font-weight")).toBeNull();
 
-    // node.y + node.height/2 == 20; two rows of height 20 each, spread
-    // symmetrically above and below that center.
+    // node.y + node.height/2 == 20; two rows of one 14px × 1.5 = 21px line
+    // each, spread symmetrically above and below that center.
     const rowYs = Array.from(rows).map((row) => Number(row.getAttribute("y")));
-    expect(rowYs[0]).toBe(10);
-    expect(rowYs[1]).toBe(30);
+    expect(rowYs[0]).toBe(9.5);
+    expect(rowYs[1]).toBe(30.5);
   });
 
   it("draws a one-row plain label as the text's own textContent, with no row tspans", () => {
@@ -1551,6 +1700,22 @@ vi.mock("../label/drawLabel", async (importOriginal) => {
       return { ...drawn, backgrounds: [rect] };
     },
   };
+});
+
+describe("a multi-row node label's line spacing", () => {
+  // Mermaid draws a label line 1.5 × its font size (24px at 16px, measured in
+  // headless Chrome), so at Siren's 14px the rows sit 21px apart.
+  it("draws the rows of a <br> label 21px apart, centred on the node", () => {
+    const container = document.createElement("div");
+    const { svg } = render("flowchart TD\nA[first<br>second]\n", container);
+
+    const rows = svg!.querySelectorAll('g.siren-node[data-siren-id="A"] text > tspan.siren-label-row');
+    const ys = Array.from(rows).map((row) => Number(row.getAttribute("y")));
+    const text = svg!.querySelector('g.siren-node[data-siren-id="A"] text')!;
+    expect(ys).toHaveLength(2);
+    expect(ys[1]! - ys[0]!).toBeCloseTo(21);
+    expect((ys[0]! + ys[1]!) / 2).toBeCloseTo(Number(text.getAttribute("y")));
+  });
 });
 
 describe("what a label paints behind its text", () => {

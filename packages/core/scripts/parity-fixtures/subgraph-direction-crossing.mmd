@@ -1,0 +1,11 @@
+flowchart TB
+  %% A TB diagram whose subgraph declares direction LR and has edges that
+  %% cross its boundary (Start -> A, C -> Finish). Mermaid ignores the
+  %% subgraph's direction here and lays its members out top to bottom.
+  Start[Start] --> A
+  subgraph Lane [Crossing lane]
+    direction LR
+    A[Alpha] --> B[Beta] --> C[Gamma]
+  end
+  C --> Finish[Finish]
+  Start --> Side[Side path] --> Finish

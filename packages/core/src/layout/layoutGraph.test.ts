@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GraphModel, TextMeasurer } from "../contracts";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
-import { plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { readLabel } from "../label/readLabel";
 import { layoutGraph } from "./layoutGraph";
 
@@ -654,8 +654,9 @@ describe("a node's box, sized around its label", () => {
 
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
+    // Two 14px × 1.5 = 21px rows, padded once by the 24px line's other 3px.
     expect(positioned.nodes[0].width).toBe(16);
-    expect(positioned.nodes[0].height).toBe(48);
+    expect(positioned.nodes[0].height).toBe(45);
   });
 
   it("sizes a one-row plain label exactly as the measurer sizes its text", () => {
@@ -683,6 +684,59 @@ describe("a node's box, sized around its label", () => {
     const expected = fakeMeasurer.measure("Start");
     expect(positioned.nodes[0].width).toBe(expected.width);
     expect(positioned.nodes[0].height).toBe(expected.height);
+  });
+});
+
+describe("a node's label, wrapped", () => {
+  const oneNode = (label: GraphModel["nodes"][number]["label"]): GraphModel => ({
+    direction: "TB",
+    nodes: [{ id: "A", label, shape: "rect", style: { frame: [], text: [] }, parentId: null, interaction: null }],
+    edges: [],
+    subgraphs: [],
+    accTitle: null,
+    accDescr: null,
+    timeline: { totalSteps: 0, entries: [] },
+  });
+
+  // The spec: a node's label wraps at 175px of text (Mermaid's 200 at 16px,
+  // scaled to the node's 14px), its box is then that plus the measurer's
+  // padding, and the node is drawn with the wrapped rows. `fakeMeasurer` is
+  // 8px a character with no padding, so 21 characters fit, 22 do not, and
+  // the box is exactly 175.
+  it("wraps a label wider than 175px at its spaces, and the node carries the wrapped rows", () => {
+    const positioned = layoutGraph(oneNode(plainLabel("alpha beta gamma delta epsilon zeta")), {
+      measureText: fakeMeasurer,
+    });
+
+    const [node] = positioned.nodes;
+    // `alpha beta gamma delta` is 22 characters, 176px.
+    expect(node!.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    expect(node!.labelBox.width).toBe(175);
+    expect(node!.labelBox.rows).toHaveLength(2);
+    expect(node!.width).toBe(175);
+    // Two 21px rows and the measurer's 24 − 21 = 3px of padding, once.
+    expect(node!.height).toBe(45);
+  });
+
+  // The spec: a subgraph's title is plain text in Mermaid and is never
+  // wrapped (measured, mermaid 11.17.2).
+  it("leaves a subgraph's title on one row however long it is", () => {
+    const graph: GraphModel = {
+      ...oneNode(plainLabel("A")),
+      nodes: [{ ...oneNode(plainLabel("A")).nodes[0]!, parentId: "subgraph:1" }],
+      subgraphs: [
+        { id: "subgraph:1", label: plainLabel("alpha beta gamma delta epsilon zeta"), parentId: null, direction: null },
+      ],
+    };
+
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+
+    const [frame] = positioned.subgraphs;
+    expect(frame!.label.label.rows).toHaveLength(1);
+    expect(frame!.label.labelBox.width).toBe(35 * 8);
   });
 });
 
@@ -849,14 +903,66 @@ describe("the room an edge label is given", () => {
     expect(labelled.label!.anchor.y).toBeLessThan(byId.B.y);
   });
 
+  it("measures an edge label at the size it is drawn, 12px, while a node's stays at 14px", () => {
+    // `.siren-edge-label` is drawn at `--siren-label-font-size` (12px in
+    // `theme/default.css`), and the measurer measures at the node's 14px.
+    // The same text set 12/14 as large is 12/14 the size, so `yes` —
+    // `fakeMeasurer`'s 24 x 24 at 14px — is 24 * 12/14 square on the line.
+    const laid = laidOut("yes");
+    const [edge] = laid.edges;
+
+    expect(edge.label!.labelBox.width).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
+    expect(edge.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
+    // A node's label is drawn at the 14px it was measured at, unchanged.
+    expect(laid.nodes.find((node) => node.id === "A")!.labelBox.height).toBe(24);
+  });
+
   it("reserves one line height per row for a label broken with <br>", () => {
-    // `fakeMeasurer`'s line is 24px, so a label of two rows is a 48px box.
+    // `fakeMeasurer`'s line is 24px at 14px, so 24 * 12/14 at the 12px an
+    // edge label is drawn at; a second row adds one 12px × 1.5 = 18px line.
     const [twoRows] = laidOut("yes<br/>no").edges;
     const [oneRow] = laidOut("yes").edges;
 
-    expect(oneRow.label?.labelBox.height).toBe(24);
-    expect(twoRows.label?.labelBox.height).toBe(48);
+    expect(oneRow.label?.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE, 6);
+    expect(twoRows.label?.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
     expect(gap("yes<br/>no")).toBeGreaterThan(gap("yes"));
+  });
+
+  // T2: an edge label wraps at Mermaid's 200px scaled to the 12px it is
+  // drawn at, 150px of text (decision 1); once wrapped its box is that width
+  // plus the measurer's padding (none here), and the positioned edge carries
+  // the wrapped rows for the renderer to draw. `fakeMeasurer` at 12px is
+  // 8 × 12/14 ≈ 6.86px a character, so 21 characters fit and 22 do not.
+  it("wraps an edge label wider than 150px at its spaces, and the edge carries the wrapped rows", () => {
+    const [edge] = laidOut("alpha beta gamma delta epsilon zeta").edges;
+
+    // `alpha beta gamma delta` is 22 characters, about 151px.
+    expect(edge.label!.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    expect(edge.label!.labelBox.width).toBe(150);
+    expect(edge.label!.labelBox.rows).toHaveLength(2);
+    // One measured line at 12px, and a second 18px row.
+    expect(edge.label!.labelBox.height).toBeCloseTo(24 * CONNECTOR_LABEL_SCALE + 18, 6);
+  });
+
+  it("leaves an edge label of 150px or less on one row", () => {
+    // 21 characters, 144px at 12px.
+    const [edge] = laidOut("alpha beta gamma delt").edges;
+
+    expect(edge.label!.label.rows).toHaveLength(1);
+    expect(edge.label!.labelBox.width).toBeCloseTo(21 * 8 * CONNECTOR_LABEL_SCALE, 6);
+  });
+
+  // An edge label is drawn at 12px, so its line is 12 × 1.5 = 18px — Mermaid's
+  // 24px line at 16px, scaled to the size the label is drawn at.
+  it("spaces a <br> edge label's rows 18px apart, the 12px it is drawn at times 1.5", () => {
+    const [edge] = laidOut("yes<br/>no").edges;
+    const rows = edge.label!.labelBox.rows;
+
+    expect(rows.map((row) => row.height)).toEqual([18, 18]);
+    expect(rows[1]!.y - rows[0]!.y).toBeCloseTo(18, 6);
   });
 });
 
@@ -1214,8 +1320,9 @@ describe("a subgraph's frame", () => {
     const oneRow = framed("ab");
     const twoRows = framed("a<br/>b");
 
-    // `fakeMeasurer`'s line is 24px: a second row is 24px more strip.
-    expect(twoRows.frame.label.labelBox.height).toBe(48);
-    expect(twoRows.above - oneRow.above).toBe(24);
+    // A second row is one 14px × 1.5 = 21px line more strip; `fakeMeasurer`'s
+    // 24px answer pads the two rows by 3px, once.
+    expect(twoRows.frame.label.labelBox.height).toBe(45);
+    expect(twoRows.above - oneRow.above).toBe(21);
   });
 });

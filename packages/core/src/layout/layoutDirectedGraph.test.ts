@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { distanceToPolyline } from "../compat/svgGeometry";
 import type { Direction, Point } from "../contracts";
 import {
   layoutDirectedGraph,
+  DAGRE_MARGIN,
   UnplacedNodesError,
   type DirectedGraphLayoutInput,
   type DirectedGraphLayoutNodeBox,
@@ -29,6 +31,64 @@ function boxesOf(input: DirectedGraphLayoutInput) {
   );
 }
 
+/** Asserts that every box came back with four finite numbers — a node the engine really placed. */
+function expectEveryBoxPlaced(boxes: readonly DirectedGraphLayoutNodeBox[]): void {
+  for (const box of boxes) {
+    for (const value of [box.x, box.y, box.width, box.height]) {
+      expect(Number.isFinite(value), `${box.id} has a non-finite coordinate`).toBe(true);
+    }
+  }
+}
+
+describe("the margin layoutDirectedGraph leaves around the drawing", () => {
+  // Mermaid lays every dagre diagram out with `marginx: 8`, `marginy: 8`.
+  it("is 8 on every side: a lone box sits at (8, 8) inside bounds 16 larger than it", () => {
+    expect(DAGRE_MARGIN).toBe(8);
+
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [{ id: "A", width: 100, height: 40 }],
+      edges: [],
+    });
+
+    expect(result.nodes).toEqual([
+      { id: "A", x: DAGRE_MARGIN, y: DAGRE_MARGIN, width: 100, height: 40 },
+    ]);
+    expect(result.width).toBe(100 + 2 * DAGRE_MARGIN);
+    expect(result.height).toBe(40 + 2 * DAGRE_MARGIN);
+  });
+
+  // A frame's self-loop is synthesised outside the bounds dagre reports (the
+  // lane dagre reserves for it is inside the cluster), so the bounds are
+  // grown to hold it. Mermaid routes loops through dagre, whose margin then
+  // lies beyond the loop too; grown here, the margin has to be added back.
+  for (const rankdir of ["TB", "LR"] as const) {
+    it(`is 8 past the far side of a frame's self-loop that reaches beyond dagre's bounds, laid out ${rankdir}`, () => {
+      const result = layoutDirectedGraph({
+        rankdir,
+        nodes: [
+          { id: "one", width: 0, height: 0, isCluster: true },
+          { id: "A", width: 40, height: 20, parentId: "one" },
+        ],
+        edges: [{ id: "one-one", from: "one", to: "one" }],
+      });
+
+      const loop = result.edges[0].points;
+      const frame = result.nodes.find((n) => n.id === "one")!;
+      if (rankdir === "TB") {
+        const tip = Math.max(...loop.map((p) => p.x));
+        // The premise: the loop does reach past the frame's own right side.
+        expect(tip).toBeGreaterThan(frame.x + frame.width + DAGRE_MARGIN);
+        expect(result.width).toBe(tip + DAGRE_MARGIN);
+      } else {
+        const tip = Math.max(...loop.map((p) => p.y));
+        expect(tip).toBeGreaterThan(frame.y + frame.height + DAGRE_MARGIN);
+        expect(result.height).toBe(tip + DAGRE_MARGIN);
+      }
+    });
+  }
+});
+
 describe("layoutDirectedGraph", () => {
   it("positions a two-node, one-edge graph as top-left boxes inside the reported graph bounds", () => {
     const result = layoutDirectedGraph({
@@ -52,16 +112,16 @@ describe("layoutDirectedGraph", () => {
     expect(byId.B.y).toBeGreaterThan(byId.A.y);
 
     // x/y are the box's top-left, so every box lies within [0,width] x [0,height],
-    // flush against the origin on both axes.
+    // 8 in from the origin and from the far edge on both axes — the margin.
     const xs = result.nodes.map((n) => n.x);
     const ys = result.nodes.map((n) => n.y);
-    expect(Math.min(...xs)).toBe(0);
-    expect(Math.min(...ys)).toBe(0);
+    expect(Math.min(...xs)).toBe(DAGRE_MARGIN);
+    expect(Math.min(...ys)).toBe(DAGRE_MARGIN);
     expect(Math.max(...result.nodes.map((n) => n.x + n.width))).toBe(
-      result.width,
+      result.width - DAGRE_MARGIN,
     );
     expect(Math.max(...result.nodes.map((n) => n.y + n.height))).toBe(
-      result.height,
+      result.height - DAGRE_MARGIN,
     );
 
     // The edge is routed as a path from the source's boundary to the target's.
@@ -370,11 +430,7 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
   /** Every box by id, having checked that all four of its numbers are real. */
   function placed(input: DirectedGraphLayoutInput): Record<string, DirectedGraphLayoutNodeBox> {
     const result = layoutDirectedGraph(input);
-    for (const box of result.nodes) {
-      for (const value of [box.x, box.y, box.width, box.height]) {
-        expect(Number.isFinite(value)).toBe(true);
-      }
-    }
+    expectEveryBoxPlaced(result.nodes);
     return Object.fromEntries(result.nodes.map((box) => [box.id, box]));
   }
 
@@ -401,7 +457,14 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
     // The same document with the direction moved to `L1`: `L2` is the cluster
     // that would have been left unexpanded, and the leaves below it are the
     // ones that would have been lost.
-    const boxes = placed(threeLevels("L1"));
+    //
+    // Without `X -> Z`: that edge leaves `L1`, and a boundary-crossing edge
+    // voids `L1`'s direction (Mermaid's `externalConnections`), which would
+    // take this document off the directed path this test is about.
+    const boxes = placed({
+      ...threeLevels("L1"),
+      edges: [{ id: "X-Y", from: "X", to: "Y" }],
+    });
 
     expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
     expect(Object.keys(boxes)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
@@ -412,13 +475,15 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
   it("places every node, and refuses nothing, when the direction is on the innermost cluster", () => {
     // The measured-correct row of the same table: `L2`'s children are all
     // leaves, so one level of expansion is all this document needs.
-    const result = layoutDirectedGraph(threeLevels("L2"));
+    //
+    // Without `X -> Z`, which leaves `L2` and would void its direction (the
+    // boundary-crossing rule), taking the document off the directed path.
+    const result = layoutDirectedGraph({
+      ...threeLevels("L2"),
+      edges: [{ id: "X-Y", from: "X", to: "Y" }],
+    });
 
-    for (const box of result.nodes) {
-      for (const value of [box.x, box.y, box.width, box.height]) {
-        expect(Number.isFinite(value)).toBe(true);
-      }
-    }
+    expectEveryBoxPlaced(result.nodes);
     expect(result.nodes.map((n) => n.id)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
   });
 });
@@ -505,9 +570,9 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
   it("is grown from its members, and encloses them, when no cluster above it carries a direction", () => {
     const boxes = boxesOf(nestedFrames({}));
 
-    expect(boxes.I).toEqual({ id: "I", x: 130, y: 25, width: 140, height: 180 });
-    expect(boxes.A).toEqual({ id: "A", x: 165, y: 50, width: 60, height: 40 });
-    expect(boxes.B).toEqual({ id: "B", x: 175, y: 140, width: 60, height: 40 });
+    expect(boxes.I).toEqual({ id: "I", x: 138, y: 33, width: 140, height: 180 });
+    expect(boxes.A).toEqual({ id: "A", x: 173, y: 58, width: 60, height: 40 });
+    expect(boxes.B).toEqual({ id: "B", x: 183, y: 148, width: 60, height: 40 });
 
     // 140x180 is nothing like the 60x40 handed in, which is the visible half
     // of the engine having sized this frame itself.
@@ -531,12 +596,12 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
       });
 
     const lr = alone("LR");
-    expect(lr.S).toEqual({ id: "S", x: 0, y: 0, width: 170, height: 40 });
+    expect(lr.S).toEqual({ id: "S", x: 8, y: 8, width: 170, height: 40 });
     expect(encloses(lr.S, lr.A)).toBe(true);
     expect(encloses(lr.S, lr.B)).toBe(true);
 
     const tb = alone("TB");
-    expect(tb.S).toEqual({ id: "S", x: 0, y: 0, width: 60, height: 130 });
+    expect(tb.S).toEqual({ id: "S", x: 8, y: 8, width: 60, height: 130 });
     expect(encloses(tb.S, tb.A)).toBe(true);
     expect(encloses(tb.S, tb.B)).toBe(true);
   });
@@ -554,12 +619,22 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
       // this frame at the size the caller supplied.
       expect(boxes.I.width).toBe(BOX.width);
       expect(boxes.I.height).toBe(BOX.height);
-      expect(boxes.I).toEqual({ id: "I", x: 0, y: 0, width: 60, height: 40 });
+      expect(boxes.I).toEqual({ id: "I", x: 8, y: 8, width: 60, height: 40 });
 
       // Its members are placed — `01M2XJWM4`'s fix is what gives them
-      // coordinates at all — but above the frame rather than inside it.
-      expect(boxes.A).toEqual({ id: "A", x: 0, y: -45, width: 60, height: 40 });
-      expect(boxes.B).toEqual({ id: "B", x: 0, y: 45, width: 60, height: 40 });
+      // coordinates at all — but outside the frame rather than inside it.
+      //
+      // Where depends on the direction they are laid out in. With none of
+      // its own, `I` takes the graph's TB and they stack. Its own TB is void
+      // here — `A -> C` leaves `I` — so `I` follows `O`'s LR (the
+      // boundary-crossing rule) and they stand side by side instead.
+      if (inner === undefined) {
+        expect(boxes.A).toEqual({ id: "A", x: 8, y: -37, width: 60, height: 40 });
+        expect(boxes.B).toEqual({ id: "B", x: 8, y: 53, width: 60, height: 40 });
+      } else {
+        expect(boxes.A).toEqual({ id: "A", x: -47, y: 8, width: 60, height: 40 });
+        expect(boxes.B).toEqual({ id: "B", x: 63, y: 8, width: 60, height: 40 });
+      }
 
       expect(encloses(boxes.I, boxes.A)).toBe(false);
       expect(encloses(boxes.I, boxes.B)).toBe(false);
@@ -638,6 +713,11 @@ function inside(box: DirectedGraphLayoutNodeBox, point: Point): boolean {
  * the change, and they are asserted whole rather than as inequalities: what
  * is being pinned is "not one of these moved", and an inequality that held
  * either side of a shift would not pin it.
+ *
+ * Since dagre was given Mermaid's `marginx`/`marginy: 8`
+ * (`01M4QA7Z97WNBF2PJZKJFKDV4T`), every number below is the pre-margin one
+ * translated by +8, and every graph extent is 16 larger — the margin on both
+ * sides.
  */
 describe("the coordinates an edge that is not a self-loop is drawn at", () => {
   it("are what they were, for a chain with a self-loop in the middle of it", () => {
@@ -657,24 +737,24 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     const byId = Object.fromEntries(result.edges.map((e) => [e.id, e.points]));
     expect(byId["X-Y"]).toEqual([
-      { x: 20, y: 20 },
-      { x: 20, y: 45 },
-      { x: 20, y: 70 },
+      { x: 28, y: 28 },
+      { x: 28, y: 53 },
+      { x: 28, y: 78 },
     ]);
     expect(byId["Y-Z"]).toEqual([
-      { x: 20, y: 90 },
-      { x: 20, y: 115 },
-      { x: 20, y: 140 },
+      { x: 28, y: 98 },
+      { x: 28, y: 123 },
+      { x: 28, y: 148 },
     ]);
     // The boxes those routes run between, and the reserved lane the graph
-    // width is the evidence of: 90 wide for three 40-wide boxes in one
-    // column.
+    // width is the evidence of: 90 wide (106 with the margin) for three
+    // 40-wide boxes in one column.
     expect(result.nodes).toEqual([
-      { id: "X", x: 0, y: 0, width: 40, height: 20 },
-      { id: "Y", x: 0, y: 70, width: 40, height: 20 },
-      { id: "Z", x: 0, y: 140, width: 40, height: 20 },
+      { id: "X", x: 8, y: 8, width: 40, height: 20 },
+      { id: "Y", x: 8, y: 78, width: 40, height: 20 },
+      { id: "Z", x: 8, y: 148, width: 40, height: 20 },
     ]);
-    expect([result.width, result.height]).toEqual([90, 160]);
+    expect([result.width, result.height]).toEqual([106, 176]);
   });
 
   it("are what they were, for the same chain laid out LR", () => {
@@ -694,24 +774,24 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     const byId = Object.fromEntries(result.edges.map((e) => [e.id, e.points]));
     expect(byId["X-Y"]).toEqual([
-      { x: 40, y: 10 },
-      { x: 65, y: 10 },
-      { x: 90, y: 10 },
+      { x: 48, y: 18 },
+      { x: 73, y: 18 },
+      { x: 98, y: 18 },
     ]);
     expect(byId["Y-Z"]).toEqual([
-      { x: 130, y: 10 },
-      { x: 155, y: 10 },
-      { x: 180, y: 10 },
+      { x: 138, y: 18 },
+      { x: 163, y: 18 },
+      { x: 188, y: 18 },
     ]);
-    // The lane is reserved on the other axis under `LR` — 60 tall for one
-    // row of 20-tall boxes — which is why the two directions are pinned
-    // separately.
+    // The lane is reserved on the other axis under `LR` — 60 tall (76 with
+    // the margin) for one row of 20-tall boxes — which is why the two
+    // directions are pinned separately.
     expect(result.nodes).toEqual([
-      { id: "X", x: 0, y: 0, width: 40, height: 20 },
-      { id: "Y", x: 90, y: 0, width: 40, height: 20 },
-      { id: "Z", x: 180, y: 0, width: 40, height: 20 },
+      { id: "X", x: 8, y: 8, width: 40, height: 20 },
+      { id: "Y", x: 98, y: 8, width: 40, height: 20 },
+      { id: "Z", x: 188, y: 8, width: 40, height: 20 },
     ]);
-    expect([result.width, result.height]).toEqual([220, 60]);
+    expect([result.width, result.height]).toEqual([236, 76]);
   });
 
   it("are what they were, for an edge between two frames", () => {
@@ -728,15 +808,15 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     // The proxy-and-clip route, whose ends sit on the two cluster boxes.
     expect(result.edges[0].points).toEqual([
-      { x: 55, y: 70 },
-      { x: 55, y: 95 },
-      { x: 55, y: 120 },
+      { x: 63, y: 78 },
+      { x: 63, y: 103 },
+      { x: 63, y: 128 },
     ]);
     expect(result.nodes).toEqual([
-      { id: "one", x: 0, y: 0, width: 110, height: 70 },
-      { id: "A", x: 35, y: 25, width: 40, height: 20 },
-      { id: "two", x: 0, y: 120, width: 110, height: 70 },
-      { id: "B", x: 35, y: 145, width: 40, height: 20 },
+      { id: "one", x: 8, y: 8, width: 110, height: 70 },
+      { id: "A", x: 43, y: 33, width: 40, height: 20 },
+      { id: "two", x: 8, y: 128, width: 110, height: 70 },
+      { id: "B", x: 43, y: 153, width: 40, height: 20 },
     ]);
   });
 
@@ -755,11 +835,15 @@ describe("the coordinates an edge that is not a self-loop is drawn at", () => {
 
     const route = result.edges.find((e) => e.id === "X-Y")!;
     expect(route.points).toEqual([
-      { x: 20, y: 20 },
-      { x: 20, y: 50 },
-      { x: 20, y: 80 },
+      { x: 28, y: 28 },
+      { x: 28, y: 58 },
+      { x: 28, y: 88 },
     ]);
-    expect(route.labelAnchor).toEqual({ x: 45, y: 50 });
+    // On the route's own middle point, `labelpos: "c"`. It was `{ x: 45 }`
+    // (53 with the margin) under dagre's default `"r"`: 15 (half the label)
+    // plus `labeloffset` 10 to the right of the line, which the points above
+    // never moved with.
+    expect(route.labelAnchor).toEqual({ x: 28, y: 58 });
   });
 });
 
@@ -921,5 +1005,254 @@ describe("UnplacedNodesError", () => {
     expect(error.nodeIds).toEqual(["L2", "X", "Y"]);
     expect(error.name).toBe("UnplacedNodesError");
     expect(error.message).toContain('"L2", "X", "Y"');
+  });
+});
+
+/**
+ * Mermaid's rule for a group that declares a direction (mermaid.js 11.17.2,
+ * `adjustClustersAndEdges` / `externalConnections`): a cluster with any
+ * **boundary-crossing edge** — exactly one end among its descendants, a
+ * cluster not being its own — takes the graph's direction instead of its
+ * own. Only a cluster with none keeps its own direction. The callers still
+ * hand in the declared `rankdir`; deciding is this module's job.
+ */
+describe("a cluster with a boundary-crossing edge", () => {
+  const BOX = { width: 40, height: 20 };
+
+  it("lays its members out in the graph's direction when a member's edge leaves it", () => {
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", ...BOX, parentId: "group" },
+        { id: "B", ...BOX, parentId: "group" },
+        { id: "C", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-C", from: "B", to: "C" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // TB, not the declared LR: B one rank below A, in the same column.
+    expect(byId.B.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(byId.B.x).toBe(byId.A.x);
+
+    // Back on the engine's ordinary path, so every edge touching the group
+    // carries dagre's own route rather than the two-point fallback.
+    for (const route of result.edges) {
+      expect(route.points.length).toBeGreaterThan(2);
+    }
+  });
+
+  it("keeps the declared direction for an edge from outside naming the cluster itself", () => {
+    // Mermaid's test is `d1 ^ d2` over the cluster's *descendants*, and a
+    // cluster is not its own descendant: `C --> group` has neither end among
+    // them. Measured in Chrome, mermaid 11.17.2 keeps `direction LR` for
+    // `one --> C`, `Before --> Outer` and `Outer --> After`.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", ...BOX, parentId: "group" },
+        { id: "B", ...BOX, parentId: "group" },
+        { id: "C", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "C-group", from: "C", to: "group" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // LR kept: B beside A, on one row.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x + byId.A.width);
+    expect(byId.B.y).toBe(byId.A.y);
+  });
+
+  it("voids the declared direction for an edge from a member to its own cluster", () => {
+    // `B --> group`: `B` is a descendant and `group` is not, so exactly one
+    // end is among the descendants. Measured in Chrome, mermaid 11.17.2
+    // stacks `subgraph one { direction LR; A --> B }` with `B --> one`.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "group", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "A", ...BOX, parentId: "group" },
+        { id: "B", ...BOX, parentId: "group" },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-group", from: "B", to: "group" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    expect(byId.B.y).toBeGreaterThan(byId.A.y + byId.A.height);
+    expect(byId.B.x).toBe(byId.A.x);
+  });
+
+  it("voids the outer cluster's direction and keeps the inner one's when only the outer has a crossing edge", () => {
+    // `Outer` (LR) holds `Inner` (LR) and `D -> F`; `F -> E` leaves `Outer`.
+    // Nothing leaves `Inner`, so it keeps its own LR; `Outer` takes the TB.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, rankdir: "LR", parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "D", ...BOX, parentId: "Outer" },
+        { id: "F", ...BOX, parentId: "Outer" },
+        { id: "E", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "D-F", from: "D", to: "F" },
+        { id: "F-E", from: "F", to: "E" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    // Every node placed: the nesting does not trip the engine's one-level
+    // expansion (`UnplacedNodesError`).
+    expectEveryBoxPlaced(result.nodes);
+    // `Outer` follows the graph: F below D.
+    expect(byId.F.y).toBeGreaterThan(byId.D.y + byId.D.height);
+    expect(byId.F.x).toBe(byId.D.x);
+    // `Inner` keeps its own LR: B beside A, on one row.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x + byId.A.width);
+    expect(byId.B.y).toBe(byId.A.y);
+  });
+
+  it("no longer counts a voided cluster as a directed ancestor of the clusters inside it", () => {
+    // `Outer`'s LR is voided by `B -> E`. `Inner` declares nothing, so it is
+    // no longer handed the graph's direction as compensation for a directed
+    // ancestor — it stays on the engine's ordinary path, routes and all.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "E", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-E", from: "B", to: "E" },
+      ],
+    });
+
+    for (const route of result.edges) {
+      expect({ id: route.id, routed: route.points.length > 2 }).toEqual({
+        id: route.id,
+        routed: true,
+      });
+    }
+  });
+
+  it("voids the outer cluster's direction when a nested cluster is an edge's end outside it", () => {
+    // `Inner -> C`: `Inner` is a descendant of `Outer` (a nested cluster
+    // counts) and `C` is not, so the edge crosses `Outer`'s boundary, and
+    // `Outer`'s LR is void. Measured in Chrome, mermaid 11.17.2 stacks
+    // `Outer`'s `D --> F` for this shape.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "D", ...BOX, parentId: "Outer" },
+        { id: "F", ...BOX, parentId: "Outer" },
+        { id: "C", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "D-F", from: "D", to: "F" },
+        { id: "Inner-C", from: "Inner", to: "C" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    expectEveryBoxPlaced(result.nodes);
+    // `Outer` follows the graph's TB: F below D, in one column.
+    expect(byId.F.y).toBeGreaterThan(byId.D.y + byId.D.height);
+    expect(byId.F.x).toBe(byId.D.x);
+  });
+
+  it("keeps the outer cluster's direction and lays the voided inner one out in it", () => {
+    // Three different directions, so each can be told apart: the graph is
+    // TB, `Outer` declares LR, `Inner` declares BT. `B -> D` leaves `Inner`
+    // but stays inside `Outer`, so `Inner`'s BT is void and `Outer`'s LR
+    // holds. A voided group follows the nearest enclosing group that keeps
+    // its direction — measured in Chrome, mermaid 11.17.2 draws `Inner`'s
+    // members side by side under `Outer`'s LR, not stacked under the TB.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, rankdir: "BT", parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "D", ...BOX, parentId: "Outer" },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-D", from: "B", to: "D" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    expectEveryBoxPlaced(result.nodes);
+    // `Inner` follows `Outer`'s LR: B beside A, on one row.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x + byId.A.width);
+    expect(byId.B.y).toBe(byId.A.y);
+    // `Outer` keeps LR: D on the members' row and right of A, not below
+    // them. (How far right is the engine's: `Inner` was handed 0x0, and a
+    // frame nested under a directed one comes back at its handed size —
+    // see "the box layoutDirectedGraph returns for a cluster".)
+    expect(byId.D.y).toBe(byId.A.y);
+    expect(byId.D.x).toBeGreaterThan(byId.A.x + byId.A.width);
+  });
+});
+
+/**
+ * Mermaid hands dagre every edge label with `labelpos: "c"`: the label's
+ * space is reserved *on* the line and its centre is a point the line passes
+ * through. Dagre's own default, `"r"`, puts it `labeloffset` (10) to the
+ * right of the line instead — the picture Siren drew before.
+ */
+describe("where a labelled edge's label is anchored", () => {
+  // A fan-out, so at least one route bends and "on the line" is not the
+  // same claim as "on the straight segment between the two centres".
+  const fanOut = (rankdir: Direction): DirectedGraphLayoutInput => ({
+    rankdir,
+    nodes: [
+      { id: "A", width: 40, height: 20 },
+      { id: "B", width: 40, height: 20 },
+      { id: "C", width: 40, height: 20 },
+      { id: "D", width: 40, height: 20 },
+    ],
+    edges: [
+      { id: "A-B", from: "A", to: "B", label: { width: 60, height: 20 } },
+      { id: "A-C", from: "A", to: "C", label: { width: 30, height: 20 } },
+      { id: "A-D", from: "A", to: "D", label: { width: 90, height: 20 } },
+    ],
+  });
+
+  it.each(["TB", "LR", "BT", "RL"] as const)("is a point on the edge's own route under %s", (rankdir) => {
+    // Tolerance 0.5: the anchor is the label dummy's position, which dagre
+    // also writes into the route as one of its points, so the distance is
+    // 0 up to floating-point rounding. Half a pixel is the most rounding
+    // could ever account for and far less than the 10 the old `"r"`
+    // placement put between them.
+    for (const route of layoutDirectedGraph(fanOut(rankdir)).edges) {
+      expect(distanceToPolyline(route.labelAnchor!, route.points), route.id).toBeLessThanOrEqual(
+        0.5,
+      );
+    }
   });
 });

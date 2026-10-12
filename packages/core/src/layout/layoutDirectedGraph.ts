@@ -19,13 +19,16 @@ export interface DirectedGraphLayoutNode {
    * Both halves of that were measured directly against `@dagrejs/dagre@3.1.1`
    * at this seam (`01M2YKWQP`) — every box handed in 60x40, graph `TB`,
    * `O > I > {A, B}` with `C` beside `I` under `O`, edges `A -> B` and
-   * `A -> C`:
+   * `A -> C` (coordinates include the 8 margin; see `layoutDirectedGraph`):
    *
    * | directions | `I` comes back as | `A` | `B` | `I` holds them |
    * | --- | --- | --- | --- | --- |
-   * | neither frame declares one | (130,25) 140x180 | (165,50) | (175,140) | yes |
-   * | `O` is `LR`, `I` declares none | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
-   * | `O` is `LR`, `I` is `TB` | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
+   * | neither frame declares one | (138,33) 140x180 | (173,58) | (183,148) | yes |
+   * | `O` is `LR`, `I` declares none | (8,8) **60x40** | (8,**-37**) | (8,53) | no |
+   * | `O` is `LR`, `I` is `TB` | (8,8) **60x40** | (**-47**,8) | (63,8) | no |
+   *
+   * (In the last row `I`'s `TB` is void — `A -> C` leaves `I` — so `I` is
+   * laid out in `O`'s `LR`; see `rankdirFor`.)
    *
    * The first row is the promise this field used to make outright, and it is
    * still what happens whenever no cluster *above* this one carries a
@@ -298,6 +301,13 @@ function straightLineRoute(
 const SELF_LOOP_REACH = 30;
 
 /**
+ * The room dagre leaves around the drawing, on all four sides: Mermaid's own
+ * `marginx`/`marginy` for every dagre diagram. See `layoutDirectedGraph` for
+ * how it reaches the canvas.
+ */
+export const DAGRE_MARGIN = 8;
+
+/**
  * The loop an edge onto its own endpoint is drawn as: five points around
  * `box`, **both ends on `box`'s own boundary and every point between them
  * outside it**.
@@ -489,7 +499,26 @@ export function layoutDirectedGraph(
     multigraph: true,
     compound: hasClusters,
   });
-  g.setGraph({ rankdir: input.rankdir });
+  // `DAGRE_MARGIN` (8) is Mermaid's own `marginx`/`marginy` for every dagre
+  // diagram. Dagre applies it in its final translation: everything it placed
+  // moves 8 right and 8 down, and the reported bounds grow by 16 on each
+  // axis — the margin is on all four sides, not only the top-left. A
+  // synthesised self-loop that reaches past those bounds gets the margin
+  // beyond it too (see the bounds at the end).
+  //
+  // How that reaches the canvas depends on the caller, and neither
+  // caller-side offset changes meaning:
+  //
+  // - A diagram with no frames (no subgraph, composite state, namespace or ER
+  //   subgraph) moves +8 as a whole, inside the same `CANVAS_GUTTER` that
+  //   `sizeCanvas` still adds around the extent.
+  // - A diagram with frames still has each adapter (`layoutGraph`,
+  //   `layoutStateDiagram`, `layoutClassDiagram`, `layoutErDiagram`) shift
+  //   everything by however far a frame, grown outward from its members,
+  //   reaches past 0. The margin is room the frame grows into first, so that
+  //   shift shrinks by up to 8: part or all of the +8 is absorbed by it, and
+  //   only the remainder shows up as movement.
+  g.setGraph({ rankdir: input.rankdir, marginx: DAGRE_MARGIN, marginy: DAGRE_MARGIN });
   g.setDefaultEdgeLabel(() => ({}));
 
   // Which nodes have children, and each node by its id. Both are needed
@@ -504,9 +533,87 @@ export function layoutDirectedGraph(
   const nodeById = new Map(input.nodes.map((node) => [node.id, node]));
 
   /**
-   * The direction this node's own children are laid out in: what the caller
-   * declared, or — for a cluster inside one that declared a direction — the
-   * **graph's own** `rankdir`.
+   * The clusters enclosing `node`, nearest first — the one walk up the
+   * parentage that both the boundary-crossing test and the direction
+   * compensation below read.
+   */
+  const ancestorsOf = (node: DirectedGraphLayoutNode | undefined): DirectedGraphLayoutNode[] => {
+    const ancestors: DirectedGraphLayoutNode[] = [];
+    for (
+      let ancestor = node?.parentId === undefined ? undefined : nodeById.get(node.parentId);
+      ancestor !== undefined;
+      ancestor = ancestor.parentId === undefined ? undefined : nodeById.get(ancestor.parentId)
+    ) {
+      ancestors.push(ancestor);
+    }
+    return ancestors;
+  };
+
+  /**
+   * Whether `id` lies anywhere below `clusterId` — a member at any depth,
+   * nested clusters included. **Strictly** below: a cluster is not its own
+   * descendant, exactly as in Mermaid's `isDescendant`.
+   */
+  const isDescendantOf = (id: string, clusterId: string): boolean =>
+    ancestorsOf(nodeById.get(id)).some((ancestor) => ancestor.id === clusterId);
+
+  /**
+   * Whether `cluster` has a **boundary-crossing edge** — an edge with exactly
+   * one end among its descendants.
+   *
+   * Mermaid's rule, not a choice made here: mermaid.js 11.17.2's
+   * `adjustClustersAndEdges` sets `externalConnections` on a cluster with
+   * such an edge (`d1 ^ d2` over its descendants), and its `extractor` lays
+   * out with their own `dir` only the clusters *without* it; the rest stay
+   * in the graph enclosing them and take that graph's direction. Measured in
+   * Chrome for flowchart, state and ER alike.
+   *
+   * Because the cluster is not its own descendant, an edge from outside
+   * naming the cluster (`one --> C`, `Before --> Outer`) has neither end
+   * among them and does not count — measured, mermaid keeps `direction LR`
+   * for those — while one from its own member (`B --> one`) has exactly one
+   * and does — measured, mermaid stacks that group.
+   */
+  const crossesBoundary = (cluster: DirectedGraphLayoutNode): boolean =>
+    input.edges.some(
+      (edge) =>
+        isDescendantOf(edge.from, cluster.id) !== isDescendantOf(edge.to, cluster.id),
+    );
+
+  /**
+   * The direction a cluster's own declaration puts in effect: what it
+   * declared, unless the boundary-crossing rule voids it.
+   */
+  const directionInEffect = (node: DirectedGraphLayoutNode): Direction | undefined =>
+    node.rankdir === undefined || crossesBoundary(node) ? undefined : node.rankdir;
+
+  /**
+   * The direction in effect on the nearest cluster above `node` that keeps
+   * one, or `undefined` when none does.
+   *
+   * **Any ancestor, not the parent**, because the engine's one level of
+   * expansion applies at every depth: a compensation that reached only the
+   * children of the cluster that declared the direction would hand *those*
+   * children a `rankdir`, which makes each of them a cluster-with-a-direction
+   * whose own cluster children are then the ones left unexpanded. The defect
+   * would move one level down per level of nesting rather than go away —
+   * measured, on three levels of cluster with the direction written at the
+   * top. A direction the boundary-crossing rule voided is no direction: that
+   * ancestor stays on the engine's ordinary path, so there is no one-level
+   * expansion below it to compensate for.
+   */
+  const enclosingDirection = (node: DirectedGraphLayoutNode): Direction | undefined => {
+    for (const ancestor of ancestorsOf(node)) {
+      const direction = directionInEffect(ancestor);
+      if (direction !== undefined) return direction;
+    }
+    return undefined;
+  };
+
+  /**
+   * The direction this node's own children are laid out in: the one its own
+   * declaration puts in effect; or, for a cluster inside one that keeps a
+   * direction, a direction handed down.
    *
    * That second case is compensation for the engine, and both halves of it
    * are measured. A cluster carrying a `rankdir` has its children expanded
@@ -516,45 +623,31 @@ export function layoutDirectedGraph(
    * engine expand it too — the single difference between the combination that
    * fails and the three around it that do not.
    *
-   * **The value is the graph's direction rather than the parent's**, and that
-   * is Mermaid's meaning rather than a convenient default: mermaid 11.17.2
-   * draws `Outer` with `direction LR` holding an `Inner` with none by putting
-   * `Inner`'s two members in one *column* (`A` and `B` at the same x) and
-   * `Inner` beside `C`. A frame that says nothing about its direction takes
-   * the document's, and the enclosing frame's `LR` governs only its own rank.
+   * **Which direction is handed down depends on what the cluster declared**,
+   * and both answers are Mermaid's, measured in mermaid 11.17.2:
+   *
+   * - **It declared none: the graph's own.** Mermaid draws `Outer` with
+   *   `direction LR` holding an `Inner` with none by putting `Inner`'s two
+   *   members in one *column* (`A` and `B` at the same x) and `Inner` beside
+   *   `C`. A frame that says nothing about its direction takes the
+   *   document's, and the enclosing frame's `LR` governs only its own rank.
+   * - **It declared one the boundary-crossing rule voided: the nearest
+   *   enclosing cluster's.** Mermaid leaves such a cluster inside the graph
+   *   enclosing it, so it is laid out in that graph's direction — `Outer`
+   *   `LR` holding `Inner` `BT` with `Y --> Z` leaving `Inner` draws `X` and
+   *   `Y` side by side, measured in Chrome.
    *
    * Nothing is added where nothing is broken: a graph with no direction
-   * declared on any cluster keeps every `rankdir` absent and stays on the
+   * in effect on any cluster keeps every `rankdir` absent and stays on the
    * engine's ordinary compound path, placing exactly what it placed before.
    */
   const rankdirFor = (node: DirectedGraphLayoutNode): Direction | undefined => {
-    if (node.rankdir !== undefined) return node.rankdir;
+    const own = directionInEffect(node);
+    if (own !== undefined) return own;
     if (!childrenOf.has(node.id)) return undefined;
-    return hasDirectedAncestor(node) ? input.rankdir : undefined;
-  };
-
-  /**
-   * Whether any cluster above `node` declared a direction of its own.
-   *
-   * **Any ancestor, not the parent**, because the engine's one level of
-   * expansion applies at every depth: a compensation that reached only the
-   * children of the cluster that declared the direction would hand *those*
-   * children a `rankdir`, which makes each of them a cluster-with-a-direction
-   * whose own cluster children are then the ones left unexpanded. The defect
-   * would move one level down per level of nesting rather than go away —
-   * measured, on three levels of cluster with the direction written at the
-   * top.
-   */
-  const hasDirectedAncestor = (node: DirectedGraphLayoutNode): boolean => {
-    for (
-      let ancestor = node.parentId === undefined ? undefined : nodeById.get(node.parentId);
-      ancestor !== undefined;
-      ancestor =
-        ancestor.parentId === undefined ? undefined : nodeById.get(ancestor.parentId)
-    ) {
-      if (ancestor.rankdir !== undefined) return true;
-    }
-    return false;
+    const enclosing = enclosingDirection(node);
+    if (enclosing === undefined) return undefined;
+    return node.rankdir === undefined ? input.rankdir : enclosing;
   };
 
   for (const node of input.nodes) {
@@ -614,12 +707,33 @@ export function layoutDirectedGraph(
     to: representativeOf(edge.to),
   }));
 
+  // A label is reserved *on* its line, `labelpos: "c"`, as Mermaid hands
+  // every edge label to dagre. Read off `@dagrejs/dagre@3.1.1`'s own source
+  // (`dist/dagre.js`) rather than assumed:
+  //
+  // - `makeSpaceForEdgeLabels` halves `ranksep` and doubles every edge's
+  //   `minlen` whatever the `labelpos`; only for a `labelpos` other than
+  //   `"c"` does it also add `labeloffset` (default 10) to the label dummy's
+  //   width (`TB`/`BT`) or height (`LR`/`RL`). So under `"c"` the space kept
+  //   clear is the label's own size and nothing more.
+  // - The positioning `sep` shifts a dummy sideways by half its width only
+  //   for `"l"` and `"r"`, so under `"c"` the dummy — and the bend the route
+  //   is drawn through — sits at the label's centre.
+  // - `fixupEdgeLabelCoords` subtracts the offset back off and moves the
+  //   label `width / 2 + labeloffset` off the line only for `"l"` and `"r"`;
+  //   under `"c"` the reported `x`/`y` is the dummy's own position, which
+  //   the route passes through.
+  //
+  // Dagre's default, `"r"`, is what Siren used before: the label 10 to the
+  // right of its line and the drawing 10 wider per labelled rank.
   for (const { edge, from, to } of proxied) {
     g.setEdge(
       from,
       to,
       {
-        ...(edge.label ? { width: edge.label.width, height: edge.label.height } : {}),
+        ...(edge.label
+          ? { width: edge.label.width, height: edge.label.height, labelpos: "c" }
+          : {}),
         ...(edge.minlen === undefined ? {} : { minlen: edge.minlen }),
       },
       edge.id,
@@ -768,7 +882,12 @@ export function layoutDirectedGraph(
   // `TB`). What they do not hold is a *frame's*: the lane is reserved beside
   // the proxy member, inside the cluster, so nothing was ever set aside
   // outside the frame. Measured, `subgraph one { A }` with `one --> one`
-  // reported 140 wide for a loop reaching 155.
+  // reported 140 wide for a loop reaching 155 (before the margin).
+  //
+  // Where a loop does reach past dagre's bounds, `DAGRE_MARGIN` is added
+  // beyond it, as dagre's own margin would be: Mermaid routes loops through
+  // dagre, so its margin lies outside them. Without it the far side of such
+  // a loop would sit flush against the extent.
   //
   // Only the synthesised routes are measured (`loopExtent`, filled in as
   // each loop is drawn). Dagre's own routes lie inside the bounds it reports
@@ -777,7 +896,7 @@ export function layoutDirectedGraph(
   return {
     nodes,
     edges,
-    width: Math.max(graphLabel.width ?? 0, loopExtent.x),
-    height: Math.max(graphLabel.height ?? 0, loopExtent.y),
+    width: Math.max(graphLabel.width ?? 0, loopExtent.x + DAGRE_MARGIN),
+    height: Math.max(graphLabel.height ?? 0, loopExtent.y + DAGRE_MARGIN),
   };
 }

@@ -14,7 +14,8 @@ import type {
   TextMeasurer,
   Label,
 } from "../contracts";
-import { plainLabel, plainRun } from "../label/label";
+import { distanceToPolyline } from "../compat/svgGeometry";
+import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
@@ -156,33 +157,6 @@ function pathLength(points: Point[]): number {
   let total = 0;
   for (let i = 1; i < points.length; i += 1) total += distance(points[i - 1], points[i]);
   return total;
-}
-
-/** Shortest distance from `point` to a routed path, over all its segments. */
-function distanceToPath(point: Point, points: Point[]): number {
-  let nearest = Infinity;
-  for (let i = 1; i < points.length; i += 1) {
-    const a = points[i - 1];
-    const b = points[i];
-    const span = distance(a, b);
-    // How far along `a`→`b` the nearest point lies, clamped to the segment.
-    const t =
-      span === 0
-        ? 0
-        : Math.min(
-            1,
-            Math.max(
-              0,
-              ((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)) /
-                (span * span),
-            ),
-          );
-    nearest = Math.min(
-      nearest,
-      distance(point, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }),
-    );
-  }
-  return nearest;
 }
 
 /**
@@ -976,7 +950,7 @@ describe("layoutClassDiagram", () => {
           expect(distance(anchor, own)).toBeLessThan(distance(anchor, other));
           expect(distance(anchor, own)).toBeLessThanOrEqual(half);
           // Off the stroke, which is what the across-offset buys.
-          expect(distanceToPath(anchor, points)).toBeGreaterThanOrEqual(8);
+          expect(distanceToPolyline(anchor, points)).toBeGreaterThanOrEqual(8);
         }
 
         // Each sits on the same hand of its *own* outward direction, and the
@@ -1490,6 +1464,11 @@ describe("layoutClassDiagram", () => {
   });
 
   describe("labels", () => {
+    // Each row past the first adds one 14px × 1.5 = 21px line, Mermaid's line
+    // height; the measurer's 24px answer for one line is that line and 3px of
+    // padding, which a label of any number of rows carries once.
+    const ROW_HEIGHT = 21;
+
     it("sizes a class's name band for every row of its label, which replaces the id and generic it would draw", () => {
       const diagram = layoutClassDiagram(
         classModel({
@@ -1504,7 +1483,7 @@ describe("layoutClassDiagram", () => {
       const order = classById(diagram, "Order");
       // Measured: a label replaces the whole drawn name, generic included.
       expect(order.label).toEqual(rowsLabel("Order", "Line"));
-      expect(order.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(order.labelBox.height).toBe(LINE_HEIGHT + ROW_HEIGHT);
       expect(order.labelBox.rows.map((row) => row.width)).toEqual([
         measuredWidth("Order"),
         measuredWidth("Line"),
@@ -1512,7 +1491,7 @@ describe("layoutClassDiagram", () => {
       // One row taller than a class whose name is one row, and as wide as
       // the widest row rather than as the two rows written end to end.
       const plain = classById(diagram, "Plain");
-      expect(order.height).toBe(plain.height + LINE_HEIGHT);
+      expect(order.height).toBe(plain.height + ROW_HEIGHT);
       expect(order.width).toBe(plain.width + measuredWidth("Order") - measuredWidth("Plain"));
       // A class with no label draws its id as one plain run.
       expect(plain.label).toEqual(plainLabel("Plain"));
@@ -1535,9 +1514,34 @@ describe("layoutClassDiagram", () => {
 
       const routed = twoRows.relationships[0];
       expect(routed.label?.label).toEqual(rowsLabel("holds", "many"));
-      expect(routed.label!.labelBox.height).toBe(LINE_HEIGHT * 2);
-      expect(routed.label!.labelBox.width).toBe(measuredWidth("holds"));
+      // Measured at the 12px `.siren-relationship-label` is drawn at
+      // (`--siren-label-font-size`), not the 14px the measurer measures at:
+      // the same text 12/14 as large is 12/14 the size, and its second row
+      // one 12px × 1.5 = 18px line.
+      expect(routed.label!.labelBox.height).toBeCloseTo(LINE_HEIGHT * CONNECTOR_LABEL_SCALE + 18, 6);
+      expect(routed.label!.labelBox.width).toBeCloseTo(measuredWidth("holds") * CONNECTOR_LABEL_SCALE, 6);
       expect(gap(twoRows)).toBeGreaterThan(gap(oneRow));
+    });
+
+    // The spec (decision 1, measured on mermaid 11.17.2): a class
+    // relationship's label wraps at Mermaid's 200px scaled to the 12px it is
+    // drawn at, 150px of text. `fakeMeasurer` at 12px is 8 × 12/14 px a
+    // character, so 21 characters (144px) fit and 22 (150.86px) do not.
+    it("wraps a relationship label wider than 150px at its spaces, and the relationship carries the wrapped rows", () => {
+      const [routed] = layoutClassDiagram(
+        classModel({
+          classes: [cls("Order"), cls("Line")],
+          relationships: [
+            relationship("Order", "Line", { label: plainLabel("alpha beta gamma delta epsilon zeta") }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      ).relationships;
+
+      expect(routed.label!.label).toEqual(rowsLabel("alpha beta gamma", "delta epsilon zeta"));
+      expect(routed.label!.labelBox.width).toBe(150);
+      // A 12px line of the measurer's 24 × 12/14, then one 12px × 1.5 = 18px row.
+      expect(routed.label!.labelBox.height).toBeCloseTo(LINE_HEIGHT * CONNECTOR_LABEL_SCALE + 18, 6);
     });
 
     it("gives a namespace's label strip room for every row of its label, clear of the boxes it frames", () => {
@@ -1553,7 +1557,7 @@ describe("layoutClassDiagram", () => {
 
       const [frame] = diagram.namespaces;
       expect(frame.label.label).toEqual(rowsLabel("Big", "Zoo"));
-      expect(frame.label.labelBox.height).toBe(LINE_HEIGHT * 2);
+      expect(frame.label.labelBox.height).toBe(LINE_HEIGHT + ROW_HEIGHT);
       // Both rows inside the frame and above the box it frames.
       const lion = classById(diagram, "Lion");
       expect(frame.label.anchor.y - frame.label.labelBox.height / 2).toBeGreaterThanOrEqual(frame.y);
@@ -1574,8 +1578,8 @@ describe("layoutClassDiagram", () => {
       const twoRows = noteById(diagram, "note:1");
       const oneRow = noteById(diagram, "note:2");
       expect(twoRows.label).toEqual(rowsLabel("can fly", "can swim"));
-      expect(twoRows.labelBox.height).toBe(LINE_HEIGHT * 2);
-      expect(twoRows.height).toBe(oneRow.height + LINE_HEIGHT);
+      expect(twoRows.labelBox.height).toBe(LINE_HEIGHT + ROW_HEIGHT);
+      expect(twoRows.height).toBe(oneRow.height + ROW_HEIGHT);
       expect(twoRows.width).toBe(oneRow.width + measuredWidth("can swim") - measuredWidth("can fly"));
     });
   });

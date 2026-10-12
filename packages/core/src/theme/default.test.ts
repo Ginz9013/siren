@@ -1660,3 +1660,77 @@ describe("default theme coverage of the ER renderer", () => {
     expect(untyped.map(describeElement)).toEqual([]);
   });
 });
+
+/**
+ * The background behind a connector's label, read through this stylesheet:
+ * its color comes only from `--siren-edge-label-fill`, and a highlight —
+ * which reaches the background, since it wears the edge's id — leaves that
+ * fill alone, as highlight only ever restyles lines and frames.
+ */
+describe("default theme's paint for a connector label's background", () => {
+  /** `source` rendered into the document with the default theme attached, with its controller. */
+  function renderThemed(source: string) {
+    attachDefaultTheme();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const result = render(source, container);
+    expect(result.diagnostics).toEqual([]);
+    return { svg: result.svg!, controller: result.controller! };
+  }
+
+  it("fills it from --siren-edge-label-fill, a translucent canvas white, unchanged by a highlight", () => {
+    const { svg, controller } = renderThemed(
+      "flowchart TD\nA -->|yes| B\ntimeline:\nhighlight A-B outline\nhighlight A-B glow\n",
+    );
+    const background = svg.querySelector("rect.siren-connector-label-background")!;
+
+    expect(getComputedStyle(background).fill).toBe("var(--siren-edge-label-fill)");
+    expect(
+      getComputedStyle(document.documentElement).getPropertyValue("--siren-edge-label-fill").trim(),
+    ).toBe("rgb(255 255 255 / 0.8)");
+
+    controller.next();
+    expect(background.classList.contains("siren-highlight-outline")).toBe(true);
+    expect(getComputedStyle(background).fill).toBe("var(--siren-edge-label-fill)");
+    controller.next();
+    expect(background.classList.contains("siren-highlight-glow")).toBe(true);
+    expect(getComputedStyle(background).fill).toBe("var(--siren-edge-label-fill)");
+  });
+  /** The drop-shadow `filter` `element` is drawn with, or `""` when it has none. */
+  const shadowOf = (element: Element): string => {
+    const filter = getComputedStyle(element).filter;
+    return filter.includes("drop-shadow") ? filter : "";
+  };
+
+  // `glow` is a drop-shadow, which on a rect draws a halo around the
+  // rectangle — a lit box around the label rather than a lit label. The
+  // label's text and the line keep their glow; the background takes none.
+  it("draws no glow halo around a flowchart edge label's background, while its text and line still glow", () => {
+    const { svg, controller } = renderThemed("flowchart TD\nA -->|yes| B\ntimeline:\nhighlight A-B glow\n");
+
+    controller.next();
+    const background = svg.querySelector("rect.siren-connector-label-background")!;
+    expect(background.classList.contains("siren-highlight-glow")).toBe(true);
+    expect(shadowOf(background)).toBe("");
+    expect(shadowOf(svg.querySelector("text.siren-edge-label")!)).not.toBe("");
+    expect(shadowOf(svg.querySelector("path.siren-edge")!)).not.toBe("");
+  });
+
+  // In the other three kinds the highlight lands on the label's group, and a
+  // filter on a group shadows its whole subtree as one picture — background
+  // included. So the group takes no shadow and its text takes it instead.
+  it.each([
+    ["class", "classDiagram\nAnimal <|-- Duck : inherits\ntimeline:\nhighlight Animal-Duck glow\n", "g.siren-relationship-labels", "text.siren-relationship-label"],
+    ["state", "stateDiagram-v2\nIdle --> Running : start\ntimeline:\nhighlight Idle-Running glow\n", "g.siren-transition-labels", "text.siren-transition-label"],
+    ["ER", "erDiagram\nCUSTOMER ||--o{ ORDER : places\ntimeline:\nhighlight CUSTOMER:ORDER glow\n", "g.siren-er-relationship-labels", "text.siren-er-relationship-label"],
+  ])("draws no glow halo around a %s connector label's background, while its text still glows", (_kind, source, groupSelector, textSelector) => {
+    const { svg, controller } = renderThemed(source);
+
+    controller.next();
+    const group = svg.querySelector(groupSelector)!;
+    expect(group.classList.contains("siren-highlight-glow")).toBe(true);
+    expect(shadowOf(group)).toBe("");
+    expect(shadowOf(group.querySelector("rect.siren-connector-label-background")!)).toBe("");
+    expect(shadowOf(group.querySelector(textSelector)!)).not.toBe("");
+  });
+});

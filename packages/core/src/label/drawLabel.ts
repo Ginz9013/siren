@@ -105,22 +105,23 @@ export function appendLabel(parent: Element, drawn: DrawnLabel): void {
  *
  * `backgrounds` are what a run's background paint needs drawn under the
  * text: one `<rect>` per run that has one, as wide as `box` measured the
- * run and as tall as the run's *own* line — one measured line times its
- * scale, not its row — centred on the row's centre and moved with a
- * `sub`/`sup` shift. That is CSS's rule, not a measurement: an inline
- * element paints its background over its own inline box, which follows the
- * element's font size and vertical-align, not over the line box around it.
- * The shift is taken as a fraction of the run's line rather than of its
- * font size, which `drawLabel` does not know (the theme sets it), so a
- * shifted rect moves further than its glyphs by the ratio of the two. A
- * marked run's is
+ * run and as tall as the run's *own* line — one line (`layoutLabel`'s font
+ * size × line-height ratio) times its scale, not its row — centred on the
+ * row's centre and moved with a `sub`/`sup` shift. That is CSS's rule, not
+ * a measurement: an inline element paints its background over its own
+ * inline box, which follows the element's font size and vertical-align, not
+ * over the line box around it. The shift is taken as a fraction of the
+ * run's line rather than of its font size, which `drawLabel` does not know
+ * (the theme sets it), so a shifted rect moves further than its glyphs by
+ * the ratio of the two. A marked run's is
  * `<rect class="siren-label-mark">`, filled by the theme with
  * `--siren-label-mark-fill`; an author's `background-color` is the same
  * rect as `<rect class="siren-label-background">` with an inline fill,
- * drawn after the mark's so the inner of the two is on top. Its width is the measurer's, so it can miss the
- * glyphs a browser actually draws by a few pixels — the same approximation
- * every label box already makes. The caller inserts them before the
- * `<text>`, since document order is paint order.
+ * drawn after the mark's so the inner of the two is on top. Its width is
+ * the measurer's, so it can miss the glyphs a browser actually draws by a
+ * few pixels — the same approximation every label box already makes. The
+ * caller inserts them before the `<text>`, since document order is paint
+ * order.
  *
  * `className`, when given, is the `<text>`'s `class` — the name each
  * renderer gives the construct's label (`siren-note-text`,
@@ -163,7 +164,7 @@ export function drawLabel(
     const left = anchor.x - measured.width / 2;
     const centre = top + measured.y;
     // One line at the base size: a row is as tall as its tallest run, and
-    // every run is one measured line times its scale (`layoutLabel`).
+    // every run is one line times its scale (`layoutLabel`).
     const line = measured.height / Math.max(...runs.map(measuredScale));
     // How far below the row's baseline the text position is, in the
     // `<text>` element's font size; every row starts at its absolute `y`,

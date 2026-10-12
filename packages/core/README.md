@@ -403,7 +403,8 @@ The theme is one palette. Siren never picks one for you: nothing in `theme.css` 
 and yours to decide when it applies. Redeclare the color tokens under whatever selector
 fits — a media query, a theme attribute your app already sets, a container class. That is
 the five-color palette, plus `--siren-label-link`: its default is the browser's link blue,
-which is unreadable on a dark node:
+which is unreadable on a dark node; and `--siren-edge-label-fill`, whose default is a
+translucent white background behind every connector label, made for a white canvas:
 
 ```css
 /* Follow the reader's system preference... */
@@ -415,19 +416,20 @@ which is unreadable on a dark node:
     --siren-edge-stroke: #8e88a3;
     --siren-highlight-color: #2dd4bf;
     --siren-label-link: #9cc7ff;
+    --siren-edge-label-fill: rgb(20 17 29 / 0.8);
   }
 }
 
 /* ...or let your own theme switch decide, on any element you like. */
 [data-theme="dark"] {
   --siren-node-fill: #2a2144;
-  /* ...the same six. */
+  /* ...the same seven. */
 }
 ```
 
 Those are Siren's own dark values, and the repo's
 [`demos/theme-dark.css`](https://github.com/Ginz9013/siren/blob/main/demos/theme-dark.css)
-is this done in full — the six above, the `<mark>` pair, and `siren-board`'s six chrome
+is this done in full — the seven above, the `<mark>` pair, and `siren-board`'s six chrome
 tokens — ready to copy.
 
 Scoping the override lower than `:root` works the same way, which is how one diagram on a
@@ -459,10 +461,11 @@ Override any `--siren-*` custom property in your own CSS:
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |
 | Motion    | `--siren-fade-duration`, `--siren-slide-duration`, `--siren-slide-distance`, `--siren-highlight-duration`          |
-| Label paint | `--siren-label-mark-fill` (`#ff0`, the rect behind `<mark>` text), `--siren-label-mark-text` (`#000`, `<mark>` text), `--siren-label-link` (`#0000ee`, `<a href>` link text) |
+| Label paint | `--siren-label-mark-fill` (`#ff0`, the rect behind `<mark>` text), `--siren-label-mark-text` (`#000`, `<mark>` text), `--siren-label-link` (`#0000ee`, `<a href>` link text), `--siren-edge-label-fill` (`rgb(255 255 255 / 0.8)`, the background behind every connector label) |
 
-The label-paint tokens are what the browser's default stylesheet paints these tags with in
-Mermaid's HTML labels. They sit outside the five-color palette, so a marked or linked run
+The first three label-paint tokens are what the browser's default stylesheet paints these tags
+with in Mermaid's HTML labels; `--siren-edge-label-fill` is the translucent background Mermaid puts
+behind an edge label, so a line passing under the label does not cross its text. They sit outside the five-color palette, so a marked or linked run
 looks the same whichever palette is in use, unless you repaint them — and a dark palette
 should repaint `--siren-label-link`, as in the example above.
 

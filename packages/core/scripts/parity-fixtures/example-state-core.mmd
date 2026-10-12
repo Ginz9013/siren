@@ -1,0 +1,32 @@
+stateDiagram-v2
+%% Source: examples/state-core.srn, diagram half only (the timeline: block removed,
+%% bare %% lines dropped because Mermaid rejects them).
+
+%% A job runner, written with every construct the state renderer reads.
+
+[*] --> Idle
+Idle : waiting for work
+state "nothing is queued" as Idle
+
+Idle --> Dispatching : job arrives
+Dispatching --> Running
+Running --> Running : heartbeat
+
+state Running {
+  [*] --> Fetching
+  Fetching --> Transforming
+  state Transforming {
+    direction LR
+    Mapping --> Reducing
+  }
+  Transforming --> Publishing
+  Publishing --> [*]
+}
+
+Running --> Idle : finished
+Running --> Failed : error
+Failed : the run stopped early
+Failed : nothing was published
+Failed --> [*]
+
+Cancelled

@@ -7,8 +7,10 @@ import type {
   PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
+import { DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawPlaced } from "../label/drawPlaced";
+import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
+import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -62,17 +64,6 @@ const DASH_PATTERN = "8,8";
  */
 const GLYPH_HEIGHT = 18;
 const FOOT_LENGTH = 36;
-
-/**
- * One relationship's route as an SVG `d`. Shared with the class renderer's
- * convention: an open, multi-segment path, so it is drawn with `fill:
- * none` rather than painted as a polygon spanning the boxes it joins.
- */
-function pointsToPathData(points: Point[]): string {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
-}
 
 /**
  * Builds a real `SVGSVGElement` from a `PositionedErDiagram`: one
@@ -256,7 +247,7 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-er-relationship-line");
-  line.setAttribute("d", pointsToPathData(relationship.points));
+  drawConnectorRoute(line, relationship.points, DEFAULT_CURVE);
   // Explicit, not left to CSS: the route is an open, multi-segment path,
   // which a default fill would paint as a filled polygon spanning the
   // entities it joins.
@@ -297,8 +288,10 @@ function buildRelationshipLabels(relationship: PositionedErRelationship): SVGGEl
 
   // Drawn by `drawLabel` at the anchor the layout reserved room for: one
   // plain row is the `<text>`'s own `textContent`, anything else a row
-  // tspan per row (ADR-0015).
-  appendLabel(g, drawPlaced(relationship.label, "siren-er-relationship-label"));
+  // tspan per row (ADR-0015). With the background every connector label is
+  // painted on, under the text; it takes the group's id, and with it the
+  // timeline's classes.
+  appendLabel(g, drawConnectorLabel(relationship.label, "siren-er-relationship-label"));
 
   return g;
 }

@@ -8,6 +8,106 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **Connector labels are painted on a background**, as in Mermaid, so a line running under a
+  label no longer strikes its text out. Every labelled edge, class relationship, state transition
+  and ER relationship gets a `<rect class="siren-connector-label-background">` over the label's
+  box, drawn above every line and under the label's text. It is part of the label: a timeline
+  `enter`/`exit` on the connector moves it with the text, and a highlight leaves its fill alone. An
+  author's `linkStyle … color:` still paints only the text.
+- Token `--siren-edge-label-fill` (default `rgb(255 255 255 / 0.8)`, the white canvas at Mermaid's
+  0.8 opacity) fills that background. It sits outside the five-color palette, but **a second theme
+  must redeclare it**: on a dark canvas the default draws a white background behind every connector
+  label. `demos/theme-dark.css` declares a dark value.
+- Every connector `<path>` (flowchart edge, class relationship, state transition, ER
+  relationship, note connector) carries **`data-siren-points`**: the points its route passes
+  through, as `"x,y x,y …"` (the spelling of an SVG `points` attribute). A connector is now drawn
+  as a curve whose `d` holds control points rather than the route (see **Changed**), so this
+  attribute is where a script or test reads the route.
+- **`linkStyle … interpolate`** picks the curve a flowchart edge is drawn with, as in Mermaid:
+  `linkStyle default interpolate <curve>` or `linkStyle <n>[,<m>…] interpolate <curve>`, optionally
+  followed by declarations (`linkStyle 0 interpolate step stroke:#f00`). The curves are `basis`,
+  `linear`, `step`, `stepBefore`, `stepAfter` and `rounded`; a numbered statement's curve beats
+  `default`'s in either order. These lines used to fail with `Unrecognized style declaration`. The
+  seven curves Mermaid draws and Siren does not yet (`cardinal`, `bumpX`, `bumpY`, `catmullRom`,
+  `monotoneX`, `monotoneY`, `natural`) are reported as an error and the edge keeps its fallback
+  curve; a name Mermaid does not know either is drawn as `basis`, as Mermaid draws it, with a
+  warning. `GraphEdge` (and so `PositionedEdge`) gains an optional `curve`.
+
+### Changed
+
+- **A flowchart node's label wraps** once its text is wider than 175px, as Mermaid wraps its labels
+  at 200px of 16px text (scaled to the 14px a node is drawn at): Latin text at its spaces, CJK text
+  between any two characters, never with closing punctuation such as `，` or `)` beginning a row.
+  A `<br>` still breaks a row, and each row is then wrapped on its own; a word too long for 175px is
+  left whole and widens the label. A wrapped label's text is 175px wide and its box that plus the
+  measurer's padding (the padding is outside the wrap width, as Mermaid's shape padding is outside
+  its label), so a long-labelled node is now narrower and taller, and the whole diagram's layout
+  can change. A subgraph's title is not wrapped. The width is fixed: `flowchart.wrappingWidth` is
+  not read. `PositionedNode.label` is the wrapped label (its rows are what is drawn); `wrapLabel`
+  and `wrapWidthAt` are internal.
+- **A flowchart edge's label wraps** too, once its text is wider than 150px: Mermaid's 200px
+  scaled to the 12px an edge label is drawn at, by the same rules as a node's. A wrapped edge
+  label's text is 150px wide and its box that plus the measurer's padding (scaled to 12px); its
+  background covers the wrapped box, and dagre keeps that box clear, so a diagram with long edge
+  labels is laid out differently. `PositionedEdge.label.label` is the wrapped label.
+- **A state diagram's labels wrap** as Mermaid's do (measured, mermaid 11.17.2): a state's
+  description (and a quoted name, `state "…" as S`) and a note once their text is wider than
+  175px, a transition label once its text is wider than 150px, by the same rules as a flowchart's.
+  A long-described state and a long note are drawn narrower and taller, and the diagram's layout
+  can change. A composite state's title is not wrapped. `PositionedStateLabel.label`,
+  `PositionedStateNote.label` and `PositionedStateTransition.label.label` are the wrapped labels.
+- **A class or ER relationship's label wraps** as Mermaid's does (measured, mermaid 11.17.2), by
+  the same rules as a flowchart edge's label: a class relationship's once its text is wider than
+  150px, Mermaid's 200px scaled from its 16px to the 12px Siren draws it at; an ER relationship's
+  once wider than 200 × 12/14 ≈ 171.43px, because Mermaid draws that label at 14px, so a row holds
+  as much as Mermaid's (the wrap width is `200 × Siren px / Mermaid px`). The layout keeps the
+  wrapped box clear, so a diagram with long relationship labels is laid out differently. A class
+  name, a class member, a class diagram's note, an ER entity name and an attribute's comment are
+  not wrapped, as Mermaid wraps none of them.
+  `PositionedClassRelationship.label.label` and `PositionedErRelationship.label.label` are the
+  wrapped labels.
+- **A label's rows are closer together**: one line apart, a line being 1.5 times the size the
+  label is drawn at, as Mermaid's HTML labels draw 16px text on 24px lines (measured). A node's,
+  a class's, a state's or a subgraph title's rows are 21px apart (14px), a connector label's 18px
+  (12px). The measurer's height for one line is now that line plus a padding added once around
+  all the rows, not once per row, so a one-row label's box is exactly as tall as before and each
+  row after it adds one line rather than the measurer's full height. Sequence text follows
+  Mermaid's SVG text instead: a message's, a note's and a block condition's rows are 14 × 19/16 =
+  16.625px apart, a participant's and a box caption's 14px. A run's mark or background rect is one
+  such line tall. Multi-row labels' boxes, and the layouts around them, are shorter.
+- A flowchart subgraph, a state diagram's composite state or an ER subgraph that declares a
+  `direction` now uses it **only when no connector crosses its boundary**: a connector with
+  exactly one end inside the group, at any depth. A group with such a connector is laid out in the
+  direction of the nearest enclosing group that keeps its own, or else the diagram's, as Mermaid
+  lays it out. A connector that names the group itself from
+  outside (`one --> C`, `Before --> Outer`) does not cross it, and the group keeps its direction,
+  as in Mermaid. The members and connectors of a group that loses its direction go back to the
+  ordinary layout: connectors crossing it are routed instead of drawn as two-point straight lines
+  through other boxes, and its frame no longer overlaps the frames beside it. A diagram whose
+  grouped direction relied on a crossing connector draws differently.
+- **Connector labels are drawn on the line**, centred on a point the connector passes through, in
+  flowcharts, class diagrams, state diagrams and ER diagrams, as Mermaid draws them. They used to
+  sit 10px to the right of the line. The room the layout keeps for a label is now the size it is
+  drawn at (`--siren-label-font-size`, 12px) rather than the node text's 14px, so a diagram with
+  labelled connectors comes out slightly more compact.
+- Flowcharts, class diagrams, state diagrams and ER diagrams are laid out with an **8px margin
+  around the drawing**, as Mermaid lays them out (`marginx`/`marginy: 8`). This is inside the
+  canvas gutter the `<svg>` already had. A diagram without frames moves 8 right and 8 down and
+  its `viewBox` grows by 16 on each axis. A diagram whose subgraph, composite state, namespace or
+  ER subgraph frames reached past the top or left edge was already moved to keep them on the
+  canvas; there the margin takes up part or all of that move instead, so it moves, and grows,
+  by less.
+- **Connectors are drawn as curves**, as Mermaid draws them. Every flowchart edge, class
+  relationship, state transition, ER relationship and note connector is a `basis` spline (d3's
+  `curveBasis`, Mermaid's default) through its routed points instead of a polyline with corners.
+  The route itself is unchanged: the curve starts and ends where the polyline did and still
+  arrives along the route's last segment, so arrowheads and other end markers point as before.
+  A connector `<path>`'s `d` now holds the curve's control points rather than the route, so a
+  script or test that read the route off `d` should read `data-siren-points` (see **Added**).
+  Every diagram with a bent connector looks different.
+
 ## [0.4.0] - 2026-10-10
 
 Breaking for a stylesheet or script that reaches a connector's label through the connector's

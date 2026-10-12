@@ -6,3 +6,4 @@
 {"id":"01M4GQAFZ78BZ3PBXQ6714B4MD","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4GQHEP4QRGJ654W2C9KXR0D","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M4GQHEWM8WVXNM94GYVJJB7N","t":8,"a":"83a1","op":"comment","body":"完成：2931d8f＋review fixes。listbox 錨點依賴呼叫端 className 的問題移到 T5（01M4GQ716E0AQ5299S9J7FH8Y8）處理。"}
+{"id":"01M4RBRMS0Y4FX4DTRG2GQ4R8Z","t":9,"a":"83a1","op":"set","k":"archived","v":true}
