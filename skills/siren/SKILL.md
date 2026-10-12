@@ -43,7 +43,8 @@ Step 0 shows `Client` only, because every other target has an `enter` action. Th
    sequence diagram for interactions over time, a class diagram for types, a state
    diagram for lifecycles, and an ER diagram for data models.
 3. **Write the diagram** in Mermaid syntax, using only what Siren supports. See
-   [references/syntax.md](references/syntax.md) for each diagram type.
+   [references/syntax.md](references/syntax.md) for each diagram type. Leave colors to
+   the theme unless they carry meaning. See [Color and styling](#color-and-styling).
 4. **Write the timeline.** Follow the rules and ids below.
 5. **Validate** with the bundled script, and fix every error and warning. See
    [Validating](#validating).
@@ -205,6 +206,56 @@ Generated numbering is easy to get wrong in a large diagram. Run the validator w
 - **Prefer `fade`.** Use slides where movement means something.
 - **Keep it short.** 5 to 15 steps suit most diagrams. Beyond about 20, consider
   splitting into several documents.
+
+## Color and styling
+
+A Siren diagram is usually viewed under a theme you can't see. The page may redeclare
+Siren's theme tokens for a dark mode, brand colors or print, and every element you leave
+unstyled follows them. Mermaid's styling statements (`classDef`, `class`, `:::`, `style`,
+`linkStyle`) are emitted as inline styles that override the theme, so a color you write
+looks the same under every theme: a light fill becomes a glaring panel on a dark page,
+and a dark stroke disappears into it.
+
+- **Prefer the theme.** Write no styling by default. Show structure with subgraphs,
+  node shapes and labels, and point at things with the timeline's `highlight` rather
+  than with color.
+- **Add color only when it carries meaning** the structure can't, such as which layer a
+  node belongs to, or your own systems against external ones. Use few classes, apply
+  each one consistently, and don't color for decoration.
+- **When you add color, make it work on light and dark backgrounds:**
+  - `fill`: translucent, as 8-digit hex with an alpha around `22` to `40`
+    (`fill:#3b82f633`). The theme's background shows through, and the theme's label
+    color stays readable on it.
+  - `stroke`: an opaque mid-tone, such as `#3b82f6`, `#f59e0b` or `#ec4899`. Avoid
+    near-black (`#0f172a`) and near-white (`#f1f5f9`), which vanish on one of the two
+    backgrounds.
+  - `color` (label text): leave it unset on a translucent fill. Only an opaque fill
+    needs it, and an opaque fill should be rare. If you use one, pair it with a `color`
+    that contrasts with that fill, since the box will look the same on any page.
+  - `linkStyle`: leave edges to the theme. If you must style one, use a mid-tone stroke.
+    Never set `linkStyle default` to a dark or light gray, which hides every edge under
+    one of the themes.
+- **Don't `style` a subgraph.** Siren draws subgraphs in the theme's colors and ignores
+  a `style` on one without a warning. Color its nodes instead.
+- **Don't fight the highlight.** `highlight` recolors a shape's border to the theme's
+  highlight color (teal on the default theme), but an author's `stroke` or
+  `stroke-width` wins over it. On a target with its own stroke, `outline` changes
+  nothing visible and `glow` shows only its halo. Keep `stroke` and `stroke-width` off
+  elements the timeline highlights, and use `fill` alone to mark them. Also avoid teal
+  and cyan in author colors, so highlighted elements still stand out.
+
+```
+flowchart LR
+  classDef external fill:#64748b33,stroke:#64748b
+  classDef ours fill:#3b82f633
+  Browser([Browser]):::external --> App[App]:::ours
+  App --> Auth[Auth]:::ours
+  Auth --> LDAP[(LDAP)]:::external
+```
+
+`App` and `Auth` carry only a fill, so a `highlight` on them still recolors their
+border. The external nodes have a stroke, so leave them out of highlights or drop the
+stroke.
 
 ## Validating
 

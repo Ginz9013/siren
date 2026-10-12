@@ -98,18 +98,23 @@ flowchart TB
 
 ```
 flowchart LR
-  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2
-  classDef terminal fill:#1e293b,stroke:#0f172a,color:#f8fafc
+  classDef stage fill:#3b82f633,stroke:#3b82f6,stroke-width:2
+  classDef terminal fill:#64748b33,stroke:#64748b
   Source:::terminal --> Parse --> Layout --> Output[(Output)]:::terminal
   class Parse,Layout stage
   style Output stroke:#f59e0b,stroke-width:3
-  linkStyle default stroke:#94a3b8
   linkStyle 0 stroke:#f43f5e
   linkStyle 1,2 stroke:#3b82f6,stroke-width:3
 ```
 
 - `:::name` goes after the node's shape: `Output[(Output)]:::terminal`.
-- `linkStyle` numbers edges from 0 in the order they're written.
+- `linkStyle` numbers edges from 0 in the order they're written. `linkStyle default`
+  styles every edge that no numbered statement names.
+- `color` sets a node's label color.
+- `style` on a subgraph is accepted but has no effect. Subgraphs keep the theme's colors.
+- Every value here overrides the theme. Read SKILL.md's "Color and styling" before
+  choosing colors: translucent fills, mid-tone strokes, and no stroke on anything the
+  timeline highlights.
 
 ### Interaction and accessibility
 
@@ -245,7 +250,7 @@ classDiagram
   Artwork .. Listener
   Player ()-- Playable
   note for Shelf "One shelf per kind"
-  classDef external fill:#dbeafe,stroke:#3b82f6
+  classDef external fill:#3b82f633,stroke:#3b82f6
   cssClass "Artwork" external
   style Track stroke:#f59e0b
   click Track call showDetails("track")
