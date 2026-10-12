@@ -13,7 +13,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 - A flowchart subgraph, a state diagram's composite state or an ER subgraph that declares a
   `direction` now uses it **only when no connector crosses its boundary**: a connector with
   exactly one end inside the group, at any depth. A group with such a connector is laid out in the
-  diagram's own direction, as Mermaid lays it out. A connector that names the group itself from
+  direction of the nearest enclosing group that keeps its own, or else the diagram's, as Mermaid
+  lays it out. A connector that names the group itself from
   outside (`one --> C`, `Before --> Outer`) does not cross it, and the group keeps its direction,
   as in Mermaid. The members and connectors of a group that loses its direction go back to the
   ordinary layout: connectors crossing it are routed instead of drawn as two-point straight lines

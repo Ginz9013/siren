@@ -2360,16 +2360,13 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       B --> C`,
     status: "supported",
     meaning:
-      "A subgraph's `direction` applies **only while no edge crosses its " +
-      "boundary**. Mermaid's rule (mermaid.js 11.17.2, " +
-      "`adjustClustersAndEdges`): a cluster with any edge that has exactly " +
-      "one end among its descendants is marked `externalConnections`, and " +
-      "its `extractor` lays out with " +
-      "their own `dir` only the clusters without that mark. `B --> C` leaves " +
-      "`one`, so `one` stays in the main graph and its members follow the " +
-      "header's `TB`, as if `direction LR` had not been written. Its edges " +
-      "are routed with the rest of the graph rather than drawn as straight " +
-      "segments between box edges.",
+      "A subgraph's `direction` applies only while it has no " +
+      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid's rule: " +
+      "mermaid.js 11.17.2's `adjustClustersAndEdges` marks such a " +
+      "Mermaid cluster `externalConnections`, and only unmarked Mermaid " +
+      "clusters are laid out in their own `dir`. `B --> C` leaves `one`, " +
+      "so its members follow the header's `TB`, and its edges are routed " +
+      "with the rest of the graph rather than drawn as straight segments.",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
       expectSame("edges", edges(result), ["A-B", "B-C"]);
@@ -5066,13 +5063,9 @@ line2\`"]`,
       "`direction LR` inside a composite is that block's own rank " +
       "direction. Measured: mermaid 11.17.2 records it on the composite and " +
       "leaves the document's own direction `TB`, so the block alone lays " +
-      "out sideways. **Only while no transition crosses the composite's " +
-      "boundary**: mermaid.js's `adjustClustersAndEdges` marks a cluster " +
-      "with an edge having exactly one end among its descendants " +
-      "`externalConnections`, and its `extractor` lays out with their own " +
-      "`dir` only the clusters without it. `Before --> Outer` names the " +
-      "composite itself, which is not a crossing — a cluster is not its own " +
-      "descendant, so neither end is among them — and measured in Chrome, " +
+      "out sideways — while the composite has no **Boundary-crossing " +
+      "edge** (`CONTEXT.md`). `Before --> Outer` names the composite " +
+      "itself from outside, which is not one: measured in Chrome, " +
       "mermaid 11.17.2 keeps `direction LR` here " +
       "(`st-composite-direction-crossed` is the other half).",
     assert: (result) => {
@@ -5109,13 +5102,13 @@ line2\`"]`,
       Second --> After`,
     status: "supported",
     meaning:
-      "`st-composite-direction` with one transition leaving the composite. " +
-      "A composite's `direction` applies **only while no transition crosses " +
-      "its boundary** — Mermaid's rule (mermaid.js 11.17.2, " +
-      "`adjustClustersAndEdges`): a cluster with any edge that has exactly " +
-      "one end among its descendants is marked `externalConnections`, and " +
-      "only clusters without that mark are laid out in their own `dir`. `Second --> After` leaves `Outer`, so its " +
-      "states follow the document's `TB`.",
+      "`st-composite-direction` with one transition leaving the " +
+      "composite. Its `direction` applies only while it has no " +
+      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid's rule: " +
+      "mermaid.js 11.17.2's `adjustClustersAndEdges` marks such a " +
+      "Mermaid cluster `externalConnections`, and only unmarked Mermaid " +
+      "clusters are laid out in their own `dir`. `Second --> After` " +
+      "leaves `Outer`, so its states follow the document's `TB`.",
     assert: (result) => {
       const centre = (id: string) => stateRectCenter(result, id);
       // The document's `TB` inside the block: `Second` below `First`, not
@@ -6691,13 +6684,13 @@ line2\`"]`,
       ORDER ||--|{ LINE-ITEM : contains`,
     status: "supported",
     meaning:
-      "`er-subgraph` with one relationship leaving the cluster. An ER " +
-      "subgraph's `direction` applies **only while no relationship crosses " +
-      "its boundary** — Mermaid's rule (mermaid.js 11.17.2, " +
-      "`adjustClustersAndEdges`): a cluster with any edge that has exactly " +
-      "one end among its descendants is marked `externalConnections`, and " +
-      "only clusters without that mark are laid out in their own `dir`. `ORDER ||--|{ LINE-ITEM` leaves `sales`, " +
-      "so its members follow the document's `TB`.",
+      "`er-subgraph` with one relationship leaving the block. Its " +
+      "`direction` applies only while it has no **Boundary-crossing " +
+      "edge** (`CONTEXT.md`). Mermaid's rule: mermaid.js 11.17.2's " +
+      "`adjustClustersAndEdges` marks such a Mermaid cluster " +
+      "`externalConnections`, and only unmarked Mermaid clusters are " +
+      "laid out in their own `dir`. `ORDER ||--|{ LINE-ITEM` leaves " +
+      "`sales`, so its members follow the document's `TB`.",
     assert: (result) => {
       const frame = erSubgraphBox(result, "sales");
       expectSame("the frame holds CUSTOMER", encloses(frame, erEntityRect(result, "CUSTOMER")), true);

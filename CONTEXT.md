@@ -520,8 +520,8 @@ is cosmetic:
 - **It lays out in a rank direction of its own — only while it has no boundary-crossing edge.**
   `direction LR` written inside a block turns that group alone into a row while the document keeps
   the header's direction — dagre's `recursiveClusterLayout`, one `rankdir` per cluster. One
-  **Boundary-crossing edge** voids it and the group takes the diagram's own direction, Mermaid's
-  rule. A namespace has no such statement.
+  **Boundary-crossing edge** voids it, and the group takes the direction of the nearest enclosing
+  group that keeps one, or else the diagram's — Mermaid's rule. A namespace has no such statement.
 - **An edge may name one at either end.** `one --> two` joins the two *frames*, not two boxes —
   so an endpoint that names a block declares no node of that name, while a node the author
   declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. dagre cannot route
@@ -550,8 +550,9 @@ cluster (that is the dagre-side word `layoutDirectedGraph` uses for the mechanis
 **Boundary-crossing edge**:
 A connector with exactly one end among a group's descendants — members or nested groups, at any
 depth — where the group is a **subgraph**, a **composite state**, or an ER subgraph block. One such
-connector is enough to make the group lay out in the diagram's own **direction** rather than the
-one it declared, which is Mermaid's rule, measured in its renderer. A connector from outside that
+connector is enough to make the group give up the **direction** it declared and follow the one
+around it: the nearest enclosing group that keeps its own, or else the diagram's. That is Mermaid's
+rule, measured in its renderer. A connector from outside that
 names the group itself does not count: the group keeps its declared direction. One from a member to
 its own group does count.
 _Avoid_: external connection (Mermaid's internal field name), cross edge, outgoing edge (direction
@@ -787,8 +788,8 @@ are nevertheless not the same, and each is measured rather than chosen:
 - **It opens a level of its own**, which is what makes its `[*]` its own rather than the document's
   (see **Pseudo-state**), and it may carry its own `direction LR` — one `rankdir` per cluster, the
   same per-level, non-cascading rule `SirenSubgraph.direction` follows, and in effect only while
-  the composite has no **Boundary-crossing edge**; one such transition and it takes the diagram's
-  own direction.
+  the composite has no **Boundary-crossing edge**; one such transition and it takes the direction
+  of the nearest enclosing composite that keeps one, or else the diagram's.
 
 Membership lives on the member, as `StateDecl.parentId`, in one place — the split the **subgraph**
 entry already argues for, and here it is the only place it *could* live, because a pseudo-state has

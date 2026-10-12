@@ -25,7 +25,10 @@ export interface DirectedGraphLayoutNode {
    * | --- | --- | --- | --- | --- |
    * | neither frame declares one | (130,25) 140x180 | (165,50) | (175,140) | yes |
    * | `O` is `LR`, `I` declares none | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
-   * | `O` is `LR`, `I` is `TB` | (0,0) **60x40** | (0,**-45**) | (0,45) | no |
+   * | `O` is `LR`, `I` is `TB` | (0,0) **60x40** | (**-55**,0) | (55,0) | no |
+   *
+   * (In the last row `I`'s `TB` is void — `A -> C` leaves `I` — so `I` is
+   * laid out in `O`'s `LR`; see `rankdirFor`.)
    *
    * The first row is the promise this field used to make outright, and it is
    * still what happens whenever no cluster *above* this one carries a
@@ -504,21 +507,29 @@ export function layoutDirectedGraph(
   const nodeById = new Map(input.nodes.map((node) => [node.id, node]));
 
   /**
+   * The clusters enclosing `node`, nearest first — the one walk up the
+   * parentage that both the boundary-crossing test and the direction
+   * compensation below read.
+   */
+  const ancestorsOf = (node: DirectedGraphLayoutNode | undefined): DirectedGraphLayoutNode[] => {
+    const ancestors: DirectedGraphLayoutNode[] = [];
+    for (
+      let ancestor = node?.parentId === undefined ? undefined : nodeById.get(node.parentId);
+      ancestor !== undefined;
+      ancestor = ancestor.parentId === undefined ? undefined : nodeById.get(ancestor.parentId)
+    ) {
+      ancestors.push(ancestor);
+    }
+    return ancestors;
+  };
+
+  /**
    * Whether `id` lies anywhere below `clusterId` — a member at any depth,
    * nested clusters included. **Strictly** below: a cluster is not its own
    * descendant, exactly as in Mermaid's `isDescendant`.
    */
-  const isDescendantOf = (id: string, clusterId: string): boolean => {
-    const start = nodeById.get(id);
-    for (
-      let ancestor = start?.parentId === undefined ? undefined : nodeById.get(start.parentId);
-      ancestor !== undefined;
-      ancestor = ancestor.parentId === undefined ? undefined : nodeById.get(ancestor.parentId)
-    ) {
-      if (ancestor.id === clusterId) return true;
-    }
-    return false;
-  };
+  const isDescendantOf = (id: string, clusterId: string): boolean =>
+    ancestorsOf(nodeById.get(id)).some((ancestor) => ancestor.id === clusterId);
 
   /**
    * Whether `cluster` has a **boundary-crossing edge** — an edge with exactly
@@ -528,8 +539,8 @@ export function layoutDirectedGraph(
    * `adjustClustersAndEdges` sets `externalConnections` on a cluster with
    * such an edge (`d1 ^ d2` over its descendants), and its `extractor` lays
    * out with their own `dir` only the clusters *without* it; the rest stay
-   * in the main graph and take the document's direction. Measured in Chrome
-   * for flowchart, state and ER alike.
+   * in the graph enclosing them and take that graph's direction. Measured in
+   * Chrome for flowchart, state and ER alike.
    *
    * Because the cluster is not its own descendant, an edge from outside
    * naming the cluster (`one --> C`, `Before --> Outer`) has neither end
@@ -543,14 +554,40 @@ export function layoutDirectedGraph(
         isDescendantOf(edge.from, cluster.id) !== isDescendantOf(edge.to, cluster.id),
     );
 
-  /** The direction a cluster declared, unless the boundary-crossing rule voids it. */
-  const declaredDirection = (node: DirectedGraphLayoutNode): Direction | undefined =>
+  /**
+   * The direction a cluster's own declaration puts in effect: what it
+   * declared, unless the boundary-crossing rule voids it.
+   */
+  const directionInEffect = (node: DirectedGraphLayoutNode): Direction | undefined =>
     node.rankdir === undefined || crossesBoundary(node) ? undefined : node.rankdir;
 
   /**
-   * The direction this node's own children are laid out in: what the caller
-   * declared, or — for a cluster inside one that declared a direction — the
-   * **graph's own** `rankdir`.
+   * The direction in effect on the nearest cluster above `node` that keeps
+   * one, or `undefined` when none does.
+   *
+   * **Any ancestor, not the parent**, because the engine's one level of
+   * expansion applies at every depth: a compensation that reached only the
+   * children of the cluster that declared the direction would hand *those*
+   * children a `rankdir`, which makes each of them a cluster-with-a-direction
+   * whose own cluster children are then the ones left unexpanded. The defect
+   * would move one level down per level of nesting rather than go away —
+   * measured, on three levels of cluster with the direction written at the
+   * top. A direction the boundary-crossing rule voided is no direction: that
+   * ancestor stays on the engine's ordinary path, so there is no one-level
+   * expansion below it to compensate for.
+   */
+  const enclosingDirection = (node: DirectedGraphLayoutNode): Direction | undefined => {
+    for (const ancestor of ancestorsOf(node)) {
+      const direction = directionInEffect(ancestor);
+      if (direction !== undefined) return direction;
+    }
+    return undefined;
+  };
+
+  /**
+   * The direction this node's own children are laid out in: the one its own
+   * declaration puts in effect; or, for a cluster inside one that keeps a
+   * direction, a direction handed down.
    *
    * That second case is compensation for the engine, and both halves of it
    * are measured. A cluster carrying a `rankdir` has its children expanded
@@ -560,49 +597,31 @@ export function layoutDirectedGraph(
    * engine expand it too — the single difference between the combination that
    * fails and the three around it that do not.
    *
-   * **The value is the graph's direction rather than the parent's**, and that
-   * is Mermaid's meaning rather than a convenient default: mermaid 11.17.2
-   * draws `Outer` with `direction LR` holding an `Inner` with none by putting
-   * `Inner`'s two members in one *column* (`A` and `B` at the same x) and
-   * `Inner` beside `C`. A frame that says nothing about its direction takes
-   * the document's, and the enclosing frame's `LR` governs only its own rank.
+   * **Which direction is handed down depends on what the cluster declared**,
+   * and both answers are Mermaid's, measured in mermaid 11.17.2:
+   *
+   * - **It declared none: the graph's own.** Mermaid draws `Outer` with
+   *   `direction LR` holding an `Inner` with none by putting `Inner`'s two
+   *   members in one *column* (`A` and `B` at the same x) and `Inner` beside
+   *   `C`. A frame that says nothing about its direction takes the
+   *   document's, and the enclosing frame's `LR` governs only its own rank.
+   * - **It declared one the boundary-crossing rule voided: the nearest
+   *   enclosing cluster's.** Mermaid leaves such a cluster inside the graph
+   *   enclosing it, so it is laid out in that graph's direction — `Outer`
+   *   `LR` holding `Inner` `BT` with `Y --> Z` leaving `Inner` draws `X` and
+   *   `Y` side by side, measured in Chrome.
    *
    * Nothing is added where nothing is broken: a graph with no direction
-   * declared on any cluster keeps every `rankdir` absent and stays on the
+   * in effect on any cluster keeps every `rankdir` absent and stays on the
    * engine's ordinary compound path, placing exactly what it placed before.
    */
   const rankdirFor = (node: DirectedGraphLayoutNode): Direction | undefined => {
-    const declared = declaredDirection(node);
-    if (declared !== undefined) return declared;
+    const own = directionInEffect(node);
+    if (own !== undefined) return own;
     if (!childrenOf.has(node.id)) return undefined;
-    return hasDirectedAncestor(node) ? input.rankdir : undefined;
-  };
-
-  /**
-   * Whether any cluster above `node` declared a direction of its own.
-   *
-   * **Any ancestor, not the parent**, because the engine's one level of
-   * expansion applies at every depth: a compensation that reached only the
-   * children of the cluster that declared the direction would hand *those*
-   * children a `rankdir`, which makes each of them a cluster-with-a-direction
-   * whose own cluster children are then the ones left unexpanded. The defect
-   * would move one level down per level of nesting rather than go away —
-   * measured, on three levels of cluster with the direction written at the
-   * top.
-   */
-  const hasDirectedAncestor = (node: DirectedGraphLayoutNode): boolean => {
-    for (
-      let ancestor = node.parentId === undefined ? undefined : nodeById.get(node.parentId);
-      ancestor !== undefined;
-      ancestor =
-        ancestor.parentId === undefined ? undefined : nodeById.get(ancestor.parentId)
-    ) {
-      // A direction the boundary-crossing rule voided is no direction: that
-      // ancestor stays on the engine's ordinary path, so there is no one-level
-      // expansion below it to compensate for.
-      if (declaredDirection(ancestor) !== undefined) return true;
-    }
-    return false;
+    const enclosing = enclosingDirection(node);
+    if (enclosing === undefined) return undefined;
+    return node.rankdir === undefined ? input.rankdir : enclosing;
   };
 
   for (const node of input.nodes) {

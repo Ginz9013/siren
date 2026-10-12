@@ -10,9 +10,9 @@ CUSTOMER["Customer Account"] {
   string email UK,FK
 }
 
-%% A cluster: a frame around the entities inside it. Its `direction TB` does
-%% not apply: relationships cross its boundary (CUSTOMER ||--o{ ORDER), and
-%% then Mermaid lays a block out in the document's direction, LR, instead.
+%% A subgraph: a frame around the entities inside it. Its `direction TB` does
+%% not apply: a relationship crosses its boundary (CUSTOMER ||--o{ ORDER), and
+%% then Mermaid lays the block out in the document's direction, LR, instead.
 %% A block's `direction` governs its members only when nothing crosses it.
 subgraph fulfilment
   direction TB

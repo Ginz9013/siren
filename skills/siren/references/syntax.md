@@ -93,8 +93,10 @@ flowchart TB
 - An edge may start or end at a subgraph. Its id uses the subgraph's written id:
   `checks-Deploy`.
 - `direction` inside a subgraph lays it out independently, but only when no edge has exactly one
-  end inside the subgraph; with one, the subgraph follows the diagram's direction (as in Mermaid).
-  An edge to the subgraph itself (`one --> C`) does not count.
+  end inside the subgraph; with one, the subgraph follows the direction of the subgraph around it
+  that keeps its own, or else the diagram's (as in Mermaid).
+  An edge from outside the subgraph to the subgraph itself (`C --> one`, or `one --> C`) does
+  not count.
 
 ### Styling
 

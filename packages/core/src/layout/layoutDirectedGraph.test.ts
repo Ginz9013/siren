@@ -29,6 +29,15 @@ function boxesOf(input: DirectedGraphLayoutInput) {
   );
 }
 
+/** Asserts that every box came back with four finite numbers — a node the engine really placed. */
+function expectEveryBoxPlaced(boxes: readonly DirectedGraphLayoutNodeBox[]): void {
+  for (const box of boxes) {
+    for (const value of [box.x, box.y, box.width, box.height]) {
+      expect(Number.isFinite(value), `${box.id} has a non-finite coordinate`).toBe(true);
+    }
+  }
+}
+
 describe("layoutDirectedGraph", () => {
   it("positions a two-node, one-edge graph as top-left boxes inside the reported graph bounds", () => {
     const result = layoutDirectedGraph({
@@ -370,11 +379,7 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
   /** Every box by id, having checked that all four of its numbers are real. */
   function placed(input: DirectedGraphLayoutInput): Record<string, DirectedGraphLayoutNodeBox> {
     const result = layoutDirectedGraph(input);
-    for (const box of result.nodes) {
-      for (const value of [box.x, box.y, box.width, box.height]) {
-        expect(Number.isFinite(value)).toBe(true);
-      }
-    }
+    expectEveryBoxPlaced(result.nodes);
     return Object.fromEntries(result.nodes.map((box) => [box.id, box]));
   }
 
@@ -427,11 +432,7 @@ describe("layoutDirectedGraph through three levels of cluster", () => {
       edges: [{ id: "X-Y", from: "X", to: "Y" }],
     });
 
-    for (const box of result.nodes) {
-      for (const value of [box.x, box.y, box.width, box.height]) {
-        expect(Number.isFinite(value)).toBe(true);
-      }
-    }
+    expectEveryBoxPlaced(result.nodes);
     expect(result.nodes.map((n) => n.id)).toEqual(["L0", "L1", "L2", "X", "Y", "Z"]);
   });
 });
@@ -570,9 +571,19 @@ describe("the box layoutDirectedGraph returns for a cluster", () => {
       expect(boxes.I).toEqual({ id: "I", x: 0, y: 0, width: 60, height: 40 });
 
       // Its members are placed — `01M2XJWM4`'s fix is what gives them
-      // coordinates at all — but above the frame rather than inside it.
-      expect(boxes.A).toEqual({ id: "A", x: 0, y: -45, width: 60, height: 40 });
-      expect(boxes.B).toEqual({ id: "B", x: 0, y: 45, width: 60, height: 40 });
+      // coordinates at all — but outside the frame rather than inside it.
+      //
+      // Where depends on the direction they are laid out in. With none of
+      // its own, `I` takes the graph's TB and they stack. Its own TB is void
+      // here — `A -> C` leaves `I` — so `I` follows `O`'s LR (the
+      // boundary-crossing rule) and they stand side by side instead.
+      if (inner === undefined) {
+        expect(boxes.A).toEqual({ id: "A", x: 0, y: -45, width: 60, height: 40 });
+        expect(boxes.B).toEqual({ id: "B", x: 0, y: 45, width: 60, height: 40 });
+      } else {
+        expect(boxes.A).toEqual({ id: "A", x: -55, y: 0, width: 60, height: 40 });
+        expect(boxes.B).toEqual({ id: "B", x: 55, y: 0, width: 60, height: 40 });
+      }
 
       expect(encloses(boxes.I, boxes.A)).toBe(false);
       expect(encloses(boxes.I, boxes.B)).toBe(false);
@@ -1046,11 +1057,7 @@ describe("a cluster with a boundary-crossing edge", () => {
 
     // Every node placed: the nesting does not trip the engine's one-level
     // expansion (`UnplacedNodesError`).
-    for (const box of result.nodes) {
-      for (const value of [box.x, box.y, box.width, box.height]) {
-        expect(Number.isFinite(value)).toBe(true);
-      }
-    }
+    expectEveryBoxPlaced(result.nodes);
     // `Outer` follows the graph: F below D.
     expect(byId.F.y).toBeGreaterThan(byId.D.y + byId.D.height);
     expect(byId.F.x).toBe(byId.D.x);
@@ -1086,15 +1093,48 @@ describe("a cluster with a boundary-crossing edge", () => {
     }
   });
 
-  it("keeps the outer cluster's direction and voids the inner one's when only the inner has a crossing edge", () => {
-    // `B -> D` leaves `Inner` but stays inside `Outer`. `Inner` takes the
-    // graph's TB — the value the directed-ancestor compensation hands it —
-    // and `Outer` keeps its own LR.
+  it("voids the outer cluster's direction when a nested cluster is an edge's end outside it", () => {
+    // `Inner -> C`: `Inner` is a descendant of `Outer` (a nested cluster
+    // counts) and `C` is not, so the edge crosses `Outer`'s boundary, and
+    // `Outer`'s LR is void. Measured in Chrome, mermaid 11.17.2 stacks
+    // `Outer`'s `D --> F` for this shape.
     const result = layoutDirectedGraph({
       rankdir: "TB",
       nodes: [
         { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
-        { id: "Inner", width: 0, height: 0, isCluster: true, rankdir: "LR", parentId: "Outer" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, parentId: "Outer" },
+        { id: "A", ...BOX, parentId: "Inner" },
+        { id: "B", ...BOX, parentId: "Inner" },
+        { id: "D", ...BOX, parentId: "Outer" },
+        { id: "F", ...BOX, parentId: "Outer" },
+        { id: "C", ...BOX },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "D-F", from: "D", to: "F" },
+        { id: "Inner-C", from: "Inner", to: "C" },
+      ],
+    });
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+
+    expectEveryBoxPlaced(result.nodes);
+    // `Outer` follows the graph's TB: F below D, in one column.
+    expect(byId.F.y).toBeGreaterThan(byId.D.y + byId.D.height);
+    expect(byId.F.x).toBe(byId.D.x);
+  });
+
+  it("keeps the outer cluster's direction and lays the voided inner one out in it", () => {
+    // Three different directions, so each can be told apart: the graph is
+    // TB, `Outer` declares LR, `Inner` declares BT. `B -> D` leaves `Inner`
+    // but stays inside `Outer`, so `Inner`'s BT is void and `Outer`'s LR
+    // holds. A voided group follows the nearest enclosing group that keeps
+    // its direction — measured in Chrome, mermaid 11.17.2 draws `Inner`'s
+    // members side by side under `Outer`'s LR, not stacked under the TB.
+    const result = layoutDirectedGraph({
+      rankdir: "TB",
+      nodes: [
+        { id: "Outer", width: 0, height: 0, isCluster: true, rankdir: "LR" },
+        { id: "Inner", width: 0, height: 0, isCluster: true, rankdir: "BT", parentId: "Outer" },
         { id: "A", ...BOX, parentId: "Inner" },
         { id: "B", ...BOX, parentId: "Inner" },
         { id: "D", ...BOX, parentId: "Outer" },
@@ -1106,15 +1146,15 @@ describe("a cluster with a boundary-crossing edge", () => {
     });
     const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
 
-    for (const box of result.nodes) {
-      for (const value of [box.x, box.y, box.width, box.height]) {
-        expect(Number.isFinite(value)).toBe(true);
-      }
-    }
-    // `Inner` follows the graph: B below A, in one column.
-    expect(byId.B.y).toBeGreaterThan(byId.A.y + byId.A.height);
-    expect(byId.B.x).toBe(byId.A.x);
-    // `Outer` keeps LR: D beside `Inner`'s members, not below them.
+    expectEveryBoxPlaced(result.nodes);
+    // `Inner` follows `Outer`'s LR: B beside A, on one row.
+    expect(byId.B.x).toBeGreaterThan(byId.A.x + byId.A.width);
+    expect(byId.B.y).toBe(byId.A.y);
+    // `Outer` keeps LR: D on the members' row and right of A, not below
+    // them. (How far right is the engine's: `Inner` was handed 0x0, and a
+    // frame nested under a directed one comes back at its handed size —
+    // see "the box layoutDirectedGraph returns for a cluster".)
+    expect(byId.D.y).toBe(byId.A.y);
     expect(byId.D.x).toBeGreaterThan(byId.A.x + byId.A.width);
   });
 });
