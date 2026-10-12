@@ -1,0 +1,4 @@
+{"id":"01M4R3RV1EKDBQDMKPMN9JXB61","t":1,"a":"83a1","op":"create","title":"label: flowchart 邊標籤依 150px 自動換行"}
+{"id":"01M4R3RV1QJM9BEZ63YE4K7A8T","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/flowchart-mermaid-parity-2/spec.md`（spec issue `01M4R3RTMERFCJ9ZPXMZ2GE32A`），ticket 檔 `.scratch/flowchart-mermaid-parity-2/T02-wrap-flowchart-edge-labels.md`。"}
+{"id":"01M4R3RV1QET7EWDDV94MW911G","t":3,"a":"83a1","op":"label.add","v":"layout"}
+{"id":"01M4R3S699N1SGQ2EZT722B156","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
