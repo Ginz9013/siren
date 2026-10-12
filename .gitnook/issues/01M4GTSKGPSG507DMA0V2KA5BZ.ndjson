@@ -4,3 +4,4 @@
 {"id":"01M4GTSW2P0YHMRWMD93ACANC1","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4GTYSRMG1RNCCG0BYH3CQKX","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M4GTYSZF9YCHFM6JYWA52BB7","t":6,"a":"83a1","op":"comment","body":"瀏覽器確認通過（17803fe＋b2338c6）。"}
+{"id":"01M4RBRNZDPVNX2CM4WKHA5DWG","t":7,"a":"83a1","op":"set","k":"archived","v":true}

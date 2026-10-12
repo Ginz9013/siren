@@ -2,3 +2,5 @@
 {"id":"01M4R3RTMR6VH9H071VD9M21KH","t":2,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/flowchart-mermaid-parity-2/spec.md`。標籤依 Mermaid wrappingWidth 200（依繪製字級換算：節點 175、連線標籤 150）自動換行；範圍 flowchart 節點與邊、state 描述與轉移、class／ER 關係標籤。"}
 {"id":"01M4R3RTMRDTB3Q1DK01Q9S74C","t":3,"a":"83a1","op":"label.add","v":"spec"}
 {"id":"01M4R3S5WCV1RAAXECGARM37VS","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
+{"id":"01M4RBR9AS0TMSM75309M1S43R","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4RBRR6QK0X0N75KBJMHXN6D","t":6,"a":"83a1","op":"set","k":"archived","v":true}

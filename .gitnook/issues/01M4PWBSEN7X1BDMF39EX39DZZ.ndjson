@@ -3,3 +3,5 @@
 {"id":"01M4PWBSEYHGY1NSZGZDDFEH52","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M4PWBSEZE33DNF2BQ6V3QYNN","t":4,"a":"83a1","op":"label.add","v":"layout"}
 {"id":"01M4PWBSEZX7EKN619NQSB4JS2","t":5,"a":"83a1","op":"label.add","v":"flowchart"}
+{"id":"01M4RBR9QHETP8JA75WV4H183Y","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4RBRP5Y6HG5Z9R8SA342W2D","t":7,"a":"83a1","op":"set","k":"archived","v":true}

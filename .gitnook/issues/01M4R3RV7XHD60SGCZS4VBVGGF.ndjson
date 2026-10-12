@@ -4,3 +4,4 @@
 {"id":"01M4R3S6FQBT8EZR07C7PB9Q8Z","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M4R6YDJ6HZ575N176W326XKB","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4R7R2B97P2APBTYZH4XFJNN","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4RBRRTD5NW5SZJPYQ36T31W","t":7,"a":"83a1","op":"set","k":"archived","v":true}
