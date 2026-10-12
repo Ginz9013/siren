@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CURVE } from "../curve/curve";
 import { buildGraphModel } from "../graph-model/buildGraphModel";
-import { CONNECTOR_LABEL_SCALE } from "../label/label";
 import { render } from "../index";
 import { parseSiren } from "../parser/parseSiren";
 import { connectorPathData } from "../renderer/connectorCurve";
@@ -213,20 +212,37 @@ describe("edgesThroughNodes under a curve", () => {
   });
 });
 
-/** A flowchart edge label as the renderer draws one: centred on its anchor. */
-function label(id: string, x: number, y: number, ...rows: string[]): string {
+/**
+ * A flowchart edge label as the renderer draws one: its background over the
+ * box `width` x `height` centred on its anchor, then its rows' text there.
+ */
+function drawnLabel(id: string, x: number, y: number, width: number, height: number, rows: string[]): string {
   const body =
     rows.length === 1
       ? rows[0]
       : rows.map((row) => `<tspan class="siren-label-row">${row}</tspan>`).join("");
-  return `<text class="siren-edge-label" data-siren-id="${id}" x="${x}" y="${y}">${body}</text>`;
+  return (
+    `<rect class="siren-connector-label-background" data-siren-id="${id}" ` +
+    `x="${x - width / 2}" y="${y - height / 2}" width="${width}" height="${height}"/>` +
+    `<text class="siren-edge-label" data-siren-id="${id}" x="${x}" y="${y}">${body}</text>`
+  );
 }
 
 /**
- * A row's size as a test measurer gives it: 10 per character, 20 tall — the
- * label's box is not in the SVG, so the caller says how big a row is drawn.
+ * A label whose box is just its rows, as an unwrapped label's is: `rowSize`'s
+ * widest row by its rows stacked.
  */
-const rowSize = (text: string) => ({ width: text.length * 10, height: 20 });
+function label(id: string, x: number, y: number, ...rows: string[]): string {
+  const sizes = rows.map(rowSize);
+  const width = Math.max(...sizes.map((size) => size.width));
+  const height = sizes.reduce((sum, size) => sum + size.height, 0);
+  return drawnLabel(id, x, y, width, height, rows);
+}
+
+/** A row's size as a test measurer gives it: 10 per character, 20 tall. */
+function rowSize(text: string) {
+  return { width: text.length * 10, height: 20 };
+}
 
 describe("labelsOverNodes", () => {
   it("names each label whose drawn box shares interior with a node", () => {
@@ -244,10 +260,27 @@ describe("labelsOverNodes", () => {
         label("two-rows", 120, 35, "abcd", "ab"),
     );
 
-    expect(labelsOverNodes(svg, rowSize)).toEqual([
+    expect(labelsOverNodes(svg)).toEqual([
       { label: "over-A", node: "A" },
       { label: "two-rows", node: "B" },
     ]);
+  });
+});
+
+describe("a wrapped label's box", () => {
+  // A wrapped label's box is the wrap width and its padding, wider than its
+  // widest row (the label-wrap ADR): what the label covers is the background
+  // the renderer paints over that box, not its rows' text.
+  it("is read off the label's background, wider than any of its rows", () => {
+    const svg = svgOf(
+      box("A", 0, 0, 40, 20) +
+        // Rows `ab` / `cd`, 20 wide, centred at (80, 10): 70..90, clear of
+        // A. The box is 100 by 40 around the same centre, 30..130 by
+        // -10..30 — 10 into A's right end.
+        drawnLabel("wrapped", 80, 10, 100, 40, ["ab", "cd"]),
+    );
+
+    expect(labelsOverNodes(svg)).toEqual([{ label: "wrapped", node: "A" }]);
   });
 });
 
@@ -264,7 +297,7 @@ describe("overlappingLabels", () => {
         label("four", 300, 300, "abcd"),
     );
 
-    expect(overlappingLabels(svg, rowSize)).toEqual([["one", "two"]]);
+    expect(overlappingLabels(svg)).toEqual([["one", "two"]]);
   });
 });
 
@@ -307,30 +340,19 @@ describe("the garden-network diagram, under the default measurer", () => {
     expect(straightBoundaryCrossingEdges(svg, membership)).toEqual([]);
   });
 
-  /**
-   * A row of an edge label as the default measurer sizes it, at the 12px it
-   * is drawn at: `index.ts`'s fallback answers 8 per character plus 16 by
-   * 24 plus 8, for 14px text, and an edge label is measured at 12/14 of
-   * that (`atConnectorLabelSize`).
-   */
-  const drawnRow = (text: string) => ({
-    width: (text.length * 8 + 16) * CONNECTOR_LABEL_SCALE,
-    height: (24 + 8) * CONNECTOR_LABEL_SCALE,
-  });
-
   it("draws no edge label over a node", () => {
-    expect(labelsOverNodes(svg, drawnRow)).toEqual([]);
+    expect(labelsOverNodes(svg)).toEqual([]);
   });
 
   it("draws no two edge labels over each other", () => {
-    expect(overlappingLabels(svg, drawnRow)).toEqual([]);
+    expect(overlappingLabels(svg)).toEqual([]);
   });
 
   // T2: an edge label wraps at 150px of its 12px text, and the two checks
-  // above read every drawn row, so they hold for the wrapped label too. Under
-  // the default measurer (8 × 12/14 px a character) 21 characters fit and 22
-  // do not: `volunteer / plot-signup`, 23, is garden-network's one edge label that
-  // wraps, broken at its spaces.
+  // above read each label's whole box, its background, so they hold for the
+  // wrapped label too. Under the default measurer (8 × 12/14 px a character)
+  // 21 characters fit and 22 do not: `volunteer / plot-signup`, 23, is
+  // garden-network's one edge label that wraps, broken at its spaces.
   it("wraps its one edge label wider than 150px of 12px text", () => {
     const wrapped = Array.from(svg.querySelectorAll("text.siren-edge-label"))
       .map((text) => labelRows(text))
