@@ -8,6 +8,15 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-12
+
+Flowcharts, class, state and ER diagrams now lay out much closer to Mermaid's own pictures:
+connectors are curved, connector labels sit on their lines over a background, long labels wrap,
+and a group with a connector crossing its boundary follows the surrounding direction. Almost every
+diagram looks different. Breaking for a script or test that reads a connector's route off its
+`<path>`'s `d` (read `data-siren-points` instead), and for a second theme that does not declare
+`--siren-edge-label-fill` (see **Added**).
+
 ### Added
 
 - **Connector labels are painted on a background**, as in Mermaid, so a line running under a
@@ -81,9 +90,8 @@ While the version is 0.x, a minor release may contain breaking changes.
   `direction` now uses it **only when no connector crosses its boundary**: a connector with
   exactly one end inside the group, at any depth. A group with such a connector is laid out in the
   direction of the nearest enclosing group that keeps its own, or else the diagram's, as Mermaid
-  lays it out. A connector that names the group itself from
-  outside (`one --> C`, `Before --> Outer`) does not cross it, and the group keeps its direction,
-  as in Mermaid. The members and connectors of a group that loses its direction go back to the
+  lays it out. A connector that names the group itself from outside (`one --> C`,
+  `Before --> Outer`) does not cross it, and the group keeps its direction, as in Mermaid. The members and connectors of a group that loses its direction go back to the
   ordinary layout: connectors crossing it are routed instead of drawn as two-point straight lines
   through other boxes, and its frame no longer overlaps the frames beside it. A diagram whose
   grouped direction relied on a crossing connector draws differently.

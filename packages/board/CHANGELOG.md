@@ -8,6 +8,11 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-12
+
+Requires `siren-core` ^0.5.0. Diagrams look different: see the
+[siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#050---2026-10-12).
+
 ### Added
 
 - With `siren-core`'s change: connector labels in flowchart, class, state and ER diagrams are
@@ -40,9 +45,9 @@ While the version is 0.x, a minor release may contain breaking changes.
   before.
 - With `siren-core`'s change: a subgraph, composite state or ER subgraph that declares a
   `direction` uses it only when no connector has exactly one end inside it, as in Mermaid;
-  otherwise it follows the nearest enclosing group's direction, or else the diagram's. A connector naming the group itself from outside
-  does not count. Connectors that used to be drawn as straight lines through
-  other boxes are routed, and frames that used to overlap no longer do.
+  otherwise it follows the nearest enclosing group's direction, or else the diagram's. A
+  connector naming the group itself from outside does not count. Connectors that used to be drawn
+  as straight lines through other boxes are routed, and frames that used to overlap no longer do.
 - With `siren-core`'s change: connector labels in all four connector diagrams (flowchart, class,
   state, ER) are drawn on the line rather than 10px beside it, and laid out at the 12px they are
   drawn at, as in Mermaid.
