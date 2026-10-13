@@ -499,3 +499,167 @@ describe("layoutDirectedGraph rejects a node inside a cluster it was not given",
     expect(() => layoutDirectedGraph(input)).toThrow(/"Missing"/);
   });
 });
+
+describe("layoutDirectedGraph orients an edge that runs back between clusters", () => {
+  // `subgraph S1 { A, C }`, `subgraph S2 { B }`, `A --> B`, `B --> C`. The
+  // boxes alone are a chain, but the frames are a cycle: S1 → S2 → S1.
+  // Measured in headless Chrome against Mermaid 12.2.0's default layout:
+  // S1 on top with A and C side by side, S2 below it, B under both — the
+  // frame-level back edge `B --> C` laid out as if it ran C to B, and drawn
+  // from B to C all the same.
+  const input: DirectedGraphInput = {
+    direction: "TB",
+    nodes: [
+      // In the order Mermaid hands them to ELK, last-declared subgraph first.
+      { id: "S2", width: 0, height: 0, cluster: { padding: 12, title: { width: 20, height: 18 } } },
+      { id: "S1", width: 0, height: 0, cluster: { padding: 12, title: { width: 20, height: 18 } } },
+      { id: "A", width: 60, height: 40, parentId: "S1" },
+      { id: "C", width: 60, height: 40, parentId: "S1" },
+      { id: "B", width: 60, height: 40, parentId: "S2" },
+    ],
+    edges: [
+      { id: "A-B", from: "A", to: "B" },
+      { id: "B-C", from: "B", to: "C" },
+    ],
+  };
+
+  it("the frame the cycle starts from above, its members side by side, the other frame's member below both", () => {
+    const boxes = boxesOf(input);
+    expect(boxes.S1.y + boxes.S1.height).toBeLessThanOrEqual(boxes.S2.y);
+    expect(centre(boxes.A).y).toBeCloseTo(centre(boxes.C).y, 0);
+    expect(centre(boxes.B).y).toBeGreaterThan(centre(boxes.C).y);
+  });
+
+  it("and still draws the edge from its source to its target", () => {
+    const result = layoutDirectedGraph(input);
+    const box = Object.fromEntries(result.nodes.map((b) => [b.id, b]));
+    const route = result.edges.find((edge) => edge.id === "B-C")!;
+    expect(isOrthogonal(route.points), JSON.stringify(route.points)).toBe(true);
+    expect(onOutline(route.points[0], box.B)).toBe(true);
+    expect(onOutline(route.points.at(-1)!, box.C)).toBe(true);
+  });
+});
+
+describe("layoutDirectedGraph fits a frame to what it holds", () => {
+  // `subgraph G { A, B }` with `A --> Y`, `B --> Z`, `A --> Z`, `B --> Y`:
+  // the edges leaving G cross on their way out. ELK routes that crossing
+  // inside G's frame and grows the frame to hold it. Measured in headless
+  // Chrome against Mermaid 12.2.0: Mermaid's frame stops just below A and B
+  // (117 tall, title band included), the crossing drawn outside it.
+  const input: DirectedGraphInput = {
+    direction: "TB",
+    nodes: [
+      { id: "G", width: 0, height: 0, cluster: { padding: 12, title: { width: 20, height: 18 } } },
+      { id: "A", width: 60, height: 40, parentId: "G" },
+      { id: "B", width: 60, height: 40, parentId: "G" },
+      { id: "Y", width: 60, height: 40 },
+      { id: "Z", width: 60, height: 40 },
+    ],
+    edges: [
+      { id: "A-Y", from: "A", to: "Y" },
+      { id: "B-Z", from: "B", to: "Z" },
+      { id: "A-Z", from: "A", to: "Z" },
+      { id: "B-Y", from: "B", to: "Y" },
+    ],
+  };
+
+  it("its bottom one padding below its lowest member, however edges leaving it are routed", () => {
+    const boxes = boxesOf(input);
+    const lowest = Math.max(boxes.A.y + boxes.A.height, boxes.B.y + boxes.B.height);
+    expect(boxes.G.y + boxes.G.height).toBeCloseTo(lowest + 12, 1);
+  });
+});
+
+/**
+ * The jogs at either end of `points`: a first (or last) run of at most 30px,
+ * then a sidestep of at most 16px, then on in the same direction — the
+ * kink Mermaid 12.2.0's `straightenEdgeTerminals` takes out.
+ */
+function terminalJogs(points: readonly Point[]): number {
+  const jogAt = (p: readonly Point[]) => {
+    if (p.length < 5) return false;
+    const [p0, p1, p2, p3] = p;
+    const vertical = Math.abs(p0.x - p1.x) <= 0.01 && Math.abs(p2.x - p3.x) <= 0.01;
+    const horizontal = Math.abs(p0.y - p1.y) <= 0.01 && Math.abs(p2.y - p3.y) <= 0.01;
+    if (!vertical && !horizontal) return false;
+    const run = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    const side = vertical ? Math.abs(p2.x - p1.x) : Math.abs(p2.y - p1.y);
+    const onward = vertical
+      ? Math.sign(p1.y - p0.y) === Math.sign(p3.y - p2.y)
+      : Math.sign(p1.x - p0.x) === Math.sign(p3.x - p2.x);
+    return run <= 30 && side > 0.01 && side <= 16 && onward;
+  };
+  return Number(jogAt(points)) + Number(jogAt([...points].reverse()));
+}
+
+describe("layoutDirectedGraph straightens a route's ends", () => {
+  // A small graph where ELK enters E, inside a frame, with a 3px sidestep
+  // 30px short of it — the frame's port and E's are not in line.
+  const input: DirectedGraphInput = {
+    direction: "TB",
+    nodes: [
+      { id: "F", width: 0, height: 0, cluster: { padding: 12, title: { width: 20, height: 18 } } },
+      { id: "A", width: 56, height: 40 },
+      { id: "B", width: 40, height: 40 },
+      { id: "C", width: 40, height: 40 },
+      { id: "D", width: 40, height: 40 },
+      { id: "E", width: 40, height: 40, parentId: "F" },
+    ],
+    edges: [
+      { id: "A-E", from: "A", to: "E" },
+      { id: "B-C", from: "B", to: "C" },
+      { id: "C-E", from: "C", to: "E" },
+    ],
+  };
+
+  it("no route arrives or leaves with a short sidestep, and each still runs from its source's outline to its target's", () => {
+    const result = layoutDirectedGraph(input);
+    const box = Object.fromEntries(result.nodes.map((b) => [b.id, b]));
+    for (const route of result.edges) {
+      const [from, to] = route.id.split("-");
+      expect(terminalJogs(route.points), `${route.id} ${JSON.stringify(route.points)}`).toBe(0);
+      expect(isOrthogonal(route.points)).toBe(true);
+      expect(onOutline(route.points[0], box[from])).toBe(true);
+      expect(onOutline(route.points.at(-1)!, box[to])).toBe(true);
+    }
+  });
+});
+
+describe("layoutDirectedGraph straightens a route's end only where that crosses no box", () => {
+  // `subgraph F { U, L }`, `U --> L`, `U --> I`, `L --> I`: ELK takes U --> I
+  // out of U 14px to the left of where it runs down past L. Mermaid's
+  // straightening would move that run back into line with U's port —
+  // through L. Siren leaves the sidestep in.
+  const input: DirectedGraphInput = {
+    direction: "TB",
+    nodes: [
+      { id: "F", width: 0, height: 0, cluster: { padding: 12, title: { width: 20, height: 18 } } },
+      { id: "U", width: 48, height: 40, parentId: "F" },
+      { id: "L", width: 48, height: 40, parentId: "F" },
+      { id: "I", width: 104, height: 40 },
+    ],
+    edges: [
+      { id: "U-L", from: "U", to: "L" },
+      { id: "U-I", from: "U", to: "I" },
+      { id: "L-I", from: "L", to: "I" },
+    ],
+  };
+
+  it("no route runs through a box that is not one of its ends", () => {
+    const result = layoutDirectedGraph(input);
+    for (const route of result.edges) {
+      const ends = route.id.split("-");
+      for (const box of result.nodes.filter((b) => b.id !== "F" && !ends.includes(b.id))) {
+        const through = route.points.some(
+          (p, i) =>
+            i > 0 &&
+            Math.min(p.x, route.points[i - 1].x) < box.x + box.width &&
+            Math.max(p.x, route.points[i - 1].x) > box.x &&
+            Math.min(p.y, route.points[i - 1].y) < box.y + box.height &&
+            Math.max(p.y, route.points[i - 1].y) > box.y,
+        );
+        expect(through, `${route.id} through ${box.id}: ${JSON.stringify(route.points)}`).toBe(false);
+      }
+    }
+  });
+});

@@ -55,7 +55,9 @@ edges leave a box, the order siblings come in. Siren may depart from it where th
 **measurably** reduces crossings, detours, overshoots or edges drawn through a group's title, or
 where Mermaid's picture contradicts the document. Each such departure is measured with the
 **layout parity report** and recorded in a nook decision, never asserted as taste. The first one is
-the long arrow (`---->`, under **Edge**; decision `01M4VA6MS4MCTFFJJWEZR453YS`).
+the long arrow (`---->`, under **Edge**; decision `01M4VA6MS4MCTFFJJWEZR453YS`); the second keeps
+the sidestep at an edge's end where Mermaid's straightening would run the edge through a box
+(decision `01M4VBHWYKNH91NXFD4ZF9MQDD`).
 
 ## Language
 

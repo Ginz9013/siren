@@ -258,7 +258,14 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   // points when it is longer than one layer (`chainOf`). The chain's points
   // join the graph where its two ends' nearest common cluster holds them, so
   // they lay out among the boxes the edge runs between.
-  const chains = input.edges.map((edge) => chainOf(edge));
+  //
+  // An edge that runs back between clusters (`subgraphFeedbackEdges`) is
+  // handed over turned round, so ELK lays it out pointing the other way; its
+  // route is turned back below.
+  const turned = subgraphFeedbackEdges(input.edges, nodeById);
+  const chains = input.edges.map((edge, index) =>
+    turned[index] ? { ...chainOf({ ...edge, from: edge.to, to: edge.from }), edge } : chainOf(edge),
+  );
   for (const chain of chains) {
     for (const point of chain.points) {
       const holder = commonAncestor(chain.edge.from, chain.edge.to, nodeById);
@@ -329,17 +336,26 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
           : { x: origin.x + label.x! + label.width! / 2, y: origin.y + label.y! + label.height! / 2 },
     };
   };
-  const edges = chains.map(({ edge, segments }) => {
+  const edges = chains.map(({ edge, segments }, index) => {
     const pieces = segments.map((segment) => absoluteRoute(segment.id));
+    const points = withoutStraightRuns(pieces.flatMap((piece) => piece.points));
     const route: DirectedGraphEdgeRoute = {
       id: edge.id,
-      points: withoutStraightRuns(pieces.flatMap((piece) => piece.points)),
+      // A turned edge's route runs from its target; the caller's runs from its source.
+      points: turned[index] ? points.reverse() : points,
       hops: [],
     };
     const labelAnchor = pieces.find((piece) => piece.labelAnchor !== undefined)?.labelAnchor;
     if (edge.label !== undefined && labelAnchor !== undefined) route.labelAnchor = labelAnchor;
     return route;
   });
+
+  fitFrames(input, nodes, edges);
+  straightenTerminals(
+    edges,
+    input.edges,
+    nodes.filter((box) => nodeById.get(box.id)!.cluster === undefined),
+  );
 
   return {
     nodes,
@@ -376,6 +392,402 @@ function commonAncestor(
     if (seen.has(id)) return id;
   }
   return undefined;
+}
+
+/** The longest first (or last) run of a route `straightenTerminals` will straighten past. */
+const TERMINAL_RUN_MAX = 30;
+/** The widest sidestep it takes out. */
+const TERMINAL_JOG_MAX = 16;
+/** Below this, two coordinates are one: a run is horizontal or vertical, a sidestep no sidestep. */
+const JOG_EPSILON = 0.01;
+
+/**
+ * Takes the short sidestep out of the ends of a route — Mermaid 12.2.0's
+ * `straightenEdgeTerminals` (`elk-V4PLJRSU.mjs`, line 100248), on by default
+ * (`straightenEdges: true` in `defaultConfig.elk`, `chunk-DLUCIBNR.mjs`
+ * line 5435). ELK often leaves a route a few pixels out of line with the end
+ * it leaves or enters — where it passes a frame's port, or where ports on
+ * one side are spread apart — and draws the difference as a kink right at
+ * the box: a run of at most 30px, a sidestep of at most 16px, and on in the
+ * same direction.
+ *
+ * The rule, Mermaid's, per route in input order, its start then its end: the
+ * sidestep is removed by moving the run after it into line with the end —
+ * the run up to the next bend, which is then lengthened or shortened along
+ * its own axis, so the route stays orthogonal and both its ends stay where
+ * ELK put them. A run that reaches the route's far end is not moved. A route
+ * is straightened only if that crosses no other route more often (counting
+ * every route's current shape) and runs across no more labels, its own
+ * label carried along with the run it sits on (`carryLabel`).
+ *
+ * **And, departing from Mermaid, only if it runs through no more boxes.**
+ * Mermaid's check counts crossings and labels but not boxes, and a sidestep
+ * is often there to clear one: `subgraph F { U, L }` with `U --> L`,
+ * `U --> I`, `L --> I` leaves U 14px to the left of the run that passes L,
+ * and moving that run into line with U's port would draw U --> I through L.
+ * An edge across a box it does not join reads as joining it, the misreading
+ * this migration exists to remove (nook decision `01M4VBHWYKNH91NXFD4ZF9MQDD`,
+ * under rule 1 of `01M4VANRC6B2C14NHVC2KRZ9Y8`). Measured on the flowchart
+ * parity fixtures, the parity numbers are the same with and without it; laid
+ * out with the fixed-width measurer, it keeps one route of
+ * `example-flowchart-edges` from running through a box.
+ */
+function straightenTerminals(
+  routes: DirectedGraphEdgeRoute[],
+  inputs: readonly DirectedGraphEdge[],
+  boxes: readonly DirectedGraphNodeBox[],
+): void {
+  type Label = { centre: Point; size: { width: number; height: number } } | undefined;
+  const labels: Label[] = routes.map((route, index) =>
+    route.labelAnchor === undefined || inputs[index].label === undefined
+      ? undefined
+      : { centre: route.labelAnchor, size: inputs[index].label! },
+  );
+  const covers = (points: readonly Point[], label: Label) =>
+    label !== undefined &&
+    points.some((point, index) => index > 0 && segmentMeetsBox(points[index - 1], point, label.centre, label.size));
+  /** How many boxes other than its own ends `points` runs through. */
+  const boxesCrossed = (points: readonly Point[], edge: DirectedGraphEdge) =>
+    boxes.filter(
+      (box) =>
+        box.id !== edge.from &&
+        box.id !== edge.to &&
+        covers(points, { centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, size: box }),
+    ).length;
+  routes.forEach((route, index) => {
+    const original = route.points;
+    const { points, runs } = withoutTerminalJogs(original);
+    if (runs.length === 0) return;
+    const label = labels[index];
+    const carried = label === undefined ? undefined : { centre: carryLabel(label.centre, runs), size: label.size };
+    let crossingsBefore = 0;
+    let crossingsAfter = 0;
+    let coveredBefore = 0;
+    let coveredAfter = 0;
+    routes.forEach((other, otherIndex) => {
+      if (otherIndex === index) return;
+      crossingsBefore += crossingCount(original, other.points);
+      crossingsAfter += crossingCount(points, other.points);
+      coveredBefore += Number(covers(other.points, label)) + Number(covers(original, labels[otherIndex]));
+      coveredAfter += Number(covers(other.points, carried)) + Number(covers(points, labels[otherIndex]));
+    });
+    if (crossingsAfter > crossingsBefore || coveredAfter > coveredBefore) return;
+    if (boxesCrossed(points, inputs[index]) > boxesCrossed(original, inputs[index])) return;
+    route.points = points;
+    if (carried !== undefined) {
+      route.labelAnchor = carried.centre;
+      labels[index] = carried;
+    }
+  });
+}
+
+/** A run `withoutTerminalJogs` moved: where it ran, and where it runs now. */
+interface MovedRun {
+  was: [Point, Point];
+  now: [Point, Point];
+}
+
+/** `points` with the sidestep taken out of each end that has one, and the runs that moved to do it. */
+function withoutTerminalJogs(points: readonly Point[]): { points: Point[]; runs: MovedRun[] } {
+  const runs: MovedRun[] = [];
+  let current = [...points];
+  const front = withoutLeadingJog(current);
+  if (front !== undefined) {
+    current = front.points;
+    runs.push(front.run);
+  }
+  const back = withoutLeadingJog([...current].reverse());
+  if (back !== undefined) {
+    current = back.points.reverse();
+    runs.push(back.run);
+  }
+  return { points: current, runs };
+}
+
+/** Mermaid's `straightenFront`: the sidestep out of the start of `points`, if it has one. */
+function withoutLeadingJog(points: readonly Point[]): { points: Point[]; run: MovedRun } | undefined {
+  if (points.length < 5) return undefined;
+  const [p0, p1, p2, p3] = points;
+  const axis = axisOf(p0, p1);
+  if (axis === undefined || axisOf(p2, p3) !== axis || axisOf(p1, p2) !== (axis === "h" ? "v" : "h")) return undefined;
+  if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > TERMINAL_RUN_MAX) return undefined;
+  const sidestep = axis === "h" ? Math.abs(p2.y - p1.y) : Math.abs(p2.x - p1.x);
+  if (sidestep < JOG_EPSILON || sidestep > TERMINAL_JOG_MAX) return undefined;
+  const onward =
+    axis === "h" ? Math.sign(p1.x - p0.x) === Math.sign(p3.x - p2.x) : Math.sign(p1.y - p0.y) === Math.sign(p3.y - p2.y);
+  if (!onward) return undefined;
+  let last = 3;
+  while (last + 1 < points.length && axisOf(points[last], points[last + 1]) === axis) last++;
+  if (last === points.length - 1) return undefined;
+  const moved = [...points];
+  for (let i = 2; i <= last; i++) {
+    moved[i] = axis === "h" ? { x: points[i].x, y: p0.y } : { x: p0.x, y: points[i].y };
+  }
+  const run: MovedRun = { was: [points[2], points[last]], now: [moved[2], moved[last]] };
+  moved.splice(1, 2);
+  return { points: moved, run };
+}
+
+/** `"h"` or `"v"` for a horizontal or vertical segment; `undefined` for a point or a slant. */
+function axisOf(a: Point, b: Point): "h" | "v" | undefined {
+  const dx = Math.abs(b.x - a.x);
+  const dy = Math.abs(b.y - a.y);
+  if (dx > JOG_EPSILON && dy <= JOG_EPSILON) return "h";
+  if (dy > JOG_EPSILON && dx <= JOG_EPSILON) return "v";
+  return undefined;
+}
+
+/**
+ * Where a label goes when the run under it moves — Mermaid's
+ * `projectLabelOntoStraightenedRun`: to the same fraction along the moved run
+ * as it sat along the nearest of the runs before they moved.
+ */
+function carryLabel(centre: Point, runs: readonly MovedRun[]): Point {
+  let best: { distance: number; point: Point } | undefined;
+  for (const { was, now } of runs) {
+    const t = fractionAlong(centre, was[0], was[1]);
+    const before = pointAlong(was[0], was[1], t);
+    const distance = Math.hypot(before.x - centre.x, before.y - centre.y);
+    if (best === undefined || distance < best.distance) best = { distance, point: pointAlong(now[0], now[1], t) };
+  }
+  return best!.point;
+}
+
+function fractionAlong(p: Point, a: Point, b: Point): number {
+  const lengthSquared = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+  if (lengthSquared === 0) return 0;
+  return Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / lengthSquared));
+}
+
+function pointAlong(a: Point, b: Point, t: number): Point {
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+/** How many times two routes cross, counting only proper crossings — Mermaid's `crossingCount`. */
+function crossingCount(a: readonly Point[], b: readonly Point[]): number {
+  const side = (o: Point, p: Point, q: Point) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const opposite = (m: number, n: number) => (m > 0 && n < 0) || (m < 0 && n > 0);
+  let count = 0;
+  for (let i = 1; i < a.length; i++) {
+    for (let j = 1; j < b.length; j++) {
+      if (
+        opposite(side(b[j - 1], b[j], a[i - 1]), side(b[j - 1], b[j], a[i])) &&
+        opposite(side(a[i - 1], a[i], b[j - 1]), side(a[i - 1], a[i], b[j]))
+      ) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+/** Whether the segment from `a` to `b` passes through the inside of the box centred on `centre` — Mermaid's `segmentHitsBox`. */
+function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: number; height: number }): boolean {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  let enter = 0;
+  let leave = 1;
+  for (const [p, q] of [
+    [-dx, a.x - (centre.x - size.width / 2)],
+    [dx, centre.x + size.width / 2 - a.x],
+    [-dy, a.y - (centre.y - size.height / 2)],
+    [dy, centre.y + size.height / 2 - a.y],
+  ]) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else if (p < 0) {
+      enter = Math.max(enter, q / p);
+    } else {
+      leave = Math.min(leave, q / p);
+    }
+  }
+  return enter < leave;
+}
+
+/**
+ * Pulls each cluster's frame in to what it holds — Mermaid 12.2.0's
+ * `evenGroupFrames` (`elk-V4PLJRSU.mjs`, line 99981), which it runs on every
+ * ELK layout before reading the edges. ELK grows a frame for more than its
+ * members: under `INCLUDE_CHILDREN` it routes edges that leave a cluster
+ * partly inside the frame, and a crossing among them, or a lane they share,
+ * widens or deepens it. Measured in headless Chrome against Mermaid 12.2.0:
+ * `subgraph G { A, B }` whose edges to `Y` and `Z` cross on the way out
+ * draws G 117 tall, title band included, the crossing below the frame;
+ * ELK's own frame is 72px deeper.
+ *
+ * The rule, Mermaid's, innermost cluster first so an outer frame fits the
+ * inner one already fitted: the left, right and bottom sides move in to one
+ * padding beyond the members (a member cluster by its fitted frame; a
+ * zero-size point of a long edge's chain is no member), and beyond every
+ * point of an edge with both ends inside the cluster and the end of an edge
+ * that ends on the cluster itself — so an edge routed within the frame stays
+ * within it, and one that ends on the frame still ends on its outline. A side
+ * only ever moves in, never out; the top stays, with the title band under it.
+ * The frame is never narrower than its title and padding (Mermaid's
+ * `groupTitleWidth` floor, here the same `title.width + 2 × padding` floor
+ * `clusterShape` asks ELK for), widened about its centre and kept within
+ * ELK's frame. The title is re-centred across the fitted frame.
+ *
+ * This moves a frame after ELK placed it, and only here: the core is where
+ * geometry is decided (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2),
+ * and every member, route and route end stays where ELK put it.
+ */
+function fitFrames(
+  input: DirectedGraphInput,
+  boxes: readonly DirectedGraphNodeBox[],
+  routes: readonly DirectedGraphEdgeRoute[],
+): void {
+  const boxById = new Map(boxes.map((box) => [box.id, box]));
+  const membersOf = new Map<string, DirectedGraphNode[]>();
+  for (const node of input.nodes) {
+    if (node.parentId !== undefined) membersOf.set(node.parentId, [...(membersOf.get(node.parentId) ?? []), node]);
+  }
+  const within = (id: string, into = new Set<string>()): Set<string> => {
+    for (const member of membersOf.get(id) ?? []) {
+      into.add(member.id);
+      within(member.id, into);
+    }
+    return into;
+  };
+  const fit = (node: DirectedGraphNode): void => {
+    const members = membersOf.get(node.id) ?? [];
+    for (const member of members) if (member.cluster !== undefined) fit(member);
+    if (node.cluster === undefined || members.length === 0) return;
+    const frame = boxById.get(node.id)!;
+    const held = members.map((member) => boxById.get(member.id)!).filter((box) => box.width > 0 && box.height > 0);
+    if (held.length === 0) return;
+    const inside = within(node.id);
+    const lane: Point[] = [];
+    input.edges.forEach((edge, index) => {
+      const points = routes[index].points;
+      if (inside.has(edge.from) && inside.has(edge.to)) {
+        lane.push(...points);
+        return;
+      }
+      if (edge.from === node.id) lane.push(points[0]);
+      if (edge.to === node.id) lane.push(points[points.length - 1]);
+    });
+    const xs = [...held.flatMap((box) => [box.x, box.x + box.width]), ...lane.map((point) => point.x)];
+    const ys = [...held.flatMap((box) => [box.y, box.y + box.height]), ...lane.map((point) => point.y)];
+    const { padding, title } = node.cluster;
+    const left = Math.max(frame.x, Math.min(...xs) - padding);
+    const right = Math.min(frame.x + frame.width, Math.max(...xs) + padding);
+    const bottom = Math.min(frame.y + frame.height, Math.max(...ys) + padding);
+    const floor = (title?.width ?? 0) + 2 * padding;
+    let x = left;
+    let width = right - left;
+    if (width < floor) {
+      width = Math.min(floor, frame.width);
+      x = Math.max(frame.x, Math.min(left - (width - (right - left)) / 2, frame.x + frame.width - width));
+    }
+    const height = bottom - frame.y;
+    if (width <= 0 || height <= 0) return;
+    frame.x = x;
+    frame.width = width;
+    frame.height = height;
+    if (frame.title !== undefined) frame.title = { x: x + width / 2, y: frame.title.y };
+  };
+  for (const node of input.nodes) if (node.parentId === undefined) fit(node);
+}
+
+/**
+ * Which edges run back between clusters, by input index — Mermaid 12.2.0's
+ * `findSubgraphFeedbackEdges` (`elk-V4PLJRSU.mjs`, line 98706), which its
+ * `reverseSubgraphFeedbackEdges` (line 99533) applies by default
+ * (`orientFeedbackEdges: true` in `defaultConfig.elk`, `chunk-DLUCIBNR.mjs`
+ * line 5449): every flagged edge goes to ELK with its source and target
+ * swapped, and its route is turned back afterwards.
+ *
+ * The rule: each edge is lifted to the nearest cluster holding both its ends
+ * (`commonAncestor`) and seen there as an edge between the two children of
+ * that cluster it runs between — a member of a nested cluster stands for the
+ * cluster. Self-loops, and edges with one end the cluster holding the other,
+ * are left out. Each level is walked depth-first, in the order its nodes
+ * first appear on its edges, starting from the ones nothing points at; an
+ * edge that leads back to a node still on the walk is a back edge. A back
+ * edge is flagged only when at least one of its ends was lifted — when it
+ * runs between clusters rather than between two boxes side by side, which
+ * ELK's own cycle breaking is left to settle.
+ *
+ * Why it matters: ELK breaks cycles among boxes, and a cycle among *frames*
+ * (`S1 { A, C }`, `S2 { B }`, `A --> B`, `B --> C`) is no cycle among boxes,
+ * so nothing stops it stacking the frames in either order. Measured in
+ * headless Chrome against Mermaid 12.2.0: that document draws S1 above S2,
+ * A and C side by side, B under both. On the `garden-network` parity fixture —
+ * five subgraphs in a frame-level cycle — handing the edges over unturned
+ * mirrored Siren's picture left to right against Mermaid's (25.8% of node
+ * pairs in the same left/right order; 92.6% with this).
+ */
+function subgraphFeedbackEdges(
+  edges: readonly DirectedGraphEdge[],
+  nodeById: ReadonlyMap<string, DirectedGraphNode>,
+): boolean[] {
+  const parentOf = parentLookup(nodeById);
+  /** The child of `ancestor` (or top-level node, for the diagram) that holds `id`, or `id` itself. */
+  const childOf = (id: string, ancestor: string | undefined): string => {
+    let current = id;
+    while (parentOf(current) !== ancestor) current = parentOf(current)!;
+    return current;
+  };
+  interface Lifted {
+    index: number;
+    from: string;
+    to: string;
+    /** Whether either end was lifted to a cluster above it. */
+    lifted: boolean;
+  }
+  const levels = new Map<string | undefined, Lifted[]>();
+  edges.forEach((edge, index) => {
+    if (edge.from === edge.to) return;
+    const ancestor = commonAncestor(edge.from, edge.to, nodeById);
+    if (ancestor === edge.from || ancestor === edge.to) return;
+    const from = childOf(edge.from, ancestor);
+    const to = childOf(edge.to, ancestor);
+    const level = levels.get(ancestor) ?? [];
+    level.push({ index, from, to, lifted: from !== edge.from || to !== edge.to });
+    levels.set(ancestor, level);
+  });
+
+  const flags = edges.map(() => false);
+  for (const level of levels.values()) {
+    const out = new Map<string, Lifted[]>();
+    const inDegree = new Map<string, number>();
+    for (const edge of level) {
+      for (const node of [edge.from, edge.to]) {
+        if (!out.has(node)) {
+          out.set(node, []);
+          inDegree.set(node, 0);
+        }
+      }
+      out.get(edge.from)!.push(edge);
+      inDegree.set(edge.to, inDegree.get(edge.to)! + 1);
+    }
+    const nodes = [...out.keys()];
+    const state = new Map<string, "on the walk" | "done">();
+    for (const start of [...nodes.filter((node) => inDegree.get(node) === 0), ...nodes]) {
+      if (state.has(start)) continue;
+      state.set(start, "on the walk");
+      const walk = [{ node: start, next: 0 }];
+      while (walk.length > 0) {
+        const frame = walk[walk.length - 1];
+        const leaving = out.get(frame.node)!;
+        if (frame.next >= leaving.length) {
+          state.set(frame.node, "done");
+          walk.pop();
+          continue;
+        }
+        const edge = leaving[frame.next++];
+        const seen = state.get(edge.to);
+        if (seen === "on the walk") {
+          flags[edge.index] = edge.lifted;
+        } else if (seen === undefined) {
+          state.set(edge.to, "on the walk");
+          walk.push({ node: edge.to, next: 0 });
+        }
+      }
+    }
+  }
+  return flags;
 }
 
 /** An input edge as ELK is handed it: the edges it became, and the invisible points between them. */
@@ -528,10 +940,10 @@ function voidedDirections(
  * title comes back 52 wide and 224 tall under `DOWN`, 224x76 under `RIGHT`;
  * Mermaid 12.2.0's own options reproduce it (200x271.5 for a 152-wide member
  * under a 261.5-wide title), and Mermaid repairs the frame afterwards in
- * `evenGroupFrames` while the space ELK reserved stays reserved. Only the
- * engine positions boxes and frames (nook decision
- * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2), so the repair is not available
- * here; asking ELK for the right box is.
+ * `evenGroupFrames` while the space ELK reserved stays reserved. The core
+ * ports that repair (`fitFrames`), but a frame pulled in after layout leaves
+ * the reserved space as a gap around it, so the title is not left for it to
+ * fix: asking ELK for the right box is.
  *
  * So the band is padding: the top padding is the caller's padding, the
  * title's height and the padding again, and the title's place in it is then

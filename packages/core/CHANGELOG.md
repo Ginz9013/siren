@@ -18,9 +18,20 @@ While the version is 0.x, a minor release may contain breaking changes.
   and now applied to ELK's points (a name that is no curve draws `rounded`, as Mermaid 12 does);
   siblings keep the order they were written in (the street-fair diagram's options A, B, C
   now read left to right); groups are listed to the engine as Mermaid lists them; no edge is drawn
-  through an unrelated box. Against Mermaid 12.2.0 on the parity fixtures: 175 crossings to its
-  176, 0 edges through boxes (was 29), 99.4% / 93.5% agreement on above/below and left/right (was
+  through an unrelated box. Against Mermaid 12.2.0 on the parity fixtures: 176 crossings to its
+  176, 0 edges through boxes (was 29), 99.6% / 97.8% agreement on above/below and left/right (was
   91.6% / 61.0%).
+- **Edges that run back between subgraphs are laid out as Mermaid 12 lays them out.** Where the
+  subgraphs form a cycle (`A --> B` from one subgraph into another, `B --> C` back), the edge that
+  closes the cycle is laid out pointing the other way and still drawn from its source to its
+  target, so the subgraphs stack in Mermaid's order rather than mirrored (the garden-network fixture's
+  left/right agreement with Mermaid: 25.8% before, 92.6% after).
+- **A subgraph's frame fits what it holds.** A frame stops one padding beyond its members and the
+  edges routed inside it, as Mermaid 12 draws it, rather than also holding where edges leaving it
+  cross on their way out.
+- **The short sidestep at an edge's end is taken out**, as Mermaid 12 does: a jog of at most 16px
+  within 30px of a box is straightened when that adds no crossing and covers no more labels.
+  Unlike Mermaid, Siren also keeps the jog when straightening it would run the edge through a box.
 - **A subgraph's frame is the engine's.** ELK sizes each frame around its members, its 12px
   padding and a band for its title, and routes edges that end on a subgraph (`one --> two`) and a
   subgraph's own loop (`one --> one`) to the frame itself. A title wider than its members widens
