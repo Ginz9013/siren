@@ -74,7 +74,19 @@ While the version is 0.x, a minor release may contain breaking changes.
   writing it makes no composite give up its direction. Against Mermaid 12.2.0 on the four state
   parity fixtures: 0 crossings to its 0 (was 1), 0 edges through boxes (was 0), 100% / 90.8%
   agreement on above/below and left/right (was 87.7% / 66.2%).
-- ER diagrams are unchanged: they stay on dagre until their own migration.
+- **ER diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Relationships are routed
+  orthogonally and drawn `rounded` (they were `basis` curves), with line hops where they cross, and
+  a self-relationship is an orthogonal loop; each cardinality marker lies along its route's first
+  or last run. A relationship's label sits centred on its route. A `subgraph` block's frame is the
+  engine's, sized around its members, its 12px padding and a band for its title, and the title
+  moves aside for routes crossing the band. Blocks are handed to the engine in Mermaid's order —
+  sibling blocks last-written first, every block before the entities — so `subgraph SA`,
+  `subgraph SB`, `X` reads SB, SA, X from left to right, as in Mermaid. A block that names no
+  `direction` inside one that keeps its own is laid out in the enclosing block's direction (it used
+  to take the document's), and one that names a direction gives it up when a relationship crosses
+  its boundary, by Mermaid 12's rule. Against Mermaid 12.2.0 on the four ER parity fixtures: 0
+  crossings to its 0 (was 0), 0 edges through boxes (was 0), 97.2% / 100% agreement on above/below
+  and left/right (was 58.3% / 77.8%).
 - The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 
 ### Added
@@ -95,7 +107,8 @@ While the version is 0.x, a minor release may contain breaking changes.
   no hop — and a hopped `step` edge's `d` is written as straight segments through the route, the
   same picture as before. The layout reports each edge's hops (`PositionedEdge.hops`); class and
   state connectors have them too (`PositionedStateTransition.hops`,
-  `PositionedStateNote.connectorHops`), and ER connectors get them when they move onto ELK.
+  `PositionedStateNote.connectorHops`) and so do ER relationships
+  (`PositionedErRelationship.hops`).
 - `PositionedStateLabel.x`: the centre of a composite's title where the layout moved it along its
   band.
 
