@@ -5,18 +5,36 @@
  * (`renderer/connectorCurve.ts`) draws them.
  *
  * The rule is Mermaid 12.2.0's, which draws hops by default under its ELK
- * layout (`lineJump.ts`, `JUMP_RADIUS = 6`), restated in nook decision
- * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 7:
+ * layout (its `lineJump.ts`, bundled in `chunk-UETRLHRR.mjs`; `JUMP_RADIUS =
+ * 6` in `elk-V4PLJRSU.mjs`, line 98772, run as the ELK layout's `afterPaint`,
+ * line 99547), restated in nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+ * rule 7:
  *
  * - A crossing is two segments meeting strictly inside both: a route that
- *   ends on another, or two that share an end, do not cross.
+ *   ends on another, or two that share an end, do not cross
+ *   (`segmentIntersection`, `chunk-UETRLHRR.mjs`, line 22 — Siren measures
+ *   "strictly inside" in pixels; see `END_TOLERANCE`).
  * - Of a horizontal and a vertical segment, the horizontal one carries the
- *   hop; otherwise the later route in edge order does.
+ *   hop; otherwise the later route in edge order does
+ *   (`findEdgeIntersections`, line 69).
  * - No hop where either route is curving through a rounded corner at the
- *   crossing; the radius, 6, shrinks to 2 short of the nearer corner's
- *   rounding (or the route's end), and a hop left under 3.6 is not drawn.
+ *   crossing (`crossingSitsInRoundedCorner`, line 49); the radius, 6,
+ *   shrinks to 2 short of the nearer corner's rounding (or the route's end),
+ *   and a hop left under 3.6 is not drawn.
  * - Two hops on one segment that would overlap each shrink to half the gap
- *   between them.
+ *   between them (`rewriteEdgePath`, line 203).
+ *
+ * "The route's end" differs from Mermaid's by the arrowhead. Mermaid's
+ * `rewriteEdgePath` first pulls a route's marked ends back by the marker's
+ * offset `o` (`applyMarkerOffsets`, `chunk-UETRLHRR.mjs`, line 132; `o` is
+ * 4 for the flowchart's `arrow_point` and 0 without a marker, per
+ * `markerOffsets`, `chunk-RLXJHMIZ.mjs`, line 59) and sizes each hop along
+ * those shortened segments: a crossing found at `t` on the route as routed
+ * sits at `t × (L − o)` on a first or last segment of length `L`, so its room
+ * shrinks by `(1 − t) × o` toward the marked end and by `t × o` toward the
+ * other. Siren sizes every hop against the route as routed, so on a segment
+ * that ends at an arrowhead a hop can be up to `o` larger than Mermaid's, or
+ * drawn where Mermaid drops it. On every other segment the two agree.
  *
  * It lives in the layout core, not the renderer, because which route of a
  * crossing carries the hop and how large it may be depend on both routes —
@@ -28,6 +46,7 @@
  * behaviour too.
  */
 import type { LineHop, Point } from "../../contracts";
+import { cornerCut } from "../../curve/roundedCorner";
 
 /** A route as the hop rule reads it. */
 export interface HopRoute {
@@ -38,41 +57,6 @@ export interface HopRoute {
    * inside a corner's rounding, on this route or on one it crosses.
    */
   cornerRadius?: number;
-}
-
-/**
- * The corner radius the `rounded` curve draws with: Mermaid's
- * `generateRoundedPath(points, 5)`. Here rather than beside the curve
- * because the hop rule needs the same number — the layout adapter hands it
- * to the core for every edge drawn `rounded` — and the renderer reads it
- * from here, so the corner kept clear and the corner drawn stay one.
- */
-export const ROUNDED_CORNER_RADIUS = 5;
-
-/** Below this, a length or an angle is taken as none: Mermaid's `CORNER_EPSILON`. */
-const CORNER_EPSILON = 1e-5;
-
-/**
- * How far back along both of its segments a corner at `at` is cut when it is
- * drawn rounded with `radius`: `min(radius / sin(θ/2), before / 2, after / 2)`
- * for a turn of θ — 7.071 for a right angle at Mermaid's radius 5. `null`
- * where nothing is cut: a segment of no length, or a vertex that does not
- * turn (θ = 0) or turns straight back (θ = π).
- *
- * Mermaid 12.2.0's `generateRoundedPath` (what the `rounded` curve draws) and
- * `lineJump.ts`'s `computeRoundedCorner` (what its hops keep clear of) both
- * cut by this; here it is the one definition for both, so the hop rule and
- * the drawn corner cannot drift apart.
- */
-export function cornerCut(previous: Point, at: Point, next: Point, radius: number): number | null {
-  const before = Math.hypot(at.x - previous.x, at.y - previous.y);
-  const after = Math.hypot(next.x - at.x, next.y - at.y);
-  if (before < CORNER_EPSILON || after < CORNER_EPSILON) return null;
-  const dot =
-    ((at.x - previous.x) / before) * ((next.x - at.x) / after) + ((at.y - previous.y) / before) * ((next.y - at.y) / after);
-  const turn = Math.acos(Math.max(-1, Math.min(1, dot)));
-  if (turn < CORNER_EPSILON || Math.abs(Math.PI - turn) < CORNER_EPSILON) return null;
-  return Math.min(radius / Math.sin(turn / 2), before / 2, after / 2);
 }
 
 /**
@@ -99,14 +83,41 @@ function inRoundedCorner(route: HopRoute, index: number, t: number): boolean {
   return t * length < start || length - t * length < end;
 }
 
-/** Mermaid 12.2.0's `JUMP_RADIUS`. */
+/** Mermaid 12.2.0's `JUMP_RADIUS` (`elk-V4PLJRSU.mjs`, line 98772). */
 const HOP_RADIUS = 6;
-/** How close a hop may come to a corner's rounding or a route's end: Mermaid's `CORNER_JUMP_CLEARANCE`. */
+/**
+ * How close a hop may come to a corner's rounding or a route's end: Mermaid's
+ * `CORNER_JUMP_CLEARANCE` (`chunk-UETRLHRR.mjs`, line 11).
+ */
 const CORNER_CLEARANCE = 2;
-/** The smallest hop drawn, 6 × Mermaid's `MIN_USEFUL_RADIUS_RATIO` (0.6): one smaller reads as a kink, not a jump. */
+/**
+ * The smallest hop drawn, 6 × Mermaid's `MIN_USEFUL_RADIUS_RATIO` (0.6,
+ * `chunk-UETRLHRR.mjs`, line 12): one smaller reads as a kink, not a jump.
+ */
 const MIN_HOP_RADIUS = HOP_RADIUS * 0.6;
-/** Mermaid's `ENDPOINT_EPSILON`: how near a segment's end a crossing counts as on it. */
-const END_EPSILON = 1e-6;
+/**
+ * How near a segment's end, in pixels, a crossing counts as on that end: a
+ * meeting, not a crossing. Mermaid's `ENDPOINT_EPSILON` (1e-6,
+ * `chunk-UETRLHRR.mjs`, line 13) is the same test as a fraction of the
+ * segment — 0.0002px on a 200px segment — so a route that ends on another's
+ * line but has drifted a hundredth of a pixel past it in floating point
+ * would hop. Half a pixel is far above any such drift and under what a
+ * stroke shows: a line that runs that little past another reads as meeting
+ * it. Nothing real is lost on the carrying route either, where a hop that
+ * near its own end could never be drawn (2 clear of the end, 3.6 at least).
+ */
+const END_TOLERANCE = 0.5;
+
+/** How far `point` lies from the line through `from` and `to`, which are apart. */
+function distanceFromLine(from: Point, to: Point, point: Point): number {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  return Math.abs(dx * (point.y - from.y) - dy * (point.x - from.x)) / Math.hypot(dx, dy);
+}
+
+/** Whether both ends of segment `c1`–`c2` lie within `END_TOLERANCE` of the line through `l1` and `l2`. */
+const alongLine = (l1: Point, l2: Point, c1: Point, c2: Point) =>
+  distanceFromLine(l1, l2, c1) <= END_TOLERANCE && distanceFromLine(l1, l2, c2) <= END_TOLERANCE;
 
 /** Where two segments cross: the point, and how far along each it lies (0 at its start, 1 at its end). */
 function crossing(a1: Point, a2: Point, b1: Point, b2: Point): { point: Point; tA: number; tB: number } | null {
@@ -116,6 +127,10 @@ function crossing(a1: Point, a2: Point, b1: Point, b2: Point): { point: Point; t
   const dyB = b2.y - b1.y;
   const denominator = dxA * dyB - dyA * dxB;
   if (denominator === 0) return null;
+  // Two segments one of which lies along the other's line to within the
+  // same half pixel run together, not across: float drift tilting one of
+  // them would otherwise put a hop where the two lines overlap.
+  if (alongLine(a1, a2, b1, b2) || alongLine(b1, b2, a1, a2)) return null;
   const dx = b1.x - a1.x;
   const dy = b1.y - a1.y;
   const tA = (dx * dyB - dy * dxB) / denominator;
@@ -123,8 +138,16 @@ function crossing(a1: Point, a2: Point, b1: Point, b2: Point): { point: Point; t
   // A crossing at either segment's own end is a meeting, not a crossing:
   // a route that ends on another (a T), two that share an end, or a route's
   // own bend lying on the other line.
-  if (tA <= END_EPSILON || tA >= 1 - END_EPSILON || tB <= END_EPSILON || tB >= 1 - END_EPSILON) return null;
+  const nearEnd = (t: number, length: number) => t * length <= END_TOLERANCE || (1 - t) * length <= END_TOLERANCE;
+  if (nearEnd(tA, Math.hypot(dxA, dyA)) || nearEnd(tB, Math.hypot(dxB, dyB))) return null;
   return { point: { x: a1.x + tA * dxA, y: a1.y + tA * dyA }, tA, tB };
+}
+
+/** A crossing, on the route that carries its hop: which segment, how far along it (0–1), and where. */
+interface Crossing {
+  segment: number;
+  t: number;
+  point: Point;
 }
 
 const isHorizontal = (a: Point, b: Point) => Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
@@ -133,7 +156,7 @@ const isHorizontal = (a: Point, b: Point) => Math.abs(b.x - a.x) >= Math.abs(b.y
 export function lineHops(routes: readonly HopRoute[]): LineHop[][] {
   // Every crossing, on the route that carries it: which segment, and how
   // far along it (0–1).
-  const crossings: { segment: number; t: number; point: Point }[][] = routes.map(() => []);
+  const crossings: Crossing[][] = routes.map(() => []);
   for (let i = 0; i < routes.length; i++) {
     const a = routes[i].points;
     for (let j = i + 1; j < routes.length; j++) {
@@ -159,9 +182,10 @@ export function lineHops(routes: readonly HopRoute[]): LineHop[][] {
 /**
  * A route's crossings as hops, segment by segment in the order they are met,
  * each as large as the room around it allows — Mermaid 12.2.0's
- * `rewriteEdgePath`, less the drawing.
+ * `rewriteEdgePath` (`chunk-UETRLHRR.mjs`, line 203), less the drawing and
+ * the arrowhead offset (see the module doc).
  */
-function sizedHops(route: HopRoute, crossings: readonly { segment: number; t: number; point: Point }[]): LineHop[] {
+function sizedHops(route: HopRoute, crossings: readonly Crossing[]): LineHop[] {
   const hops: LineHop[] = [];
   for (let index = 0; index < route.points.length - 1; index++) {
     const a = route.points[index];

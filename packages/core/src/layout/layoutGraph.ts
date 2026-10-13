@@ -6,9 +6,8 @@ import type {
   PositionedSubgraph,
   ResolvedSubgraph,
 } from "../contracts";
-import { FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
+import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { layoutDirectedGraph } from "./directedGraph/layoutDirectedGraph";
-import { ROUNDED_CORNER_RADIUS } from "./directedGraph/lineHops";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
 
@@ -219,6 +218,12 @@ function boxForLabel(shape: NodeShape, label: Box): Box {
   }
 }
 
+/** The core's `cornerRadius` for an edge drawn with `curve`: present only where the curve rounds its corners. */
+function cornerRadiusOf(curve: Curve): { cornerRadius?: number } {
+  const cornerRadius = curveCornerRadius(curve);
+  return cornerRadius === undefined ? {} : { cornerRadius };
+}
+
 /**
  * Computes node positions and edge paths for a resolved `GraphModel`.
  *
@@ -329,9 +334,10 @@ export function layoutGraph(
       // measurer every other piece of text in this pipeline goes through.
       ...(edge.label === null ? {} : { label: wrappedEdgeLabelById.get(edge.id)!.labelBox }),
       // How the renderer will draw the edge's corners, which the line hops
-      // keep clear of: rounded for the flowchart's default curve, sharp (or
-      // not there to cut into) for any curve an `interpolate` chose.
-      ...((edge.curve ?? FLOWCHART_DEFAULT_CURVE) === "rounded" ? { cornerRadius: ROUNDED_CORNER_RADIUS } : {}),
+      // keep clear of: the radius of the curve it will be drawn with (the
+      // flowchart's default unless an `interpolate` chose another), absent
+      // where that curve draws them sharp.
+      ...cornerRadiusOf(edge.curve ?? FLOWCHART_DEFAULT_CURVE),
     })),
   });
 

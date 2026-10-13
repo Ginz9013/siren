@@ -73,8 +73,8 @@ export interface DirectedGraphEdge {
   minLength?: number;
   /**
    * The radius the edge's corners will be drawn rounded with, when they will
-   * be — 5 for the `rounded` curve (`ROUNDED_CORNER_RADIUS`); absent when
-   * they are drawn sharp. Routing ignores it; the line hops read it, to keep
+   * be; absent when they are drawn sharp. The adapter that knows the edge's
+   * curve supplies it. Routing ignores it; the line hops read it, to keep
    * clear of the rounding (see `lineHops`).
    */
   cornerRadius?: number;

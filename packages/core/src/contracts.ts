@@ -1402,7 +1402,8 @@ export interface Point {
 
 /**
  * A **line hop**: where a route jumps another that crosses it, drawn as a
- * half circle bulging up from the line (see `CONTEXT.md`). Computed by the
+ * half circle whose side follows the direction of travel — up on a horizontal
+ * run, toward +x on a vertical one (see `CONTEXT.md`). Computed by the
  * shared layout core from every route at once — which route of a crossing
  * carries the hop, and how large it may be, depend on both routes — and
  * drawn by the renderer, which alone knows whether the edge's curve draws

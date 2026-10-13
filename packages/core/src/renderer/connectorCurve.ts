@@ -17,9 +17,10 @@
  * - `rounded` — mermaid's own `generateRoundedPath(points, 5)`.
  *
  * Over any of them but `basis`, the **line hops** the layout reported are
- * drawn as Mermaid 12.2.0 draws them (`lineJump.ts`): a half circle across
- * each crossing. Where the hops go is layout's (`lineHops`); whether they
- * are drawn, and how, is the curve's, here.
+ * drawn as Mermaid 12.2.0 draws them (its `lineJump.ts`, bundled in
+ * `chunk-UETRLHRR.mjs`): a half circle across each crossing. Where the hops
+ * go is layout's (`lineHops`); whether they are drawn, and how, is the
+ * curve's, here.
  *
  * Commands are written space-separated (`M0,0 L10,0 C40,0 40,0 50,10`), the
  * same spelling the polyline used before curves existed.
@@ -27,7 +28,8 @@
 
 import type { LineHop, Point } from "../contracts";
 import type { Curve } from "../curve/curve";
-import { cornerCut, ROUNDED_CORNER_RADIUS } from "../layout/directedGraph/lineHops";
+import { curveCornerRadius, curveDrawsHops } from "../curve/curve";
+import { cornerCut } from "../curve/roundedCorner";
 
 /** One coordinate pair as a path command's argument: `x,y`. */
 const formatPoint = (x: number, y: number) => `${x},${y}`;
@@ -114,15 +116,16 @@ function step(points: readonly Point[], turnAt: number): string {
  *
  * A hop is a line to `radius` before the crossing, then
  * `A radius,radius 0 0 sweep` to `radius` past it: Mermaid 12.2.0's
- * `emitJump` (`lineJump.ts`).
+ * `emitJump` (`chunk-UETRLHRR.mjs`, line 157).
  *
  * A rounded corner is mermaid's `generateRoundedPath(points, cornerRadius)`:
  * each interior vertex that turns is cut back by `cornerCut` along both of
  * its segments and the two cut points joined by a quadratic through the
  * vertex. A vertex that does not turn (θ = 0) or doubles back (θ = π), or
  * that sits on a zero-length segment, stays a plain corner. Mermaid's
- * `rewriteEdgePath` draws a rounded route with hops the same way, the hops
- * of each segment before the corner that ends it.
+ * `rewriteEdgePath` (`chunk-UETRLHRR.mjs`, line 203) draws a rounded route
+ * with hops the same way, the hops of each segment before the corner that
+ * ends it.
  */
 function polyline(points: readonly Point[], hops: readonly LineHop[], cornerRadius?: number): string {
   if (points.length === 0) return "";
@@ -133,9 +136,10 @@ function polyline(points: readonly Point[], hops: readonly LineHop[], cornerRadi
     const length = Math.hypot(b.x - a.x, b.y - a.y);
     const ux = length === 0 ? 0 : (b.x - a.x) / length;
     const uy = length === 0 ? 0 : (b.y - a.y) / length;
-    // Mermaid's `getArcSweepFlag`: clockwise (1) travelling +x, so the half
-    // circle bulges up; counter-clockwise (0) travelling −x, up again. A run
-    // that is more vertical than horizontal goes by the sign of its dy.
+    // Mermaid's `getArcSweepFlag` (`chunk-UETRLHRR.mjs`, line 123): sweep 1
+    // travelling +x, so the half circle bulges up; 0 travelling −x, up
+    // again. A run more vertical than horizontal goes by the sign of its dy:
+    // 1 travelling +y, 0 travelling −y — both bulge toward +x.
     const travel = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? b.x - a.x : b.y - a.y;
     const sweep = travel >= 0 ? 1 : 0;
     for (const hop of hops.filter((candidate) => candidate.segment === index)) {
@@ -164,17 +168,19 @@ function polyline(points: readonly Point[], hops: readonly LineHop[], cornerRadi
  * The `d` of a connector drawn through `points` with `curve`, jumping the
  * routes that cross it at `hops` — the **line hops** the layout reported.
  *
- * Which curves draw hops is Mermaid 12.2.0's `curveSupportsLineHops`:
- * `linear`, `rounded` and the three `step` curves. `basis` ignores them: a
- * soft curve has no straight run at the crossing to jump from. A `step`
+ * Which curves draw hops is `curveDrawsHops` — Mermaid 12.2.0's
+ * `curveSupportsLineHops`; `basis` ignores them — and which round their
+ * corners, and how much, is `curveCornerRadius`. A `step`
  * curve with hops is drawn as Mermaid's `rewriteEdgePath` redraws one —
  * straight through the route's points — which on the orthogonal routes the
  * layout gives is the line the step curve draws; without hops it is d3's
  * own commands, unchanged.
  */
 export function connectorPathData(points: readonly Point[], curve: Curve, hops: readonly LineHop[] = []): string {
-  if (hops.length > 0 && (curve === "linear" || curve === "step" || curve === "stepBefore" || curve === "stepAfter")) {
-    return polyline(points, hops);
+  const drawnHops = curveDrawsHops(curve) ? hops : [];
+  const cornerRadius = curveCornerRadius(curve);
+  if (drawnHops.length > 0 || cornerRadius !== undefined) {
+    return polyline(points, drawnHops, cornerRadius);
   }
   switch (curve) {
     case "basis":
@@ -188,7 +194,8 @@ export function connectorPathData(points: readonly Point[], curve: Curve, hops: 
     case "stepAfter":
       return step(points, 1);
     case "rounded":
-      return polyline(points, hops, ROUNDED_CORNER_RADIUS);
+      // Drawn above: it rounds its corners. Spelled out for the switch's sake.
+      return polyline(points, drawnHops, cornerRadius);
   }
 }
 

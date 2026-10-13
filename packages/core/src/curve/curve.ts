@@ -6,7 +6,11 @@
  * model read these names to judge what an author wrote, the contracts carry
  * a `Curve` on an edge, and the renderer (`renderer/connectorCurve.ts`)
  * draws one — so none of the first three has to depend on the renderer.
+ * What a curve does to a route's corners and crossings is decided here too,
+ * once, for the layout adapter and the renderer alike (`curveCornerRadius`,
+ * `curveDrawsHops`).
  */
+import { ROUNDED_CORNER_RADIUS } from "./roundedCorner";
 
 /**
  * Every curve a connector can be drawn with, by its Mermaid name. Exported
@@ -56,6 +60,25 @@ export const DEFAULT_CURVE: Curve = "basis";
  * rule 6).
  */
 export const FLOWCHART_DEFAULT_CURVE: Curve = "rounded";
+
+/**
+ * The radius `curve` draws a route's corners rounded with — `rounded`'s
+ * `ROUNDED_CORNER_RADIUS` — or `undefined` for a curve that draws them sharp
+ * (`linear`, the `step` curves) or does not run through them (`basis`).
+ */
+export function curveCornerRadius(curve: Curve): number | undefined {
+  return curve === "rounded" ? ROUNDED_CORNER_RADIUS : undefined;
+}
+
+/**
+ * Whether `curve` draws the **line hops** the layout reports: mermaid
+ * 12.2.0's `curveSupportsLineHops` (`chunk-UETRLHRR.mjs`, line 295) —
+ * `linear`, `rounded` and the three `step` curves. `basis` does not: a soft
+ * curve has no straight run at a crossing to jump from.
+ */
+export function curveDrawsHops(curve: Curve): boolean {
+  return curve === "linear" || curve === "rounded" || curve === "step" || curve === "stepBefore" || curve === "stepAfter";
+}
 
 /** Whether `name` is one of the curves Siren draws, spelled exactly — Mermaid's match is case-sensitive too. */
 export function isCurve(name: string): name is Curve {

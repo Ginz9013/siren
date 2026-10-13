@@ -579,9 +579,10 @@ The small half circle a flowchart edge's line draws where another edge's line cr
 crossing reads differently from two lines meeting at a bend — Mermaid 12's line jumps, drawn by
 default under its ELK layout and here by the same rule (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
 rule 7). The hop sits on the horizontal one of the two segments (on the later edge, in edge order,
-where neither is horizontal), radius 6, centred on the crossing and bulging up whichever way the
-line runs (`A6,6 0 0 1` travelling right, `0 0 0` travelling left). Lines that only meet — one
-ending on another, two sharing an end — do not hop. No hop sits inside a rounded corner of either
+where neither is horizontal), radius 6, centred on the crossing. Its sweep follows the way the
+line runs (`A6,6 0 0 1` travelling right or down, `0 0 0` travelling left or up), so on a
+horizontal line it bulges up whichever way the line runs, and on a vertical one to the right. Lines
+that only meet — one ending on another, two sharing an end — do not hop. No hop sits inside a rounded corner of either
 line; near a corner (or a route's end) the radius shrinks to 2 short of it and a hop under 3.6 is
 not drawn; two hops that would overlap shrink to half the gap between them. The layout reports the
 hops with each route (`hops`), because which line hops depends on both; the **curve** decides

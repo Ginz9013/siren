@@ -29,6 +29,20 @@ describe("lineHops", () => {
     expect(lineHops([route([0, 50], [200, 50]), route([200, 0], [200, 50])])).toEqual([[], []]);
   });
 
+  it("puts no hop where a route ends a sub-pixel distance past another's line (a T with float drift)", () => {
+    // B ends 0.01 past A's line at y = 50, its coordinates having
+    // drifted in floating point: drawn, the two still only meet.
+    expect(lineHops([route([0, 50], [200, 50]), route([100, 0], [100, 50.01])])).toEqual([[], []]);
+    // The same drift at B's start.
+    expect(lineHops([route([0, 50], [200, 50]), route([100, 49.99], [100, 100])])).toEqual([[], []]);
+  });
+
+  it("puts no hop where two routes run along each other, one a sub-pixel off parallel", () => {
+    // B lies on A's line but for 0.0001 of float drift at either end, so the
+    // two lines meet at (100, 50), halfway along both: drawn, they overlap.
+    expect(lineHops([route([0, 50], [200, 50]), route([50, 49.9999], [150, 50.0001])])).toEqual([[], []]);
+  });
+
   describe("inside a corner's rounding", () => {
     // A route drawn with rounded corners (`cornerRadius: 5`, the `rounded`
     // curve's) cuts each corner back by min(5 / sin(θ/2), half of either

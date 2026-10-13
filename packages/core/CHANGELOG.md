@@ -59,14 +59,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 - A graph the layout engine rejects is reported as an error diagnostic, like any other layout
   failure.
 - **Line hops**, as Mermaid 12 draws them: where two flowchart edges cross, one of them jumps the
-  other with a half circle of radius 6 bulging up — on the horizontal line of the two (the later
-  edge where neither is horizontal), never inside a rounded corner, smaller near a corner or next to
-  another hop, and left out where less than 3.6 would remain. Drawn on `rounded` (the default),
-  `linear` and `step` edges; a `basis` edge draws none. Lines that only meet at an end do not hop.
-  The routes are unchanged — `data-siren-points` holds no hop — and a hopped `step` edge's `d` is
-  written as straight segments through the route, the same picture as before. The layout reports
-  each edge's hops (`PositionedEdge.hops`); class, state and ER connectors get them when they move
-  onto ELK.
+  other with a half circle of radius 6 — on the horizontal line of the two, bulging up (the later
+  edge where neither is horizontal, bulging right on a vertical one), never inside a rounded
+  corner, smaller near a corner or next to another hop, and left out where less than 3.6 would
+  remain. Drawn on `rounded` (the default), `linear` and `step` edges; a `basis` edge draws none.
+  Lines that only meet at an end do not hop. The routes are unchanged — `data-siren-points` holds
+  no hop — and a hopped `step` edge's `d` is written as straight segments through the route, the
+  same picture as before. The layout reports each edge's hops (`PositionedEdge.hops`); class,
+  state and ER connectors get them when they move onto ELK.
 
 ## [0.5.0] - 2026-10-12
 
