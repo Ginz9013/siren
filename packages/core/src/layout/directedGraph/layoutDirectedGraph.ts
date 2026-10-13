@@ -637,20 +637,22 @@ function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: numbe
  * Moves each cluster's title along its band, out of the way of the routes
  * that cross the band.
  *
- * **This is a departure from Mermaid 12.** Mermaid 12.2.0 centres the title,
- * ELK puts the cluster's first members under it, and an edge entering or
- * leaving through the top runs straight through the title's words (22 edges
- * on the flowchart parity fixtures). ELK cannot keep routes off the band:
- * measured with elkjs 0.9.3, the title handed over as the cluster's node
- * label (`[H_CENTER, V_TOP, INSIDE]`) is routed straight through; ports on
- * the frame are placed in line with the member they lead to whatever
- * `portConstraints` say (`FIXED_RATIO` throws); a title-sized child takes a
- * slot beside the first members rather than a band above them. So the core
- * moves the title after layout (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
- * rule 2), and leaves every route as it is: taking routes round the title
- * instead was measured and rejected for the overshoots and detours it adds.
- * The departure and its numbers are nook decision
- * `01M4VFW4XGRGSMTMQ12HME145W`.
+ * **This is a departure from Mermaid 12.** Mermaid 12.2.0 centres the title
+ * (a flowchart subgraph is a `rect` cluster, `chunk-LJKG65JO.mjs` line 1076,
+ * and `rect` translates its label to the frame's centre less half the
+ * label's width, `chunk-3YANZBYF.mjs` line 235), ELK puts the cluster's
+ * first members under it, and an edge entering or leaving through the top
+ * runs straight through the title's words (22 edges on the flowchart parity
+ * fixtures). ELK cannot keep routes off the band: measured with elkjs
+ * 0.9.3, the title handed over as the cluster's node label (`[H_CENTER,
+ * V_TOP, INSIDE]`) is routed straight through; ports on the frame are
+ * placed in line with the member they lead to whatever `portConstraints`
+ * say (`FIXED_RATIO` throws); a title-sized child takes a slot beside the
+ * first members rather than a band above them. So the core moves the title
+ * after layout (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2), and
+ * leaves every route as it is: taking routes round the title instead was
+ * measured and rejected for the overshoots and detours it adds. The
+ * departure and its numbers are nook decision `01M4VFW4XGRGSMTMQ12HME145W`.
  *
  * The rule, per titled cluster: every route segment that reaches into the
  * title's height blocks its horizontal extent, widened by half the
@@ -659,7 +661,9 @@ function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: numbe
  * clears them all, at the band's height and at least half a padding inside
  * the frame's sides; with no such place it stays centred — the frame is
  * never widened. The band is across the frame's top in every direction
- * (`clusterShape`), so the rule is the same under TB, BT, LR and RL.
+ * (`clusterShape`), so the rule is the same under TB, BT, LR and RL. Under
+ * LR and RL an edge meets a cluster at its sides, level with the member it
+ * leads to, so no route has been seen to cross the band there.
  */
 function placeTitlesClear(
   input: DirectedGraphInput,
@@ -1057,14 +1061,14 @@ function voidedDirections(
  *
  * So the band is padding: the top padding is the caller's padding, the
  * title's height and the padding again, and the title's place in it is then
- * known exactly (`layoutDirectedGraph` computes its centre; `placeTitlesClear`
- * moves it along the band, never out of it, where a route crosses it). The width floor
- * is `nodeSize.minimum`, which has the same rotation: a cluster sized inside
- * the root's `INCLUDE_CHILDREN` pass under `DOWN` or `UP` reads the minimum's
- * two numbers swapped, while one laid out in a pass of its own
- * (`SEPARATE_CHILDREN`) reads them as written — measured, both versions,
- * every combination of root and cluster direction. `contentAlignment` turns
- * with it.
+ * known exactly (`layoutDirectedGraph` computes its centre;
+ * `placeTitlesClear` moves it along the band, never out of it, where a route
+ * crosses it). The width floor is `nodeSize.minimum`, which has the same
+ * rotation: a cluster sized inside the root's `INCLUDE_CHILDREN` pass under
+ * `DOWN` or `UP` reads the minimum's two numbers swapped, while one laid out
+ * in a pass of its own (`SEPARATE_CHILDREN`) reads them as written —
+ * measured, both versions, every combination of root and cluster direction.
+ * `contentAlignment` turns with it.
  *
  * A cluster with no members is laid out as an ordinary box, the title and its
  * padding on every side.
