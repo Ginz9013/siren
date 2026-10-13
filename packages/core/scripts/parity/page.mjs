@@ -127,26 +127,17 @@ function drawnSize(host) {
 // \`.edgePaths\`.
 const MERMAID_EDGES = ".edgePaths > path, .edgePaths > g > path";
 
-// A class's \`g.node\` is named \`<renderId>-classId-<name>-<counter>\`:
-// Mermaid 12.2.0's \`ClassDB.addClass\` mints the DOM id as \`"classId-" + name
-// + "-" + counter\` (\`classDiagram-v2-K6ZTA64I.mjs\`, line 1305; measured in
-// headless Chrome, \`pm0-classId-Shape-0\`). A class note (\`pm0-note0\`) is
-// left unmatched, as a pseudo-state is: Siren names it \`note:1\`.
-const MERMAID_CLASS_ID = /^classId-(.+)-\\d+$/;
-const mermaidClassId = (domId, renderId) =>
-  domId.startsWith(renderId + "-") ? (MERMAID_CLASS_ID.exec(domId.slice(renderId.length + 1))?.[1] ?? null) : null;
-
 // Mermaid: node groups are \`g.node\` whose DOM id carries the authored id
-// (see ids.mjs, and \`MERMAID_CLASS_ID\` for a class); clusters are
-// \`g.cluster\` (flowchart subgraph, class namespace, ER subgraph) and
-// \`g.statediagram-cluster\` (composite state), named by \`data-id\` when present.
+// (see ids.mjs); clusters are \`g.cluster\` (flowchart subgraph, class
+// namespace, ER subgraph) and \`g.statediagram-cluster\` (composite state),
+// named by \`data-id\` when present.
 async function drawMermaid(index, source, host) {
   const renderId = "pm" + index;
   const { svg } = await mermaid.render(renderId, source);
   host.innerHTML = svg;
   const nodes = {};
   for (const g of host.querySelectorAll("g.node[id]")) {
-    const id = mermaidNodeId(g.id, renderId) ?? mermaidClassId(g.id, renderId);
+    const id = mermaidNodeId(g.id, renderId);
     if (id !== null) nodes[id] = box(g);
   }
   const clusters = {};
