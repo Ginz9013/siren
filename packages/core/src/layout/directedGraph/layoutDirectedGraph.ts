@@ -5,9 +5,10 @@
  * nothing — the same seam the dagre core in `../layoutDirectedGraph.ts` has
  * kept since ADR-0001, with a different engine behind it. The flowchart
  * reaches it through `layoutGraph`, the class diagram through
- * `layoutClassDiagram` and the state diagram through `layoutStateDiagram`;
- * the ER diagram stays on the dagre core until it moves onto ELK, after which
- * this module moves back to that path and keeps this name.
+ * `layoutClassDiagram`, the state diagram through `layoutStateDiagram` and
+ * the ER diagram through `layoutErDiagram`; the dagre core lays out no kind
+ * any more, and when it goes this module moves back to that path and keeps
+ * this name.
  *
  * The engine is ELK's `layered` algorithm (elkjs, reached only through
  * `elkSync.ts`), configured as Mermaid 12.2.0 configures it for its own

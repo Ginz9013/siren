@@ -7,7 +7,7 @@ import type {
   PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
-import { DEFAULT_CURVE } from "../curve/curve";
+import { ER_CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -185,7 +185,7 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
 
 /**
  * Builds the `<g class="siren-er-subgraph">` for one cluster: a
- * `<rect class="siren-er-subgraph-frame">` at the frame layout grew around
+ * `<rect class="siren-er-subgraph-frame">` at the frame layout sized around
  * everything the block holds, and a
  * `<text class="siren-er-subgraph-label">` at the anchor in the strip along
  * its top edge.
@@ -199,8 +199,9 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
  * frames without reaching the other's.
  *
  * The anchor is layout's rather than computed here from the frame. That
- * strip is the reason the frame is as tall as it is — `subgraphFrames` grew
- * it to hold the title — so recomputing the position here would be a second
+ * strip is the reason the frame is as tall as it is — the layout core kept
+ * a band across the top for the title, and may move the title along it —
+ * so recomputing the position here would be a second
  * opinion on one number, free to drift from the space reserved for it.
  *
  * `data-siren-id` goes on the group, which is what makes a cluster a
@@ -247,7 +248,9 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-er-relationship-line");
-  drawConnectorRoute(line, relationship.points, DEFAULT_CURVE);
+  // Rounded, with the line hops the layout found (`ER_CONNECTOR_CURVE`: the
+  // curve layout kept the hops clear of).
+  drawConnectorRoute(line, relationship.points, ER_CONNECTOR_CURVE, relationship.hops);
   // Explicit, not left to CSS: the route is an open, multi-segment path,
   // which a default fill would paint as a filled polygon spanning the
   // entities it joins.

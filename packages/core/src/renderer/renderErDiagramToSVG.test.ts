@@ -531,23 +531,29 @@ describe("renderErDiagramToSVG", () => {
     expect(ORDER.y).toBe(200);
   });
 
-  it("draws a relationship as d3's basis curve, keeping the route as data-siren-points", () => {
-    // mermaid 11.17.2's ER database hands every edge `curve: "basis"`
-    // (`erDiagram-RLTQ6QDP.mjs`). What `basis` draws is
-    // connectorCurve.test.ts's to pin against d3; here the question is only
-    // which curve this kind uses.
+  it("draws a relationship rounded, with its line hops, keeping the route as data-siren-points", () => {
+    // Mermaid 12.2.0 draws every edge its default ELK layout routed
+    // `rounded` — ER relationships among them, overriding the `basis` its
+    // ER database asks for (`applyElkEdgeLayout`, `elk-V4PLJRSU.mjs` line
+    // 100401) — with the line hops its ELK layout computes. What `rounded`
+    // and a hop draw is connectorCurve.test.ts's to pin; here the question
+    // is only which curve this kind uses, and that the layout's hops reach
+    // it.
     const route = [
       { x: 70, y: 80 },
       { x: 70, y: 140 },
-      { x: 130, y: 140 },
+      { x: 230, y: 140 },
     ];
+    const hops = [{ x: 150, y: 140, radius: 6, segment: 1 }];
     const svg = renderErDiagramToSVG(
-      diagram([CUSTOMER, ORDER], undefined, [{ ...PLACES, points: route }]),
+      diagram([CUSTOMER, ORDER], undefined, [{ ...PLACES, points: route, hops }]),
     );
 
+    const rounded = connectorPathData(route, "rounded", hops);
+    expect(rounded).toContain("A6,6");
     const line = svg.querySelector("path.siren-er-relationship-line")!;
-    expect(line.getAttribute("d")).toBe(connectorPathData(route, "basis"));
-    expect(line.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+    expect(line.getAttribute("d")).toBe(rounded);
+    expect(line.getAttribute("data-siren-points")).toBe("70,80 70,140 230,140");
   });
 
   it("draws the two line types differently, and only one of them dashed", () => {

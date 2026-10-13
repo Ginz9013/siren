@@ -3499,11 +3499,11 @@ export interface ResolvedErSubgraph {
    * `ErSubgraph.direction`, or `null` when it wrote none.
    *
    * ⚠️ **`null` is not "the document's direction" and must not be turned
-   * into one here.** `layoutDirectedGraph` gives a cluster with no
-   * direction of its own but a *directed* ancestor the graph's own
-   * `rankdir` (`rankdirFor`), which is both what Mermaid means and what
-   * makes the engine expand it; writing the document's direction in at this
-   * stage would hand every cluster a `rankdir` and lose that distinction.
+   * into one here.** The shared layout core lays a cluster with no
+   * direction of its own out in its enclosing cluster's pass — Mermaid
+   * 12.2.0's picture (`er-subgraph-nested`) — and writing the document's
+   * direction in at this stage would hand every cluster one and lose that
+   * distinction.
    */
   direction: Direction | null;
 }
@@ -3586,9 +3586,8 @@ export interface ErModel {
   /**
    * The whole diagram's rank direction, carried straight through from
    * `ErDocument.direction` — `TB` unless the author named one. Non-null for
-   * the reason that field gives, and `layoutErDiagram` hands it to
-   * `layoutDirectedGraph` as `rankdir` with nothing to map, since the four
-   * values are dagre's own.
+   * the reason that field gives, and `layoutErDiagram` hands it to the
+   * shared layout core as its `direction` with nothing to map.
    */
   direction: Direction;
   /**
@@ -3826,6 +3825,11 @@ export interface PositionedErRelationship {
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
   points: Point[];
+  /**
+   * Where this relationship's line jumps another that crosses it — the
+   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
+   */
+  hops?: LineHop[];
   /**
    * `ResolvedErRelationship.label`, wrapped and placed: the label as drawn
    * — its rows after wrapping at 200 × 12/14 ≈ 171.43px of its 12px text

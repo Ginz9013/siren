@@ -7538,11 +7538,12 @@ line2\`"]`,
     meaning:
       "`er-subgraph` with one relationship leaving the block. Its " +
       "`direction` applies only while it has no **Boundary-crossing " +
-      "edge** (`CONTEXT.md`). Mermaid's rule: mermaid.js 11.17.2's " +
-      "`adjustClustersAndEdges` marks such a Mermaid cluster " +
-      "`externalConnections`, and only unmarked Mermaid clusters are " +
-      "laid out in their own `dir`. `ORDER ||--|{ LINE-ITEM` leaves " +
-      "`sales`, so its members follow the document's `TB`.",
+      "edge** (`CONTEXT.md`). Mermaid's rule, under its default ELK layout: " +
+      "Mermaid 12.2.0's `configureCrossHierarchyEdges` puts a cluster an " +
+      "edge leaves back into its parent's layout pass, and with it into its " +
+      "parent's direction — the rule the shared layout core holds for every " +
+      "kind (`voidedDirections`). `ORDER ||--|{ LINE-ITEM` leaves `sales`, so " +
+      "its members follow the document's `TB`.",
     assert: (result) => {
       const frame = erSubgraphBox(result, "sales");
       expectSame("the frame holds CUSTOMER", encloses(frame, erEntityRect(result, "CUSTOMER")), true);
@@ -7654,13 +7655,15 @@ line2\`"]`,
       "nodes:[\"inner\",\"C\"], dir:\"LR\"}]` — in *closing* order, with the " +
       "inner block listed as a member of the outer one — and `getData()` " +
       "reports `inner` carrying `parentId:\"outer\"`.\n\n" +
-      "A frame that declares no `direction` of its own is laid out in the " +
-      "**document's**, not in the enclosing frame's — the rule " +
-      "`fc-subgraph-direction-nested` measured for the flowchart, which " +
-      "`rankdirFor` holds for every kind that goes through " +
-      "`layoutDirectedGraph`. This row is ER's copy of it, and it is here " +
-      "because the ticket that brought ER clusters had to find out whether " +
-      "`UnplacedNodesError` fires on this document. It does not.",
+      "**A frame that declares no `direction` of its own is laid out in the " +
+      "enclosing frame's.** Measured against Mermaid 12.2.0's default (ELK) " +
+      "layout in headless Chrome: `A` and `B` are drawn side by side in one " +
+      "row inside `inner` — `outer` is laid out in a pass of its own in `LR`, " +
+      "and `inner`, saying nothing, is laid out in that pass — the picture " +
+      "`fc-subgraph-direction-nested` measured for the flowchart, through the " +
+      "same ELK adapter. Mermaid 11.17.2 (dagre) stacked them in the " +
+      "document's `TB`, and Siren drew that while ER was on dagre; this row " +
+      "followed the measurement when ER moved to ELK.",
     assert: (result) => {
       const outer = erSubgraphBox(result, "outer");
       const inner = erSubgraphBox(result, "inner");
@@ -7668,12 +7671,12 @@ line2\`"]`,
       expectSame("inner holds B", encloses(inner, erEntityRect(result, "B")), true);
       expectSame("outer holds inner", encloses(outer, inner), true);
       expectSame("outer holds C", encloses(outer, erEntityRect(result, "C")), true);
-      // `inner` declares no direction, so `A` and `B` take the document's
-      // `TB` and stack — `outer`'s `LR` reaching them is the wrong picture
-      // this line tells from the right one.
+      // `inner` declares no direction, so it is laid out in `outer`'s `LR`
+      // and `A` and `B` sit side by side — the document's `TB` reaching
+      // them, stacking them, is the picture this line tells it from.
       const a = erEntityRect(result, "A");
       const b = erEntityRect(result, "B");
-      expectSame("B below A — inner lays out in the document's TB", a.bottom <= b.top, true);
+      expectSame("B right of A — inner lays out in outer's LR", a.right <= b.left, true);
     },
   },
   {
