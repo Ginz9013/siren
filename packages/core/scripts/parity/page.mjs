@@ -143,7 +143,6 @@ async function drawMermaid(index, source, host) {
   for (const g of host.querySelectorAll("g.cluster, g.statediagram-cluster")) {
     clusters[g.getAttribute("data-id") ?? g.id.slice(renderId.length + 1)] = box(g);
   }
-  const edges = host.querySelectorAll(MERMAID_EDGES).length;
   const edgeGeometry = {
     edges: sampleEdges(host, MERMAID_EDGES),
     // Every \`g.node\` is something a line can be drawn across: flowchart
@@ -155,7 +154,7 @@ async function drawMermaid(index, source, host) {
     titles: [...host.querySelectorAll("g.cluster-label")].map(box).filter((b) => b.width > 1),
     ...drawnSize(host),
   };
-  return { nodes, clusters, edges, edgeGeometry };
+  return { nodes, clusters, edgeGeometry };
 }
 
 // Siren: every node group carries the authored id as data-siren-id. A
@@ -205,7 +204,6 @@ function drawSiren(source, host) {
   for (const g of host.querySelectorAll("g.siren-subgraph, g.siren-er-subgraph")) {
     clusters[g.getAttribute("data-siren-id")] = box(g);
   }
-  const edges = host.querySelectorAll(".siren-edge, .siren-transition, .siren-er-relationship").length;
   const obstacles = [...host.querySelectorAll(SIREN_OBSTACLES)].filter((g) => !g.querySelector(COMPOSITE));
   const edgeGeometry = {
     edges: sampleEdges(host, SIREN_EDGES),
@@ -213,7 +211,7 @@ function drawSiren(source, host) {
     titles: [...host.querySelectorAll(SIREN_TITLES)].map(box).filter((b) => b.width > 1),
     ...drawnSize(host),
   };
-  return { nodes, clusters, edges, edgeGeometry };
+  return { nodes, clusters, edgeGeometry };
 }
 
 const diagrams = JSON.parse(document.getElementById("diagrams").textContent);

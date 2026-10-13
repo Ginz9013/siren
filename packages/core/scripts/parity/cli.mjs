@@ -4,7 +4,7 @@
  * `layout-parity.mjs`.
  */
 
-import { WORST_COUNT } from "./metrics.mjs";
+import { compareLayouts, compareSizes, measureEdges, WORST_COUNT } from "./metrics.mjs";
 
 /**
  * `parity [file…] [--json]`. No files means every fixture.
@@ -44,6 +44,101 @@ export function failedSides(result) {
   return ["mermaid", "siren"].filter((side) => result[side].error !== undefined);
 }
 
+/**
+ * One diagram's entry in the report, from what the page drew.
+ *
+ * The page hands back each side's sampled edge geometry — thousands of
+ * points per diagram. It is read into the edge metrics here and dropped from
+ * both sides on every path, a diagram one side could not draw included, so
+ * it never reaches `--json`. A side's one edge count is
+ * `metrics.edges.<side>.edges`, the lines that geometry sampled; any other
+ * count a side carries is dropped with it, so the report never shows two.
+ * When both sides drew, `metrics` holds the node comparison, the sizes and
+ * each side's edge metrics; when either failed there is no `metrics`.
+ *
+ * @param {{ file: string, mermaid: object, siren: object }} r one diagram as the page drew it
+ */
+export function reportDiagram(r) {
+  const reported = ({ edgeGeometry, edges, ...side }) => side;
+  const result = { file: r.file, mermaid: reported(r.mermaid), siren: reported(r.siren) };
+  if (failedSides(r).length > 0) return result;
+  return {
+    ...result,
+    metrics: {
+      ...compareLayouts(r.mermaid.nodes, r.siren.nodes),
+      sizes: compareSizes(r.mermaid.nodes, r.siren.nodes),
+      edges: {
+        mermaid: measureEdges(r.mermaid.edgeGeometry),
+        siren: measureEdges(r.siren.edgeGeometry),
+      },
+    },
+  };
+}
+
+const SIDES = ["mermaid", "siren"];
+/** The edge counts the totals sum: the per-diagram means and ratios do not add up. */
+const SUMMED_EDGE_COUNTS = ["edges", "crossings", "throughNodes", "throughTitles", "reversals"];
+
+/**
+ * The corpus at once, which is what a gate over the whole corpus reads.
+ *
+ * Every sum is over the diagrams **both** sides drew: a diagram either side
+ * could not draw has no metrics, so it only adds to that side's `failed`
+ * (to both sides' when both failed). Per side, the edge counts are summed —
+ * edges drawn, crossings, edges through an unrelated node, through a group
+ * title, reversals. Structural agreement is pooled: the matched pairs that
+ * agree, summed over the diagrams, over the pairs summed — not the mean of
+ * each diagram's share, which would weigh a three-node diagram like a
+ * fifty-node one. With no pair anywhere the agreements are `null`.
+ *
+ * @param {object[]} results the report's diagrams, as `reportDiagram` builds them
+ */
+export function corpusTotals(results) {
+  const zero = () => Object.fromEntries(SUMMED_EDGE_COUNTS.map((k) => [k, 0]));
+  const totals = {
+    diagrams: results.length,
+    drawn: 0,
+    failed: { mermaid: 0, siren: 0 },
+    mermaid: zero(),
+    siren: zero(),
+    pairs: 0,
+    verticalAgreed: 0,
+    horizontalAgreed: 0,
+  };
+  for (const r of results) {
+    const failed = failedSides(r);
+    for (const side of failed) totals.failed[side]++;
+    if (failed.length > 0) continue;
+    totals.drawn++;
+    for (const side of SIDES) {
+      for (const k of SUMMED_EDGE_COUNTS) totals[side][k] += r.metrics.edges[side][k];
+    }
+    totals.pairs += r.metrics.pairs;
+    totals.verticalAgreed += r.metrics.verticalAgreed;
+    totals.horizontalAgreed += r.metrics.horizontalAgreed;
+  }
+  const share = (agreed) => (totals.pairs > 0 ? agreed / totals.pairs : null);
+  return {
+    ...totals,
+    verticalAgreement: share(totals.verticalAgreed),
+    horizontalAgreement: share(totals.horizontalAgreed),
+  };
+}
+
+/**
+ * The `--json` report: one object, `{ diagrams, totals }`. `diagrams` is the
+ * per-diagram array exactly as it was printed bare before the totals
+ * existed — read `.diagrams` where the array was read — and `totals` is
+ * `corpusTotals` over it, kept beside the array rather than appended to it
+ * so nothing iterating the diagrams mistakes it for one.
+ *
+ * @param {object[]} results the report's diagrams, as `reportDiagram` builds them
+ * @returns {string} the JSON text, pretty-printed, newline-terminated
+ */
+export function jsonReport(results) {
+  return `${JSON.stringify({ diagrams: results, totals: corpusTotals(results) }, null, 2)}\n`;
+}
+
 const percent = (v) => (v === null ? "n/a" : `${(v * 100).toFixed(1)}%`);
 const offset = (v) => (v === null ? "n/a" : v.toFixed(3));
 const ratio = (v) => (v === null ? "n/a" : `×${v.toFixed(2)}`);
@@ -77,6 +172,30 @@ function formatOne(result) {
   }
   if (m.edges !== undefined) lines.push(...formatEdges(m.edges));
   return lines;
+}
+
+/**
+ * The text report's closing block: `corpusTotals` laid out like a diagram's
+ * section — the failures per side, the pooled agreement and the pairs it
+ * pooled, then one line per side of summed edge counts, padded to line up.
+ */
+export function formatTotals(totals) {
+  const countWidth = Math.max(...SIDES.map((side) => String(totals[side].edges).length));
+  return [
+    `TOTALS over the ${totals.drawn} of ${totals.diagrams} diagrams both sides drew`,
+    `  failed      mermaid ${totals.failed.mermaid}  siren ${totals.failed.siren}`,
+    `  agreement   vertical ${percent(totals.verticalAgreement)}  horizontal ${percent(totals.horizontalAgreement)}` +
+      `  (pooled over ${totals.pairs} pairs)`,
+    ...SIDES.map((side) => {
+      const e = totals[side];
+      return (
+        `  edges       ${side.padEnd(7)} ${String(e.edges).padStart(countWidth)} drawn` +
+        `  crossings ${e.crossings}  through nodes ${e.throughNodes}  through titles ${e.throughTitles}` +
+        `  reversals ${e.reversals}`
+      );
+    }),
+    "",
+  ].join("\n");
 }
 
 const twoPlaces = (v) => (v === null ? "n/a" : v.toFixed(2));

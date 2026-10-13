@@ -74,11 +74,14 @@ function relation(a, b) {
  *   mermaidNodes: number, sirenNodes: number, matched: number,
  *   mermaidOnly: string[], sirenOnly: string[],
  *   verticalAgreement: number|null, horizontalAgreement: number|null,
+ *   pairs: number, verticalAgreed: number, horizontalAgreed: number,
  *   meanOffset: number|null, maxOffset: number|null,
  *   worst: {id:string, offset:number}[],
  * }}
  * Agreements are `null` with fewer than two matched nodes (there is no
- * pair); offsets are `null` with none.
+ * pair); offsets are `null` with none. `pairs` and the two `…Agreed` counts
+ * are the agreements' numerator and denominator, so a corpus can be pooled
+ * (agreeing pairs summed over pairs summed) rather than averaged.
  */
 export function compareLayouts(mermaid, siren) {
   const mermaidIds = Object.keys(mermaid);
@@ -114,6 +117,9 @@ export function compareLayouts(mermaid, siren) {
     sirenOnly: sirenIds.filter((id) => !Object.hasOwn(mermaid, id)),
     verticalAgreement: pairs > 0 ? verticalSame / pairs : null,
     horizontalAgreement: pairs > 0 ? horizontalSame / pairs : null,
+    pairs,
+    verticalAgreed: verticalSame,
+    horizontalAgreed: horizontalSame,
     meanOffset: ids.length > 0 ? offsets.reduce((sum, o) => sum + o.offset, 0) / ids.length : null,
     maxOffset: ids.length > 0 ? Math.max(...offsets.map((o) => o.offset)) : null,
     worst,
@@ -181,10 +187,11 @@ export function compareSizes(mermaid, siren) {
 // compared across pictures: each side is measured on its own and the report
 // prints the two side by side.
 //
-// The measurement is the one the ELK spike took (`spike/measure.js`, kept
-// in the session scratchpad), restated as pure functions — minus its bend
-// count, which counted each rounded corner's sampled arc as several bends,
-// and minus timing, which `--virtual-time-budget` makes meaningless.
+// Each function's doc says exactly what it counts and why its thresholds
+// are what they are, so the method is here, not in a note. Two things are
+// deliberately not measured: bends, because a rounded corner sampled along
+// its arc reads as several bends where a reader sees one, and time, which
+// `--virtual-time-budget` makes meaningless.
 
 /** One SVG number, as a path's `d` writes it: `-1`, `.5`, `2.e-3`, `10`. */
 const NUMBER = String.raw`-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?`;
@@ -227,8 +234,8 @@ export function straightenArcs(d) {
  * Distance from either edge's end within which two edges meeting is not a
  * crossing. Edges leaving or entering one node fan out from points a few px
  * apart on its border, and a curve can cut its neighbour there; that is the
- * node, not a crossing. 14px is the spike's figure, under the height of the
- * smallest node either renderer draws.
+ * node, not a crossing. 14px is under the height of the smallest node
+ * either renderer draws, so a real crossing beside a node is still counted.
  */
 export const CROSSING_END_ZONE_PX = 14;
 

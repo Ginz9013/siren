@@ -5,7 +5,7 @@
  *     pnpm --filter siren-core build             # the report draws dist/siren-core.js
  *     pnpm --filter siren-core parity            # every scripts/parity-fixtures/*.mmd
  *     pnpm --filter siren-core parity a.mmd b.mmd
- *     pnpm --filter siren-core parity --json     # one object per diagram
+ *     pnpm --filter siren-core parity --json     # { diagrams: [one per diagram], totals }
  *     SIREN_PARITY_CHROME=/path/to/chrome pnpm --filter siren-core parity
  *
  * For every diagram it draws the same source twice in one headless Chrome
@@ -37,6 +37,15 @@
  *   edge's ends), and the picture's aspect ratio. Each line is sampled along
  *   its drawn path (`getPointAtLength`) with any line-jump arc straightened
  *   first, so a crossing a jump marks is still counted.
+ *
+ * After the last diagram come the **totals** over every diagram both sides
+ * drew — each side's crossings, edges through nodes and through titles, and
+ * reversals, summed; how many diagrams each side failed to draw; and the
+ * structural agreement pooled over every matched pair in the corpus (the
+ * agreeing pairs summed over the pairs summed, not a mean of percentages).
+ * `--json` prints one object, `{ diagrams, totals }`: the per-diagram array
+ * under `diagrams`, the same totals beside it. In both, a side's one edge
+ * count is the number of lines its edge selector sampled.
  *
  * The metrics are pure functions in `scripts/parity/metrics.mjs`, tested with
  * `node --test scripts/parity`; this file is the part that needs Chrome.
@@ -73,8 +82,16 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { exitCodeFor, failedSides, formatText, parseArgs } from "./parity/cli.mjs";
-import { compareLayouts, compareSizes, measureEdges } from "./parity/metrics.mjs";
+import {
+  corpusTotals,
+  exitCodeFor,
+  failedSides,
+  formatText,
+  formatTotals,
+  jsonReport,
+  parseArgs,
+  reportDiagram,
+} from "./parity/cli.mjs";
 import { buildPage, PENDING, RESULT_ID } from "./parity/page.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -203,31 +220,13 @@ async function main() {
   );
 
   const drawn = readResult(await dumpDom(chrome, pathToFileURL(pagePath).href));
-  // The sampled edge geometry is thousands of points per diagram: it is read
-  // into the edge metrics here and left out of the report, `--json` included.
-  const withoutGeometry = ({ edgeGeometry, ...side }) => side;
-  const results = drawn.map((r) =>
-    failedSides(r).length === 0
-      ? {
-          file: r.file,
-          mermaid: withoutGeometry(r.mermaid),
-          siren: withoutGeometry(r.siren),
-          metrics: {
-            ...compareLayouts(r.mermaid.nodes, r.siren.nodes),
-            sizes: compareSizes(r.mermaid.nodes, r.siren.nodes),
-            edges: {
-              mermaid: measureEdges(r.mermaid.edgeGeometry),
-              siren: measureEdges(r.siren.edgeGeometry),
-            },
-          },
-        }
-      : r,
-  );
+  const results = drawn.map(reportDiagram);
 
   if (args.json) {
-    process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+    process.stdout.write(jsonReport(results));
   } else {
     process.stdout.write(formatText(results));
+    process.stdout.write(`\n${formatTotals(corpusTotals(results))}`);
     for (const r of results) {
       for (const side of failedSides(r)) process.stderr.write(`parity: ${side} could not draw ${r.file}\n`);
     }

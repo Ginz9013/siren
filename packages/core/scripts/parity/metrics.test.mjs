@@ -46,6 +46,20 @@ test("a node in only one picture is counted as unmatched and kept out of the met
   assert.equal(r.maxOffset, 0);
 });
 
+// The agreements' counts, for pooling over a corpus (a sum of agreements
+// over a sum of pairs, which a mean of per-diagram shares is not). The
+// three-node case above: 3 pairs, 1 agreeing vertically, all 3 horizontally.
+// One matched node has no pair: 0 of 0, and the shares stay null.
+test("agreement counts: the pairs compared and how many agree on each axis", () => {
+  const mermaid = { A: { x: 0, y: 0 }, B: { x: 0, y: 100 }, C: { x: 100, y: 100 } };
+  const siren = { A: { x: 0, y: 0 }, B: { x: 0, y: 100 }, C: { x: 100, y: 0 } };
+  const r = compareLayouts(mermaid, siren);
+  assert.deepEqual([r.pairs, r.verticalAgreed, r.horizontalAgreed], [3, 1, 3]);
+  const lone = compareLayouts({ A: { x: 0, y: 0 } }, { A: { x: 5, y: 5 } });
+  assert.deepEqual([lone.pairs, lone.verticalAgreed, lone.horizontalAgreed], [0, 0, 0]);
+  assert.equal(lone.verticalAgreement, null);
+});
+
 import { compareSizes } from "./metrics.mjs";
 
 // Node sizes, compared as Siren's over Mermaid's at one font size (Siren's
