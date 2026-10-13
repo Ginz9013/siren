@@ -1,3 +1,5 @@
 {"id":"01M4V731HQEFJ4N01VKHKKRM8J","t":1,"a":"83a1","op":"create","title":"layout: 連線交叉處畫跨線小弧"}
 {"id":"01M4V731PMPC32D46PV76K1661","t":2,"a":"83a1","op":"label.add","v":"layout"}
 {"id":"01M4V731VFXWYNWWFB02WA2FYR","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T03-line-jump-hops.md`。"}
+{"id":"01M4VDH4Z5T5RCRQSD6CS1NE53","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4VE8TC7VVTM04DJX4T1JE8E","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
