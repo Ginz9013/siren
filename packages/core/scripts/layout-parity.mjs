@@ -9,7 +9,7 @@
  *     SIREN_PARITY_CHROME=/path/to/chrome pnpm --filter siren-core parity
  *
  * For every diagram it draws the same source twice in one headless Chrome
- * page — once with `mermaid@11.17.2` at its defaults (`startOnLoad: false`,
+ * page — once with `mermaid@12.2.0` at its defaults (`startOnLoad: false`,
  * no theme or layout settings), once with siren-core's standalone build and
  * the canvas text measurer siren-board uses — and reads back each node's box.
  * Nodes are matched across the two pictures by the id the author wrote
