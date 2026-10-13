@@ -3,3 +3,4 @@
 {"id":"01M4V72T0BZ589D7ASXMC7A1YS","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`，分支 `elk-migration`。flowchart、class、state、ER 改由 ELK（elkjs 0.12.0，同步呼叫）排版；T02 為 tracer，門檻未過即停。spike 數字與決策見 spec。"}
 {"id":"01M4V75DD1H2XYHM3V482VG3NF","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4VAH87HC14F0VK63N3MYBXF","t":5,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`，分支 `elk-migration`。flowchart、class、state、ER 改由 ELK（elkjs 0.9.3，與 Mermaid 12.2.0 相同；同步呼叫）排版；T02 為 tracer（門檻已通過）。spike 數字與決策見 spec 與 nook decision 01M4VA67H。"}
+{"id":"01M4VQ6GWTMJBJS684ACXSMVQY","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
