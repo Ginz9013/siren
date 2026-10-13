@@ -7,7 +7,7 @@ import type {
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
-import { DEFAULT_CURVE } from "../curve/curve";
+import { FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
@@ -232,8 +232,8 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     path.setAttribute("class", edgeClasses(edge));
     path.setAttribute("data-siren-id", edge.id);
     // The curve the model resolved from `linkStyle … interpolate`; an edge
-    // built without one (a hand-made fixture) is drawn on the default.
-    drawConnectorRoute(path, edge.points, edge.curve ?? DEFAULT_CURVE);
+    // no `interpolate` reached is drawn on the flowchart's default, `rounded`.
+    drawConnectorRoute(path, edge.points, edge.curve ?? FLOWCHART_DEFAULT_CURVE);
     // One marker per end, each pointing outward at the end it is applied
     // to — the class renderer's `auto-start-reverse` def, which is why
     // `<-->` needs one def rather than a mirrored pair.

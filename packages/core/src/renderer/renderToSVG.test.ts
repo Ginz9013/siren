@@ -144,15 +144,16 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("draws an edge's route as d3's basis curve, Mermaid's default, ending on the route's last point", () => {
-    // d3-shape 3.2.0 curveBasis (src/curve/basis.js) through (40,20),
-    // (100,20), (100,80) — the worked example of connectorCurve.test.ts moved
-    // by (40,20): L to (5·p0 + p1)/6, one cubic per point after the second,
-    // a closing cubic and a final L onto the last point.
+  it("draws an edge's route rounded, Mermaid 12's default on ELK, ending on the route's last point", () => {
+    // Mermaid 12.2.0 forces every ELK-routed flowchart edge to `rounded`
+    // (`applyElkEdgeLayout`, elk-V4PLJRSU.mjs) and draws it with
+    // `generateRoundedPath(points, 5)`: the corner at (100,20) turns 90°, so
+    // it is cut back min(5 / sin 45°, 60/2, 60/2) = 7.0710678… along both
+    // segments and the two cut points are joined by a quadratic through it.
     const svg = renderToSVG(buildBentFixture());
 
     expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")).toBe(
-      "M40,20 L50,20 C60,20 80,20 90,30 C100,40 100,60 100,70 L100,80",
+      "M40,20 L92.92893218813452,20 Q100,20 100,27.071067811865476 L100,80",
     );
   });
 

@@ -34,10 +34,26 @@ export const MERMAID_ONLY_CURVES = [
 ] as const;
 
 /**
- * The curve every connector is drawn with unless told otherwise — Mermaid's
- * default, `basis`, for all four directed-graph kinds.
+ * The curve a class, state or ER connector is drawn with — Mermaid's `basis`,
+ * which is what those three kinds are drawn with while they are still laid out
+ * by dagre. Each moves to `rounded` in its own ticket of the elk-migration
+ * board, when it moves onto ELK, and this constant goes with the last of them.
  */
 export const DEFAULT_CURVE: Curve = "basis";
+
+/**
+ * The curve a flowchart edge is drawn with unless a `linkStyle … interpolate`
+ * says otherwise: `rounded`, the orthogonal route's corners cut back and
+ * rounded with a radius of 5.
+ *
+ * Mermaid 12's own, now that its default layout is ELK: mermaid 12.2.0's
+ * `applyElkEdgeLayout` (`elk-V4PLJRSU.mjs`) sets `curve = "rounded"` on every
+ * edge ELK routed, and draws it with `generateRoundedPath(points, 5)`
+ * (`chunk-RLXJHMIZ.mjs`). Where Siren departs is the `interpolate` an author
+ * wrote: Mermaid 12 ignores it under ELK, Siren still honours it and applies
+ * that curve to ELK's points (the migration's Domain decision 6).
+ */
+export const FLOWCHART_DEFAULT_CURVE: Curve = "rounded";
 
 /** Whether `name` is one of the curves Siren draws, spelled exactly — Mermaid's match is case-sensitive too. */
 export function isCurve(name: string): name is Curve {

@@ -351,19 +351,29 @@ function pathPoints(
  * `data-siren-points`, never off a curve name:
  *
  * - `curved` — `d` holds a cubic (`C`), as `basis` draws;
+ * - `rounded corners` — `d` holds quadratics (`Q`) at the route's corners,
+ *   as `rounded` draws (Mermaid 12's default on ELK);
  * - `through its route` — straight segments through exactly the routed
- *   points, as `linear` draws;
+ *   points and nothing else, as `linear` draws;
  * - `axis-aligned steps` — straight segments, every one horizontal or
- *   vertical, as `step`, `stepBefore` and `stepAfter` draw.
+ *   vertical, through points the route does not have, as `step`,
+ *   `stepBefore` and `stepAfter` draw.
  *
- * Meaningful on a route with a diagonal leg (a fan, say): on a route that is
- * already one straight vertical line the last two pictures are the same.
+ * **On an orthogonal route the last two look alike**, and since the flowchart
+ * moved onto ELK every route is orthogonal: a staircase drawn along a route
+ * that is already a staircase lies on top of it. What still tells them apart
+ * is the `d` itself — d3's `Step` writes a turn for every segment (halfway
+ * along it for `step`, at one end for the other two), so its points are the
+ * route's plus the turns, while `linear` writes the route's and no others.
+ * That is a difference in what was drawn, not in how it looks, and the rows
+ * that use this say so.
  */
 function edgeCurve(result: SirenRenderResult, id: string): string {
   const path = svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`);
   if (path === null) throw new Error(`no edge "${id}" was drawn`);
   const d = path.getAttribute("d") ?? "";
   if (d.includes("C")) return "curved";
+  if (d.includes("Q")) return "rounded corners";
   const drawn = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(([, x, y]) => `${Number(x)},${Number(y)}`);
   const route = routeOf(path).map(({ x, y }) => `${x},${y}`);
   if (JSON.stringify(drawn) === JSON.stringify(route)) return "through its route";
@@ -2026,11 +2036,15 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       expectSame("edges", edges(result), ["A-B", "C-D"]);
       expectSame("edge", edgeDrawing(result, "C-D"), "solid none arrow");
       // The rank distance, which is the only part of an arrow token that is
-      // not about drawing. Mermaid hands its parsed `length` to dagre as
-      // `minlen` (measured: `length=3` for `---->`, `length=1` for `-->`),
-      // so the target sits further down the rank order and the drawn
-      // diagram differs. Drawing both alike would be a silent mis-render by
-      // this instrument's own definition.
+      // not about drawing. Mermaid 11.17.2 handed its parsed `length` to
+      // dagre as `minlen` (measured: `length=3` for `---->`, `length=1` for
+      // `-->`). Mermaid 12.2.0 on ELK still computes it and ELK reads no
+      // such option, so it draws both alike (measured in headless Chrome:
+      // identical coordinates) — a picture that contradicts the document,
+      // which Siren does not copy: the shared layout core holds the ends
+      // apart with a chain of invisible points (the elk-migration board's
+      // Domain decision 9, and its nook decision). Drawing both alike would
+      // be a silent mis-render by this instrument's own definition.
       const plain = edgeSpan(result, "A", "B");
       const long = edgeSpan(result, "C", "D");
       if (!(long > plain)) {
@@ -2176,15 +2190,11 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "A node may name itself at both ends of an edge: `A --> A` is one " +
       "node with a loop returning to it. The loop is drawn **joined to that " +
       "node** — an arrow onto itself that does not touch itself is not the " +
-      "construct. Siren synthesises the geometry (`selfLoopAroundBox`) " +
-      "because the layout engine's own answer for a self-edge touches " +
-      "nothing: measured against `@dagrejs/dagre@3.1.1`, a 24x32 box at " +
-      "x 0..24 comes back with its loop routed at x 52..76, clear of the " +
-      "node and past the graph width it reports (74). Mermaid does not use " +
-      "that route either — mermaid 11.17.2 computes the loop in closed form " +
-      "from the node's own box instead (`getSelfLoopPoints`, reached from " +
-      "`prepareLayoutForDagre`'s `edge.start === edge.end` branch), with " +
-      "both ends on the side of the box and a bounded bulge past it.",
+      "construct. ELK routes it, as it does for Mermaid 12.2.0 (measured " +
+      "in headless Chrome: a small orthogonal loop off the node's left side " +
+      "under `TB`, `[[28,27],[8,27],[8,34],[28,34]]` for a box at x 28). " +
+      "Under dagre Siren had to synthesise the loop (`selfLoopAroundBox`), " +
+      "because dagre's own route for a self-edge touched nothing.",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]"]);
       expectSame("edges", edges(result), ["A-A"]);
@@ -2386,21 +2396,18 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     meaning:
       "The row above's construct with a subgraph nested inside the one " +
       "carrying the `direction`. **A frame that declares no `direction` is " +
-      "laid out in the document's, not in the enclosing frame's.** Measured " +
-      "against mermaid 11.17.2 with `scripts/mermaid-probe.mjs --markup`: `A` " +
-      "at `translate(63, 68)`, `B` at `translate(63, 208)`, `C` at " +
-      "`translate(220.5, 53)` — `A` and `B` on one x exactly, `B` below `A`, " +
-      "so `Inner` uses the header's `TB`, while `Outer`'s own `LR` is what " +
-      "puts `C` beside it. Measured against `@dagrejs/dagre@3.1.1` directly: " +
-      "a cluster given a `rankdir` of its own has its children expanded " +
-      "exactly one level, so until `01M2XJWM4` `Inner` came back at the size " +
-      "it was handed and `A` and `B` came back with `x`/`y` of `undefined` — " +
-      "which this pipeline subtracted from until it had `NaN` in 29 " +
-      "attributes and said nothing (`01M2WQV0`), and then refused outright " +
-      "(`01M2XJVPX`). What draws it is giving a cluster with no direction of " +
-      "its own but a directed ancestor the document's own `rankdir`, which " +
-      "is both the value Mermaid's meaning asks for and the thing that makes " +
-      "the engine expand it.",
+      "laid out in the enclosing frame's.** Measured against Mermaid 12.2.0's " +
+      "default (ELK) layout in headless Chrome: `A` at (56, 104), `B` at " +
+      "(232, 104), `C` at (432, 92) — `A` and `B` in one row, `C` beyond " +
+      "them: `Outer` is laid out in a pass of its own in `LR`, and `Inner`, " +
+      "saying nothing, is laid out in that pass. Mermaid 11.17.2 (dagre) drew " +
+      "the opposite — `A` over `B` in the header's `TB` — and Siren drew that " +
+      "while it was on dagre; this row followed the measurement when the " +
+      "flowchart moved to ELK (elk-migration T02). The dagre history: a " +
+      "cluster given a `rankdir` of its own had its children expanded exactly " +
+      "one level, so this document once drew `NaN` into 29 attributes and " +
+      "said nothing (`01M2WQV0`), then was refused (`01M2XJVPX`), then drawn " +
+      "(`01M2XJWM4`).",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
 
@@ -2409,13 +2416,12 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       const c = nodeCenter(result, "C");
 
       // The measurement above, as the picture rather than as "it rendered".
-      // `Inner` inheriting `Outer`'s `LR` would draw every figure this row
-      // names, report nothing, and put `B` to the *right* of `A`; the
-      // equality of these two x's is the only thing that tells the correct
-      // picture from that one.
-      expectSame("A and B are drawn in one column", a.x, b.x);
-      expectSame("B below A — `Inner` lays out in the document's `TB`", b.y > a.y, true);
-      expectSame("C beside them — `Outer`'s own `LR`", c.x > a.x, true);
+      // `Inner` laid out in the header's `TB` would draw every figure this
+      // row names, report nothing, and put `B` *below* `A`; the equality of
+      // these two y's is what tells the current picture from that one.
+      expectSame("A and B are drawn in one row", a.y, b.y);
+      expectSame("B right of A — `Inner` lays out in `Outer`'s `LR`", b.x > a.x, true);
+      expectSame("C beyond them — `Outer`'s own `LR`", c.x > b.x, true);
 
       // And the frames still hold what they group, which is what `NaN`
       // coordinates took away from this document for as long as it drew one.
@@ -2438,13 +2444,12 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       B --> C`,
     status: "supported",
     meaning:
-      "A subgraph's `direction` applies only while it has no " +
-      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid's rule: " +
-      "mermaid.js 11.17.2's `adjustClustersAndEdges` marks such a " +
-      "Mermaid cluster `externalConnections`, and only unmarked Mermaid " +
-      "clusters are laid out in their own `dir`. `B --> C` leaves `one`, " +
-      "so its members follow the header's `TB`, and its edges are routed " +
-      "with the rest of the graph rather than drawn as straight segments.",
+      "A subgraph's `direction` applies only while no " +
+      "**Boundary-crossing edge** (`CONTEXT.md`) voids it. Mermaid 12.2.0's " +
+      "rule (`configureCrossHierarchyEdges`, measured in headless Chrome): " +
+      "an edge whose ends have different parents puts every group between " +
+      "them back into its parent's layout pass. `B --> C` leaves `one`, so " +
+      "its members follow the header's `TB`.",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
       expectSame("edges", edges(result), ["A-B", "B-C"]);
@@ -2457,10 +2462,9 @@ export const COMPAT_CASES: readonly CompatCase[] = [
         true,
       );
 
-      // Routed by the layout engine like any other edge, not the two-point
-      // straight fallback a directed cluster's edges get.
-      expectSame("A-B is a routed line", edgePoints(result, "A-B").length > 2, true);
-      expectSame("B-C is a routed line", edgePoints(result, "B-C").length > 2, true);
+      // Both still routed from box to box: A's bottom down to B's top.
+      expectSame("A-B leaves A's bottom", edgePoints(result, "A-B")[0].y, nodeBox(result, "A").bottom);
+      expectSame("A-B reaches B's top", edgePoints(result, "A-B").at(-1)!.y, nodeBox(result, "B").top);
 
       const frame = subgraphBox(result, "one");
       expectSame("frame encloses A", encloses(frame, nodeBox(result, "A")), true);
@@ -2557,14 +2561,12 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "A subgraph may name itself at both ends of an edge, drawing a loop " +
       "around its own **frame** — mermaid 11.17.2 renders it as the edge " +
       "`L_one_one_0` alongside the `one` cluster, measured. Siren draws it " +
-      "outside the frame with both ends on the frame's own boundary. It used " +
-      "to draw the loop dagre gave the member standing in for the frame, " +
-      "which landed *inside* the frame beside `A`: the right edge attached " +
-      "to the wrong figure, with no diagnostic saying so. The clip that puts " +
-      "an ordinary frame-to-frame edge on the frame boundary could never " +
-      "have fixed it — a self-loop never leaves the box, so there is no " +
-      "point outside it to aim at — so the geometry is synthesised instead " +
-      "(`selfLoopAroundBox`), for a frame and a plain node alike.",
+      "outside the frame with both ends on the frame's own boundary, routed " +
+      "by ELK as Mermaid 12.2.0's is (measured: a loop off the frame's left " +
+      "side). Under dagre it once drew the loop dagre gave the member " +
+      "standing in for the frame, *inside* the frame beside `A` — the right " +
+      "edge attached to the wrong figure, with no diagnostic saying so — and " +
+      "then a loop synthesised around the frame (`selfLoopAroundBox`).",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]"]);
       expectSame("edges", edges(result), ["one-one"]);
@@ -3068,9 +3070,10 @@ line2\`"]`,
     },
   },
 
-  // A fan in every `interpolate` row below: each route has a diagonal leg,
-  // which is what makes `step`, `linear` and `basis` three different
-  // pictures (`edgeCurve`).
+  // A fan in every `interpolate` row below: each route turns two corners on
+  // its way from A, which is what gives `basis` and `rounded` corners to
+  // draw differently. ELK's routes are orthogonal, so `step` and `linear`
+  // differ in `d` rather than in the picture (`edgeCurve` says how).
   {
     id: "fc-linkstyle-interpolate-default",
     kind: "flowchart",
@@ -3097,11 +3100,11 @@ line2\`"]`,
     status: "supported",
     meaning:
       "`linkStyle 0 interpolate linear` draws the first declared edge as " +
-      "straight segments through its route; the other edge keeps Mermaid's " +
-      "default, `basis`.",
+      "straight segments through its route; the other edge keeps Mermaid " +
+      "12's default, `rounded`.",
     assert: (result) => {
       expectSame("edge A-B's line", edgeCurve(result, "A-B"), "through its route");
-      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "curved");
+      expectSame("edge A-C's line", edgeCurve(result, "A-C"), "rounded corners");
     },
   },
   {
@@ -3119,7 +3122,7 @@ line2\`"]`,
     assert: (result) => {
       expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
       expectSame("edge A-C's inline style", edgeStyle(result, "A-C"), "stroke:#f00");
-      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "curved");
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "rounded corners");
     },
   },
   {
@@ -3164,16 +3167,18 @@ line2\`"]`,
       linkStyle 0 interpolate zigzag`,
     status: "supported",
     meaning:
-      "A name that is no curve at all is drawn as `basis`, as Mermaid " +
-      "draws it (`insertEdge`'s `default:` branch, measured: an unknown " +
-      "name on an index still takes that edge off `default`'s curve). " +
-      "Siren also warns that the name exists nowhere.",
+      "A name that is no curve at all is drawn `rounded`, as Mermaid 12.2.0 " +
+      "draws every edge its ELK layout routed (measured in headless Chrome: " +
+      "`linkStyle 1 interpolate wobbly` draws that edge with `Q` corners). " +
+      "An unknown name on an index still takes that edge off `default`'s " +
+      "curve, as it did under 11.17.2. Siren also warns that the name " +
+      "exists nowhere.",
     warnings: [
-      'linkStyle interpolate "zigzag" names no curve; drawing basis, as Mermaid does. ' +
+      'linkStyle interpolate "zigzag" names no curve; drawing rounded, as Mermaid does. ' +
         "Curves: basis, linear, step, stepBefore, stepAfter, rounded.",
     ],
     assert: (result) => {
-      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "curved");
+      expectSame("edge A-B's line", edgeCurve(result, "A-B"), "rounded corners");
       expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
     },
   },

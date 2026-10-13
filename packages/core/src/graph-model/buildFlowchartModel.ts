@@ -11,7 +11,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { CURVES, DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
+import { CURVES, FLOWCHART_DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
 import { resolveStyles } from "./resolveStyles";
@@ -493,7 +493,7 @@ function resolveCurves(
  * - a curve Mermaid draws and Siren does not is an **error** and `null` —
  *   the author asked for a picture this renderer cannot give them, so the
  *   edge keeps its fallback rather than pretending;
- * - a name Mermaid does not know either is a **warning** and `basis` —
+ * - a name Mermaid does not know either is a **warning** and `rounded` —
  *   that is the picture Mermaid draws for it, so Siren can match it and
  *   only needs to say the name was not a curve.
  */
@@ -513,16 +513,18 @@ function drawableCurve(
     return null;
   }
   if (!isCurve(name)) {
-    // Mermaid draws a name it does not know with its default, `basis`
-    // (`insertEdge`'s `default:` branch), and the edge still leaves the
-    // tier below — so this is a picture Siren *can* match, and only a warning.
+    // Mermaid 12.2.0 draws every flowchart edge its default ELK layout
+    // routed as `rounded`, whatever was written (`applyElkEdgeLayout`; and
+    // measured in headless Chrome — `linkStyle 1 interpolate wobbly` draws
+    // that edge with `Q` corners), and the edge still leaves the tier below —
+    // so this is a picture Siren *can* match, and only a warning.
     diagnostics.push({
       severity: "warning",
-      message: `linkStyle interpolate "${name}" names no curve; drawing ${DEFAULT_CURVE}, as Mermaid does. Curves: ${CURVES.join(", ")}.`,
+      message: `linkStyle interpolate "${name}" names no curve; drawing ${FLOWCHART_DEFAULT_CURVE}, as Mermaid does. Curves: ${CURVES.join(", ")}.`,
       line,
       column,
     });
-    return DEFAULT_CURVE;
+    return FLOWCHART_DEFAULT_CURVE;
   }
   return name;
 }

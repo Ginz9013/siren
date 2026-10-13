@@ -1301,10 +1301,10 @@ export interface GraphEdge {
    * diagnosed and settled to a drawable curve by `buildFlowchartModel`.
    *
    * Absent when no `interpolate` statement reached the edge, and the
-   * renderer reads absent as `DEFAULT_CURVE` (`basis`): an edge's shape only
+   * renderer reads absent as `FLOWCHART_DEFAULT_CURVE` (`rounded`): an edge's shape only
    * grows a field when the author wrote something for it, so a document
    * with no `interpolate` builds exactly the edges it built before. An
-   * unknown name the author did write is present, as the `basis` it draws.
+   * unknown name the author did write is present, as the `rounded` it draws.
    */
   curve?: Curve;
 }
