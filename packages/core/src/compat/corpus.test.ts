@@ -375,7 +375,8 @@ describe("the corpus, case by case", () => {
  * reports — so a plain `A --> A` drew an arrow floating beside its node, in
  * a flowchart and in a state diagram, in silence, and no row said so. This
  * number was reading 1 for a class of four (`01M2SVA30`). It is at 0
- * because the geometry is synthesised now (`selfLoopAroundBox`), and the
+ * because the loop is now routed joined to its box (by the ELK layout core,
+ * after a stretch of Siren synthesising it under dagre), and the
  * cases that were never written down are written down: `fc-self-edge`,
  * `fc-self-edge-lr` and `st-composite-self-transition`, with
  * `st-self-transition` strengthened from "a loop was drawn" to where it is

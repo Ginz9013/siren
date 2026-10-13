@@ -501,7 +501,7 @@ layout.
   siren-core can't run inside a Web Worker.
 - **First-layout latency.** The first graph-shaped diagram laid out in a page (or a Node
   process) costs about 0.1s while the engine starts up. This happens once per process. After
-  that, a 40-node flowchart takes about 15–20ms.
+  that, a 40-node flowchart takes about 20ms.
 - **Bundle size.** elkjs is a dependency, and the npm entry (`dist/index.js`) leaves it external
   so your bundler can dedupe it. Its compiled engine is about 1.6 MB minified (about 465 KB
   gzipped). The standalone `dist/siren-core.js` includes it: about 2.1 MB minified, about 545 KB

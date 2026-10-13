@@ -457,9 +457,9 @@ function edgeClasses(edge: PositionedEdge): string {
  * have to learn a second vocabulary for the other.
  *
  * The anchor is layout's rather than computed here from the frame. That strip
- * is the reason the frame is as tall as it is — `subgraphFrames` grew it to
- * hold the title — so recomputing the position here would be a second opinion
- * on one number, free to drift from the space reserved for it.
+ * is the reason the frame is as tall as it is — the layout core sized the
+ * frame to hold the title — so recomputing the position here would be a
+ * second opinion on one number, free to drift from the space reserved for it.
  *
  * `data-siren-id` goes on the group, which is what makes a subgraph a
  * timeline target: ADR-0009 resolves a target to *every* element carrying its

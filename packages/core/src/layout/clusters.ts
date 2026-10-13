@@ -49,12 +49,13 @@ export function measureTitles(
  * much padding and how big a title (nook decision
  * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2: nothing moves a box or a frame
  * afterwards). Its own `width`/`height` are 0: the core ignores them for a
- * cluster.
+ * cluster. A frame drawn with no title (a state diagram's concurrent region)
+ * gives none, and the core keeps plain padding where the band would be.
  */
 export function clusterNode(group: {
   id: string;
   parentId?: string | null;
-  title: LabelBox;
+  title?: { width: number; height: number } | null;
   direction?: Direction | null;
 }): DirectedGraphNode {
   return {
@@ -64,7 +65,7 @@ export function clusterNode(group: {
     ...(group.parentId === undefined || group.parentId === null ? {} : { parentId: group.parentId }),
     cluster: {
       padding: SUBGRAPH_PADDING,
-      title: group.title,
+      ...(group.title === undefined || group.title === null ? {} : { title: group.title }),
       ...(group.direction === undefined || group.direction === null ? {} : { direction: group.direction }),
     },
   };
@@ -93,7 +94,7 @@ export function placedFrame(
  * The frames in the order Mermaid hands them to ELK, given in the order the
  * keywords *opened* (`subgraph:1`, `subgraph:2`, …), parents before children.
  *
- * Mermaid 12.2.0's `FlowDB.getData` (`chunk-LJKG65JO.mjs`) and `ErDB.getData`
+ * Mermaid 12.2.0's `FlowDB.getData` (`chunk-LJKG65JO.mjs`, line 963) and `ErDB.getData`
  * (`erDiagram-VZDIDQZ7.mjs`, line 1340) both list every frame before any box,
  * walking their frame list **backwards** — and that list is in the order the
  * frames *closed*, because the parser records one when it reduces the `end`

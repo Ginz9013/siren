@@ -5,7 +5,7 @@ import { layoutSequence } from "./layout/layoutSequence";
 import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { layoutStateDiagram } from "./layout/layoutStateDiagram";
 import { layoutErDiagram } from "./layout/layoutErDiagram";
-import { LayoutEngineError } from "./layout/elkSync";
+import { LayoutEngineError } from "./layout/layoutDirectedGraph";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";

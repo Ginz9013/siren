@@ -337,8 +337,10 @@ layout moved onto ELK), TD (say `TB`)
 A diagram kind whose layout is a directed graph of boxes and connectors — flowchart, class, state
 and ER diagrams today; requirement and C4 when they land. Every one of them sizes its own
 boxes and labels and then calls the shared layout core, `layoutDirectedGraph` — the one place a
-layout engine is reached (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
-and its amendment, nook decision `01M4VPWF5`). All four are laid out by ELK's `layered` algorithm
+layout engine is reached (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md),
+whose engine part — that file still names dagre — is amended by nook decision
+`01M4VPWF5A5MGP624AFGT02AV4`: ELK, hidden behind the shared layout core, with elkjs imported only
+by `layout/elkSync.ts`). All four are laid out by ELK's `layered` algorithm
 (`layout/layoutDirectedGraph.ts`, beside `layout/elkSync.ts`, the only module importing elkjs,
 pinned to 0.9.3 as Mermaid 12.2.0 bundles it). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
 and has its own `layoutSequence`.

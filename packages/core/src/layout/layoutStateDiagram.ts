@@ -19,7 +19,7 @@ import {
   type DirectedGraphNode,
   type DirectedGraphNodeBox,
 } from "./layoutDirectedGraph";
-import { SUBGRAPH_PADDING } from "./clusters";
+import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
@@ -93,17 +93,6 @@ const forkBarBox = (direction: Direction): { width: number; height: number } =>
   direction === "LR"
     ? { width: FORK_BAR_THICKNESS, height: FORK_BAR_LENGTH }
     : { width: FORK_BAR_LENGTH, height: FORK_BAR_THICKNESS };
-
-/**
- * Gap between a composite state's frame and the boxes and frames it
- * encloses, and the margin above and below its own title inside the strip
- * along its top: the shared `SUBGRAPH_PADDING`, because it is the same
- * figure — measured with `--markup`, Mermaid draws a composite as a titled
- * frame exactly as it draws a flowchart subgraph. Named here too because a
- * composite's title strip is planned with it (`planTitleStrip`) as well as
- * handed to the core.
- */
-const COMPOSITE_PADDING = SUBGRAPH_PADDING;
 
 /**
  * Whether this kind of state is drawn as a **frame** — a cluster the shared
@@ -207,34 +196,36 @@ export function layoutStateDiagram(
     ),
   );
 
-  /** A state as the core is handed it. */
+  /**
+   * A state as the core is handed it. A composite or a concurrent region
+   * goes as a cluster (`clusterNode`, as every kind's grouping frame does);
+   * a region has no title, so it asks for no band.
+   *
+   * The frame the core placed comes back through the states below rather
+   * than `placedFrame`: a composite's title is the plan's stack of labels
+   * (its name and any description rows), not one `PlacedLabel`.
+   */
   const stateNode = (state: ResolvedState): DirectedGraphNode => {
     const plan = planById.get(state.id)!;
+    if (isFrame(state.kind)) {
+      return clusterNode({
+        id: state.id,
+        parentId: state.parentId,
+        title: plan.labels.length === 0 ? null : titleSize(plan),
+        // `TB` when the block names none: Mermaid 12.2.0 gives every
+        // composite and region a direction of its own,
+        // `DEFAULT_NESTED_DOC_DIR` when its block writes no `direction`
+        // (`getDir`, `stateDiagram-v2-MYRXERYP.mjs` lines 964 and 1083), so
+        // even under a document-level `LR` an undirected block stacks its
+        // members.
+        direction: state.direction ?? NESTED_DIRECTION,
+      });
+    }
     return {
       id: state.id,
       width: plan.width,
       height: plan.height,
       ...(state.parentId === null ? {} : { parentId: state.parentId }),
-      // A composite or a concurrent region goes to the core as a
-      // cluster: the core sizes and places the frame — around its
-      // members, its padding and a band for its title — and lays its
-      // members out in its own direction while no transition voids it
-      // (the **Boundary-crossing edge** rule, Mermaid 12's).
-      ...(isFrame(state.kind)
-        ? {
-            cluster: {
-              padding: COMPOSITE_PADDING,
-              ...(plan.labels.length === 0 ? {} : { title: titleSize(plan) }),
-              // `TB` when the block names none: Mermaid 12.2.0 gives
-              // every composite and region a direction of its own,
-              // `DEFAULT_NESTED_DOC_DIR` when its block writes no
-              // `direction` (`getDir`, `stateDiagram-v2-MYRXERYP.mjs`
-              // lines 964 and 1083), so even under a document-level
-              // `LR` an undirected block stacks its members.
-              direction: state.direction ?? NESTED_DIRECTION,
-            },
-          }
-        : {}),
     };
   };
 
@@ -534,8 +525,8 @@ function planStateBox(
   // empty).
   if (state.kind === "region") {
     return {
-      width: COMPOSITE_PADDING * 2,
-      height: COMPOSITE_PADDING,
+      width: SUBGRAPH_PADDING * 2,
+      height: SUBGRAPH_PADDING,
       labels: [],
       dividerY: null,
     };
@@ -616,7 +607,7 @@ function planStateBox(
  */
 function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   const planned: PositionedStateLabel[] = [];
-  let bottom = COMPOSITE_PADDING;
+  let bottom = SUBGRAPH_PADDING;
 
   for (const label of labels) {
     // Never wrapped: measured, mermaid 11.17.2 draws a composite's title —
@@ -628,8 +619,8 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   }
 
   return {
-    width: Math.max(...planned.map((placed) => placed.labelBox.width)) + COMPOSITE_PADDING * 2,
-    height: bottom + COMPOSITE_PADDING,
+    width: Math.max(...planned.map((placed) => placed.labelBox.width)) + SUBGRAPH_PADDING * 2,
+    height: bottom + SUBGRAPH_PADDING,
     labels: planned,
     dividerY: null,
   };

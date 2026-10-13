@@ -20,6 +20,12 @@ import type { Direction, LineHop, Point } from "../contracts";
 import { LayoutEngineError, layoutWithElk, type ElkExtendedEdge, type ElkLabel, type ElkNode } from "./elkSync";
 import { lineHops } from "./lineHops";
 
+/**
+ * Re-exported so a caller outside the layout core catches the engine's
+ * rejection by the core's name, not the engine wrapper's.
+ */
+export { LayoutEngineError };
+
 /** A box to place. Sizes are given by the caller; this module never measures. */
 export interface DirectedGraphNode {
   id: string;
