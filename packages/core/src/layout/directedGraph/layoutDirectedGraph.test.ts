@@ -543,9 +543,11 @@ describe("layoutDirectedGraph orients an edge that runs back between clusters", 
 describe("layoutDirectedGraph fits a frame to what it holds", () => {
   // `subgraph G { A, B }` with `A --> Y`, `B --> Z`, `A --> Z`, `B --> Y`:
   // the edges leaving G cross on their way out. ELK routes that crossing
-  // inside G's frame and grows the frame to hold it. Measured in headless
-  // Chrome against Mermaid 12.2.0: Mermaid's frame stops just below A and B
-  // (117 tall, title band included), the crossing drawn outside it.
+  // inside G's frame and grows the frame to hold it. Mermaid 12.2.0 pulls
+  // the frame back in to just below A and B, the crossing drawn outside it;
+  // Siren does the same with the cluster's own padding, not Mermaid's 24px
+  // (nook decision 01M4VDB3XG71N3R1EN5J94JMZ4), so its frame is not
+  // Mermaid's height.
   const input: DirectedGraphInput = {
     direction: "TB",
     nodes: [
@@ -568,6 +570,56 @@ describe("layoutDirectedGraph fits a frame to what it holds", () => {
     const lowest = Math.max(boxes.A.y + boxes.A.height, boxes.B.y + boxes.B.height);
     expect(boxes.G.y + boxes.G.height).toBeCloseTo(lowest + 12, 1);
   });
+});
+
+describe("layoutDirectedGraph keeps a fitted frame around what it holds", () => {
+  // `subgraph O { subgraph I { A, B }, C }`, with edges out of I and O that
+  // cross on their way to Y and Z. ELK routes the crossings inside the
+  // frames, so fitting pulls them in: under TB, O's and I's bottoms; under
+  // LR, I's right and bottom and O's right.
+  const title = { width: 20, height: 18 };
+  const padding = 12;
+  const nested = (direction: Direction): DirectedGraphInput => ({
+    direction,
+    nodes: [
+      { id: "O", width: 0, height: 0, cluster: { padding, title } },
+      { id: "I", width: 0, height: 0, parentId: "O", cluster: { padding, title } },
+      { id: "A", width: 60, height: 40, parentId: "I" },
+      { id: "B", width: 60, height: 40, parentId: "I" },
+      { id: "C", width: 60, height: 40, parentId: "O" },
+      { id: "W", width: 60, height: 40 },
+      { id: "Y", width: 60, height: 40 },
+      { id: "Z", width: 60, height: 40 },
+    ],
+    edges: [
+      { id: "W-C", from: "W", to: "C" },
+      { id: "A-Y", from: "A", to: "Y" },
+      { id: "B-Z", from: "B", to: "Z" },
+      { id: "A-Z", from: "A", to: "Z" },
+      { id: "B-Y", from: "B", to: "Y" },
+      { id: "C-Y", from: "C", to: "Y" },
+      { id: "W-Z", from: "W", to: "Z" },
+      { id: "Y-W", from: "Y", to: "W" },
+    ],
+  });
+
+  it.each(["TB", "LR"] as const)(
+    "under %s every member and nested frame lies one padding inside each side, the title band above them",
+    (direction) => {
+      const input = nested(direction);
+      const boxes = boxesOf(input);
+      const tolerance = 1e-6;
+      for (const member of input.nodes.filter((node) => node.parentId !== undefined)) {
+        const frame = boxes[member.parentId!];
+        const box = boxes[member.id];
+        const at = `${member.id} in ${member.parentId}: ${JSON.stringify({ frame, box })}`;
+        expect(box.x - frame.x, at).toBeGreaterThanOrEqual(padding - tolerance);
+        expect(frame.x + frame.width - (box.x + box.width), at).toBeGreaterThanOrEqual(padding - tolerance);
+        expect(frame.y + frame.height - (box.y + box.height), at).toBeGreaterThanOrEqual(padding - tolerance);
+        expect(box.y - frame.y, at).toBeGreaterThanOrEqual(padding + title.height + padding - tolerance);
+      }
+    },
+  );
 });
 
 /**
@@ -621,6 +673,47 @@ describe("layoutDirectedGraph straightens a route's ends", () => {
       expect(isOrthogonal(route.points)).toBe(true);
       expect(onOutline(route.points[0], box[from])).toBe(true);
       expect(onOutline(route.points.at(-1)!, box[to])).toBe(true);
+    }
+  });
+});
+
+describe("layoutDirectedGraph leaves no leftover of a straightened sidestep", () => {
+  // Five boxes under LR where ELK routes N1 --> N3 with a short sidestep at
+  // its end that lines up with the rest of the route: straightening it
+  // moves the run onto the line the route already runs along.
+  const input: DirectedGraphInput = {
+    direction: "LR",
+    nodes: [
+      { id: "N0", width: 59, height: 40 },
+      { id: "N1", width: 78, height: 40 },
+      { id: "N2", width: 36, height: 40 },
+      { id: "N3", width: 100, height: 40 },
+      { id: "N4", width: 32, height: 40 },
+    ],
+    edges: [
+      { id: "N1-N4", from: "N1", to: "N4" },
+      { id: "N4-N1", from: "N4", to: "N1" },
+      { id: "N1-N3", from: "N1", to: "N3" },
+      { id: "N3-N2", from: "N3", to: "N2" },
+      { id: "N3-N2'", from: "N3", to: "N2" },
+      { id: "N4-N3", from: "N4", to: "N3" },
+    ],
+  };
+
+  it("no route has a zero-length segment, or three points in a row on one line", () => {
+    const same = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    for (const route of layoutDirectedGraph(input).edges) {
+      const at = `${route.id} ${JSON.stringify(route.points)}`;
+      route.points.forEach((point, index) => {
+        if (index < 1) return;
+        const before = route.points[index - 1];
+        expect(same(before.x, point.x) && same(before.y, point.y), `zero-length segment: ${at}`).toBe(false);
+        if (index < 2) return;
+        const first = route.points[index - 2];
+        const inLine =
+          (same(first.x, before.x) && same(before.x, point.x)) || (same(first.y, before.y) && same(before.y, point.y));
+        expect(inLine, `three points in a row: ${at}`).toBe(false);
+      });
     }
   });
 });

@@ -456,8 +456,12 @@ function straightenTerminals(
     ).length;
   routes.forEach((route, index) => {
     const original = route.points;
-    const { points, runs } = withoutTerminalJogs(original);
+    const { points: moved, runs } = withoutTerminalJogs(original);
     if (runs.length === 0) return;
+    // Moving the run can put its far end on the next bend, or in line with
+    // the run after it: the route would keep a segment of no length, or a
+    // point that does not bend. The same cleanup as ELK's routes drops both.
+    const points = withoutStraightRuns(moved);
     const label = labels[index];
     const carried = label === undefined ? undefined : { centre: carryLabel(label.centre, runs), size: label.size };
     let crossingsBefore = 0;
@@ -581,7 +585,12 @@ function crossingCount(a: readonly Point[], b: readonly Point[]): number {
   return count;
 }
 
-/** Whether the segment from `a` to `b` passes through the inside of the box centred on `centre` — Mermaid's `segmentHitsBox`. */
+/**
+ * Whether the segment from `a` to `b` meets the box centred on `centre` —
+ * Mermaid's `segmentHitsBox`. Not only a segment through the box's inside
+ * counts: one lying along an edge of the box, for any length, meets it too.
+ * One that touches the box at a single point does not.
+ */
 function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: number; height: number }): boolean {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -615,22 +624,30 @@ function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: numbe
  * draws G 117 tall, title band included, the crossing below the frame;
  * ELK's own frame is 72px deeper.
  *
- * The rule, Mermaid's, innermost cluster first so an outer frame fits the
- * inner one already fitted: the left, right and bottom sides move in to one
- * padding beyond the members (a member cluster by its fitted frame; a
- * zero-size point of a long edge's chain is no member), and beyond every
- * point of an edge with both ends inside the cluster and the end of an edge
- * that ends on the cluster itself — so an edge routed within the frame stays
- * within it, and one that ends on the frame still ends on its outline. A side
- * only ever moves in, never out; the top stays, with the title band under it.
- * The frame is never narrower than its title and padding (Mermaid's
- * `groupTitleWidth` floor, here the same `title.width + 2 × padding` floor
- * `clusterShape` asks ELK for), widened about its centre and kept within
- * ELK's frame. The title is re-centred across the fitted frame.
+ * The rule, innermost cluster first so an outer frame fits the inner one
+ * already fitted: the left, right and bottom sides move in to one padding
+ * beyond the members (a member cluster by its fitted frame; a zero-size point
+ * of a long edge's chain is no member), and beyond every point of an edge
+ * with both ends inside the cluster and the end of an edge that ends on the
+ * cluster itself — so an edge routed within the frame stays within it, and
+ * one that ends on the frame still ends on its outline. A side only ever
+ * moves in, never out; the top stays, with the title band under it. The
+ * frame is never narrower than its title and twice its padding, widened about
+ * its centre and kept within ELK's frame. The title is re-centred across the
+ * fitted frame.
  *
- * This moves a frame after ELK placed it, and only here: the core is where
- * geometry is decided (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2),
- * and every member, route and route end stays where ELK put it.
+ * Mermaid's sides and floor, Siren's numbers: Mermaid pulls every frame in
+ * to a fixed 24px (`SUBGRAPH_PADDING`, line 99194) and floors it at the
+ * title plus the padding once (`groupTitleWidth`); Siren uses the cluster's
+ * own padding (12 in the flowchart) and the `title.width + 2 × padding` floor
+ * `clusterShape` asks ELK for. Siren's title band is built from the padding
+ * twice, and Mermaid's 24 measured worse against Mermaid's own pictures
+ * (nook decision `01M4VDB3XG71N3R1EN5J94JMZ4`).
+ *
+ * This moves a frame after ELK placed it, and in the core only: adapters
+ * never adjust a frame, and a post-layout pass Mermaid's ELK adapter runs is
+ * ported here and nowhere else (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+ * rule 2). Every member, route and route end stays where ELK put it.
  */
 function fitFrames(
   input: DirectedGraphInput,
@@ -769,14 +786,14 @@ function subgraphFeedbackEdges(
       state.set(start, "on the walk");
       const walk = [{ node: start, next: 0 }];
       while (walk.length > 0) {
-        const frame = walk[walk.length - 1];
-        const leaving = out.get(frame.node)!;
-        if (frame.next >= leaving.length) {
-          state.set(frame.node, "done");
+        const step = walk[walk.length - 1];
+        const leaving = out.get(step.node)!;
+        if (step.next >= leaving.length) {
+          state.set(step.node, "done");
           walk.pop();
           continue;
         }
-        const edge = leaving[frame.next++];
+        const edge = leaving[step.next++];
         const seen = state.get(edge.to);
         if (seen === "on the walk") {
           flags[edge.index] = edge.lifted;
@@ -941,9 +958,11 @@ function voidedDirections(
  * Mermaid 12.2.0's own options reproduce it (200x271.5 for a 152-wide member
  * under a 261.5-wide title), and Mermaid repairs the frame afterwards in
  * `evenGroupFrames` while the space ELK reserved stays reserved. The core
- * ports that repair (`fitFrames`), but a frame pulled in after layout leaves
- * the reserved space as a gap around it, so the title is not left for it to
- * fix: asking ELK for the right box is.
+ * ports that repair (`fitFrames`; post-layout passes Mermaid runs live in the
+ * core, never in an adapter — nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+ * rule 2), but a frame pulled in after layout leaves the reserved space as a
+ * gap around it, so the title is not left for it to fix: asking ELK for the
+ * right box is.
  *
  * So the band is padding: the top padding is the caller's padding, the
  * title's height and the padding again, and the title's place in it is then

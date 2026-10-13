@@ -57,7 +57,8 @@ where Mermaid's picture contradicts the document. Each such departure is measure
 **layout parity report** and recorded in a nook decision, never asserted as taste. The first one is
 the long arrow (`---->`, under **Edge**; decision `01M4VA6MS4MCTFFJJWEZR453YS`); the second keeps
 the sidestep at an edge's end where Mermaid's straightening would run the edge through a box
-(decision `01M4VBHWYKNH91NXFD4ZF9MQDD`).
+(decision `01M4VBHWYKNH91NXFD4ZF9MQDD`); the third fits a subgraph's frame to its own padding rather
+than Mermaid's 24px, which lowered vertical agreement (decision `01M4VDB3XG71N3R1EN5J94JMZ4`).
 
 ## Language
 
