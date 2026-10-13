@@ -4,3 +4,4 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - gitnook@0.1.0 || 0.4.0 || 0.6.0
+  - mermaid@12.2.0

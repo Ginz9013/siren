@@ -37,6 +37,16 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Changed
 
+- **A subgraph's frame hugs what it holds.** It is sized from its member boxes and nested frames
+  plus its title — 12px of padding around the members, a title strip above, and at least as wide
+  as the title with the members centered under it — and no longer from the region dagre reserved
+  for the cluster, which stretches with the ranks around it. A one-column group whose last member
+  fans out to a wide rank below used to be drawn as wide as that fan, its column shoved to one
+  side; it is now one padding wider than its column, as Mermaid 12.2.0 draws it (measured: 276px
+  around 152px boxes, where 11.17.2 drew 1013px). An edge ending on a subgraph is attached to the
+  new frame, and a subgraph's self-loop (`one --> one`) is drawn around it rather than around the
+  reserved region.
+- The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 - **A flowchart node's label wraps** once its text is wider than 175px, as Mermaid wraps its labels
   at 200px of 16px text (scaled to the 14px a node is drawn at): Latin text at its spaces, CJK text
   between any two characters, never with closing punctuation such as `，` or `)` beginning a row.

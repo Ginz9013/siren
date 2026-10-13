@@ -415,8 +415,32 @@ export function selfLoopAroundBox(
 }
 
 /** Which side of a box a self-loop drawn under `rankdir` bulges toward. */
-function selfLoopSide(rankdir: Direction): "right" | "bottom" {
+/**
+ * Which side of its box a self-loop hangs off: beside the box when the ranks
+ * run vertically, below it when they run horizontally. Exported with
+ * `selfLoopAroundBox` for a caller that redraws a frame's loop around the
+ * frame it drew (`layoutGraph`).
+ */
+export function selfLoopSide(rankdir: Direction): "right" | "bottom" {
   return rankdir === "TB" || rankdir === "BT" ? "right" : "bottom";
+}
+
+/**
+ * Where a self-loop's label sits: clear of the loop's own tip rather than
+ * centred on it. The anchor is the middle of the space the label occupies,
+ * so half the label past the furthest point is where the text stops
+ * overlapping the line it belongs to. `points` is `selfLoopAroundBox`'s
+ * answer, whose third point is the tip.
+ */
+export function selfLoopLabelAnchor(
+  points: readonly Point[],
+  label: { width: number; height: number },
+  side: "right" | "bottom",
+): Point {
+  const apex = points[2];
+  return side === "right"
+    ? { x: apex.x + label.width / 2, y: apex.y }
+    : { x: apex.x, y: apex.y + label.height / 2 };
 }
 
 /**
@@ -815,15 +839,7 @@ export function layoutDirectedGraph(
         loopExtent.y = Math.max(loopExtent.y, point.y);
       }
       if (edge.label) {
-        // Clear of the loop's own tip rather than centred on it: the anchor
-        // is the middle of the space the label occupies, so half the label
-        // past the furthest point is where the text stops overlapping the
-        // line it belongs to.
-        const apex = points[2];
-        route.labelAnchor =
-          loopSide === "right"
-            ? { x: apex.x + edge.label.width / 2, y: apex.y }
-            : { x: apex.x, y: apex.y + edge.label.height / 2 };
+        route.labelAnchor = selfLoopLabelAnchor(points, edge.label, loopSide);
         loopExtent.x = Math.max(
           loopExtent.x,
           route.labelAnchor.x + edge.label.width / 2,

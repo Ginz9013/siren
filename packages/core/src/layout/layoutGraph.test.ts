@@ -1296,6 +1296,74 @@ describe("a subgraph's frame", () => {
     }
   });
 
+  // The spec: a frame is sized from what it holds and from its title, never
+  // from the region dagre reserved for the cluster. Measured, mermaid 12.2.0:
+  // a one-column group whose last member fans out to three boxes below it is
+  // framed one padding wider than its column (276px around 152px boxes),
+  // where 11.17.2 stretched the frame to the fan's full width (1013px).
+  it("frames only what it holds, however wide the ranks below it spread", () => {
+    const positioned = laidOut(
+      model(
+        [node("Alpha", "subgraph:1"), node("Beta"), node("Gamma"), node("Delta")],
+        [edge("Alpha", "Beta"), edge("Alpha", "Gamma"), edge("Alpha", "Delta")],
+        [{ id: "subgraph:1", label: plainLabel("T"), parentId: null, direction: null }],
+      ),
+    );
+
+    const [frame] = positioned.subgraphs;
+    const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
+    // The fan below is far wider than the one member; the frame ignores it.
+    const fan = [byId.Beta, byId.Gamma, byId.Delta];
+    const fanWidth = Math.max(...fan.map((n) => n.x + n.width)) - Math.min(...fan.map((n) => n.x));
+    expect(fanWidth).toBeGreaterThan(byId.Alpha.width + 2 * 12);
+    // `SUBGRAPH_PADDING` of 12 each side of the member.
+    expect(frame!.x).toBe(byId.Alpha.x - 12);
+    expect(frame!.width).toBe(byId.Alpha.width + 2 * 12);
+  });
+
+  // A frame's own self-loop is synthesised around the *frame*, not around
+  // the region dagre reserved for the cluster: with the frame hugging its
+  // members, a loop drawn around the reserved region would hang off the frame
+  // on a long lead, out where the fan below ends.
+  it("draws a subgraph's self-loop around the frame it hugs, not the region dagre reserved", () => {
+    const positioned = laidOut(
+      model(
+        [node("Alpha", "subgraph:1"), node("Beta"), node("Gamma"), node("Delta")],
+        [edge("Alpha", "Beta"), edge("Alpha", "Gamma"), edge("Alpha", "Delta"), edge("subgraph:1", "subgraph:1")],
+        [{ id: "subgraph:1", label: plainLabel("T"), parentId: null, direction: null }],
+      ),
+    );
+
+    const [frame] = positioned.subgraphs;
+    const loop = positioned.edges.find((e) => e.id === "subgraph:1-subgraph:1")!;
+    const right = frame!.x + frame!.width;
+    // TB, so the loop hangs off the right side: both ends on that edge, and
+    // the whole loop within its own reach of it (`SELF_LOOP_REACH`, 30).
+    expect(loop.points[0]!.x).toBeCloseTo(right);
+    expect(loop.points[loop.points.length - 1]!.x).toBeCloseTo(right);
+    for (const point of loop.points) {
+      expect(point.x).toBeGreaterThanOrEqual(right - 1e-6);
+      expect(point.x).toBeLessThanOrEqual(right + 30 + 1e-6);
+    }
+  });
+
+  it("centers what it holds under a title wider than it", () => {
+    const positioned = laidOut(
+      model(
+        [node("A", "subgraph:1")],
+        [],
+        [{ id: "subgraph:1", label: plainLabel("A very long group title indeed"), parentId: null, direction: null }],
+      ),
+    );
+
+    const [frame] = positioned.subgraphs;
+    const [a] = positioned.nodes;
+    // The 30-character title at 8px a character, plus padding each side.
+    expect(frame!.width).toBe(30 * 8 + 2 * 12);
+    expect(frame!.x + frame!.width / 2).toBeCloseTo(a!.x + a!.width / 2);
+    expect(frame!.label.anchor.x).toBeCloseTo(a!.x + a!.width / 2);
+  });
+
   it("makes its title strip one line height taller per row a <br> adds", () => {
     const framed = (title: string) => {
       const positioned = laidOut(
