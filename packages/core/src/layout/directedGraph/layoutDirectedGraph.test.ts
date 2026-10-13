@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { distanceToPolyline } from "../../compat/svgGeometry";
 import type { Direction, Point } from "../../contracts";
 import {
+  LAYOUT_MARGIN,
   layoutDirectedGraph,
   type DirectedGraphInput,
   type DirectedGraphNodeBox,
@@ -1050,4 +1051,37 @@ describe("layoutDirectedGraph's terminal labels", () => {
     expect(title.x).toBeGreaterThanOrEqual(frame.x);
     expect(title.x + title.width).toBeLessThanOrEqual(frame.x + frame.width);
   });
+
+  it.each([
+    ["TB", "startRight"],
+    ["BT", "startLeft"],
+    ["LR", "startLeft"],
+    ["RL", "startRight"],
+  ] as const)(
+    "under %s, reports an extent holding a %s label moved onto its own hand, past where ELK kept room, with the margin around it",
+    (direction, key) => {
+      // A label taller and wider than the boxes it joins: ELK keeps room for
+      // it on the hand it chose, and the label's own hand is the other one —
+      // past the top or left edge of what ELK laid out.
+      const SIZE = { width: 50, height: 60 };
+      const result = layoutDirectedGraph({
+        direction,
+        nodes: [
+          { id: "A", width: 30, height: 20 },
+          { id: "B", width: 30, height: 20 },
+        ],
+        edges: [{ id: "A-B", from: "A", to: "B", terminalLabels: { [key]: { ...SIZE } } }],
+      });
+      const [route] = result.edges;
+      const label = boxAround(route.terminalLabelCenters![key]!, SIZE);
+      const points = route.points;
+      const [from, to] = key.startsWith("start") ? [points[0], points[1]] : [points[points.length - 2], points[points.length - 1]];
+      expect(hand(route.terminalLabelCenters![key]!, from, to)).toBe(key.endsWith("Right") ? 1 : -1);
+      const inside = (box: { x: number; y: number; width: number; height: number }, room: number) =>
+        box.x >= room && box.y >= room && box.x + box.width <= result.width - room && box.y + box.height <= result.height - room;
+      expect(inside(label, LAYOUT_MARGIN), JSON.stringify({ label, width: result.width, height: result.height })).toBe(true);
+      for (const box of result.nodes) expect(inside(box, LAYOUT_MARGIN)).toBe(true);
+      for (const point of points) expect(inside({ ...point, width: 0, height: 0 }, LAYOUT_MARGIN)).toBe(true);
+    },
+  );
 });

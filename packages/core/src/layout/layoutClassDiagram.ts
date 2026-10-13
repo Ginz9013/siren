@@ -16,7 +16,7 @@ import type {
   Label,
   LabelBox,
 } from "../contracts";
-import { type Curve, curveCornerRadius } from "../curve/curve";
+import { CLASS_CONNECTOR_CURVE, curveCornerRadius } from "../curve/curve";
 import { atConnectorLabelSize, plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
@@ -25,19 +25,6 @@ import {
   type DirectedGraphNodeBox,
   type DirectedGraphTerminalLabel,
 } from "./directedGraph/layoutDirectedGraph";
-
-/**
- * The curve every relationship and note link is drawn with: `rounded`, the
- * orthogonal route's corners cut back and rounded with a radius of 5 —
- * Mermaid 12.2.0's, whose `applyElkEdgeLayout` (`elk-V4PLJRSU.mjs`, line
- * 100401) sets `curve = "rounded"` on every edge ELK routed, class
- * relations and note links among them (nook decision
- * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 6). A class diagram has no
- * `linkStyle … interpolate` to choose another. Exported for the renderer,
- * which draws with it: the radius the line hops keep clear of (handed to the
- * core below) and the corners drawn are one decision.
- */
-export const CLASS_CONNECTOR_CURVE: Curve = "rounded";
 
 /** The core's `cornerRadius` for a class connector: the radius `CLASS_CONNECTOR_CURVE` rounds its corners with. */
 const CONNECTOR_CORNER_RADIUS = curveCornerRadius(CLASS_CONNECTOR_CURVE);
@@ -667,78 +654,15 @@ export function layoutClassDiagram(
     };
   });
 
-  const bounds = diagramBounds(
-    classes,
-    relationships,
-    namespaces,
-    notes,
-    options,
-  );
-
   return {
     direction: model.direction,
     classes,
     relationships,
     namespaces,
     notes,
-    width: Math.max(laidOut.width, bounds.width),
-    height: Math.max(laidOut.height, bounds.height),
+    // The core's extent already holds every multiplicity where it finally
+    // put it (`extentHoldingTerminalLabels`).
+    width: laidOut.width,
+    height: laidOut.height,
   };
-}
-
-/**
- * The extent every drawn thing fits inside: class boxes, relationship paths,
- * and the text anchored along them. The shared core reports the extent ELK
- * gave the graph, multiplicities included where ELK put them; but the core
- * moves a multiplicity afterwards (off a frame or a line, onto its own hand
- * of the line — `placeTerminalLabels`), which can take it past that extent,
- * so the diagram measures its own extent and takes the larger.
- */
-function diagramBounds(
-  classes: PositionedClass[],
-  relationships: PositionedClassRelationship[],
-  namespaces: PositionedClassNamespace[],
-  notes: PositionedClassNote[],
-  options: LayoutOptions,
-): { width: number; height: number } {
-  let right = 0;
-  let bottom = 0;
-
-  const cover = (x: number, y: number) => {
-    right = Math.max(right, x);
-    bottom = Math.max(bottom, y);
-  };
-
-  /** Covers a box of `size` centered on `anchor`. */
-  const coverCentered = (size: { width: number; height: number }, anchor: Point) => {
-    cover(anchor.x + size.width / 2, anchor.y + size.height / 2);
-  };
-
-  /** Covers a centered run of text drawn at `anchor`. */
-  const coverText = (text: string, anchor: Point) => {
-    coverCentered(options.measureText.measure(text), anchor);
-  };
-
-  for (const box of [...classes, ...namespaces, ...notes]) {
-    cover(box.x + box.width, box.y + box.height);
-  }
-
-  for (const note of notes) {
-    for (const point of note.linkPoints ?? []) cover(point.x, point.y);
-  }
-
-  for (const rel of relationships) {
-    for (const point of rel.points) cover(point.x, point.y);
-    if (rel.label !== null) {
-      coverCentered(rel.label.labelBox, rel.label.anchor);
-    }
-    if (rel.fromMultiplicity !== null && rel.fromMultiplicityAnchor !== null) {
-      coverText(rel.fromMultiplicity, rel.fromMultiplicityAnchor);
-    }
-    if (rel.toMultiplicity !== null && rel.toMultiplicityAnchor !== null) {
-      coverText(rel.toMultiplicity, rel.toMultiplicityAnchor);
-    }
-  }
-
-  return { width: right, height: bottom };
 }

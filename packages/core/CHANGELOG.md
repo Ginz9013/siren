@@ -60,8 +60,8 @@ While the version is 0.x, a minor release may contain breaking changes.
   12's order. Multiplicities are placed by the engine beside their own end, the from end's on the
   right of the line and the to end's on its left; unlike Mermaid, Siren also moves one off any line
   or box it lands on, and keeps it at its own end of a relationship laid out turned round. Against
-  Mermaid 12.2.0 on the four class parity fixtures: 0 crossings to its 0 (was 4), 0 edges through
-  boxes (was 3), 97.4% / 100% agreement on above/below and left/right (was 53.6% / 77.8%).
+  Mermaid 12.2.0 on the three class parity fixtures: 0 crossings to its 0 (was 0), 0 edges through
+  boxes (was 1), 97.3% / 100% agreement on above/below and left/right (was 67.6% / 83.8%).
 - State and ER diagrams are unchanged: they stay on dagre until their own migration.
 - The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 

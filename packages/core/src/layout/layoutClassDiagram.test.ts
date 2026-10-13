@@ -215,10 +215,8 @@ function distanceToRect(points: Point[], rect: Rect): number {
 }
 
 /**
- * The rectangle a run of text covers when drawn centered on `anchor` — the
- * same model of a text's extent `layoutClassDiagram` uses when it measures
- * the diagram's own bounds, so this is the tests' independent yardstick for
- * "where the glyph actually lands".
+ * The rectangle a run of text covers when drawn centered on `anchor`: the
+ * tests' independent yardstick for "where the glyph actually lands".
  */
 function textBoxAt(text: string, anchor: Point): Rect {
   const size = fakeMeasurer.measure(text);

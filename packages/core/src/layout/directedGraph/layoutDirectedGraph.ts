@@ -369,11 +369,11 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   });
 
   const routeById = new Map((laidOut.edges ?? []).map((edge) => [edge.id, edge]));
-  /** One ELK edge's route and label, in the drawing's coordinates. */
-  const absoluteRoute = (id: string) => {
+  /** One ELK edge's route and label, in the drawing's coordinates: a segment `id` of the caller's edge `edgeId`. */
+  const absoluteRoute = (id: string, edgeId: string) => {
     const routed = routeById.get(id)!;
     const origin = absoluteOrigin((routed as { container?: string }).container);
-    const label = routed.labels?.find((candidate) => !isTerminalLabelText(candidate.text));
+    const label = routed.labels?.find((candidate) => terminalLabelKey(candidate, edgeId) === undefined);
     return {
       points: routeOf(routed).map((p) => ({ x: p.x + origin.x, y: p.y + origin.y })),
       labelAnchor:
@@ -383,7 +383,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     };
   };
   const edges = chains.map(({ edge, segments }, index) => {
-    const pieces = segments.map((segment) => absoluteRoute(segment.id));
+    const pieces = segments.map((segment) => absoluteRoute(segment.id, edge.id));
     const points = withoutStraightRuns(pieces.flatMap((piece) => piece.points));
     const route: DirectedGraphEdgeRoute = {
       id: edge.id,
@@ -393,7 +393,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     };
     const labelAnchor = pieces.find((piece) => piece.labelAnchor !== undefined)?.labelAnchor;
     if (edge.label !== undefined && labelAnchor !== undefined) route.labelAnchor = labelAnchor;
-    const terminals = terminalCentres(segments, routeById, absoluteOrigin);
+    const terminals = terminalCentres(edge.id, segments, routeById, absoluteOrigin);
     if (terminals !== undefined) route.terminalLabelCenters = terminals;
     return route;
   });
@@ -406,6 +406,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   );
   placeTerminalLabels(input, nodes, edges);
   placeTitlesClear(input, nodes, edges);
+  const extent = extentHoldingTerminalLabels(input, nodes, edges, { width: laidOut.width!, height: laidOut.height! });
 
   // Last, from every finished route at once: which of two crossing routes
   // carries the hop, and how large it can be, depend on both.
@@ -415,12 +416,53 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     },
   );
 
-  return {
-    nodes,
-    edges,
-    width: laidOut.width!,
-    height: laidOut.height!,
-  };
+  return { nodes, edges, ...extent };
+}
+
+/**
+ * The extent of the whole drawing once `placeTerminalLabels` has moved the
+ * terminal labels: ELK's, grown to hold every terminal label with
+ * `LAYOUT_MARGIN` of room around it. ELK keeps room for a label only where
+ * it put it; a label moved off a frame or a line, or onto its own hand of
+ * the line, can end up past that room on any side. A label past the top or
+ * the left edge moves the whole drawing right or down (`nodes` and `routes`
+ * in place) by as much, so nothing is drawn at a negative coordinate — as
+ * nothing ELK places is, inside its padding. A post-layout pass, so it lives
+ * in the core with the pass it answers (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
+ */
+function extentHoldingTerminalLabels(
+  input: DirectedGraphInput,
+  nodes: DirectedGraphNodeBox[],
+  routes: DirectedGraphEdgeRoute[],
+  laidOut: { width: number; height: number },
+): { width: number; height: number } {
+  let [left, top, right, bottom] = [0, 0, laidOut.width, laidOut.height];
+  routes.forEach((route, index) => {
+    for (const [key, centre] of Object.entries(route.terminalLabelCenters ?? {})) {
+      const box = cornersOf(centre, input.edges[index].terminalLabels![key as TerminalLabelKey]!);
+      left = Math.min(left, box.x1 - LAYOUT_MARGIN);
+      top = Math.min(top, box.y1 - LAYOUT_MARGIN);
+      right = Math.max(right, box.x2 + LAYOUT_MARGIN);
+      bottom = Math.max(bottom, box.y2 + LAYOUT_MARGIN);
+    }
+  });
+  if (left < 0 || top < 0) {
+    const move = (point: Point): Point => ({ x: point.x - left, y: point.y - top });
+    for (const box of nodes) {
+      box.x -= left;
+      box.y -= top;
+      if (box.title !== undefined) box.title = move(box.title);
+    }
+    for (const route of routes) {
+      route.points = route.points.map(move);
+      if (route.labelAnchor !== undefined) route.labelAnchor = move(route.labelAnchor);
+      for (const [key, centre] of Object.entries(route.terminalLabelCenters ?? {})) {
+        route.terminalLabelCenters![key as TerminalLabelKey] = move(centre);
+      }
+    }
+  }
+  return { width: right - left, height: bottom - top };
 }
 
 /** The id of the cluster a node sits in, or `undefined` at the diagram's top level (or for an id not given). */
@@ -1040,14 +1082,15 @@ function withLabels(labels: ElkLabel[]): { labels?: ElkLabel[] } {
 const TERMINAL_LABEL_KEYS: readonly TerminalLabelKey[] = ["startLeft", "startRight", "endLeft", "endRight"];
 
 /**
- * The text a terminal label is handed to ELK with: its key, behind a NUL no
- * caller's id can hold. ELK skips a label without text, and the text is how
- * the label is found again in ELK's answer.
+ * The id a terminal label is handed to ELK with: its edge's id and its key,
+ * joined by a NUL no caller's id holds. The id is how the label is found
+ * again in ELK's answer.
  */
-const terminalLabelText = (key: TerminalLabelKey) => `\u0000terminal\u0000${key}`;
+const terminalLabelId = (edgeId: string, key: TerminalLabelKey) => `${edgeId}\u0000${key}`;
 
-function isTerminalLabelText(text: string | undefined): boolean {
-  return text !== undefined && TERMINAL_LABEL_KEYS.some((key) => terminalLabelText(key) === text);
+/** Which terminal label of the caller's edge `edgeId` an ELK label is, or `undefined` for its centre label. */
+function terminalLabelKey(label: ElkLabel, edgeId: string): TerminalLabelKey | undefined {
+  return TERMINAL_LABEL_KEYS.find((key) => label.id === terminalLabelId(edgeId, key));
 }
 
 /**
@@ -1072,8 +1115,9 @@ function terminalElkLabels(edge: DirectedGraphEdge, turned: boolean): { tail: El
     const atTail = key.startsWith("start") !== turned;
     const margin = size.margin ?? 0;
     (atTail ? tail : head).push({
-      id: `${edge.id}\u0000${key}`,
-      text: terminalLabelText(key),
+      id: terminalLabelId(edge.id, key),
+      // ELK skips a label without text; the key will do.
+      text: key,
       width: size.width + 2 * margin,
       height: size.height + 2 * margin,
       layoutOptions: { "elk.edgeLabels.placement": atTail ? "TAIL" : "HEAD" },
@@ -1089,6 +1133,7 @@ function terminalElkLabels(edge: DirectedGraphEdge, turned: boolean): { tail: El
  * the label's centre; a label ELK left at the origin is not placed.
  */
 function terminalCentres(
+  edgeId: string,
   segments: readonly ElkExtendedEdge[],
   routeById: ReadonlyMap<string, ElkExtendedEdge>,
   absoluteOrigin: (containerId: string | undefined) => Point,
@@ -1098,7 +1143,7 @@ function terminalCentres(
     const routed = routeById.get(segment.id)!;
     const origin = absoluteOrigin((routed as { container?: string }).container);
     for (const label of routed.labels ?? []) {
-      const key = TERMINAL_LABEL_KEYS.find((candidate) => terminalLabelText(candidate) === label.text);
+      const key = terminalLabelKey(label, edgeId);
       if (key === undefined || (!label.x && !label.y)) continue;
       (centres ??= {})[key] = {
         x: origin.x + label.x! + label.width! / 2,
@@ -1245,7 +1290,7 @@ function placeTerminalLabels(
 
   for (const { route, edgeIndex, key, centre, size, atStart, segment, from, to, length } of placed()) {
     const where = cornersOf(centre, size);
-    if (!hitsFrame(where) && !blocked(where, edgeIndex, key, segment)) continue;
+    if (!blocked(where, edgeIndex, key, segment)) continue;
     const [far, end] = atStart ? [to, from] : [from, to];
     const dir = { x: (end.x - far.x) / length, y: (end.y - far.y) / length };
     const halfExtent = (Math.abs(dir.x) * size.width + Math.abs(dir.y) * size.height) / 2;

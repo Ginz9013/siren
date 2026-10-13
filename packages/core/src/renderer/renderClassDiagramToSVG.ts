@@ -9,7 +9,7 @@ import type {
   PositionedClassRelationship,
   StyleProperty,
 } from "../contracts";
-import { CLASS_CONNECTOR_CURVE } from "../layout/layoutClassDiagram";
+import { CLASS_CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
