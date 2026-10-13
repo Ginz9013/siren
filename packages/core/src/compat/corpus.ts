@@ -7649,8 +7649,8 @@ line2\`"]`,
     meaning:
       "A cluster inside a cluster, with the **outer** one carrying the " +
       "`direction` — the shape that drew an entire NaN diagram with zero " +
-      "diagnostics before `01M2XJWM4` (`UnplacedNodesError` names it by " +
-      "id). Measured, mermaid accepts it: `getSubGraphs()` answers " +
+      "diagnostics before `01M2XJWM4` (whose guard, removed with the dagre " +
+      "core, named it by id). Measured, mermaid accepts it: `getSubGraphs()` answers " +
       "`[{id:\"inner\", nodes:[\"A\",\"B\"]}, {id:\"outer\", " +
       "nodes:[\"inner\",\"C\"], dir:\"LR\"}]` — in *closing* order, with the " +
       "inner block listed as a member of the outer one — and `getData()` " +
@@ -7744,8 +7744,8 @@ line2\`"]`,
       "picture to notice. Refused by name instead, at the header, because " +
       "the construct is the *sharing* and neither half is wrong alone. " +
       "Its exit is implementation: an endpoint that resolves to a frame, " +
-      "which `layoutDirectedGraph` already routes through a representative " +
-      "member (`fc-subgraph-edge` is the flowchart's row for it).",
+      "which `layoutDirectedGraph` already routes to the frame itself " +
+      "(`fc-subgraph-edge` is the flowchart's row for it).",
   },
   {
     id: "er-subgraph-style",

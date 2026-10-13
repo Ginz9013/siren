@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 // cannot read. No document is known to reach that path — the shared layout
 // core only ever names nodes it declared — so this is the one way to show
 // what an author would see if one ever did.
-vi.mock("./layout/directedGraph/elkSync", async (importActual) => {
-  const actual = await importActual<typeof import("./layout/directedGraph/elkSync")>();
+vi.mock("./layout/elkSync", async (importActual) => {
+  const actual = await importActual<typeof import("./layout/elkSync")>();
   return {
     ...actual,
     layoutWithElk: () => {

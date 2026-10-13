@@ -41,8 +41,9 @@ export interface Diagnostic {
  * Mermaid's alias for `TB` and is normalized away by the parser (see
  * `normalizeDirection`), so nothing downstream ever sees it.
  *
- * `layoutDirectedGraph` takes this type directly as its `rankdir` — the four
- * values are dagre's own, so there is nothing left to map.
+ * `layoutDirectedGraph` takes this type directly as its `direction`, and maps
+ * the four values onto ELK's own (`DOWN`, `UP`, `RIGHT`, `LEFT`) in one
+ * table, as Mermaid's `dir2ElkDirection` does.
  */
 export type Direction = "TB" | "BT" | "LR" | "RL";
 
@@ -192,10 +193,11 @@ export interface SirenEdge {
    * for `---->`.
    *
    * The one part of an arrow token that is not about drawing. Mermaid
-   * counts the dashes (or the dots) and hands the result to dagre as
-   * `minlen`; measured, `A --> B` is `length=1` and `A ----> B` is
-   * `length=3`, and the drawn diagram differs because the target sits
-   * further down the rank order. Named for what it means to the layout
+   * counts the dashes (or the dots) into the edge's `length`; measured,
+   * `A --> B` is `length=1` and `A ----> B` is `length=3`. Mermaid 12 on ELK
+   * then drops it and draws `---->` as `-->`; Siren keeps it, and the shared
+   * layout core holds the target that many layers further down (a departure
+   * the core documents, `chainOf`). Named for what it means to the layout
    * rather than for the characters it was counted from.
    */
   minLength: number;
@@ -1146,11 +1148,9 @@ export interface GraphNode {
    *
    * `null` rather than absent, the empty-not-absent rule `style` and `shape`
    * already follow. It matters more here than usual: this field is what
-   * `layoutGraph` turns into dagre's cluster parentage, and dagre's compound
-   * mode is switched on by the *presence* of parentage. A field that could
-   * be `undefined`-but-set would be an easy way to switch compound mode on
-   * for a document with no subgraph at all, which moves every diagram that
-   * has none.
+   * `layoutGraph` turns into the layout core's cluster parentage, so a field
+   * that could be `undefined`-but-set would be an easy way to hand the core a
+   * parent that is not there.
    */
   parentId: string | null;
   /**
@@ -1259,7 +1259,7 @@ export interface GraphEdge {
    * `null`-not-empty rule are described in full.
    *
    * Read by layout as well as by the renderer, which is what makes it
-   * unlike the three axes above: a label is a box dagre has to keep clear,
+   * unlike the three axes above: a label is a box the layout has to keep clear,
    * so it changes where the edge goes and not only what is drawn on it.
    */
   label: Label | null;
@@ -1338,7 +1338,7 @@ export interface GraphModel {
   /**
    * Every `subgraph` the document declared, flattened into source order.
    * Empty when it declared none — and *only* then, which is what keeps a
-   * diagram with no grouping out of dagre's compound mode.
+   * diagram with no grouping free of clusters in the layout core.
    */
   subgraphs: ResolvedSubgraph[];
   /** Carried through unchanged from `FlowchartDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
@@ -1434,8 +1434,7 @@ export interface LayoutOptions {
  * A node with layout-assigned position and size.
  *
  * `x`/`y` are the top-left corner of the bounding box (matches SVG `<rect x y>`
- * directly) — not the center. `layoutGraph` is responsible for converting from
- * dagre's center-based coordinates before returning.
+ * directly) — not the center, as the shared layout core reports every box.
  */
 export interface PositionedNode extends GraphNode {
   x: number;
@@ -1467,8 +1466,8 @@ export interface PositionedEdge extends Omit<GraphEdge, "label"> {
    * `GraphEdge.label`, wrapped and placed: the label as drawn — its rows
    * after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
    * label-wrap ADR, nook `01M4R4WDZ`), so it may hold more rows than the
-   * author wrote — the box measured for those rows, which is the box dagre
-   * was asked to keep clear, and the centre of the space layout kept clear
+   * author wrote — the box measured for those rows, which is the box the
+   * layout was asked to keep clear, and the centre of the space layout kept clear
    * for it. `null` when the edge carries no label and asked for none.
    *
    * The anchor is reported by the layout rather than computed by the
@@ -2147,7 +2146,13 @@ export interface PositionedClassNote {
   height: number;
   /** The connector path to the class this note is attached to; `null` for a free note. */
   linkPoints: Point[] | null;
-  /** The connector's **line hops**, as on `PositionedEdge.hops`. Absent reads as none. */
+  /**
+   * The connector's **line hops**, as on `PositionedEdge.hops`, numbered along
+   * `linkPoints`. Absent reads as none. The same field a state note calls
+   * `PositionedStateNote.connectorHops`: each kind's hops are named after its
+   * own point list, and both come from one note handover in layout
+   * (`layout/notes.ts`).
+   */
   linkHops?: LineHop[];
 }
 
@@ -2844,7 +2849,9 @@ export interface PositionedStateNote {
   connector: Point[];
   /**
    * The connector's **line hops**, as on `PositionedEdge.hops`, numbered
-   * along `connector` (state to note). Absent reads as none.
+   * along `connector` (state to note). Absent reads as none. The same field
+   * a class note calls `PositionedClassNote.linkHops`, named after its own
+   * point list as this one is.
    */
   connectorHops?: LineHop[];
 }

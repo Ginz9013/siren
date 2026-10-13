@@ -18,9 +18,11 @@ import {
   type DirectedGraphEdgeRoute,
   type DirectedGraphNode,
   type DirectedGraphNodeBox,
-} from "./directedGraph/layoutDirectedGraph";
+} from "./layoutDirectedGraph";
+import { SUBGRAPH_PADDING } from "./clusters";
+import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 
-import { STATE_CONNECTOR_CURVE, curveCornerRadius } from "../curve/curve";
+import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { plainLabel } from "../label/label";
 import {
   NO_WRAP,
@@ -29,9 +31,6 @@ import {
   wrapNodeLabel,
   type WrappedLabel,
 } from "../label/wrapLabel";
-
-/** The core's `cornerRadius` for a transition or note link: the radius `STATE_CONNECTOR_CURVE` rounds its corners with. */
-const CONNECTOR_CORNER_RADIUS = curveCornerRadius(STATE_CONNECTOR_CURVE);
 
 /** Horizontal padding between a state box's edge and its widest label. */
 const STATE_PADDING_X = 14;
@@ -98,15 +97,13 @@ const forkBarBox = (direction: Direction): { width: number; height: number } =>
 /**
  * Gap between a composite state's frame and the boxes and frames it
  * encloses, and the margin above and below its own title inside the strip
- * along its top.
- *
- * The same number `layoutGraph` pads a subgraph's frame by, because it is
- * the same figure: measured with `--markup`, mermaid 11.17.2 draws a
- * composite as a titled frame exactly as it draws a flowchart subgraph.
- * Which pixel count it is remains Siren's (ADR-0004), but one grouping frame
- * padded differently from the other would read as two constructs.
+ * along its top: the shared `SUBGRAPH_PADDING`, because it is the same
+ * figure — measured with `--markup`, Mermaid draws a composite as a titled
+ * frame exactly as it draws a flowchart subgraph. Named here too because a
+ * composite's title strip is planned with it (`planTitleStrip`) as well as
+ * handed to the core.
  */
-const COMPOSITE_PADDING = 12;
+const COMPOSITE_PADDING = SUBGRAPH_PADDING;
 
 /**
  * Whether this kind of state is drawn as a **frame** — a cluster the shared
@@ -130,26 +127,14 @@ const isFrame = (kind: ResolvedState["kind"]): boolean =>
  */
 const NESTED_DIRECTION: Direction = "TB";
 
-/** Horizontal padding between a note box's edge and its text. */
-const NOTE_PADDING_X = 10;
-/** Vertical padding between a note box's edge and its text. */
-const NOTE_PADDING_Y = 8;
-
 /**
- * The id a state's note is known by inside the shared layout core, and the
- * id of the edge joining the two.
+ * A state carrying a note, with the note's label wrapped and measured.
  *
- * Prefixed away from everything a document can spell, the way
- * `layoutClassDiagram`'s `note:`/`note-link:` ids are: an authored state id
- * is `\w+` and cannot contain a colon, and a generated pseudo-state id is
- * `start:1`, so neither can collide with these. A state carries **at most
- * one** note (measured — a second one replaces the first), so the state's own
- * id is enough to name both without a counter.
+ * The note is keyed by the state's own id inside the shared layout core
+ * (`noteNodeId`, `noteLinkEdgeId`): a state carries **at most one** note
+ * (measured — a second one replaces the first), so the state's id is enough
+ * to name both the note and its link without a counter.
  */
-const noteNodeId = (stateId: string): string => `note:${stateId}`;
-const noteLinkEdgeId = (stateId: string): string => `note-link:${stateId}`;
-
-/** A state carrying a note, with the note's label wrapped and measured. */
 type NotedState = { state: ResolvedState; note: StateNote } & WrappedLabel;
 
 /**
@@ -162,7 +147,7 @@ const isLeftOf = (note: StateNote): boolean => note.position === "left of";
  * Computes state boxes and transition paths for a resolved `StateModel`.
  *
  * This is the state-diagram adapter over the shared ELK layout core
- * (`directedGraph/layoutDirectedGraph`): it measures each state's label,
+ * (`layoutDirectedGraph`): it measures each state's label,
  * hands the resulting sizes to the core — composites and concurrent regions
  * as clusters, notes as boxes of their own, in Mermaid 12.2.0's order — and
  * reattaches the state diagram's own data to the coordinates that come back.
@@ -261,8 +246,7 @@ export function layoutStateDiagram(
    */
   const noteNode = ({ state, labelBox }: NotedState): DirectedGraphNode => ({
     id: noteNodeId(state.id),
-    width: labelBox.width + NOTE_PADDING_X * 2,
-    height: labelBox.height + NOTE_PADDING_Y * 2,
+    ...noteBoxSize(labelBox),
     ...(state.parentId === null ? {} : { parentId: state.parentId }),
   });
 
@@ -277,7 +261,7 @@ export function layoutStateDiagram(
       ? {}
       : { label: wrappedTransitionLabelById.get(transition.id)!.labelBox }),
     // The radius the line hops keep clear of: a transition is drawn rounded
-    // (`STATE_CONNECTOR_CURVE`).
+    // (`CONNECTOR_CURVE`).
     cornerRadius: CONNECTOR_CORNER_RADIUS,
   });
 

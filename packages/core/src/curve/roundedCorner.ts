@@ -4,7 +4,7 @@
  *
  * A neutral module, beside `curve.ts`, because two sides read the same
  * numbers: the renderer (`renderer/connectorCurve.ts`) draws the corner, and
- * the layout core's line hops (`layout/directedGraph/lineHops.ts`) keep clear
+ * the layout core's line hops (`layout/lineHops.ts`) keep clear
  * of it. One definition here means the corner drawn and the corner kept
  * clear cannot drift apart, and neither side depends on the other.
  */

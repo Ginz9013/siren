@@ -5,8 +5,7 @@ import { layoutSequence } from "./layout/layoutSequence";
 import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { layoutStateDiagram } from "./layout/layoutStateDiagram";
 import { layoutErDiagram } from "./layout/layoutErDiagram";
-import { UnplacedNodesError } from "./layout/layoutDirectedGraph";
-import { LayoutEngineError } from "./layout/directedGraph/elkSync";
+import { LayoutEngineError } from "./layout/elkSync";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
@@ -124,7 +123,7 @@ const defaultMeasurer: TextMeasurer = {
  * debugs it by asking what that context returns for *that text*. A node id
  * would point at the one place the fault is not.
  *
- * A thrown error rather than a diagnostic for the reason `UnplacedNodesError`
+ * A thrown error rather than a diagnostic for the reason `LayoutEngineError`
  * is: a size that is not a number is not a local problem. It propagates
  * through every box, bound and route computed from it and takes the whole
  * picture with it, so the layout module it is raised inside has no partial
@@ -159,9 +158,9 @@ class UnmeasurableTextError extends Error {
  * in the pipeline, and all five receive it from this one resolution — so
  * wrapping it once covers every call any of them will ever make, including
  * calls in modules written later, and there is no fifth copy of the predicate
- * to drift. It is the input-side twin of the check `layoutDirectedGraph` makes
- * on the engine's answer: one guards what we are told, the other what we are
- * given back.
+ * to drift. It is the input-side twin of `LayoutEngineError`, which the
+ * layout core raises when the engine refuses the graph: one guards what we
+ * are told, the other what we are given back.
  */
 function refusingBadMeasurements(measureText: TextMeasurer): TextMeasurer {
   return {
@@ -307,13 +306,12 @@ type LayoutAttempt<T> =
 
 /**
  * Runs one layout stage, turning the failures it is allowed to have into
- * the error-severity diagnostic an author sees: `UnplacedNodesError`, the
- * dagre engine not placing a node; `LayoutEngineError`, ELK rejecting the
- * graph it was handed (see `layout/directedGraph/elkSync.ts`); and
+ * the error-severity diagnostic an author sees: `LayoutEngineError`, ELK
+ * rejecting the graph it was handed (see `layout/elkSync.ts`), and
  * `UnmeasurableTextError`, the caller's measurer not sizing a string (see
  * each type). They are the two ends of the same stage — what layout was told,
- * and what layout was told back — and none leaves a partial picture behind,
- * so all three convert here.
+ * and what layout was told back — and neither leaves a partial picture
+ * behind, so both convert here.
  *
  * **Everything else is rethrown, deliberately.** A bare `catch` here would
  * report this package's own bugs as if they were defects in the author's
@@ -333,7 +331,6 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
     return { placed: true, value: run() };
   } catch (error) {
     if (
-      error instanceof UnplacedNodesError ||
       error instanceof LayoutEngineError ||
       error instanceof UnmeasurableTextError
     ) {
@@ -408,7 +405,7 @@ export function render(
   // this branch is about to lay out.
   if (graphResult.kind === "er") {
     // The fifth layout call site, held to the same terms as the four below
-    // it: it reaches the shared core, so `UnplacedNodesError` is possible in
+    // it: it reaches the shared core, so `LayoutEngineError` is possible in
     // principle, and a consumer's measurer can refuse a name here exactly as
     // it can refuse a label anywhere else.
     const erModel = graphResult.model;

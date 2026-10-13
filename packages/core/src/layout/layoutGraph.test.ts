@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GraphModel, TextMeasurer } from "../contracts";
-import { layoutDirectedGraph } from "./directedGraph/layoutDirectedGraph";
+import { layoutDirectedGraph } from "./layoutDirectedGraph";
 import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { readLabel } from "../label/readLabel";
 import { layoutGraph } from "./layoutGraph";

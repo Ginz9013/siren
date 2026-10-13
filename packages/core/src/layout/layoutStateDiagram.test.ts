@@ -869,11 +869,11 @@ describe("layoutStateDiagram", () => {
 
   it("places every node of a region carrying a direction that holds a nested composite", () => {
     // **The shape that produced `01M2WQV0`**: a cluster carrying a
-    // `rankdir` whose direct child is another cluster. The layout engine
-    // expands such a cluster exactly one level, leaving the nested frame
+    // `rankdir` whose direct child is another cluster. The dagre engine
+    // expanded such a cluster exactly one level, leaving the nested frame
     // unexpanded and everything inside it without coordinates — which used
-    // to be a whole board of NaN with no diagnostic and is now
-    // `UnplacedNodesError`.
+    // to be a whole board of NaN with no diagnostic, and then an error
+    // diagnostic from the dagre core's guard.
     //
     // A concurrent region reaches that shape on ordinary input, because a
     // region may both declare a `direction` of its own (measured — the
@@ -939,7 +939,7 @@ describe("layoutStateDiagram", () => {
       expect(run, name).not.toThrow();
       const laid = run();
       // Not merely "it did not throw": every box has four finite numbers,
-      // which is what `UnplacedNodesError` is a guard against, and the
+      // which is what the dagre core's guard once checked for, and the
       // canvas covers them.
       for (const state of laid.states) {
         for (const value of [state.x, state.y, state.width, state.height]) {

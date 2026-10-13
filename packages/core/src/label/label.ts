@@ -230,7 +230,7 @@ export const CONNECTOR_LABEL_SCALE = CONNECTOR_LABEL_FONT_SIZE_PX / BASE_FONT_SI
 /**
  * `measureText` answering for text set at a connector label's 12px rather
  * than the 14px it measures at — what each of the four connector adapters
- * measures a connector's label with, so the room dagre keeps on the line is
+ * measures a connector's label with, so the room the layout keeps on the line is
  * the size the label is drawn at.
  *
  * **Scaled, because `TextMeasurer` cannot be asked about a font size.** Its

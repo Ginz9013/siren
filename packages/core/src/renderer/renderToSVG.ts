@@ -396,7 +396,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  * element the theme's own coverage check then has to account for.
  *
  * The anchor is used exactly as layout reported it. It is the centre of the
- * box dagre kept clear, which is *not* the middle of the route — a renderer
+ * box the layout kept clear, which is *not* the middle of the route — a renderer
  * that recomputed a mid-point from `points` would draw the text across the
  * line the space was reserved beside.
  */

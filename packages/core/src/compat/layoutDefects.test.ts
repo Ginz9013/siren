@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CURVE } from "../curve/curve";
+import type { Curve } from "../curve/curve";
 import { buildGraphModel } from "../graph-model/buildGraphModel";
 import { render } from "../index";
 import { parseSiren } from "../parser/parseSiren";
@@ -34,13 +34,20 @@ function frame(title: string, x: number, y: number, width: number, height: numbe
 }
 
 /**
- * A flowchart edge as the renderer draws one: its route as the default
+ * The curve these hand-built fixtures draw their routes with: `basis`, the
+ * flowchart's default when the fixtures were written. Only the `d` it
+ * produces depends on it; every check here reads `data-siren-points`.
+ */
+const FIXTURE_CURVE: Curve = "basis";
+
+/**
+ * A flowchart edge as the renderer draws one: its route as the fixtures'
  * `basis` curve in `d`, and the route itself in `data-siren-points`.
  */
 function edge(id: string, points: [number, number][]): string {
   const route = points.map(([x, y]) => ({ x, y }));
   return (
-    `<path class="siren-edge" data-siren-id="${id}" d="${connectorPathData(route, DEFAULT_CURVE)}" ` +
+    `<path class="siren-edge" data-siren-id="${id}" d="${connectorPathData(route, FIXTURE_CURVE)}" ` +
     `data-siren-points="${points.map(([x, y]) => `${x},${y}`).join(" ")}"/>`
   );
 }
@@ -113,7 +120,7 @@ describe("straightBoundaryCrossingEdges", () => {
 
   it("does not name a straight edge from outside that names the group itself", () => {
     // Neither end is among the group's members: the group keeps its
-    // direction, and dagre routes such an edge as one between two frames.
+    // direction, and the layout routes such an edge as one between two frames.
     const svg = svgOf(
       frame("one", 0, 0, 100, 100) + edge("X-one", [[150, 50], [100, 50]]),
     );

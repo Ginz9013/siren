@@ -4,15 +4,11 @@ import type {
   NodeShape,
   PositionedGraph,
   PositionedSubgraph,
-  ResolvedSubgraph,
 } from "../contracts";
 import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
-import { layoutDirectedGraph } from "./directedGraph/layoutDirectedGraph";
-import { layoutLabel } from "../label/layoutLabel";
+import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame } from "./clusters";
 import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
-
-/** Gap between a subgraph's frame and the boxes and frames it encloses. */
-const SUBGRAPH_PADDING = 12;
 
 /**
  * How far a shape's outline leans in from the bounding box it is inscribed
@@ -253,11 +249,7 @@ export function layoutGraph(
 
   // A subgraph's title is measured once too, for the same two readers: the
   // title band the core keeps in the frame, and the renderer.
-  // Never wrapped: Mermaid draws a subgraph's title as plain text, which it
-  // does not wrap (the label-wrap ADR, nook `01M4R4WDZ`).
-  const titleBoxById = new Map(
-    graph.subgraphs.map((subgraph) => [subgraph.id, layoutLabel(subgraph.label, options.measureText)]),
-  );
+  const titleBoxById = measureTitles(graph.subgraphs, options.measureText);
 
   // At the 12px an edge label is drawn at, not the node's 14px, and wrapped
   // at Mermaid's 200px scaled to that size (the label-wrap ADR, nook
@@ -271,7 +263,7 @@ export function layoutGraph(
 
   const laidOut = layoutDirectedGraph({
     direction: graph.direction,
-    // Subgraphs before boxes, in Mermaid's order — see `mermaidGroupOrder`.
+    // Subgraphs before boxes, in Mermaid's order — see `mermaidClosingOrder`.
     // The core keeps the order it is handed (ELK's `considerModelOrder`), so
     // this order is a decision about the picture, not bookkeeping.
     nodes: [
@@ -290,20 +282,17 @@ export function layoutGraph(
       // guard is already discharged one stage earlier, in the stronger form:
       // unconstructible rather than avoided. Prefixing again would only
       // produce `subgraph:subgraph:1`.
-      ...mermaidGroupOrder(graph.subgraphs).map((subgraph) => ({
-        id: subgraph.id,
-        width: 0,
-        height: 0,
-        ...(subgraph.parentId === null ? {} : { parentId: subgraph.parentId }),
-        cluster: {
-          padding: SUBGRAPH_PADDING,
+      ...mermaidClosingOrder(graph.subgraphs).map((subgraph) =>
+        clusterNode({
+          id: subgraph.id,
+          parentId: subgraph.parentId,
           title: titleBoxById.get(subgraph.id)!,
           // The subgraph's own `direction LR` (or `TB`/`BT`/`RL`). Whether
           // it holds is the core's to decide, by Mermaid's rule (see
           // `voidedDirections`).
-          ...(subgraph.direction === null ? {} : { direction: subgraph.direction }),
-        },
-      })),
+          direction: subgraph.direction,
+        }),
+      ),
       ...graph.nodes.map((node) => ({
         id: node.id,
         // The shape decides how much box the measured label needs; the
@@ -376,17 +365,10 @@ export function layoutGraph(
 
   // Back into the model's own order — outermost first, which is the order
   // they are drawn in so that an inner frame is painted over its parent.
-  const subgraphs = graph.subgraphs.map<PositionedSubgraph>((subgraph) => {
-    const frame = boxById.get(subgraph.id)!;
-    return {
-      id: subgraph.id,
-      x: frame.x,
-      y: frame.y,
-      width: frame.width,
-      height: frame.height,
-      label: { label: subgraph.label, labelBox: titleBoxById.get(subgraph.id)!, anchor: frame.title! },
-    };
-  });
+  const subgraphs = graph.subgraphs.map<PositionedSubgraph>((subgraph) => ({
+    id: subgraph.id,
+    ...placedFrame(boxById.get(subgraph.id)!, subgraph.label, titleBoxById.get(subgraph.id)!),
+  }));
 
   return {
     direction: graph.direction,
@@ -398,34 +380,4 @@ export function layoutGraph(
     width: laidOut.width,
     height: laidOut.height,
   };
-}
-
-/**
- * The subgraphs in the order Mermaid hands them to ELK: Mermaid 12.2.0's
- * `FlowDB.getData` (`chunk-LJKG65JO.mjs`) lists every subgraph before any
- * vertex, walking its subgraph list **backwards** — and that list is in the
- * order the subgraphs *closed*, because its parser records a subgraph when
- * it reduces the `end`. So an inner subgraph precedes its parent there, and
- * reversed, a parent precedes its children and the last sibling the first.
- *
- * This is how the frames come out in Mermaid's picture, not a choice made
- * here. Measured in headless Chrome against Mermaid 12.2.0: `subgraph SA`,
- * `subgraph SB`, then a node `X` — Mermaid draws SB, SA, X from left to
- * right, whether `X` is declared first or last; three subgraphs nested
- * `O { I1 { A }, I2 { B }, C }` come out C, I2, I1 inside O.
- *
- * Siren's own list is in the order the keywords *opened* (ADR-0010's
- * `subgraph:1`, `subgraph:2`, …), parents before children. The closing order
- * is that tree walked children-first.
- */
-function mermaidGroupOrder(subgraphs: readonly ResolvedSubgraph[]): ResolvedSubgraph[] {
-  const closed: ResolvedSubgraph[] = [];
-  const close = (parentId: string | null) => {
-    for (const subgraph of subgraphs.filter((candidate) => candidate.parentId === parentId)) {
-      close(subgraph.id);
-      closed.push(subgraph);
-    }
-  };
-  close(null);
-  return closed.reverse();
 }

@@ -16,7 +16,7 @@ import type {
   Label,
   LabelBox,
 } from "../contracts";
-import { CLASS_CONNECTOR_CURVE, curveCornerRadius } from "../curve/curve";
+import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { atConnectorLabelSize, plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
@@ -24,21 +24,14 @@ import {
   layoutDirectedGraph,
   type DirectedGraphNodeBox,
   type DirectedGraphTerminalLabel,
-} from "./directedGraph/layoutDirectedGraph";
-
-/** The core's `cornerRadius` for a class connector: the radius `CLASS_CONNECTOR_CURVE` rounds its corners with. */
-const CONNECTOR_CORNER_RADIUS = curveCornerRadius(CLASS_CONNECTOR_CURVE);
+} from "./layoutDirectedGraph";
+import { clusterNode, measureTitles, placedFrame } from "./clusters";
+import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 
 /** Horizontal padding between a class box's edge and its widest text line. */
 const CLASS_PADDING_X = 12;
 /** Vertical padding between a compartment's edge and its first/last text line. */
 const CLASS_PADDING_Y = 8;
-/** Gap between a namespace frame and the member boxes it encloses. */
-const NAMESPACE_PADDING = 12;
-/** Horizontal padding between a note box's edge and its text. */
-const NOTE_PADDING_X = 10;
-/** Vertical padding between a note box's edge and its text. */
-const NOTE_PADDING_Y = 8;
 /**
  * Padding around a lollipop's interface label, reserving just enough room
  * for the layout core to keep the label clear of its neighbours — the label
@@ -298,28 +291,10 @@ function namespaceNodeId(id: string): string {
 }
 
 /**
- * The id a note is known by inside the shared layout core. Prefixed for the
- * same reason a namespace's is: note ids and class ids are separate id spaces
- * in a `ClassModel`.
- */
-function noteNodeId(id: string): string {
-  return `note:${id}`;
-}
-
-/**
- * The id of the edge joining an attached note to its class. Prefixed away
- * from the `${from}-${to}` ids relationships carry, so a note's connector is
- * never mistaken for one of them.
- */
-function noteLinkEdgeId(id: string): string {
-  return `note-link:${id}`;
-}
-
-/**
  * Computes class boxes and relationship paths for a resolved `ClassModel`.
  *
  * This is the class-diagram adapter over the shared ELK layout core
- * (`directedGraph/layoutDirectedGraph`): it measures every line a class box
+ * (`layoutDirectedGraph`): it measures every line a class box
  * draws, hands the resulting sizes to the core — namespaces as clusters,
  * multiplicities as terminal labels, in Mermaid 12.2.0's order — and
  * reattaches the class diagram's own data to the coordinates that come back.
@@ -365,13 +340,12 @@ export function layoutClassDiagram(
   );
 
   /**
-   * Each framed namespace's label as `layoutLabel` measured it, by the
-   * namespace's id — measured once, so the title band the core keeps in the
-   * frame and the box the renderer draws in are the same box. Never wrapped,
-   * as a subgraph's title is not.
+   * Each framed namespace's title, measured once (`measureTitles`), by the
+   * namespace's id.
    */
-  const namespaceLabelBoxById = new Map(
-    groups.map(({ ns }) => [ns.id, layoutLabel(ns.label, options.measureText)] as const),
+  const namespaceLabelBoxById = measureTitles(
+    groups.map(({ ns }) => ns),
+    options.measureText,
   );
 
   /**
@@ -413,15 +387,12 @@ export function layoutClassDiagram(
       // and places the frame — around its members, its padding and a band
       // for its title — and nothing here moves a box or a frame afterwards
       // (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
-      ...groups.map((group) => ({
-        id: namespaceNodeId(group.ns.id),
-        width: 0,
-        height: 0,
-        cluster: {
-          padding: NAMESPACE_PADDING,
+      ...groups.map((group) =>
+        clusterNode({
+          id: namespaceNodeId(group.ns.id),
           title: namespaceLabelBoxById.get(group.ns.id)!,
-        },
-      })),
+        }),
+      ),
       ...model.classes.map((cls) => {
         const plan = planById.get(cls.id)!;
         const namespaceId = namespaceIdByClassId.get(cls.id);
@@ -436,14 +407,10 @@ export function layoutClassDiagram(
       }),
       // A note is a box the layout places like any other, which is what keeps
       // it from landing on top of a class.
-      ...model.notes.map((note) => {
-        const labelBox = noteLabelBoxById.get(note.id)!;
-        return {
-          id: noteNodeId(note.id),
-          width: labelBox.width + NOTE_PADDING_X * 2,
-          height: labelBox.height + NOTE_PADDING_Y * 2,
-        };
-      }),
+      ...model.notes.map((note) => ({
+        id: noteNodeId(note.id),
+        ...noteBoxSize(noteLabelBoxById.get(note.id)!),
+      })),
       // A lollipop's interface label (`buildClassModel` already minted its
       // id onto `rel.from`/`rel.to`) is placed the same way a note is: its
       // own node in the layout graph, sized from its measured text, so two
@@ -491,7 +458,7 @@ export function layoutClassDiagram(
           ? {}
           : { label: wrappedRelationshipLabelById.get(rel.id)!.labelBox }),
         // The radius the line hops keep clear of: the connector is drawn
-        // rounded (`CLASS_CONNECTOR_CURVE`).
+        // rounded (`CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,
         // The multiplicities, as Mermaid 12.2.0's `ClassDB.getData` hands
         // them over (`classDiagram-v2-K6ZTA64I.mjs`, line 1910): the from
@@ -519,17 +486,10 @@ export function layoutClassDiagram(
 
   // Back into the model's own order, each frame and its title where the core
   // put them.
-  const namespaces = groups.map<PositionedClassNamespace>(({ ns }) => {
-    const frame = boxById.get(namespaceNodeId(ns.id))!;
-    return {
-      id: ns.id,
-      label: { label: ns.label, labelBox: namespaceLabelBoxById.get(ns.id)!, anchor: frame.title! },
-      x: frame.x,
-      y: frame.y,
-      width: frame.width,
-      height: frame.height,
-    };
-  });
+  const namespaces = groups.map<PositionedClassNamespace>(({ ns }) => ({
+    id: ns.id,
+    ...placedFrame(boxById.get(namespaceNodeId(ns.id))!, ns.label, namespaceLabelBoxById.get(ns.id)!),
+  }));
 
   /**
    * Each styled class's declarations, keyed for lookup below.
@@ -639,8 +599,8 @@ export function layoutClassDiagram(
   const notes = model.notes.map<PositionedClassNote>((note) => {
     const box = boxById.get(noteNodeId(note.id))!;
     // The joining edge was routed from the note to the class, the way the
-    // connector is drawn.
-    const link = attachedNoteIds.has(note.id) ? routeById.get(noteLinkEdgeId(note.id))!.points : null;
+    // connector is drawn: its route and its line hops are the connector's.
+    const link = attachedNoteIds.has(note.id) ? routeById.get(noteLinkEdgeId(note.id))! : null;
     return {
       id: note.id,
       label: note.label,
@@ -649,8 +609,8 @@ export function layoutClassDiagram(
       y: box.y,
       width: box.width,
       height: box.height,
-      linkPoints: link,
-      ...(link === null ? {} : { linkHops: routeById.get(noteLinkEdgeId(note.id))!.hops }),
+      linkPoints: link === null ? null : link.points,
+      ...(link === null ? {} : { linkHops: link.hops }),
     };
   });
 

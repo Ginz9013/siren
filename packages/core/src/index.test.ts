@@ -5147,9 +5147,10 @@ Alice-)Bob: open
 
     // --- the length, which no drawing of one edge can show ---
     //
-    // `Deploy ----> Archive` is `length=3` to Mermaid and reaches dagre as
-    // `minlen`, so the archive sits further down the rank order than the
-    // monitor a plain `<-->` put one rank below the same node. A comparison
+    // `Deploy ----> Archive` is `length=3` to Mermaid, and Siren's layout
+    // core holds its ends three layers apart, so the archive sits further
+    // down the rank order than the monitor a plain `<-->` put one rank below
+    // the same node. A comparison
     // inside one picture, between two edges leaving one node, so no number
     // from outside it is involved.
     const nodeBox = (
@@ -6947,7 +6948,7 @@ const measurableSources = {
  * The assertion these sources feed is "the diagnostic names the text that
  * could not be measured". Where a label happens to *be* an id, that assertion
  * also passes for a diagnostic naming ids instead of text — and this pipeline
- * has one of those: `UnplacedNodesError` lists node ids. A source whose label
+ * had one of those: the dagre core's guard listed node ids. A source whose label
  * and id are the same string cannot tell the two messages apart, so it would
  * pass whichever one arrived. Only `class` still has that shape, because
  * Mermaid's class syntax has no alias form to separate them with; the other

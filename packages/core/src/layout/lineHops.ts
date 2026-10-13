@@ -45,8 +45,8 @@
  * and the hop a crossing assigned to it is simply not drawn — Mermaid's
  * behaviour too.
  */
-import type { LineHop, Point } from "../../contracts";
-import { cornerCut } from "../../curve/roundedCorner";
+import type { LineHop, Point } from "../contracts";
+import { cornerCut } from "../curve/roundedCorner";
 
 /** A route as the hop rule reads it. */
 export interface HopRoute {

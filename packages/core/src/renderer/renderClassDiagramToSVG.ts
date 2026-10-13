@@ -9,7 +9,7 @@ import type {
   PositionedClassRelationship,
   StyleProperty,
 } from "../contracts";
-import { CLASS_CONNECTOR_CURVE } from "../curve/curve";
+import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -189,9 +189,9 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-relationship-line");
-  // Rounded, with the line hops the layout found (`CLASS_CONNECTOR_CURVE`:
+  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`:
   // the curve layout kept the hops clear of).
-  drawConnectorRoute(line, relationship.points, CLASS_CONNECTOR_CURVE, relationship.hops);
+  drawConnectorRoute(line, relationship.points, CONNECTOR_CURVE, relationship.hops);
   // Explicit, not left to CSS: a relationship's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
   // spanning the classes it connects.
@@ -597,7 +597,7 @@ function buildNoteLink(note: PositionedClassNote): SVGPathElement | null {
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
   link.setAttribute("data-siren-id", note.id);
-  drawConnectorRoute(link, note.linkPoints, CLASS_CONNECTOR_CURVE, note.linkHops);
+  drawConnectorRoute(link, note.linkPoints, CONNECTOR_CURVE, note.linkHops);
   // Explicit, for the same reason a relationship line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.
   link.setAttribute("fill", "none");

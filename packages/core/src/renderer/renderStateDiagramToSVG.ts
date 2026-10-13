@@ -6,7 +6,7 @@ import type {
   PositionedStateTransition,
   StyleProperty,
 } from "../contracts";
-import { STATE_CONNECTOR_CURVE } from "../curve/curve";
+import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -237,7 +237,7 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
   // Rounded, with the line hops the layout found, as a transition line is.
-  drawConnectorRoute(link, note.connector, STATE_CONNECTOR_CURVE, note.connectorHops);
+  drawConnectorRoute(link, note.connector, CONNECTOR_CURVE, note.connectorHops);
   // Explicit, for the same reason a transition line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.
   link.setAttribute("fill", "none");
@@ -563,9 +563,9 @@ function buildTransition(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-transition-line");
-  // Rounded, with the line hops the layout found (`STATE_CONNECTOR_CURVE`:
+  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`:
   // the curve layout kept the hops clear of).
-  drawConnectorRoute(line, transition.points, STATE_CONNECTOR_CURVE, transition.hops);
+  drawConnectorRoute(line, transition.points, CONNECTOR_CURVE, transition.hops);
   // Explicit, not left to CSS: a transition's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
   // spanning the states it connects.

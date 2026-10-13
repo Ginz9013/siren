@@ -7,7 +7,7 @@ import type {
   PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
-import { ER_CONNECTOR_CURVE } from "../curve/curve";
+import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -31,9 +31,22 @@ const MARKER_NAME: Record<ErCardinality, string> = {
 
 /**
  * Dash for a `nonIdentifying` relationship. Measured: Mermaid gives that
- * line the class `edge-pattern-dashed`, whose rule in the stylesheet it
- * emits inside the SVG is `stroke-dasharray: 8,8` — the whole of the
- * difference between `--` and `..` in its picture.
+ * line the class `edge-pattern-dashed`, and 12.2.0's ER stylesheet still
+ * rules it `stroke-dasharray: 8,8` (`dist/chunks/mermaid.esm/erDiagram-VZDIDQZ7.mjs`,
+ * line 1548), later in the sheet than — and so winning over — the shared
+ * `.edge-pattern-dashed{stroke-dasharray:3}`. That `8,8` is what Mermaid
+ * draws under `look: "classic"`, measured in headless Chrome. Under its
+ * default `look: "neo"` an inline style overrides the sheet with a 2-on,
+ * 2-off pattern sized to the path's length (`generateDashArray`,
+ * `dist/chunks/mermaid.esm/chunk-RLXJHMIZ.mjs` line 762, applied at line
+ * 951) — for every kind's dashed edge alike.
+ *
+ * Siren keeps `8,8` and does not follow the neo figure, on purpose: it
+ * follows the neo dash for no kind (a flowchart's dotted edge is the
+ * theme's `4 3`, a class diagram's dashed line `6,4`), and the neo figure is
+ * not a pattern at all but a per-path list of dashes recomputed from the
+ * line's length and its markers' offsets. What has to match Mermaid is that
+ * `..` is dashed and `--` is not, which the stylesheet's figure says as well.
  *
  * Inline rather than a theme rule, for the reason `renderClassDiagramToSVG`
  * gives about its own: the dash is what the *document* said, not what the
@@ -125,8 +138,8 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   const scope = mintIdScope();
 
   // **Measured for ER rather than inherited**, because this repo already
-  // holds two different answers on this line. Real mermaid 11.17.2 renders
-  // an `erDiagram` carrying `accTitle:` and `accDescr:` with `<title>` and
+  // holds two different answers on this line. Real Mermaid 12.2.0 renders
+  // (measured in headless Chrome) an `erDiagram` carrying `accTitle:` and `accDescr:` with `<title>` and
   // `<desc>` as the root's first two children and `aria-labelledby` /
   // `aria-describedby` naming them — identical to what it does for a
   // flowchart, so `renderToSVG`'s arrangement is the one this kind follows.
@@ -259,9 +272,9 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-er-relationship-line");
-  // Rounded, with the line hops the layout found (`ER_CONNECTOR_CURVE`: the
+  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`: the
   // curve layout kept the hops clear of).
-  drawConnectorRoute(line, relationship.points, ER_CONNECTOR_CURVE, relationship.hops);
+  drawConnectorRoute(line, relationship.points, CONNECTOR_CURVE, relationship.hops);
   // Explicit, not left to CSS: the route is an open, multi-segment path,
   // which a default fill would paint as a filled polygon spanning the
   // entities it joins.
@@ -502,8 +515,8 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
         // renderer here keeps: an attribute's type, name and keys are author
         // input drawn as written, never read for tags.
         text.textContent = cell.text;
-        // **Every cell, not just the name.** Measured with `--markup`
-        // (mermaid 11.17.2): an author's `color` reaches the name label and
+        // **Every cell, not just the name.** Measured in headless Chrome
+        // against Mermaid 12.2.0: an author's `color` reaches the name label and
         // every attribute label in the same box alike — a `class` names the
         // entity, not one of its rows. `renderStateDiagramToSVG` gives a
         // state's description rows the same reading.

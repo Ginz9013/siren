@@ -49,7 +49,7 @@ export type { ElkExtendedEdge, ElkLabel, ElkNode };
  * whose message names Java classes.
  *
  * `render()` converts it to the error-severity diagnostic an author sees, the
- * same way it converts `UnplacedNodesError`; see `attemptLayout` in
+ * same way it converts a measurer's refusal; see `attemptLayout` in
  * `index.ts`. It should be unreachable from a document — every graph the
  * shared layout core builds names only nodes it declared — so reaching it is
  * a defect in Siren rather than in the document, and the message says what
