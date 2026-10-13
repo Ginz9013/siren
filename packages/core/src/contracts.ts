@@ -1401,6 +1401,21 @@ export interface Point {
 }
 
 /**
+ * A **line hop**: where a route jumps another that crosses it, drawn as a
+ * half circle bulging up from the line (see `CONTEXT.md`). Computed by the
+ * shared layout core from every route at once — which route of a crossing
+ * carries the hop, and how large it may be, depend on both routes — and
+ * drawn by the renderer, which alone knows whether the edge's curve draws
+ * hops at all (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 7).
+ */
+export interface LineHop extends Point {
+  /** The half circle's radius: 6, or less where a corner or a neighbouring hop leaves less room. */
+  radius: number;
+  /** Which of the route's segments the hop sits on: `points[segment]` to `points[segment + 1]`. */
+  segment: number;
+}
+
+/**
  * Injectable text-measurement seam used by `layoutGraph` for label sizing.
  * Production wires a canvas/DOM-based measurer; tests use a deterministic
  * fake.
@@ -1440,6 +1455,13 @@ export interface PositionedNode extends GraphNode {
 /** An edge with a layout-assigned point path. */
 export interface PositionedEdge extends Omit<GraphEdge, "label"> {
   points: Point[];
+  /**
+   * Where this edge's line jumps another that crosses it — the **line
+   * hops**, computed by the layout from every route (see `LineHop`). Not
+   * route points: `points` is the route either way. Whether they are drawn
+   * is the renderer's call, by the edge's curve. Absent reads as none.
+   */
+  hops?: LineHop[];
   /**
    * `GraphEdge.label`, wrapped and placed: the label as drawn — its rows
    * after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the

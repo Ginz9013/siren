@@ -233,7 +233,9 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     path.setAttribute("data-siren-id", edge.id);
     // The curve the model resolved from `linkStyle … interpolate`; an edge
     // no `interpolate` reached is drawn on the flowchart's default, `rounded`.
-    drawConnectorRoute(path, edge.points, edge.curve ?? FLOWCHART_DEFAULT_CURVE);
+    // Its line hops are drawn by that curve, or not at all where it is one
+    // that draws none (`basis`).
+    drawConnectorRoute(path, edge.points, edge.curve ?? FLOWCHART_DEFAULT_CURVE, edge.hops);
     // One marker per end, each pointing outward at the end it is applied
     // to — the class renderer's `auto-start-reverse` def, which is why
     // `<-->` needs one def rather than a mirrored pair.

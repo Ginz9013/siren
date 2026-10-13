@@ -557,7 +557,7 @@ Mermaid draws them on dagre, until each kind moves onto ELK. A flowchart author 
 with `linkStyle default interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations
 may follow on the same line); a numbered statement's curve beats `default`'s whichever is written
 first. **The curve written is applied to ELK's orthogonal points**, which is looser than Mermaid
-12 — it ignores `interpolate` under ELK — and is the migration's Domain decision 6: `linear` draws
+12 — it ignores `interpolate` under ELK — and is rule 6 of nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`: `linear` draws
 sharp corners, `basis` soft ones, and the `step` curves lie on top of a route that is already a
 staircase (they differ from `linear` in the turn points their `d` carries, not in the picture).
 The seven other curves Mermaid draws (`cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`,
@@ -573,6 +573,22 @@ points rather than the route, a connector's `<path>` also carries the route itse
 _Avoid_: interpolation (`interpolate` survives only as the authored keyword), line (that is the
 **edge**'s solid/thick/dotted axis), routing (that decides where the points are, which a curve does
 not)
+
+**Line hop**:
+The small half circle a flowchart edge's line draws where another edge's line crosses it, so a
+crossing reads differently from two lines meeting at a bend — Mermaid 12's line jumps, drawn by
+default under its ELK layout and here by the same rule (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+rule 7). The hop sits on the horizontal one of the two segments (on the later edge, in edge order,
+where neither is horizontal), radius 6, centred on the crossing and bulging up whichever way the
+line runs (`A6,6 0 0 1` travelling right, `0 0 0` travelling left). Lines that only meet — one
+ending on another, two sharing an end — do not hop. No hop sits inside a rounded corner of either
+line; near a corner (or a route's end) the radius shrinks to 2 short of it and a hop under 3.6 is
+not drawn; two hops that would overlap shrink to half the gap between them. The layout reports the
+hops with each route (`hops`), because which line hops depends on both; the **curve** decides
+whether they are drawn: `linear`, `rounded` and the `step` curves draw them, `basis` does not. A
+hop is drawing, not route: `data-siren-points` never holds its points. Class, state and ER
+connectors get hops when they move onto ELK.
+_Avoid_: line jump (Mermaid's code name), bridge, crossover
 
 **Subgraph**:
 A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around the nodes declared

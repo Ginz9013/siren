@@ -1825,3 +1825,52 @@ describe("the order a flowchart's layers are painted in", () => {
     expect(Math.max(...labels)).toBeLessThan(Math.min(...positions(svg, "g.siren-node")));
   });
 });
+
+describe("a flowchart's line hops", () => {
+  // Each of A and B joined to both C and D: two edges run across between
+  // the rows and cross the others' vertical runs, and the layout reports a
+  // hop where they do.
+  const SOURCE = "flowchart TD\nA --> D\nB --> C\nA --> C\nB --> D\n";
+
+  /** Every `d` command whose letter is `A`, with its arguments. */
+  const arcsOf = (path: Element) => path.getAttribute("d")!.match(/A[^A-Za-z]*/g) ?? [];
+
+  it("are drawn as half circles bulging up, while data-siren-points stays the route", () => {
+    const container = document.createElement("div");
+    const { svg } = render(SOURCE, container);
+    const paths = Array.from(svg!.querySelectorAll("path.siren-edge"));
+    const arcs = paths.flatMap(arcsOf);
+    expect(arcs.length).toBeGreaterThan(0);
+    for (const arc of arcs) {
+      // `A6,6 0 0 sweep x,y`: radius 6 (nothing here is near a corner), no
+      // rotation, the small arc.
+      expect(arc).toMatch(/^A6,6 0 0 [01] -?[\d.]+,-?[\d.]+ ?$/);
+    }
+    // Up, whichever way the line runs: from the point before the arc to its
+    // end is rightward with sweep 1 (clockwise) and leftward with sweep 0.
+    for (const path of paths) {
+      const d = path.getAttribute("d")!;
+      for (const [, x0, y0, sweep, x1, y1] of d.matchAll(/L(-?[\d.]+),(-?[\d.]+) A6,6 0 0 ([01]) (-?[\d.]+),(-?[\d.]+)/g)) {
+        expect(Number(y1)).toBeCloseTo(Number(y0), 6);
+        expect(sweep).toBe(Number(x1) > Number(x0) ? "1" : "0");
+      }
+    }
+    for (const path of paths) {
+      // The route, unchanged by its hops: as many points as the `d`'s
+      // `M`/`L`/`Q` ends without them, and none of the arc's own ends.
+      const route = path.getAttribute("data-siren-points")!.split(" ");
+      for (const arc of arcsOf(path)) {
+        const end = arc.trim().split(" ").at(-1)!;
+        expect(route).not.toContain(end);
+      }
+    }
+  });
+
+  it("are not drawn on an edge whose curve is basis", () => {
+    const container = document.createElement("div");
+    const { svg } = render(`${SOURCE}linkStyle default interpolate basis\n`, container);
+    const paths = Array.from(svg!.querySelectorAll("path.siren-edge"));
+    expect(paths.length).toBe(4);
+    expect(paths.flatMap(arcsOf)).toEqual([]);
+  });
+});

@@ -404,22 +404,46 @@ describe("layoutDirectedGraph lays a group out in its own direction", () => {
 });
 
 describe("layoutDirectedGraph's line hops", () => {
-  // Drawing a small arc where one edge crosses another is not implemented
-  // yet (nook decision 01M4VANRC6B2C14NHVC2KRZ9Y8, rule 7); until it is,
-  // every route carries the field, empty, so the renderer's contract does
-  // not change shape when it fills.
-  it("are an empty list on every route, even where two routes cross", () => {
-    const result = layoutDirectedGraph({
-      direction: "TB",
-      nodes: ["A", "B", "C", "D"].map((id) => ({ id, width: 60, height: 40 })),
-      edges: [
-        { id: "A-D", from: "A", to: "D" },
-        { id: "B-C", from: "B", to: "C" },
-        { id: "A-C", from: "A", to: "C" },
-        { id: "B-D", from: "B", to: "D" },
-      ],
-    });
-    expect(result.edges.map((route) => route.hops)).toEqual([[], [], [], []]);
+  // Four boxes, each top one joined to both bottom ones: ELK routes two of
+  // the four edges with a horizontal run, and they cross each other's
+  // vertical runs. The rule itself, case by case, is `lineHops.test.ts`'s;
+  // this is the core handing it its finished routes.
+  const crossed = (cornerRadius: number): DirectedGraphInput => ({
+    direction: "TB",
+    nodes: ["A", "B", "C", "D"].map((id) => ({ id, width: 60, height: 40 })),
+    edges: [
+      ["A", "D"],
+      ["B", "C"],
+      ["A", "C"],
+      ["B", "D"],
+    ].map(([from, to]) => ({ id: `${from}-${to}`, from, to, cornerRadius })),
+  });
+
+  /** Whether `p` lies on the segment from `a` to `b`, within a hundredth of a pixel. */
+  const onSegment = (p: Point, a: Point, b: Point) =>
+    Math.min(a.x, b.x) - 0.01 <= p.x &&
+    p.x <= Math.max(a.x, b.x) + 0.01 &&
+    Math.min(a.y, b.y) - 0.01 <= p.y &&
+    p.y <= Math.max(a.y, b.y) + 0.01 &&
+    Math.abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) < 0.01 * Math.hypot(b.x - a.x, b.y - a.y);
+
+  it("puts a hop where two routes cross, on the horizontal one, on the vertical one's line", () => {
+    const { edges } = layoutDirectedGraph(crossed(5));
+    const hops = edges.flatMap((route) => route.hops.map((hop) => ({ route, hop })));
+    expect(hops.length).toBeGreaterThan(0);
+    for (const { route, hop } of hops) {
+      const [a, b] = [route.points[hop.segment], route.points[hop.segment + 1]];
+      expect(a.y).toBe(b.y);
+      expect(onSegment(hop, a, b)).toBe(true);
+      expect(hop.radius).toBeGreaterThanOrEqual(3.6);
+      expect(hop.radius).toBeLessThanOrEqual(6);
+      const jumped = edges.filter(
+        (other) =>
+          other !== route &&
+          other.points.slice(1).some((q, i) => other.points[i].x === q.x && onSegment(hop, other.points[i], q)),
+      );
+      expect(jumped.length).toBeGreaterThan(0);
+    }
   });
 });
 

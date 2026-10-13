@@ -1431,3 +1431,48 @@ describe("a subgraph's frame", () => {
     expect(twoRows.above - oneRow.above).toBe(21);
   });
 });
+
+describe("an edge's line hops", () => {
+  // Each of A and B joined to both C and D: two routes run across between
+  // the rows and cross the others' vertical runs (the core's own test of
+  // the same four boxes).
+  const crossed = (): GraphModel => {
+    const node = (id: string) => ({
+      id,
+      label: plainLabel(id),
+      shape: "rect" as const,
+      style: { frame: [], text: [] },
+      parentId: null,
+      interaction: null,
+    });
+    const edge = (from: string, to: string) => ({
+      id: `${from}-${to}`,
+      from,
+      to,
+      ...PLAIN_ARROW,
+      style: { frame: [], text: [] },
+    });
+    return {
+      direction: "TB",
+      nodes: ["A", "B", "C", "D"].map(node),
+      edges: [edge("A", "D"), edge("B", "C"), edge("A", "C"), edge("B", "D")],
+      subgraphs: [],
+      accTitle: null,
+      accDescr: null,
+      timeline: { totalSteps: 0, entries: [] },
+    };
+  };
+
+  it("reach the positioned edge, each on a horizontal run of that edge's own route", () => {
+    const { edges } = layoutGraph(crossed(), { measureText: fakeMeasurer });
+    const hops = edges.flatMap((edge) => (edge.hops ?? []).map((hop) => ({ edge, hop })));
+    expect(hops.length).toBeGreaterThan(0);
+    for (const { edge, hop } of hops) {
+      const [a, b] = [edge.points[hop.segment], edge.points[hop.segment + 1]];
+      expect(a.y).toBe(hop.y);
+      expect(b.y).toBe(hop.y);
+      expect(Math.min(a.x, b.x)).toBeLessThan(hop.x);
+      expect(Math.max(a.x, b.x)).toBeGreaterThan(hop.x);
+    }
+  });
+});

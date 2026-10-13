@@ -16,15 +16,18 @@
  *   dependency for them alone.
  * - `rounded` — mermaid's own `generateRoundedPath(points, 5)`.
  *
+ * Over any of them but `basis`, the **line hops** the layout reported are
+ * drawn as Mermaid 12.2.0 draws them (`lineJump.ts`): a half circle across
+ * each crossing. Where the hops go is layout's (`lineHops`); whether they
+ * are drawn, and how, is the curve's, here.
+ *
  * Commands are written space-separated (`M0,0 L10,0 C40,0 40,0 50,10`), the
  * same spelling the polyline used before curves existed.
  */
 
-import type { Point } from "../contracts";
+import type { LineHop, Point } from "../contracts";
 import type { Curve } from "../curve/curve";
-
-/** The corner radius `rounded` draws with — mermaid's, passed as `5`. */
-const ROUNDED_ARCHIV = 5;
+import { cornerCut, ROUNDED_CORNER_RADIUS } from "../layout/directedGraph/lineHops";
 
 /** One coordinate pair as a path command's argument: `x,y`. */
 const formatPoint = (x: number, y: number) => `${x},${y}`;
@@ -106,42 +109,73 @@ function step(points: readonly Point[], turnAt: number): string {
 }
 
 /**
- * mermaid's `generateRoundedPath(points, 5)`: the polyline, with each
- * interior vertex that turns cut back by
- * `min(5 / sin(θ/2), before / 2, after / 2)` along both of its segments and
- * the two cut points joined by a quadratic through the vertex. A vertex that
- * does not turn (θ = 0) or doubles back (θ = π), or that sits on a
- * zero-length segment, stays a plain corner.
+ * The route's points joined by straight segments, with a half circle across
+ * each hop, and — given a `cornerRadius` — each corner rounded.
+ *
+ * A hop is a line to `radius` before the crossing, then
+ * `A radius,radius 0 0 sweep` to `radius` past it: Mermaid 12.2.0's
+ * `emitJump` (`lineJump.ts`).
+ *
+ * A rounded corner is mermaid's `generateRoundedPath(points, cornerRadius)`:
+ * each interior vertex that turns is cut back by `cornerCut` along both of
+ * its segments and the two cut points joined by a quadratic through the
+ * vertex. A vertex that does not turn (θ = 0) or doubles back (θ = π), or
+ * that sits on a zero-length segment, stays a plain corner. Mermaid's
+ * `rewriteEdgePath` draws a rounded route with hops the same way, the hops
+ * of each segment before the corner that ends it.
  */
-function rounded(points: readonly Point[]): string {
-  const epsilon = 1e-5;
-  const commands = points.map((point, index) => {
-    if (index === 0) return `M${formatPoint(point.x, point.y)}`;
-    if (index === points.length - 1) return `L${formatPoint(point.x, point.y)}`;
-    const previous = points[index - 1];
-    const next = points[index + 1];
-    const before = Math.hypot(point.x - previous.x, point.y - previous.y);
-    const after = Math.hypot(next.x - point.x, next.y - point.y);
-    if (before < epsilon || after < epsilon) return `L${formatPoint(point.x, point.y)}`;
-    const inX = (point.x - previous.x) / before;
-    const inY = (point.y - previous.y) / before;
-    const outX = (next.x - point.x) / after;
-    const outY = (next.y - point.y) / after;
-    const turn = Math.acos(Math.max(-1, Math.min(1, inX * outX + inY * outY)));
-    if (turn < epsilon || Math.abs(Math.PI - turn) < epsilon) {
-      return `L${formatPoint(point.x, point.y)}`;
+function polyline(points: readonly Point[], hops: readonly LineHop[], cornerRadius?: number): string {
+  if (points.length === 0) return "";
+  const commands = [`M${formatPoint(points[0].x, points[0].y)}`];
+  for (let index = 0; index + 1 < points.length; index++) {
+    const a = points[index];
+    const b = points[index + 1];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    const ux = length === 0 ? 0 : (b.x - a.x) / length;
+    const uy = length === 0 ? 0 : (b.y - a.y) / length;
+    // Mermaid's `getArcSweepFlag`: clockwise (1) travelling +x, so the half
+    // circle bulges up; counter-clockwise (0) travelling −x, up again. A run
+    // that is more vertical than horizontal goes by the sign of its dy.
+    const travel = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? b.x - a.x : b.y - a.y;
+    const sweep = travel >= 0 ? 1 : 0;
+    for (const hop of hops.filter((candidate) => candidate.segment === index)) {
+      const r = hop.radius;
+      commands.push(
+        `L${formatPoint(hop.x - ux * r, hop.y - uy * r)}`,
+        `A${r},${r} 0 0 ${sweep} ${formatPoint(hop.x + ux * r, hop.y + uy * r)}`,
+      );
     }
-    const cut = Math.min(ROUNDED_ARCHIV / Math.sin(turn / 2), before / 2, after / 2);
-    return (
-      `L${formatPoint(point.x - inX * cut, point.y - inY * cut)} ` +
-      `Q${formatPoint(point.x, point.y)} ${formatPoint(point.x + outX * cut, point.y + outY * cut)}`
+    const next = points[index + 2];
+    const cut = cornerRadius === undefined || next === undefined ? null : cornerCut(a, b, next, cornerRadius);
+    if (cut === null) {
+      commands.push(`L${formatPoint(b.x, b.y)}`);
+      continue;
+    }
+    const after = Math.hypot(next.x - b.x, next.y - b.y);
+    commands.push(
+      `L${formatPoint(b.x - ux * cut, b.y - uy * cut)}`,
+      `Q${formatPoint(b.x, b.y)} ${formatPoint(b.x + ((next.x - b.x) / after) * cut, b.y + ((next.y - b.y) / after) * cut)}`,
     );
-  });
+  }
   return commands.join(" ");
 }
 
-/** The `d` of a connector drawn through `points` with `curve`. */
-export function connectorPathData(points: readonly Point[], curve: Curve): string {
+/**
+ * The `d` of a connector drawn through `points` with `curve`, jumping the
+ * routes that cross it at `hops` — the **line hops** the layout reported.
+ *
+ * Which curves draw hops is Mermaid 12.2.0's `curveSupportsLineHops`:
+ * `linear`, `rounded` and the three `step` curves. `basis` ignores them: a
+ * soft curve has no straight run at the crossing to jump from. A `step`
+ * curve with hops is drawn as Mermaid's `rewriteEdgePath` redraws one —
+ * straight through the route's points — which on the orthogonal routes the
+ * layout gives is the line the step curve draws; without hops it is d3's
+ * own commands, unchanged.
+ */
+export function connectorPathData(points: readonly Point[], curve: Curve, hops: readonly LineHop[] = []): string {
+  if (hops.length > 0 && (curve === "linear" || curve === "step" || curve === "stepBefore" || curve === "stepAfter")) {
+    return polyline(points, hops);
+  }
   switch (curve) {
     case "basis":
       return basis(points);
@@ -154,14 +188,19 @@ export function connectorPathData(points: readonly Point[], curve: Curve): strin
     case "stepAfter":
       return step(points, 1);
     case "rounded":
-      return rounded(points);
+      return polyline(points, hops, ROUNDED_CORNER_RADIUS);
   }
 }
 
 /**
- * Draws a connector's route onto its `<path>`: the curve's `d`, and the
- * routed points themselves as `data-siren-points` (`"x,y x,y …"`, an SVG
- * `points` attribute's spelling).
+ * Draws a connector's route onto its `<path>`: the curve's `d`, with its
+ * line hops where the curve draws them, and the routed points themselves as
+ * `data-siren-points` (`"x,y x,y …"`, an SVG `points` attribute's spelling)
+ * — never a hop's points, which are drawing, not route.
+ *
+ * Every directed-graph renderer draws through here, so a kind that moves
+ * onto the ELK core gets its hops by handing over the `hops` its layout
+ * reported.
  *
  * The second attribute exists because a curve's `d` no longer lists the
  * route — `basis` writes control points the line never passes through — and
@@ -175,7 +214,8 @@ export function drawConnectorRoute(
   path: Element,
   points: readonly Point[],
   curve: Curve,
+  hops: readonly LineHop[] = [],
 ): void {
-  path.setAttribute("d", connectorPathData(points, curve));
+  path.setAttribute("d", connectorPathData(points, curve, hops));
   path.setAttribute("data-siren-points", points.map((point) => formatPoint(point.x, point.y)).join(" "));
 }

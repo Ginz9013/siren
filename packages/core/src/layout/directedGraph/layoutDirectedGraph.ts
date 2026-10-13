@@ -16,8 +16,9 @@
  * Mermaid's to decide, and where Siren departs from it the departure is
  * measured and written down beside the code that departs.
  */
-import type { Direction, Point } from "../../contracts";
+import type { Direction, LineHop, Point } from "../../contracts";
 import { LayoutEngineError, layoutWithElk, type ElkExtendedEdge, type ElkNode } from "./elkSync";
+import { lineHops } from "./lineHops";
 
 /** A box to place. Sizes are given by the caller; this module never measures. */
 export interface DirectedGraphNode {
@@ -70,6 +71,13 @@ export interface DirectedGraphEdge {
    * and why it is a departure from Mermaid 12.
    */
   minLength?: number;
+  /**
+   * The radius the edge's corners will be drawn rounded with, when they will
+   * be — 5 for the `rounded` curve (`ROUNDED_CORNER_RADIUS`); absent when
+   * they are drawn sharp. Routing ignores it; the line hops read it, to keep
+   * clear of the rounding (see `lineHops`).
+   */
+  cornerRadius?: number;
 }
 
 /** Everything the core needs to place a directed graph. */
@@ -104,12 +112,13 @@ export interface DirectedGraphEdgeRoute {
   /** Centre of the room kept for the label, on the route. Absent when the edge has no label. */
   labelAnchor?: Point;
   /**
-   * Where this route jumps another with a small arc. Always empty until
-   * line hops are implemented (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
-   * rule 7); the field exists ahead of them so the renderer's input keeps
-   * one shape.
+   * Where this route jumps another that crosses it, in the order the route
+   * meets them: the **line hops**, by Mermaid 12's rule (nook decision
+   * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 7; see `lineHops`). They are read
+   * off the finished routes and change none of them; whether they are drawn
+   * is the renderer's call, by the edge's curve.
    */
-  hops: Point[];
+  hops: LineHop[];
 }
 
 /** The placed graph: boxes and routes in their input order, and the extent that holds them. */
@@ -355,6 +364,14 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     edges,
     input.edges,
     nodes.filter((box) => nodeById.get(box.id)!.cluster === undefined),
+  );
+
+  // Last, from every finished route at once: which of two crossing routes
+  // carries the hop, and how large it can be, depend on both.
+  lineHops(edges.map((route, index) => ({ points: route.points, cornerRadius: input.edges[index].cornerRadius }))).forEach(
+    (hops, index) => {
+      edges[index].hops = hops;
+    },
   );
 
   return {

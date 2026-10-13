@@ -6,7 +6,9 @@ import type {
   PositionedSubgraph,
   ResolvedSubgraph,
 } from "../contracts";
+import { FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { layoutDirectedGraph } from "./directedGraph/layoutDirectedGraph";
+import { ROUNDED_CORNER_RADIUS } from "./directedGraph/lineHops";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
 
@@ -326,6 +328,10 @@ export function layoutGraph(
       // where it put it. Measured with `options.measureText`, the one
       // measurer every other piece of text in this pipeline goes through.
       ...(edge.label === null ? {} : { label: wrappedEdgeLabelById.get(edge.id)!.labelBox }),
+      // How the renderer will draw the edge's corners, which the line hops
+      // keep clear of: rounded for the flowchart's default curve, sharp (or
+      // not there to cut into) for any curve an `interpolate` chose.
+      ...((edge.curve ?? FLOWCHART_DEFAULT_CURVE) === "rounded" ? { cornerRadius: ROUNDED_CORNER_RADIUS } : {}),
     })),
   });
 
@@ -351,6 +357,7 @@ export function layoutGraph(
     return {
       ...edge,
       points: route.points,
+      hops: route.hops,
       // `null` rather than absent: an edge that asked for no space has
       // nowhere to draw text, and one state is easier to read than a
       // missing field.
