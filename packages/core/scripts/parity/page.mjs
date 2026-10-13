@@ -127,8 +127,18 @@ function drawnSize(host) {
 // \`.edgePaths\`.
 const MERMAID_EDGES = ".edgePaths > path, .edgePaths > g > path";
 
+// A class's \`g.node\` is named \`<renderId>-classId-<name>-<counter>\`:
+// Mermaid 12.2.0's \`ClassDB.addClass\` mints the DOM id as \`"classId-" + name
+// + "-" + counter\` (\`classDiagram-v2-K6ZTA64I.mjs\`, line 1305; measured in
+// headless Chrome, \`pm0-classId-Shape-0\`). A class note (\`pm0-note0\`) is
+// left unmatched, as a pseudo-state is: Siren names it \`note:1\`.
+const MERMAID_CLASS_ID = /^classId-(.+)-\\d+$/;
+const mermaidClassId = (domId, renderId) =>
+  domId.startsWith(renderId + "-") ? (MERMAID_CLASS_ID.exec(domId.slice(renderId.length + 1))?.[1] ?? null) : null;
+
 // Mermaid: node groups are \`g.node\` whose DOM id carries the authored id
-// (see ids.mjs); clusters are \`g.cluster\` (flowchart, ER subgraph) and
+// (see ids.mjs, and \`MERMAID_CLASS_ID\` for a class); clusters are
+// \`g.cluster\` (flowchart subgraph, class namespace, ER subgraph) and
 // \`g.statediagram-cluster\` (composite state), named by \`data-id\` when present.
 async function drawMermaid(index, source, host) {
   const renderId = "pm" + index;
@@ -136,7 +146,7 @@ async function drawMermaid(index, source, host) {
   host.innerHTML = svg;
   const nodes = {};
   for (const g of host.querySelectorAll("g.node[id]")) {
-    const id = mermaidNodeId(g.id, renderId);
+    const id = mermaidNodeId(g.id, renderId) ?? mermaidClassId(g.id, renderId);
     if (id !== null) nodes[id] = box(g);
   }
   const clusters = {};
@@ -194,14 +204,15 @@ function drawSiren(source, host) {
   }
   const nodes = {};
   const clusters = {};
-  for (const g of host.querySelectorAll("g.siren-node, g.siren-state, g.siren-er-entity")) {
+  for (const g of host.querySelectorAll("g.siren-node, g.siren-class, g.siren-state, g.siren-er-entity")) {
     const id = g.getAttribute("data-siren-id");
     if (g.querySelector(COMPOSITE)) clusters[id] = ownBox(g);
     else nodes[id] = ownBox(g);
   }
   // "clusters" is the key both sides share, Mermaid's own word for a group;
-  // on this side it holds subgraphs, composite states and ER subgraph blocks.
-  for (const g of host.querySelectorAll("g.siren-subgraph, g.siren-er-subgraph")) {
+  // on this side it holds subgraphs, class namespaces, composite states and
+  // ER subgraph blocks.
+  for (const g of host.querySelectorAll("g.siren-subgraph, g.siren-namespace, g.siren-er-subgraph")) {
     clusters[g.getAttribute("data-siren-id")] = box(g);
   }
   const obstacles = [...host.querySelectorAll(SIREN_OBSTACLES)].filter((g) => !g.querySelector(COMPOSITE));
