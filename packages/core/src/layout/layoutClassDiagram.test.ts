@@ -14,7 +14,6 @@ import type {
   TextMeasurer,
   Label,
 } from "../contracts";
-import { distanceToPolyline } from "../compat/svgGeometry";
 import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
 
@@ -193,6 +192,26 @@ function overlaps(a: Rect, b: Rect): boolean {
     a.y < b.y + b.height &&
     b.y < a.y + a.height
   );
+}
+
+/**
+ * 0 when some segment of `points` runs into or along `rect`, else 1 — the
+ * question "does this line strike that box", asked of every segment.
+ */
+function distanceToRect(points: Point[], rect: Rect): number {
+  for (let i = 1; i < points.length; i += 1) {
+    const [a, b] = [points[i - 1], points[i]];
+    const left = Math.min(a.x, b.x);
+    const right = Math.max(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    const bottom = Math.max(a.y, b.y);
+    // Orthogonal segments: a line strikes the box when its span overlaps
+    // the box's along the line and it lies within the box across it.
+    if (left <= rect.x + rect.width && right >= rect.x && top <= rect.y + rect.height && bottom >= rect.y) {
+      return 0;
+    }
+  }
+  return 1;
 }
 
 /**
@@ -838,6 +857,73 @@ describe("layoutClassDiagram", () => {
       expect(touches(routed.points[routed.points.length - 1], duck)).toBe(true);
     });
 
+    it("routes every relationship and note link orthogonally, as Mermaid 12's ELK layout does", () => {
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Animal"), cls("Duck"), cls("Fish"), cls("Zoo")],
+          relationships: [
+            relationship("Animal", "Duck"),
+            relationship("Animal", "Fish"),
+            relationship("Zoo", "Duck"),
+            relationship("Zoo", "Fish", { label: plainLabel("keeps") }),
+          ],
+          notes: [note("note1", "a note", "Fish")],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const routes = [
+        ...diagram.relationships.map((routed) => routed.points),
+        noteById(diagram, "note1").linkPoints!,
+      ];
+      const slanted = routes.flatMap((points) =>
+        points.slice(1).flatMap((point, index) => {
+          const previous = points[index];
+          return Math.abs(point.x - previous.x) < 1e-6 || Math.abs(point.y - previous.y) < 1e-6
+            ? []
+            : [`(${previous.x}, ${previous.y}) → (${point.x}, ${point.y})`];
+        }),
+      );
+      expect(slanted).toEqual([]);
+    });
+
+    it("reports the line hops on each relationship's own horizontal runs, clear of its rounded corners", () => {
+      // Each of A and B joined to both C and D: routes run across between
+      // the rows and cross the others' vertical runs.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: ["A", "B", "C", "D"].map((id) => cls(id)),
+          relationships: [
+            relationship("A", "D"),
+            relationship("B", "C"),
+            relationship("A", "C"),
+            relationship("B", "D"),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const hops = diagram.relationships.flatMap((routed) =>
+        (routed.hops ?? []).map((hop) => ({ routed, hop })),
+      );
+      expect(hops.length).toBeGreaterThan(0);
+      // A relationship is drawn `rounded`, corners cut back 5px (Mermaid's
+      // `generateRoundedPath(points, 5)`); a hop keeps 2px clear of that.
+      const ROUNDING = 5;
+      for (const { routed, hop } of hops) {
+        const points = routed.points;
+        const [a, b] = [points[hop.segment], points[hop.segment + 1]];
+        expect(a.y).toBe(hop.y);
+        expect(b.y).toBe(hop.y);
+        const fromStart = Math.abs(hop.x - a.x);
+        const fromEnd = Math.abs(b.x - hop.x);
+        expect(fromStart).toBeGreaterThanOrEqual(hop.radius + 2 + (hop.segment > 0 ? ROUNDING : 0) - 1e-6);
+        expect(fromEnd).toBeGreaterThanOrEqual(
+          hop.radius + 2 + (hop.segment + 2 < points.length ? ROUNDING : 0) - 1e-6,
+        );
+      }
+    });
+
     it("anchors the label between the ends and each multiplicity beside its own end", () => {
       const diagram = layoutClassDiagram(
         classModel({
@@ -862,19 +948,20 @@ describe("layoutClassDiagram", () => {
       expect(routed.label!.anchor.y).toBeLessThan(last.y);
 
       // Each multiplicity sits beside its own end of the line: nearer that
-      // end than the other, and within a line height of it.
-      expect(distance(routed.fromMultiplicityAnchor!, first)).toBeLessThan(
-        distance(routed.fromMultiplicityAnchor!, last),
-      );
-      expect(distance(routed.fromMultiplicityAnchor!, first)).toBeLessThan(
-        LINE_HEIGHT,
-      );
-      expect(distance(routed.toMultiplicityAnchor!, last)).toBeLessThan(
-        distance(routed.toMultiplicityAnchor!, first),
-      );
-      expect(distance(routed.toMultiplicityAnchor!, last)).toBeLessThan(
-        LINE_HEIGHT,
-      );
+      // end than the other end and than the label between them.
+      for (const [anchor, own, other] of [
+        [routed.fromMultiplicityAnchor!, first, last],
+        [routed.toMultiplicityAnchor!, last, first],
+      ] as const) {
+        expect(distance(anchor, own)).toBeLessThan(distance(anchor, other));
+        expect(distance(anchor, own)).toBeLessThan(distance(anchor, routed.label!.anchor));
+      }
+      // On its own hand of the line, Mermaid 12.2.0's: the from end's
+      // (`startLabelRight`) right of the line's first run as it travels, the
+      // to end's (`endLabelLeft`) left of its last. Nothing here is in the
+      // way of either.
+      expect(sideOfLine(routed.fromMultiplicityAnchor!, first, routed.points[1])).toBe(1);
+      expect(sideOfLine(routed.toMultiplicityAnchor!, routed.points[routed.points.length - 2], last)).toBe(-1);
       // Beside the line, not on it.
       expect(routed.fromMultiplicityAnchor).not.toEqual(first);
       expect(routed.toMultiplicityAnchor).not.toEqual(last);
@@ -949,21 +1036,31 @@ describe("layoutClassDiagram", () => {
           // multiplicity pushed clear of one box must not arrive at the other.
           expect(distance(anchor, own)).toBeLessThan(distance(anchor, other));
           expect(distance(anchor, own)).toBeLessThanOrEqual(half);
-          // Off the stroke, which is what the across-offset buys.
-          expect(distanceToPolyline(anchor, points)).toBeGreaterThanOrEqual(8);
+          // Off its own line, and every other: see the test below.
         }
 
-        // Each sits on the same hand of its *own* outward direction, and the
-        // two outward directions are opposite — so the two labels fall on
-        // opposite sides of the line and read as two, not one clump.
-        expect(
-          sideOfLine(routed.fromMultiplicityAnchor!, first, points[1]) *
-            sideOfLine(
-              routed.toMultiplicityAnchor!,
-              last,
-              points[points.length - 2],
-            ),
-        ).toBeGreaterThan(0);
+      },
+    );
+
+    it.each(["TB", "BT", "LR", "RL"] as const)(
+      "keeps every multiplicity off every line and class box with direction %s",
+      (direction) => {
+        const diagram = cornerArrival(direction);
+        // At the 12px a multiplicity is drawn at: the fake measurer's box,
+        // scaled from its 14px.
+        const texts = multiplicitiesWithTheirClassBoxes(diagram).map(({ text, anchor }) => {
+          const size = fakeMeasurer.measure(text);
+          const [width, height] = [size.width * CONNECTOR_LABEL_SCALE, size.height * CONNECTOR_LABEL_SCALE];
+          return { text, box: { x: anchor.x - width / 2, y: anchor.y - height / 2, width, height } };
+        });
+        expect(texts.length).toBe(2);
+        const struck = texts.flatMap(({ text, box }) => [
+          ...diagram.relationships
+            .filter((routed) => distanceToRect(routed.points, box) === 0)
+            .map((routed) => `"${text}" on ${routed.id}`),
+          ...diagram.classes.filter((cls) => overlaps(box, cls)).map((cls) => `"${text}" on ${cls.id}`),
+        ]);
+        expect(struck).toEqual([]);
       },
     );
 
@@ -1106,35 +1203,55 @@ describe("layoutClassDiagram", () => {
       );
     });
 
-    it("moves the whole diagram down when a frame's label strip reaches above the graph's own top edge", () => {
-      // The frame is grown outward from the boxes it encloses: its label
-      // strip is taller than the room the layout core leaves above a
-      // clustered box, so the frame reaches above the corner the core laid
-      // the graph out from. `grouped()` is exactly that case.
+    it("keeps every frame, box and route on the canvas, the title band above the first member", () => {
       const diagram = grouped();
       const frame = diagram.namespaces[0];
       const members = ["Triangle", "Square"].map((id) =>
         classById(diagram, id),
       );
 
-      // Flush with the top edge: the diagram was translated by exactly the
-      // overshoot. Any less and the frame would be drawn off the canvas.
-      expect(frame.y).toBe(0);
-      // Everything moved with it, rather than the frame alone being clamped
-      // to zero: the label strip above the first member box survives the
-      // translation.
+      // The frame comes from the layout core with its title band inside it,
+      // so nothing reaches above the canvas and nothing has to be moved.
       expect(Math.min(...members.map((box) => box.y))).toBeGreaterThan(
         frame.y + LINE_HEIGHT,
       );
-      // And nothing else was left behind above the canvas.
-      for (const box of [...diagram.classes, ...diagram.notes]) {
+      for (const box of [...diagram.namespaces, ...diagram.classes, ...diagram.notes]) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(diagram.width);
+        expect(box.y + box.height).toBeLessThanOrEqual(diagram.height);
       }
       for (const routed of diagram.relationships) {
         for (const point of routed.points) {
+          expect(point.x).toBeGreaterThanOrEqual(0);
           expect(point.y).toBeGreaterThanOrEqual(0);
         }
       }
+    });
+
+    it("lays namespaces out before the classes in none, as Mermaid 12.2.0 hands them to ELK", () => {
+      // Measured in headless Chrome: `class X`, then `namespace N1 { P }`,
+      // `namespace N2 { Q }`, then `class Y` — Mermaid draws N1, N2, X, Y
+      // from left to right, X declared first or not.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("X"),
+            cls("P", [], { namespaceId: "N1" }),
+            cls("Q", [], { namespaceId: "N2" }),
+            cls("Y"),
+          ],
+          namespaces: [namespace("N1", ["P"]), namespace("N2", ["Q"])],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const [n1, n2] = diagram.namespaces;
+      const x = classById(diagram, "X");
+      const y = classById(diagram, "Y");
+      expect(n1.x + n1.width).toBeLessThanOrEqual(n2.x);
+      expect(n2.x + n2.width).toBeLessThanOrEqual(x.x);
+      expect(x.x + x.width).toBeLessThanOrEqual(y.x);
     });
 
     it("leaves a class in no namespace outside every frame", () => {
@@ -1188,6 +1305,23 @@ describe("layoutClassDiagram", () => {
           expect(overlaps(box, cls)).toBe(false);
         }
       }
+    });
+
+    it("lays an attached note out a layer before its class, as Mermaid 12.2.0 links the note to the class", () => {
+      // Measured in headless Chrome: `A --> B` with `note for B "hi"` under
+      // TB draws the note above B, beside A's layer — Mermaid's edge runs
+      // from the note to the class.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("A"), cls("B")],
+          relationships: [relationship("A", "B")],
+          notes: [note("note1", "hi", "B")],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      const attached = noteById(diagram, "note1");
+      expect(attached.y + attached.height).toBeLessThanOrEqual(classById(diagram, "B").y);
     });
 
     it("leaves a free note unconnected", () => {

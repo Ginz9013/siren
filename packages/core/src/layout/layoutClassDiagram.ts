@@ -11,18 +11,36 @@ import type {
   PositionedClassNote,
   PositionedClassRelationship,
   ResolvedClass,
+  ResolvedClassRelationship,
   ResolvedInteraction,
-  ResolvedClassNamespace,
   Label,
   LabelBox,
 } from "../contracts";
-import { plainLabel } from "../label/label";
+import { type Curve, curveCornerRadius } from "../curve/curve";
+import { atConnectorLabelSize, plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
 import {
   layoutDirectedGraph,
-  type DirectedGraphLayoutNodeBox,
-} from "./layoutDirectedGraph";
+  type DirectedGraphNodeBox,
+  type DirectedGraphTerminalLabel,
+} from "./directedGraph/layoutDirectedGraph";
+
+/**
+ * The curve every relationship and note link is drawn with: `rounded`, the
+ * orthogonal route's corners cut back and rounded with a radius of 5 —
+ * Mermaid 12.2.0's, whose `applyElkEdgeLayout` (`elk-V4PLJRSU.mjs`, line
+ * 100401) sets `curve = "rounded"` on every edge ELK routed, class
+ * relations and note links among them (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 6). A class diagram has no
+ * `linkStyle … interpolate` to choose another. Exported for the renderer,
+ * which draws with it: the radius the line hops keep clear of (handed to the
+ * core below) and the corners drawn are one decision.
+ */
+export const CLASS_CONNECTOR_CURVE: Curve = "rounded";
+
+/** The core's `cornerRadius` for a class connector: the radius `CLASS_CONNECTOR_CURVE` rounds its corners with. */
+const CONNECTOR_CORNER_RADIUS = curveCornerRadius(CLASS_CONNECTOR_CURVE);
 
 /** Horizontal padding between a class box's edge and its widest text line. */
 const CLASS_PADDING_X = 12;
@@ -42,12 +60,13 @@ const NOTE_PADDING_Y = 8;
  */
 const INTERFACE_LABEL_PADDING_X = 4;
 const INTERFACE_LABEL_PADDING_Y = 2;
-/** How far along the line from its own end a multiplicity string is anchored. */
-const MULTIPLICITY_OFFSET_ALONG = 12;
-/** How far to the side of the line a multiplicity string is anchored, so it never sits on it. */
-const MULTIPLICITY_OFFSET_ACROSS = 10;
-/** The gap kept between a multiplicity string and the class frame it is drawn beside. */
-const MULTIPLICITY_CLEARANCE = 4;
+/**
+ * The room Mermaid keeps around a multiplicity at an end that carries a
+ * marker, so the label clears the arrowhead or diamond: its
+ * `TERMINAL_LABEL_MARKER_CLEARANCE` (`elk-V4PLJRSU.mjs`, line 99826), on
+ * every side.
+ */
+const MULTIPLICITY_MARKER_CLEARANCE = 6;
 
 /**
  * The text a member is drawn as, rebuilt from the parts the parser kept:
@@ -255,125 +274,28 @@ function planClassBox(
   };
 }
 
-/** Any axis-aligned rectangle in diagram coordinates — here, a class box. */
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 /**
- * How far along `direction` from `origin` the ray is still inside `rect`, or
- * `0` when it never enters it. The standard slab test: each axis gives the
- * interval of `t` for which the ray is within that pair of edges, and the ray
- * is inside the rectangle exactly where the two intervals overlap.
- *
- * A ray parallel to an axis has no crossing on it — either it is within that
- * slab for every `t` or for none — so the axis contributes no bound in the
- * first case and rules the rectangle out entirely in the second.
+ * A multiplicity as the core's terminal label: the size its text measures at
+ * the 12px it is drawn at (`.siren-multiplicity` takes the connector label's
+ * font size, so it is measured the way a connector's label is,
+ * `atConnectorLabelSize`), and Mermaid's clearance where its end draws a
+ * marker.
  */
-function exitDistance(origin: Point, direction: Point, rect: Rect): number {
-  let enter = -Infinity;
-  let exit = Infinity;
-  for (const [at, step, from, span] of [
-    [origin.x, direction.x, rect.x, rect.width],
-    [origin.y, direction.y, rect.y, rect.height],
-  ] as const) {
-    if (Math.abs(step) < 1e-9) {
-      if (at < from || at > from + span) return 0;
-      continue;
-    }
-    const near = (from - at) / step;
-    const far = (from + span - at) / step;
-    enter = Math.max(enter, Math.min(near, far));
-    exit = Math.min(exit, Math.max(near, far));
-  }
-  if (!Number.isFinite(exit) || enter > exit || exit <= 0) return 0;
-  return exit;
-}
-
-/** The total length of a routed path, walked segment by segment. */
-function pathLength(points: Point[]): number {
-  let total = 0;
-  for (let i = 1; i < points.length; i += 1) {
-    total += Math.hypot(
-      points[i].x - points[i - 1].x,
-      points[i].y - points[i - 1].y,
-    );
-  }
-  return total;
-}
-
-/**
- * Anchors a multiplicity string beside one end of a routed relationship:
- * a step along the line away from the class box it belongs to, then a step
- * to the side of it, so the text clears both the box and the line itself.
- *
- * The step to the side fixes which ray the anchor lives on — the relationship
- * line shifted sideways by `MULTIPLICITY_OFFSET_ACROSS` — and the anchor only
- * ever slides *along* that ray. That is what keeps this correction from
- * changing what the label reads as: the two multiplicities of one relationship
- * stay on opposite sides of it, and each stays the same distance off the
- * stroke as before.
- *
- * How far along is where the class box comes in, and it has to: the routed
- * endpoint sits *on* the box's boundary, and the step back along the line runs
- * toward the other class, so it is parallel to the edge it has to escape. For
- * a line arriving square-on, a fixed step clears the box; for one arriving at
- * a corner or at a shallow angle it does not, and a real diagram drew `*` on
- * `Animal`'s corner, over the frame stroke. So the anchor is pushed out to
- * wherever its ray leaves the box — grown by half the text's own size, since
- * the text is drawn centered on the anchor, plus a clearance so the glyph does
- * not touch the frame. Enlarging the fixed offsets instead would only move the
- * angle at which it fails.
- *
- * Never past the midpoint of the line, so a multiplicity that cannot be fitted
- * beside a very large box stops rather than drifting into the label at the
- * other end.
- */
-function multiplicityAnchor(
-  points: Point[],
-  atStart: boolean,
+function multiplicityLabel(
   text: string,
-  box: Rect,
+  end: ResolvedClassRelationship["fromEnd"],
   options: LayoutOptions,
-): Point {
-  const end = atStart ? points[0] : points[points.length - 1];
-  const neighbour = atStart ? points[1] : points[points.length - 2];
-  const towards = neighbour ?? end;
-  const dx = towards.x - end.x;
-  const dy = towards.y - end.y;
-  const length = Math.hypot(dx, dy) || 1;
-  const along = { x: dx / length, y: dy / length };
-
-  const origin = {
-    x: end.x - along.y * MULTIPLICITY_OFFSET_ACROSS,
-    y: end.y + along.x * MULTIPLICITY_OFFSET_ACROSS,
-  };
-
-  const size = options.measureText.measure(text);
-  const padX = size.width / 2 + MULTIPLICITY_CLEARANCE;
-  const padY = size.height / 2 + MULTIPLICITY_CLEARANCE;
-  const keepOut: Rect = {
-    x: box.x - padX,
-    y: box.y - padY,
-    width: box.width + padX * 2,
-    height: box.height + padY * 2,
-  };
-
-  const distance = Math.min(
-    Math.max(MULTIPLICITY_OFFSET_ALONG, exitDistance(origin, along, keepOut)),
-    pathLength(points) / 2,
-  );
+): DirectedGraphTerminalLabel {
+  const size = atConnectorLabelSize(options.measureText).measure(text);
   return {
-    x: origin.x + along.x * distance,
-    y: origin.y + along.y * distance,
+    width: size.width,
+    height: size.height,
+    ...(end === "none" ? {} : { margin: MULTIPLICITY_MARKER_CLEARANCE }),
   };
 }
 
 /** The center of a box — where a lollipop's interface label is drawn, since it has no frame of its own to sit beside. */
-function boxCenter(box: DirectedGraphLayoutNodeBox): Point {
+function boxCenter(box: DirectedGraphNodeBox): Point {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
@@ -407,81 +329,16 @@ function noteLinkEdgeId(id: string): string {
 }
 
 /**
- * A namespace's frame: the cluster box the shared core placed, widened until
- * it clears every member box by `NAMESPACE_PADDING` and has a strip along its
- * top for its own label — whichever is larger at each edge.
- *
- * **Taking the union with the member boxes is required, not merely
- * conservative**, which is worth saying here even though this is the one of
- * the three frame builders whose diagram kind cannot currently reach the case
- * that proves it. The core's cluster box is not promised to have been sized
- * from the members or to enclose them: nested inside a cluster that carries a
- * direction it comes back at exactly the size it was handed, with its members
- * outside it (measured; the table is on `isCluster` in
- * `layoutDirectedGraph.ts`). A class diagram neither nests namespaces nor
- * gives one a direction of its own, so today only `layoutGraph`'s
- * `subgraphFrames` and `layoutStateDiagram`'s `compositeFrames` are standing
- * on the union for correctness rather than for the label strip. That is a
- * property of this diagram kind, not of the seam — the day a namespace may
- * sit inside a namespace, this function is already right, and nobody should
- * arrive at that day having deleted the `memberBoxes` terms below as
- * arithmetic the core had already done.
- *
- * The result can extend past the core's own top-left corner, which is why
- * `layoutClassDiagram` translates the diagram afterwards.
- */
-function namespaceFrame(
-  ns: ResolvedClassNamespace,
-  memberBoxes: DirectedGraphLayoutNodeBox[],
-  clusterBox: DirectedGraphLayoutNodeBox,
-  labelBox: LabelBox,
-): PositionedClassNamespace {
-  const left = Math.min(
-    clusterBox.x,
-    ...memberBoxes.map((box) => box.x - NAMESPACE_PADDING),
-  );
-  const top = Math.min(
-    clusterBox.y,
-    // The label strip: padding, the label's rows, then padding again before the
-    // first member box starts.
-    ...memberBoxes.map(
-      (box) => box.y - NAMESPACE_PADDING * 2 - labelBox.height,
-    ),
-  );
-  const right = Math.max(
-    clusterBox.x + clusterBox.width,
-    left + labelBox.width + NAMESPACE_PADDING * 2,
-    ...memberBoxes.map((box) => box.x + box.width + NAMESPACE_PADDING),
-  );
-  const bottom = Math.max(
-    clusterBox.y + clusterBox.height,
-    ...memberBoxes.map((box) => box.y + box.height + NAMESPACE_PADDING),
-  );
-
-  return {
-    id: ns.id,
-    label: {
-      label: ns.label,
-      labelBox,
-      anchor: {
-        x: (left + right) / 2,
-        y: top + NAMESPACE_PADDING + labelBox.height / 2,
-      },
-    },
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
-  };
-}
-
-/**
  * Computes class boxes and relationship paths for a resolved `ClassModel`.
  *
- * This is the class-diagram adapter over `layoutDirectedGraph`: it measures
- * every line a class box draws, hands the resulting sizes to the shared
- * layout core, and reattaches the class diagram's own data to the
- * coordinates that come back. All graph-layout math lives in the core.
+ * This is the class-diagram adapter over the shared ELK layout core
+ * (`directedGraph/layoutDirectedGraph`): it measures every line a class box
+ * draws, hands the resulting sizes to the core — namespaces as clusters,
+ * multiplicities as terminal labels, in Mermaid 12.2.0's order — and
+ * reattaches the class diagram's own data to the coordinates that come back.
+ * All graph-layout math lives in the core; nothing here moves a box, a frame
+ * or a label afterwards. What follows Mermaid and where Siren departs from it
+ * is nook decision `01M4VHSY2W1Q9E5QCA51F1TCJM`.
  */
 export function layoutClassDiagram(
   model: ClassModel,
@@ -522,9 +379,9 @@ export function layoutClassDiagram(
 
   /**
    * Each framed namespace's label as `layoutLabel` measured it, by the
-   * namespace's id — measured once, so the smallest box the core is handed,
-   * the strip `namespaceFrame` reserves and the box the renderer draws in
-   * are all the same box.
+   * namespace's id — measured once, so the title band the core keeps in the
+   * frame and the box the renderer draws in are the same box. Never wrapped,
+   * as a subgraph's title is not.
    */
   const namespaceLabelBoxById = new Map(
     groups.map(({ ns }) => [ns.id, layoutLabel(ns.label, options.measureText)] as const),
@@ -555,8 +412,29 @@ export function layoutClassDiagram(
   );
 
   const laidOut = layoutDirectedGraph({
-    rankdir: model.direction,
+    direction: model.direction,
+    // In the order Mermaid 12.2.0 hands a class diagram to ELK — its
+    // `ClassDB.getData` (`classDiagram-v2-K6ZTA64I.mjs`, line 1808): every
+    // namespace, then every class in the order it was first mentioned, then
+    // every note, then every lollipop's interface. The core keeps the order
+    // it is handed (ELK's `considerModelOrder`), so this order is a decision
+    // about the picture: measured in headless Chrome, `class X` written
+    // before `namespace N1 { P }` and `namespace N2 { Q }` draws N1, N2, X
+    // from left to right.
     nodes: [
+      // Each framed namespace goes to the core as a cluster: the core sizes
+      // and places the frame — around its members, its padding and a band
+      // for its title — and nothing here moves a box or a frame afterwards
+      // (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
+      ...groups.map((group) => ({
+        id: namespaceNodeId(group.ns.id),
+        width: 0,
+        height: 0,
+        cluster: {
+          padding: NAMESPACE_PADDING,
+          title: namespaceLabelBoxById.get(group.ns.id)!,
+        },
+      })),
       ...model.classes.map((cls) => {
         const plan = planById.get(cls.id)!;
         const namespaceId = namespaceIdByClassId.get(cls.id);
@@ -567,26 +445,6 @@ export function layoutClassDiagram(
           ...(namespaceId === undefined
             ? {}
             : { parentId: namespaceNodeId(namespaceId) }),
-        };
-      }),
-      ...groups.map((group) => {
-        // What the core hands back for a cluster is the box it placed, which
-        // is *not* promised to have been computed from the children or to
-        // enclose them — see `isCluster` in `layoutDirectedGraph.ts` for the
-        // measured table. It does size a cluster from its children here,
-        // because a namespace is never nested inside another namespace and
-        // the divergence is confined to a cluster nested under one carrying a
-        // direction; but that is a property of this diagram kind rather than
-        // a promise the seam makes, so `namespaceFrame` unions the box with
-        // its members regardless and this comment must not be read as saying
-        // it needn't. The label's own size is passed anyway, as the smallest
-        // the frame could sensibly be.
-        const label = namespaceLabelBoxById.get(group.ns.id)!;
-        return {
-          id: namespaceNodeId(group.ns.id),
-          isCluster: true,
-          width: label.width + NAMESPACE_PADDING * 2,
-          height: label.height + NAMESPACE_PADDING * 2,
         };
       }),
       // A note is a box the layout places like any other, which is what keeps
@@ -622,7 +480,20 @@ export function layoutClassDiagram(
         });
       }),
     ],
+    // Note links first, then relationships, each in model order — the order
+    // `ClassDB.getData` builds its edges in.
     edges: [
+      // An attached note is joined to its class by an edge that is never
+      // drawn as a relationship: it is what puts the note beside the class it
+      // annotates, and its route is the note's connector. From the note to
+      // the class, as Mermaid's runs (`start: note.id, end: noteClassId`):
+      // measured, `note for B` under TB sits a layer above B.
+      ...attachedNotes.map((note) => ({
+        id: noteLinkEdgeId(note.id),
+        from: noteNodeId(note.id),
+        to: note.targetId!,
+        cornerRadius: CONNECTOR_CORNER_RADIUS,
+      })),
       ...model.relationships.map((rel) => ({
         id: rel.id,
         from: rel.from,
@@ -632,72 +503,46 @@ export function layoutClassDiagram(
         ...(rel.label === null
           ? {}
           : { label: wrappedRelationshipLabelById.get(rel.id)!.labelBox }),
-      })),
-      // An attached note is joined to its class by an edge that is never
-      // drawn as a relationship: it is what puts the note beside the class it
-      // annotates, and its route is the note's connector.
-      ...attachedNotes.map((note) => ({
-        id: noteLinkEdgeId(note.id),
-        from: note.targetId!,
-        to: noteNodeId(note.id),
+        // The radius the line hops keep clear of: the connector is drawn
+        // rounded (`CLASS_CONNECTOR_CURVE`).
+        cornerRadius: CONNECTOR_CORNER_RADIUS,
+        // The multiplicities, as Mermaid 12.2.0's `ClassDB.getData` hands
+        // them over (`classDiagram-v2-K6ZTA64I.mjs`, line 1910): the from
+        // end's as `startLabelRight`, the to end's as `endLabelLeft`. ELK
+        // keeps room for each beside its own end, and the core moves it off
+        // frames and onto its own hand of the line.
+        ...(rel.fromMultiplicity === null && rel.toMultiplicity === null
+          ? {}
+          : {
+              terminalLabels: {
+                ...(rel.fromMultiplicity === null
+                  ? {}
+                  : { startRight: multiplicityLabel(rel.fromMultiplicity, rel.fromEnd, options) }),
+                ...(rel.toMultiplicity === null
+                  ? {}
+                  : { endLeft: multiplicityLabel(rel.toMultiplicity, rel.toEnd, options) }),
+              },
+            }),
       })),
     ],
   });
 
-  // Boxes as the shared core placed them, in *core* coordinates: the frames
-  // below are measured in this space, and the translation that follows is
-  // what moves everything out of it. Nothing outside the frame code may read
-  // this map — see `boxInDiagramSpaceById` for the space the diagram is
-  // described in.
-  const boxInCoreSpaceById = new Map(
-    laidOut.nodes.map((box) => [box.id, box]),
-  );
+  const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
+  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
-  const frames = groups.map((group) =>
-    namespaceFrame(
-      group.ns,
-      group.memberIds.map((id) => boxInCoreSpaceById.get(id)!),
-      boxInCoreSpaceById.get(namespaceNodeId(group.ns.id))!,
-      namespaceLabelBoxById.get(group.ns.id)!,
-    ),
-  );
-
-  // A frame is grown outward from the boxes it encloses, so it can reach
-  // above or left of the corner the core laid the graph out from. Everything
-  // is shifted by however far it did, rather than letting a frame be drawn at
-  // a negative coordinate — off the canvas.
-  const shift = {
-    x: Math.max(0, ...frames.map((frame) => -frame.x)),
-    y: Math.max(0, ...frames.map((frame) => -frame.y)),
-  };
-  const shifted = (point: Point): Point => ({
-    x: point.x + shift.x,
-    y: point.y + shift.y,
+  // Back into the model's own order, each frame and its title where the core
+  // put them.
+  const namespaces = groups.map<PositionedClassNamespace>(({ ns }) => {
+    const frame = boxById.get(namespaceNodeId(ns.id))!;
+    return {
+      id: ns.id,
+      label: { label: ns.label, labelBox: namespaceLabelBoxById.get(ns.id)!, anchor: frame.title! },
+      x: frame.x,
+      y: frame.y,
+      width: frame.width,
+      height: frame.height,
+    };
   });
-
-  // The same boxes in *diagram* coordinates — translated, non-negative, and
-  // the only space anything returned from here is described in.
-  const boxInDiagramSpaceById = new Map(
-    laidOut.nodes.map((box) => [box.id, { ...box, ...shifted(box) }]),
-  );
-  const routeById = new Map(
-    laidOut.edges.map((route) => [
-      route.id,
-      {
-        ...route,
-        points: route.points.map(shifted),
-        labelAnchor:
-          route.labelAnchor === undefined
-            ? undefined
-            : shifted(route.labelAnchor),
-      },
-    ]),
-  );
-  const namespaces = frames.map((frame) => ({
-    ...frame,
-    ...shifted(frame),
-    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
-  }));
 
   /**
    * Each styled class's declarations, keyed for lookup below.
@@ -733,7 +578,7 @@ export function layoutClassDiagram(
   }
 
   const classes = model.classes.map<PositionedClass>((cls) => {
-    const box = boxInDiagramSpaceById.get(cls.id)!;
+    const box = boxById.get(cls.id)!;
     const plan = planById.get(cls.id)!;
 
     /** Moves a compartment's box-local geometry into diagram coordinates. */
@@ -778,6 +623,7 @@ export function layoutClassDiagram(
         fromEnd: rel.fromEnd,
         toEnd: rel.toEnd,
         points: route.points,
+        hops: route.hops,
         label:
           rel.label === null || route.labelAnchor === undefined
             ? null
@@ -787,32 +633,16 @@ export function layoutClassDiagram(
               },
         fromMultiplicity: rel.fromMultiplicity,
         fromMultiplicityAnchor:
-          rel.fromMultiplicity === null
-            ? null
-            : multiplicityAnchor(
-                route.points,
-                true,
-                rel.fromMultiplicity,
-                boxInDiagramSpaceById.get(rel.from)!,
-                options,
-              ),
+          rel.fromMultiplicity === null ? null : (route.terminalLabelCenters?.startRight ?? null),
         toMultiplicity: rel.toMultiplicity,
         toMultiplicityAnchor:
-          rel.toMultiplicity === null
-            ? null
-            : multiplicityAnchor(
-                route.points,
-                false,
-                rel.toMultiplicity,
-                boxInDiagramSpaceById.get(rel.to)!,
-                options,
-              ),
+          rel.toMultiplicity === null ? null : (route.terminalLabelCenters?.endLeft ?? null),
         fromInterfaceLabel: rel.fromInterfaceLabel,
         fromInterfaceLabelAnchor:
-          rel.fromInterfaceLabel === null ? null : boxCenter(boxInDiagramSpaceById.get(rel.from)!),
+          rel.fromInterfaceLabel === null ? null : boxCenter(boxById.get(rel.from)!),
         toInterfaceLabel: rel.toInterfaceLabel,
         toInterfaceLabelAnchor:
-          rel.toInterfaceLabel === null ? null : boxCenter(boxInDiagramSpaceById.get(rel.to)!),
+          rel.toInterfaceLabel === null ? null : boxCenter(boxById.get(rel.to)!),
       };
     },
   );
@@ -820,12 +650,10 @@ export function layoutClassDiagram(
   const attachedNoteIds = new Set(attachedNotes.map((note) => note.id));
 
   const notes = model.notes.map<PositionedClassNote>((note) => {
-    const box = boxInDiagramSpaceById.get(noteNodeId(note.id))!;
-    // The joining edge was routed from the class to the note; the connector
-    // is drawn the other way round, out of the note it belongs to.
-    const link = attachedNoteIds.has(note.id)
-      ? [...routeById.get(noteLinkEdgeId(note.id))!.points].reverse()
-      : null;
+    const box = boxById.get(noteNodeId(note.id))!;
+    // The joining edge was routed from the note to the class, the way the
+    // connector is drawn.
+    const link = attachedNoteIds.has(note.id) ? routeById.get(noteLinkEdgeId(note.id))!.points : null;
     return {
       id: note.id,
       label: note.label,
@@ -835,6 +663,7 @@ export function layoutClassDiagram(
       width: box.width,
       height: box.height,
       linkPoints: link,
+      ...(link === null ? {} : { linkHops: routeById.get(noteLinkEdgeId(note.id))!.hops }),
     };
   });
 
@@ -852,24 +681,18 @@ export function layoutClassDiagram(
     relationships,
     namespaces,
     notes,
-    width: Math.max(laidOut.width + shift.x, bounds.width),
-    height: Math.max(laidOut.height + shift.y, bounds.height),
+    width: Math.max(laidOut.width, bounds.width),
+    height: Math.max(laidOut.height, bounds.height),
   };
 }
 
 /**
  * The extent every drawn thing fits inside: class boxes, relationship paths,
- * and the text anchored along them. The shared core reports bounds for the
- * graph it placed, but it never saw the multiplicity strings this module
- * anchors afterwards — a multiplicity sits beside its end of a routed path,
- * which can put it outside the core's figure — so the diagram measures its
- * own extent and takes the larger.
- *
- * (An earlier version of this comment also claimed the core under-reports a
- * self-relationship's routing. That was checked afterwards across four graph
- * shapes in both axes and does not reproduce: dagre's reported bounds covered
- * every node box every time. The multiplicity reason above is the real one,
- * and it stands on its own.)
+ * and the text anchored along them. The shared core reports the extent ELK
+ * gave the graph, multiplicities included where ELK put them; but the core
+ * moves a multiplicity afterwards (off a frame or a line, onto its own hand
+ * of the line — `placeTerminalLabels`), which can take it past that extent,
+ * so the diagram measures its own extent and takes the larger.
  */
 function diagramBounds(
   classes: PositionedClass[],

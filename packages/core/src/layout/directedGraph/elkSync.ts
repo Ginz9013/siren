@@ -39,9 +39,9 @@
  * watchdog timer behind it inside ELK, which is harmless and is not this module's to cancel.
  */
 import * as elkWorkerModule from "elkjs/lib/elk-worker.min.js";
-import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
+import type { ElkExtendedEdge, ElkLabel, ElkNode } from "elkjs/lib/elk-api";
 
-export type { ElkExtendedEdge, ElkNode };
+export type { ElkExtendedEdge, ElkLabel, ElkNode };
 
 /**
  * A graph ELK could not lay out, as Siren's own error rather than whatever

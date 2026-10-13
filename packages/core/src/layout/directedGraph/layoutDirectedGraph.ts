@@ -4,9 +4,10 @@
  * cluster, and routes. It measures no text, knows no diagram kind, and draws
  * nothing — the same seam the dagre core in `../layoutDirectedGraph.ts` has
  * kept since ADR-0001, with a different engine behind it. The flowchart
- * reaches it through `layoutGraph`; class, state and ER diagrams stay on the
- * dagre core until each moves onto ELK, after which this module moves back to
- * that path and keeps this name.
+ * reaches it through `layoutGraph` and the class diagram through
+ * `layoutClassDiagram`; state and ER diagrams stay on the dagre core until
+ * each moves onto ELK, after which this module moves back to that path and
+ * keeps this name.
  *
  * The engine is ELK's `layered` algorithm (elkjs, reached only through
  * `elkSync.ts`), configured as Mermaid 12.2.0 configures it for its own
@@ -17,7 +18,7 @@
  * measured and written down beside the code that departs.
  */
 import type { Direction, LineHop, Point } from "../../contracts";
-import { LayoutEngineError, layoutWithElk, type ElkExtendedEdge, type ElkNode } from "./elkSync";
+import { LayoutEngineError, layoutWithElk, type ElkExtendedEdge, type ElkLabel, type ElkNode } from "./elkSync";
 import { lineHops } from "./lineHops";
 
 /** A box to place. Sizes are given by the caller; this module never measures. */
@@ -79,6 +80,35 @@ export interface DirectedGraphEdge {
    * clear of the rounding (see `lineHops`).
    */
   cornerRadius?: number;
+  /**
+   * The labels drawn at the edge's two ends — a class relationship's
+   * multiplicities — by which end and which hand of the line each belongs
+   * on, with the size each needs. ELK keeps room for them beside the end
+   * they belong to, and the core then moves them clear of frames and onto
+   * their own hand of the line (`placeTerminalLabels`). Reported back as
+   * `terminalLabelCenters`.
+   */
+  terminalLabels?: Partial<Record<TerminalLabelKey, DirectedGraphTerminalLabel>>;
+}
+
+/**
+ * Which end of an edge a terminal label belongs to, and which hand of the
+ * line — left or right of the direction the line travels from its start to
+ * its end. Mermaid's names (`startLabelLeft`, `startLabelRight`,
+ * `endLabelLeft`, `endLabelRight`).
+ */
+export type TerminalLabelKey = "startLeft" | "startRight" | "endLeft" | "endRight";
+
+/** A terminal label's size, and the room ELK keeps around it. */
+export interface DirectedGraphTerminalLabel {
+  width: number;
+  height: number;
+  /**
+   * Extra room on every side that ELK keeps clear of the label, without the
+   * label growing: Mermaid's `TERMINAL_LABEL_MARKER_CLEARANCE`, 6 where the
+   * end carries a marker. Absent means none.
+   */
+  margin?: number;
 }
 
 /** Everything the core needs to place a directed graph. */
@@ -120,6 +150,11 @@ export interface DirectedGraphEdgeRoute {
    * is the renderer's call, by the edge's curve.
    */
   hops: LineHop[];
+  /**
+   * The centre of each terminal label the edge was given, by its key. A
+   * label ELK did not place is absent, as it is in Mermaid.
+   */
+  terminalLabelCenters?: Partial<Record<TerminalLabelKey, Point>>;
 }
 
 /** The placed graph: boxes and routes in their input order, and the extent that holds them. */
@@ -274,7 +309,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   // route is turned back below.
   const turned = subgraphFeedbackEdges(input.edges, nodeById);
   const chains = input.edges.map((edge, index) =>
-    turned[index] ? { ...chainOf({ ...edge, from: edge.to, to: edge.from }), edge } : chainOf(edge),
+    turned[index] ? { ...chainOf({ ...edge, from: edge.to, to: edge.from }, true), edge } : chainOf(edge, false),
   );
   for (const chain of chains) {
     for (const point of chain.points) {
@@ -338,7 +373,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   const absoluteRoute = (id: string) => {
     const routed = routeById.get(id)!;
     const origin = absoluteOrigin((routed as { container?: string }).container);
-    const label = routed.labels?.[0];
+    const label = routed.labels?.find((candidate) => !isTerminalLabelText(candidate.text));
     return {
       points: routeOf(routed).map((p) => ({ x: p.x + origin.x, y: p.y + origin.y })),
       labelAnchor:
@@ -358,6 +393,8 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     };
     const labelAnchor = pieces.find((piece) => piece.labelAnchor !== undefined)?.labelAnchor;
     if (edge.label !== undefined && labelAnchor !== undefined) route.labelAnchor = labelAnchor;
+    const terminals = terminalCentres(segments, routeById, absoluteOrigin);
+    if (terminals !== undefined) route.terminalLabelCenters = terminals;
     return route;
   });
 
@@ -367,6 +404,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     input.edges,
     nodes.filter((box) => nodeById.get(box.id)!.cluster === undefined),
   );
+  placeTerminalLabels(input, nodes, edges);
   placeTitlesClear(input, nodes, edges);
 
   // Last, from every finished route at once: which of two crossing routes
@@ -654,9 +692,9 @@ function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: numbe
  * measured and rejected for the overshoots and detours it adds. The
  * departure and its numbers are nook decision `01M4VFW4XGRGSMTMQ12HME145W`.
  *
- * The rule, per titled cluster: every route segment that reaches into the
- * title's height blocks its horizontal extent, widened by half the
- * cluster's padding. A centred title clear of every blocked stretch stays
+ * The rule, per titled cluster: every route segment, and every terminal
+ * label (`placeTerminalLabels`), that reaches into the title's height blocks
+ * its horizontal extent, widened by half the cluster's padding. A centred title clear of every blocked stretch stays
  * centred. Otherwise the title goes to the place nearest the centre that
  * clears them all, at the band's height and at least half a padding inside
  * the frame's sides; with no such place it stays centred — the frame is
@@ -688,6 +726,18 @@ function placeTitlesClear(
         blocked.push([Math.min(point.x, previous.x) - margin, Math.max(point.x, previous.x) + margin]);
       });
     }
+    // And every terminal label that reaches into the title's height, the
+    // same way: unlike an edge's centre label, which ELK places in a layer
+    // and never in a band, an end label is placed beside the route's end,
+    // and an end inside the frame puts it up in the band (nook decision
+    // `01M4VHSY2W1Q9E5QCA51F1TCJM`, which measures it).
+    routes.forEach((route, index) => {
+      for (const [key, centre] of Object.entries(route.terminalLabelCenters ?? {})) {
+        const label = input.edges[index].terminalLabels![key as TerminalLabelKey]!;
+        if (centre.y + label.height / 2 <= top || centre.y - label.height / 2 >= bottom) continue;
+        blocked.push([centre.x - label.width / 2 - margin, centre.x + label.width / 2 + margin]);
+      }
+    });
     const half = size.width / 2;
     const clear = (x: number) => blocked.every(([left, right]) => right <= x - half || left >= x + half);
     const centre = frame.x + frame.width / 2;
@@ -931,8 +981,9 @@ interface Chain {
  * edge spans one more layer than an unlabelled one of the same length, under
  * any `minLength`. A self-loop is never chained: its ends are one box.
  */
-function chainOf(edge: DirectedGraphEdge): Chain {
+function chainOf(edge: DirectedGraphEdge, turned: boolean): Chain {
   const length = edge.from === edge.to ? 1 : Math.max(1, Math.floor(edge.minLength ?? 1));
+  const terminals = terminalElkLabels(edge, turned);
   const label =
     edge.label === undefined
       ? undefined
@@ -952,7 +1003,14 @@ function chainOf(edge: DirectedGraphEdge): Chain {
   if (length === 1) {
     return {
       edge,
-      segments: [{ id: edge.id, sources: [edge.from], targets: [edge.to], ...(label ? { labels: label } : {}) }],
+      segments: [
+        {
+          id: edge.id,
+          sources: [edge.from],
+          targets: [edge.to],
+          ...withLabels([...(label ?? []), ...terminals.tail, ...terminals.head]),
+        },
+      ],
       points: [],
     };
   }
@@ -965,9 +1023,263 @@ function chainOf(edge: DirectedGraphEdge): Chain {
     id: `${edge.id}\u0000segment\u0000${index}`,
     sources: [stops[index]],
     targets: [to],
-    ...(label && index === labelled ? { labels: label } : {}),
+    ...withLabels([
+      ...(label && index === labelled ? label : []),
+      ...(index === 0 ? terminals.tail : []),
+      ...(index === length - 1 ? terminals.head : []),
+    ]),
   }));
   return { edge, segments, points };
+}
+
+/** `{ labels }` when there are any, so an edge with none carries no empty list. */
+function withLabels(labels: ElkLabel[]): { labels?: ElkLabel[] } {
+  return labels.length === 0 ? {} : { labels };
+}
+
+const TERMINAL_LABEL_KEYS: readonly TerminalLabelKey[] = ["startLeft", "startRight", "endLeft", "endRight"];
+
+/**
+ * The text a terminal label is handed to ELK with: its key, behind a NUL no
+ * caller's id can hold. ELK skips a label without text, and the text is how
+ * the label is found again in ELK's answer.
+ */
+const terminalLabelText = (key: TerminalLabelKey) => `\u0000terminal\u0000${key}`;
+
+function isTerminalLabelText(text: string | undefined): boolean {
+  return text !== undefined && TERMINAL_LABEL_KEYS.some((key) => terminalLabelText(key) === text);
+}
+
+/**
+ * An edge's terminal labels as ELK labels — Mermaid 12.2.0's
+ * `terminalElkLabels` (`elk-V4PLJRSU.mjs`, line 99827): each placed `TAIL`
+ * (at the edge's start) or `HEAD` (at its end), as large as the label plus
+ * its margin on every side, so ELK keeps room beside the end for it.
+ *
+ * Split by which end of the **ELK** edge each goes to. A turned edge
+ * (`subgraphFeedbackEdges`) is handed to ELK end first, so its start labels
+ * go to ELK's head and its end labels to ELK's tail: each stays at the end
+ * of the line it belongs to. **A departure from Mermaid 12**, which turns the
+ * edge and leaves the placements as they were, so a multiplicity on a turned
+ * edge lands at the other class (nook decision `01M4VHSY2W1Q9E5QCA51F1TCJM`).
+ */
+function terminalElkLabels(edge: DirectedGraphEdge, turned: boolean): { tail: ElkLabel[]; head: ElkLabel[] } {
+  const tail: ElkLabel[] = [];
+  const head: ElkLabel[] = [];
+  for (const key of TERMINAL_LABEL_KEYS) {
+    const size = edge.terminalLabels?.[key];
+    if (size === undefined) continue;
+    const atTail = key.startsWith("start") !== turned;
+    const margin = size.margin ?? 0;
+    (atTail ? tail : head).push({
+      id: `${edge.id}\u0000${key}`,
+      text: terminalLabelText(key),
+      width: size.width + 2 * margin,
+      height: size.height + 2 * margin,
+      layoutOptions: { "elk.edgeLabels.placement": atTail ? "TAIL" : "HEAD" },
+    });
+  }
+  return { tail, head };
+}
+
+/**
+ * Where ELK put an edge's terminal labels, by key, in the drawing's
+ * coordinates — Mermaid's reading in `applyElkEdgeLayout` (`elk-V4PLJRSU.mjs`,
+ * line 100408): the centre of the box ELK placed, margin included, which is
+ * the label's centre; a label ELK left at the origin is not placed.
+ */
+function terminalCentres(
+  segments: readonly ElkExtendedEdge[],
+  routeById: ReadonlyMap<string, ElkExtendedEdge>,
+  absoluteOrigin: (containerId: string | undefined) => Point,
+): Partial<Record<TerminalLabelKey, Point>> | undefined {
+  let centres: Partial<Record<TerminalLabelKey, Point>> | undefined;
+  for (const segment of segments) {
+    const routed = routeById.get(segment.id)!;
+    const origin = absoluteOrigin((routed as { container?: string }).container);
+    for (const label of routed.labels ?? []) {
+      const key = TERMINAL_LABEL_KEYS.find((candidate) => terminalLabelText(candidate) === label.text);
+      if (key === undefined || (!label.x && !label.y)) continue;
+      (centres ??= {})[key] = {
+        x: origin.x + label.x! + label.width! / 2,
+        y: origin.y + label.y! + label.height! / 2,
+      };
+    }
+  }
+  return centres;
+}
+
+/** A label's box by its two corners, Mermaid's `labelBox`. */
+interface Corners {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+const cornersOf = (centre: Point, size: { width: number; height: number }): Corners => ({
+  x1: centre.x - size.width / 2,
+  y1: centre.y - size.height / 2,
+  x2: centre.x + size.width / 2,
+  y2: centre.y + size.height / 2,
+});
+
+const cornersOverlap = (a: Corners, b: Corners) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+
+const segmentMeetsCorners = (a: Point, b: Point, box: Corners) =>
+  segmentMeetsBox(
+    a,
+    b,
+    { x: (box.x1 + box.x2) / 2, y: (box.y1 + box.y2) / 2 },
+    { width: box.x2 - box.x1, height: box.y2 - box.y1 },
+  );
+
+/** How close a terminal label slid along its line may come to a frame: Mermaid's `TERMINAL_LABEL_FRAME_CLEARANCE`. */
+const TERMINAL_LABEL_FRAME_CLEARANCE = 2;
+
+/**
+ * Moves each terminal label off any frame it overlaps and onto its own hand
+ * of the line — Mermaid 12.2.0's `slideTerminalLabelsOffFrames` and
+ * `putTerminalLabelsOnTheirSide` (`elk-V4PLJRSU.mjs`, lines 100547 and
+ * 100580), with the obstacles of its `terminalLabelObstacles` (line 100479),
+ * which its `applyElkEdgeLayout` runs on every ELK layout after
+ * straightening the ends. Post-layout passes Mermaid's ELK adapter runs live
+ * in the core (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
+ *
+ * The obstacles: every box that is not a cluster, every edge's centre label,
+ * every side of every cluster's frame, every route segment but the one the
+ * label is being moved along, and every other terminal label.
+ *
+ * - **Off frames, and off everything else.** A label that overlaps a
+ *   frame's side slides along the segment it sits beside (the route's first
+ *   for a start label, its last for an end label), a pixel at a time each
+ *   way, to the nearest place still beside that segment where it is clear of
+ *   every obstacle and 2px clear of every frame. With no such place it
+ *   stays.
+ *
+ *   **Siren slides a label struck by any obstacle, not only a frame — a
+ *   departure from Mermaid 12**, whose pass starts only for a label across a
+ *   frame. ELK keeps room for an end label beside its own end but not clear
+ *   of a neighbouring edge that leaves the same side: measured with the
+ *   class adapter, `Keeper "1" --> "*" Animal` beside `Keeper -- Habitat`
+ *   and `Habitat --* Animal` draws "*" across Habitat's line under TB, and
+ *   "1" across it under LR. A multiplicity on another relationship's line
+ *   reads as that line's. And where its own side of the line has no clear
+ *   place, Siren tries the same across the line — the place mirrored across
+ *   it, then sliding from there — where Mermaid leaves the label where it
+ *   is: a neighbouring line can run alongside the whole segment (nook
+ *   decision `01M4VHSY2W1Q9E5QCA51F1TCJM`, under rule 1 of
+ *   `01M4VANRC6B2C14NHVC2KRZ9Y8`).
+ * - **On its own hand.** A label on the wrong hand of that segment — a
+ *   `…Right` label on its left, a `…Left` one on its right — is mirrored
+ *   across the segment's line, if the mirrored place is clear.
+ *
+ * Mermaid first moves each label by however far its edge's end moved after
+ * layout (`followMovedEndpoints`): Mermaid clips and shortens a route's ends
+ * for its markers. The core moves no route's end — `straightenTerminals`
+ * keeps both — so there is nothing to follow.
+ */
+function placeTerminalLabels(
+  input: DirectedGraphInput,
+  boxes: readonly DirectedGraphNodeBox[],
+  routes: readonly DirectedGraphEdgeRoute[],
+): void {
+  const clusterIds = new Set(input.nodes.filter((node) => node.cluster !== undefined).map((node) => node.id));
+  const nodeBoxes = boxes
+    .filter((box) => !clusterIds.has(box.id))
+    .map((box) => ({ x1: box.x, y1: box.y, x2: box.x + box.width, y2: box.y + box.height }));
+  const frameSides = boxes
+    .filter((box) => clusterIds.has(box.id))
+    .flatMap((box): [Point, Point][] => {
+      const [x1, y1, x2, y2] = [box.x, box.y, box.x + box.width, box.y + box.height];
+      return [
+        [{ x: x1, y: y1 }, { x: x2, y: y1 }],
+        [{ x: x2, y: y1 }, { x: x2, y: y2 }],
+        [{ x: x2, y: y2 }, { x: x1, y: y2 }],
+        [{ x: x1, y: y2 }, { x: x1, y: y1 }],
+      ];
+    });
+  const centreLabels = routes.flatMap((route, index) => {
+    const size = input.edges[index].label;
+    return route.labelAnchor === undefined || size === undefined ? [] : [cornersOf(route.labelAnchor, size)];
+  });
+  const hitsFrame = (box: Corners, clearance = 0) => {
+    const padded = { x1: box.x1 - clearance, y1: box.y1 - clearance, x2: box.x2 + clearance, y2: box.y2 + clearance };
+    return frameSides.some(([a, b]) => segmentMeetsCorners(a, b, padded));
+  };
+  const blocked = (box: Corners, edgeIndex: number, key: TerminalLabelKey, segment: number, clearance = 0) =>
+    nodeBoxes.some((node) => cornersOverlap(box, node)) ||
+    centreLabels.some((label) => cornersOverlap(box, label)) ||
+    hitsFrame(box, clearance) ||
+    routes.some((other, otherIndex) =>
+      other.points.some(
+        (point, i, all) =>
+          i < all.length - 1 && !(otherIndex === edgeIndex && i === segment) && segmentMeetsCorners(point, all[i + 1], box),
+      ),
+    ) ||
+    routes.some((other, otherIndex) =>
+      Object.entries(other.terminalLabelCenters ?? {}).some(([otherKey, centre]) => {
+        const size = input.edges[otherIndex].terminalLabels?.[otherKey as TerminalLabelKey];
+        return !(otherIndex === edgeIndex && otherKey === key) && size !== undefined && cornersOverlap(box, cornersOf(centre, size));
+      }),
+    );
+
+  /** Each placed terminal label with the segment it sits beside — Mermaid's `placedTerminalLabels`. */
+  function* placed() {
+    for (const [edgeIndex, route] of routes.entries()) {
+      const points = route.points;
+      if (points.length < 2 || route.terminalLabelCenters === undefined) continue;
+      for (const key of TERMINAL_LABEL_KEYS) {
+        const centre = route.terminalLabelCenters[key];
+        const size = input.edges[edgeIndex].terminalLabels?.[key];
+        if (centre === undefined || size === undefined) continue;
+        const atStart = key.startsWith("start");
+        const segment = atStart ? 0 : points.length - 2;
+        const [from, to] = [points[segment], points[segment + 1]];
+        const length = Math.hypot(to.x - from.x, to.y - from.y);
+        if (length === 0) continue;
+        yield { route, edgeIndex, key, centre, size, atStart, segment, from, to, length };
+      }
+    }
+  }
+
+  for (const { route, edgeIndex, key, centre, size, atStart, segment, from, to, length } of placed()) {
+    const where = cornersOf(centre, size);
+    if (!hitsFrame(where) && !blocked(where, edgeIndex, key, segment)) continue;
+    const [far, end] = atStart ? [to, from] : [from, to];
+    const dir = { x: (end.x - far.x) / length, y: (end.y - far.y) / length };
+    const halfExtent = (Math.abs(dir.x) * size.width + Math.abs(dir.y) * size.height) / 2;
+    const along = (c: Point) => (c.x - end.x) * dir.x + (c.y - end.y) * dir.y;
+    const onSegment = (c: Point) => along(c) + halfExtent <= 0 && along(c) - halfExtent >= -length;
+    const clear = (c: Point) =>
+      onSegment(c) && !blocked(cornersOf(c, size), edgeIndex, key, segment, TERMINAL_LABEL_FRAME_CLEARANCE);
+    /** The nearest place along the segment from `start`, a pixel at a time each way, that is clear. */
+    const slide = (start: Point): Point | undefined => {
+      for (let step = 1; step <= length; step++) {
+        const found = [step, -step]
+          .map((shift) => ({ x: start.x + shift * dir.x, y: start.y + shift * dir.y }))
+          .find(clear);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    // Siren's: with no clear place on its own side of the line, the other
+    // side — the label's own hand is a preference, a label on a line is a
+    // misreading.
+    const normal = { x: -dir.y, y: dir.x };
+    const offset = (centre.x - end.x) * normal.x + (centre.y - end.y) * normal.y;
+    const mirrored = { x: centre.x - 2 * offset * normal.x, y: centre.y - 2 * offset * normal.y };
+    const found = slide(centre) ?? (offset === 0 ? undefined : clear(mirrored) ? mirrored : slide(mirrored));
+    if (found !== undefined) route.terminalLabelCenters![key] = found;
+  }
+
+  for (const { route, edgeIndex, key, centre, size, segment, from, to, length } of placed()) {
+    const normal = { x: -(to.y - from.y) / length, y: (to.x - from.x) / length };
+    const offset = (centre.x - from.x) * normal.x + (centre.y - from.y) * normal.y;
+    if (offset === 0 || offset > 0 === key.endsWith("Right")) continue;
+    const mirrored = { x: centre.x - 2 * offset * normal.x, y: centre.y - 2 * offset * normal.y };
+    if (!blocked(cornersOf(mirrored, size), edgeIndex, key, segment)) route.terminalLabelCenters![key] = mirrored;
+  }
 }
 
 /**

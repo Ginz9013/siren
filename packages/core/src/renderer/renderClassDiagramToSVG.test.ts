@@ -535,6 +535,12 @@ describe("renderClassDiagramToSVG", () => {
     expect(multiplicities[0].getAttribute("y")).toBe("96");
     expect(multiplicities[1].getAttribute("x")).toBe("244");
     expect(multiplicities[1].getAttribute("y")).toBe("152");
+    // Centred on its anchor in both axes: the anchor is the centre of the
+    // room the layout kept for the text beside the line, not a baseline.
+    for (const multiplicity of Array.from(multiplicities)) {
+      expect(multiplicity.getAttribute("text-anchor")).toBe("middle");
+      expect(multiplicity.getAttribute("dominant-baseline")).toBe("middle");
+    }
   });
 
   it("renders no label or multiplicity text when the relationship carries none", () => {
@@ -785,29 +791,32 @@ describe("renderClassDiagramToSVG", () => {
     expect(text?.getAttribute("y")).toBe("60");
   });
 
-  it("draws a relationship and a note's connector as d3's basis curve, keeping the route as data-siren-points", () => {
-    // mermaid 11.17.2 sets no `curve` on a class diagram's edges, its note
-    // edges included, so `insertEdge` falls back to `flowchart.curve`, whose
-    // default is `basis`. What `basis` draws is connectorCurve.test.ts's to
-    // pin against d3; here the question is only which curve this kind uses.
+  it("draws a relationship and a note's connector rounded, with their line hops, keeping the route as data-siren-points", () => {
+    // Mermaid 12.2.0 draws every edge ELK routed `rounded`, class relations
+    // and note links among them (`applyElkEdgeLayout`), with the line hops
+    // its ELK layout computes. What `rounded` and a hop draw is
+    // connectorCurve.test.ts's to pin; here the question is only which curve
+    // this kind uses, and that the layout's hops reach it.
     const route = [
       { x: 70, y: 80 },
       { x: 70, y: 140 },
-      { x: 130, y: 140 },
+      { x: 230, y: 140 },
     ];
+    const hops = [{ x: 150, y: 140, radius: 6, segment: 1 }];
     const svg = renderClassDiagramToSVG({
       ...buildDiagram(
         [buildClass(), buildClass({ id: "Duck", ...labelled("Duck"), x: 200, y: 140 })],
-        [buildRelationship({ points: route })],
+        [buildRelationship({ points: route, hops })],
       ),
-      notes: [buildNote({ linkPoints: route })],
+      notes: [buildNote({ linkPoints: route, linkHops: hops })],
     });
-    const basis = connectorPathData(route, "basis");
+    const rounded = connectorPathData(route, "rounded", hops);
+    expect(rounded).toContain("A6,6");
 
     for (const selector of ["path.siren-relationship-line", "path.siren-note-link"]) {
       const path = svg.querySelector(selector)!;
-      expect(path.getAttribute("d")).toBe(basis);
-      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+      expect(path.getAttribute("d")).toBe(rounded);
+      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 230,140");
     }
   });
 

@@ -899,3 +899,155 @@ describe("layoutDirectedGraph places a cluster's title clear of the routes cross
     expect(frame.title!.x).toBeCloseTo(frame.x + frame.width / 2, 5);
   });
 });
+
+describe("layoutDirectedGraph's terminal labels", () => {
+  /** The rectangle a label of `size` covers centred on `centre`. */
+  const boxAround = (centre: Point, size: { width: number; height: number }) => ({
+    x: centre.x - size.width / 2,
+    y: centre.y - size.height / 2,
+    width: size.width,
+    height: size.height,
+  });
+  const overlaps = (
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  /** Which side of the segment `from`→`to`'s line `p` lies on, as Mermaid's `putTerminalLabelsOnTheirSide` reads it: positive is the right hand of travel (y grows downward). */
+  const hand = (p: Point, from: Point, to: Point) =>
+    Math.sign(-(to.y - from.y) * (p.x - from.x) + (to.x - from.x) * (p.y - from.y));
+
+  const LABEL = { width: 24, height: 16 };
+
+  it.each(["TB", "BT", "LR", "RL"] as const)(
+    "under %s, puts each beside its own end, on its own hand of the line, clear of the boxes and the route",
+    (direction) => {
+      const result = layoutDirectedGraph({
+        direction,
+        nodes: [
+          { id: "A", width: 80, height: 40 },
+          { id: "B", width: 80, height: 40 },
+        ],
+        edges: [
+          {
+            id: "A-B",
+            from: "A",
+            to: "B",
+            terminalLabels: { startRight: { ...LABEL }, endLeft: { ...LABEL } },
+          },
+        ],
+      });
+      const [route] = result.edges;
+      const points = route.points;
+      const first = points[0];
+      const last = points[points.length - 1];
+      expect(route.terminalLabelCenters).toEqual({ startRight: expect.any(Object), endLeft: expect.any(Object) });
+      const start = route.terminalLabelCenters!.startRight!;
+      const end = route.terminalLabelCenters!.endLeft!;
+
+      expect(Math.hypot(start.x - first.x, start.y - first.y)).toBeLessThan(
+        Math.hypot(start.x - last.x, start.y - last.y),
+      );
+      expect(Math.hypot(end.x - last.x, end.y - last.y)).toBeLessThan(Math.hypot(end.x - first.x, end.y - first.y));
+      // Right of the first segment's travel, left of the last's.
+      expect(hand(start, points[0], points[1])).toBe(1);
+      expect(hand(end, points[points.length - 2], last)).toBe(-1);
+      for (const centre of [start, end]) {
+        for (const box of result.nodes) expect(overlaps(boxAround(centre, LABEL), box)).toBe(false);
+        expect(distanceToPolyline(centre, points)).toBeGreaterThanOrEqual(LABEL.height / 2 - 1e-6);
+      }
+    },
+  );
+
+  it("slides a label ELK put across a frame along its line, clear of the frame, and keeps it on its own hand", () => {
+    // A leaves its cluster through the frame's bottom: ELK puts A's start
+    // label just under A, across the frame's bottom side.
+    const SIZE = { width: 30, height: 24 };
+    const result = layoutDirectedGraph({
+      direction: "TB",
+      nodes: [
+        { id: "G", width: 0, height: 0, cluster: { padding: 12, title: { width: 40, height: 24 } } },
+        { id: "A", width: 80, height: 40, parentId: "G" },
+        { id: "B", width: 80, height: 40 },
+      ],
+      edges: [{ id: "A-B", from: "A", to: "B", terminalLabels: { startRight: { ...SIZE, margin: 6 } } }],
+    });
+    const frame = result.nodes.find((box) => box.id === "G")!;
+    const [route] = result.edges;
+    const label = boxAround(route.terminalLabelCenters!.startRight!, SIZE);
+    // Clear of every side of the frame by Mermaid's 2px: wholly inside or wholly outside.
+    const inside =
+      label.x >= frame.x + 2 &&
+      label.y >= frame.y + 2 &&
+      label.x + label.width <= frame.x + frame.width - 2 &&
+      label.y + label.height <= frame.y + frame.height - 2;
+    const outside =
+      label.x + label.width <= frame.x - 2 ||
+      label.x >= frame.x + frame.width + 2 ||
+      label.y + label.height <= frame.y - 2 ||
+      label.y >= frame.y + frame.height + 2;
+    expect({ inside, outside }).not.toEqual({ inside: false, outside: false });
+    expect(hand(route.terminalLabelCenters!.startRight!, route.points[0], route.points[1])).toBe(1);
+  });
+
+  it("keeps each label at its own end of an edge handed to ELK turned round", () => {
+    // `S1 { A, C }`, `S2 { B }`, `A --> B`, `B --> C`: a cycle among the
+    // frames, so one of the two edges between them goes to ELK turned round
+    // (`subgraphFeedbackEdges`); its labels still belong to its own ends.
+    const SIZE = { width: 24, height: 16 };
+    const terminalLabels = { startRight: { ...SIZE }, endLeft: { ...SIZE } };
+    const result = layoutDirectedGraph({
+      direction: "TB",
+      nodes: [
+        { id: "S1", width: 0, height: 0, cluster: { padding: 12 } },
+        { id: "S2", width: 0, height: 0, cluster: { padding: 12 } },
+        { id: "A", width: 60, height: 40, parentId: "S1" },
+        { id: "C", width: 60, height: 40, parentId: "S1" },
+        { id: "B", width: 60, height: 40, parentId: "S2" },
+      ],
+      edges: [
+        { id: "A-B", from: "A", to: "B", terminalLabels },
+        { id: "B-C", from: "B", to: "C", terminalLabels },
+      ],
+    });
+    const misplaced = result.edges.flatMap((route) => {
+      const first = route.points[0];
+      const last = route.points[route.points.length - 1];
+      const near = (p: Point, end: Point, other: Point) =>
+        Math.hypot(p.x - end.x, p.y - end.y) < Math.hypot(p.x - other.x, p.y - other.y);
+      const { startRight, endLeft } = route.terminalLabelCenters ?? {};
+      return [
+        ...(startRight !== undefined && near(startRight, first, last) ? [] : [`${route.id} start`]),
+        ...(endLeft !== undefined && near(endLeft, last, first) ? [] : [`${route.id} end`]),
+      ];
+    });
+    expect(misplaced).toEqual([]);
+  });
+
+  it("keeps a cluster's title off the terminal labels in its band, where the band has room", () => {
+    // Two members side by side under LR, joined with a label at each end:
+    // ELK puts both labels above the line, up in the band, and the centred
+    // title runs across them. The band has room beside them.
+    const TITLE = { width: 120, height: 24 };
+    const terminalLabels = { startRight: { width: 20, height: 27, margin: 6 }, endLeft: { width: 30, height: 27, margin: 6 } };
+    const result = layoutDirectedGraph({
+      direction: "LR",
+      nodes: [
+        { id: "G", width: 0, height: 0, cluster: { padding: 12, title: TITLE } },
+        { id: "N0", width: 60, height: 40, parentId: "G" },
+        { id: "N1", width: 140, height: 40, parentId: "G" },
+      ],
+      edges: [{ id: "N0-N1", from: "N0", to: "N1", terminalLabels }],
+    });
+    const frame = result.nodes.find((box) => box.id === "G")!;
+    const title = boxAround(frame.title!, TITLE);
+    const [route] = result.edges;
+    const struck = Object.entries(route.terminalLabelCenters ?? {}).filter(([key, centre]) =>
+      overlaps(boxAround(centre, terminalLabels[key as keyof typeof terminalLabels]), title),
+    );
+    expect(struck.map(([key]) => key)).toEqual([]);
+    // Still in the band, inside the frame.
+    expect(title.y).toBe(frame.y + 12);
+    expect(title.x).toBeGreaterThanOrEqual(frame.x);
+    expect(title.x + title.width).toBeLessThanOrEqual(frame.x + frame.width);
+  });
+});

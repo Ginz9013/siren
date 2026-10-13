@@ -2088,6 +2088,11 @@ export interface PositionedClassRelationship {
   toEnd: ClassRelationshipEnd;
   points: Point[];
   /**
+   * Where this relationship's line jumps another that crosses it — the
+   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
+   */
+  hops?: LineHop[];
+  /**
    * The relationship's label, wrapped and placed: the label as drawn — its
    * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
    * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
@@ -2142,6 +2147,8 @@ export interface PositionedClassNote {
   height: number;
   /** The connector path to the class this note is attached to; `null` for a free note. */
   linkPoints: Point[] | null;
+  /** The connector's **line hops**, as on `PositionedEdge.hops`. Absent reads as none. */
+  linkHops?: LineHop[];
 }
 
 /**

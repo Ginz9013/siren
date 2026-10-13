@@ -9,7 +9,7 @@ import type {
   PositionedClassRelationship,
   StyleProperty,
 } from "../contracts";
-import { DEFAULT_CURVE } from "../curve/curve";
+import { CLASS_CONNECTOR_CURVE } from "../layout/layoutClassDiagram";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -189,7 +189,9 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-relationship-line");
-  drawConnectorRoute(line, relationship.points, DEFAULT_CURVE);
+  // Rounded, with the line hops the layout found (`CLASS_CONNECTOR_CURVE`:
+  // the curve layout kept the hops clear of).
+  drawConnectorRoute(line, relationship.points, CLASS_CONNECTOR_CURVE, relationship.hops);
   // Explicit, not left to CSS: a relationship's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
   // spanning the classes it connects.
@@ -286,6 +288,12 @@ function buildRelationshipText(
   text.setAttribute("x", String(anchor.x));
   text.setAttribute("y", String(anchor.y));
   text.setAttribute("text-anchor", "middle");
+  // Centred vertically too: the anchor is the centre of the room the layout
+  // kept for the text — a multiplicity's is the centre of the label box ELK
+  // placed beside the line, an interface label's the centre of its own box
+  // — so drawing it on its baseline would sit it half a line too high,
+  // towards whatever is above.
+  text.setAttribute("dominant-baseline", "middle");
   text.textContent = content;
   return text;
 }
@@ -589,7 +597,7 @@ function buildNoteLink(note: PositionedClassNote): SVGPathElement | null {
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
   link.setAttribute("data-siren-id", note.id);
-  drawConnectorRoute(link, note.linkPoints, DEFAULT_CURVE);
+  drawConnectorRoute(link, note.linkPoints, CLASS_CONNECTOR_CURVE, note.linkHops);
   // Explicit, for the same reason a relationship line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.
   link.setAttribute("fill", "none");
