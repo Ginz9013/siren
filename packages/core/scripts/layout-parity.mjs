@@ -11,7 +11,8 @@
  * For every diagram it draws the same source twice in one headless Chrome
  * page — once with `mermaid@12.2.0` at its defaults (`startOnLoad: false`,
  * no theme or layout settings), once with siren-core's standalone build and
- * the canvas text measurer siren-board uses — and reads back each node's box.
+ * the canvas text measurer siren-board uses — and reads back each node's box and
+ * each edge's path.
  * Nodes are matched across the two pictures by the id the author wrote
  * (`scripts/parity/ids.mjs` says how that id is read off Mermaid's DOM). Per
  * diagram it prints:
@@ -27,7 +28,15 @@
  * - **node size**: the mean of Siren's width over Mermaid's, and of the
  *   heights, with Siren's 14px text scaled to Mermaid's 16px and then raw,
  *   and the five nodes whose size is furthest from Mermaid's (every node's
- *   two boxes are in the `--json` output).
+ *   two boxes are in the `--json` output);
+ * - **edge metrics**, for each side on its own (they read one picture, not
+ *   the distance between two): how many times two edges cross, how many
+ *   edges are drawn across a node that is not one of their ends, how many
+ *   across a group's title, how many overshoot their ends and turn back,
+ *   the mean detour (drawn length over the straight distance between an
+ *   edge's ends), and the picture's aspect ratio. Each line is sampled along
+ *   its drawn path (`getPointAtLength`) with any line-jump arc straightened
+ *   first, so a crossing a jump marks is still counted.
  *
  * The metrics are pure functions in `scripts/parity/metrics.mjs`, tested with
  * `node --test scripts/parity`; this file is the part that needs Chrome.
@@ -65,7 +74,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { exitCodeFor, failedSides, formatText, parseArgs } from "./parity/cli.mjs";
-import { compareLayouts, compareSizes } from "./parity/metrics.mjs";
+import { compareLayouts, compareSizes, measureEdges } from "./parity/metrics.mjs";
 import { buildPage, PENDING, RESULT_ID } from "./parity/page.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -188,18 +197,28 @@ async function main() {
       mermaidUrl: pathToFileURL(mermaidBundle()).href,
       sirenUrl: pathToFileURL(SIREN_BUILD).href,
       idsUrl: pathToFileURL(join(HERE, "parity", "ids.mjs")).href,
+      metricsUrl: pathToFileURL(join(HERE, "parity", "metrics.mjs")).href,
       diagrams,
     }),
   );
 
   const drawn = readResult(await dumpDom(chrome, pathToFileURL(pagePath).href));
+  // The sampled edge geometry is thousands of points per diagram: it is read
+  // into the edge metrics here and left out of the report, `--json` included.
+  const withoutGeometry = ({ edgeGeometry, ...side }) => side;
   const results = drawn.map((r) =>
     failedSides(r).length === 0
       ? {
-          ...r,
+          file: r.file,
+          mermaid: withoutGeometry(r.mermaid),
+          siren: withoutGeometry(r.siren),
           metrics: {
             ...compareLayouts(r.mermaid.nodes, r.siren.nodes),
             sizes: compareSizes(r.mermaid.nodes, r.siren.nodes),
+            edges: {
+              mermaid: measureEdges(r.mermaid.edgeGeometry),
+              siren: measureEdges(r.siren.edgeGeometry),
+            },
           },
         }
       : r,

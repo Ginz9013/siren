@@ -1,0 +1,61 @@
+flowchart TB
+  subgraph G0 ["群組 0 驗證"]
+    N9["Cache 9<br/>Inventory"]
+    N10["報表 10"]
+    N11["Search 11"]
+    N12["審核流程 12"]
+  end
+  subgraph G1 ["群組 1 Inventory"]
+    N6["排程器 6"]
+    N7["Ledger 7"]
+    N8["使用者資料 8"]
+  end
+  N0["驗證 0"]
+  N1["Order 1<br/>Ledger"]
+  N2["付款閘道 2<br/>出貨"]
+  N3["Inventory 3"]
+  N4["通知服務 4"]
+  N5["Auth 5"]
+  N13["Webhook 13<br/>Search"]
+  N14["出貨 14"]
+  N15["Pricing 15<br/>Auth"]
+  N16["風控 16"]
+  N17["Queue 17<br/>Gateway"]
+  N18["設定中心 18<br/>排程器"]
+  N19["Gateway 19"]
+  N20["驗證 20"]
+  N21["Order 21"]
+  N22["付款閘道 22"]
+  N23["Inventory 23<br/>Order"]
+  N2 --> N4
+  N1 --> N5
+  N2 --> N6
+  N3 --> N7
+  N6 --> N8
+  N6 --> N9
+  N7 --> N10
+  N7 --> N11
+  N8 --> N12
+  N11 --> N13
+  N8 --> N14
+  N8 --> N15
+  N15 --> N16
+  N12 --> N17
+  N13 --> N18
+  N12 --> N19
+  N16 --> N20
+  N18 --> N21
+  N19 --> N22
+  N19 --> N23
+  N1 -.-> N17
+  N11 -.-> N14
+  N4 --> N21
+  N1 --> N19
+  N19 -.-> N20
+  N17 -.-> N20
+  N0 --> N8
+  N3 --> N15
+  N7 -.-> N9
+  N7 -.-> N18
+  N13 -.-> N20
+  N4 --> N11

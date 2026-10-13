@@ -86,3 +86,31 @@ test("the text report gives the mean size ratios, normalized and raw, and the fi
     ].join("\n"),
   );
 });
+
+// Edge metrics are per side, not a comparison: one line for each picture,
+// the side's name padded so the two lines' numbers line up. Detour and
+// aspect print to two places; a side with no ratio to take prints n/a.
+test("the text report gives each side's edge metrics on a line of its own", () => {
+  const metrics = {
+    mermaidNodes: 2, sirenNodes: 2, matched: 2, mermaidOnly: [], sirenOnly: [],
+    verticalAgreement: 1, horizontalAgreement: 1, meanOffset: 0, maxOffset: 0,
+    worst: [{ id: "A", offset: 0 }],
+    edges: {
+      mermaid: { edges: 27, crossings: 6, throughNodes: 0, throughTitles: 7, reversals: 9, detour: 1.3412, aspect: 0.6 },
+      siren: { edges: 0, crossings: 0, throughNodes: 0, throughTitles: 0, reversals: 0, detour: null, aspect: null },
+    },
+  };
+  assert.equal(
+    formatText([{ file: "edges.mmd", mermaid: { nodes: {} }, siren: { nodes: {} }, metrics }]),
+    [
+      "edges.mmd",
+      "  nodes       mermaid 2  siren 2  matched 2",
+      "  agreement   vertical 100.0%  horizontal 100.0%",
+      "  offset      mean 0.000  max 0.000",
+      "  worst       A 0.000",
+      "  edges       mermaid 27 drawn  crossings 6  through nodes 0  through titles 7  reversals 9  detour ×1.34  aspect 0.60",
+      "  edges       siren    0 drawn  crossings 0  through nodes 0  through titles 0  reversals 0  detour n/a  aspect n/a",
+      "",
+    ].join("\n"),
+  );
+});

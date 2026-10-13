@@ -75,7 +75,28 @@ function formatOne(result) {
     const furthest = s.nodes.slice(0, WORST_COUNT).map((n) => `${n.id} ${dimensions(n.mermaid)} → ${dimensions(n.siren)}`);
     lines.push(`  size worst  ${furthest.join(", ")}`);
   }
+  if (m.edges !== undefined) lines.push(...formatEdges(m.edges));
   return lines;
+}
+
+const twoPlaces = (v) => (v === null ? "n/a" : v.toFixed(2));
+
+/**
+ * Each side's edge metrics, one line per side. They are not a comparison —
+ * each picture is measured on its own — so the two lines are padded to line
+ * up and a reader compares them by eye.
+ */
+function formatEdges(edges) {
+  const sides = ["mermaid", "siren"];
+  const countWidth = Math.max(...sides.map((side) => String(edges[side].edges).length));
+  return sides.map((side) => {
+    const e = edges[side];
+    return (
+      `  edges       ${side.padEnd(7)} ${String(e.edges).padStart(countWidth)} drawn` +
+      `  crossings ${e.crossings}  through nodes ${e.throughNodes}  through titles ${e.throughTitles}` +
+      `  reversals ${e.reversals}  detour ${ratio(e.detour)}  aspect ${twoPlaces(e.aspect)}`
+    );
+  });
 }
 
 /**
@@ -84,6 +105,8 @@ function formatOne(result) {
  * diagonal of the 0..1 frame is 1.414), node sizes as Siren's over
  * Mermaid's — at one font size, then raw — and, for the nodes furthest from
  * Mermaid's size, both raw boxes in whole px. Every node's two boxes are in the `--json` output.
+ * Last come the edge metrics, one line per side: counts, then detour as a
+ * multiple of the straight line and aspect as width over height.
  */
 export function formatText(results) {
   return results.map((r) => [...formatOne(r), ""].join("\n")).join("\n");
