@@ -3,3 +3,5 @@
 {"id":"01M4V731CRSKD8KA5HECPBQWS8","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T02-flowchart-on-elk.md`。"}
 {"id":"01M4V82S5XJ02B45P2ZQWKWN1V","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4V9CAHTDFHG9BQRJA2TBAH0","t":5,"a":"83a1","op":"set","k":"status","v":"blocked"}
+{"id":"01M4V9KADAS8Y6MK54R9HTB5E7","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4VAHVG31BVRC4BFFJGG67F3","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
