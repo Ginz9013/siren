@@ -1,6 +1,7 @@
 import type {
   ErAttribute,
   ErAttributeColumn,
+  ErCardinality,
   ErModel,
   LabelBox,
   LayoutOptions,
@@ -55,6 +56,27 @@ const SUBGRAPH_PADDING = 12;
 
 /** The core's `cornerRadius` for a relationship: the radius `ER_CONNECTOR_CURVE` rounds its corners with. */
 const CONNECTOR_CORNER_RADIUS = curveCornerRadius(ER_CONNECTOR_CURVE);
+
+/**
+ * How far out from its entity box each cardinality's marker reaches along the
+ * line, by the glyph farthest from the box: the bars, circle and foot
+ * `renderErDiagramToSVG` draws, every one of them outside the box (ADR-0004).
+ * Exactly one is two bars, the outer 15 out; zero or one a bar and then a
+ * circle of radius 6 centred 21 out; one or more a 36-long foot and then a
+ * bar 42 out; zero or more the foot and then a circle centred 48 out.
+ *
+ * The core keeps that much of each end of the route straight
+ * (`straightEnds`), so the marker lies on the line rather than past its
+ * first bend. The renderer's own test reads the drawn markers and holds
+ * every end of every route to them, so a marker redrawn longer without this
+ * table following it fails there.
+ */
+export const CARDINALITY_MARKER_REACH: Record<ErCardinality, number> = {
+  onlyOne: 15,
+  zeroOrOne: 27,
+  oneOrMore: 42,
+  zeroOrMore: 54,
+};
 
 /**
  * The four columns of an attribute table, in the order Mermaid draws them
@@ -316,6 +338,12 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         // The radius the line hops keep clear of: a relationship is drawn
         // rounded (`ER_CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,
+        // Each end runs straight for as long as the marker drawn along it,
+        // so a crow's foot never reaches past the bend.
+        straightEnds: {
+          start: CARDINALITY_MARKER_REACH[relationship.fromCardinality],
+          end: CARDINALITY_MARKER_REACH[relationship.toCardinality],
+        },
       }),
     ),
   });

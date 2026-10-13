@@ -1039,7 +1039,11 @@ the ER subgraph it is written in.
   beyond it mandatory or optional. The marker lies along the route's first or last run, turned
   with it — the line is drawn `rounded` (**Curve**), which leaves every route's ends straight — as
   Mermaid 12.2.0's do (measured in headless Chrome: on the ER parity fixtures each end leaves its
-  box along the same axis on both sides, a self-relationship's sideways). Mermaid's fifth, `u`, is
+  box along the same axis on both sides, a self-relationship's sideways). Every glyph sits outside
+  the box, and layout keeps each end of the route straight, past its rounded corner, for as far as
+  its marker reaches (15px for `onlyOne`, 27 `zeroOrOne`, 42 `oneOrMore`, 54 `zeroOrMore`), so a
+  marker never runs past the bend — where Mermaid's do, its runs being as short as 6px of straight
+  line against markers reaching 34px (nook decision `01M4VP6AVMYHJ9HDE0KST32ATA`). Mermaid's fifth, `u`, is
   refused by name — Mermaid draws no figure for it either.
 - **Identifying** or **non-identifying** — the line: `--` or `to` draws it solid, `..`, `.-`, `-.`
   or `optionally to` dashed.

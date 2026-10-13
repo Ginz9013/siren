@@ -6,6 +6,8 @@ import type {
   PositionedErDiagram,
   PositionedErRelationship,
 } from "../contracts";
+import { cornerCut, ROUNDED_CORNER_RADIUS } from "../curve/roundedCorner";
+import { render } from "../index";
 import { plainLabel, plainRun } from "../label/label";
 import { connectorPathData } from "./connectorCurve";
 import { renderErDiagramToSVG } from "./renderErDiagramToSVG";
@@ -918,4 +920,119 @@ describe("renderErDiagramToSVG paints a background behind a relationship's label
     ).toEqual([["CUSTOMER:ORDER", null, "32", "118", "48", "24", null]]);
     expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-er-relationship-label")!)).toBe(true);
   });
+});
+
+/**
+ * How far out from the box a drawn marker reaches along the line, read off
+ * the `<marker>` itself: it attaches at `refX`, and its glyphs reach back to
+ * the smallest x any of them draws at — a bar's `x1`, a circle's `cx - r`, a
+ * path's smallest x coordinate.
+ */
+function markerReach(marker: Element): number {
+  const xs: number[] = [];
+  for (const glyph of Array.from(marker.children)) {
+    if (glyph.tagName === "line") xs.push(Number(glyph.getAttribute("x1")), Number(glyph.getAttribute("x2")));
+    if (glyph.tagName === "circle") xs.push(Number(glyph.getAttribute("cx")) - Number(glyph.getAttribute("r")));
+    if (glyph.tagName === "path") {
+      const numbers = (glyph.getAttribute("d") ?? "").match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      xs.push(...numbers.filter((_, index) => index % 2 === 0));
+    }
+  }
+  return Number(marker.getAttribute("refX")) - Math.min(...xs);
+}
+
+describe("render() keeps every cardinality marker on its relationship's end run", () => {
+  /** 8px a character, 24px a row: any fixed measurer will do, the rule holds whatever the sizes. */
+  const measureText = { measure: (text: string) => ({ width: text.length * 8 + 24, height: 32 }) };
+
+  // The ER subgraph parity fixture's shape (nested blocks, a
+  // self-relationship, relationships across block boundaries), a bare
+  // self-relationship, and a stack and a row of every cardinality.
+  const documents: Record<string, string> = {
+    "er-subgraphs": `erDiagram
+AUTHOR {
+  string id PK
+  string name
+}
+subgraph library
+  subgraph shelves
+    BOOK {
+      string isbn PK
+      string title
+    }
+    SHELF
+  end
+  LOAN
+end
+subgraph members
+  MEMBER
+  CARD
+end
+AUTHOR ||--o{ BOOK : writes
+SHELF ||--|{ BOOK : holds
+BOOK ||--o{ LOAN : "lent as"
+MEMBER ||--o{ LOAN : borrows
+MEMBER ||--|| CARD : carries
+MEMBER |o--o{ MEMBER : refers
+AUTHOR }o..o{ MEMBER : "is also"
+`,
+    "self-relationships": `erDiagram
+A }o--o{ A : knows
+B ||--|| B : is
+A }|--o| B : x
+`,
+    "every cardinality, TB": `erDiagram
+A }o--o{ B : one
+A }|--|{ C : two
+B |o--o| D : three
+C ||--}o D : four
+D }o--}| E : five
+`,
+    "every cardinality, LR": `erDiagram
+direction LR
+A }o--o{ B : one
+A }|--|{ C : two
+B |o--o| D : three
+C ||--}o D : four
+D }o--}| E : five
+`,
+  };
+
+  it.each(Object.entries(documents))(
+    "%s: each end's straight run, past the rounded corner, is as long as the marker drawn on it",
+    (_, source) => {
+      const { svg, diagnostics } = render(source, document.createElement("div"), { measureText });
+      expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      const lines = Array.from(svg!.querySelectorAll("path.siren-er-relationship-line"));
+      expect(lines.length).toBeGreaterThan(0);
+      const shortfalls: string[] = [];
+      for (const line of lines) {
+        const points = line
+          .getAttribute("data-siren-points")!
+          .split(" ")
+          .map((pair) => {
+            const [x, y] = pair.split(",").map(Number);
+            return { x, y };
+          });
+        const id = line.parentElement!.getAttribute("data-siren-id");
+        const ends = [
+          { name: "start", run: points.slice(0, 3), marker: line.getAttribute("marker-start")! },
+          { name: "end", run: points.slice(-3).reverse(), marker: line.getAttribute("marker-end")! },
+        ];
+        for (const { name, run, marker } of ends) {
+          const markerId = marker.slice("url(#".length, -1);
+          const reach = markerReach(svg!.querySelector(`marker[id="${markerId}"]`)!);
+          const [a, b, c] = run;
+          const length = Math.hypot(b.x - a.x, b.y - a.y);
+          // A route of two points is one straight line, no corner to cut.
+          const cut = c === undefined || points.length === 2 ? 0 : (cornerCut(a, b, c, ROUNDED_CORNER_RADIUS) ?? 0);
+          const straight = length - cut;
+          if (straight < reach - 1e-6) {
+            shortfalls.push(`${id} ${name}: straight ${straight.toFixed(1)} < marker ${reach}`);
+          }
+        }
+      }
+      expect(shortfalls).toEqual([]);
+    },
+  );
 });

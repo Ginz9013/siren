@@ -48,7 +48,10 @@ const DASH_PATTERN = "8,8";
  * the line each one sits from the entity box.
  *
  * The **figure** is Mermaid's, measured from its own marker definitions
- * (11.17.2) and confirmed against a rendered ER diagram: a "one" is a
+ * (mermaid 12.2.0, `chunk-RLXJHMIZ.mjs` lines 1139–1162, and the `_neo`
+ * variants at lines 1163–1199 an ER diagram is drawn with — the same paths,
+ * in `userSpaceOnUse`) and confirmed against a rendered ER diagram in
+ * headless Chrome: a "one" is a
  * vertical bar, an "optional" is a small hollow circle, and a "many" is a
  * closed almond of two quadratic curves — **not** three prongs, whatever
  * the name "crow's foot" suggests. Each cardinality is two of those, the
@@ -61,6 +64,12 @@ const DASH_PATTERN = "8,8";
  * `renderClassDiagramToSVG` and `renderToSVG` already keep, so a marker
  * attaches by its tip wherever it is applied. Mermaid instead centres the
  * almond *on* the box's edge, half-burying it.
+ *
+ * How far each marker reaches out from the box is what layout keeps
+ * straight at that end of the route (`CARDINALITY_MARKER_REACH` in
+ * `layoutErDiagram`), so a marker never runs past the route's first bend.
+ * Redraw a marker longer and that table must follow; the test holding every
+ * drawn route end to its drawn marker fails until it does.
  */
 const GLYPH_HEIGHT = 18;
 const FOOT_LENGTH = 36;
@@ -71,9 +80,11 @@ const FOOT_LENGTH = 36;
  * `<rect class="siren-er-entity-frame">` at the box layout placed and the
  * `<text class="siren-er-entity-label">` naming it, centred inside.
  *
- * **A plain rectangle, measured rather than chosen.** With `--markup`,
- * mermaid 11.17.2 draws an entity as a `rect.basic.label-container` carrying
- * no `rx` at all, with the name in a `<text>` inside it. No `rx` is written
+ * **A plain rectangle, measured rather than chosen.** Mermaid 12.2.0 draws an
+ * entity with no attributes as a `rect.basic.label-container` carrying no
+ * `rx` at all (its `erBox` hands such an entity to `drawRect`,
+ * `chunk-VFTINRM2.mjs` line 5137; measured in headless Chrome), with the name
+ * inside it. No `rx` is written
  * here either, and for a second reason: a corner radius is decoration of the
  * box rather than the figure, so it belongs to the theme
  * (`--siren-node-border-radius`) where a consumer can reach it — ADR-0008,

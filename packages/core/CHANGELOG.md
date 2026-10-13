@@ -87,6 +87,14 @@ While the version is 0.x, a minor release may contain breaking changes.
   its boundary, by Mermaid 12's rule. Against Mermaid 12.2.0 on the four ER parity fixtures: 0
   crossings to its 0 (was 0), 0 edges through boxes (was 0), 97.2% / 100% agreement on above/below
   and left/right (was 58.3% / 77.8%).
+- **An ER cardinality marker stays on its line.** Each end of a relationship now runs straight out
+  of its entity, past the rounded corner, for at least as far as its marker reaches (15px for
+  exactly one, 27 for zero or one, 42 for one or more, 54 for zero or more), so a crow's foot no
+  longer sticks out past the first bend — a self-relationship's loop reaches out that far too.
+  Mermaid 12.2.0's markers do overrun the bend; Siren departs from it here. ER diagrams grow along
+  their ranks to make the room (the ER subgraph parity fixture's boxes span 1622px instead of
+  1271px); the parity numbers are unchanged. The layout core's edges take a `straightEnds` length
+  for it; no other diagram kind sets one.
 - The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 
 ### Added

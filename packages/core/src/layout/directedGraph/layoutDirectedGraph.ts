@@ -82,6 +82,15 @@ export interface DirectedGraphEdge {
    */
   cornerRadius?: number;
   /**
+   * How far the route must run straight out of each of its two boxes before
+   * it first bends — the length of the figure the renderer draws along that
+   * end, an ER cardinality marker. Measured past the rounding: the core adds
+   * what `cornerRadius` cuts off a right-angled corner. Absent means no
+   * floor, ELK's own runs. See `holdStraightEnds` for how it is kept and why
+   * it is a departure from Mermaid 12.
+   */
+  straightEnds?: { start: number; end: number };
+  /**
    * The labels drawn at the edge's two ends — a class relationship's
    * multiplicities — by which end and which hand of the line each belongs
    * on, with the size each needs. ELK keeps room for them beside the end
@@ -274,6 +283,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     }
   }
   const nodeById = new Map(input.nodes.map((node) => [node.id, node]));
+  const rootOptions: Record<string, string> = { ...ROOT_OPTIONS, "elk.direction": ELK_DIRECTION[input.direction] };
   const voided = voidedDirections(input, nodeById);
   /** Whether this cluster is laid out in a pass of its own: it keeps a direction. */
   const ownPass = (node: DirectedGraphNode): boolean =>
@@ -300,6 +310,8 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     }
   }
 
+  holdStraightEnds(input, nodeById, elkNodeById, rootOptions);
+
   // Each edge becomes one ELK edge, or a chain of them through invisible
   // points when it is longer than one layer (`chainOf`). The chain's points
   // join the graph where its two ends' nearest common cluster holds them, so
@@ -321,7 +333,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
 
   const root: ElkNode = {
     id: "root",
-    layoutOptions: { ...ROOT_OPTIONS, "elk.direction": ELK_DIRECTION[input.direction] },
+    layoutOptions: rootOptions,
     children: topLevel,
     // Every edge on the root, as Mermaid hands them over: with
     // `INCLUDE_CHILDREN` ELK files each under the deepest graph holding both
@@ -1574,6 +1586,86 @@ function clusterShape(cluster: DirectedGraphCluster, hasMembers: boolean, rotate
       "elk.contentAlignment": rotated ? "V_CENTER" : "H_CENTER",
     },
   };
+}
+
+/**
+ * The ELK spacing a graph gives each of the runs between a box and the first
+ * bend after it, unless told otherwise: half its `spacing.baseValue` — 20 on
+ * the root, and the 30 `CLUSTER_OPTIONS` names in a cluster. Measured with
+ * elkjs 0.9.3 on `A --> B` with a label: the route leaves A, runs 20 and
+ * bends; the same in a cluster runs 30.
+ */
+const ROOT_STRAIGHT_RUN = Number(ROOT_OPTIONS["spacing.baseValue"]) / 2;
+const CLUSTER_STRAIGHT_RUN = Number(CLUSTER_OPTIONS["elk.layered.spacing.edgeNodeBetweenLayers"]);
+/**
+ * How far a self-loop runs out of its box before it turns, unless told
+ * otherwise: ELK's `spacing.nodeSelfLoop`, half the graph's
+ * `spacing.baseValue` — measured, 20 on the root and 12 in a cluster.
+ */
+const ROOT_SELF_LOOP_RUN = Number(ROOT_OPTIONS["spacing.baseValue"]) / 2;
+const CLUSTER_SELF_LOOP_RUN = Number(CLUSTER_OPTIONS["spacing.baseValue"]) / 2;
+
+/**
+ * Asks ELK for runs long enough to hold each edge's `straightEnds`, by
+ * raising two of its spacings where an edge needs more than they give.
+ *
+ * **A departure from Mermaid 12.2.0**, which asks for nothing of the kind:
+ * measured in headless Chrome, its ER routes leave a box by as little as 6px
+ * of straight line before the rounded corner (a self-relationship) and
+ * 12.9px on most ends, while its cardinality markers reach up to 34px out
+ * along the line — so its crow's feet stick out past the bend, off the line
+ * they belong to. Recorded under rule 1 of nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, with the measurements, as nook decision
+ * `01M4VP6AVMYHJ9HDE0KST32ATA`.
+ *
+ * ELK keeps no per-edge length, so the floor is a graph's: each graph — the
+ * root, or a cluster — that directly holds a box an edge ends at takes
+ * `elk.layered.spacing.edgeNodeBetweenLayers` of at least that end's
+ * `straightEnds` plus the rounding a right-angled corner cuts
+ * (`cornerRadius × √2`, `cornerCut`'s 7.07 at radius 5). That spacing is the
+ * room ELK leaves between a layer of boxes and the first vertical run in the
+ * channel beside it, so every route out of a box in that graph runs at least
+ * that far before it bends. A self-loop is routed by another spacing,
+ * `elk.spacing.nodeSelfLoop` — how far it runs out before turning back —
+ * which ELK reads per box through `elk.spacing.individual`, so only the box
+ * the loop is on is given it. Neither spacing is ever lowered below what the
+ * graph gives already, and an input with no `straightEnds` is laid out
+ * exactly as before.
+ */
+function holdStraightEnds(
+  input: DirectedGraphInput,
+  nodeById: ReadonlyMap<string, DirectedGraphNode>,
+  elkNodeById: ReadonlyMap<string, ElkNode>,
+  rootOptions: Record<string, string>,
+): void {
+  /** By the id of the graph holding the box, `undefined` for the root. */
+  const runs = new Map<string | undefined, number>();
+  /** By the id of the box a self-loop is on. */
+  const loops = new Map<string, number>();
+  const raise = <K>(map: Map<K, number>, key: K, length: number) =>
+    map.set(key, Math.max(map.get(key) ?? 0, length));
+  for (const edge of input.edges) {
+    if (edge.straightEnds === undefined) continue;
+    const rounding = (edge.cornerRadius ?? 0) * Math.SQRT2;
+    const { start, end } = edge.straightEnds;
+    if (edge.from === edge.to) {
+      raise(loops, edge.from, Math.max(start, end) + rounding);
+      continue;
+    }
+    raise(runs, nodeById.get(edge.from)?.parentId, start + rounding);
+    raise(runs, nodeById.get(edge.to)?.parentId, end + rounding);
+  }
+  for (const [graphId, length] of runs) {
+    const options = graphId === undefined ? rootOptions : elkNodeById.get(graphId)!.layoutOptions!;
+    const given = graphId === undefined ? ROOT_STRAIGHT_RUN : CLUSTER_STRAIGHT_RUN;
+    if (length > given) options["elk.layered.spacing.edgeNodeBetweenLayers"] = String(length);
+  }
+  for (const [nodeId, length] of loops) {
+    const given = nodeById.get(nodeId)!.parentId === undefined ? ROOT_SELF_LOOP_RUN : CLUSTER_SELF_LOOP_RUN;
+    if (length <= given) continue;
+    const elkNode = elkNodeById.get(nodeId)!;
+    elkNode.layoutOptions = { ...elkNode.layoutOptions, "elk.spacing.individual": `elk.spacing.nodeSelfLoop:${length}` };
+  }
 }
 
 /**
