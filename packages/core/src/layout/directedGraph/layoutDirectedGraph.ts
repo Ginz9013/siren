@@ -44,7 +44,8 @@ export interface DirectedGraphCluster {
   /**
    * The title's measured size. The frame keeps a band across its top for it
    * — padding, the title, padding again — and is at least as wide as the
-   * title plus its padding on both sides.
+   * title plus its padding on both sides. The title sits centred in the band
+   * unless a route crosses it there (`placeTitlesClear`).
    */
   title?: { width: number; height: number };
   /**
@@ -324,7 +325,8 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
       height: box.height!,
       // The band is the frame's top padding, so the title's place in it is
       // known without asking ELK: centred across the frame, `padding` below
-      // its top edge.
+      // its top edge. `fitFrames` re-centres it and `placeTitlesClear` may
+      // move it along the band.
       ...(title === undefined
         ? {}
         : { title: { x: x + box.width! / 2, y: y + node.cluster!.padding + title.height / 2 } }),
@@ -365,6 +367,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     input.edges,
     nodes.filter((box) => nodeById.get(box.id)!.cluster === undefined),
   );
+  placeTitlesClear(input, nodes, edges);
 
   // Last, from every finished route at once: which of two crossing routes
   // carries the hop, and how large it can be, depend on both.
@@ -631,6 +634,77 @@ function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: numbe
 }
 
 /**
+ * Moves each cluster's title along its band, out of the way of the routes
+ * that cross the band.
+ *
+ * **This is a departure from Mermaid 12.** Mermaid 12.2.0 centres the title,
+ * ELK puts the cluster's first members under it, and an edge entering or
+ * leaving through the top runs straight through the title's words (22 edges
+ * on the flowchart parity fixtures). ELK cannot keep routes off the band:
+ * measured with elkjs 0.9.3, the title handed over as the cluster's node
+ * label (`[H_CENTER, V_TOP, INSIDE]`) is routed straight through; ports on
+ * the frame are placed in line with the member they lead to whatever
+ * `portConstraints` say (`FIXED_RATIO` throws); a title-sized child takes a
+ * slot beside the first members rather than a band above them. So the core
+ * moves the title after layout (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+ * rule 2), and leaves every route as it is: taking routes round the title
+ * instead was measured and rejected for the overshoots and detours it adds.
+ * The departure and its numbers are nook decision
+ * `01M4VFW4XGRGSMTMQ12HME145W`.
+ *
+ * The rule, per titled cluster: every route segment that reaches into the
+ * title's height blocks its horizontal extent, widened by half the
+ * cluster's padding. A centred title clear of every blocked stretch stays
+ * centred. Otherwise the title goes to the place nearest the centre that
+ * clears them all, at the band's height and at least half a padding inside
+ * the frame's sides; with no such place it stays centred — the frame is
+ * never widened. The band is across the frame's top in every direction
+ * (`clusterShape`), so the rule is the same under TB, BT, LR and RL.
+ */
+function placeTitlesClear(
+  input: DirectedGraphInput,
+  boxes: readonly DirectedGraphNodeBox[],
+  routes: readonly DirectedGraphEdgeRoute[],
+): void {
+  const boxById = new Map(boxes.map((box) => [box.id, box]));
+  for (const node of input.nodes) {
+    const size = node.cluster?.title;
+    const frame = boxById.get(node.id)!;
+    if (size === undefined || frame.title === undefined) continue;
+    const margin = node.cluster!.padding / 2;
+    const top = frame.title.y - size.height / 2;
+    const bottom = frame.title.y + size.height / 2;
+    // Every stretch of the band a route runs through, widened by the margin.
+    const blocked: [number, number][] = [];
+    for (const route of routes) {
+      route.points.forEach((point, index) => {
+        if (index === 0) return;
+        const previous = route.points[index - 1];
+        if (Math.max(point.y, previous.y) <= top || Math.min(point.y, previous.y) >= bottom) return;
+        blocked.push([Math.min(point.x, previous.x) - margin, Math.max(point.x, previous.x) + margin]);
+      });
+    }
+    const half = size.width / 2;
+    const clear = (x: number) => blocked.every(([left, right]) => right <= x - half || left >= x + half);
+    const centre = frame.x + frame.width / 2;
+    if (clear(centre)) continue;
+    // Where the title's centre may go: half a padding inside the frame's sides.
+    const lowest = frame.x + margin + half;
+    const highest = frame.x + frame.width - margin - half;
+    if (highest < lowest) continue;
+    // The title fits against either side of a blocked stretch, or against a
+    // side of the frame; of the places that clear every route, the nearest
+    // the centre.
+    const places = [lowest, highest, ...blocked.flatMap(([left, right]) => [left - half, right + half])].filter(
+      (x) => x >= lowest && x <= highest && clear(x),
+    );
+    if (places.length === 0) continue;
+    const x = places.reduce((best, place) => (Math.abs(place - centre) < Math.abs(best - centre) ? place : best));
+    frame.title = { x, y: frame.title.y };
+  }
+}
+
+/**
  * Pulls each cluster's frame in to what it holds — Mermaid 12.2.0's
  * `evenGroupFrames` (`elk-V4PLJRSU.mjs`, line 99981), which it runs on every
  * ELK layout before reading the edges. ELK grows a frame for more than its
@@ -651,7 +725,7 @@ function segmentMeetsBox(a: Point, b: Point, centre: Point, size: { width: numbe
  * moves in, never out; the top stays, with the title band under it. The
  * frame is never narrower than its title and twice its padding, widened about
  * its centre and kept within ELK's frame. The title is re-centred across the
- * fitted frame.
+ * fitted frame (and may then be moved along its band, `placeTitlesClear`).
  *
  * Mermaid's sides and floor, Siren's numbers: Mermaid pulls every frame in
  * to a fixed 24px (`SUBGRAPH_PADDING`, line 99194) and floors it at the
@@ -983,7 +1057,8 @@ function voidedDirections(
  *
  * So the band is padding: the top padding is the caller's padding, the
  * title's height and the padding again, and the title's place in it is then
- * known exactly (`layoutDirectedGraph` computes its centre). The width floor
+ * known exactly (`layoutDirectedGraph` computes its centre; `placeTitlesClear`
+ * moves it along the band, never out of it, where a route crosses it). The width floor
  * is `nodeSize.minimum`, which has the same rotation: a cluster sized inside
  * the root's `INCLUDE_CHILDREN` pass under `DOWN` or `UP` reads the minimum's
  * two numbers swapped, while one laid out in a pass of its own

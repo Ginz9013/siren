@@ -44,6 +44,12 @@ While the version is 0.x, a minor release may contain breaking changes.
   two of its own members at different nesting depths, which Mermaid 11 did not count. A subgraph
   with no `direction` inside one that keeps its own is laid out in the enclosing subgraph's
   direction (Mermaid 11 used the document's).
+- **A subgraph's title moves aside for the edges crossing its band.** Mermaid 12 centres the title
+  and draws an edge entering or leaving the subgraph from above straight through its words. Siren
+  moves the title along the band to the place nearest the centre that clears every such edge by
+  half a padding; it stays centred when nothing crosses, or when the frame has no room. Edges and
+  frames are unchanged. On the flowchart parity fixtures: 15 edges through a title (was 25;
+  Mermaid 22); crossings, agreement, reversals and detour unchanged.
 - **`A ----> B` still spans three ranks.** Mermaid 12 on ELK silently draws it like `-->`; Siren
   keeps the length the document asks for.
 - Class, state and ER diagrams are unchanged: they stay on dagre until their own migration.

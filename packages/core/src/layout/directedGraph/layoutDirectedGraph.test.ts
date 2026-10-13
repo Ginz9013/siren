@@ -157,12 +157,27 @@ describe("layoutDirectedGraph frames a group", () => {
     expect(overlaps).toBe(false);
   });
 
-  it("with the title's centre in the band, centred across the frame", () => {
+  it("with the title's centre in the band, clear of every route crossing the band, inside the frame by half a padding", () => {
     const result = layoutDirectedGraph(grouped);
     const g = result.nodes.find((box) => box.id === "G")!;
     const a = result.nodes.find((box) => box.id === "A")!;
     expect(g.title).toBeDefined();
-    expect(g.title!.x).toBeCloseTo(g.x + g.width / 2, 0);
+    // The title G's box: 50x20 about its centre. `C --> A` runs down through
+    // the band, so the title is not where centring alone would put it.
+    const [left, right, top, bottom] = [g.title!.x - 25, g.title!.x + 25, g.title!.y - 10, g.title!.y + 10];
+    for (const route of result.edges) {
+      const through = route.points.some(
+        (p, i) =>
+          i > 0 &&
+          Math.min(p.x, route.points[i - 1].x) < right &&
+          Math.max(p.x, route.points[i - 1].x) > left &&
+          Math.min(p.y, route.points[i - 1].y) < bottom &&
+          Math.max(p.y, route.points[i - 1].y) > top,
+      );
+      expect(through, `${route.id} through G's title: ${JSON.stringify(route.points)}`).toBe(false);
+    }
+    expect(left).toBeGreaterThanOrEqual(g.x + 6 - EPSILON);
+    expect(right).toBeLessThanOrEqual(g.x + g.width - 6 + EPSILON);
     // Below the frame's top by its padding and half the title; above every member.
     expect(g.title!.y).toBeCloseTo(g.y + 12 + 10, 0);
     expect(g.title!.y + 10).toBeLessThanOrEqual(a.y);
@@ -778,5 +793,88 @@ describe("layoutDirectedGraph straightens a route's end only where that crosses 
         expect(through, `${route.id} through ${box.id}: ${JSON.stringify(route.points)}`).toBe(false);
       }
     }
+  });
+});
+
+describe("layoutDirectedGraph places a group's title clear of the routes crossing its band", () => {
+  const titled = (id: string, title: { width: number; height: number }) => ({
+    id,
+    width: 0,
+    height: 0,
+    cluster: { padding: 12, title },
+  });
+  const member = (id: string, parentId?: string) => ({ id, width: 60, height: 40, ...(parentId === undefined ? {} : { parentId }) });
+
+  /** The title's box about the centre the core reports. */
+  function titleBox(result: ReturnType<typeof layoutDirectedGraph>, id: string, size: { width: number; height: number }) {
+    const frame = result.nodes.find((box) => box.id === id)!;
+    return {
+      frame,
+      left: frame.title!.x - size.width / 2,
+      right: frame.title!.x + size.width / 2,
+      top: frame.title!.y - size.height / 2,
+      bottom: frame.title!.y + size.height / 2,
+    };
+  }
+
+  /** Whether `points` reaches more than a pixel inside `box` — the parity report's "through a title". */
+  const meets = (points: readonly Point[], box: { left: number; right: number; top: number; bottom: number }) =>
+    points.some(
+      (p, i) =>
+        i > 0 &&
+        Math.min(p.x, points[i - 1].x) < box.right - 1 &&
+        Math.max(p.x, points[i - 1].x) > box.left + 1 &&
+        Math.min(p.y, points[i - 1].y) < box.bottom - 1 &&
+        Math.max(p.y, points[i - 1].y) > box.top + 1,
+    );
+
+  it("beside the route, in the band, when the frame has room for it there", () => {
+    // ELK puts C under the left of the centred title and runs X --> C
+    // straight down through it; the frame is wide enough (A and B beside C)
+    // for the title to sit right of the route.
+    const size = { width: 120, height: 24 };
+    const input: DirectedGraphInput = {
+      direction: "TB",
+      nodes: [member("X"), titled("S", size), member("A", "S"), member("B", "S"), member("C", "S")],
+      edges: [
+        { id: "X-C", from: "X", to: "C" },
+        { id: "A-B", from: "A", to: "B" },
+      ],
+    };
+    const result = layoutDirectedGraph(input);
+    const title = titleBox(result, "S", size);
+    for (const route of result.edges) {
+      expect(meets(route.points, title), `${route.id} through the title: ${JSON.stringify(route.points)} / ${JSON.stringify(title)}`).toBe(false);
+    }
+    // Still in the band, within the frame, at the band's height.
+    expect(title.left).toBeGreaterThanOrEqual(title.frame.x);
+    expect(title.right).toBeLessThanOrEqual(title.frame.x + title.frame.width);
+    expect(title.frame.title!.y).toBeCloseTo(title.frame.y + 12 + 12, 5);
+  });
+
+  it("centred across the frame when no route crosses its band", () => {
+    const size = { width: 120, height: 24 };
+    const result = layoutDirectedGraph({
+      direction: "TB",
+      nodes: [titled("S", size), member("A", "S"), member("B", "S"), member("X")],
+      edges: [
+        { id: "A-B", from: "A", to: "B" },
+        { id: "B-X", from: "B", to: "X" },
+      ],
+    });
+    const frame = result.nodes.find((box) => box.id === "S")!;
+    expect(frame.title!.x).toBeCloseTo(frame.x + frame.width / 2, 5);
+  });
+
+  it("centred across the frame when no place in the band clears the route", () => {
+    // The frame is no wider than the title and its padding: nowhere to go.
+    const size = { width: 200, height: 24 };
+    const result = layoutDirectedGraph({
+      direction: "TB",
+      nodes: [titled("S", size), member("X"), member("A", "S")],
+      edges: [{ id: "X-A", from: "X", to: "A" }],
+    });
+    const frame = result.nodes.find((box) => box.id === "S")!;
+    expect(frame.title!.x).toBeCloseTo(frame.x + frame.width / 2, 5);
   });
 });
