@@ -1,0 +1,3 @@
+{"id":"01M4V732F0J8BC88ST2DDMPGND","t":1,"a":"83a1","op":"create","title":"layout: class diagram 由 ELK 排版"}
+{"id":"01M4V732KVPBQTAGVK5F1NK84R","t":2,"a":"83a1","op":"label.add","v":"layout"}
+{"id":"01M4V732RSMAQZPK9YEW4N9V4V","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T05-class-on-elk.md`。"}

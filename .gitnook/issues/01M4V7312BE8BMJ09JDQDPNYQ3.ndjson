@@ -1,0 +1,3 @@
+{"id":"01M4V7312BHCC2YGM8N600F9GX","t":1,"a":"83a1","op":"create","title":"layout: flowchart 由 ELK 排版（tracer，含驗收門檻）"}
+{"id":"01M4V7317CZHTZZX557HT5GKDB","t":2,"a":"83a1","op":"label.add","v":"layout"}
+{"id":"01M4V731CRSKD8KA5HECPBQWS8","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T02-flowchart-on-elk.md`。"}

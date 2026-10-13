@@ -1,0 +1,3 @@
+{"id":"01M4V733VMWNA6856F7RYCF8KJ","t":1,"a":"83a1","op":"create","title":"layout: 移除 dagre"}
+{"id":"01M4V7340GB8MHQ3SJZP5JZ7X8","t":2,"a":"83a1","op":"label.add","v":"layout"}
+{"id":"01M4V7345CEPTCAM5NJDGTGG5D","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T08-remove-dagre.md`。"}

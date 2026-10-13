@@ -1,0 +1,3 @@
+{"id":"01M4V733C9XJ05EXCZA3P1YJ50","t":1,"a":"83a1","op":"create","title":"layout: ER diagram 由 ELK 排版"}
+{"id":"01M4V733H7DW7GRKV0KDK98H2N","t":2,"a":"83a1","op":"label.add","v":"er"}
+{"id":"01M4V733PFA2YSCY5H4JEMCB4K","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T07-er-on-elk.md`。"}
