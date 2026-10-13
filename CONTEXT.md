@@ -50,7 +50,7 @@ measurement of both pictures in the row, never with an assertion that ours looks
 
 **One standing exception to "Mermaid's layout is Mermaid's to decide", for graph layout only.**
 Since the ELK migration (decision `01M4VA67HYZZ1PZG49XA30454N`), Mermaid 12's default layout is the
-baseline the flowchart's picture is measured against — the engine, the orthogonal routing, where
+baseline the flowchart's and the class diagram's pictures are measured against — the engine, the orthogonal routing, where
 edges leave a box, the order siblings come in. Siren may depart from it where the departure
 **measurably** reduces crossings, detours, overshoots or edges drawn through a group's title, or
 where Mermaid's picture contradicts the document. Each such departure is measured with the
@@ -60,7 +60,11 @@ the sidestep at an edge's end where Mermaid's straightening would run the edge t
 (decision `01M4VBHWYKNH91NXFD4ZF9MQDD`); the third fits a subgraph's frame to its own padding rather
 than Mermaid's 24px, which lowered vertical agreement (decision `01M4VDB3XG71N3R1EN5J94JMZ4`); the
 fourth moves a subgraph's title along its band, off centre, where a route would otherwise run
-through it and the frame has room (decision `01M4VFW4XGRGSMTMQ12HME145W`).
+through it and the frame has room (decision `01M4VFW4XGRGSMTMQ12HME145W`); the fifth, sixth and
+seventh are a class diagram's multiplicities — moved off any line or box they land on, not only off
+a frame, and to the other side of the line when their own has no room; kept at their own end of a
+relationship ELK was handed turned round; and kept clear of a namespace's title, which moves off
+them as it moves off routes (decision `01M4VHSY2W1Q9E5QCA51F1TCJM`).
 
 ## Language
 
@@ -553,9 +557,10 @@ How a connector's routed points are joined into the line that is drawn: `basis` 
 `linear`, `step`, `stepBefore`, `stepAfter` or `rounded` (corners cut back and rounded with a
 radius of 5). It changes how a route looks, never where the route goes. **A flowchart edge is drawn
 `rounded` by default**, as Mermaid 12 draws every edge its default ELK layout routed (mermaid
-12.2.0's `applyElkEdgeLayout` sets it, and `generateRoundedPath(points, 5)` draws it); class, state
-and ER connectors, and the connector from a note to what it is about, are still `basis`, as
-Mermaid draws them on dagre, until each kind moves onto ELK. A flowchart author picks another
+12.2.0's `applyElkEdgeLayout` sets it, and `generateRoundedPath(points, 5)` draws it); so is a
+class diagram's **relationship** and the connector from its note to its class, which have no
+`interpolate` to choose another. State and ER connectors, and a state's note connector, are still
+`basis`, as Mermaid draws them on dagre, until each kind moves onto ELK. A flowchart author picks another
 with `linkStyle default interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations
 may follow on the same line); a numbered statement's curve beats `default`'s whichever is written
 first. **The curve written is applied to ELK's orthogonal points**, which is looser than Mermaid
@@ -577,7 +582,8 @@ _Avoid_: interpolation (`interpolate` survives only as the authored keyword), li
 not)
 
 **Line hop**:
-The small half circle a flowchart edge's line draws where another edge's line crosses it, so a
+The small half circle a flowchart edge's or a class relationship's line draws where another line
+crosses it, so a
 crossing reads differently from two lines meeting at a bend — Mermaid 12's line jumps, drawn by
 default under its ELK layout and here by the same rule (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
 rule 7). The hop sits on the horizontal one of the two segments (on the later edge, in edge order,
@@ -589,8 +595,8 @@ line; near a corner (or a route's end) the radius shrinks to 2 short of it and a
 not drawn; two hops that would overlap shrink to half the gap between them. The layout reports the
 hops with each route (`hops`), because which line hops depends on both; the **curve** decides
 whether they are drawn: `linear`, `rounded` and the `step` curves draw them, `basis` does not. A
-hop is drawing, not route: `data-siren-points` never holds its points. Class, state and ER
-connectors get hops when they move onto ELK.
+hop is drawing, not route: `data-siren-points` never holds its points. State and ER connectors
+get hops when they move onto ELK.
 _Avoid_: line jump (Mermaid's code name), bridge, crossover
 
 **Subgraph**:
@@ -787,6 +793,11 @@ exactly: `${fromId}-${toId}`, then `#2` for a repeat pair. The type is modeled a
 `inheritance`, `composition`, `aggregation`, `association`, `link`, `dependency`, `realization`,
 `dashedLink` and `lollipop`, reported as `data-siren-relationship`.
 
+A multiplicity is placed by the layout engine, as Mermaid 12 places it: handed to ELK as a label at
+its own end (the from end's on the right hand of the line as it travels, the to end's on the left),
+with 6px more room where that end draws a marker, then moved off any frame, line or box it lands on
+and onto its own hand of the line where that is clear (decision `01M4VHSY2W1Q9E5QCA51F1TCJM`).
+
 A `circle` end (Mermaid's `()`, a lollipop — `Duck ()-- Quacks`) does not name a class: measured
 against real Mermaid (`mermaid-probe.mjs`), the identifier written there is drawn as a
 free-standing label instead — laid out like any other node, so it never overlaps a sibling, but
@@ -804,8 +815,13 @@ category), arrow, link (also one of the nine types), interface (Mermaid's own na
 with the class/relationship distinction clear from context)
 
 **Namespace**:
-A named group of classes drawn as an enclosing frame behind the boxes it holds, laid out as a
-dagre compound-graph cluster. The third grouping construct in the codebase and the first spatial
+A named group of classes drawn as an enclosing frame behind the boxes it holds, laid out as an ELK
+compound node, as a **subgraph** is: the engine sizes the frame around its members, its 12px padding
+and a band across its top for the title, and nothing after the engine moves it but the title, along
+its band, off any route or multiplicity that would run through it. Namespaces are handed to the
+engine before every class, so they come first in the picture — mermaid 12.2.0's
+`ClassDB.getData`, measured: `class X` written before `namespace N1 { P }` and `namespace N2 { Q }`
+draws N1, N2, X from left to right. The third grouping construct in the codebase and the first spatial
 one in a graph-shaped diagram — a sequence diagram's **box grouping** bands participant lanes, and
 its **control-flow block** wraps statements in time. A flowchart's **subgraph** is the fourth and
 draws the same figure deliberately, so a theme or an author who has learned to read one need not
@@ -814,8 +830,8 @@ starting with nesting, which this construct does not do. It may carry a brackete
 its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
 **Label** in the `html` dialect. Addressable in a `timeline:` block under
 a generated id (`namespace:1`, `namespace:2`, … in source order).
-_Avoid_: package, module, cluster (that is the dagre-side word `layoutDirectedGraph` uses for the
-mechanism, not the authored construct), group, box
+_Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
+the authored construct), group, box
 
 **Note**:
 A free-standing annotation box, in either of the two diagram kinds that have one — a class
@@ -829,7 +845,8 @@ kinds, and drawn with the class diagram's own `siren-note`/`siren-note-frame`/`s
 classes — deliberately reused rather than duplicated, since it is the same idea (a boxed
 annotation) in both kinds. The two differ in layout: a class diagram's note is laid out as an
 ordinary graph node, so the layout engine itself guarantees it never overlaps a class box, at the
-cost of occupying a rank; a sequence diagram's note occupies its own rank on the timeline the same
+cost of occupying a rank — joined from the note to its class, as Mermaid 12 joins it, so an attached
+note sits a layer before the class it is about; a sequence diagram's note occupies its own rank on the timeline the same
 way a message does (measured against real Mermaid: it never overlaps the message before or after
 it) and draws no connector at all, unlike the class diagram's attached form. Addressable in a
 `timeline:` block under a generated id in both kinds (`note:1`, `note:2`, … in source order, which
