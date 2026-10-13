@@ -932,6 +932,62 @@ describe("layoutDirectedGraph centres a box narrower than the ports' clearance o
       expect(across(centre(box("Idle"))), direction).toBeCloseTo(across(laid.edges[0].points.at(-1)!), 6);
     }
   });
+
+  it("keeps every other route at a moved box ending on its outline, and orthogonal", () => {
+    // Only the first route at a small box is the one it moves onto; ELK put
+    // the others' ports to the side, and on a box this narrow some of them
+    // past its corner (an 8px box with three routes in: ports 3px apart).
+    // Measured in headless Chrome, Mermaid 12.2.0 keeps them on the moved
+    // box: with `[*] --> A` and `[*] --> B` the second line leaves the start
+    // disc 2px left of its centre and still touches it, its first run
+    // stretched along its own axis to meet the outline.
+    const onOutline = (point: Point, box: DirectedGraphNodeBox) => {
+      const [left, right, top, bottom] = [box.x, box.x + box.width, box.y, box.y + box.height];
+      const inside =
+        point.x >= left - 0.5 && point.x <= right + 0.5 && point.y >= top - 0.5 && point.y <= bottom + 0.5;
+      const toSide = Math.min(
+        Math.abs(point.x - left),
+        Math.abs(point.x - right),
+        Math.abs(point.y - top),
+        Math.abs(point.y - bottom),
+      );
+      return inside && toSide <= 0.5;
+    };
+    const orthogonal = (points: readonly Point[]) =>
+      points.every(
+        (point, index) =>
+          index === 0 ||
+          Math.abs(point.x - points[index - 1].x) < 1e-6 ||
+          Math.abs(point.y - points[index - 1].y) < 1e-6,
+      );
+    for (const direction of ["TB", "LR", "BT", "RL"] as const) {
+      const laid = layoutDirectedGraph({
+        direction,
+        nodes: [
+          { id: "start", width: 8, height: 8 },
+          { id: "A", width: 61, height: 48 },
+          { id: "B", width: 90, height: 48 },
+          { id: "C", width: 70, height: 48 },
+          { id: "end", width: 8, height: 8 },
+        ],
+        edges: [
+          { id: "start-A", from: "start", to: "A" },
+          { id: "start-B", from: "start", to: "B" },
+          { id: "start-C", from: "start", to: "C" },
+          { id: "A-end", from: "A", to: "end" },
+          { id: "B-end", from: "B", to: "end" },
+          { id: "C-end", from: "C", to: "end" },
+        ],
+      });
+      const box = (id: string) => laid.nodes.find((node) => node.id === id)!;
+      laid.edges.forEach((route, index) => {
+        const label = `${direction} ${route.id}`;
+        expect(orthogonal(route.points), label).toBe(true);
+        if (index < 3) expect(onOutline(route.points[0], box("start")), label).toBe(true);
+        else expect(onOutline(route.points.at(-1)!, box("end")), label).toBe(true);
+      });
+    }
+  });
 });
 
 describe("layoutDirectedGraph's terminal labels", () => {

@@ -236,8 +236,7 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
 
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
-  // Rounded, with the line hops the layout found (`STATE_CONNECTOR_CURVE`:
-  // the curve layout kept the hops clear of).
+  // Rounded, with the line hops the layout found, as a transition line is.
   drawConnectorRoute(link, note.connector, STATE_CONNECTOR_CURVE, note.connectorHops);
   // Explicit, for the same reason a transition line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.

@@ -975,7 +975,9 @@ authored id here is `\w+`, which cannot contain a colon, so the collision is not
 it is unconstructible, exactly as a **subgraph**'s generated id is.
 A pseudo-state draws no label, deliberately: the only text there could be is a string the author
 never wrote. Its 14px box sits on the line of the first transition at it, as Mermaid 12 moves a box
-too small for ELK's port clearance onto its route (`alignDegenerateNodeToAnchor`). It carries no descriptions and can carry none, since `[*]` is not an id and no
+too small for ELK's port clearance onto its route (`alignDegenerateNodeToAnchor`); every other
+transition at it is run back onto the moved box along its own last run, as Mermaid keeps it
+touching the disc. It carries no descriptions and can carry none, since `[*]` is not an id and no
 description statement can name one.
 _Avoid_: initial/final state (they are not states — nothing can describe or style one), start node,
 terminator, `[*]` (that is the spelling, not the thing)

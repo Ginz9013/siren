@@ -520,9 +520,17 @@ const PORTS_SURROUNDING_MARGIN = 12;
  * bottom and the box is narrower than twice the clearance — or meets a side
  * and the box is shorter than that — the box moves along that side until its
  * middle is on the route. Each box moves at most once, for the first route
- * that reaches it; a route is never moved. A post-layout pass Mermaid's ELK
- * adapter runs, so it lives in the core (nook decision
- * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2). A cluster is never moved.
+ * that reaches it. A post-layout pass Mermaid's ELK adapter runs, so it
+ * lives in the core (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2). A
+ * cluster is never moved.
+ *
+ * Every other route at a moved box is then put back on its outline
+ * (`reattachEnd`): ELK spreads the ports on a side a few pixels apart, and on
+ * a box this narrow some land past its corner, or on a side the move carried
+ * away. Mermaid does the same — it runs each route to the moved box's centre
+ * and cuts it at the outline (`applyElkEdgeLayout`, line 100384); measured in
+ * headless Chrome, with `[*] --> A` and `[*] --> B` the second line leaves
+ * the start disc 2px off its centre and still touches it.
  */
 function centreSmallBoxesOnRoutes(
   input: DirectedGraphInput,
@@ -534,6 +542,7 @@ function centreSmallBoxesOnRoutes(
     boxes.filter((_, index) => input.nodes[index].cluster === undefined).map((box) => [box.id, box]),
   );
   const aligned = new Set<string>();
+  const moved = new Set<string>();
   const align = (id: string, anchor: Point) => {
     const box = boxById.get(id);
     if (box === undefined || aligned.has(id)) return;
@@ -542,8 +551,10 @@ function centreSmallBoxesOnRoutes(
       Math.abs(anchor.y - box.y) <= tolerance || Math.abs(anchor.y - (box.y + box.height)) <= tolerance;
     if ((alongWidth ? box.width : box.height) >= 2 * PORTS_SURROUNDING_MARGIN) return;
     aligned.add(id);
-    if (alongWidth) box.x = anchor.x - box.width / 2;
-    else box.y = anchor.y - box.height / 2;
+    const [x, y] = alongWidth ? [anchor.x - box.width / 2, box.y] : [box.x, anchor.y - box.height / 2];
+    if (x !== box.x || y !== box.y) moved.add(id);
+    box.x = x;
+    box.y = y;
   };
   input.edges.forEach((edge, index) => {
     const points = routes[index].points;
@@ -556,6 +567,51 @@ function centreSmallBoxesOnRoutes(
       align(edge.to, last);
     }
   });
+  input.edges.forEach((edge, index) => {
+    const route = routes[index];
+    // Each end against the box it is drawn at: a turned edge starts at `to`.
+    const [startId, endId] = turned[index] ? [edge.to, edge.from] : [edge.from, edge.to];
+    if (moved.has(endId)) route.points = reattachEnd(route.points, boxById.get(endId)!);
+    if (moved.has(startId)) route.points = reattachEnd([...route.points].reverse(), boxById.get(startId)!).reverse();
+  });
+}
+
+/**
+ * `points` with its last point put back on `box`'s outline, the route kept
+ * orthogonal. The last run keeps its axis: it is lengthened or shortened
+ * along it to the side it enters by, and where it would miss that side it
+ * is moved across, into line with the side's nearest end — taking the bend
+ * before it along, or, where there is no bend before it, with a sidestep
+ * added halfway along the run. An end already on the outline is left as it is.
+ */
+function reattachEnd(points: Point[], box: DirectedGraphNodeBox): Point[] {
+  if (points.length < 2) return points;
+  const end = points[points.length - 1];
+  const before = points[points.length - 2];
+  const axis = axisOf(before, end);
+  if (axis === undefined) return points;
+  const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
+  // Along the run: the side facing where the route comes from. Across it:
+  // the nearest point that side has.
+  const [along, across] = axis === "v" ? (["y", "x"] as const) : (["x", "y"] as const);
+  const [low, high] = axis === "v" ? [box.y, box.y + box.height] : [box.x, box.x + box.width];
+  const [acrossLow, acrossHigh] = axis === "v" ? [box.x, box.x + box.width] : [box.y, box.y + box.height];
+  const side = before[along] <= low ? low : before[along] >= high ? high : undefined;
+  if (side === undefined) return points;
+  const line = clamp(end[across], acrossLow, acrossHigh);
+  const point = (alongValue: number, acrossValue: number): Point =>
+    axis === "v" ? { x: acrossValue, y: alongValue } : { x: alongValue, y: acrossValue };
+  const result = points.slice(0, -1);
+  if (line !== end[across]) {
+    if (result.length === 1 || axisOf(result[result.length - 2], before) === axis) {
+      const halfway = (before[along] + side) / 2;
+      result.push(point(halfway, before[across]), point(halfway, line));
+    } else {
+      result[result.length - 1] = point(before[along], line);
+    }
+  }
+  result.push(point(side, line));
+  return result;
 }
 
 /** The longest first (or last) run of a route `straightenTerminals` will straighten past. */

@@ -1147,6 +1147,31 @@ describe("layoutClassDiagram", () => {
       const [first, second] = diagram.relationships;
       expect(first.fromInterfaceLabelAnchor).not.toEqual(second.fromInterfaceLabelAnchor);
     });
+
+    it("centres a lollipop's interface label on its line, even when its box is narrower than ELK's port clearance", () => {
+      // Measured in headless Chrome, Mermaid 12.2.0 draws `Animal --() i`
+      // and `Animal --() IO` with each interface label centred on its own
+      // line (the line ends at x 33.56 and 114.52, the labels' centres).
+      // Mermaid's interface node is never narrower than about 35px, so its
+      // `alignDegenerateNodeToAnchor` never has to move it; Siren's is the
+      // label plus 8px, 16px here with the fake measurer, which leaves ELK's
+      // port off its middle — and the core moves it onto its line, which is
+      // the picture Mermaid draws.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [cls("Animal")],
+          relationships: [
+            relationship("Animal", "Animal-i:to-interface", { toEnd: "circle", toInterfaceLabel: "i" }),
+            relationship("Animal", "Animal-IO:to-interface", { toEnd: "circle", toInterfaceLabel: "IO" }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      for (const routed of diagram.relationships) {
+        expect(routed.toInterfaceLabelAnchor!.x, routed.id).toBeCloseTo(routed.points.at(-1)!.x, 6);
+      }
+    });
   });
 
   describe("namespaces", () => {

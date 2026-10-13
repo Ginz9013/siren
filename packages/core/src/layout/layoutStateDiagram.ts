@@ -10,6 +10,7 @@ import type {
   ResolvedState,
   ResolvedStateTransition,
   StateModel,
+  StateNote,
 } from "../contracts";
 import {
   layoutDirectedGraph,
@@ -148,6 +149,15 @@ const NOTE_PADDING_Y = 8;
 const noteNodeId = (stateId: string): string => `note:${stateId}`;
 const noteLinkEdgeId = (stateId: string): string => `note-link:${stateId}`;
 
+/** A state carrying a note, with the note's label wrapped and measured. */
+type NotedState = { state: ResolvedState; note: StateNote } & WrappedLabel;
+
+/**
+ * Whether `note` is written `left of` its state — the spelling whose link
+ * runs note → state, and whose connector is reversed to read state → note.
+ */
+const isLeftOf = (note: StateNote): boolean => note.position === "left of";
+
 /**
  * Computes state boxes and transition paths for a resolved `StateModel`.
  *
@@ -181,7 +191,7 @@ export function layoutStateDiagram(
    * and read the result back all work from the same list, and the box and
    * rows the note was sized around are the ones it is drawn with.
    */
-  const notedStates = model.states.flatMap((state) =>
+  const notedStates = model.states.flatMap((state): NotedState[] =>
     state.note === null
       ? []
       : [
@@ -249,7 +259,7 @@ export function layoutStateDiagram(
    * 12.2.0 places it, a node of its own. It joins the level its state is
    * written at.
    */
-  const noteNode = ({ state, labelBox }: (typeof notedStates)[number]): DirectedGraphNode => ({
+  const noteNode = ({ state, labelBox }: NotedState): DirectedGraphNode => ({
     id: noteNodeId(state.id),
     width: labelBox.width + NOTE_PADDING_X * 2,
     height: labelBox.height + NOTE_PADDING_Y * 2,
@@ -279,10 +289,10 @@ export function layoutStateDiagram(
    * before its state along the diagram's direction and a `right of` one
    * after it.
    */
-  const noteLinkEdge = ({ state, note }: (typeof notedStates)[number]): DirectedGraphEdge => ({
+  const noteLinkEdge = ({ state, note }: NotedState): DirectedGraphEdge => ({
     id: noteLinkEdgeId(state.id),
-    from: note.position === "left of" ? noteNodeId(state.id) : state.id,
-    to: note.position === "left of" ? state.id : noteNodeId(state.id),
+    from: isLeftOf(note) ? noteNodeId(state.id) : state.id,
+    to: isLeftOf(note) ? state.id : noteNodeId(state.id),
     cornerRadius: CONNECTOR_CORNER_RADIUS,
   });
 
@@ -297,8 +307,8 @@ export function layoutStateDiagram(
   // every link over after every transition instead mirrors
   // `state-long-labels` left to right.
   const notedById = new Map(notedStates.map((entry) => [entry.state.id, entry]));
-  const linksAfter = new Map<string, (typeof notedStates)[number][]>();
-  const linksLast: (typeof notedStates)[number][] = [];
+  const linksAfter = new Map<string, NotedState[]>();
+  const linksLast: NotedState[] = [];
   for (const entry of notedStates) {
     const first = model.transitions.find(
       (transition) => transition.from === entry.state.id || transition.to === entry.state.id,
@@ -473,7 +483,7 @@ function placeNote(
 
   const box = boxById.get(noteNodeId(state.id))!;
   const route = routeById.get(noteLinkEdgeId(state.id))!;
-  const reversed = state.note.position === "left of";
+  const reversed = isLeftOf(state.note);
 
   return {
     ...wrappedNoteById.get(state.id)!,
