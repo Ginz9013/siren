@@ -50,7 +50,7 @@ measurement of both pictures in the row, never with an assertion that ours looks
 
 **One standing exception to "Mermaid's layout is Mermaid's to decide", for graph layout only.**
 Since the ELK migration (decision `01M4VA67HYZZ1PZG49XA30454N`), Mermaid 12's default layout is the
-baseline the flowchart's and the class diagram's pictures are measured against — the engine, the orthogonal routing, where
+baseline the flowchart's, the class diagram's and the state diagram's pictures are measured against — the engine, the orthogonal routing, where
 edges leave a box, the order siblings come in. Siren may depart from it where the departure
 **measurably** reduces crossings, detours, overshoots or edges drawn through a group's title, or
 where Mermaid's picture contradicts the document. Each such departure is measured with the
@@ -64,7 +64,9 @@ through it and the frame has room (decision `01M4VFW4XGRGSMTMQ12HME145W`); the f
 seventh are a class diagram's multiplicities — moved off any line or box they land on, not only off
 a frame, and to the other side of the line when their own has no room; kept at their own end of a
 relationship ELK was handed turned round; and kept clear of a namespace's title, which moves off
-them as it moves off routes (decision `01M4VHSY2W1Q9E5QCA51F1TCJM`).
+them as it moves off routes (decision `01M4VHSY2W1Q9E5QCA51F1TCJM`); the eighth keeps a state
+diagram's **note** inside the composite its state is written in, where Mermaid draws it outside the
+block and makes the block give up its `direction` (decision `01M4VKTJ2A1DGXAMYVF16BK2W3`).
 
 ## Language
 
@@ -558,9 +560,10 @@ How a connector's routed points are joined into the line that is drawn: `basis` 
 radius of 5). It changes how a route looks, never where the route goes. **A flowchart edge is drawn
 `rounded` by default**, as Mermaid 12 draws every edge its default ELK layout routed (mermaid
 12.2.0's `applyElkEdgeLayout` sets it, and `generateRoundedPath(points, 5)` draws it); so is a
-class diagram's **relationship** and the connector from its note to its class, which have no
-`interpolate` to choose another. State and ER connectors, and a state's note connector, are still
-`basis`, as Mermaid draws them on dagre, until each kind moves onto ELK. A flowchart author picks another
+class diagram's **relationship** and the connector from its note to its class, and a state
+diagram's **transition** and the connector from a state to its note, which have no `interpolate`
+to choose another. ER connectors are still `basis`, as Mermaid draws them on dagre, until that kind
+moves onto ELK. A flowchart author picks another
 with `linkStyle default interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations
 may follow on the same line); a numbered statement's curve beats `default`'s whichever is written
 first. **The curve written is applied to ELK's orthogonal points**, which is looser than Mermaid
@@ -582,8 +585,8 @@ _Avoid_: interpolation (`interpolate` survives only as the authored keyword), li
 not)
 
 **Line hop**:
-The small half circle a flowchart edge's or a class relationship's line draws where another line
-crosses it, so a
+The small half circle a flowchart edge's, a class relationship's or a state transition's line draws
+where another line crosses it, so a
 crossing reads differently from two lines meeting at a bend — Mermaid 12's line jumps, drawn by
 default under its ELK layout and here by the same rule (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
 rule 7). The hop sits on the horizontal one of the two segments (on the later edge, in edge order,
@@ -595,8 +598,8 @@ line; near a corner (or a route's end) the radius shrinks to 2 short of it and a
 not drawn; two hops that would overlap shrink to half the gap between them. The layout reports the
 hops with each route (`hops`), because which line hops depends on both; the **curve** decides
 whether they are drawn: `linear`, `rounded` and the `step` curves draw them, `basis` does not. A
-hop is drawing, not route: `data-siren-points` never holds its points. State and ER connectors
-get hops when they move onto ELK.
+hop is drawing, not route: `data-siren-points` never holds its points. Note connectors in a class
+or state diagram hop too; ER connectors get hops when they move onto ELK.
 _Avoid_: line jump (Mermaid's code name), bridge, crossover
 
 **Subgraph**:
@@ -668,11 +671,18 @@ depends on the layout engine Mermaid uses for that kind, and Siren follows each:
   the rule below does not have:** `O` with `direction LR` holding a group `I` (holding `A`) and `B`,
   with `A --> B` — nothing leaves `O`, yet `A` and `B` have different parents and their common
   group is `O`, so `O` gives up `LR` and Mermaid stacks them.
-- **A composite state or an ER subgraph block (dagre, until each kind moves to ELK).** A connector
-  with exactly one end among the group's descendants — members or nested groups, at any depth. The
-  group follows the nearest enclosing group that keeps its own direction, or else the diagram's.
-  Mermaid 11's rule, measured in its renderer. A connector from outside that names the group itself
-  does not count; one from a member to its own group does.
+- **A composite state (ELK, Mermaid 12).** The flowchart's rule, unchanged: a transition whose
+  ends have different parents voids every composite (or concurrent region) on the way up to their
+  nearest common one. Measured in headless Chrome against Mermaid 12.2.0: `X --> A` into a member of
+  `state C { direction LR  A --> B }` stacks A above B; `X --> C` and `C --> C` keep the row. A
+  **note**'s connector never voids one — Siren lays the note out beside its state, at its state's
+  level, where Mermaid lays it out at the diagram's top level and so voids the block around the
+  state, or the composite the note is written on (decision `01M4VKTJ2A1DGXAMYVF16BK2W3`).
+- **An ER subgraph block (dagre, until that kind moves to ELK).** A connector with exactly one end
+  among the group's descendants — members or nested groups, at any depth. The group follows the
+  nearest enclosing group that keeps its own direction, or else the diagram's. Mermaid 11's rule,
+  measured in its renderer. A connector from outside that names the group itself does not count;
+  one from a member to its own group does.
 _Avoid_: external connection (Mermaid's internal field name), cross edge, outgoing edge (direction
 does not matter: an edge into the group counts the same as one out of it)
 
@@ -850,7 +860,11 @@ note sits a layer before the class it is about; a sequence diagram's note occupi
 way a message does (measured against real Mermaid: it never overlaps the message before or after
 it) and draws no connector at all, unlike the class diagram's attached form. Addressable in a
 `timeline:` block under a generated id in both kinds (`note:1`, `note:2`, … in source order, which
-a dropped note does not renumber).
+a dropped note does not renumber). A state diagram's note (`note right of S : ...`) is laid out the
+class diagram's way, a box joined to its state by a connector, after its state along the diagram's
+direction for `right of` and before it for `left of` — at its state's own level, so inside the
+composite its state is written in, where Mermaid 12 lays it out outside (decision
+`01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of its own and is drawn in its state's group.
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing), label,
 callout
@@ -898,7 +912,10 @@ vocabulary), arrow (say "arrow" for the drawn line and its head, never for the t
 
 **Composite state**:
 A `state Outer { ... }` block, drawn as a titled frame around the states written inside it and laid
-out as a dagre cluster. The **fifth** grouping construct here and the third spatial one, after a
+out as an ELK compound node: the engine sizes the frame around its members, its 12px padding and a
+band across its top for the title (moved along the band off a route crossing it), routes a
+transition naming the composite to the frame itself and a self-transition (`Outer --> Outer`) as a
+loop off the frame's side, and nothing after the engine moves it. The **fifth** grouping construct here and the third spatial one, after a
 class diagram's **namespace** and a flowchart's **subgraph** — and it draws deliberately the same
 figure as those two, so a theme or a reader who has learned one need not learn a third. Three things
 are nevertheless not the same, and each is measured rather than chosen:
@@ -915,10 +932,14 @@ are nevertheless not the same, and each is measured rather than chosen:
   boxes drawn over it). So a state first named by a transition and *then* opened as a block has its
   kind upgraded rather than a second declaration made.
 - **It opens a level of its own**, which is what makes its `[*]` its own rather than the document's
-  (see **Pseudo-state**), and it may carry its own `direction LR` — one `rankdir` per cluster, the
-  same per-level, non-cascading rule `SirenSubgraph.direction` follows, and in effect only while
-  the composite has no **Boundary-crossing edge**; one such transition and it takes the direction
-  of the nearest enclosing composite that keeps one, or else the diagram's.
+  (see **Pseudo-state**), and it lays its members out in a direction of its own — the `direction`
+  its block writes, or `TB` when it writes none, whatever the document's direction or an enclosing
+  block's (Mermaid 12.2.0's `DEFAULT_NESTED_DOC_DIR`, measured: `direction LR` above
+  `state C { A --> B }` stacks A above B). That is where it parts from a **subgraph**, whose
+  undirected block takes its enclosing block's direction. A concurrent region does the same. The
+  direction holds only while the composite has no **Boundary-crossing edge**; one such transition
+  and it is laid out in its parent's pass and direction. A **note** on a state inside it stays
+  inside it.
 
 Membership lives on the member, as `StateDecl.parentId`, in one place — the split the **subgraph**
 entry already argues for, and here it is the only place it *could* live, because a pseudo-state has
@@ -927,7 +948,7 @@ later one, the rule a subgraph's members already follow. (Mermaid's own parse tr
 same-named state per level and lets its renderer draw one node for them; Siren's ids are global, so
 one rule decides which level that one node is drawn at.)
 _Avoid_: subgraph (flowchart vocabulary), namespace (class-diagram vocabulary), cluster (the
-dagre-side word), superstate, group, frame (that is the drawn `<rect>`, one of the two elements a
+engine-side word), superstate, group, frame (that is the drawn `<rect>`, one of the two elements a
 composite is drawn with)
 
 **Pseudo-state**:
@@ -953,7 +974,8 @@ author's own state and its edge redirected into a self-loop nobody wrote, with n
 authored id here is `\w+`, which cannot contain a colon, so the collision is not guarded against —
 it is unconstructible, exactly as a **subgraph**'s generated id is.
 A pseudo-state draws no label, deliberately: the only text there could be is a string the author
-never wrote. It carries no descriptions and can carry none, since `[*]` is not an id and no
+never wrote. Its 14px box sits on the line of the first transition at it, as Mermaid 12 moves a box
+too small for ELK's port clearance onto its route (`alignDegenerateNodeToAnchor`). It carries no descriptions and can carry none, since `[*]` is not an id and no
 description statement can name one.
 _Avoid_: initial/final state (they are not states — nothing can describe or style one), start node,
 terminator, `[*]` (that is the spelling, not the thing)

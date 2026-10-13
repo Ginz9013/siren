@@ -62,7 +62,19 @@ While the version is 0.x, a minor release may contain breaking changes.
   or box it lands on, and keeps it at its own end of a relationship laid out turned round. Against
   Mermaid 12.2.0 on the three class parity fixtures: 0 crossings to its 0 (was 0), 0 edges through
   boxes (was 1), 97.3% / 100% agreement on above/below and left/right (was 67.6% / 83.8%).
-- State and ER diagrams are unchanged: they stay on dagre until their own migration.
+- **State diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Transitions and note
+  connectors are routed orthogonally and drawn `rounded`, with line hops where they cross; a
+  self-transition, on a state or on a composite's frame, is an orthogonal loop. A composite's frame
+  is the engine's, sized around its members, its 12px padding and a band for its title, and the
+  title moves aside for routes crossing the band. A composite or concurrent region that names no
+  `direction` is laid out top to bottom whatever the document's direction, as Mermaid lays it out
+  (it used to follow a document-level `LR`); one that names a direction gives it up when a
+  transition crosses its boundary, by Mermaid 12's rule. A start or end sits on the line of its
+  transition. Unlike Mermaid, a note stays inside the composite its state is written in, and
+  writing it makes no composite give up its direction. Against Mermaid 12.2.0 on the four state
+  parity fixtures: 0 crossings to its 0 (was 1), 0 edges through boxes (was 0), 100% / 90.8%
+  agreement on above/below and left/right (was 87.7% / 66.2%).
+- ER diagrams are unchanged: they stay on dagre until their own migration.
 - The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 
 ### Added
@@ -81,8 +93,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   remain. Drawn on `rounded` (the default), `linear` and `step` edges; a `basis` edge draws none.
   Lines that only meet at an end do not hop. The routes are unchanged — `data-siren-points` holds
   no hop — and a hopped `step` edge's `d` is written as straight segments through the route, the
-  same picture as before. The layout reports each edge's hops (`PositionedEdge.hops`); class,
-  state and ER connectors get them when they move onto ELK.
+  same picture as before. The layout reports each edge's hops (`PositionedEdge.hops`); class and
+  state connectors have them too (`PositionedStateTransition.hops`,
+  `PositionedStateNote.connectorHops`), and ER connectors get them when they move onto ELK.
+- `PositionedStateLabel.x`: the centre of a composite's title where the layout moved it along its
+  band.
 
 ## [0.5.0] - 2026-10-12
 
