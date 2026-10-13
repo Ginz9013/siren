@@ -1,0 +1,17 @@
+stateDiagram-v2
+%% Source: examples/state-reveal.srn, diagram half only (the timeline: block removed).
+
+%% The same job runner, revealed a step at a time.
+%% All three of this kind's timeline targets are named below: a state, a
+%% transition, and a composite frame — the frame under the author's own
+%% name, because a composite state is named by its author.
+
+[*] --> Idle
+Idle --> Working : start
+
+state Working {
+  Fetching --> Saving
+}
+
+Working --> Done : finished
+Done --> [*]
