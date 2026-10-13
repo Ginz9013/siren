@@ -48,6 +48,15 @@ Mermaid that failed to match itself.
 Every divergence under this rule is a claim that needs evidence, so a new one arrives with the
 measurement of both pictures in the row, never with an assertion that ours looks better.
 
+**One standing exception to "Mermaid's layout is Mermaid's to decide", for graph layout only.**
+Since the ELK migration (decision `01M4VA67HYZZ1PZG49XA30454N`), Mermaid 12's default layout is the
+baseline the flowchart's picture is measured against — the engine, the orthogonal routing, where
+edges leave a box, the order siblings come in. Siren may depart from it where the departure
+**measurably** reduces crossings, detours, overshoots or edges drawn through a group's title, or
+where Mermaid's picture contradicts the document. Each such departure is measured with the
+**layout parity report** and recorded in a nook decision, never asserted as taste. The first one is
+the long arrow (`---->`, under **Edge**; decision `01M4VA6MS4MCTFFJJWEZR453YS`).
+
 ## Language
 
 **Siren document**:
@@ -306,19 +315,22 @@ Which way a diagram's layout runs — `TB` top-to-bottom, `BT` bottom-to-top, `L
 `RL` right-to-left — written in a flowchart's header (`flowchart TB`) or a class diagram's
 `direction` statement. `TD` is Mermaid's alias for `TB`, not a fifth direction: both parsers
 normalize it away through the same rule, so nothing downstream ever sees two spellings of one
-direction — including `layoutDirectedGraph`, which takes these four values as dagre's `rankdir`
-with nothing left to map.
-_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — it survives as
-`layoutDirectedGraph`'s input field name, and nowhere else), TD (say `TB`)
+direction — including `layoutDirectedGraph`, which takes these four values as they are (the ELK
+core maps them to ELK's `DOWN`/`UP`/`RIGHT`/`LEFT` in one table, Mermaid's `dir2ElkDirection`).
+_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — it survives as the
+dagre core's input field name, and nowhere else), TD (say `TB`)
 
 **Graph-shaped diagram**:
 A diagram kind whose layout is a directed graph of boxes and connectors — flowchart, class, state
 and ER diagrams today; requirement and C4 when they land. Every one of them sizes its own
-boxes and labels and then calls `layoutDirectedGraph`, the single place in the codebase that
-imports dagre (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
-and its amendment). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
+boxes and labels and then calls the shared layout core, `layoutDirectedGraph` — the one place a
+layout engine is reached (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
+and its amendment). The flowchart's core is ELK's `layered` algorithm (`layout/directedGraph/`,
+whose `elkSync.ts` is the only module importing elkjs, pinned to 0.9.3 as Mermaid 12.2.0 bundles
+it); class, state and ER are still on the dagre core (`layout/layoutDirectedGraph.ts`) until their
+own migration. A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
 and has its own `layoutSequence`.
-_Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre diagram
+_Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre diagram, ELK diagram
 
 **Node**:
 One box in a flowchart, declared `A[label]` or created implicitly by being named in an edge — the
@@ -495,20 +507,25 @@ end marker always lands on the *to*-end, measured; only the doubled spellings `<
 state rather than the absence of one — the rule `GraphNode.shape` already follows.
 
 **The length is the axis that is not about drawing.** `A ----> B` counts its dashes and reaches
-dagre as `minlen`, so its target sits three ranks away instead of one and the drawn diagram
+layout as `minLength`, so its target sits three ranks away instead of one and the drawn diagram
 differs. Drawing every length alike would be a silent mis-render by the **compatibility corpus**'s
 own definition, and refusing long arrows would break the absolute condition, so honoring it is the
-only option those two policies leave.
+only option those two policies leave. **It is also a measured divergence from Mermaid 12**:
+mermaid 12.2.0 still computes the length but hands it to ELK, which reads no such option, so it
+draws `A ----> B` exactly as `A --> B`, with no diagnostic (measured in headless Chrome: identical
+coordinates). Siren's ELK core holds the ends apart with a chain of invisible points, one per extra
+rank (`chainOf`; decision `01M4VA6MS4MCTFFJJWEZR453YS`).
 
 **An edge carries a label**, in two spellings that parse to *identical* documents — `A -->|yes| B`
 and `A -- yes --> B`, plus the dotted stroke's `A -. yes .-> B` — with nothing downstream
 recording which was written, exactly as nothing records `graph` versus `flowchart`. It is `null`
 and never `""` when there is none: mermaid 11.17.2 rejects `A -->|| B`, so "labelled with nothing"
-is not a state an author can reach. Layout reserves dagre space for it, which makes the label the
+is not a state an author can reach. Layout reserves space for it, which makes the label the
 one part of an edge that changes *where the line goes* as well as what is drawn on it. The space
-is reserved **on the line**, centred on a point the route passes through — dagre's
-`labelpos: "c"`, which is what Mermaid hands it, rather than dagre's default `"r"` (10px to the
-right of the line) — and measured at the 12px the label is drawn at, not the node's 14px; class
+is reserved **on the line**, centred on a point the route passes through — for a flowchart, ELK's
+inline `CENTER` edge label, as Mermaid 12.2.0 hands it over (measured: "yes" centred on the line,
+the gap between the boxes grown from 40 to 101); on the dagre core, `labelpos: "c"` rather than
+dagre's default `"r"` — and measured at the 12px the label is drawn at, not the node's 14px; class
 relationships, state transitions and ER relationships place theirs the same way. In the markup the
 label is a `<text class="siren-edge-label">` drawn as a sibling of the path rather than inside a
 wrapping group, wearing the same `data-siren-id`, so one timeline target moves two elements
@@ -527,29 +544,37 @@ spelling that wrote them — never for the edge itself, the same split **message
 connector, relationship (class-diagram vocabulary), message (sequence vocabulary)
 
 **Curve**:
-How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline,
-the default, as in Mermaid), `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. It changes
-how a route looks, never where the route goes. A flowchart author picks one with `linkStyle default
-interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations may follow on the same
-line); a numbered statement's curve beats `default`'s whichever is written first. The seven other
-curves Mermaid draws (`cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`, `monotoneY`,
-`natural`) are rejected as not implemented, and the edge keeps its fallback curve (`default`'s, or
-`basis`); a name Mermaid does not know either is drawn as `basis`, as Mermaid draws it, with a
-warning. Class, state and ER connectors, and the connector from a note to what it is
-about, are always `basis`, as Mermaid draws them. Every curve starts on the route's first point
-and ends on its last, arriving along the route's last segment, so an arrowhead points the same way
-under any of them. The curves are d3's (`curveBasis`, `curveLinear`, `curveStep`,
-`curveStepBefore`, `curveStepAfter`) and Mermaid's own `rounded` (corners cut back and rounded
-with a radius of 5). The `step` curves draw a staircase even between two points; the rest draw two
-points as one straight segment. Because a curve's `d` holds control points rather than the route,
-a connector's `<path>` also carries the route itself as `data-siren-points`.
+How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline),
+`linear`, `step`, `stepBefore`, `stepAfter` or `rounded` (corners cut back and rounded with a
+radius of 5). It changes how a route looks, never where the route goes. **A flowchart edge is drawn
+`rounded` by default**, as Mermaid 12 draws every edge its default ELK layout routed (mermaid
+12.2.0's `applyElkEdgeLayout` sets it, and `generateRoundedPath(points, 5)` draws it); class, state
+and ER connectors, and the connector from a note to what it is about, are still `basis`, as
+Mermaid draws them on dagre, until each kind moves onto ELK. A flowchart author picks another
+with `linkStyle default interpolate <curve>` or `linkStyle <n> interpolate <curve>` (declarations
+may follow on the same line); a numbered statement's curve beats `default`'s whichever is written
+first. **The curve written is applied to ELK's orthogonal points**, which is looser than Mermaid
+12 — it ignores `interpolate` under ELK — and is the migration's Domain decision 6: `linear` draws
+sharp corners, `basis` soft ones, and the `step` curves lie on top of a route that is already a
+staircase (they differ from `linear` in the turn points their `d` carries, not in the picture).
+The seven other curves Mermaid draws (`cardinal`, `bumpX`, `bumpY`, `catmullRom`, `monotoneX`,
+`monotoneY`, `natural`) are rejected as not implemented, and the edge keeps its fallback curve
+(`default`'s, or `rounded`); a name Mermaid does not know either is drawn `rounded`, as Mermaid 12
+draws it (measured), with a warning. Every curve starts on the route's first point and ends on its
+last, arriving along the route's last segment, so an arrowhead points the same way under any of
+them. The curves are d3's (`curveBasis`, `curveLinear`, `curveStep`, `curveStepBefore`,
+`curveStepAfter`) and Mermaid's own `rounded`. The `step` curves draw a staircase even between two
+points; the rest draw two points as one straight segment. Because a curve's `d` holds control
+points rather than the route, a connector's `<path>` also carries the route itself as
+`data-siren-points`.
 _Avoid_: interpolation (`interpolate` survives only as the authored keyword), line (that is the
 **edge**'s solid/thick/dotted axis), routing (that decides where the points are, which a curve does
 not)
 
 **Subgraph**:
 A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around the nodes declared
-inside it and laid out as a dagre compound-graph cluster. The **fourth** grouping construct here,
+inside it and laid out as an ELK compound node: the engine sizes the frame around its members, its
+12px padding and a band across its top for the title, and nothing after the engine moves it. The **fourth** grouping construct here,
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
 statements in time. Five things separate it from the namespace it most resembles, and none of them
@@ -563,20 +588,27 @@ is cosmetic:
 - **A node is claimed by the first block that names it**, measured, so naming it again from
   another block joins it rather than moving it. A class is a member of the namespace it was
   written in.
-- **It lays out in a rank direction of its own — only while it has no boundary-crossing edge.**
+- **It lays out in a rank direction of its own — only while no boundary-crossing edge voids it.**
   `direction LR` written inside a block turns that group alone into a row while the document keeps
-  the header's direction — dagre's `recursiveClusterLayout`, one `rankdir` per cluster. One
-  **Boundary-crossing edge** voids it, and the group takes the direction of the nearest enclosing
-  group that keeps one, or else the diagram's — Mermaid's rule. A namespace has no such statement.
+  the header's direction — the group is laid out in an ELK pass of its own, in its own direction.
+  A **Boundary-crossing edge** voids it, and the group is laid out in its parent's pass and
+  direction — Mermaid 12's rule. A block that declares no direction inside one that keeps its own
+  is laid out in that enclosing block's direction (measured, Mermaid 12.2.0: `Outer` `LR` holding
+  `Inner` with none draws `Inner`'s `A --> B` as a row; Mermaid 11 used the document's). A
+  namespace has no such statement.
 - **An edge may name one at either end.** `one --> two` joins the two *frames*, not two boxes —
   so an endpoint that names a block declares no node of that name, while a node the author
-  declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. dagre cannot route
-  that edge as written (it throws on an endpoint that *is* a cluster), so `layoutDirectedGraph`
-  hands it a member of the frame instead and clips the returned route back to the frame's own
-  boundary — Mermaid's own strategy for the same construct, arrived at independently. A block
-  naming *itself* at both ends (`one --> one`) is the one spelling the clip cannot serve, since a
-  self-loop never leaves the box it belongs to; its loop is synthesised around the frame instead
-  (`selfLoopAroundBox`), and `fc-subgraph-self-edge` asserts that picture.
+  declared in their own right (`A[Alpha]` beside `subgraph A`) keeps its box. ELK routes such an
+  edge to the frame itself, as it does for Mermaid 12.2.0 (measured: `one --> two` runs from one
+  frame's bottom edge to the other's top edge), and a block naming *itself* at both ends
+  (`one --> one`) is a loop off the frame's own side, which `fc-subgraph-self-edge` asserts. (On
+  dagre this took a stand-in member, a clip back to the frame, and a synthesised loop.)
+
+**Its order, as the engine sees it, is Mermaid's.** ELK keeps the order it is handed
+(`considerModelOrder`), so the order is part of the picture: subgraphs go first, in the reverse of
+the order their `end`s closed them, then nodes — mermaid 12.2.0's `FlowDB.getData`, measured: a
+document writing `subgraph SA … end`, `subgraph SB … end` and a node `X`, in either order, draws
+SB, SA, X from left to right (`mermaidGroupOrder` in `layoutGraph.ts`).
 
 **Its id is generated, not authored** — `subgraph:1`, `subgraph:2`, … in the order the keywords
 open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-spaces.md)) —
@@ -588,19 +620,30 @@ handle at all. That generated id is why a subgraph is addressable in a `timeline
 `classDef` and the apply-directive name a target the *author* spelled, which this has not. Not an
 omission — there is nothing for a directive to say.
 _Avoid_: subgraph diagram (Mermaid has no such kind — this is a statement inside a flowchart),
-cluster (that is the dagre-side word `layoutDirectedGraph` uses for the mechanism, the same way
+cluster (that is the engine-side word the layout cores use for the mechanism, the same way
 **namespace**'s entry reserves it), namespace (that is the class-diagram construct), group, box
 (overloaded three ways already — see **Box grouping**), container, frame (that is the drawn
 `<rect>`, one of the two elements a subgraph is drawn with)
 
 **Boundary-crossing edge**:
-A connector with exactly one end among a group's descendants — members or nested groups, at any
-depth — where the group is a **subgraph**, a **composite state**, or an ER subgraph block. One such
-connector is enough to make the group give up the **direction** it declared and follow the one
-around it: the nearest enclosing group that keeps its own, or else the diagram's. That is Mermaid's
-rule, measured in its renderer. A connector from outside that
-names the group itself does not count: the group keeps its declared direction. One from a member to
-its own group does count.
+A connector that makes a group give up the **direction** it declared. Which connectors count
+depends on the layout engine Mermaid uses for that kind, and Siren follows each:
+
+- **A flowchart subgraph (ELK, Mermaid 12).** A connector whose two ends have *different parents*
+  voids every group on the way up from each end to the two ends' nearest common group — the end
+  itself when it is a group, and that common group too — so each falls back into its parent's
+  layout pass and direction. Mermaid 12.2.0's `configureCrossHierarchyEdges`, ported as
+  `voidedDirections` and measured in headless Chrome on a TB document with `subgraph one` declaring
+  `direction LR` around `A --> B`: `C --> A` from outside voids it; `C --> one` from beside it does
+  not (both ends share a parent); `B --> one`, a member to its own group, voids it. **And one case
+  the rule below does not have:** `O` with `direction LR` holding a group `I` (holding `A`) and `B`,
+  with `A --> B` — nothing leaves `O`, yet `A` and `B` have different parents and their common
+  group is `O`, so `O` gives up `LR` and Mermaid stacks them.
+- **A composite state or an ER subgraph block (dagre, until each kind moves to ELK).** A connector
+  with exactly one end among the group's descendants — members or nested groups, at any depth. The
+  group follows the nearest enclosing group that keeps its own direction, or else the diagram's.
+  Mermaid 11's rule, measured in its renderer. A connector from outside that names the group itself
+  does not count; one from a member to its own group does.
 _Avoid_: external connection (Mermaid's internal field name), cross edge, outgoing edge (direction
 does not matter: an edge into the group counts the same as one out of it)
 

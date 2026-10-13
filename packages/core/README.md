@@ -143,7 +143,9 @@ if (svg === null) {
 ### Without a bundler
 
 The package also ships `dist/siren-core.js`, a single ES module that includes every
-dependency. You can load it directly from a CDN:
+dependency — including the [elkjs](https://github.com/kieler/elkjs) layout engine, which is
+licensed EPL-2.0 (or GPL-3.0-or-later), not MIT; its licence and notices ship beside the bundle
+as `dist/THIRD-PARTY-NOTICES.md`. You can load it directly from a CDN:
 
 ```html
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.4/dist/theme.css" />
@@ -503,4 +505,7 @@ state that Mermaid draws on the right), Siren draws what the document says.
 
 ## License
 
-[MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE)
+[MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE). siren-core depends on
+[elkjs](https://github.com/kieler/elkjs) (EPL-2.0 OR GPL-3.0-or-later) and
+[@dagrejs/dagre](https://github.com/dagrejs/dagre) (MIT); the standalone `dist/siren-core.js`
+bundles both, and `dist/THIRD-PARTY-NOTICES.md` carries their licences.

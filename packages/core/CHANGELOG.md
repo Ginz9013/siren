@@ -10,16 +10,40 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Changed
 
-- **A subgraph's frame hugs what it holds.** It is sized from its member boxes and nested frames
-  plus its title — 12px of padding around the members, a title strip above, and at least as wide
-  as the title with the members centered under it — and no longer from the region dagre reserved
-  for the cluster, which stretches with the ranks around it. A one-column group whose last member
-  fans out to a wide rank below used to be drawn as wide as that fan, its column shoved to one
-  side; it is now one padding wider than its column, as Mermaid 12.2.0 draws it (measured: 276px
-  around 152px boxes, where 11.17.2 drew 1013px). An edge ending on a subgraph is attached to the
-  new frame, and a subgraph's self-loop (`one --> one`) is drawn around it rather than around the
-  reserved region.
+- **Flowcharts are laid out by ELK, as Mermaid 12 lays them out.** The layout engine for
+  flowcharts is now ELK's `layered` algorithm (elkjs 0.9.3, the version Mermaid 12.2.0 bundles),
+  configured with the options of Mermaid 12.2.0's own default layout. Almost every flowchart looks
+  different: edges are routed **orthogonally** and drawn with **rounded corners** (Mermaid's
+  `rounded`, radius 5) unless a `linkStyle … interpolate` names a curve, which is still honoured
+  and now applied to ELK's points (a name that is no curve draws `rounded`, as Mermaid 12 does);
+  siblings keep the order they were written in (the street-fair diagram's options A, B, C
+  now read left to right); groups are listed to the engine as Mermaid lists them; no edge is drawn
+  through an unrelated box. Against Mermaid 12.2.0 on the parity fixtures: 175 crossings to its
+  176, 0 edges through boxes (was 29), 99.4% / 93.5% agreement on above/below and left/right (was
+  91.6% / 61.0%).
+- **A subgraph's frame is the engine's.** ELK sizes each frame around its members, its 12px
+  padding and a band for its title, and routes edges that end on a subgraph (`one --> two`) and a
+  subgraph's own loop (`one --> one`) to the frame itself. A title wider than its members widens
+  the frame and centres them under it.
+- **A subgraph's `direction` follows Mermaid 12's rule.** A declared direction is given up when an
+  edge whose ends have different parents passes through the subgraph — including an edge between
+  two of its own members at different nesting depths, which Mermaid 11 did not count. A subgraph
+  with no `direction` inside one that keeps its own is laid out in the enclosing subgraph's
+  direction (Mermaid 11 used the document's).
+- **`A ----> B` still spans three ranks.** Mermaid 12 on ELK silently draws it like `-->`; Siren
+  keeps the length the document asks for.
+- Class, state and ER diagrams are unchanged: they stay on dagre until their own migration.
 - The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
+
+### Added
+
+- `elkjs` **0.9.3** is a dependency (pinned exactly; licensed EPL-2.0 OR GPL-3.0-or-later). It is
+  external in the npm entry and bundled into the standalone `dist/siren-core.js`, which grows from
+  about 83 KB to about 560 KB gzipped and now ships with `dist/THIRD-PARTY-NOTICES.md`. `render()`
+  is still synchronous; the first flowchart laid out in a page costs about 0.1s while the engine
+  initialises, later ones about 20ms for 40 nodes. siren-core must not run inside a Web Worker.
+- A graph the layout engine rejects is reported as an error diagnostic, like any other layout
+  failure.
 
 ## [0.5.0] - 2026-10-12
 
