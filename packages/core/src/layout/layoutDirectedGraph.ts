@@ -50,16 +50,15 @@ export interface DirectedGraphLayoutNode {
    * stopped at keeps whatever size it was handed.
    *
    * **So a caller must grow its own frame from the contents; this box is one
-   * input to that, never the answer.** All three adapters already do exactly
-   * that, and none of them is being defensive: `subgraphFrames`
-   * (`layoutGraph.ts`), `compositeFrames` (`layoutStateDiagram.ts`) and
-   * `namespaceFrame` (`layoutClassDiagram.ts`) each take the union of this
-   * box with every box it holds before adding their own padding and title
-   * strip. **That union is required, not merely conservative.** Anyone
-   * reading one of them as redundant and deleting the members from it would
-   * draw a 60x40 frame with its whole contents outside, for exactly the
-   * documents in rows two and three — a flowchart `subgraph` inside a
-   * `subgraph` that declared a `direction`, which is ordinary Mermaid.
+   * input to that, never the answer.** The adapters with frames already do
+   * exactly that, and neither is being defensive: `compositeFrames`
+   * (`layoutStateDiagram.ts`) and `namespaceFrame` (`layoutClassDiagram.ts`)
+   * each take the union of this box with every box it holds before adding
+   * their own padding and title strip. **That union is required, not merely
+   * conservative.** Anyone reading one of them as redundant and deleting the
+   * members from it would draw a 60x40 frame with its whole contents
+   * outside, for exactly the documents in rows two and three — a cluster
+   * inside a cluster that declared a `direction`.
    *
    * Each adapter has to compute a frame of its own regardless, because
    * padding and title strips are that diagram kind's visual decisions and a
@@ -110,8 +109,7 @@ export interface DirectedGraphLayoutEdge {
    *
    * Spelled with dagre's own word, like `rankdir` above and for the same
    * reason: this seam is where the engine's vocabulary is allowed, and
-   * nowhere else. A flowchart edge carries it as `minLength`, which is
-   * what it means rather than what dagre calls it.
+   * nowhere else. No current caller (class, state, ER) sets it.
    */
   minlen?: number;
 }
@@ -197,8 +195,8 @@ function strictlyInside(box: DirectedGraphLayoutNodeBox, point: Point): boolean 
  * crosses out of the box is put in their place.
  *
  * **Exported because the frame a caller draws may be bigger than the box
- * this module placed.** `layoutGraph` grows a subgraph's frame outward from
- * the cluster box — padding all round, and a title strip along the top — so
+ * this module placed.** `layoutStateDiagram` grows a composite state's frame
+ * outward from the cluster box — padding all round, and a title strip along the top — so
  * an edge clipped here to the cluster box would end up *inside* the drawn
  * frame by exactly that much. Rather than teach this module about title
  * strips, the growing caller re-clips with the same function against the box
@@ -419,7 +417,7 @@ export function selfLoopAroundBox(
  * Which side of its box a self-loop hangs off: beside the box when the ranks
  * run vertically, below it when they run horizontally. Exported with
  * `selfLoopAroundBox` for a caller that redraws a frame's loop around the
- * frame it drew (`layoutGraph`).
+ * frame it drew; no current caller (class, state, ER) does.
  */
 export function selfLoopSide(rankdir: Direction): "right" | "bottom" {
   return rankdir === "TB" || rankdir === "BT" ? "right" : "bottom";
@@ -536,8 +534,8 @@ export function layoutDirectedGraph(
   // - A diagram with no frames (no subgraph, composite state, namespace or ER
   //   subgraph) moves +8 as a whole, inside the same `CANVAS_GUTTER` that
   //   `sizeCanvas` still adds around the extent.
-  // - A diagram with frames still has each adapter (`layoutGraph`,
-  //   `layoutStateDiagram`, `layoutClassDiagram`, `layoutErDiagram`) shift
+  // - A diagram with frames still has each adapter (`layoutStateDiagram`,
+  //   `layoutClassDiagram`, `layoutErDiagram`) shift
   //   everything by however far a frame, grown outward from its members,
   //   reaches past 0. The margin is room the frame grows into first, so that
   //   shift shrinks by up to 8: part or all of the +8 is absorbed by it, and
@@ -818,8 +816,8 @@ export function layoutDirectedGraph(
     //
     // **A frame's loop is drawn twice over, and the second pass is the
     // caller's.** A caller that grows its own frame outward from this box —
-    // `layoutGraph`'s `subgraphFrames`, `layoutStateDiagram`'s
-    // `compositeFrames`, both by 12 all round plus a title strip — re-clips
+    // `layoutStateDiagram`'s `compositeFrames`, by 12 all round plus a title
+    // strip — re-clips
     // every route touching that frame with `clipRouteEndToBox`. On this loop
     // that clip does the right thing: it drops the two points still inside
     // the drawn frame and puts the ends back on its outline. But it does so
@@ -828,8 +826,8 @@ export function layoutDirectedGraph(
     // frame by more than half of `SELF_LOOP_REACH` would have its whole loop
     // inside the frame, where the clip has nothing outside to aim at and
     // returns it untouched: the defect this ticket closed, back again. The
-    // corpus holds the line (`fc-subgraph-self-edge`,
-    // `st-composite-self-transition` both assert no point inside the frame),
+    // corpus holds the line (`st-composite-self-transition` asserts no point
+    // inside the frame),
     // which is where a change to either padding will hear about it.
     if (edge.from === edge.to) {
       const points = selfLoopAroundBox(boxById.get(edge.from)!, loopSide);

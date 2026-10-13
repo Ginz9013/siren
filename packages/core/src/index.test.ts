@@ -6677,7 +6677,7 @@ function holds(
  * The three rows of `01M2XJWM4`'s matrix that drew the right picture under
  * dagre, pinned now as **arrangements** — which boxes share a row or a column
  * and which comes first — measured against Mermaid 12.2.0's default (ELK)
- * layout in headless Chrome (elk-migration T02). Exact coordinates belonged
+ * layout in headless Chrome (nook 01M4VA67H). Exact coordinates belonged
  * to the dagre era; how far apart a row's boxes sit belongs to the engine and
  * the theme, while which boxes form the row is the document's meaning.
  *
@@ -6821,7 +6821,7 @@ describe("render() — the layout combinations around per-cluster direction that
  * 11.17.2 (dagre) the inner frame with no `direction` of its own took the
  * *document's* `TB` (`A` at `translate(63, 68)`, `B` at `translate(63, 208)`).
  * Under mermaid 12.2.0's default ELK layout, measured in headless Chrome for
- * the elk-migration board's T02, it takes the *enclosing frame's* `LR`: `A` at
+ * nook 01M4VA67H, it takes the *enclosing frame's* `LR`: `A` at
  * (56, 104) and `B` at (232, 104), one row, with `C` to their right at x 432.
  * The outer frame is laid out in a pass of its own in its own direction, and
  * a frame inside it that says nothing is laid out in that pass. Siren follows

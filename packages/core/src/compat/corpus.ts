@@ -2042,8 +2042,8 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       // such option, so it draws both alike (measured in headless Chrome:
       // identical coordinates) — a picture that contradicts the document,
       // which Siren does not copy: the shared layout core holds the ends
-      // apart with a chain of invisible points (the elk-migration board's
-      // Domain decision 9, and its nook decision). Drawing both alike would
+      // apart with a chain of invisible points (nook decision
+      // `01M4VA6MS4MCTFFJJWEZR453YS`). Drawing both alike would
       // be a silent mis-render by this instrument's own definition.
       const plain = edgeSpan(result, "A", "B");
       const long = edgeSpan(result, "C", "D");
@@ -2403,7 +2403,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "saying nothing, is laid out in that pass. Mermaid 11.17.2 (dagre) drew " +
       "the opposite — `A` over `B` in the header's `TB` — and Siren drew that " +
       "while it was on dagre; this row followed the measurement when the " +
-      "flowchart moved to ELK (elk-migration T02). The dagre history: a " +
+      "flowchart moved to ELK (nook `01M4VA67H`). The dagre history: a " +
       "cluster given a `rankdir` of its own had its children expanded exactly " +
       "one level, so this document once drew `NaN` into 29 attributes and " +
       "said nothing (`01M2WQV0`), then was refused (`01M2XJVPX`), then drawn " +

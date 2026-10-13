@@ -781,8 +781,8 @@ describe("how long an edge holds its endpoints apart", () => {
   it("puts a longer arrow's target further down the rank order", () => {
     // Three ranks apart rather than one: mermaid 11.17.2 read `length=3` for
     // `A ----> B` and handed it to dagre as `minlen`, measured. Mermaid 12 on
-    // ELK drops it; Siren keeps it (the elk-migration board's Domain
-    // decision 9, and the core's `chainOf`). Asserted as a *strict* increase rather than
+    // ELK drops it; Siren keeps it (nook 01M4VA6MS, and the
+    // core's `chainOf`). Asserted as a *strict* increase rather than
     // against a number, because how tall a rank is belongs to the theme
     // (ADR-0004) while how many ranks apart the two nodes are is the
     // compatibility contract.

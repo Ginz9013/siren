@@ -6,6 +6,7 @@ import {
   type DirectedGraphInput,
   type DirectedGraphNodeBox,
 } from "./layoutDirectedGraph";
+import { LayoutEngineError } from "./elkSync";
 
 /** The same three-box chain, laid out in whichever direction is asked for. */
 function chain(direction: Direction): DirectedGraphInput {
@@ -259,11 +260,53 @@ describe("layoutDirectedGraph keeps room for an edge's label", () => {
   });
 });
 
+describe("layoutDirectedGraph keeps a cluster's frame as wide as its title", () => {
+  /** `inner` inside `outer`, clear of every side by `padding` and of the top by the title band. */
+  function expectEnclosed(outer: DirectedGraphNodeBox, inner: DirectedGraphNodeBox, padding: number, band: number) {
+    expect(inner.x - outer.x, `${inner.id} left in ${outer.id}`).toBeGreaterThanOrEqual(padding - EPSILON);
+    expect(outer.x + outer.width - (inner.x + inner.width), `${inner.id} right in ${outer.id}`).toBeGreaterThanOrEqual(padding - EPSILON);
+    expect(inner.y - outer.y, `${inner.id} top in ${outer.id}`).toBeGreaterThanOrEqual(band - EPSILON);
+    expect(outer.y + outer.height - (inner.y + inner.height), `${inner.id} bottom in ${outer.id}`).toBeGreaterThanOrEqual(padding - EPSILON);
+  }
+
+  it("under an LR diagram, around a member far narrower than the title", () => {
+    const boxes = boxesOf({
+      direction: "LR",
+      nodes: [
+        { id: "G", width: 0, height: 0, cluster: { padding: 12, title: { width: 200, height: 20 } } },
+        { id: "A", width: 20, height: 20, parentId: "G" },
+      ],
+      edges: [],
+    });
+    expect(boxes.G.width).toBeGreaterThanOrEqual(200 + 2 * 12 - EPSILON);
+    // A title's width is not a height.
+    expect(boxes.G.height).toBeLessThan(200);
+    expectEnclosed(boxes.G, boxes.A, 12, 12 + 20 + 12);
+  });
+
+  it("inside a `direction TB` cluster of an LR diagram, a nested cluster with a narrow member and a wide title", () => {
+    const boxes = boxesOf({
+      direction: "LR",
+      nodes: [
+        { id: "O", width: 0, height: 0, cluster: { padding: 12, title: { width: 40, height: 20 }, direction: "TB" } },
+        { id: "I", width: 0, height: 0, parentId: "O", cluster: { padding: 12, title: { width: 200, height: 20 } } },
+        { id: "A", width: 20, height: 20, parentId: "I" },
+        { id: "B", width: 20, height: 20, parentId: "O" },
+      ],
+      edges: [],
+    });
+    expect(boxes.I.width).toBeGreaterThanOrEqual(200 + 2 * 12 - EPSILON);
+    expect(boxes.I.height).toBeLessThan(200);
+    expectEnclosed(boxes.I, boxes.A, 12, 12 + 20 + 12);
+    expectEnclosed(boxes.O, boxes.I, 12, 12 + 20 + 12);
+    expectEnclosed(boxes.O, boxes.B, 12, 12 + 20 + 12);
+  });
+});
+
 describe("layoutDirectedGraph lays a group out in its own direction", () => {
   // Every expectation here is Mermaid 12.2.0's picture of the same document
-  // under its default (ELK) layout, measured in headless Chrome for the
-  // elk-migration board's T02: "side by side" is the two boxes at one y,
-  // "stacked" is one above the other.
+  // under its default (ELK) layout, measured in headless Chrome: "side by
+  // side" is the two boxes at one y, "stacked" is one above the other.
   const group = (direction?: Direction) => ({
     id: "G",
     width: 0,
@@ -361,9 +404,10 @@ describe("layoutDirectedGraph lays a group out in its own direction", () => {
 });
 
 describe("layoutDirectedGraph's line hops", () => {
-  // Drawing a small arc where one edge crosses another is the board's T03;
-  // until then every route carries the field, empty, so the renderer's
-  // contract does not change shape when it fills.
+  // Drawing a small arc where one edge crosses another is not implemented
+  // yet (nook decision 01M4VANRC6B2C14NHVC2KRZ9Y8, rule 7); until it is,
+  // every route carries the field, empty, so the renderer's contract does
+  // not change shape when it fills.
   it("are an empty list on every route, even where two routes cross", () => {
     const result = layoutDirectedGraph({
       direction: "TB",
@@ -403,8 +447,8 @@ describe("layoutDirectedGraph keeps the model's order", () => {
 describe("layoutDirectedGraph holds a long edge's ends that many layers apart", () => {
   // `A ----> B` is `minLength: 3`. Mermaid 12.2.0 on ELK ignores it (measured:
   // drawn exactly as `-->`); Siren keeps the rank distance the document asks
-  // for — the board's Domain decision 9. A chain of three plain edges beside
-  // it marks where layer 3 is.
+  // for — nook decision 01M4VA6MS4MCTFFJJWEZR453YS. A chain of three plain
+  // edges beside it marks where layer 3 is.
   // Unlabelled: ELK gives a labelled edge a layer of its own for the label,
   // so a label would move B one layer further whatever its length.
   const input = (minLength: number, label?: { width: number; height: number }): DirectedGraphInput => ({
@@ -439,5 +483,19 @@ describe("layoutDirectedGraph holds a long edge's ends that many layers apart", 
     expect(onOutline(route.points.at(-1)!, box.B)).toBe(true);
     expect(route.labelAnchor).toBeDefined();
     expect(distanceToPolyline(route.labelAnchor!, route.points)).toBeLessThanOrEqual(EPSILON);
+  });
+});
+
+describe("layoutDirectedGraph rejects a node inside a cluster it was not given", () => {
+  // A caller bug, not a document's: every adapter builds `parentId` from ids
+  // it declared. Still Siren's own error, naming the id, rather than a
+  // TypeError from deep inside the core.
+  it.each([
+    ["a box", { id: "A", width: 60, height: 40, parentId: "Missing" }],
+    ["a cluster", { id: "G", width: 0, height: 0, parentId: "Missing", cluster: { padding: 12 } }],
+  ])("%s naming an unknown parent: LayoutEngineError, naming the id", (_, node) => {
+    const input: DirectedGraphInput = { direction: "TB", nodes: [node], edges: [] };
+    expect(() => layoutDirectedGraph(input)).toThrow(LayoutEngineError);
+    expect(() => layoutDirectedGraph(input)).toThrow(/"Missing"/);
   });
 });

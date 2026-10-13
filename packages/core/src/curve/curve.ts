@@ -36,8 +36,9 @@ export const MERMAID_ONLY_CURVES = [
 /**
  * The curve a class, state or ER connector is drawn with — Mermaid's `basis`,
  * which is what those three kinds are drawn with while they are still laid out
- * by dagre. Each moves to `rounded` in its own ticket of the elk-migration
- * board, when it moves onto ELK, and this constant goes with the last of them.
+ * by dagre. Each moves to `rounded` when it moves onto ELK (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 6), and this constant goes with the last
+ * of them.
  */
 export const DEFAULT_CURVE: Curve = "basis";
 
@@ -51,7 +52,8 @@ export const DEFAULT_CURVE: Curve = "basis";
  * edge ELK routed, and draws it with `generateRoundedPath(points, 5)`
  * (`chunk-RLXJHMIZ.mjs`). Where Siren departs is the `interpolate` an author
  * wrote: Mermaid 12 ignores it under ELK, Siren still honours it and applies
- * that curve to ELK's points (the migration's Domain decision 6).
+ * that curve to ELK's points (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+ * rule 6).
  */
 export const FLOWCHART_DEFAULT_CURVE: Curve = "rounded";
 

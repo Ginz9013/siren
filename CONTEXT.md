@@ -589,9 +589,9 @@ is cosmetic:
   another block joins it rather than moving it. A class is a member of the namespace it was
   written in.
 - **It lays out in a rank direction of its own — only while no boundary-crossing edge voids it.**
-  `direction LR` written inside a block turns that group alone into a row while the document keeps
-  the header's direction — the group is laid out in an ELK pass of its own, in its own direction.
-  A **Boundary-crossing edge** voids it, and the group is laid out in its parent's pass and
+  `direction LR` written inside a block turns that block alone into a row while the document keeps
+  the header's direction — the block is laid out in an ELK pass of its own, in its own direction.
+  A **Boundary-crossing edge** voids it, and the block is laid out in its parent's pass and
   direction — Mermaid 12's rule. A block that declares no direction inside one that keeps its own
   is laid out in that enclosing block's direction (measured, Mermaid 12.2.0: `Outer` `LR` holding
   `Inner` with none draws `Inner`'s `A --> B` as a row; Mermaid 11 used the document's). A
@@ -621,7 +621,8 @@ handle at all. That generated id is why a subgraph is addressable in a `timeline
 omission — there is nothing for a directive to say.
 _Avoid_: subgraph diagram (Mermaid has no such kind — this is a statement inside a flowchart),
 cluster (that is the engine-side word the layout cores use for the mechanism, the same way
-**namespace**'s entry reserves it), namespace (that is the class-diagram construct), group, box
+**namespace**'s entry reserves it — the ELK core's input field is `cluster`, and what it hands back
+for one is its frame), namespace (that is the class-diagram construct), group, box
 (overloaded three ways already — see **Box grouping**), container, frame (that is the drawn
 `<rect>`, one of the two elements a subgraph is drawn with)
 

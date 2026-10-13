@@ -1,41 +1,42 @@
 /**
- * The shared layout core, on ELK: takes boxes, groups and edges with their
- * sizes, and hands back where everything goes. It measures no text, knows no
- * diagram kind, and draws nothing — the same seam the dagre core in
- * `../layoutDirectedGraph.ts` has kept since ADR-0001, with a different
- * engine behind it. The flowchart reaches it through `layoutGraph`; class,
- * state and ER diagrams stay on the dagre core until their own tickets of the
- * elk-migration board move them, after which this module moves back to that
- * path and keeps this name.
+ * The shared layout core, on ELK: takes boxes, clusters and edges with their
+ * sizes, and hands back where everything goes — boxes, the frame around each
+ * cluster, and routes. It measures no text, knows no diagram kind, and draws
+ * nothing — the same seam the dagre core in `../layoutDirectedGraph.ts` has
+ * kept since ADR-0001, with a different engine behind it. The flowchart
+ * reaches it through `layoutGraph`; class, state and ER diagrams stay on the
+ * dagre core until each moves onto ELK, after which this module moves back to
+ * that path and keeps this name.
  *
  * The engine is ELK's `layered` algorithm (elkjs, reached only through
  * `elkSync.ts`), configured as Mermaid 12.2.0 configures it for its own
- * default layout — see `ROOT_OPTIONS` and `groupOptions` for every option and
- * where it was read. Mermaid 12 is the baseline (the elk-migration board's
- * Domain decision 1): what the picture looks like is Mermaid's to decide, and
- * where Siren departs from it the departure is measured and written down
- * beside the code that departs.
+ * default layout — see `ROOT_OPTIONS` and `CLUSTER_OPTIONS` for every option
+ * and where it was read. Mermaid 12 is the baseline (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 1): what the picture looks like is
+ * Mermaid's to decide, and where Siren departs from it the departure is
+ * measured and written down beside the code that departs.
  */
 import type { Direction, Point } from "../../contracts";
-import { layoutWithElk, type ElkExtendedEdge, type ElkNode } from "./elkSync";
+import { LayoutEngineError, layoutWithElk, type ElkExtendedEdge, type ElkNode } from "./elkSync";
 
 /** A box to place. Sizes are given by the caller; this module never measures. */
 export interface DirectedGraphNode {
   id: string;
   width: number;
   height: number;
-  /** The group this box (or group) sits inside, by that group's id. */
+  /** The cluster this box (or cluster) sits inside, by that cluster's id. */
   parentId?: string;
   /**
-   * Declares this node a **group**: a frame around the nodes that name it as
-   * their `parentId`, sized by the engine to hold them. `width`/`height` are
-   * then ignored — a group is as large as what it holds, its padding and its
-   * title make it, and never smaller than its title and padding.
+   * Declares this node a **cluster**: the engine draws a frame around the
+   * nodes that name it as their `parentId`, sized to hold them.
+   * `width`/`height` are then ignored — the frame is as large as what it
+   * holds, its padding and its title make it, and never smaller than its
+   * title and padding.
    */
   cluster?: DirectedGraphCluster;
 }
 
-/** What makes a node a group: the room it keeps around its members, and its title. */
+/** What makes a node a cluster: the room its frame keeps around its members, and its title. */
 export interface DirectedGraphCluster {
   /** The gap between the frame and everything it holds, on every side. */
   padding: number;
@@ -46,8 +47,8 @@ export interface DirectedGraphCluster {
    */
   title?: { width: number; height: number };
   /**
-   * The direction the group lays its own members out in, when it declares
-   * one. It holds only while no edge makes the group give it up — see
+   * The direction the cluster lays its own members out in, when it declares
+   * one. It holds only while no edge makes the cluster give it up — see
    * `voidedDirections` for the rule, which is Mermaid's.
    */
   direction?: Direction;
@@ -75,7 +76,7 @@ export interface DirectedGraphEdge {
 export interface DirectedGraphInput {
   direction: Direction;
   /**
-   * Every box and group, **in the model's order** — the order is input, not
+   * Every box and cluster, **in the model's order** — the order is input, not
    * presentation: ELK is asked to keep it (`considerModelOrder`), so two
    * siblings with nothing else to tell them apart are laid out in the order
    * they arrive here.
@@ -92,7 +93,7 @@ export interface DirectedGraphNodeBox {
   y: number;
   width: number;
   height: number;
-  /** A group's title centre, in the band across the frame's top. Absent for a plain box and an untitled group. */
+  /** A cluster's title centre, in the band across its frame's top. Absent for a plain box and an untitled cluster. */
   title?: Point;
 }
 
@@ -103,9 +104,10 @@ export interface DirectedGraphEdgeRoute {
   /** Centre of the room kept for the label, on the route. Absent when the edge has no label. */
   labelAnchor?: Point;
   /**
-   * Where this route jumps another with a small arc. Always empty for now:
-   * the board's T03 fills it, and the field exists ahead of it so the
-   * renderer's input keeps one shape.
+   * Where this route jumps another with a small arc. Always empty until
+   * line hops are implemented (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+   * rule 7); the field exists ahead of them so the renderer's input keeps
+   * one shape.
    */
   hops: Point[];
 }
@@ -145,7 +147,7 @@ const ELK_DIRECTION: Record<Direction, string> = {
  */
 const ROOT_OPTIONS: Record<string, string> = {
   "elk.algorithm": "layered",
-  // One layout pass over the whole hierarchy, so an edge between two groups
+  // One layout pass over the whole hierarchy, so an edge between two clusters
   // is routed in the same pass as the boxes it joins.
   "elk.hierarchyHandling": "INCLUDE_CHILDREN",
   // `ELK_PRESETS.default`.
@@ -172,13 +174,13 @@ const ROOT_OPTIONS: Record<string, string> = {
 };
 
 /**
- * The options every group carries — Mermaid 12.2.0's
+ * The options every cluster carries — Mermaid 12.2.0's
  * `buildSubgraphLayoutOptions` (`elk-V4PLJRSU.mjs`, around line 99284) with
  * its default configuration, less the three it decides per subgraph: its
- * padding (24 there; the caller's here), its title (see `groupShape`) and
+ * padding (24 there; the caller's here), its title (see `clusterShape`) and
  * its direction (see `layoutDirectedGraph`).
  */
-const GROUP_OPTIONS: Record<string, string> = {
+const CLUSTER_OPTIONS: Record<string, string> = {
   // `DEFAULT_SUBGRAPH_SPACING_BASE_VALUE`, `DEFAULT_SUBGRAPH_NODE_SPACING`.
   "spacing.baseValue": "24",
   "spacing.nodeNode": "50",
@@ -204,7 +206,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     elkNodeById.set(node.id, { id: node.id, width: node.width, height: node.height });
   }
   const hasMembers = new Set(input.nodes.flatMap((node) => (node.parentId === undefined ? [] : [node.parentId])));
-  // Parentage once every node exists, so a group may be listed after its
+  // Parentage once every node exists, so a cluster may be listed after its
   // members. Children are appended in input order, which is the order ELK
   // is asked to keep.
   const topLevel: ElkNode[] = [];
@@ -213,23 +215,31 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
     if (node.parentId === undefined) {
       topLevel.push(elkNode);
     } else {
-      const parent = elkNodeById.get(node.parentId)!;
+      const parent = elkNodeById.get(node.parentId);
+      if (parent === undefined) {
+        // A defect in the caller, which builds `parentId` from ids it
+        // declared; reported as Siren's own error, naming the id, rather
+        // than as a TypeError further in.
+        throw new LayoutEngineError(
+          `"${node.id}" names "${node.parentId}" as its parent cluster, which is not among the nodes`,
+        );
+      }
       (parent.children ??= []).push(elkNode);
     }
   }
   const nodeById = new Map(input.nodes.map((node) => [node.id, node]));
   const voided = voidedDirections(input, nodeById);
-  /** Whether this group is laid out in a pass of its own: it keeps a direction. */
+  /** Whether this cluster is laid out in a pass of its own: it keeps a direction. */
   const ownPass = (node: DirectedGraphNode): boolean =>
     node.cluster?.direction !== undefined && !voided.has(node.id) && hasMembers.has(node.id);
-  /** Whether this node, or any group above it, is laid out in a pass of its own. */
+  /** Whether this node, or any cluster above it, is laid out in a pass of its own. */
   const inOwnPass = (node: DirectedGraphNode | undefined): boolean =>
     node !== undefined && (ownPass(node) || inOwnPass(node.parentId === undefined ? undefined : nodeById.get(node.parentId)));
   for (const node of input.nodes) {
     if (node.cluster !== undefined) {
       const elkNode = elkNodeById.get(node.id)!;
-      // Rotated only inside the root's own `INCLUDE_CHILDREN` pass; see `groupShape`.
-      Object.assign(elkNode, groupShape(node.cluster, hasMembers.has(node.id), vertical && !inOwnPass(node)));
+      // Rotated only inside the root's own `INCLUDE_CHILDREN` pass; see `clusterShape`.
+      Object.assign(elkNode, clusterShape(node.cluster, hasMembers.has(node.id), vertical && !inOwnPass(node)));
       if (ownPass(node)) {
         // Mermaid's `buildSubgraphLayoutOptions` for a subgraph with a `dir`:
         // laid out on its own, in its own direction, then placed in its
@@ -246,7 +256,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
 
   // Each edge becomes one ELK edge, or a chain of them through invisible
   // points when it is longer than one layer (`chainOf`). The chain's points
-  // join the graph where its two ends' nearest common group holds them, so
+  // join the graph where its two ends' nearest common cluster holds them, so
   // they lay out among the boxes the edge runs between.
   const chains = input.edges.map((edge) => chainOf(edge));
   for (const chain of chains) {
@@ -339,8 +349,13 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   };
 }
 
+/** The id of the cluster a node sits in, or `undefined` at the diagram's top level (or for an id not given). */
+function parentLookup(nodeById: ReadonlyMap<string, DirectedGraphNode>): (id: string) => string | undefined {
+  return (id) => nodeById.get(id)?.parentId;
+}
+
 /**
- * The nearest group holding both `a` and `b` — Mermaid's `findCommonAncestor`
+ * The nearest cluster holding both `a` and `b` — Mermaid's `findCommonAncestor`
  * (`elk-V4PLJRSU.mjs`, line 98673), including its two quirks: one end that
  * is itself an ancestor of the other is the answer, and an edge from a node
  * to itself answers that node's parent. `undefined` is the diagram itself.
@@ -350,7 +365,7 @@ function commonAncestor(
   b: string,
   nodeById: ReadonlyMap<string, DirectedGraphNode>,
 ): string | undefined {
-  const parentOf = (id: string): string | undefined => nodeById.get(id)?.parentId;
+  const parentOf = parentLookup(nodeById);
   if (a === b) return parentOf(a);
   const seen = new Set<string>();
   for (let id: string | undefined = a; id !== undefined; id = parentOf(id)) {
@@ -384,8 +399,8 @@ interface Chain {
  * in headless Chrome, `A ----> B` beside `A --> C` draws both targets in one
  * row, with coordinates identical to `A --> B`. Mermaid's own documentation
  * says each extra dash spans another rank, so its picture contradicts the
- * document and Siren draws what the document says (the migration's Domain
- * decision 9; see the nook decision on `---->`).
+ * document and Siren draws what the document says (nook decision
+ * `01M4VA6MS4MCTFFJJWEZR453YS`, under rule 1 of `01M4VANRC6B2C14NHVC2KRZ9Y8`).
  *
  * A label goes on the middle edge of the chain, so it sits halfway along.
  * ELK gives a labelled edge a layer of its own for its label, so a labelled
@@ -460,24 +475,23 @@ function withoutStraightRuns(points: readonly Point[]): Point[] {
 }
 
 /**
- * The groups whose declared direction does not hold: Mermaid 12.2.0's
+ * The clusters whose declared direction does not hold: Mermaid 12.2.0's
  * `configureCrossHierarchyEdges` and `setIncludeChildrenPolicy`
- * (`elk-V4PLJRSU.mjs`, around line 99889), which force a group back into its
+ * (`elk-V4PLJRSU.mjs`, around line 99889), which force a cluster back into its
  * parent's layout pass — and so into its parent's direction.
  *
- * The rule: an edge whose two ends have different parents voids every group
- * on the way up from each end to the two ends' nearest common ancestor —
- * the end itself when it is a group, and the common ancestor too when that
- * is a group rather than the diagram. An edge whose ends share a parent
- * voids nothing, which is why `C --> G` from beside a group leaves the group
- * its direction.
+ * The rule: an edge whose two ends have different parents voids every
+ * cluster on the way up from each end to the two ends' nearest common
+ * ancestor — the end itself when it is a cluster, and the common ancestor too
+ * when that is a cluster rather than the diagram. An edge whose ends share a
+ * parent voids nothing, which is why `C --> G` from beside a cluster leaves
+ * the cluster its direction.
  *
- * Measured in headless Chrome against Mermaid 12.2.0's default layout
- * (elk-migration T02): a TB diagram with `subgraph one` declaring
- * `direction LR` around `A --> B` draws A and B side by side; adding
+ * Measured in headless Chrome against Mermaid 12.2.0's default layout: a
+ * TB diagram with `subgraph one` declaring `direction LR` around `A --> B` draws A and B side by side; adding
  * `C --> A` stacks them; adding `C --> one` instead keeps the row; adding
  * `B --> one` stacks them. And one case where this is not the dagre-era
- * **Boundary-crossing edge** rule: `O` with `direction LR` holding a group
+ * **Boundary-crossing edge** rule: `O` with `direction LR` holding a cluster
  * `I` (holding `A`) and `B`, with `A --> B` — no edge leaves `O`, and Mermaid
  * stacks `A` above `B` all the same, because `A` and `B` have different
  * parents and their common ancestor is `O`.
@@ -486,7 +500,7 @@ function voidedDirections(
   input: DirectedGraphInput,
   nodeById: ReadonlyMap<string, DirectedGraphNode>,
 ): Set<string> {
-  const parentOf = (id: string): string | undefined => nodeById.get(id)?.parentId;
+  const parentOf = parentLookup(nodeById);
   const voided = new Set<string>();
   for (const edge of input.edges) {
     if (parentOf(edge.from) === parentOf(edge.to)) continue;
@@ -502,36 +516,37 @@ function voidedDirections(
 }
 
 /**
- * The ELK shape of a group: its padding with the title band folded into the
+ * The ELK shape of a cluster: its padding with the title band folded into the
  * top, and a minimum width that holds the title.
  *
  * **The title is not handed to ELK as a label, deliberately.** Mermaid does
- * hand it over — as the group's node label, placed `[H_CENTER V_TOP,
+ * hand it over — as the subgraph's node label, placed `[H_CENTER V_TOP,
  * INSIDE]` with the `NODE_LABELS` size constraint — and under a vertical
  * direction ELK sizes the frame in its own rotated frame of reference and
  * applies the title's *width* to the frame's *height*. Measured with elkjs
- * 0.12.0 and 0.9.3 alike: a group holding one 20x20 box under a 200-wide
+ * 0.12.0 and 0.9.3 alike: a cluster holding one 20x20 box under a 200-wide
  * title comes back 52 wide and 224 tall under `DOWN`, 224x76 under `RIGHT`;
  * Mermaid 12.2.0's own options reproduce it (200x271.5 for a 152-wide member
  * under a 261.5-wide title), and Mermaid repairs the frame afterwards in
- * `evenGroupFrames` while the space ELK reserved stays reserved. Domain
- * decision 2 of the migration leaves geometry to the engine alone, so the
- * repair is not available here; asking ELK for the right box is.
+ * `evenGroupFrames` while the space ELK reserved stays reserved. Only the
+ * engine positions boxes and frames (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2), so the repair is not available
+ * here; asking ELK for the right box is.
  *
  * So the band is padding: the top padding is the caller's padding, the
  * title's height and the padding again, and the title's place in it is then
  * known exactly (`layoutDirectedGraph` computes its centre). The width floor
- * is `nodeSize.minimum`, which has the same rotation: a group sized inside
+ * is `nodeSize.minimum`, which has the same rotation: a cluster sized inside
  * the root's `INCLUDE_CHILDREN` pass under `DOWN` or `UP` reads the minimum's
  * two numbers swapped, while one laid out in a pass of its own
  * (`SEPARATE_CHILDREN`) reads them as written — measured, both versions,
- * every combination of root and group direction. `contentAlignment` turns
+ * every combination of root and cluster direction. `contentAlignment` turns
  * with it.
  *
- * A group with no members is laid out as an ordinary box, the title and its
+ * A cluster with no members is laid out as an ordinary box, the title and its
  * padding on every side.
  */
-function groupShape(cluster: DirectedGraphCluster, hasMembers: boolean, rotated: boolean): Partial<ElkNode> {
+function clusterShape(cluster: DirectedGraphCluster, hasMembers: boolean, rotated: boolean): Partial<ElkNode> {
   const { padding, title } = cluster;
   const titleWidth = title?.width ?? 0;
   const titleHeight = title?.height ?? 0;
@@ -542,7 +557,7 @@ function groupShape(cluster: DirectedGraphCluster, hasMembers: boolean, rotated:
   const minimumWidth = titleWidth + 2 * padding;
   return {
     layoutOptions: {
-      ...GROUP_OPTIONS,
+      ...CLUSTER_OPTIONS,
       "elk.padding": `[top=${band},left=${padding},bottom=${padding},right=${padding}]`,
       "elk.nodeSize.constraints": "[MINIMUM_SIZE]",
       "elk.nodeSize.minimum": rotated ? `(0, ${minimumWidth})` : `(${minimumWidth}, 0)`,

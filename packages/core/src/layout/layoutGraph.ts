@@ -264,14 +264,15 @@ export function layoutGraph(
 
   const laidOut = layoutDirectedGraph({
     direction: graph.direction,
-    // Groups before boxes, in Mermaid's order — see `mermaidGroupOrder`. The
-    // core keeps the order it is handed (ELK's `considerModelOrder`), so this
-    // order is a decision about the picture, not bookkeeping.
+    // Subgraphs before boxes, in Mermaid's order — see `mermaidGroupOrder`.
+    // The core keeps the order it is handed (ELK's `considerModelOrder`), so
+    // this order is a decision about the picture, not bookkeeping.
     nodes: [
-      // One group per subgraph. The core sizes and places the frame — around
-      // its members, its padding and a band for its title — and this adapter
-      // only says how much padding and how big a title (the migration's
-      // Domain decision 2: nothing here moves a box or a frame afterwards).
+      // Each subgraph goes to the core as a cluster. The core sizes and
+      // places the frame — around its members, its padding and a band for
+      // its title — and this adapter only says how much padding and how big
+      // a title (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2: nothing
+      // here moves a box or a frame afterwards).
       //
       // **The ids cannot collide with a node's, and not because they are
       // prefixed here.** `layoutClassDiagram` has to prefix a namespace's
@@ -302,7 +303,7 @@ export function layoutGraph(
         // shared layout core is handed sizes and never learns a shape
         // exists.
         ...boxForLabel(node.shape, wrappedById.get(node.id)!.labelBox),
-        // Grouping, and the only thing about a subgraph a member tells the
+        // Membership, and the only thing about a subgraph a member tells the
         // core. `undefined` rather than `null` when the node is in no
         // subgraph, matching the core's optional field.
         ...(node.parentId === null ? {} : { parentId: node.parentId }),
@@ -395,7 +396,7 @@ export function layoutGraph(
  * reversed, a parent precedes its children and the last sibling the first.
  *
  * This is how the frames come out in Mermaid's picture, not a choice made
- * here. Measured in headless Chrome (elk-migration T02): `subgraph SA`,
+ * here. Measured in headless Chrome against Mermaid 12.2.0: `subgraph SA`,
  * `subgraph SB`, then a node `X` — Mermaid draws SB, SA, X from left to
  * right, whether `X` is declared first or last; three subgraphs nested
  * `O { I1 { A }, I2 { B }, C }` come out C, I2, I1 inside O.

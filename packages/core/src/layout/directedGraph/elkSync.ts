@@ -13,11 +13,10 @@
  * `dispatcher.saveDispatch` behind `setTimeout(0)`. This module skips both
  * layers of deferral and calls `dispatcher.saveDispatch` itself. That method
  * runs the command and hands the reply to the worker's `onmessage` before it
- * returns — read off elkjs's source, and measured in the elk-migration
- * spike under Node, headless Chrome and a Vite 8 bundle for both 0.9.3 (the
- * version pinned, Mermaid 12.2.0's own) and 0.12.0 (nook spec issue
- * `01M4V72SN0P6TNYRD3SE2E0VBS`). `elkSync.test.ts`
- * pins it: a microtask and a zero-delay timer queued before the call are both
+ * returns — read off elkjs's source, and measured under Node, headless
+ * Chrome and a Vite 8 bundle for both 0.9.3 (the version pinned, Mermaid
+ * 12.2.0's own) and 0.12.0 (nook spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`).
+ * `elkSync.test.ts` pins it: a microtask and a zero-delay timer queued before the call are both
  * still pending when the result comes back.
  *
  * ## What that costs
@@ -25,17 +24,19 @@
  * `FakeWorker`, `dispatcher.saveDispatch` and the `{ cmd, id, graph }`
  * message shape are elkjs internals, not API. The version is pinned exactly in
  * `package.json` for that reason — and to the version Mermaid 12.2.0 bundles,
- * 0.9.3, because the same options under 0.12.0 order nodes differently (the
- * migration's Domain decision 3) — and the test above is the alarm an
- * upgrade trips if any of the three moves. The file is also why siren-core must not
- * run inside a Web Worker: there `lib/elk-worker.min.js` takes the other
+ * 0.9.3, because the same options under 0.12.0 order nodes differently (nook
+ * decisions `01M4VA67HYZZ1PZG49XA30454N` and `01M4VANRC6B2C14NHVC2KRZ9Y8`,
+ * rule 3) — and the test above is the alarm an upgrade trips if any of the
+ * three moves. The file is also why siren-core must not run inside a Web
+ * Worker: there `lib/elk-worker.min.js` takes the other
  * branch of its own export test, installs itself as the worker's
- * `self.onmessage` and exports nothing (a non-goal of the migration).
+ * `self.onmessage` and exports nothing (not supported; see nook decision
+ * `01M4VA67HYZZ1PZG49XA30454N`).
  *
  * The engine is compiled once per process, on first use: about 0.1s for the
- * first layout, then about 20ms for a 40-node graph (spike numbers). Each
- * layout also leaves a 10ms watchdog timer behind it inside ELK, which is
- * harmless and is not this module's to cancel.
+ * first layout, then about 20ms for a 40-node graph (measured; nook
+ * decision `01M4VA67HYZZ1PZG49XA30454N`). Each layout also leaves a 10ms
+ * watchdog timer behind it inside ELK, which is harmless and is not this module's to cancel.
  */
 import * as elkWorkerModule from "elkjs/lib/elk-worker.min.js";
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
