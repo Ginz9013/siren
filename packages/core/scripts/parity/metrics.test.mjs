@@ -60,6 +60,19 @@ test("agreement counts: the pairs compared and how many agree on each axis", () 
   assert.equal(lone.verticalAgreement, null);
 });
 
+// One column in both pictures, Siren's with the sub-pixel jitter two
+// renderers leave on a column (centres 0.2px apart). Normalizing that 0.4px
+// to the full 0..1 would turn the jitter into left and right; under a 1px
+// extent an axis is one coordinate, so every pair is level in both pictures
+// and agrees: 3 of 3 horizontally. The vertical axis is unaffected.
+test("nodes sharing one column with sub-pixel jitter agree on that axis", () => {
+  const mermaid = { A: { x: 50, y: 0 }, B: { x: 50, y: 100 }, C: { x: 50, y: 200 } };
+  const siren = { A: { x: 40.2, y: 0 }, B: { x: 40, y: 80 }, C: { x: 39.8, y: 160 } };
+  const r = compareLayouts(mermaid, siren);
+  assert.deepEqual([r.pairs, r.verticalAgreed, r.horizontalAgreed], [3, 3, 3]);
+  assert.equal(r.maxOffset, 0);
+});
+
 import { compareSizes } from "./metrics.mjs";
 
 // Node sizes, compared as Siren's over Mermaid's at one font size (Siren's

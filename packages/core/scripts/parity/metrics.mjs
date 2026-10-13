@@ -38,10 +38,23 @@ export const LEVEL_TOLERANCE = 0.005;
 export const WORST_COUNT = 5;
 
 /**
+ * The least extent, in px, an axis must span to be normalized. Both pictures
+ * are read in the page's client px, and two renderers placing one column or
+ * row can leave it a fraction of a pixel uneven: in the single-column
+ * `example-state-reveal`, Mermaid draws its end state 0.007px right of the
+ * column the other five share. Scaling that to the full 0..1 made the jitter
+ * read as left and right of each other, and the fixture agree on 1 pair of 6
+ * across.
+ * Below a pixel no reader can tell the nodes apart on that axis, so it is
+ * one coordinate — the same pixel `LEVEL_TOLERANCE` is chosen to stay under.
+ */
+export const MIN_EXTENT_PX = 1;
+
+/**
  * Min-max normalize each axis of `centers` (restricted to `ids`) to 0..1.
- * An axis on which every node sits at one coordinate has no extent to scale
- * by; every node is put at 0.5 on it, which is what "they are all level"
- * means in a 0..1 frame.
+ * An axis on which every node sits at one coordinate — spans less than
+ * `MIN_EXTENT_PX` — has no extent to scale by; every node is put at 0.5 on
+ * it, which is what "they are all level" means in a 0..1 frame.
  */
 function normalize(centers, ids) {
   const xs = ids.map((id) => centers[id].x);
@@ -49,7 +62,7 @@ function normalize(centers, ids) {
   const scale = (values) => {
     const min = Math.min(...values);
     const extent = Math.max(...values) - min;
-    return (v) => (extent > 0 ? (v - min) / extent : 0.5);
+    return (v) => (extent >= MIN_EXTENT_PX ? (v - min) / extent : 0.5);
   };
   const sx = scale(xs);
   const sy = scale(ys);
