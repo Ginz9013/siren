@@ -1,0 +1,27 @@
+erDiagram
+%% Source: examples/er-reveal.srn, diagram half only (the timeline: block removed).
+
+%% The same order book, revealed a step at a time.
+%% All three of this kind's timeline targets are named below: an entity —
+%% under the name its author wrote, never the alias its box draws — a
+%% relationship, under the `${from}:${to}` id the model assigns it, and a
+%% `subgraph` cluster, under the `subgraph:N` id the model mints for it. The
+%% colon is this kind's own separator: the other four join a connector's
+%% endpoints with `-`, which an ER entity name is allowed to contain and
+%% theirs are not.
+%% A cluster's name is not its id (ADR-0010): the frame below is titled
+%% `fulfilment`, which is what it draws, and addressed as `subgraph:1`,
+%% which is what a timeline entry has to say.
+%% An attribute is not a target: its cells are drawn inside the entity's own
+%% group, so the box that owns a row is what animates it.
+
+CUSTOMER["Customer Account"] {
+  string id PK
+  string name
+}
+
+CUSTOMER ||--o{ ORDER : places
+
+subgraph fulfilment
+  ORDER ||--|{ LINE-ITEM : contains
+end
