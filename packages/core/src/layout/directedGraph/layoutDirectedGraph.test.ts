@@ -901,6 +901,39 @@ describe("layoutDirectedGraph places a cluster's title clear of the routes cross
   });
 });
 
+describe("layoutDirectedGraph centres a box narrower than the ports' clearance on its route", () => {
+  it("moves a small box across the flow until the first route at it meets its middle", () => {
+    // ELK keeps a port 12px off each end of a side (`portsSurrounding`), so
+    // on a 14px disc the route leaves 3px off its centre. Mermaid 12.2.0's
+    // `alignDegenerateNodeToAnchor` (`elk-V4PLJRSU.mjs`, line 100618) moves
+    // such a box onto the route: measured in headless Chrome, `[*] --> Idle`
+    // draws the start disc and Idle on one vertical line (both at x 104).
+    for (const direction of ["TB", "LR"] as const) {
+      const laid = layoutDirectedGraph({
+        direction,
+        nodes: [
+          { id: "start", width: 14, height: 14 },
+          { id: "Idle", width: 61, height: 48 },
+          { id: "Busy", width: 90, height: 48 },
+          { id: "end", width: 14, height: 14 },
+        ],
+        edges: [
+          { id: "start-Idle", from: "start", to: "Idle" },
+          { id: "Idle-Busy", from: "Idle", to: "Busy" },
+          { id: "Busy-end", from: "Busy", to: "end" },
+        ],
+      });
+      const box = (id: string) => laid.nodes.find((node) => node.id === id)!;
+      const across = (point: Point) => (direction === "TB" ? point.x : point.y);
+      const [leaving, arriving] = [laid.edges[0].points[0], laid.edges[2].points.at(-1)!];
+      expect(across(centre(box("start"))), direction).toBeCloseTo(across(leaving), 6);
+      expect(across(centre(box("end"))), direction).toBeCloseTo(across(arriving), 6);
+      // A box as wide as the clearance is left where ELK put it.
+      expect(across(centre(box("Idle"))), direction).toBeCloseTo(across(laid.edges[0].points.at(-1)!), 6);
+    }
+  });
+});
+
 describe("layoutDirectedGraph's terminal labels", () => {
   /** The rectangle a label of `size` covers centred on `centre`. */
   const boxAround = (centre: Point, size: { width: number; height: number }) => ({

@@ -4,10 +4,10 @@
  * cluster, and routes. It measures no text, knows no diagram kind, and draws
  * nothing — the same seam the dagre core in `../layoutDirectedGraph.ts` has
  * kept since ADR-0001, with a different engine behind it. The flowchart
- * reaches it through `layoutGraph` and the class diagram through
- * `layoutClassDiagram`; state and ER diagrams stay on the dagre core until
- * each moves onto ELK, after which this module moves back to that path and
- * keeps this name.
+ * reaches it through `layoutGraph`, the class diagram through
+ * `layoutClassDiagram` and the state diagram through `layoutStateDiagram`;
+ * the ER diagram stays on the dagre core until it moves onto ELK, after which
+ * this module moves back to that path and keeps this name.
  *
  * The engine is ELK's `layered` algorithm (elkjs, reached only through
  * `elkSync.ts`), configured as Mermaid 12.2.0 configures it for its own
@@ -399,6 +399,7 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
   });
 
   fitFrames(input, nodes, edges);
+  centreSmallBoxesOnRoutes(input, nodes, edges, turned);
   straightenTerminals(
     edges,
     input.edges,
@@ -492,6 +493,69 @@ function commonAncestor(
     if (seen.has(id)) return id;
   }
   return undefined;
+}
+
+/**
+ * The clearance ELK keeps between a port and each end of the side it is on:
+ * `elk.spacing.portsSurrounding` in `ROOT_OPTIONS`, Mermaid's
+ * `PORTS_SURROUNDING_MARGIN`.
+ */
+const PORTS_SURROUNDING_MARGIN = 12;
+
+/**
+ * Moves each box too small for ELK's port clearance onto the route at it —
+ * Mermaid 12.2.0's `alignDegenerateNodeToAnchor` (`elk-V4PLJRSU.mjs`, line
+ * 100618), which its `applyElkEdgeLayout` (line 100294) runs on every ELK
+ * layout before anything else reads the routes.
+ *
+ * ELK keeps a port 12px from each end of a side (`PORTS_SURROUNDING_MARGIN`),
+ * and a side shorter than twice that has no room for it: the port ends up
+ * off the side's middle, and the route leaves a 14px disc 3px off its
+ * centre. Measured in headless Chrome against Mermaid 12.2.0, `[*] --> Idle`
+ * draws the start disc and Idle on one vertical line.
+ *
+ * The rule, Mermaid's: edges in input order, each one's end where ELK starts
+ * it and then the end where ELK ends it (a turned edge, `subgraphFeedbackEdges`,
+ * starts at the caller's `to`). Where the route meets the box's top or
+ * bottom and the box is narrower than twice the clearance — or meets a side
+ * and the box is shorter than that — the box moves along that side until its
+ * middle is on the route. Each box moves at most once, for the first route
+ * that reaches it; a route is never moved. A post-layout pass Mermaid's ELK
+ * adapter runs, so it lives in the core (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2). A cluster is never moved.
+ */
+function centreSmallBoxesOnRoutes(
+  input: DirectedGraphInput,
+  boxes: readonly DirectedGraphNodeBox[],
+  routes: readonly DirectedGraphEdgeRoute[],
+  turned: readonly boolean[],
+): void {
+  const boxById = new Map(
+    boxes.filter((_, index) => input.nodes[index].cluster === undefined).map((box) => [box.id, box]),
+  );
+  const aligned = new Set<string>();
+  const align = (id: string, anchor: Point) => {
+    const box = boxById.get(id);
+    if (box === undefined || aligned.has(id)) return;
+    const tolerance = 0.5;
+    const alongWidth =
+      Math.abs(anchor.y - box.y) <= tolerance || Math.abs(anchor.y - (box.y + box.height)) <= tolerance;
+    if ((alongWidth ? box.width : box.height) >= 2 * PORTS_SURROUNDING_MARGIN) return;
+    aligned.add(id);
+    if (alongWidth) box.x = anchor.x - box.width / 2;
+    else box.y = anchor.y - box.height / 2;
+  };
+  input.edges.forEach((edge, index) => {
+    const points = routes[index].points;
+    const [first, last] = [points[0], points[points.length - 1]];
+    if (turned[index]) {
+      align(edge.to, last);
+      align(edge.from, first);
+    } else {
+      align(edge.from, first);
+      align(edge.to, last);
+    }
+  });
 }
 
 /** The longest first (or last) run of a route `straightenTerminals` will straighten past. */

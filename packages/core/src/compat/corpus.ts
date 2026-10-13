@@ -406,6 +406,16 @@ function transitionPath(
   );
 }
 
+/** The runs of `route` that are neither horizontal nor vertical — none, on an orthogonal route. */
+function slantedRuns(route: Point[]): string[] {
+  return route.slice(1).flatMap((point, index) => {
+    const previous = route[index];
+    return Math.abs(point.x - previous.x) < 1e-6 || Math.abs(point.y - previous.y) < 1e-6
+      ? []
+      : [`(${previous.x}, ${previous.y}) → (${point.x}, ${point.y})`];
+  });
+}
+
 /**
  * The picture's own four sides, read off the `<svg>`'s `viewBox`.
  *
@@ -4984,12 +4994,12 @@ line2\`"]`,
         true,
       );
 
-      // Joined to the box, outside it, and inside the picture. The layout
-      // engine's own self-edge route is none of the three: measured against
-      // `@dagrejs/dagre@3.1.1`, a 24x32 box at x 0..24 has its loop routed
-      // at x 52..76, clear of the box and past the graph width it reports.
+      // Joined to the box, outside it, inside the picture, and orthogonal:
+      // Mermaid 12.2.0 routes the loop with ELK, as runs off one side of the
+      // box and back.
       const box = stateRect(result, "Running");
       const loop = transitionPath(result, "Running-Running");
+      expectSame("every run of the loop is horizontal or vertical", slantedRuns(loop), []);
       expectSame(
         `the loop starts on the state's own outline (at ${JSON.stringify(loop[0])}, box ${JSON.stringify(box)})`,
         onBoxBoundary(box, loop[0]),
@@ -5712,11 +5722,12 @@ line2\`"]`,
     meaning:
       "A composite may name itself at both ends of a transition, and the " +
       "loop belongs to the **frame**: drawn outside it, with both ends on " +
-      "the frame's own outline. Not inside it beside a member, which is " +
-      "what the layout engine's own self-edge route gives — a frame's " +
-      "transition is routed through a member standing in for it, so that " +
-      "member's loop lands in the middle of the frame and reads as the " +
-      "member's. `examples/state-core.srn` ships this construct on the " +
+      "the frame's own outline, as orthogonal runs. Measured in headless " +
+      "Chrome against Mermaid 12.2.0: ELK routes `C --> C` as a loop off " +
+      "the frame's side, and the block keeps its own `direction` — both " +
+      "ends share a parent. (On dagre this took a member standing in for " +
+      "the frame and a loop synthesised outside it; the shared ELK core " +
+      "routes it as it is.) `examples/state-core.srn` ships this construct on the " +
       "gallery page (`Running --> Running : heartbeat`, `Running` " +
       "composite), which is why it is measured here rather than left to " +
       "the flowchart row that found it.",
@@ -5738,6 +5749,7 @@ line2\`"]`,
         loop.length > 1,
         true,
       );
+      expectSame("every run of the loop is horizontal or vertical", slantedRuns(loop), []);
       // The half that separates "a loop was drawn" from "drawn on the right
       // side of the frame": every point outside, not merely the two ends on
       // the outline. A loop drawn across the inside of the frame can have
@@ -5786,9 +5798,9 @@ line2\`"]`,
       "leaves the document's own direction `TB`, so the block alone lays " +
       "out sideways — while the composite has no **Boundary-crossing " +
       "edge** (`CONTEXT.md`). `Before --> Outer` names the composite " +
-      "itself from outside, which is not one: measured in Chrome, " +
-      "mermaid 11.17.2 keeps `direction LR` here " +
-      "(`st-composite-direction-crossed` is the other half).",
+      "itself from outside, which is not one: its two ends share a parent, " +
+      "and measured in headless Chrome, Mermaid 12.2.0 keeps `direction LR` " +
+      "here (`st-composite-direction-crossed` is the other half).",
     assert: (result) => {
       const centre = (id: string) => stateRectCenter(result, id);
       // Sideways inside the block, read off the picture: `Second` to the
@@ -5825,11 +5837,12 @@ line2\`"]`,
     meaning:
       "`st-composite-direction` with one transition leaving the " +
       "composite. Its `direction` applies only while it has no " +
-      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid's rule: " +
-      "mermaid.js 11.17.2's `adjustClustersAndEdges` marks such a " +
-      "Mermaid cluster `externalConnections`, and only unmarked Mermaid " +
-      "clusters are laid out in their own `dir`. `Second --> After` " +
-      "leaves `Outer`, so its states follow the document's `TB`.",
+      "**Boundary-crossing edge** (`CONTEXT.md`). Mermaid 12.2.0's rule, " +
+      "on ELK: a transition whose two ends have different parents puts " +
+      "every composite on the way up to their common ancestor back into " +
+      "its parent's layout pass (`configureCrossHierarchyEdges`, " +
+      "`elk-V4PLJRSU.mjs`). `Second --> After` leaves `Outer`, so its " +
+      "states follow the document's `TB`.",
     assert: (result) => {
       const centre = (id: string) => stateRectCenter(result, id);
       // The document's `TB` inside the block: `Second` below `First`, not
@@ -6080,16 +6093,17 @@ line2\`"]`,
       "stylesheet (`stroke-dasharray: 10,10`), and lays the regions **side " +
       "by side** under `TB` — the two region groups came back " +
       "`translate(35, 37.5)` and `translate(125, 37.5)`, one y and two x — " +
-      "while each region's own members stack in a column. Siren gets that " +
-      "arrangement from the graph rather than by arranging it: two clusters " +
-      "with no edge between them share a rank. Two measured gaps left " +
-      "open, neither covered by a row: a `direction` statement belongs to " +
+      "while each region's own members stack in a column. On ELK, Mermaid " +
+      "12.2.0 gives the block and each region a direction of their own, " +
+      "`TB` unless one is written, so a region's members stack in a column " +
+      "under a document-level `LR` too, and the regions — unconnected " +
+      "clusters in the block's own pass — are packed by ELK side by side " +
+      "or one above the other by their size (measured: its 136-wide state " +
+      "boxes stack them). Siren gets that arrangement from the same engine " +
+      "rather than by arranging it. A `direction` statement belongs to " +
       "the **region** it sits in rather than to the block (implemented, " +
-      "`StateRegion.direction`), while under a document-level `LR` mermaid " +
-      "still lays an undirected region's members out top-to-bottom where " +
-      "Siren follows the document — the divergence already filed as " +
-      "`01M36SJDN` for an undirected composite, inherited here unchanged " +
-      "rather than introduced; and a transition **crossing** two regions is " +
+      "`StateRegion.direction`). One measured gap left open, not covered " +
+      "by a row: a transition **crossing** two regions is " +
       "legal in both, but mermaid flattens the block when it sees one " +
       "(every node came back in a single column, the region frames drawn " +
       "empty around nothing) where Siren keeps each state in the region " +
@@ -6141,8 +6155,9 @@ line2\`"]`,
         [true, true, false, false],
       );
 
-      // Side by side, which is what "concurrent" looks like under `TB` and
-      // what mermaid's own transforms measured.
+      // Side by side, which is what "concurrent" looks like under `TB`:
+      // ELK packs the two unconnected regions by their size, and boxes this
+      // narrow pack side by side (Mermaid 12.2.0's 136-wide boxes stack).
       const [one, two] = [stateRect(result, "region:1"), stateRect(result, "region:2")];
       expectSame(
         "the two regions are drawn side by side, not stacked",

@@ -6825,8 +6825,12 @@ describe("render() — the layout combinations around per-cluster direction that
  * (56, 104) and `B` at (232, 104), one row, with `C` to their right at x 432.
  * The outer frame is laid out in a pass of its own in its own direction, and
  * a frame inside it that says nothing is laid out in that pass. Siren follows
- * the current picture. The state-diagram spelling is still laid out by dagre
- * and keeps the 11.17.2 picture until its own ticket moves it.
+ * the current picture. **The state-diagram spelling differs, and that is
+ * measured too:** Mermaid 12.2.0 gives every composite a direction of its own,
+ * `TB` when its block writes none (`DEFAULT_NESTED_DOC_DIR`,
+ * `stateDiagram-v2-MYRXERYP.mjs` line 964), so `Inner` stacks `A` above `B`
+ * inside `Outer`'s `LR` row, with `C` to its right — measured in headless
+ * Chrome.
  */
 describe("render() — a cluster with its own direction holding a cluster with none", () => {
   const flowchart = `flowchart TB
@@ -6891,7 +6895,7 @@ describe("render() — a cluster with its own direction holding a cluster with n
     expect(holds(outer, { x: inner.right, y: inner.bottom })).toBe(true);
   });
 
-  it("draws the state-diagram spelling on the same terms", () => {
+  it("draws the state-diagram spelling with the inner composite in its own default, top to bottom", () => {
     const result = renderInto(stateDiagram);
 
     expect(result.diagnostics).toEqual([]);

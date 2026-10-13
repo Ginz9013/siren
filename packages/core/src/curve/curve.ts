@@ -38,11 +38,12 @@ export const MERMAID_ONLY_CURVES = [
 ] as const;
 
 /**
- * The curve a state or ER connector is drawn with — Mermaid's `basis`, which
- * is what those two kinds are drawn with while they are still laid out by
- * dagre. Each moves to `rounded` when it moves onto ELK (nook decision
- * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 6), as the class diagram already has
- * (`CLASS_CONNECTOR_CURVE`), and this constant goes with the last of them.
+ * The curve an ER connector is drawn with — Mermaid's `basis`, which is what
+ * it is drawn with while the ER diagram is still laid out by dagre. It moves
+ * to `rounded` when it moves onto ELK (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 6), as the class and state diagrams
+ * already have (`CLASS_CONNECTOR_CURVE`, `STATE_CONNECTOR_CURVE`), and this
+ * constant goes with it.
  */
 export const DEFAULT_CURVE: Curve = "basis";
 
@@ -73,6 +74,17 @@ export const FLOWCHART_DEFAULT_CURVE: Curve = "rounded";
  * line hops keep clear of and the corners drawn are one decision.
  */
 export const CLASS_CONNECTOR_CURVE: Curve = "rounded";
+
+/**
+ * The curve every state transition and the connector from a state's note
+ * are drawn with: `rounded`, as Mermaid 12.2.0 draws every edge its default
+ * ELK layout routed (`applyElkEdgeLayout`, `elk-V4PLJRSU.mjs` line 100401;
+ * nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 6). A state diagram has
+ * no `linkStyle … interpolate` to choose another. The state layout hands its
+ * radius to the core and the state renderer draws with it, as the class
+ * diagram's do with `CLASS_CONNECTOR_CURVE`.
+ */
+export const STATE_CONNECTOR_CURVE: Curve = "rounded";
 
 /**
  * The radius `curve` draws a route's corners rounded with — `rounded`'s

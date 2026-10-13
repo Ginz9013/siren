@@ -2786,12 +2786,19 @@ export interface StateModelResult {
  * under the first sits below *all* of that description's rows.
  *
  * Centred on the box's horizontal middle, which the renderer takes from the
- * state's own `x`/`width`; only `y` is the label's to report.
+ * state's own `x`/`width`, unless `x` says otherwise.
  */
 export interface PositionedStateLabel {
   label: Label;
   labelBox: LabelBox;
   y: number;
+  /**
+   * The centre x of a composite's title, which the shared core may move
+   * along the band across the frame's top, off a route that crosses it
+   * there (nook decision `01M4VFW4XGRGSMTMQ12HME145W`). Absent on every
+   * other label, which is centred on its box.
+   */
+  x?: number;
 }
 
 /**
@@ -2835,6 +2842,11 @@ export interface PositionedStateNote {
    * as a transition into the note.
    */
   connector: Point[];
+  /**
+   * The connector's **line hops**, as on `PositionedEdge.hops`, numbered
+   * along `connector` (state to note). Absent reads as none.
+   */
+  connectorHops?: LineHop[];
 }
 
 /**
@@ -2921,6 +2933,11 @@ export interface PositionedStateTransition {
   from: string;
   to: string;
   points: Point[];
+  /**
+   * Where this transition's line jumps another that crosses it — the **line
+   * hops**, as on `PositionedEdge.hops`. Absent reads as none.
+   */
+  hops?: LineHop[];
   /**
    * The transition's label, wrapped and placed: the label as drawn — its
    * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the

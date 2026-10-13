@@ -276,16 +276,18 @@ describe("renderStateDiagramToSVG", () => {
     expect(paintsBefore(backgrounds[0]!, svg.querySelector("text.siren-transition-label")!)).toBe(true);
   });
 
-  it("draws a transition and a note's connector as d3's basis curve, keeping the route as data-siren-points", () => {
-    // mermaid 11.17.2 sets no `curve` on a state diagram's edges, its note
-    // edges included, so `insertEdge` falls back to `flowchart.curve`, whose
-    // default is `basis`. What `basis` draws is connectorCurve.test.ts's to
-    // pin against d3; here the question is only which curve this kind uses.
+  it("draws a transition and a note's connector rounded, with their line hops, keeping the route as data-siren-points", () => {
+    // Mermaid 12.2.0 draws every edge ELK routed `rounded`, transitions and
+    // note links among them (`applyElkEdgeLayout`), with the line hops its
+    // ELK layout computes. What `rounded` and a hop draw is
+    // connectorCurve.test.ts's to pin; here the question is only which curve
+    // this kind uses, and that the layout's hops reach it.
     const route = [
       { x: 70, y: 80 },
       { x: 70, y: 140 },
-      { x: 130, y: 140 },
+      { x: 230, y: 140 },
     ];
+    const hops = [{ x: 150, y: 140, radius: 6, segment: 1 }];
     const svg = renderStateDiagramToSVG({
       ...DIAGRAM,
       states: [
@@ -299,20 +301,22 @@ describe("renderStateDiagramToSVG", () => {
             width: 60,
             height: 30,
             connector: route,
+            connectorHops: hops,
           },
         },
         DIAGRAM.states[1],
       ],
-      transitions: [{ ...DIAGRAM.transitions[0], points: route }, ...DIAGRAM.transitions.slice(1)],
+      transitions: [{ ...DIAGRAM.transitions[0], points: route, hops }, ...DIAGRAM.transitions.slice(1)],
     });
-    const basis = connectorPathData(route, "basis");
+    const rounded = connectorPathData(route, "rounded", hops);
+    expect(rounded).toContain("A6,6");
 
     for (const path of [
       svg.querySelector('g.siren-transition[data-siren-id="Idle-Running"] path.siren-transition-line')!,
       svg.querySelector("path.siren-note-link")!,
     ]) {
-      expect(path.getAttribute("d")).toBe(basis);
-      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 130,140");
+      expect(path.getAttribute("d")).toBe(rounded);
+      expect(path.getAttribute("data-siren-points")).toBe("70,80 70,140 230,140");
     }
   });
 
@@ -322,8 +326,8 @@ describe("renderStateDiagramToSVG", () => {
     const loop = svg.querySelector(
       'g.siren-transition[data-siren-id="Running-Running"] path.siren-transition-line',
     )!;
-    // The route, not `d`: under the default curve `d` carries the spline's
-    // control points, and the route is what says a loop was drawn.
+    // The route, not `d`: a rounded `d` carries the corners' cut points
+    // and control points, and the route is what says a loop was drawn.
     expect(loop.getAttribute("data-siren-points")).toBe("110,130 140,140 110,150");
   });
 
@@ -752,6 +756,35 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // composite drawn with one would hide everything inside it.
     expect(group.querySelector("rect.siren-state-frame")).toBeNull();
     expect(group.querySelector("text.siren-state-label")).toBeNull();
+  });
+
+  it("draws its title at the x layout moved it to along the strip", () => {
+    // The shared core moves a composite's title along its band, off a route
+    // crossing it there, and layout reports the title's centre as `x`.
+    const svg = renderStateDiagramToSVG({
+      states: [
+        {
+          id: "Outer",
+          kind: "composite",
+          stereotype: null,
+          x: 5,
+          y: 10,
+          width: 200,
+          height: 150,
+          labels: [{ ...stateLabel("Outer", 30), x: 160 }],
+          style: { frame: [], text: [] },
+          dividerY: null,
+          note: null,
+        },
+      ],
+      transitions: [],
+      width: 220,
+      height: 180,
+    });
+
+    const title = svg.querySelector("text.siren-composite-label")!;
+    expect(title.getAttribute("x")).toBe("160");
+    expect(title.getAttribute("y")).toBe("30");
   });
 
   it("draws a note written on the composite itself, inside the composite's own group", () => {
