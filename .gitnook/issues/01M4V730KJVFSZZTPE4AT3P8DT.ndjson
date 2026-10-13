@@ -1,3 +1,5 @@
 {"id":"01M4V730KJ9EBHCGY00GPZRW0B","t":1,"a":"83a1","op":"create","title":"parity: 報告量測邊的品質（交叉、穿過節點／標題、折返、繞路）"}
 {"id":"01M4V730RDSFFKY753DFQCNE7K","t":2,"a":"83a1","op":"label.add","v":"layout"}
 {"id":"01M4V730X7J6S47WGXSQ4ZR6D0","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T01-parity-edge-metrics.md`。"}
+{"id":"01M4V75D7YQASXA827485ZF936","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4V82S0ZQ5BW77AGT9V0X850","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
