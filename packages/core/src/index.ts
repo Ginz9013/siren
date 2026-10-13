@@ -6,6 +6,7 @@ import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { layoutStateDiagram } from "./layout/layoutStateDiagram";
 import { layoutErDiagram } from "./layout/layoutErDiagram";
 import { UnplacedNodesError } from "./layout/layoutDirectedGraph";
+import { LayoutEngineError } from "./layout/directedGraph/elkSync";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
@@ -305,20 +306,22 @@ type LayoutAttempt<T> =
   | { placed: false; diagnostic: Diagnostic };
 
 /**
- * Runs one layout stage, turning the two failures it is allowed to have into
+ * Runs one layout stage, turning the failures it is allowed to have into
  * the error-severity diagnostic an author sees: `UnplacedNodesError`, the
- * engine not placing a node, and `UnmeasurableTextError`, the caller's
- * measurer not sizing a string (see both types). They are the two ends of the
- * same stage — what layout was told, and what layout was told back — and
- * neither leaves a partial picture behind, so both convert here.
+ * dagre engine not placing a node; `LayoutEngineError`, ELK rejecting the
+ * graph it was handed (see `layout/directedGraph/elkSync.ts`); and
+ * `UnmeasurableTextError`, the caller's measurer not sizing a string (see
+ * each type). They are the two ends of the same stage — what layout was told,
+ * and what layout was told back — and none leaves a partial picture behind,
+ * so all three convert here.
  *
  * **Everything else is rethrown, deliberately.** A bare `catch` here would
  * report this package's own bugs as if they were defects in the author's
  * document, which is the same disguise CONTEXT.md's opening policy exists to
  * remove, only pointed the other way: a `TypeError` in a renderer is not
  * something an author can route around. Matching by type keeps the
- * conversion to the two cases that have a meaning for them, and adding a
- * second type to match is not the same as ceasing to match.
+ * conversion to the cases that have a meaning for them, and adding a
+ * type to match is not the same as ceasing to match.
  *
  * It wraps a thunk rather than living at each call site because there are
  * five of them — flowchart, class, state and ER reach the same shared layout
@@ -329,7 +332,11 @@ function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
   try {
     return { placed: true, value: run() };
   } catch (error) {
-    if (error instanceof UnplacedNodesError || error instanceof UnmeasurableTextError) {
+    if (
+      error instanceof UnplacedNodesError ||
+      error instanceof LayoutEngineError ||
+      error instanceof UnmeasurableTextError
+    ) {
       return { placed: false, diagnostic: { severity: "error", message: error.message } };
     }
     throw error;

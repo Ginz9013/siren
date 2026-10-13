@@ -57,7 +57,8 @@
     "parity": "node scripts/layout-parity.mjs"
   },
   "dependencies": {
-    "@dagrejs/dagre": "^3.1.1"
+    "@dagrejs/dagre": "^3.1.1",
+    "elkjs": "0.9.3"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",

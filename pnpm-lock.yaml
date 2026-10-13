@@ -48,6 +48,9 @@ importers:
       '@dagrejs/dagre':
         specifier: ^3.1.1
         version: 3.1.1
+      elkjs:
+        specifier: 0.9.3
+        version: 0.9.3
     devDependencies:
       '@types/node':
         specifier: ^26.4.1
