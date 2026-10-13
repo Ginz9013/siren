@@ -112,10 +112,11 @@ Gate --o Audit[Audit]
 Deploy <--> Monitor[Monitor]
 
 %% `---->` — the one part of an arrow token that is not about drawing.
-%% Mermaid counts the dashes and hands the result to dagre as `minlen`, so
-%% the archive sits three ranks below the deploy rather than one, and the
-%% drawn diagram differs from the one a `-->` would have produced. Drawing
-%% both alike would be a silent mis-render.
+%% Mermaid counts the dashes into the edge's length, and Siren holds the
+%% archive three ranks below the deploy rather than one, so the drawn
+%% diagram differs from the one a `-->` would have produced. (Mermaid 12 on
+%% ELK draws both alike; Siren does not copy that, because drawing both
+%% alike would be a silent mis-render.)
 Deploy ----> Archive[Archive]
 
 %% `A -. text .-> B` — the label spelling again, in the dotted stroke, closed

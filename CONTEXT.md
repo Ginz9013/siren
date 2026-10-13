@@ -330,18 +330,17 @@ Which way a diagram's layout runs — `TB` top-to-bottom, `BT` bottom-to-top, `L
 normalize it away through the same rule, so nothing downstream ever sees two spellings of one
 direction — including `layoutDirectedGraph`, which takes these four values as they are (the ELK
 core maps them to ELK's `DOWN`/`UP`/`RIGHT`/`LEFT` in one table, Mermaid's `dir2ElkDirection`).
-_Avoid_: orientation, flow direction, rankdir (that is dagre's word for it — it survives as the
-dagre core's input field name, and nowhere else), TD (say `TB`)
+_Avoid_: orientation, flow direction, rankdir (that was dagre's word for it, from before the
+layout moved onto ELK), TD (say `TB`)
 
 **Graph-shaped diagram**:
 A diagram kind whose layout is a directed graph of boxes and connectors — flowchart, class, state
 and ER diagrams today; requirement and C4 when they land. Every one of them sizes its own
 boxes and labels and then calls the shared layout core, `layoutDirectedGraph` — the one place a
 layout engine is reached (see [ADR-0001](docs/adr/0001-build-the-rendering-pipeline-instead-of-wrapping-mermaid.md)
-and its amendment). All four are laid out by ELK's `layered` algorithm (`layout/directedGraph/`,
-whose `elkSync.ts` is the only module importing elkjs, pinned to 0.9.3 as Mermaid 12.2.0 bundles
-it); the dagre core (`layout/layoutDirectedGraph.ts`) lays out no kind any more and goes with the
-last of the migration. A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
+and its amendment, nook decision `01M4VPWF5`). All four are laid out by ELK's `layered` algorithm
+(`layout/layoutDirectedGraph.ts`, beside `layout/elkSync.ts`, the only module importing elkjs,
+pinned to 0.9.3 as Mermaid 12.2.0 bundles it). A sequence diagram is deliberately *not* one: it is lane-based and time-ordered,
 and has its own `layoutSequence`.
 _Avoid_: graph diagram (ambiguous with the flowchart kind specifically), dagre diagram, ELK diagram
 

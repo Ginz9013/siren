@@ -8,6 +8,26 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+**Every graph-shaped diagram is now laid out by ELK, as Mermaid 12 lays it out, and dagre is
+gone.** Flowcharts, class diagrams, state diagrams and ER diagrams are laid out by ELK's `layered`
+algorithm (elkjs 0.9.3, the version Mermaid 12.2.0 bundles), configured as Mermaid 12.2.0's default
+layout, behind one shared layout core. Almost every diagram of those four kinds looks different:
+routes are orthogonal with rounded corners and line hops, frames are the engine's, and boxes are
+ordered as Mermaid orders them. `@dagrejs/dagre` is no longer a dependency. Against Mermaid 12.2.0
+on the parity fixtures, Siren now draws the same crossings (flowchart 176 to its 176; class, state
+and ER 0) with no edge through an unrelated box, and agrees on above/below and left/right for
+99.6% / 97.8% of node pairs (flowchart), 97.3% / 100% (class), 100% / 98.5% (state) and 97.2% /
+100% (ER). The cost: the standalone `dist/siren-core.js` is about 545 KB gzipped (was about 83 KB),
+and the first layout in a page costs about 0.1s while the engine starts. Where Siren departs from
+Mermaid 12 it measured the difference and wrote it down: a long arrow keeps its length (nook
+`01M4VA6MS`), `linkStyle … interpolate` is still honoured (`01M4VANRC`, rule 6), straightening a
+route's end never runs it through a box (`01M4VBHWY`), a frame fits its contents with its own
+padding (`01M4VDB3X`), a frame's title moves clear of the routes crossing it (`01M4VFW4X`), class
+multiplicities stay off lines and boxes (`01M4VHSY2`), a state's note stays in its block
+(`01M4VKTJ2`), and an ER cardinality marker stays on its line (`01M4VP6AV`). The layout engine
+decision is nook `01M4VA67H`; the amendment of ADR-0001 that puts ELK behind the shared core and
+removes dagre is `01M4VPWF5`.
+
 ### Changed
 
 - **Flowcharts are laid out by ELK, as Mermaid 12 lays them out.** The layout engine for
@@ -72,7 +92,7 @@ While the version is 0.x, a minor release may contain breaking changes.
   transition crosses its boundary, by Mermaid 12's rule. A start or end sits on the line of its
   transition. Unlike Mermaid, a note stays inside the composite its state is written in, and
   writing it makes no composite give up its direction. Against Mermaid 12.2.0 on the four state
-  parity fixtures: 0 crossings to its 0 (was 1), 0 edges through boxes (was 0), 100% / 90.8%
+  parity fixtures: 0 crossings to its 0 (was 1), 0 edges through boxes (was 0), 100% / 98.5%
   agreement on above/below and left/right (was 87.7% / 66.2%).
 - **ER diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Relationships are routed
   orthogonally and drawn `rounded` (they were `basis` curves), with line hops where they cross, and
@@ -99,10 +119,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Added
 
-- `elkjs` **0.9.3** is a dependency (pinned exactly; licensed EPL-2.0 OR GPL-3.0-or-later). It is
+- `elkjs` **0.9.3** is a dependency (pinned exactly; licensed EPL-2.0). It is
   external in the npm entry and bundled into the standalone `dist/siren-core.js`, which grows from
-  about 83 KB to about 560 KB gzipped and now ships with `dist/THIRD-PARTY-NOTICES.md`. `render()`
-  is still synchronous; the first flowchart laid out in a page costs about 0.1s while the engine
+  about 83 KB to about 545 KB gzipped and now ships with `dist/THIRD-PARTY-NOTICES.md`. `render()`
+  is still synchronous; the first diagram laid out in a page costs about 0.1s while the engine
   initialises, later ones about 20ms for 40 nodes. siren-core must not run inside a Web Worker.
 - A graph the layout engine rejects is reported as an error diagnostic, like any other layout
   failure.
@@ -119,6 +139,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   (`PositionedErRelationship.hops`).
 - `PositionedStateLabel.x`: the centre of a composite's title where the layout moved it along its
   band.
+
+### Removed
+
+- `@dagrejs/dagre` is no longer a dependency, and the standalone build no longer bundles it or
+  lists it in `dist/THIRD-PARTY-NOTICES.md`. No diagram kind was laid out by it any more.
 
 ## [0.5.0] - 2026-10-12
 

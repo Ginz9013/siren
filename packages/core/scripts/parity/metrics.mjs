@@ -11,7 +11,7 @@
  *   the second node above / level with / below the first in both pictures?
  *   The share of pairs that agree, reported separately for the vertical and
  *   the horizontal relation. "Level" means within `LEVEL_TOLERANCE` of each
- *   other in normalized units, so two nodes of one dagre rank stay level
+ *   other in normalized units, so two nodes of one layer stay level
  *   despite sub-pixel noise.
  * - **Normalized position error** — the distance between a node's normalized
  *   center in the two pictures; mean and max over matched nodes, and the

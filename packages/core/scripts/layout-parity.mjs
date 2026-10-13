@@ -70,7 +70,7 @@
  * ## Why it is not in CI and has no threshold
  *
  * The numbers move with the installed fonts and the browser version: a label
- * a pixel wider can reorder a dagre rank. A threshold would fail on a font
+ * a pixel wider can reorder an ELK layer. A threshold would fail on a font
  * update with no change to Siren, so this is a measurement for a developer —
  * each ticket of the Mermaid-parity board records its numbers before and
  * after — and never a test. Only a failure to *run* exits non-zero: Chrome
