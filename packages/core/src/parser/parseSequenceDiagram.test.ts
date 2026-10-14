@@ -311,6 +311,28 @@ describe("parseSequenceDiagram", () => {
     expect(document.title).toBe("Order confirmation flow");
   });
 
+  it("parses the colon spelling of title, in any case, keeping later colons in the text", () => {
+    // Measured on Mermaid 12.2.0: `title: Hello`, `TITLE: hi` and
+    // `title: a: b` give the titles "Hello", "hi" and "a: b".
+    for (const [line, title] of [
+      ["title: Hello", "Hello"],
+      ["TITLE: hi", "hi"],
+      ["title: a: b", "a: b"],
+    ]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${line}\n  participant A\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.title).toBe(title);
+    }
+  });
+
+  it("rejects title: with no space after the colon, as Mermaid does", () => {
+    // Mermaid 12.2.0 reports a parse error for `title:Hello`.
+    const result = parseSequenceDiagram(`sequenceDiagram\n  title:Hello\n  participant A\n`);
+
+    expect(result.diagnostics.some((d) => d.severity === "error")).toBe(true);
+  });
+
   it("parses accTitle into the document's accTitle field, distinct from title", () => {
     const source = `sequenceDiagram
   title Order confirmation flow

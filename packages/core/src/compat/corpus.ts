@@ -4480,6 +4480,22 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-title-colon",
+    kind: "sequence",
+    source: `sequenceDiagram
+      title: Checkout: happy path
+      participant A`,
+    status: "supported",
+    meaning:
+      "`title: text` is the colon spelling of `title text`; the first colon " +
+      "and the whitespace after it are the separator, so a later colon stays " +
+      "in the title (measured on 12.2.0: \"Checkout: happy path\"). The space " +
+      "is required — Mermaid rejects `title:Checkout`.",
+    assert: (result) => {
+      expectSame("the title is drawn", texts(result, "text.siren-title"), ["Checkout: happy path"]);
+    },
+  },
+  {
     id: "seq-label-line-height",
     kind: "sequence",
     source: `sequenceDiagram

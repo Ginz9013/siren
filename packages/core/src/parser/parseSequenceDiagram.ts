@@ -47,7 +47,12 @@ const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
  */
 const TIMELINE_HEADER_TERMINATOR = "<timeline header>";
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/di;
-const TITLE_RE = /^title\s+(.+)$/i;
+/**
+ * `title text` or `title: text`. The colon spelling needs whitespace after the
+ * colon (Mermaid 12.2.0 rejects `title:Hello`); `title : text` is the plain
+ * spelling, and Mermaid keeps that colon in the title too.
+ */
+const TITLE_RE = /^title(?::\s+|\s+)(.+)$/i;
 /** `accTitle: text` — screen-reader-only, distinct from the visible `title` above. The colon is required. */
 const ACC_TITLE_RE = /^accTitle:\s*(.+)$/i;
 /** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
