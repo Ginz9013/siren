@@ -23,6 +23,15 @@ While the version is 0.x, a minor release may contain breaking changes.
   that is a scalar (`gantt: true`), refuses the document with an error, as Mermaid refuses it. Line
   and column numbers of every other diagnostic still point at the lines the author wrote
   (ADR-0017). The standalone bundles' `THIRD-PARTY-NOTICES.md` now carries js-yaml's MIT licence.
+- `%%{init: ...}%%` (and `%%{initialize: ...}%%`) directives are read as Mermaid 12.2.0 reads them,
+  each rule measured: their arguments are JSON once every `'` is made `"`, several are merged in
+  order, and an init's `config` is filed under the diagram type's key (`flowchart`, `sequence`,
+  `classDiagram`, `stateDiagram`, `er`). The result is merged over the frontmatter's config on
+  `ParseResult.config`, the init winning where both set a value, and a `%%{wrap}%%` reads as
+  `wrap`. Nothing is **applied yet**: each top-level key is reported as a warning at the directive
+  that decided it, or at the frontmatter's opening fence. An init that is not valid JSON is
+  reported, and then, as in Mermaid, no init in the document is read; the diagram is still drawn.
+  A directive Mermaid does not read (`%%{foo}%%`) is removed with a warning (nook `01M4XSF9J`).
 
 - Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
   12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
@@ -77,6 +86,11 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- An init directive spread over several lines no longer breaks the document. It used to be
+  removed one line at a time as a `%%` comment, so its middle lines were read as diagram text and
+  refused, where Mermaid removes the whole directive and draws the diagram. Every directive is now
+  removed whole before comments are, and blanked in place, so the line and column of every other
+  diagnostic still point at what the author wrote (nook `01M4XSF9J`).
 - Flowchart nodes have twice their original positive text padding, without scaling text or changing wrapping;
   subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds retain
   their existing geometry (nook `01M4XKQXA`).

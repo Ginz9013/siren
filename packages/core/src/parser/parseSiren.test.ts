@@ -2938,3 +2938,181 @@ describe("a document's frontmatter", () => {
     ]);
   });
 });
+
+/**
+ * A document's `%%{…}%%` directives, read and removed as Mermaid 12.2.0
+ * reads and removes them (`directiveRegex`, `detectInit`, `detectDirective`,
+ * `processDirectives`), their settings joined to the frontmatter's in
+ * `ParseResult.config` as `preprocessDiagram` joins them, applied nowhere
+ * yet (ADR-0017). Every config below was measured with Mermaid's own
+ * `mermaid.parse`, which hands back the config its preprocessing read.
+ */
+describe("a document's directives", () => {
+  it("reads a one-line init into the config, and says at the directive that it is not applied yet", () => {
+    // Measured (12.2.0): config `{ theme: "dark" }`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren('%%{init: {"theme": "dark"}}%%\nflowchart TB\n  A --> B');
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark" });
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("reads an init spread over several lines whole, so none of its lines is left behind as diagram text", () => {
+    // Measured (12.2.0): config `{ theme: "dark", flowchart: { curve: "basis" } }`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{\n  init: {\n    "theme": "dark",\n    "flowchart": {"curve": "basis"}\n  }\n}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark", flowchart: { curve: "basis" } });
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([
+      ["warning", 1],
+      ["warning", 1],
+    ]);
+  });
+
+  it("keeps every later line's number: an error below a multi-line init points at the line the author wrote", () => {
+    // Measured (12.2.0): Mermaid rejects the trailing `A -->` too.
+    const { document, diagnostics } = parseSiren(
+      '%%{\n  init: {\n    "theme": "dark"\n  }\n}%%\nflowchart TB\n  A --> B\n  A -->',
+    );
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => d.line)).toEqual([8]);
+  });
+
+  it("merges several inits in order, a later one's settings over an earlier one's, each key reported where it was decided", () => {
+    // Measured (12.2.0): config `{ look: "handDrawn", theme: "forest",
+    // flowchart: { curve: "basis", htmlLabels: false } }`.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{init: {"look": "handDrawn", "theme": "dark", "flowchart": {"curve": "basis"}}}%%\n' +
+        '%%{init: {"theme": "forest", "flowchart": {"htmlLabels": false}}}%%\n' +
+        "flowchart TB\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ look: "handDrawn", theme: "forest", flowchart: { curve: "basis", htmlLabels: false } });
+    expect(diagnostics.map((d) => [d.message, d.line])).toEqual([
+      ['Document config "look" is read but not applied yet; the diagram is drawn without it.', 1],
+      ['Document config "theme" is read but not applied yet; the diagram is drawn without it.', 2],
+      ['Document config "flowchart" is read but not applied yet; the diagram is drawn without it.', 2],
+    ]);
+  });
+
+  // Measured (12.2.0, `detectInit`): an init's `config` is moved under the
+  // key of the diagram type Mermaid detects — `flowchart` for both of its
+  // headers, `classDiagram` and `stateDiagram` for both spellings of theirs.
+  for (const [header, body, key] of [
+    ["flowchart TB", "A --> B", "flowchart"],
+    ["graph TB", "A --> B", "flowchart"],
+    ["sequenceDiagram", "A->>B: hi", "sequence"],
+    ["classDiagram-v2", "class A", "classDiagram"],
+    ["stateDiagram-v2", "A --> B", "stateDiagram"],
+    ["erDiagram", "A ||--o{ B : has", "er"],
+  ] as const) {
+    it(`moves an init's \`config\` under \`${key}\` in a document headed \`${header}\`, as Mermaid's detectInit does`, () => {
+      const { document, diagnostics, config } = parseSiren(
+        `%%{init: {"theme": "dark", "config": {"padding": 5}}}%%\n${header}\n  ${body}`,
+      );
+      expect(document).not.toBeNull();
+      expect(config).toEqual({ theme: "dark", [key]: { padding: 5 } });
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        `Document config "${key}" is read but not applied yet; the diagram is drawn without it.`,
+      ]);
+    });
+  }
+
+  it("ignores every init when one is not JSON, as Mermaid does, says so at that one, and draws the diagram", () => {
+    // Measured (12.2.0): config `{}` — `detectDirective` stops at the first
+    // init it cannot parse and hands back none of them — and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{init: {"theme": "dark"}}%%\n  %%{init: {bad json}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({});
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          "Init directive is not valid JSON; Mermaid then ignores every init directive in the document, " +
+          "and so does Siren — the diagram is drawn without them.",
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads a `%%{wrap}%%` as the config's `wrap`, as Mermaid's processDirectives does, and removes it", () => {
+    // Measured (12.2.0): config `{ theme: "dark", wrap: true }`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{init: {"theme": "dark"}}%%\n%%{wrap}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark", wrap: true });
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Document config "wrap" is read but not applied yet; the diagram is drawn without it.',
+        line: 2,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("removes a directive Mermaid does not read, and says it was removed unread", () => {
+    // Measured (12.2.0): config `{}`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{foo}%%\nflowchart TB\n  A --> B %%{bar: {"x": 1}}%%',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({});
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Directive "foo" is removed unread, as Mermaid removes it; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Directive "bar" is removed unread, as Mermaid removes it; the diagram is drawn without it.',
+        line: 3,
+        column: 11,
+      },
+    ]);
+  });
+
+  it("merges an init over the frontmatter's config, the init winning, each key reported where its value was decided", () => {
+    // Measured (12.2.0): config `{ theme: "dark", look: "handDrawn",
+    // flowchart: { curve: "basis", htmlLabels: false } }` —
+    // `cleanAndMerge(frontmatter, directive)`, merged all the way down.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nconfig:\n  theme: forest\n  look: handDrawn\n  flowchart:\n    curve: linear\n    htmlLabels: false\n---\n" +
+        '%%{init: {"theme": "dark", "flowchart": {"curve": "basis"}}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark", look: "handDrawn", flowchart: { curve: "basis", htmlLabels: false } });
+    expect(diagnostics.map((d) => [d.message, d.line])).toEqual([
+      ['Document config "look" is read but not applied yet; the diagram is drawn without it.', 1],
+      ['Document config "theme" is read but not applied yet; the diagram is drawn without it.', 9],
+      ['Document config "flowchart" is read but not applied yet; the diagram is drawn without it.', 9],
+    ]);
+  });
+
+  it("reads an `initialize` as an init, and its `'` as `\"`, as Mermaid's detectDirective does", () => {
+    // Measured (12.2.0): config `{ theme: "dark" }`, and A --> B drawn.
+    const { document, config } = parseSiren("%%{initialize: {'theme': 'dark'}}%%\nflowchart TB\n  A --> B");
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark" });
+  });
+});

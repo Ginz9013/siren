@@ -1,5 +1,6 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
 import type { Diagnostic } from "../contracts";
+import type { DiagramKind } from "./parseDirection";
 
 /**
  * A document's frontmatter, read as Mermaid 12.2.0 reads it, and the
@@ -11,14 +12,24 @@ import type { Diagnostic } from "../contracts";
  *   wrote. A document with no frontmatter comes back as it was given.
  * - `config` is the frontmatter's `config` as written — the **document
  *   config** — or `{}` when there is none.
- * - `diagnostics` says what was read and is not applied, as warnings, or
- *   why Mermaid refuses the whole document, as one error — and then the
- *   diagram below is not to be read at all.
+ * - `diagnostics` says what of it was read and is not drawn, or kept, as
+ *   warnings, or why Mermaid refuses the whole document, as one error — and
+ *   then the diagram below is not to be read at all. Its config keys are
+ *   not reported here: whether the frontmatter or a directive decides each
+ *   is only known once both are read (`documentConfigOf`).
+ * - `position` is its opening fence, where its warnings point.
  */
 export interface FrontmatterRead {
   source: string;
   config: Record<string, unknown>;
   diagnostics: Diagnostic[];
+  position: Position;
+}
+
+/** A line and column in the document the author wrote, both from 1. */
+interface Position {
+  line: number;
+  column: number;
 }
 
 /**
@@ -62,7 +73,7 @@ const isLineBreak = (char: string | undefined): boolean => char === "\n" || char
 export function readFrontmatter(text: string): FrontmatterRead {
   const match = matchFrontmatter(text);
   if (match === undefined) {
-    return { source: text, config: {}, diagnostics: [] };
+    return { source: text, config: {}, diagnostics: [], position: { line: 1, column: 1 } };
   }
   const yamlBody = match.indent
     ? match.body
@@ -78,6 +89,7 @@ export function readFrontmatter(text: string): FrontmatterRead {
     source: text,
     config: {},
     diagnostics: [{ severity: "error", message: `${why}; Mermaid refuses the document too.`, ...openingFence }],
+    position: openingFence,
   });
   let loaded: unknown;
   try {
@@ -123,13 +135,11 @@ export function readFrontmatter(text: string): FrontmatterRead {
       ...openingFence,
     });
   }
-  for (const key of Object.keys(config)) {
-    diagnostics.push({ severity: "warning", message: notAppliedYet(key), ...openingFence });
-  }
   return {
     source: text.slice(0, match.length).replace(/[^\n]/g, "") + text.slice(match.length),
     config,
     diagnostics,
+    position: openingFence,
   };
 }
 
@@ -226,4 +236,354 @@ function lastLineBreakInWhitespaceRun(text: string, from: number): number {
     }
   }
   return index;
+}
+
+/**
+ * A document's `%%{…}%%` directives, read as Mermaid 12.2.0 reads them, and
+ * the document left behind once they are gone.
+ *
+ * - `source` is the document with every directive blanked in place, as the
+ *   frontmatter is: every character but the line breaks removed.
+ * - `init` is what its init directives say, or `undefined` when none says
+ *   anything; `positions` says which directive decided each of its
+ *   top-level keys.
+ * - `wrap` is what its wrap directives say, and where, or `undefined` when
+ *   they say nothing.
+ * - `diagnostics` says what was removed unread.
+ */
+export interface DirectivesRead {
+  source: string;
+  init: Record<string, unknown> | undefined;
+  wrap: { value: boolean; position: Position } | undefined;
+  positions: Map<string, Position>;
+  diagnostics: Diagnostic[];
+}
+
+/**
+ * Mermaid's `directiveRegex`, character for character: `%%{`, a type word
+ * (`init:` with its arguments, or a bare `wrap`), then arguments that run
+ * to the first `}%%` — across line breaks — and the `}%%` itself, which may
+ * be missing, so an unclosed directive runs to the end of the document.
+ */
+const DIRECTIVE = /%{2}{\s*(?:(\w+)\s*:|(\w+))\s*(?:(\w+)|((?:(?!}%{2}).|\r?\n)*))?\s*(?:}%{2})?/gi;
+
+/**
+ * The diagram type Mermaid 12.2.0 detects for each kind's headers, as
+ * `detectInit` names the key an init's `config` moves under — measured:
+ * `flowchart` for `flowchart` and `graph` alike (`flowchart-v2` is renamed
+ * `flowchart`), and one type for both spellings of the class and state
+ * headers.
+ */
+const MERMAID_DIAGRAM_TYPE: Record<DiagramKind, string> = {
+  flowchart: "flowchart",
+  sequence: "sequence",
+  class: "classDiagram",
+  state: "stateDiagram",
+  er: "er",
+};
+
+const INIT_NOT_JSON =
+  "Init directive is not valid JSON; Mermaid then ignores every init directive in the document, " +
+  "and so does Siren — the diagram is drawn without them.";
+
+/** Mermaid's `detectInit` type test: a type word holding `init` or `initialize` at a word's end. */
+const INIT_TYPE = /(?:init\b)|(?:initialize\b)/;
+
+/**
+ * Reads and removes the directives in `text`, the document after its
+ * frontmatter is blanked (`readFrontmatter`) — which is where Mermaid's
+ * `preprocessDiagram` reads them: after the frontmatter, before any `%%`
+ * comment is removed, so a directive is found wherever it stands, at the end
+ * of a diagram line or inside a comment too, and a directive spanning lines
+ * is removed whole rather than left half behind as diagram text.
+ */
+export function readDirectives(text: string): DirectivesRead {
+  const inits: { args: unknown; position: Position }[] = [];
+  const wraps: { match: RegExpMatchArray; type: string; position: Position }[] = [];
+  const diagnostics: Diagnostic[] = [];
+  let source = "";
+  let copied = 0;
+  for (const match of text.matchAll(DIRECTIVE)) {
+    const position = positionOf(text, match.index);
+    const type = match[1] ?? match[2] ?? "";
+    if (!type.includes("wrap") && !INIT_TYPE.test(type)) {
+      diagnostics.push({ severity: "warning", message: removedUnread(type), ...position });
+    }
+    if (type.includes("wrap")) {
+      wraps.push({ match, type, position });
+    }
+    if (INIT_TYPE.test(type)) {
+      try {
+        inits.push({ args: argumentsOf(match), position });
+      } catch {
+        diagnostics.push({ severity: "warning", message: INIT_NOT_JSON, ...position });
+      }
+    }
+    source += text.slice(copied, match.index) + match[0].replace(/[^\n]/g, "");
+    copied = match.index + match[0].length;
+  }
+  source += text.slice(copied);
+  // `detectDirective` parses inside one `try`: the first init that is not
+  // JSON ends it, and it hands back no init at all — the readable ones
+  // before it included (measured on 12.2.0). Mermaid only logs it and draws
+  // the diagram.
+  const unreadable = diagnostics.some(({ message }) => message === INIT_NOT_JSON);
+  const { init, positions } = unreadable ? { init: undefined, positions: new Map<string, Position>() } : initOf(inits);
+  const wrap = wrapOf(wraps);
+  if (wrap === undefined) {
+    for (const { type, position } of wraps) {
+      diagnostics.push({ severity: "warning", message: removedUnread(type), ...position });
+    }
+  }
+  return { source, init, wrap, positions, diagnostics: inDocumentOrder(diagnostics) };
+}
+
+/**
+ * What `detectInit` makes of a document's readable init directives, and
+ * which of them decided each top-level key.
+ *
+ * - **One** is taken as it is written; arguments that are not a mapping —
+ *   a bare word, a list — say nothing, as Mermaid's config ends up holding
+ *   nothing of them.
+ * - **Several** are merged in order by `assignWithDepth`, after Mermaid's
+ *   `sanitizeDirective` has been over each. Of what that sanitizing drops,
+ *   only `config` — not a Mermaid config key — is dropped here, because only
+ *   it changes what is read: one init's `config` is moved under the
+ *   diagram's own key (`documentConfigOf`), several inits' never is
+ *   (measured on 12.2.0). The rest it drops — keys Mermaid has no setting
+ *   for — is kept as written, as the frontmatter's config is.
+ */
+function initOf(inits: readonly { args: unknown; position: Position }[]): {
+  init: Record<string, unknown> | undefined;
+  positions: Map<string, Position>;
+} {
+  const positions = new Map<string, Position>();
+  if (inits.length === 1) {
+    const { args, position } = inits[0]!;
+    if (!isMapping(args)) {
+      return { init: undefined, positions };
+    }
+    for (const key of Object.keys(args)) {
+      positions.set(key, position);
+    }
+    return { init: args, positions };
+  }
+  if (inits.length === 0) {
+    return { init: undefined, positions };
+  }
+  const init: Record<string, unknown> = {};
+  for (const { args, position } of inits) {
+    if (!isMapping(args)) {
+      continue;
+    }
+    delete args.config;
+    assignWithDepth(init, args, 2);
+    for (const [key, value] of Object.entries(args)) {
+      if (value !== null) {
+        positions.set(key, position);
+      }
+    }
+  }
+  return { init, positions };
+}
+
+/**
+ * What `processDirectives` makes of the directives whose type holds `wrap`
+ * (`detectDirective(code, "wrap")`): one says `wrap` only if its type is
+ * exactly `wrap`; several say whether any of them is — so a lone `nowrap`
+ * says nothing, and two of them say `false`. Their arguments are parsed as
+ * an init's are, and one that is not JSON makes them all say nothing.
+ */
+function wrapOf(
+  wraps: readonly { match: RegExpMatchArray; type: string; position: Position }[],
+): DirectivesRead["wrap"] {
+  try {
+    wraps.forEach(({ match }) => argumentsOf(match));
+  } catch {
+    return undefined;
+  }
+  const exact = wraps.find(({ type }) => type === "wrap");
+  if (wraps.length > 1) {
+    return { value: exact !== undefined, position: (exact ?? wraps[0]!).position };
+  }
+  return exact === undefined ? undefined : { value: true, position: exact.position };
+}
+
+/**
+ * A directive's arguments as `detectDirective` reads them: a bare word as a
+ * string, anything else as JSON once every `'` is made `"`, or `null` when
+ * there are none.
+ */
+function argumentsOf(match: RegExpMatchArray): unknown {
+  if (match[3]) {
+    return match[3].trim();
+  }
+  return match[4] ? (JSON.parse(match[4].trim().replace(/'/g, '"')) as unknown) : null;
+}
+
+/**
+ * Mermaid's `assignWithDepth`, which merges several inits: `src` into `dst`
+ * key by key down to `depth` levels and shallowly below that; a list's items
+ * are added to a list's unless already there; a `null` sets nothing, an
+ * object never replaces a scalar and a scalar never replaces an object. Each
+ * key is defined rather than assigned, as Mermaid defines a new one, so a
+ * `__proto__` key is data and not a prototype.
+ */
+function assignWithDepth(dst: unknown, src: unknown, depth: number): unknown {
+  if (Array.isArray(src) && !Array.isArray(dst)) {
+    for (const item of src) {
+      assignWithDepth(dst, item, depth);
+    }
+    return dst;
+  }
+  if (Array.isArray(src) && Array.isArray(dst)) {
+    for (const item of src) {
+      if (!dst.includes(item)) {
+        dst.push(item);
+      }
+    }
+    return dst;
+  }
+  if (dst === undefined || dst === null || depth <= 0) {
+    if (isObject(dst) && isObject(src)) {
+      for (const [key, value] of Object.entries(src)) {
+        define(dst, key, value);
+      }
+      return dst;
+    }
+    return src;
+  }
+  if (isObject(src) && isObject(dst)) {
+    for (const [key, value] of Object.entries(src)) {
+      const current = Object.prototype.hasOwnProperty.call(dst, key)
+        ? (dst as Record<string, unknown>)[key]
+        : undefined;
+      if (typeof value === "object") {
+        if (value === null) {
+          continue;
+        }
+        const into = current === undefined ? (Array.isArray(value) ? [] : {}) : current;
+        if (typeof into === "object") {
+          define(dst, key, assignWithDepth(into, value, depth - 1));
+        }
+      } else if (typeof current !== "object") {
+        define(dst, key, value);
+      }
+    }
+  }
+  return dst;
+}
+
+/**
+ * Mermaid's `cleanAndMerge` — lodash's `merge({}, defaults, data)` — over
+ * the values JSON and YAML can hold: a fresh object holding `defaults`, then
+ * `data` merged into it all the way down. A mapping merges into a mapping (or
+ * a list) key by key, a list into a list index by index, and anything else,
+ * `null` included, replaces what was there. Neither argument is changed.
+ */
+function cleanAndMerge(defaults: Record<string, unknown>, data: Record<string, unknown>): Record<string, unknown> {
+  const merged = {};
+  mergeInto(merged, defaults);
+  mergeInto(merged, data);
+  return merged;
+}
+
+function mergeInto(target: object, source: object): void {
+  for (const [key, value] of Object.entries(source)) {
+    const current = Object.prototype.hasOwnProperty.call(target, key)
+      ? (target as Record<string, unknown>)[key]
+      : undefined;
+    if (Array.isArray(value)) {
+      const into = Array.isArray(current) ? current : [];
+      mergeInto(into, value);
+      define(target, key, into);
+    } else if (isObject(value)) {
+      const into = isObject(current) ? current : {};
+      mergeInto(into, value);
+      define(target, key, into);
+    } else {
+      define(target, key, value);
+    }
+  }
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function define(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
+/**
+ * The warning for a directive Mermaid finds and removes but takes nothing
+ * from: a type it has no reading for, or a wrap directive that ends up saying
+ * nothing.
+ */
+function removedUnread(type: string): string {
+  return `Directive "${type}" is removed unread, as Mermaid removes it; the diagram is drawn without it.`;
+}
+
+/** `diagnostics` by line and then column, those at one place in the order given. */
+function inDocumentOrder(diagnostics: Diagnostic[]): Diagnostic[] {
+  return [...diagnostics].sort((a, b) => (a.line ?? 0) - (b.line ?? 0) || (a.column ?? 0) - (b.column ?? 0));
+}
+
+/** Where `index` falls in `text`, as a line and column from 1. */
+function positionOf(text: string, index: number): Position {
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+  return { line: text.slice(0, lineStart).split("\n").length, column: index - lineStart + 1 };
+}
+
+/**
+ * The **document config** — the frontmatter's and the directives' settings
+ * merged as Mermaid's `preprocessDiagram` merges them — and a warning for
+ * each of its top-level keys, none of which is applied yet, at whichever
+ * source decided it: the directive that set it last, or else the
+ * frontmatter's opening fence.
+ *
+ * The steps are Mermaid's, in Mermaid's order. `detectInit` moves an init's
+ * `config` under the key of the diagram type the header names
+ * (`MERMAID_DIAGRAM_TYPE`); `processDirectives` then sets `wrap`; and
+ * `cleanAndMerge(frontmatter.config, directive)` merges the result over the
+ * frontmatter's config, so an init wins wherever both set a value and a
+ * mapping both set is merged all the way down (measured on 12.2.0:
+ * `theme: forest` and `flowchart: {curve: linear, htmlLabels: false}` under
+ * an init of `{"theme": "dark", "flowchart": {"curve": "basis"}}` read
+ * `theme: dark` and `flowchart: {curve: basis, htmlLabels: false}`).
+ *
+ * Its diagnostics — the frontmatter's own, the directives' own, and these —
+ * are in document order.
+ */
+export function documentConfigOf(
+  frontmatter: FrontmatterRead,
+  directives: DirectivesRead,
+  kind: DiagramKind | null,
+): { config: Record<string, unknown>; diagnostics: Diagnostic[] } {
+  let init = directives.init === undefined ? undefined : { ...directives.init };
+  const positions = new Map(directives.positions);
+  if (init !== undefined && init.config !== undefined && kind !== null) {
+    // `detectInit`: an init's `config` is the diagram's own settings, and
+    // moves under the key of the diagram type Mermaid detects. Where no
+    // header names a kind, Mermaid detects no type and refuses the
+    // document, as Siren does; the `config` is left where it was.
+    const key = MERMAID_DIAGRAM_TYPE[kind];
+    init[key] = init.config;
+    positions.set(key, positions.get("config")!);
+    delete init.config;
+  }
+  if (directives.wrap !== undefined) {
+    // `processDirectives` sets `wrap` on the init's settings, after the move.
+    const into = init ?? {};
+    into.wrap = directives.wrap.value;
+    positions.set("wrap", directives.wrap.position);
+    init = into;
+  }
+  const config = cleanAndMerge(frontmatter.config, init ?? {});
+  const keyWarnings: Diagnostic[] = Object.keys(config).map((key) => ({
+    severity: "warning",
+    message: notAppliedYet(key),
+    ...(positions.get(key) ?? frontmatter.position),
+  }));
+  return { config, diagnostics: inDocumentOrder([...frontmatter.diagnostics, ...directives.diagnostics, ...keyWarnings]) };
 }

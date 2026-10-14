@@ -9697,6 +9697,70 @@ line2\`"]`,
   },
 
   // -------------------------------------------------------------------------
+  // document config — `%%{init}%%` directives (ADR-0017)
+  // -------------------------------------------------------------------------
+  //
+  // Joined lines for the same reason as the frontmatter rows above. Every
+  // source below was measured on mermaid 12.2.0 with the probe and draws the
+  // diagram shown; the config each reads was measured with `mermaid.parse`.
+  {
+    id: "doc-init-multiline",
+    kind: "flowchart",
+    source: [
+      "%%{",
+      "  init: {",
+      '    "theme": "dark",',
+      '    "flowchart": {"curve": "basis"}',
+      "  }",
+      "}%%",
+      "flowchart TD",
+      "  A[Start] --> B[End]",
+    ].join("\n"),
+    status: "supported",
+    meaning:
+      "An init directive may spread over several lines; Mermaid removes it " +
+      "whole, reads its settings, and draws the flowchart below. Siren " +
+      "removes it whole too — none of its lines is left behind as diagram " +
+      "text — keeps its settings, and says that none is applied yet.",
+    warnings: [
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+      'Document config "flowchart" is read but not applied yet; the diagram is drawn without it.',
+    ],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "doc-init-over-frontmatter",
+    kind: "sequence",
+    source: [
+      "---",
+      "config:",
+      "  theme: forest",
+      "  look: handDrawn",
+      "---",
+      '%%{init: {"theme": "dark"}}%%',
+      "sequenceDiagram",
+      "  A->>B: Hello",
+    ].join("\n"),
+    status: "supported",
+    meaning:
+      "A frontmatter and an init directive may both set a key; Mermaid " +
+      "merges the init over the frontmatter, so `theme` is `dark` and `look` " +
+      "is kept, and draws the sequence diagram. Siren merges them the same " +
+      "way and reports each key once, neither applied yet.",
+    warnings: [
+      'Document config "look" is read but not applied yet; the diagram is drawn without it.',
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ],
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B"]);
+      expectSame("messages", messages(result), ["A-B: Hello"]);
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`
   // -------------------------------------------------------------------------
   ...LABEL_CASES,

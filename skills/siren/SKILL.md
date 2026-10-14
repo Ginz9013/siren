@@ -72,8 +72,9 @@ timeline <name>:          or several named blocks instead (never both)
 - `timeline:` starts the block, and every remaining line belongs to it. Nothing closes
   it, so it must come last. With named blocks, each one runs from its header to the next
   `timeline <name>:` header, or to the end of the document.
-- `%%` starts a comment, anywhere in the document. `%%{init: ...}%%` directives are
-  treated as comments and ignored.
+- `%%` starts a comment, anywhere in the document. `%%{init: ...}%%` directives (one line
+  or several) are read as Mermaid reads them, but their settings are not applied yet: each
+  one is reported as a warning, and the diagram is drawn without it.
 
 ## Timeline
 

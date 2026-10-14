@@ -1,5 +1,11 @@
 import type { DiagramParseResult, Diagnostic, ParseResult } from "../contracts";
-import { type FrontmatterRead, readFrontmatter } from "./documentConfig";
+import {
+  type DirectivesRead,
+  documentConfigOf,
+  type FrontmatterRead,
+  readDirectives,
+  readFrontmatter,
+} from "./documentConfig";
 import { parseClassDiagram } from "./parseClassDiagram";
 import { parseErDiagram } from "./parseErDiagram";
 import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
@@ -33,8 +39,8 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
 /**
  * The lines of `source` as Mermaid reads them before any diagram's grammar
  * sees them: its tag quotes rewritten (`tagQuotesRewritten`), its
- * frontmatter read and blanked (`readFrontmatter`), its `%%`
- * comments removed in Mermaid's two steps, and its style-line rule
+ * frontmatter and directives read and blanked (`readFrontmatter`,
+ * `readDirectives`), its `%%` comments removed in Mermaid's two steps, and its style-line rule
  * (`styleLines`) applied between those steps. It keeps one output line per
  * input line, so every diagnostic's line number still points at the line
  * the author wrote, and `asWritten` maps what the style-line rule changed
@@ -78,17 +84,24 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * the lines are split on every spelling of a line break either way, so no
  * column moves.
  *
- * A `%%{init: ...}%%` directive is therefore stripped as an ordinary
- * comment. Directives are not supported by any Siren parser, so this
- * makes them inert rather than a syntax error.
+ * Then, still before any comment, the `%%{…}%%` directives
+ * (`readDirectives`), where `preprocessDiagram` reads them: each is read and
+ * blanked in place, line breaks kept, wherever it stands and however many
+ * lines it spans. It has to come first: the comment rule below is
+ * line-wise, so it would remove only the `%%{` line of an init spread over
+ * several, and leave the rest to be read as diagram text — which no diagram
+ * accepts (measured on 12.2.0: Mermaid reads such an init whole and draws
+ * the diagram below it).
  */
 function asMermaidReads(source: string): {
   lines: string[];
   asWritten: <T>(result: T) => T;
   frontmatter: FrontmatterRead;
+  directives: DirectivesRead;
 } {
   const frontmatter = readFrontmatter(tagQuotesRewritten(source).split(/\r\n|\r|\n/).join("\n"));
-  const wholeLinesBlanked = frontmatter.source
+  const directives = readDirectives(frontmatter.source);
+  const wholeLinesBlanked = directives.source
     .split("\n")
     .map((line) => (line.trimStart().startsWith("%%") ? "" : line));
   const read = styleLines(wholeLinesBlanked.join("\n"));
@@ -96,7 +109,7 @@ function asMermaidReads(source: string): {
     const commentStart = line.indexOf("%%");
     return commentStart === -1 ? line : line.slice(0, commentStart);
   });
-  return { lines, asWritten: read.asWritten, frontmatter };
+  return { lines, asWritten: read.asWritten, frontmatter, directives };
 }
 
 /**
@@ -104,26 +117,33 @@ function asMermaidReads(source: string): {
  * `parseFlowchart` (a `flowchart TB|BT|LR|RL` header, or the same header
  * written with Mermaid's original `graph` keyword) or `parseSequenceDiagram`
  * (`sequenceDiagram` header), after reading the whole document as Mermaid
- * does — tag quotes, frontmatter, `%%` comments and the style-line rule
- * (`asMermaidReads`).
+ * does — tag quotes, frontmatter, directives, `%%` comments and the
+ * style-line rule (`asMermaidReads`).
  * Never throws on malformed input — an unrecognized header is reported as
  * a diagnostic instead.
  *
- * The frontmatter's **document config** is `config` on the result, added
- * after `asWritten` has moved the diagram's positions: it is the author's
- * data as written, and a config key spelled `line` or `column` is not a
- * position to move. Its diagnostics come first, as its lines do. A
+ * The **document config** — the frontmatter's merged with the directives'
+ * (`documentConfigOf`), each init's `config` moved under the key of the kind
+ * the header names — is `config` on the result, added after `asWritten` has
+ * moved the diagram's positions: it is the author's data as written, and a
+ * config key spelled `line` or `column` is not a position to move. Its
+ * diagnostics come first, as its lines do. A
  * frontmatter Mermaid refuses — one that is not YAML, or whose
  * `displayMode` has no mapping to go into — refuses the whole document
  * here too, as its one error, and the diagram below it is not read.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, asWritten, frontmatter } = asMermaidReads(source);
+  const { lines, asWritten, frontmatter, directives } = asMermaidReads(source);
   if (frontmatter.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return { document: null, diagnostics: frontmatter.diagnostics, config: {} };
   }
+  // The kind the header names, as `dispatch` finds it: Mermaid's
+  // `detectInit` needs the diagram type to file an init's `config` under.
+  const header = lines.find((line) => line.trim().length > 0);
+  const kind = header === undefined ? null : matchDiagramHeader(header.trim());
+  const documentConfig = documentConfigOf(frontmatter, directives, kind);
   const { document, diagnostics } = asWritten(dispatch(lines));
-  return { document, diagnostics: [...frontmatter.diagnostics, ...diagnostics], config: frontmatter.config };
+  return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
 }
 
 /**
