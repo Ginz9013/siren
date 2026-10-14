@@ -1,0 +1,5 @@
+{"id":"01M4WVVN9KHJZW99CAMCV4WDMA","t":1,"a":"83a1","op":"create","title":"state/class: accTitle / accDescr 被畫成叫 accTitle、accDescr 的框（靜默錯圖，兩種圖表）"}
+{"id":"01M4WVVN9XJZY10CGR2E9FPW7E","t":2,"a":"83a1","op":"set","k":"description","v":"實作 `01M4WS1P6` 時量到（2026-10-14）。\n\n## 事實\n\n    stateDiagram-v2            classDiagram\n      accTitle: T                accTitle: T\n      accDescr: D                accDescr: D\n      A                          class A\n\nMermaid 12.2.0：兩者都是 accTitle=\"T\"、accDescr=\"D\"，只畫 A。`accDescr { one }` 區塊也都收（=\"one\"）。\n\nSiren：state 讀成狀態 `accTitle`、`accDescr`（`X : text` 描述語法），class 讀成類別 `accTitle`、`accDescr`，**各多畫兩個框、零診斷**。\n\n## 範圍\n\nstate 與 class 的 contracts／parser／model／renderer 都要接上 accTitle/accDescr（`<title>`/`<desc>` + aria，照 `renderErDiagramToSVG` 的做法），區塊用共用的 `readAccDescrBlock`。動工時量兩種圖表的關鍵字大小寫與冒號前空白。"}
+{"id":"01M4WVVN9X5ZEEV6G8ESPY8900","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M4WVVN9XDM7FJN1XWNY32GQZ","t":4,"a":"83a1","op":"label.add","v":"state"}
+{"id":"01M4WVVN9X30JZMKTC9VMJS167","t":5,"a":"83a1","op":"label.add","v":"class"}

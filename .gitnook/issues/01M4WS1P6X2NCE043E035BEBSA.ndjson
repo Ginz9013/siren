@@ -3,3 +3,5 @@
 {"id":"01M4WS1P77PJ3D9Y4ZHCY7WKPP","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M4WS1P77ZT32JCV9FVBP1FW5","t":4,"a":"83a1","op":"label.add","v":"flowchart"}
 {"id":"01M4WS1P778V7H327JNCQZ0K0R","t":5,"a":"83a1","op":"label.add","v":"er"}
+{"id":"01M4WVVMWDY5BNFBZCKKEDXCW2","t":6,"a":"83a1","op":"comment","body":"## 已實作（branch backlog-quick-wins）\n\n- 抽出共用 `parser/readAccDescrBlock.ts`（含自己的單元測試）；sequence 改用它（行為不變），flowchart、ER 接上。12.2.0 實測三種圖表的區塊語意一致。\n- 大小寫照量測分開：ER、sequence 不分；flowchart **區分**（`ACCDESCR {` 是 parse error），所以 flowchart 的 regex 不加 `/i`。\n- flowchart 的 `accTitle : x`、`accDescr : x`（冒號前空白）都收。\n- 未關閉的區塊三種都拒絕。\n\n語料庫：`er-acc-descr-multiline` rejected → supported（**REJECTED 14 → 13**），新增 `fc-acc-descr-multiline`。\n\n「待量」那項量完了，結果很糟，另開新票：**state 與 class diagram 會把 `accTitle: T`、`accDescr: D` 畫成叫 `accTitle`、`accDescr` 的框，零診斷**——Mermaid 兩者都當無障礙描述。"}
+{"id":"01M4WVVN30SQQ6AVZN3390N2BX","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
