@@ -4954,6 +4954,28 @@ line2\`"]`,
     },
   },
   {
+    id: "st-bare-ids-one-line",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      direction sideways
+      Foo Bar --> Done`,
+    status: "supported",
+    meaning:
+      "Several statements on one line: a bare id ends its statement at the " +
+      "whitespace after it, and the rest of the line is the next one. " +
+      "Measured on 12.2.0: `direction sideways` declares two states called " +
+      "`direction` and `sideways` (`direction` is not reserved, so this is " +
+      "not a direction statement), and `Foo Bar --> Done` declares Foo and " +
+      "the transition Bar → Done. General, not a few words': `Foo Bar`, " +
+      "`A B C`, `hide X`, `fork X` and `end X` all read the same way. A " +
+      "reserved word is never split off.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Busy", "direction", "sideways", "Foo", "Bar", "Done"]);
+      expectSame("transitions", transitions(result), ["Idle-Busy: ", "Bar-Done: "]);
+    },
+  },
+  {
     id: "st-state-keyword-only",
     kind: "state",
     source: `stateDiagram-v2

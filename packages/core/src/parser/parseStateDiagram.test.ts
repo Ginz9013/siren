@@ -150,6 +150,47 @@ describe("parseStateDiagram", () => {
     expect(document.transitions).toEqual([]);
   });
 
+  it("reads bare ids written one after another on a line as one statement each, the last one joining what follows", () => {
+    // Measured (mermaid 12.2.0): a bare id ends its statement at the space
+    // after it, and the rest of the line is the next statement. `Foo Bar`
+    // declares both, `A B C` all three, `direction sideways` and `hide X`
+    // (neither word is reserved) both words, `Foo Bar --> C` Foo and the
+    // transition Bar → C, and `Foo Bar : hi` Foo and Bar described "hi".
+    // 01M369AQW: Siren refused every one of these documents outright.
+    const cases: [string, string[], [string, string][]][] = [
+      ["Foo Bar", ["Idle", "Busy", "Foo", "Bar"], []],
+      ["A B C", ["Idle", "Busy", "A", "B", "C"], []],
+      ["direction sideways", ["Idle", "Busy", "direction", "sideways"], []],
+      ["hide X", ["Idle", "Busy", "hide", "X"], []],
+      ["Foo\tBar", ["Idle", "Busy", "Foo", "Bar"], []],
+      ["Foo Bar --> C", ["Idle", "Busy", "Foo", "Bar", "C"], [["Bar", "C"]]],
+    ];
+    for (const [line, states, extraTransitions] of cases) {
+      const document = documentOf(`stateDiagram-v2\n  Idle --> Busy\n  ${line}\n`);
+
+      expect(document.states.map((state) => state.id), `for "${line}"`).toEqual(states);
+      expect(
+        document.transitions.map((t) => [t.from, t.to]),
+        `for "${line}"`,
+      ).toEqual([["Idle", "Busy"], ...extraTransitions]);
+    }
+
+    const described = documentOf("stateDiagram-v2\n  Foo Bar : hi\n");
+    expect(described.states.map((s) => [s.id, s.descriptions.map((d) => d.text)])).toEqual([
+      ["Foo", []],
+      ["Bar", ["hi"]],
+    ]);
+  });
+
+  it("still refuses a line whose rest is not a statement, reporting it where the rest starts", () => {
+    const { document, diagnostics } = parseStateDiagram("stateDiagram-v2\n  Idle -> Busy\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ severity: "error", line: 2, column: 8, message: expect.stringContaining("-> Busy") }),
+    ]);
+  });
+
   it("declares nothing for `state X` on a line of its own, and says nothing about it either", () => {
     // Measured (mermaid 11.17.2): `state Skipped` alone reports *no* state —
     // it is `state Skipped {` with the brace missing, which Mermaid tolerates

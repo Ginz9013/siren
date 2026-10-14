@@ -25,6 +25,10 @@ While the version is 0.x, a minor release may contain breaking changes.
   refuse the whole document. Two places draw what the line says where Mermaid does not: `style A, B`
   with a space after the comma styles both (Mermaid paints `B decls` onto A), and a composite's
   frame is painted (Mermaid paints it for `class` but not for `style`).
+- State diagrams read several statements on one line, as Mermaid 12.2.0 does: a bare id ends its
+  statement at the whitespace after it. `Foo Bar` declares two states, `direction sideways` two
+  states called `direction` and `sideways`, and `Foo Bar --> Done` Foo and the transition Bar → Done
+  (nook `01M369AQW`). Such a document used to be refused outright.
 
 ### Fixed
 

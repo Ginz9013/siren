@@ -370,6 +370,13 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
 
 /**
+ * A bare id followed by whitespace and more — the first of several
+ * statements on one line. Read only once every statement pattern has
+ * declined the whole line; see where it is used.
+ */
+const LEADING_BARE_ID_RE = /^(\w+)\s+(?=\S)/;
+
+/**
  * `style Busy fill:#f00,stroke:#00f` — declarations written straight onto
  * their targets, no named definition between (01M36C24S).
  *
@@ -1219,6 +1226,25 @@ export function parseStateDiagram(source: string): ParseResult {
     // implement: a line only reaches the table once every working pattern
     // above has declined it.
     const unimplemented = unimplementedIn(line);
+
+    // Several statements on one line. Measured (mermaid 12.2.0): a bare id
+    // ends its statement at the whitespace after it, and the rest of the
+    // line is the next statement — `Foo Bar` declares two states, `A B C`
+    // three, `direction sideways` and `hide X` both their words (neither is
+    // reserved), `Foo Bar --> C` Foo and the transition Bar → C. A general
+    // lexer behaviour, not a few words' (01M369AQW). So the leading id is
+    // declared and the rest goes back through every pattern above as a line
+    // of its own, blanked up to where it starts so a refusal of it names the
+    // right column. A reserved word is never split off: Mermaid lexes it as
+    // a keyword, and the line stays refused.
+    const leadingId = unimplemented === null ? LEADING_BARE_ID_RE.exec(line) : null;
+    if (leadingId !== null && !RESERVED_WORD_RE.test(leadingId[1])) {
+      declareState(leadingId[1], lineNumber, column);
+      lines[index] = " ".repeat(column - 1 + leadingId[0].length) + line.slice(leadingId[0].length);
+      index--;
+      continue;
+    }
+
     diagnostics.push({
       severity: "error",
       message: unimplemented ?? `Unrecognized stateDiagram line: "${line}"`,
