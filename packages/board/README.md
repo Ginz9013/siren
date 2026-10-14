@@ -110,13 +110,15 @@ height shows nothing.
 
 ### Without a bundler
 
-`dist/siren-board.js` is a single ES module that already includes `siren-core`:
+`dist/siren-board.js` is a single ES module that already includes `siren-core`, and with it
+the [elkjs](https://github.com/kieler/elkjs) layout engine, which is licensed EPL-2.0, not MIT;
+its licence and notices ship beside the bundle as `dist/THIRD-PARTY-NOTICES.md`:
 
 ```html
 <!doctype html>
 <html>
   <head>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.4/dist/theme.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.6/dist/theme.css" />
     <style>
       #board { width: 100vw; height: 100vh; }
       body { margin: 0; }
@@ -125,7 +127,7 @@ height shows nothing.
   <body>
     <div id="board"></div>
     <script type="module">
-      import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.4/dist/siren-board.js";
+      import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.6/dist/siren-board.js";
 
       const source = await fetch("./architecture.srn").then((r) => r.text());
       createBoard(document.getElementById("board"), { source });
@@ -441,4 +443,7 @@ readers announce it and a tooltip names it.
 
 ## License
 
-[MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE)
+[MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE). The standalone
+`dist/siren-board.js` bundles `siren-core` and its layout engine,
+[elkjs](https://github.com/kieler/elkjs) (EPL-2.0); `dist/THIRD-PARTY-NOTICES.md` carries its
+licence.

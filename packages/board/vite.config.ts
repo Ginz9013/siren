@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { thirdPartyBanner, thirdPartyNotices } from "../core/thirdPartyNotices";
 
 const coreSource = fileURLToPath(new URL("../core/src/index.ts", import.meta.url));
 
@@ -15,10 +16,15 @@ const coreSource = fileURLToPath(new URL("../core/src/index.ts", import.meta.url
  *   source), in a single self-contained ESM file — so a demo page can load it
  *   directly via `<script type="module" src="...">` with no bundler or import
  *   map (see ADR-0005).
+ *
+ * Bundling `siren-core` bundles its layout engine, elkjs, which is not MIT,
+ * so the standalone file carries the same notice `siren-core`'s own does:
+ * `dist/THIRD-PARTY-NOTICES.md` beside it, and a first line pointing there.
  */
 export default defineConfig(({ mode }) => {
   const standalone = mode === "standalone";
   return {
+    plugins: standalone ? [thirdPartyNotices("siren-board", "siren-board.js")] : [],
     resolve: standalone ? { alias: { "siren-core": coreSource } } : {},
     build: {
       emptyOutDir: !standalone,
@@ -31,6 +37,7 @@ export default defineConfig(({ mode }) => {
       },
       rollupOptions: {
         external: standalone ? [] : [/^siren-core(\/.*)?$/],
+        output: standalone ? { banner: thirdPartyBanner("siren-board") } : {},
       },
     },
   };
