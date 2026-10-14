@@ -359,6 +359,23 @@ function getterHints(db) {
   });
 }
 
+/**
+ * The visible title and the two accessibility statements, which every kind's
+ * database answers through the same three getters. Printed only when one of
+ * them holds something, so a document that writes none reads exactly as it
+ * did before this section existed.
+ */
+function reportTitles(db) {
+  const lines = [
+    ["title", db.getDiagramTitle?.()],
+    ["accTitle", db.getAccTitle?.()],
+    ["accDescr", db.getAccDescription?.()],
+  ]
+    .filter(([, value]) => typeof value === "string" && value !== "")
+    .map(([name, value]) => `${name}=${JSON.stringify(value)}`);
+  if (lines.length > 0) section("title and accessibility", lines);
+}
+
 function report(type, db) {
   if (typeof db.getVertices === "function") {
     section(
@@ -385,8 +402,14 @@ function report(type, db) {
     section(
       "actors",
       records(db.getActors()).map((actor) =>
-        describe(actor, ["name", "description", "type"]),
+        describe(actor, ["name", "description", "type", "links"]),
       ),
+    );
+    // A `box` groups declarations; its members are what layout puts inside
+    // the frame, and `getBoxes()` is the only place they are recorded.
+    section(
+      "boxes",
+      records(db.getBoxes?.()).map((box) => describe(box, ["name", "fill", "actorKeys"])),
     );
     // `type` is a LINETYPE constant, and the ones a compatibility question
     // usually turns on are the *synthetic* messages Mermaid inserts: an
@@ -414,20 +437,37 @@ function report(type, db) {
     // to the composite that holds it (`Compound_start`, not `root_start`),
     // and a flat table would hide that.
     //
-    // Deduplicated per level, because a state is reached once per relation
-    // that names it — `[*] --> Inner` and `Inner --> [*]` mention `Inner`
-    // twice, and printing it twice would read as two states.
-    const walk = (states, path) => {
-      const seen = new Set();
-      return records(states).flatMap((state) => {
-        if (seen.has(state.id)) return [];
-        seen.add(state.id);
-        return [
-          describe({ ...state, in: path }, ["id", "type", "in", "descriptions", "note", "classes"]),
-          ...(state.doc === undefined ? [] : walk(statesIn(state.doc), `${path}/${state.id}`)),
-        ];
-      });
+    // Merged per level, because a state is reached once per statement that
+    // names it — `[*] --> Inner` and `Inner --> [*]` mention `Inner` twice,
+    // and printing it twice would read as two states. **Merged, not
+    // deduplicated**: inside a composite's `doc` each mention is its own
+    // record, and the one a relation carries comes first and holds none of
+    // the fields a later `note … of Inner` or `Inner : text` wrote onto a
+    // record of its own. Keeping only the first dropped every nested note
+    // (measured: `note right of [*]` inside `state C { … }` lands on a
+    // second `C_start` record), so a later record fills in what the first
+    // left unset, and a `type` other than `default` wins. The root level
+    // comes from `getStates()`, which Mermaid has already merged.
+    const merged = (states) => {
+      const byId = new Map();
+      for (const state of records(states)) {
+        const into = byId.get(state.id);
+        if (into === undefined) {
+          byId.set(state.id, { ...state });
+          continue;
+        }
+        for (const [key, value] of Object.entries(state)) {
+          const unset = into[key] === undefined || (Array.isArray(into[key]) && into[key].length === 0);
+          if (value !== undefined && (unset || (key === "type" && into.type === "default"))) into[key] = value;
+        }
+      }
+      return [...byId.values()];
     };
+    const walk = (states, path) =>
+      merged(states).flatMap((state) => [
+        describe({ ...state, in: path }, ["id", "type", "in", "descriptions", "note", "classes"]),
+        ...(state.doc === undefined ? [] : walk(statesIn(state.doc), `${path}/${state.id}`)),
+      ]);
     section("states (nested ones shown under the composite that holds them)", walk(db.getStates(), "root"));
 
     // `getRelations()` answers for the root level only; a composite's own
@@ -529,11 +569,39 @@ function report(type, db) {
         ),
       ),
     );
+
+    // An ER document's clusters, which this branch used to skip entirely —
+    // so a document with clusters read exactly like one without, and "no
+    // subgraph section" was read as "ER has no clusters" (01M3BXMCA).
+    // `getSubGraphs()` lists them in **closing** order (an inner block before
+    // the outer one holding it) and names members by the author's name; the
+    // nesting itself is only in `getData()`, the tree Mermaid actually draws,
+    // so each cluster's `parent` is read from there. `cssStyles` and
+    // `classes` are printed because ER is the kind where a cluster is a
+    // styling target (`style s1 …`, `class s1 …`).
+    const parentOf = new Map(
+      records(db.getData?.().nodes)
+        .filter((node) => node.isGroup)
+        .map((node) => [node.id, node.parentId ?? "(top level)"]),
+    );
+    section(
+      "subgraphs (in Mermaid's closing order, inner before outer)",
+      records(db.getSubGraphs?.()).map((sub) =>
+        describe({ ...sub, parent: parentOf.get(sub.id) }, ["id", "title", "parent", "nodes", "dir", "cssStyles", "classes"]),
+      ),
+    );
     section("direction", [String(db.getDirection?.() ?? "(unset)")]);
     return;
   }
 
-  if (typeof db.getClasses === "function") {
+  // **Both** getters, because `getClasses` alone is not the class diagram's:
+  // measured on 12.2.0, flowchart, state, ER, requirement, block and treemap
+  // databases answer it too, and only class and state also answer
+  // `getRelations`. On `getClasses` alone a requirement document printed an
+  // empty `## classes` table — which reads as a measurement — and then
+  // crashed on `getRelations` (01M38ZJ52). Now any kind with no reader of
+  // its own reaches the fallback below and its getter hints.
+  if (typeof db.getClasses === "function" && typeof db.getRelations === "function") {
     section(
       "classes",
       records(db.getClasses()).map((cls) =>
@@ -791,6 +859,7 @@ try {
 
 console.log(`\n## diagram type\n  ${diagram.type}`);
 report(diagram.type, diagram.db);
+reportTitles(diagram.db);
 
 // The parse is printed first even under `--paint`, because the two readings
 // answer different halves of one question: the database says what Mermaid
