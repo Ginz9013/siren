@@ -1209,6 +1209,39 @@ classDiagram
         expect([header, bare.diagnostics]).toEqual([header, []]);
       }
     });
+
+    it("reads a bare `%%` inside a timeline block as a comment, unnamed or named — Mermaid never sees that block", () => {
+      // ADR-0017: a Siren document without its timeline blocks is the
+      // Mermaid document, so a line inside one is not Mermaid's to refuse.
+      // A block runs from its header to the next header or the end.
+      for (const [header, body] of [
+        ["flowchart TB", "A-->B"],
+        ["erDiagram", "A ||--o{ B : has"],
+      ]) {
+        for (const [bare, without] of [
+          [`timeline:\n%%\n  %%\nenter B fade\n%%`, `timeline:\n\n\nenter B fade\n`],
+          [
+            `timeline one:\n%%\nenter B fade\ntimeline two:\n\t%%\nenter A fade\n%%\n`,
+            `timeline one:\n\nenter B fade\ntimeline two:\n\nenter A fade\n\n`,
+          ],
+        ]) {
+          const withBare = parseSiren(`${header}\n${body}\n${bare}`);
+          const withoutBare = parseSiren(`${header}\n${body}\n${without}`);
+
+          expect([header, bare, withBare.diagnostics]).toEqual([header, bare, []]);
+          expect([header, bare, withBare]).toEqual([header, bare, withoutBare]);
+        }
+      }
+    });
+
+    it("still refuses a bare `%%` above the first timeline header", () => {
+      const { document, diagnostics } = parseSiren("flowchart TB\nA-->B\n%%\ntimeline:\nenter B\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
+      ]);
+    });
   });
 
   it("reports the same error for a second unnamed timeline: header, in all three diagram kinds", () => {

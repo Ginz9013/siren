@@ -8,8 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
-Breaking for a flowchart or ER document with a line that is nothing but `%%`, which is now refused
-(see **Changed**).
+Breaking for a flowchart or ER document with a line that is nothing but `%%` outside its timeline
+blocks, which is now refused (see **Changed**).
 
 ### Added
 
@@ -88,7 +88,8 @@ Breaking for a flowchart or ER document with a line that is nothing but `%%`, wh
   cleanup wants at least one character after the `%%`, so a flowchart draws the line as a node
   named `%%` (or, above the header, refuses the document) and an ER diagram refuses the document.
   Sequence, class and state diagrams read it as a comment, as Mermaid's own grammars for them do,
-  and `%%` followed by a space, a tab or any text is still a comment everywhere.
+  and so does a timeline block in any kind, since Mermaid never sees one; `%%` followed by a
+  space, a tab or any text is still a comment everywhere.
   `examples/flowchart-styling.srn` used one as a paragraph break; it is now a blank line.
 - A `style` on a node, state or entity now beats a class applied to it whichever line comes first,
   as Mermaid 12.2.0 paints it in flowchart, class, state and ER diagrams. Before, the later line

@@ -875,7 +875,8 @@ direction for `right of` and before it for `left of` — at its state's own leve
 composite its state is written in, where Mermaid 12 lays it out outside (decision
 `01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of its own and is drawn in its state's group.
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
-own), comment (that is a `%%` line, which is stripped before parsing and draws nothing), label,
+own), comment (that is a `%%` line, which is stripped before parsing and draws nothing; a line of
+nothing but `%%` is not a comment in a flowchart or ER diagram and is refused, ADR-0017), label,
 callout
 
 **State**:

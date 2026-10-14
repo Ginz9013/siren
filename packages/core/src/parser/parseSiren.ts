@@ -12,6 +12,7 @@ import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./par
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseStateDiagram } from "./parseStateDiagram";
+import { isTimelineHeader } from "./parseTimelineBlock";
 import { styleLines } from "./styleLines";
 import { tagQuotesRewritten } from "./tagQuotes";
 
@@ -131,30 +132,32 @@ interface BareCommentLine {
   column: number;
 }
 
-const BARE_COMMENT_DRAWN =
-  'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%", ' +
-  'and Mermaid draws this line as a node named "%%". Write "%% text", or leave the line blank.';
-const BARE_COMMENT_REFUSED =
-  'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"; ' +
-  'Mermaid refuses the document too. Write "%% text", or leave the line blank.';
+const BARE_COMMENT_IS_NOT = 'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"';
+const BARE_COMMENT_HINT = ' Write "%% text", or leave the line blank.';
+const BARE_COMMENT_DRAWN = `${BARE_COMMENT_IS_NOT}, and Mermaid draws this line as a node named "%%".${BARE_COMMENT_HINT}`;
+const BARE_COMMENT_REFUSED = `${BARE_COMMENT_IS_NOT}; Mermaid refuses the document too.${BARE_COMMENT_HINT}`;
 
 /**
- * What Mermaid makes of a bare `%%` line `at` in a document of `header`'s
- * kind, as the refusal to give for it — `null` where the kind's grammar
- * reads the line as a comment after all (sequence, class and state: their
- * lexers have a `%%` rule of their own), so it means here what it means
- * there. A flowchart draws the line as a node below its header and refuses
- * the document above it; an ER diagram refuses it anywhere.
+ * What Mermaid makes of a bare `%%` line in each kind, as the refusal to
+ * give for it (measured on 12.2.0), given whether the line stands below the
+ * kind's header. `null` where the kind's grammar reads the line as a
+ * comment after all (sequence, class and state: their lexers have a `%%`
+ * rule of their own), so it means here what it means there. A flowchart
+ * draws the line as a node below its header and refuses the document above
+ * it; an ER diagram refuses it anywhere. A record rather than a switch, as
+ * `PARSE_KIND` is, so a new kind cannot arrive without this decision.
  */
+const BARE_COMMENT_MESSAGE: Record<DiagramKind, (belowHeader: boolean) => string | null> = {
+  flowchart: (belowHeader) => (belowHeader ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED),
+  sequence: () => null,
+  class: () => null,
+  state: () => null,
+  er: () => BARE_COMMENT_REFUSED,
+};
+
+/** `BARE_COMMENT_MESSAGE` for the line `at`, in a document of `header`'s kind. */
 function bareCommentMessage(header: Header | null, at: BareCommentLine): string | null {
-  switch (header?.kind) {
-    case "flowchart":
-      return at.line > header.index + 1 ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED;
-    case "er":
-      return BARE_COMMENT_REFUSED;
-    default:
-      return null;
-  }
+  return header?.kind ? BARE_COMMENT_MESSAGE[header.kind](at.line > header.index + 1) : null;
 }
 
 /**
@@ -177,9 +180,9 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * `displayMode` has no mapping to go into — refuses the whole document
  * here too, as its one error, and the diagram below it is not read; so does
  * a wrap directive Mermaid cannot write into a bare-word init. So does a
- * line that is nothing but `%%` in a flowchart or an ER diagram, one error
- * at each such line's `%%` (ADR-0017): Mermaid does not read it as a
- * comment there.
+ * line that is nothing but `%%` in a flowchart or an ER diagram, outside
+ * its timeline blocks, one error at each such line's `%%` (ADR-0017):
+ * Mermaid does not read it as a comment there.
  */
 export function parseSiren(source: string): ParseResult {
   const { lines, asWritten, frontmatter, directives, bareCommentLines } = asMermaidReads(source);
@@ -192,7 +195,13 @@ export function parseSiren(source: string): ParseResult {
   // the kind it names, and Mermaid's `detectInit` files an init's `config`
   // under that kind's diagram type.
   const header = headerOf(lines);
+  // A timeline block is not Mermaid's to read (ADR-0017: the document
+  // without its timeline blocks is the Mermaid one), so a bare `%%` inside
+  // one stays a comment. The first timeline header after the diagram's
+  // header ends the diagram body, as every kind's parser ends it.
+  const timelineStart = header === null ? Infinity : firstTimelineHeader(lines, header.index);
   const bareCommentRefusals = bareCommentLines.flatMap((at): Diagnostic[] => {
+    if (at.line - 1 >= timelineStart) return [];
     const message = bareCommentMessage(header, at);
     return message === null ? [] : [{ severity: "error", message, ...at }];
   });
@@ -217,6 +226,16 @@ interface Header {
 function headerOf(lines: readonly string[]): Header | null {
   const index = lines.findIndex((line) => line.trim().length > 0);
   return index === -1 ? null : { index, kind: matchDiagramHeader(lines[index]!.trim()) };
+}
+
+/**
+ * The index of the first timeline header below the diagram's header at
+ * `headerIndex` — where its body ends and its timeline blocks begin —
+ * or `Infinity` when the document has none.
+ */
+function firstTimelineHeader(lines: readonly string[], headerIndex: number): number {
+  const index = lines.findIndex((line, i) => i > headerIndex && isTimelineHeader(line.trim()));
+  return index === -1 ? Infinity : index;
 }
 
 /**
