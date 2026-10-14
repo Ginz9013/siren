@@ -370,6 +370,34 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
 
 /**
+ * `style Busy fill:#f00,stroke:#00f` — declarations written straight onto
+ * their targets, no named definition between (01M36C24S).
+ *
+ * The target list is the apply-directive's: comma-separated, greedy and
+ * backtracking, so `[\w\s,]` gives back the space before the declarations,
+ * which cannot themselves be read as targets because a declaration holds a
+ * `:`. Measured (mermaid 12.2.0, `--markup`): `style A,B fill:#f00` paints
+ * both rects.
+ *
+ * ⚠️ **A space after the comma is a divergence, by CONTEXT.md's third
+ * rule.** Mermaid reads `style A, B fill:#f00` as target `A` with the
+ * declaration `B fill:#f00`, so A's rect carries
+ * `style="B fill:#f00 !important"` and B carries nothing — a picture that
+ * contradicts the line, with no diagnostic. Siren styles both, as the line
+ * says, and as `class A, B x` already reads in both tools.
+ *
+ * ⚠️ **So is a composite target.** Measured, `style C fill:#f00` on a
+ * composite leaves Mermaid's frame unpainted, while `class C u` paints it
+ * (the class lands on the composite's `<g>` and `.u rect` reaches the
+ * frame). Siren paints the frame for both, as the line says.
+ *
+ * A target nothing declares draws nothing, as it does in Mermaid (measured:
+ * `style Ghost fill:#00f` records a state `Ghost` that no figure is drawn
+ * for), so it is left to `resolveStyles`, which drops unknown targets.
+ */
+const STYLE_RE = /^style\s+([\w\s,]*[\w,])\s+([^\s].*)$/;
+
+/**
  * The constructs this parser reads well enough to *recognize* and does not
  * implement — each refused **by name**, in the author's own words.
  *
@@ -1076,6 +1104,23 @@ export function parseStateDiagram(source: string): ParseResult {
         targetIds: [],
         name: classDefMatch[1],
         properties: readStyleProperties(classDefMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
+    const styleMatch = STYLE_RE.exec(line);
+    if (styleMatch !== null) {
+      styles.push({
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: styleMatch[1]
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+        name: null,
+        properties: readStyleProperties(styleMatch[2], lineNumber, column),
         line: lineNumber,
         column,
       });

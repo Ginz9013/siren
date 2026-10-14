@@ -20,6 +20,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   12.2.0 does. A block's lines lose their leading whitespace, an empty block is no description, and
   a block that never closes is refused. `accTitle : text`, with a space before the colon, is read
   too (nook `01M3NNNE1`).
+- State diagrams read `style X decls` and paint the declarations onto the state, as Mermaid 12.2.0
+  does; a comma list in the target position styles each state (nook `01M36C24S`). It used to
+  refuse the whole document. Two places draw what the line says where Mermaid does not: `style A, B`
+  with a space after the comma styles both (Mermaid paints `B decls` onto A), and a composite's
+  frame is painted (Mermaid paints it for `class` but not for `style`).
 
 ### Fixed
 

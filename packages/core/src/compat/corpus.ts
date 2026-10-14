@@ -6302,6 +6302,40 @@ line2\`"]`,
     },
   },
   {
+    id: "st-style-statement",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      Busy --> Done
+      state Group {
+        Inner
+      }
+      style Busy fill:#f00
+      style Idle,Done stroke:#00f
+      style Group fill:#ff0`,
+    status: "supported",
+    meaning:
+      "`style X decls` writes declarations straight onto a state, with no " +
+      "`classDef` between. Measured (mermaid 12.2.0, `--markup`): Busy's " +
+      "rect carries `fill:#f00 !important`, and a comma list in the target " +
+      "position styles each state named. Added straight as `supported` — no " +
+      "`rejected` row ever recorded it, so the `REJECTED` ratchet does not " +
+      "move. With a space after the comma Mermaid paints `B decls` onto A " +
+      "instead; Siren styles both, by CONTEXT.md's third rule (`STYLE_RE` " +
+      "in `parseStateDiagram.ts`). On a composite, Mermaid paints nothing — " +
+      "the frame's `rect.outer` carries no style — although `class Group u` " +
+      "does reach it (the class lands on the composite's `<g>`, and " +
+      "`.u rect` paints the frame). The line names the composite, so Siren " +
+      "paints its frame for `style` as it does for `class`: the third rule " +
+      "again, Mermaid's picture contradicting the document.",
+    assert: (result) => {
+      expectSame("Busy's own rect carries the fill", stateStyle(result, "Busy"), "fill:#f00");
+      expectSame("a composite's frame is styled too", stateStyle(result, "Group"), "fill:#ff0");
+      expectSame("each state in the comma list is styled", stateStyle(result, "Idle"), "stroke:#00f");
+      expectSame("the last one too", stateStyle(result, "Done"), "stroke:#00f");
+    },
+  },
+  {
     id: "st-direction-document",
     kind: "state",
     source: `stateDiagram-v2

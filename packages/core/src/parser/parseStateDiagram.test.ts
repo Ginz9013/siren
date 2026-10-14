@@ -1071,6 +1071,51 @@ describe("parseStateDiagram", () => {
     }
   });
 
+  it("records `style X props` as a style on its comma-separated targets, in source order", () => {
+    // Measured (mermaid 12.2.0, `--markup`): `style Busy fill:#f00` paints
+    // Busy's rect `fill:#f00 !important`, and `style A,B fill:#f00` paints
+    // both. 01M36C24S: this used to refuse the whole document.
+    const document = documentOf(
+      "stateDiagram-v2\n  Idle --> Busy\n  style Busy fill:#f00,stroke:#00f\n  style Idle,Busy color:#fff\n",
+    );
+
+    expect(document.styles).toEqual([
+      {
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: ["Busy"],
+        name: null,
+        properties: [
+          { property: "fill", value: "#f00" },
+          { property: "stroke", value: "#00f" },
+        ],
+        line: 3,
+        column: 3,
+      },
+      {
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: ["Idle", "Busy"],
+        name: null,
+        properties: [{ property: "color", value: "#fff" }],
+        line: 4,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads `style A, B props` as styling both, where Mermaid paints `B props` onto A", () => {
+    // Measured (mermaid 12.2.0, `--markup`): with a space after the comma,
+    // A's rect carries `style="B fill:#f00 !important"` and B carries
+    // nothing — Mermaid's picture contradicts the line, with no diagnostic.
+    // CONTEXT.md's third rule: Siren draws what the document says, both.
+    const document = documentOf("stateDiagram-v2\n  A --> B\n  style A, B fill:#f00\n");
+
+    expect(document.styles.map((s) => [s.targetIds, s.properties])).toEqual([
+      [["A", "B"], [{ property: "fill", value: "#f00" }]],
+    ]);
+  });
+
   it("keeps the reserved-word guard the two styling statements were reserved for", () => {
     // The boundary the new patterns must not cross. `classDef` and `class`
     // became statement keywords above; a bare one, with no operands, is
