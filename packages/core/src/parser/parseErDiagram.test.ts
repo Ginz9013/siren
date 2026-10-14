@@ -1033,19 +1033,52 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       ]);
     }
 
-    // An opening backtick with no closing one on the line. ⚠️ **This is a
-    // divergence, and a deliberate one**: Mermaid's `block_bq` rule is
-    // `` [^`]+ ``, which matches a newline, so measured, `string `a` on one
-    // line and ``b` `` on the next is **one** attribute named `a\n    b` —
-    // a name with a line break and the source's indentation inside it.
-    // This parser reads a line at a time and refuses both halves, which
-    // costs the document and says so; drawing a single-line cell for a
-    // two-line name would be the silent kind of wrong. Unterminated
-    // altogether — no second backtick anywhere — is a parse error in
-    // Mermaid too, so that half agrees.
-    expect(refusalsFor("erDiagram\n  E {\n    string `a\n    b`\n  }\n")).toEqual([
+    // An opening backtick with no partner **anywhere** after it. Measured
+    // (mermaid 12.2.0): `string `a` and then `}` is a parse error ("got
+    // '1'") — the run swallows the closing brace and the end of the
+    // document arrives inside the backticks. A backtick whose partner is on
+    // a later line is a different document, read below.
+    expect(refusalsFor("erDiagram\n  E {\n    string `a\n  }\n")).toEqual([
       'Unrecognized erDiagram attribute: "string `a"',
-      'Unrecognized erDiagram attribute: "b`"',
+    ]);
+  });
+
+  it("reads a backticked word across lines, keeping the line break and indentation Mermaid records", () => {
+    // Measured (mermaid 12.2.0): the `block_bq` word rule is `` [^`]+ ``,
+    // and that class matches a newline like any other character, so the
+    // run simply continues onto the next line. Mermaid records **one**
+    // attribute, `type="string" name="a\n    b"` — the source's own
+    // indentation inside the name. The record is kept as Mermaid keeps it;
+    // what a cell with a line break *draws* is the layout's to decide.
+    const source = "erDiagram\n  ORDER {\n    string `a\n    b`\n  }\n";
+    expect(refusalsFor(source)).toEqual([]);
+    expect(attributesOf(source, "ORDER")).toEqual([
+      { type: "string", name: "a\n    b", keys: [], comment: plainLabel("") },
+    ]);
+
+    // Keys, a comment and the next attribute still follow the closing
+    // backtick — measured, `string `a` / `b` PK "c"` / `int z` reports
+    // both attributes with every field.
+    expect(
+      attributesOf('erDiagram\n  ORDER {\n    string `a\n    b` PK "c"\n    int z\n  }\n', "ORDER"),
+    ).toEqual([
+      { type: "string", name: "a\n    b", keys: ["PK"], comment: plainLabel("c") },
+      { type: "int", name: "z", keys: [], comment: plainLabel("") },
+    ]);
+
+    // The block may open mid-line and the run cross into a line that then
+    // closes it — measured, `ORDER { string `a` / `b` } F` is ORDER with
+    // that attribute and then a bare `F`.
+    const midLine = "erDiagram\n  ORDER { string `a\n    b` } F\n";
+    expect(namesOf(midLine)).toEqual(["ORDER", "F"]);
+    expect(attributesOf(midLine, "ORDER")).toEqual([
+      { type: "string", name: "a\n    b", keys: [], comment: plainLabel("") },
+    ]);
+
+    // A blank line inside the run is part of it too — measured,
+    // `name="a\n\n    b"`.
+    expect(attributesOf("erDiagram\n  ORDER {\n    string `a\n\n    b`\n  }\n", "ORDER")).toEqual([
+      { type: "string", name: "a\n\n    b", keys: [], comment: plainLabel("") },
     ]);
   });
 

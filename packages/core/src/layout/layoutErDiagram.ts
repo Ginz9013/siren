@@ -3,6 +3,7 @@ import type {
   ErAttributeColumn,
   ErCardinality,
   ErModel,
+  Label,
   LabelBox,
   LayoutOptions,
   PositionedErDiagram,
@@ -14,6 +15,7 @@ import type {
   ResolvedErEntity,
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
+import { plainRun } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapErRelationshipLabel } from "../label/wrapLabel";
 import {
@@ -106,6 +108,33 @@ function drawnColumns(attributes: readonly ErAttribute[]): typeof COLUMNS {
 }
 
 /**
+ * The lines a type or name draws: split at each line break, each line
+ * trimmed, and the blank ones dropped. Measured (mermaid 12.2.0,
+ * `--markup`), the name `a\n    b` — a backticked word across two lines —
+ * draws as the rows `a` and `b`, and `a\n\n    b` as the same two: the
+ * source's indentation is not part of the picture, though it is part of
+ * the record.
+ */
+function splitDrawnLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * The label a type or name cell draws when its text spans more than one
+ * line once `splitDrawnLines` has read it — one plain row per line, never
+ * read for tags — or `null` when it draws as one line of text.
+ */
+function drawnRows(text: string): Label | null {
+  if (!text.includes("\n")) return null;
+  const lines = splitDrawnLines(text);
+  if (lines.length < 2) return null;
+  return { text: lines.join("\n"), rows: lines.map((line) => [plainRun(line)]) };
+}
+
+/**
  * An entity box measured but not yet placed: its size, and where its name
  * row, rules and cells sit relative to its own top-left corner.
  *
@@ -158,8 +187,24 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
   const commentBoxes = entity.attributes.map((attribute) =>
     layoutLabel(attribute.comment, options.measureText),
   );
+  /** Each type and name that spans lines, as the rows it draws — `drawnRows`. */
+  const rowsByCell = new Map<string, { label: Label; labelBox: LabelBox }>();
+  entity.attributes.forEach((attribute, index) => {
+    for (const { column, textOf } of columns) {
+      if (column !== "type" && column !== "name") continue;
+      const label = drawnRows(textOf(attribute));
+      if (label !== null) {
+        rowsByCell.set(`${index}:${column}`, { label, labelBox: layoutLabel(label, options.measureText) });
+      }
+    }
+  });
+  /** What a text cell draws when it is one line: the text, unless a break left one line of it. */
+  const lineOf = (text: string): string =>
+    text.includes("\n") ? (splitDrawnLines(text)[0] ?? "") : text;
   const sizeOf = ({ column, textOf }: (typeof COLUMNS)[number], index: number) =>
-    column === "comment" ? commentBoxes[index] : measure(textOf(entity.attributes[index]));
+    column === "comment"
+      ? commentBoxes[index]
+      : (rowsByCell.get(`${index}:${column}`)?.labelBox ?? measure(lineOf(textOf(entity.attributes[index]))));
   const widths = columns.map(
     (column) =>
       Math.max(...entity.attributes.map((_, index) => sizeOf(column, index).width)) +
@@ -191,7 +236,19 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
       cells: columns.map(({ column, textOf }, columnIndex): PositionedErAttributeCell => {
         const x = columnLefts[columnIndex] + ENTITY_PADDING_X / 2;
         if (column !== "comment") {
-          return { column, text: textOf(attribute), x, y: centerY };
+          const rows = rowsByCell.get(`${index}:${column}`);
+          if (rows === undefined || column === "keys") {
+            return { column, text: lineOf(textOf(attribute)), x, y: centerY };
+          }
+          return {
+            column,
+            text: rows.label.text,
+            x,
+            y: centerY,
+            ...rows,
+            // Placed as a comment's rows are, below.
+            anchor: { x: x + rows.labelBox.width / 2 - rows.labelBox.rows[0].runs[0].x, y: centerY },
+          };
         }
         const labelBox = commentBoxes[index];
         return {
@@ -369,7 +426,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
                 cells: row.cells.map((cell): PositionedErAttributeCell => {
                   const x = box.x + cell.x;
                   const y = box.y + cell.y;
-                  return cell.column === "comment"
+                  return "anchor" in cell
                     ? { ...cell, x, y, anchor: { x: box.x + cell.anchor.x, y: box.y + cell.anchor.y } }
                     : { ...cell, x, y };
                 }),

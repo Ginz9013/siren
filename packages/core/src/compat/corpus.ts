@@ -1112,6 +1112,30 @@ function erRelationshipLabelAnchor(
 }
 
 /**
+ * The lines each cell of one column of an ER entity's attribute table draws,
+ * top to bottom — one entry per cell, and in it one string per line a
+ * reader sees.
+ *
+ * Read off the row tspans when the cell has them and off the `<text>` when
+ * it is one plain line, so a cell drawn as `a` over `b` reads `["a", "b"]`
+ * and one drawn as the single line `ab` reads `["ab"]` — the difference
+ * `erAttributeRows`, which flattens each cell to its `textContent`, cannot
+ * see.
+ */
+function erAttributeLines(result: SirenRenderResult, id: string, column: string): string[][] {
+  return Array.from(
+    svgOf(result).querySelectorAll(
+      `g.siren-er-entity[data-siren-id="${id}"] text.siren-er-attribute-${column}`,
+    ),
+  )
+    .sort((a, b) => Number(a.getAttribute("y")) - Number(b.getAttribute("y")))
+    .map((text) => {
+      const rows = Array.from(text.querySelectorAll(":scope > tspan.siren-label-row"));
+      return rows.length === 0 ? [text.textContent ?? ""] : rows.map((row) => row.textContent ?? "");
+    });
+}
+
+/**
  * One ER entity's attribute table as drawn, one string per row, each cell
  * written `column=text` and ordered by where it was actually placed.
  *
@@ -7825,35 +7849,43 @@ line2\`"]`,
     source: `erDiagram
       ORDER {
         string \`a
-        b\`
+        b\` PK
+        int z
       }`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "**A backticked word may span lines**, and this is the half of " +
-      "`er-attribute-backtick` that did not land with it. Measured: the " +
-      "`block_bq` condition's word rule is `` [^`]+ ``, and that character " +
-      "class matches a newline like any other character, so the run between " +
-      "the two backticks simply continues onto the next line. Mermaid " +
-      "reports one attribute, `type=\"string\"`, `name=\"a\\n    b\"` — the " +
-      "name carries the line break **and the source's own indentation**, " +
-      "which is a second decision nobody has made: what a cell containing a " +
-      "newline should be drawn as.\n\n" +
-      "Siren reads a line at a time, so it refuses both halves " +
-      "(`Unrecognized erDiagram attribute: \"string \\`a\"` and " +
-      "`\"b\\`\"`). That is a violation of the absolute compatibility " +
-      "condition — Mermaid draws this document and Siren draws nothing — " +
-      "but an **honest** one: the document costs the author a picture and " +
-      "says so, which is why it counts here and not against " +
-      "`SILENTLY_WRONG`.\n\n" +
-      "⚠️ **This row exists because `01M394HDP` measured the gap and the " +
-      "ratchet could not see it.** Three rows fell that ticket and this one " +
-      "rose, which is the accounting the ratchet comment asks for: a rise " +
-      "that names something already broken is not a regression. On this " +
-      "project a number that only ever falls has been an undercount four " +
-      "times, every one of them found by widening what gets named.\n\n" +
-      "Truly unterminated — a backtick with no partner anywhere in the " +
-      "document — is a parse error in Mermaid too, so that half already " +
-      "agrees and is asserted in `parseErDiagram.test.ts`.",
+      "**A backticked word may span lines**, the half of " +
+      "`er-attribute-backtick` that did not land with it. Measured (mermaid " +
+      "12.2.0): the `block_bq` condition's word rule is `` [^`]+ ``, and that " +
+      "character class matches a newline like any other character, so the run " +
+      "between the two backticks simply continues onto the next line. Mermaid " +
+      "records one attribute, `type=\"string\"`, `name=\"a\\n        b\"` — " +
+      "the line break **and the source's own indentation** in the name — then " +
+      "the key after the closing backtick, and `int z` as a second " +
+      "attribute.\n\n" +
+      "What it **draws** is the measured answer to the question the record " +
+      "left open: `--markup` shows the name cell as two row tspans, `a` and " +
+      "`b` — two lines, the indentation gone (a blank line inside the run " +
+      "draws no row of its own). Siren keeps the record as Mermaid keeps it " +
+      "and draws the cell the same way: one row per line, trimmed, in a row " +
+      "of the table tall enough for both.\n\n" +
+      "Truly unterminated — a backtick with no partner anywhere after it — is " +
+      "a parse error in Mermaid too, and refused here; asserted in " +
+      "`parseErDiagram.test.ts`.",
+    assert: (result) => {
+      // The drawn name cell, line by line: two lines, `a` over `b`. A reader
+      // that drew the record verbatim would give one cell `a\n        b`
+      // (one line once SVG collapses it), and one that dropped the break
+      // would give `ab` or `a b` — each reads differently here.
+      expectSame("ORDER's name cells, line by line", erAttributeLines(result, "ORDER", "name"), [
+        ["a", "b"],
+        ["z"],
+      ]);
+      // And the rest of the row followed the closing backtick: the key is
+      // `string`'s, and `int z` is a second attribute, not part of the name.
+      expectSame("ORDER's key cells", erAttributeLines(result, "ORDER", "keys"), [["PK"], [""]]);
+      expectSame("ORDER's type cells", erAttributeLines(result, "ORDER", "type"), [["string"], ["int"]]);
+    },
   },
   {
     id: "er-block-one-line",

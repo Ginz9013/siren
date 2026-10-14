@@ -1165,6 +1165,16 @@ interface ErLineRefusal {
 }
 
 /**
+ * A line `readLine` stopped reading inside a backticked word — the run is
+ * still open where the line ends (`CONTINUES`). Nothing on it is taken: the
+ * caller reads the next line onto this one and hands the whole back, so
+ * the all-or-nothing rule holds over the lines the run spans.
+ */
+interface ErLineContinuation {
+  continues: true;
+}
+
+/**
  * Everything `line` declares, given the block it began inside — or `null`
  * when any part of it is unreadable.
  *
@@ -1213,7 +1223,7 @@ function readLine(
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
   after: string,
-): ErLineReading | ErLineRefusal | null {
+): ErLineReading | ErLineRefusal | ErLineContinuation | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
   const styles: StyleDecl[] = [];
@@ -1258,6 +1268,9 @@ function readLine(
       const read = readAttributes(rest, restAt(), diagnostics);
       if (read === null) {
         return null;
+      }
+      if (read === CONTINUES) {
+        return { continues: true };
       }
       appends.push({ entity: open, attributes: read.attributes });
       rest = rest.slice(read.length).trimStart();
@@ -1561,15 +1574,13 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
    * runs may touch: `` `a``b` `` is a type and a name (measured), not one
    * word with backticks in the middle.
    *
-   * ⚠️ **One measured divergence, taken deliberately.** Mermaid's
-   * `` [^`]+ `` matches a newline, so a backticked word may span lines —
-   * measured, `` string `a `` over `` b` `` is one attribute named
-   * `` a\n    b ``, indentation included. This reader works a line at a
-   * time, so `[^`]+` is spelled against one line and both halves are
-   * refused instead: the document costs and says so, where a single-line
-   * cell drawn for a two-line name would be the silent kind of wrong. A
-   * backtick with no partner anywhere is a parse error in Mermaid too, so
-   * that half agrees rather than diverging.
+   * ⚠️ **The run may span lines.** Mermaid's `` [^`]+ `` matches a
+   * newline — measured, `` string `a `` over `` b` `` is one attribute
+   * named `` a\n    b ``, indentation included — and so does this
+   * pattern's. The tokenizer is handed a line at a time, though, so a run
+   * still open where its text ends is answered with `CONTINUES` and the
+   * caller reads the next line onto it. A backtick with no partner
+   * anywhere is a parse error in Mermaid too, and here.
    *
    * Group 1 rather than the whole match, which is what strips the quotes —
    * see `tokenizeAttributeLine`.
@@ -1583,6 +1594,19 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
    */
   { kind: "comment", pattern: /^"([^"]*)"/du },
 ];
+
+/**
+ * The answer for text that ends inside a backticked word — an opening
+ * backtick with no partner after it in the text read so far.
+ *
+ * Not a refusal, because Mermaid's `` [^`]+ `` matches a newline: measured
+ * (mermaid 12.2.0), `string `a` on one line and ``b` `` on the next is
+ * **one** attribute named `a\n    b`, the source's indentation included. So
+ * the caller reads the next line onto this one and asks again, and only a
+ * document that ends with the run still open is refused — which Mermaid
+ * refuses too ("got '1'").
+ */
+const CONTINUES = "continues";
 
 interface AttributeToken {
   kind: "key" | "word" | "comment" | "punctuation";
@@ -1604,7 +1628,9 @@ interface AttributeToken {
  * `punctuation` token, which is how `,` — a token the grammar names but the
  * lexer has no rule for inside a block — comes to separate two keys.
  */
-function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length: number } | null {
+function tokenizeAttributeLine(
+  text: string,
+): { tokens: AttributeToken[]; length: number } | typeof CONTINUES | null {
   const tokens: AttributeToken[] = [];
   let rest = text;
   while (rest.length > 0) {
@@ -1631,6 +1657,12 @@ function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length
         tokens.push({ kind: "punctuation", text: ",", match: null, offset: text.length - rest.length });
         rest = rest.slice(1);
         continue;
+      }
+      // A backtick whose partner is not in `text` at all: the run is still
+      // open where the text ends, and only the caller can say whether a
+      // later line closes it — see `CONTINUES`.
+      if (rest.startsWith("`") && !rest.includes("`", 1)) {
+        return CONTINUES;
       }
       return null;
     }
@@ -1676,10 +1708,10 @@ function readAttributes(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
-): { attributes: ErAttribute[]; length: number } | null {
+): { attributes: ErAttribute[]; length: number } | typeof CONTINUES | null {
   const tokenized = tokenizeAttributeLine(text);
-  if (tokenized === null) {
-    return null;
+  if (tokenized === null || tokenized === CONTINUES) {
+    return tokenized;
   }
   const { tokens, length } = tokenized;
   const attributes: ErAttribute[] = [];
@@ -1937,6 +1969,18 @@ export function parseErDiagram(source: string): ParseResult {
    * draws.
    */
   const registeredBlocks = new Set<string>();
+  /**
+   * A line that ended inside a backticked word, with every line read onto
+   * it since — `null` when no run is open. The reader's third mode, and the
+   * only one that crosses a line break inside a single token: measured
+   * (mermaid 12.2.0), `` [^`]+ `` matches a newline, so `string `a` and
+   * ``b` `` on the next line are one attribute named `a\n    b`. Each next
+   * line is appended raw — its indentation is part of the name Mermaid
+   * records, and a blank line is part of it too — and the whole is read
+   * again from where the run began, so a run that never closes costs
+   * exactly the statement it opened in.
+   */
+  let pending: { text: string; lineNumber: number; column: number; refusal: string } | null = null;
 
   /**
    * Adds diagnostics read off one line to the document's, and marks the
@@ -2046,13 +2090,20 @@ export function parseErDiagram(source: string): ParseResult {
     if (index <= accDescrBlockThrough) {
       continue;
     }
-    const line = rawLine.trim();
+    let line = rawLine.trim();
+    let lineNumber = index + 1;
+    let column = rawLine.length - rawLine.trimStart().length + 1;
+    const continuing: boolean = pending !== null;
+    if (pending !== null) {
+      // Read before the blank-line skip and before every statement pattern:
+      // inside the run, a line is characters of a name and nothing else.
+      line = `${pending.text}\n${rawLine}`;
+      ({ lineNumber, column } = pending);
+      pending = null;
+    }
     if (line.length === 0) {
       continue;
     }
-
-    const lineNumber = index + 1;
-    const column = rawLine.length - rawLine.trimStart().length + 1;
 
     // The first timeline header ends the diagram body for good — the
     // one-way switch every other kind makes, so an ER statement written after
@@ -2069,7 +2120,7 @@ export function parseErDiagram(source: string): ParseResult {
     // the in-block reader see it first — answers an author who wrote a
     // timeline with "Unrecognized erDiagram attribute", which names the
     // wrong problem.
-    if (sawHeader && isTimelineHeader(line)) {
+    if (!continuing && sawHeader && isTimelineHeader(line)) {
       const blocks = parseTimelineBlocks(lines, index);
       diagnostics.push(...blocks.diagnostics);
       if (blocks.diagnostics.length > 0) {
@@ -2091,6 +2142,15 @@ export function parseErDiagram(source: string): ParseResult {
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
       const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
+      if (reading !== null && "continues" in reading) {
+        pending = {
+          text: continuing ? line : rawLine.trimStart(),
+          lineNumber,
+          column,
+          refusal: `Unrecognized erDiagram attribute: "${line.split("\n")[0]}"`,
+        };
+        continue;
+      }
       if (reading === null || "refusal" in reading) {
         diagnostics.push({
           severity: "error",
@@ -2135,7 +2195,7 @@ export function parseErDiagram(source: string): ParseResult {
     // and `accTitle: direction LR` records no accessible title — so a reader
     // that asked "is this an accTitle?" or "is this a relationship?" first
     // would answer a question Mermaid never reaches. See `DIRECTION_RULES`.
-    const namedDirection = readDirection(line);
+    const namedDirection = continuing ? null : readDirection(line);
     if (namedDirection !== null) {
       // ⚠️ **The same statement means two different things depending on
       // where it stands**, and that is Mermaid's own action rather than a
@@ -2164,7 +2224,7 @@ export function parseErDiagram(source: string): ParseResult {
     // sets the **document's** direction and opens no block at all — its
     // trailing `end` is then a parse error, which is what Siren answers too
     // once `readLine` finds that `end` with nothing open.
-    const header = SUBGRAPH_HEAD_RE.exec(line);
+    const header = continuing ? null : SUBGRAPH_HEAD_RE.exec(line);
     // The name read as the lexer reads it, as anywhere else a name stands
     // (01M3C621W): measured, `subgraph one`, `subgraph 123abc`, `subgraph
     // to-do` and `subgraph 1` with a statement on the next line are each a
@@ -2216,13 +2276,13 @@ export function parseErDiagram(source: string): ParseResult {
     // ordinary entity names in this alphabet — measured, a bare `accTitle`
     // is a box — so the colon is the whole of the boundary, and a reader
     // asking "is this a name?" first would never see it.
-    const namedAccTitle = ACC_TITLE_RE.exec(line);
+    const namedAccTitle = continuing ? null : ACC_TITLE_RE.exec(line);
     if (namedAccTitle !== null) {
       accTitle = namedAccTitle[1].trim();
       continue;
     }
 
-    const namedAccDescr = ACC_DESCR_RE.exec(line);
+    const namedAccDescr = continuing ? null : ACC_DESCR_RE.exec(line);
     if (namedAccDescr !== null) {
       accDescr = namedAccDescr[1].trim();
       continue;
@@ -2234,7 +2294,7 @@ export function parseErDiagram(source: string): ParseResult {
     // its `}` is written back onto the `}` line, blanked to its column, for
     // this loop to read as that line's statements. A block that never closes
     // is a parse error in Mermaid, measured.
-    if (ACC_DESCR_BRACED_RE.test(line)) {
+    if (!continuing && ACC_DESCR_BRACED_RE.test(line)) {
       const block = readAccDescrBlock(lines, index, rawLine.indexOf("{"));
       if (!block.closed) {
         diagnostics.push({
@@ -2260,6 +2320,16 @@ export function parseErDiagram(source: string): ParseResult {
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
     const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
+    if (reading !== null && "continues" in reading) {
+      const first = line.split("\n")[0];
+      pending = {
+        text: continuing ? line : rawLine.trimStart(),
+        lineNumber,
+        column,
+        refusal: unimplementedIn(first) ?? `Unrecognized erDiagram line: "${first}"`,
+      };
+      continue;
+    }
     if (reading !== null && !("refusal" in reading)) {
       take(reading, lineNumber, column, line);
       if (reading.openEntity !== null) {
@@ -2285,6 +2355,19 @@ export function parseErDiagram(source: string): ParseResult {
     sawError = true;
   }
 
+  // A backticked word still open where the document ends — no partner
+  // anywhere after it. Measured, a parse error in Mermaid too ("got '1'"),
+  // so it is refused at the line that opened it, in that line's words.
+  if (pending !== null) {
+    diagnostics.push({
+      severity: "error",
+      message: pending.refusal,
+      line: pending.lineNumber,
+      column: pending.column,
+    });
+    sawError = true;
+  }
+
   if (!sawHeader) {
     diagnostics.push({
       severity: "error",
@@ -2299,7 +2382,10 @@ export function parseErDiagram(source: string): ParseResult {
   // document outright ("Parse error"), so reading it as if the brace were
   // there would draw a picture for a document Mermaid draws nothing for —
   // the one direction the absolute compatibility condition rules out.
-  if (openedAt !== null) {
+  //
+  // Not when a backticked word is what is still open: its run swallowed the
+  // brace, and the open run, already reported above, is the one problem.
+  if (openedAt !== null && pending === null) {
     diagnostics.push({
       severity: "error",
       message: `Unclosed erDiagram attribute block: "${openedAt.line}"`,
@@ -2346,7 +2432,7 @@ export function parseErDiagram(source: string): ParseResult {
   // the `end` were there would draw a picture for a document Mermaid draws
   // nothing for — the same trade the unclosed attribute block makes, and
   // reported per block so an author who forgot two `end`s is told twice.
-  for (const opened of blockOpenedAt) {
+  for (const opened of pending === null ? blockOpenedAt : []) {
     diagnostics.push({
       severity: "error",
       message: `Unclosed erDiagram subgraph block: "${opened.line}"`,

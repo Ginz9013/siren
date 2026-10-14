@@ -1473,8 +1473,14 @@ const SILENTLY_WRONG = 0;
  * `classDef end`), so it was never silent. The same ticket's
  * `er-style-class-shorthand-relationship` is new and `supported`, and
  * `er-style-target-colon` stays `rejected` with a named refusal now.
+ *
+ * **15 → 14: a construct started working.** `01M39CT0G`: a backticked
+ * attribute word may span lines (Mermaid's `` [^`]+ `` matches a newline),
+ * and Siren now reads it as one attribute and draws the cell as Mermaid
+ * 12.2.0 does — one row per line, indentation gone.
+ * `er-attribute-backtick-multiline` moves to `supported`.
  */
-const REJECTED = 15;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

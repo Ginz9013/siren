@@ -495,10 +495,12 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
     for (const row of table.rows) {
       for (const cell of row.cells) {
         const className = `siren-er-attribute siren-er-attribute-${cell.column}`;
-        if (cell.column === "comment") {
+        if ("label" in cell) {
           // The comment is a label (ADR-0015), drawn by `drawLabel` at the
           // anchor layout placed so its widest row starts where the column's
           // cells do. One plain row is the `<text>`'s own `textContent`.
+          // A type or name that spans lines is drawn the same way, one plain
+          // row per line (`PositionedErAttributeLinesCell`).
           const drawn = drawPlaced(cell, className);
           applyAuthorStyle(drawn.text, entity.style.text);
           appendLabel(g, drawn);

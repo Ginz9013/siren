@@ -293,6 +293,41 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
     expect(text?.getAttribute("style")).toBe("fill:#fff");
   });
 
+  it("draws a name that spans lines one row tspan per line, at the anchor layout gave it and wearing the entity's text style", () => {
+    // A backticked name across two lines, `a\n    b` in the record, which
+    // Mermaid 12.2.0 draws as the two row tspans `a` and `b` (`--markup`).
+    // The anchor is (81, 100), so its 48px of rows run 76..124 and sit on
+    // 88 and 112 — and no row carries the source's indentation.
+    const name = {
+      column: "name" as const,
+      text: "a\nb",
+      x: 77,
+      y: 100,
+      label: rowsLabel("a", "b"),
+      labelBox: boxOf("a", "b"),
+      anchor: { x: 81, y: 100 },
+    };
+    const [type, , keys] = WITH_ATTRIBUTES.attributeTable.rows[0].cells;
+    const svg = renderErDiagramToSVG(
+      diagram([
+        {
+          ...WITH_ATTRIBUTES,
+          style: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+          attributeTable: { ...WITH_ATTRIBUTES.attributeTable, rows: [{ cells: [type, name, keys] }] },
+        },
+      ]),
+    );
+
+    const text = svg.querySelector("text.siren-er-attribute-name");
+    expect(text?.getAttribute("class")).toBe("siren-er-attribute siren-er-attribute-name");
+    expect(rowsOf(text)).toEqual(["a", "b"]);
+    expect(rowYsOf(text)).toEqual([88, 112]);
+    expect(
+      Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) => row.getAttribute("x")),
+    ).toEqual(["81", "81"]);
+    expect(text?.getAttribute("style")).toBe("fill:#fff");
+  });
+
   it("draws a subgraph's two-row title one row tspan per row, centred on its anchor", () => {
     // `subgraph s1["sales<br/>team"]` (ADR-0015). The anchor is at y 42, so
     // the title's 48px of rows run 18..66 and the two rows sit on 30 and 54.

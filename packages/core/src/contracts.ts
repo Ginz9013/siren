@@ -3123,7 +3123,14 @@ export interface ErAttribute {
    * here: the key rule is read first, so `PK x` is a parse error too.
    */
   type: string;
-  /** The attribute's name, in the same alphabet as `type`. */
+  /**
+   * The attribute's name, in the same alphabet as `type` — or, backticked,
+   * any characters but a backtick. ⚠️ **A line break included**, with the
+   * source's indentation after it, exactly as Mermaid records it: measured
+   * (12.2.0), `` string `a `` over `` b` `` is `name="a\n    b"`. The same
+   * holds for a backticked `type`. What such a cell draws — one row per
+   * line, trimmed — is the layout's (`PositionedErAttributeLinesCell`).
+   */
   name: string;
   /**
    * The key kinds written after the name, in source order and **split on
@@ -3831,7 +3838,10 @@ export interface PositionedErAttributeRow {
  * column's left plus half the padding) and is what keeps a column of types
  * reading as a column.
  */
-export type PositionedErAttributeCell = PositionedErAttributeTextCell | PositionedErAttributeCommentCell;
+export type PositionedErAttributeCell =
+  | PositionedErAttributeTextCell
+  | PositionedErAttributeLinesCell
+  | PositionedErAttributeCommentCell;
 
 /** A type, name or keys cell: one line of literal text, never read for tags. */
 export interface PositionedErAttributeTextCell {
@@ -3848,6 +3858,27 @@ export interface PositionedErAttributeTextCell {
   x: number;
   /** Vertical centre of the text, the way `PositionedClass`'s member lines are. */
   y: number;
+}
+
+/**
+ * A type or name cell whose text spans lines — a backticked word may cross a
+ * line break, and Mermaid records the break and the source's indentation in
+ * the word (`a\n    b`). Measured (mermaid 12.2.0, `--markup`), it draws
+ * one row per line with the indentation gone and blank lines dropped, so
+ * this cell is that: a label of plain rows, never read for tags, drawn and
+ * placed exactly as a comment cell is. A text that leaves a single line
+ * once that is done stays a `PositionedErAttributeTextCell`.
+ */
+export interface PositionedErAttributeLinesCell {
+  column: "type" | "name";
+  /** The lines drawn, joined by `\n` — `label.text`. */
+  text: string;
+  x: number;
+  /** Vertical centre of the label, as a text cell's `y` is. */
+  y: number;
+  label: Label;
+  labelBox: LabelBox;
+  anchor: Point;
 }
 
 /**

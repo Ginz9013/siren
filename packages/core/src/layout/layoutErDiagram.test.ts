@@ -233,6 +233,56 @@ describe("layoutErDiagram", () => {
     ).toEqual([false, false]);
   });
 
+  it("draws a type or name that spans lines as one row per line, without the source's indentation", () => {
+    // Measured (mermaid 12.2.0, `--markup`): the name `a\n    b` that a
+    // backticked word across two lines records is drawn as **two** row
+    // tspans, `a` and `b` — the line break kept, the indentation gone. A
+    // blank line inside the run draws no row of its own (`a\n\n    b` is
+    // still two), and the same holds in the type position (`` `x / y` name
+    // `` draws `x` over `y`).
+    const laidOut = layoutErDiagram(
+      modelWithAttributes("ORDER", [
+        { type: "string", name: "a\n\n    b", keys: [], comment: plainLabel("") },
+        { type: "x\n y", name: "z", keys: [], comment: plainLabel("") },
+      ]),
+      options,
+    );
+    const [entity] = laidOut.entities;
+    const table = tableOf(laidOut, "ORDER");
+    const name = table.rows[0].cells.find((cell) => cell.column === "name")!;
+    const type = table.rows[1].cells.find((cell) => cell.column === "type")!;
+    if (!("label" in name) || !("label" in type)) {
+      throw new Error("a cell spanning lines was not laid out as rows");
+    }
+    expect(name.label).toEqual({ text: "a\nb", rows: [[plainRun("a")], [plainRun("b")]] });
+    expect(type.label).toEqual({ text: "x\ny", rows: [[plainRun("x")], [plainRun("y")]] });
+    // Two lines tall, the height the two-row comment above measures (45),
+    // and centred in its own row like every cell.
+    expect(name.labelBox.height).toBe(45);
+    expect(name.y - table.headerDividerY).toBe(8 + 45 / 2);
+    // The first row is 45 + 8 + 8 tall and the second the same, so the
+    // box is the name row (40) and both.
+    expect(entity.height).toBe(40 + 61 + 61);
+    // Left-aligned at the cell's `x`, as a comment's rows are.
+    expect(name.anchor).toEqual({ x: name.x + measuredWidth("a") / 2, y: name.y });
+    // The column is as wide as its widest line, not as the recorded text.
+    expect(table.columnDividerXs[0] - entity.x).toBe(measuredWidth("string") + 14);
+  });
+
+  it("draws a name whose line break leaves one line of text as a plain cell", () => {
+    // Measured (mermaid 12.2.0, `--markup`): `` string ` / b` `` records
+    // `name="\n    b"` and draws one row, `b`.
+    const table = tableOf(
+      layoutErDiagram(
+        modelWithAttributes("ORDER", [{ type: "string", name: "\n    b", keys: [], comment: plainLabel("") }]),
+        options,
+      ),
+      "ORDER",
+    );
+    expect(rowTexts(table, 0)).toEqual(["type=string", "name=b"]);
+    expect(table.rows[0].cells.map((cell) => "label" in cell)).toEqual([false, false]);
+  });
+
   it("lays an attribute out as four columns in Mermaid's own order, under a name row", () => {
     // Measured (mermaid 11.17.2, `--markup`): an entity with attributes is
     // drawn as a table — the name on a row of its own at the top, a rule
