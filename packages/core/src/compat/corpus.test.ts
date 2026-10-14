@@ -1444,8 +1444,14 @@ const SILENTLY_WRONG = 2;
  * it and paints nothing. `er-style-class-shorthand`, which was refused only
  * by that rule, draws now and moves to `supported`, asserting the unstyled
  * entity and the warning. `silently-wrong` does not move.
+ *
+ * **14 → 13: a refused block, read.** `01M4WS1P6` read ER's braced
+ * `accDescr { ... }` through the `readAccDescrBlock` the sequence and
+ * flowchart parsers share, measured on 12.2.0 to behave identically in all
+ * three kinds. `er-acc-descr-multiline` moves to `supported`, asserting the
+ * description and that no entity is drawn for the block's body.
  */
-const REJECTED = 14;
+const REJECTED = 13;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

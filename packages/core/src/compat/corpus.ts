@@ -3457,6 +3457,28 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-acc-descr-multiline",
+    kind: "flowchart",
+    source: `flowchart TB
+      accDescr {
+        how the order
+          moves along
+      } A[Start] --> B[End]`,
+    status: "supported",
+    meaning:
+      "`accDescr`'s braced spelling in a flowchart. Measured on 12.2.0: the " +
+      "description is the block's lines with their indent dropped, \"how the " +
+      "order\\nmoves along\", and what follows the `}` is the next statement — " +
+      "here the whole edge. Read by the same `readAccDescrBlock` the sequence " +
+      "and ER parsers use (01M4WS1P6). Lower case only, unlike those two: a " +
+      "flowchart's `ACCDESCR {` is a parse error.",
+    assert: (result) => {
+      expectSame("the accessible description text", svgOf(result).querySelector("desc")?.textContent, "how the order\nmoves along");
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
     id: "fc-acc-title",
     kind: "flowchart",
     source: `flowchart TB
@@ -8589,8 +8611,7 @@ line2\`"]`,
       "above because Mermaid gives it its own statement, its own store and " +
       "its own multi-line `accDescr { ... }` spelling — and `fc-acc-title` " +
       "and `fc-acc-descr` are already two rows for that reason. The braced " +
-      "spelling is still unimplemented, and now refused **by name** rather " +
-      "than read as an entity called `accDescr`.",
+      "spelling is `er-acc-descr-multiline`.",
     assert: (result) => {
       const svg = svgOf(result);
       const desc = svg.querySelector("desc");
@@ -8667,7 +8688,7 @@ line2\`"]`,
         string x
       }
       CUSTOMER`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`accDescr`'s **braced** spelling, the multi-line description. " +
       "Measured: this document reports exactly one entity, `CUSTOMER` — the " +
@@ -8687,7 +8708,16 @@ line2\`"]`,
       "The same hole stayed open in capitals until `01M4WAFD4`: the guard " +
       "was case-sensitive, so `ACCDESCR {` / `string x` / `}` — the same " +
       "block in Mermaid 12.2.0 — drew the two boxes again. It is refused by " +
-      "name in any case now.",
+      "name in any case now.\n\n" +
+      "**Supported since `01M4WS1P6`**: the block is read as the description " +
+      "through the shared `readAccDescrBlock`, exactly as a flowchart's and a " +
+      "sequence diagram's are (measured on 12.2.0: indent and blank lines go, " +
+      "an empty block is no description, what follows `}` is the next " +
+      "statement) — so the body is never an entity's attributes, in any case.",
+    assert: (result) => {
+      expectSame("the accessible description text", svgOf(result).querySelector("desc")?.textContent, "string x");
+      expectSame("one entity, and no box called accDescr", erEntities(result), ["CUSTOMER[CUSTOMER]"]);
+    },
   },
 
   {

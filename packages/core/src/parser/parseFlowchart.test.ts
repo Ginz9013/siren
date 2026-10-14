@@ -702,6 +702,44 @@ describe("a flowchart's accTitle/accDescr statements", () => {
     expect(document.accDescr).toBe("A longer description");
   });
 
+  it("reads the braced accDescr block, and `accTitle : x` with a space before the colon (01M4WS1P6)", () => {
+    // Measured on mermaid 12.2.0: the block reads as it does in every kind
+    // (see `readAccDescrBlock`) — lines lose their indent, blanks go, what
+    // follows the `}` is the next statement — and `accTitle : hi` is "hi".
+    const { document, diagnostics } = parseOk(`flowchart TB
+  accTitle : A short title
+  accDescr {
+    A longer
+
+      description
+  } A[Start] --> B[End]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("A short title");
+    expect(document.accDescr).toBe("A longer\ndescription");
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+
+    expect(parseOk("flowchart TB\n  accDescr{one}\n  A\n").document.accDescr).toBe("one");
+    expect(parseOk("flowchart TB\n  accDescr {\n  }\n  A\n").document.accDescr).toBeNull();
+  });
+
+  it("reads the acc keywords in lower case only, as Mermaid's flowchart lexer does", () => {
+    // Unlike an ER or a sequence diagram, measured on 12.2.0: `ACCDESCR {`,
+    // `ACCDESCR: x` and `ACCTITLE: x` are parse errors in a flowchart.
+    for (const line of ["ACCDESCR {", "ACCDESCR: x", "ACCTITLE: x"]) {
+      expect([line, parseFlowchart(`flowchart TB\n  ${line}\n  }\n  A\n`).document]).toEqual([line, null]);
+    }
+  });
+
+  it("refuses an accDescr block that never closes", () => {
+    // Mermaid 12.2.0 reads the rest of the document into it and draws an
+    // empty flowchart, which is not what the document says.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  accDescr {\n  one\n  A --> B\n");
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 2]]);
+  });
+
   it("leaves accTitle and accDescr null when the document declares neither", () => {
     const { document, diagnostics } = parseOk(`flowchart TB
   A[Start] --> B[End]

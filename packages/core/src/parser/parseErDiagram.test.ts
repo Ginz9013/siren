@@ -558,51 +558,34 @@ describe("parseErDiagram — the places an ER diagram reads a label", () => {
 });
 
 describe("parseErDiagram refuses an unimplemented construct by name", () => {
-  it("names the multi-line accDescr block rather than reading an entity out of it", () => {
-    // Measured (mermaid 11.17.2): `accDescr {` / `a long description` / `}`
-    // written beside `CUSTOMER` reports **one** entity, `CUSTOMER` — the
-    // block is the description's own multi-line spelling and puts no box on
-    // the canvas.
-    //
-    // ⚠️ `ENTITY_HEAD_RE` matches that opening line exactly as it matches
-    // `CUSTOMER {`, so without a guard read *before* it this parser would
-    // draw a box called `accDescr` for a document Mermaid draws no box for —
-    // a silently wrong picture rather than a refusal.
-    //
-    // The control below is the boundary: `accTitle {` has no such rule.
-    // Measured, `accTitle {` / `x` / `}` is a **parse error** in Mermaid
-    // ("Expecting 'ATTRIBUTE_WORD'"), which is an entity called `accTitle`
-    // opening a block with a malformed attribute in it — the reading this
-    // parser already gives it, so it must stay untouched.
-    expect(
-      refusalsFor("erDiagram\n  accDescr {\n    a long description\n  }\n  CUSTOMER\n"),
-    ).toEqual([
-      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "accDescr {"',
-    ]);
+  it("reads the multi-line accDescr block as the description, never as an entity", () => {
+    // 01M4WS1P6. Measured on mermaid 12.2.0: `accDescr {` / `string x` / `}`
+    // beside `CUSTOMER` is a description and one entity — never an entity
+    // called `accDescr` carrying a `string x` row, which is the silently
+    // wrong picture an earlier reading of this line drew. The block reads as
+    // it does in every kind (`readAccDescrBlock`): indent and blank lines
+    // go, `ACCDESCR {` is the same block, and what follows `}` is the next
+    // statement.
+    const document = documentOf("erDiagram\n  accDescr {\n    string x\n\n      more\n  }\n  CUSTOMER\n");
+    expect(document.accDescr).toBe("string x\nmore");
+    expect(document.entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
 
-    // **The body that made this a silently wrong picture rather than a
-    // missing one.** Measured: `accDescr {` / `string x` / `}` beside
-    // `CUSTOMER` reports **one** entity in Mermaid. `string x` is a
-    // well-formed attribute, so without the guard this parser read the
-    // block as an entity's and drew two boxes — `CUSTOMER`, and an
-    // `accDescr` carrying a `string x` row — saying nothing. One
-    // diagnostic, and no second box.
-    expect(refusalsFor("erDiagram\n  accDescr {\n    string x\n  }\n  CUSTOMER\n")).toEqual([
-      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "accDescr {"',
-    ]);
+    const capitals = documentOf("erDiagram\n  ACCDESCR {\n    string x\n  } CUSTOMER\n");
+    expect(capitals.accDescr).toBe("string x");
+    expect(capitals.entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
 
-    // The boundary: `accTitle {` has no such rule in Mermaid, so it stays
-    // an ordinary entity opening an ordinary attribute block here.
+    expect(documentOf("erDiagram\n  accDescr{one}\n  A\n").accDescr).toBe("one");
+
+    // The boundary, unchanged: `accTitle {` has no such rule in Mermaid, so
+    // it stays an ordinary entity opening an ordinary attribute block here.
     expect(namesOf("erDiagram\n  accTitle {\n    string x\n  }\n")).toEqual(["accTitle"]);
   });
 
-  it("names the multi-line accDescr block in any case", () => {
-    // Measured (mermaid 12.2.0): `ACCDESCR {` / `line one` / `}` is the same
-    // description block as the lower-case one, so it is refused the same way
-    // rather than read as an entity called `ACCDESCR` with attributes.
-    expect(refusalsFor("erDiagram\n  ACCDESCR {\n    string x\n  }\n  CUSTOMER\n")).toEqual([
-      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "ACCDESCR {"',
-    ]);
+  it("refuses an accDescr block that never closes, as Mermaid does", () => {
+    // Measured on 12.2.0: a parse error.
+    const { document, diagnostics } = parseErDiagram("erDiagram\n  accDescr {\n  one\n  A\n");
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 2]]);
   });
 
   it('names the "u" cardinality, the fifth one this parser does not draw', () => {

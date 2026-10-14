@@ -23,6 +23,7 @@ import { CSS_NAMED_COLORS } from "../label/cssColor";
 import { plainLabel, type SourcePosition } from "../label/label";
 import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /**
@@ -62,11 +63,10 @@ const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/i;
 /** `accDescr: text` — the screen-reader-only description, read exactly as `accTitle` is. */
 const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
 /**
- * The opening of the braced `accDescr { ... }`, with whatever follows the
- * brace on the same line. The block runs to the first `}`, on this line or a
- * later one (`readAccDescrBlock`).
+ * The opening of the braced `accDescr { ... }`, in any case. The block runs
+ * to the first `}`, on this line or a later one (`readAccDescrBlock`).
  */
-const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{(.*)$/i;
+const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
 /** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
 const LINK_RE = /^link\s+(\w+):\s*(.+?)\s*@\s*(\S+)$/i;
 /** The lone participant id argument of a `destroy` statement. */
@@ -155,52 +155,33 @@ const DEACTIVATE_RE = /^deactivate\s+(\w+)$/i;
 const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/di;
 
 /**
- * Reads a braced `accDescr { ... }` from the line holding its opening brace
- * (`afterBrace` is that line's text after the `{`) to the first `}`, and
- * leaves `state.index` on the line after the one that closed it.
- *
- * Measured on Mermaid 12.2.0: the description is the text between the
- * braces with each line's leading whitespace and every blank line dropped —
- * `accDescr {` / `    line one` / `` / `      line two` / `}` is
- * "line one\nline two" — and an empty block writes no `<desc>`, so it reads
- * as `null`. A block that never closes is refused: Mermaid reads every line
- * after it as the description and draws an empty diagram, which is not what
- * the document says.
+ * Reads a braced `accDescr { ... }` opened on the current line, through the
+ * shared `readAccDescrBlock` every kind with the statement uses, and leaves
+ * `state.index` on the next line to read: the one after the `}`, or the `}`
+ * line itself when a statement follows the brace there (`accDescr { one }
+ * A->>B: x` draws the message, measured), blanked up to it. A block that
+ * never closes is refused — see `readAccDescrBlock`.
  */
-function readAccDescrBlock(state: ParserState, afterBrace: string, line: number, column: number): void {
-  const parts: string[] = [];
-  let text = afterBrace;
-  for (let index = state.index; index < state.lines.length; index++) {
-    if (index > state.index) text = state.lines[index];
-    const close = text.indexOf("}");
-    if (close !== -1) {
-      parts.push(text.slice(0, close));
-      const description = parts.join("\n").trim().replace(/\n\s+/g, "\n");
-      state.accDescr = description === "" ? null : description;
-      // Whatever follows the `}` is the next statement, as it is in Mermaid
-      // (`accDescr { one } A->>B: x` draws the message). It is left on this
-      // line, blanked up to the brace so its columns stay true, for the body
-      // loop to read; `extra` there is refused as any stray line is.
-      const rawLine = state.lines[index];
-      const after = rawLine.lastIndexOf(text.slice(close)) + 1;
-      if (rawLine.slice(after).trim() === "") {
-        state.index = index + 1;
-      } else {
-        state.lines[index] = " ".repeat(after) + rawLine.slice(after);
-        state.index = index;
-      }
-      return;
-    }
-    parts.push(text);
+function readAccDescrBlockAt(state: ParserState, line: number, column: number): void {
+  const block = readAccDescrBlock(state.lines, state.index, state.lines[state.index].indexOf("{"));
+  if (!block.closed) {
+    state.diagnostics.push({
+      severity: "error",
+      message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+      line,
+      column,
+    });
+    state.sawError = true;
+    state.index = state.lines.length;
+    return;
   }
-  state.diagnostics.push({
-    severity: "error",
-    message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
-    line,
-    column,
-  });
-  state.sawError = true;
-  state.index = state.lines.length;
+  state.accDescr = block.description;
+  if (block.rest === null) {
+    state.index = block.closeIndex + 1;
+  } else {
+    state.lines[block.closeIndex] = block.rest;
+    state.index = block.closeIndex;
+  }
 }
 
 /** Mutable cursor + accumulators threaded through the recursive-descent body parser. */
@@ -540,7 +521,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const accDescrBlockMatch = ACC_DESCR_BLOCK_RE.exec(line);
     if (accDescrBlockMatch !== null) {
-      readAccDescrBlock(state, accDescrBlockMatch[1], lineNumber, column);
+      readAccDescrBlockAt(state, lineNumber, column);
       continue;
     }
 

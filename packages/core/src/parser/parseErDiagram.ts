@@ -19,6 +19,7 @@ import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /** The headers a diagnostic here names, asked of the one registry that accepts them. */
@@ -603,7 +604,12 @@ const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
 // In any case: measured on 12.2.0, `ACCDESCR {` is the same block, and a
 // case-sensitive test let it through to `ENTITY_HEAD_RE` as an entity called
 // `ACCDESCR` — the silently wrong picture above, in capitals.
-const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/i;
+//
+// **Read now, not refused** (01M4WS1P6): the block is the description,
+// through the shared `readAccDescrBlock`, so the guard that kept it from
+// `ENTITY_HEAD_RE` is now what reads it. Not anchored at the end any more:
+// `accDescr{one}` and `accDescr { one } A` open the same block.
+const ACC_DESCR_BRACED_RE = /^accDescr\s*\{/i;
 
 /**
  * `subgraph s1`, `subgraph s1["My Title"]`, `subgraph s1 [Bracket Title]` —
@@ -1681,11 +1687,11 @@ export function parseErDiagram(source: string): ParseResult {
   let accTitle: string | null = null;
   let accDescr: string | null = null;
   /**
-   * Whether the reader is inside a `accDescr { ... }` block it has already
-   * refused by name. Its body is prose rather than ER, so every line of it
-   * is dropped until the closing brace — see `ACC_DESCR_BRACED_RE`.
+   * The index of the last line an `accDescr { ... }` block took, or -1. Its
+   * lines are the description, read already, rather than ER — see
+   * `ACC_DESCR_BRACED_RE`.
    */
-  let drainingAccDescr = false;
+  let accDescrBlockThrough = -1;
   /**
    * The author's styling statements in written order, definitions and
    * apply-directives alike. Left unpaired here on purpose: an
@@ -1822,6 +1828,9 @@ export function parseErDiagram(source: string): ParseResult {
 
   const lines = source.split(/\r\n|\r|\n/);
   for (const [index, rawLine] of lines.entries()) {
+    if (index <= accDescrBlockThrough) {
+      continue;
+    }
     const line = rawLine.trim();
     if (line.length === 0) {
       continue;
@@ -1854,17 +1863,6 @@ export function parseErDiagram(source: string): ParseResult {
       timeline = blocks.timeline;
       namedTimelines = blocks.namedTimelines;
       break;
-    }
-
-    // Inside a refused `accDescr { ... }`, every line is prose. Read before
-    // the attribute-block reader, which those two can never both be true
-    // for: this block is entered without an `openEntity`, because no entity
-    // was declared for it.
-    if (drainingAccDescr) {
-      if (line === ATTRIBUTE_BLOCK_CLOSE) {
-        drainingAccDescr = false;
-      }
-      continue;
     }
 
     // A line that *starts* inside a block. It need not end inside one —
@@ -2005,26 +2003,31 @@ export function parseErDiagram(source: string): ParseResult {
       continue;
     }
 
-    // The braced spelling, refused by name here rather than in the table at
-    // the bottom, because `ENTITY_HEAD_RE` below would otherwise claim it —
-    // see `ACC_DESCR_BRACED_RE`.
-    //
-    // The body is then drained to its closing brace rather than read, so the
-    // refusal is **one** diagnostic naming the construct instead of that one
-    // plus a line of prose reported as an unrecognized statement: the
-    // description is text, and telling an author their sentence is malformed
-    // ER says the wrong thing twice over.
+    // The braced spelling, read here rather than among the statements below,
+    // because `ENTITY_HEAD_RE` would otherwise claim it — see
+    // `ACC_DESCR_BRACED_RE`. Its lines are skipped once read; what follows
+    // its `}` is written back onto the `}` line, blanked to its column, for
+    // this loop to read as that line's statements. A block that never closes
+    // is a parse error in Mermaid, measured.
     if (ACC_DESCR_BRACED_RE.test(line)) {
-      diagnostics.push({
-        severity: "error",
-        message:
-          "Unimplemented erDiagram construct: the multi-line `accDescr { ... }` " +
-          `description, in "${line}"`,
-        line: lineNumber,
-        column,
-      });
-      sawError = true;
-      drainingAccDescr = true;
+      const block = readAccDescrBlock(lines, index, rawLine.indexOf("{"));
+      if (!block.closed) {
+        diagnostics.push({
+          severity: "error",
+          message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        break;
+      }
+      accDescr = block.description;
+      if (block.rest === null) {
+        accDescrBlockThrough = block.closeIndex;
+      } else {
+        lines[block.closeIndex] = block.rest;
+        accDescrBlockThrough = block.closeIndex - 1;
+      }
       continue;
     }
 

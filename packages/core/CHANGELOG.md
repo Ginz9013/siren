@@ -46,6 +46,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 - Flowchart node ids may hold `-` wherever Mermaid's lexer allows it — anywhere the next
   character is not `>`, `-` or `.` — so `a-b --> c`, `a-b-->c-d`, `-a` and `a-` read as Mermaid
   12.2.0 reads them (nook `01M2SVAFT`). They used to be refused.
+- Flowcharts and ER diagrams read the braced `accDescr { ... }` block, as sequence diagrams do, and
+  flowcharts read `accTitle : text` and `accDescr : text` with a space before the colon (nook
+  `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
 
 ### Changed
 

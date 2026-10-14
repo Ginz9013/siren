@@ -22,6 +22,7 @@ import type {
 import { plainLabel } from "../label/label";
 import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
@@ -1304,11 +1305,28 @@ const CLICK_HREF_BARE_RE = new RegExp(
   String.raw`^click\s+(${ID_RUN})\s+"([^"]*)"(?:\s+"([^"]*)")?(?:\s+(${LINK_TARGETS.join("|")}))?$`,
 );
 
-/** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
-const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
+/**
+ * `accTitle: text` — screen-reader-only. The colon is required, and may
+ * have whitespace before it: `accTitle : hi` is "hi" (measured, 12.2.0).
+ *
+ * **Lower case only, unlike the sequence and ER spellings.** Measured on
+ * 12.2.0, a flowchart's `ACCTITLE: x`, `ACCDESCR: x` and `ACCDESCR {` are
+ * parse errors: its lexer's acc rules are not `/i`. So these three patterns
+ * are not either.
+ */
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/;
 
-/** `accDescr: text` — screen-reader-only, the description counterpart of `accTitle`. The colon is required. */
-const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
+/** `accDescr: text` — screen-reader-only, the description counterpart of `accTitle`, read the same way. */
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/;
+
+/**
+ * The opening of the braced `accDescr { ... }` block, which runs to the first
+ * `}` on this line or a later one and is read by the shared
+ * `readAccDescrBlock` (01M4WS1P6). Matched against a whole line, before it
+ * is split into statements, because the block is the one statement that
+ * spans lines.
+ */
+const ACC_DESCR_BLOCK_RE = /^\s*accDescr\s*\{/;
 
 /**
  * Strips one layer of surrounding quotes from a `call fn("arg")` argument,
@@ -1776,6 +1794,31 @@ export function parseFlowchart(source: string): ParseResult {
   readLines: for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const lineNumber = i + 1;
+
+    // The braced accDescr, read across lines before the line is split into
+    // statements. What follows its `}` goes back into `lines` at the `}`
+    // line, blanked to its column, to be read as that line's statements.
+    if (mode === "flowchart" && ACC_DESCR_BLOCK_RE.test(rawLine)) {
+      const block = readAccDescrBlock(lines, i, rawLine.indexOf("{"));
+      if (!block.closed) {
+        diagnostics.push({
+          severity: "error",
+          message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column: rawLine.length - rawLine.trimStart().length + 1,
+        });
+        sawError = true;
+        break readLines;
+      }
+      accDescr = block.description;
+      if (block.rest === null) {
+        i = block.closeIndex;
+      } else {
+        lines[block.closeIndex] = block.rest;
+        i = block.closeIndex - 1;
+      }
+      continue;
+    }
 
     for (const piece of splitStatements(rawLine)) {
       const line = piece.text;
