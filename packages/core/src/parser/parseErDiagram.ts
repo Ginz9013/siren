@@ -1,4 +1,5 @@
 import type {
+  DiagramParseResult,
   Diagnostic,
   Direction,
   ErAttribute,
@@ -10,7 +11,6 @@ import type {
   ErStyleDecl,
   ErSubgraph,
   Label,
-  ParseResult,
   NamedTimeline,
   SirenTimeline,
   StyleDecl,
@@ -1965,7 +1965,7 @@ interface PendingLine {
  * entities declared under it. Never throws: a malformed line is reported as
  * a diagnostic and costs the document.
  */
-export function parseErDiagram(source: string): ParseResult {
+export function parseErDiagram(source: string): DiagramParseResult {
   const diagnostics: Diagnostic[] = [];
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
-import type { Diagnostic, FlowchartDocument, ParseResult, SirenNode } from "../contracts";
+import type { Diagnostic, DiagramParseResult, FlowchartDocument, SirenNode } from "../contracts";
 import { plainRun } from "../label/label";
 
 /**
@@ -11,7 +11,7 @@ import { plainRun } from "../label/label";
  */
 function parseOk(
   source: string,
-  parse: (source: string) => ParseResult = parseFlowchart,
+  parse: (source: string) => DiagramParseResult = parseFlowchart,
 ): { document: FlowchartDocument; diagnostics: Diagnostic[] } {
   const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "flowchart") {
@@ -52,7 +52,7 @@ vi.mock("../label/readLabel", async (importOriginal) => {
 });
 
 /** Each diagnostic as `severity line:column`, for the position tests below. */
-function positions(source: string, parse: (source: string) => ParseResult = parseFlowchart): string[] {
+function positions(source: string, parse: (source: string) => DiagramParseResult = parseFlowchart): string[] {
   return parse(source).diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}`);
 }
 

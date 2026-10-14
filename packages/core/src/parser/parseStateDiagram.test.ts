@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ParseResult, StateDocument } from "../contracts";
+import type { DiagramParseResult, StateDocument } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 import { parseSiren } from "./parseSiren";
 import { parseStateDiagram } from "./parseStateDiagram";
@@ -33,7 +33,7 @@ vi.mock("../label/readLabel", async (importOriginal) => {
 });
 
 /** The parsed document, or a thrown explanation naming what went wrong instead. */
-function documentOf(source: string, parse: (source: string) => ParseResult = parseStateDiagram): StateDocument {
+function documentOf(source: string, parse: (source: string) => DiagramParseResult = parseStateDiagram): StateDocument {
   const { document, diagnostics } = parse(source);
   if (document === null) {
     throw new Error(

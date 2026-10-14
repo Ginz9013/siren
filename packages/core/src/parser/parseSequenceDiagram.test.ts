@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseSiren } from "./parseSiren";
-import type { Diagnostic, Label, ParseResult, SequenceDocument } from "../contracts";
+import type { Diagnostic, DiagramParseResult, Label, SequenceDocument } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 
 // A stand-in for `readLabel` that reports a problem wherever its source holds
@@ -32,7 +32,7 @@ vi.mock("../label/readLabel", async (importOriginal) => {
  */
 function parseOk(
   source: string,
-  parse: (source: string) => ParseResult = parseSequenceDiagram,
+  parse: (source: string) => DiagramParseResult = parseSequenceDiagram,
 ): { document: SequenceDocument; diagnostics: Diagnostic[] } {
   const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "sequence") {

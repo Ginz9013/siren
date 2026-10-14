@@ -2706,3 +2706,149 @@ describe("Mermaid's tag-quote rewrite over the whole document", () => {
     expect(label.rows.map((row) => row.map((run) => [run.text, run.color]))).toEqual([[["t", "red"]]]);
   });
 });
+
+/**
+ * The **document config** a Mermaid document carries in its frontmatter,
+ * read as Mermaid 12.2.0 reads it (`matchFrontMatter`, `extractFrontMatter`,
+ * `processFrontmatter`) and kept in `ParseResult.config`, applied nowhere
+ * yet (ADR-0017).
+ */
+describe("a document's frontmatter", () => {
+  it("leaves the config empty when the document carries none", () => {
+    expect(parseSiren("flowchart TD\n  A --> B").config).toEqual({});
+  });
+
+  it("draws the diagram below a frontmatter and keeps its `config` as written", () => {
+    // Measured (probe, 12.2.0): this document draws A --> B.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nconfig:\n  theme: forest\n  themeVariables:\n    primaryColor: '#ff0000'\n---\nflowchart TD\n  A --> B",
+    );
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "forest", themeVariables: { primaryColor: "#ff0000" } });
+  });
+
+  it("folds a frontmatter `displayMode` into `config.gantt.displayMode`, as Mermaid's `processFrontmatter` does", () => {
+    expect(parseSiren("---\ndisplayMode: compact\n---\nflowchart TD\n  A --> B").config).toEqual({
+      gantt: { displayMode: "compact" },
+    });
+    expect(
+      parseSiren("---\ndisplayMode: compact\nconfig:\n  gantt:\n    barHeight: 30\n---\nflowchart TD\n  A --> B").config,
+    ).toEqual({ gantt: { barHeight: 30, displayMode: "compact" } });
+  });
+
+  it("refuses the document, at the opening fence, when its frontmatter is not YAML — Mermaid refuses it too", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "unexpected end of
+    // the stream within a flow collection (2:1)".
+    expect(parseSiren("---\nconfig: [\n---\nflowchart TD\n  A --> B")).toEqual({
+      document: null,
+      diagnostics: [
+        {
+          severity: "error",
+          message:
+            "Frontmatter is not valid YAML (unexpected end of the stream within a flow collection); " +
+            "Mermaid refuses the document too.",
+          line: 1,
+          column: 1,
+        },
+      ],
+      config: {},
+    });
+  });
+
+  // Measured (probe, 12.2.0): each of these frontmatters is accepted and
+  // the diagram below drawn.
+  for (const [what, body] of [
+    ["a string", "just a string\n"],
+    ["a list", "- a\n- b\n"],
+    ["nothing", "\n"],
+  ] as const) {
+    it(`reads a frontmatter holding ${what} as an empty one, without a word`, () => {
+      const { document, diagnostics, config } = parseSiren(`---\n${body}---\nflowchart TD\n  A --> B`);
+      expect(diagnostics).toEqual([]);
+      expect(document?.kind).toBe("flowchart");
+      expect(config).toEqual({});
+    });
+  }
+
+  it("drops a top-level key Mermaid does not know, unread and unreported, as Mermaid does", () => {
+    // Measured (probe, 12.2.0): `siren:` beside `config:` draws A --> B.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nsiren:\n  roles: x\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ]);
+  });
+
+  it("reads an indented frontmatter, closed at the same indent, with the indent taken off each YAML line", () => {
+    // Measured (probe, 12.2.0): this document draws A --> B.
+    const { document, diagnostics, config } = parseSiren(
+      "  ---\n  config:\n    theme: forest\n  ---\nflowchart TD\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 3,
+      },
+    ]);
+  });
+
+  // Each measured (probe, 12.2.0) as MERMAID REJECTS THIS: a blank line
+  // above the fence, a fence never closed, and a body with no line between
+  // the fences are no frontmatter, so the `---` is diagram text.
+  for (const [what, source] of [
+    ["below a blank line", "\n---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B"],
+    ["never closed", "---\nconfig:\n  theme: forest\nflowchart TD\n  A --> B"],
+    ["closed on the very next line", "---\n---\nflowchart TD\n  A --> B"],
+  ] as const) {
+    it(`does not read a frontmatter ${what}, and refuses the \`---\` as it always has`, () => {
+      const { document, diagnostics, config } = parseSiren(source);
+      expect(document).toBeNull();
+      expect(config).toEqual({});
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatchObject({ severity: "error", line: source.startsWith("\n") ? 2 : 1, column: 1 });
+      expect(diagnostics[0]!.message).toMatch(/found "---"$/);
+    });
+  }
+
+  it("keeps every later line's number: an error below a frontmatter points at the line the author wrote", () => {
+    const { document, diagnostics } = parseSiren(
+      "---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B\n  A -->",
+    );
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => d.line)).toEqual([7]);
+  });
+
+  it("warns once for the title and once for each top-level config key, at the opening fence, that none is applied yet", () => {
+    const { diagnostics } = parseSiren(
+      "---\ntitle: Orders\nconfig:\n  theme: forest\n  look: handDrawn\n---\nflowchart TD\n  A --> B",
+    );
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: "Frontmatter title is read but not drawn yet; the diagram is drawn without it.",
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Document config "look" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+    ]);
+  });
+});

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseClassDiagram } from "./parseClassDiagram";
 import { parseSiren } from "./parseSiren";
-import type { ClassDocument, ClassMember, Diagnostic, Label, ParseResult } from "../contracts";
+import type { ClassDocument, ClassMember, Diagnostic, DiagramParseResult, Label } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 
 /**
@@ -53,7 +53,7 @@ function reconstruct(member: ClassMember): string {
  */
 function parseOk(
   source: string,
-  parse: (source: string) => ParseResult = parseClassDiagram,
+  parse: (source: string) => DiagramParseResult = parseClassDiagram,
 ): { document: ClassDocument; diagnostics: Diagnostic[] } {
   const { document, diagnostics } = parse(source);
   if (document === null || document.kind !== "class") {

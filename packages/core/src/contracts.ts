@@ -18,6 +18,10 @@
  * `parser/styleLines`'s `asWritten` moves each position back past it by
  * walking the result for these two pairs — a position spelled any other way
  * would silently point one character early. `styleLines.test.ts` pins it.
+ * The one exception is `ParseResult.config`: it is the author's document
+ * config as written, not a position, and `parseSiren` adds it only after
+ * `asWritten` has run, so a config key that happens to be spelled `line` is
+ * never moved.
  */
 
 /** Severity of a parse/build-time diagnostic. */
@@ -453,10 +457,28 @@ export type SirenDocument =
   | StateDocument
   | ErDocument;
 
-/** Result of `parseSiren` (and, independently, `parseSequenceDiagram`). */
-export interface ParseResult {
+/**
+ * What one diagram kind's parser (`parseFlowchart`, `parseSequenceDiagram`,
+ * `parseClassDiagram`, `parseStateDiagram`, `parseErDiagram`) makes of the
+ * diagram half of a document: the document and what it found wrong. The
+ * **document config** is not theirs to read — it lives outside any one
+ * kind's grammar — so `parseSiren` reads it and adds it to make a
+ * `ParseResult`.
+ */
+export interface DiagramParseResult {
   document: SirenDocument | null;
   diagnostics: Diagnostic[];
+}
+
+/** Result of `parseSiren`. */
+export interface ParseResult extends DiagramParseResult {
+  /**
+   * The document's **document config**, as Mermaid 12.2.0 reads it: its
+   * frontmatter's `config`, with a frontmatter `displayMode` folded into
+   * `config.gantt.displayMode` as Mermaid folds it. Kept as the author wrote
+   * it and applied nowhere yet; `{}` when the document carries none.
+   */
+  config: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

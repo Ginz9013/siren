@@ -10,6 +10,17 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Added
 
+- A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it:
+  only at the very top, optionally indented, closed by a `---` at the same indent, and parsed as
+  YAML under the JSON schema (with `js-yaml`, now a dependency). Such a document used to be refused
+  with `found "---"`. Its `config` (with a top-level `displayMode` folded into
+  `config.gantt.displayMode`) is kept on `ParseResult.config`, `{}` when there is none, but **not
+  applied yet**: each top-level config key, and a `title`, is reported as a warning at the opening
+  fence. A key Mermaid does not know, such as `siren:`, is dropped in silence, as Mermaid drops it.
+  A frontmatter that is not valid YAML refuses the document with an error, as Mermaid does. Line
+  and column numbers of every other diagnostic still point at the lines the author wrote (ADR-0017).
+  The standalone bundles' `THIRD-PARTY-NOTICES.md` now carries js-yaml's MIT licence.
+
 - Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
   12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
   because Mermaid rejects it too (nook `01M3NM3BT`).

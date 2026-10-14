@@ -12,13 +12,22 @@ import type { Plugin } from "vite";
  * installed package rather than written here — and the EPL-2.0 asks that a
  * copy of the program in object form carry its licence.
  *
- * elkjs is resolved from this package, `siren-core`, the only one that
- * depends on it, so a version bump can never leave a stale licence behind in
- * either bundle.
+ * They also distribute js-yaml, which reads a document's frontmatter. It is
+ * MIT, and the MIT licence asks that its notice travel with every copy, so
+ * its licence text goes into the same file.
+ *
+ * Both are resolved from this package, `siren-core`, the only one that
+ * depends on them, so a version bump can never leave a stale licence behind
+ * in either bundle.
  */
 const require = createRequire(import.meta.url);
 const elkjsDir = dirname(require.resolve("elkjs/package.json"));
 const elkjs = JSON.parse(readFileSync(join(elkjsDir, "package.json"), "utf8")) as {
+  version: string;
+  license: string;
+};
+const jsYamlDir = dirname(require.resolve("js-yaml/package.json"));
+const jsYaml = JSON.parse(readFileSync(join(jsYamlDir, "package.json"), "utf8")) as {
   version: string;
   license: string;
 };
@@ -30,14 +39,15 @@ const elkjs = JSON.parse(readFileSync(join(elkjsDir, "package.json"), "utf8")) a
 export function thirdPartyBanner(packageName: string): string {
   return (
     `/*! ${packageName} (MIT). Bundles elkjs ${elkjs.version} (${elkjs.license}, ` +
-    "https://github.com/kieler/elkjs); see THIRD-PARTY-NOTICES.md. */"
+    `https://github.com/kieler/elkjs) and js-yaml ${jsYaml.version} (${jsYaml.license}, ` +
+    "https://github.com/nodeca/js-yaml); see THIRD-PARTY-NOTICES.md. */"
   );
 }
 
 /**
  * Emits `THIRD-PARTY-NOTICES.md` next to the standalone bundle `bundleFile`
  * of `packageName`: which third-party code is inside it, under which
- * licence, and elkjs's licence text verbatim — read from the installed
+ * licence, and each one's licence text verbatim — read from the installed
  * package at build time, so the notice is always the one the bundled version
  * ships with.
  */
@@ -46,6 +56,7 @@ export function thirdPartyNotices(packageName: string, bundleFile: string): Plug
     name: "siren-third-party-notices",
     generateBundle() {
       const elkLicence = readFileSync(join(elkjsDir, "LICENSE.md"), "utf8");
+      const jsYamlLicence = readFileSync(join(jsYamlDir, "LICENSE"), "utf8");
       this.emitFile({
         type: "asset",
         fileName: "THIRD-PARTY-NOTICES.md",
@@ -63,6 +74,14 @@ export function thirdPartyNotices(packageName: string, bundleFile: string): Plug
           "available from the project above and from the npm package `elkjs`.",
           "",
           elkLicence,
+          "",
+          `## js-yaml ${jsYaml.version}`,
+          "",
+          "YAML 1.2 parser for JavaScript, used to read a document's frontmatter.",
+          "https://github.com/nodeca/js-yaml",
+          `Licensed under ${jsYaml.license}, whose text follows.`,
+          "",
+          jsYamlLicence,
           "",
         ].join("\n"),
       });

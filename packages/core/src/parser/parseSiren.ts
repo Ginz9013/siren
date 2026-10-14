@@ -1,4 +1,5 @@
-import type { Diagnostic, ParseResult } from "../contracts";
+import type { DiagramParseResult, Diagnostic, ParseResult } from "../contracts";
+import { type FrontmatterRead, readFrontmatter } from "./documentConfig";
 import { parseClassDiagram } from "./parseClassDiagram";
 import { parseErDiagram } from "./parseErDiagram";
 import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
@@ -21,7 +22,7 @@ const HEADER_SPELLINGS = listAcceptedHeaders();
  * only says who parses it, so the two facts cannot disagree about which
  * spellings exist.
  */
-const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
+const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = {
   flowchart: parseFlowchart,
   sequence: parseSequenceDiagram,
   class: parseClassDiagram,
@@ -31,7 +32,8 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
 
 /**
  * The lines of `source` as Mermaid reads them before any diagram's grammar
- * sees them: its tag quotes rewritten (`tagQuotesRewritten`), its `%%`
+ * sees them: its tag quotes rewritten (`tagQuotesRewritten`), its
+ * frontmatter read and blanked (`readFrontmatter`), its `%%`
  * comments removed in Mermaid's two steps, and its style-line rule
  * (`styleLines`) applied between those steps. It keeps one output line per
  * input line, so every diagnostic's line number still points at the line
@@ -68,6 +70,14 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
  * `>` on a later line. It changes no length and no line break, so it needs
  * no `asWritten`.
  *
+ * Then, where Mermaid's `preprocessDiagram` reads it — after `cleanupText`,
+ * before directives or comments — the frontmatter (`readFrontmatter`). Its
+ * lines are blanked rather than removed, so the line count is unchanged and
+ * nothing it holds, a `%%` included, is read as diagram text. It is read on
+ * the document with its line breaks made `\n`, as `cleanupText` makes them;
+ * the lines are split on every spelling of a line break either way, so no
+ * column moves.
+ *
  * A `%%{init: ...}%%` directive is therefore stripped as an ordinary
  * comment. Directives are not supported by any Siren parser, so this
  * makes them inert rather than a syntax error.
@@ -75,16 +85,18 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => ParseResult> = {
 function asMermaidReads(source: string): {
   lines: string[];
   asWritten: <T>(result: T) => T;
+  frontmatter: FrontmatterRead;
 } {
-  const wholeLinesBlanked = tagQuotesRewritten(source)
-    .split(/\r\n|\r|\n/)
+  const frontmatter = readFrontmatter(tagQuotesRewritten(source).split(/\r\n|\r|\n/).join("\n"));
+  const wholeLinesBlanked = frontmatter.source
+    .split("\n")
     .map((line) => (line.trimStart().startsWith("%%") ? "" : line));
   const read = styleLines(wholeLinesBlanked.join("\n"));
   const lines = read.source.split("\n").map((line) => {
     const commentStart = line.indexOf("%%");
     return commentStart === -1 ? line : line.slice(0, commentStart);
   });
-  return { lines, asWritten: read.asWritten };
+  return { lines, asWritten: read.asWritten, frontmatter };
 }
 
 /**
@@ -92,14 +104,25 @@ function asMermaidReads(source: string): {
  * `parseFlowchart` (a `flowchart TB|BT|LR|RL` header, or the same header
  * written with Mermaid's original `graph` keyword) or `parseSequenceDiagram`
  * (`sequenceDiagram` header), after reading the whole document as Mermaid
- * does — tag quotes, `%%` comments and the style-line rule
+ * does — tag quotes, frontmatter, `%%` comments and the style-line rule
  * (`asMermaidReads`).
  * Never throws on malformed input — an unrecognized header is reported as
  * a diagnostic instead.
+ *
+ * The frontmatter's **document config** is `config` on the result, added
+ * after `asWritten` has moved the diagram's positions: it is the author's
+ * data as written, and a config key spelled `line` or `column` is not a
+ * position to move. Its diagnostics come first, as its lines do. A
+ * frontmatter that is not YAML refuses the whole document, as it does in
+ * Mermaid, and the diagram below it is not read.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, asWritten } = asMermaidReads(source);
-  return asWritten(dispatch(lines));
+  const { lines, asWritten, frontmatter } = asMermaidReads(source);
+  if (frontmatter.refused) {
+    return { document: null, diagnostics: frontmatter.diagnostics, config: {} };
+  }
+  const { document, diagnostics } = asWritten(dispatch(lines));
+  return { document, diagnostics: [...frontmatter.diagnostics, ...diagnostics], config: frontmatter.config };
 }
 
 /**
@@ -107,7 +130,7 @@ export function parseSiren(source: string): ParseResult {
  * with Mermaid's style-line rule applied: every position it finds is in
  * those lines.
  */
-function dispatch(lines: readonly string[]): ParseResult {
+function dispatch(lines: readonly string[]): DiagramParseResult {
   const firstNonBlankIndex = lines.findIndex((line) => line.trim().length > 0);
 
   if (firstNonBlankIndex === -1) {
