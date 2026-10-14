@@ -526,6 +526,51 @@ function outlineFailures(svg: SVGSVGElement, id: string): string[] {
   return failures;
 }
 
+describe("default theme's sequence link menu (01M3NM3BZ)", () => {
+  const LINK_MENU = `sequenceDiagram
+participant A
+participant B
+A->>B: hi
+links A: {"Home": "https://x.com", "Docs": "https://d.com"}
+link B: Docs @ https://d.com
+link B: Wiki @ https://w.com
+`;
+
+  it("has a rule selecting every class the menu emits, and paints every part of it", () => {
+    const svg = renderThemedSVG(LINK_MENU);
+    const menuClasses = emittedSirenClasses(svg).filter((name) => name.startsWith("siren-link"));
+    expect(menuClasses).toContain("siren-link-menu-items");
+
+    const unthemed = menuClasses.filter((name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules));
+    expect(unthemed).toEqual([]);
+    expect(paintlessElements(svg).filter((d) => d.includes("link"))).toEqual([]);
+  });
+
+  it("hides every menu until it is hovered or holds focus", () => {
+    const svg = renderThemedSVG(LINK_MENU);
+    const menus = Array.from(svg.querySelectorAll<SVGGElement>("g.siren-link-menu"));
+    expect(menus.length).toBeGreaterThan(0);
+    for (const menu of menus) {
+      expect(getComputedStyle(menu.querySelector(".siren-link-menu-items")!).visibility).toBe("hidden");
+    }
+
+    // Keyboard: focusing the menu's group reveals its own items, and only
+    // those. A fresh render, because jsdom caches computed styles until the
+    // document changes and a change of focus does not count as one.
+    const focusable = Array.from(
+      renderThemedSVG(LINK_MENU).querySelectorAll<SVGGElement>("g.siren-link-menu"),
+    );
+    focusable[0]!.focus();
+    expect(document.activeElement).toBe(focusable[0]);
+    expect(getComputedStyle(focusable[0]!.querySelector(".siren-link-menu-items")!).visibility).toBe("visible");
+    expect(getComputedStyle(focusable[1]!.querySelector(".siren-link-menu-items")!).visibility).toBe("hidden");
+    focusable[0]!.blur();
+
+    // Pointer: jsdom cannot hover, so the rule itself is what is checked.
+    expect(themeRules).toMatch(/\.siren-link-menu:hover\s+\.siren-link-menu-items/);
+  });
+});
+
 describe("default theme's outline on sequence-diagram targets", () => {
   it("outlines a participant everywhere it is drawn: both rows, the lifeline, and the destroy mark", () => {
     const svg = renderThemedSVG(EVERY_FEATURE);

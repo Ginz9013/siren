@@ -1457,6 +1457,18 @@ describe("buildSequenceModel", () => {
       expect(build("  link C: Docs @ https://x.com").lanes).toEqual(["C"]);
     });
 
+    // Measured on Mermaid 12.2.0: `links` places its lane exactly as `link`
+    // does — even when its text names no usable link (`not-json`, `{}`), the
+    // lane is still created there, with no links on it.
+    it("creates a lane where a links statement is written, usable or not", () => {
+      const links = '{"Home": "https://x.com", "Docs": "https://d.com"}';
+      expect(build(`  links C: ${links}\n  A->>B: x`).lanes).toEqual(["C", "A", "B"]);
+      expect(build(`  A->>B: x\n  links C: ${links}`).lanes).toEqual(["A", "B", "C"]);
+      expect(build("  links C: not-json\n  A->>B: x").lanes).toEqual(["C", "A", "B"]);
+      expect(build("  A->>B: x\n  links C: {}").lanes).toEqual(["A", "B", "C"]);
+      expect(build("  links C: {}").lanes).toEqual(["C"]);
+    });
+
     it("places a link written inside a block between the statements around it", () => {
       expect(build("  A->>B: x\n  loop L\n    link C: Docs @ https://x.com\n  end\n  B->>D: y").lanes).toEqual([
         "A",

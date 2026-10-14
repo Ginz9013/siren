@@ -14,6 +14,7 @@ import type {
   SequenceArrowHead,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { buildSequenceLinkMenu } from "./buildSequenceLinkMenu";
 import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -180,6 +181,24 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     const node = buildSequenceElement(element, scope);
     if (node !== null) {
       svg.appendChild(node);
+    }
+  }
+
+  // Last of all, so nothing drawn above opens over a menu: one per box a
+  // participant with several links is drawn as, under the top box and over
+  // the bottom-row one (`buildSequenceLinkMenu`).
+  for (const participant of diagram.participants) {
+    if (!participant.linkMenu) continue;
+    svg.appendChild(buildSequenceLinkMenu(participant, participant.linkMenu, participant.top, false));
+    if (participant.origin === "declared" && !destroyedIds.has(participant.id)) {
+      svg.appendChild(
+        buildSequenceLinkMenu(
+          participant,
+          participant.linkMenu,
+          participant.bottom - participant.height,
+          true,
+        ),
+      );
     }
   }
 

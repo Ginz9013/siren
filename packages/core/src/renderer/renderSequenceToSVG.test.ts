@@ -568,6 +568,94 @@ describe("renderSequenceToSVG", () => {
     }
   });
 
+  describe("a participant with a link menu (01M3NM3BZ)", () => {
+    const href = (tooltip: string, action: string) => ({
+      targetId: "Alice",
+      interactionKind: "href" as const,
+      action,
+      argument: null,
+      tooltip,
+    });
+
+    /** Alice (box at x 10..110, top row 0..40, bottom row 260..300) with two links. */
+    function renderMenu() {
+      const diagram = buildParticipantsFixture();
+      diagram.participants[0] = {
+        ...diagram.participants[0]!,
+        linkMenu: {
+          links: [href("Home", "https://x.com"), href("Docs", "https://d.com")],
+          x: 10,
+          width: 120,
+          rowHeight: 30,
+        },
+      };
+      return renderSequenceToSVG(diagram);
+    }
+
+    it("draws one real link per entry, in order, under the top box and over the bottom one", () => {
+      const svg = renderMenu();
+
+      const menus = Array.from(svg.querySelectorAll("g.siren-link-menu"));
+      expect(menus).toHaveLength(2);
+      for (const menu of menus) {
+        const links = Array.from(menu.querySelectorAll("a"));
+        expect(links.map((a) => [a.getAttribute("href"), a.textContent])).toEqual([
+          ["https://x.com", "Home"],
+          ["https://d.com", "Docs"],
+        ]);
+      }
+
+      const rowTops = (menu: Element) =>
+        Array.from(menu.querySelectorAll("a rect")).map((r) => [
+          Number(r.getAttribute("x")),
+          Number(r.getAttribute("y")),
+          Number(r.getAttribute("width")),
+          Number(r.getAttribute("height")),
+        ]);
+      // Top box: rows hang from its bottom edge (y 40) downward.
+      expect(rowTops(menus[0]!)).toEqual([
+        [10, 40, 120, 30],
+        [10, 70, 120, 30],
+      ]);
+      // Bottom box: rows end at its top edge (y 260), opening upward.
+      expect(rowTops(menus[1]!)).toEqual([
+        [10, 200, 120, 30],
+        [10, 230, 120, 30],
+      ]);
+    });
+
+    it("keeps the box itself unlinked, with a focusable trigger over it that holds the menu", () => {
+      const svg = renderMenu();
+
+      for (const group of Array.from(svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]'))) {
+        expect(group.closest("a")).toBeNull();
+      }
+
+      const [top, bottom] = Array.from(svg.querySelectorAll("g.siren-link-menu"));
+      for (const [menu, boxTop] of [
+        [top!, 0],
+        [bottom!, 260],
+      ] as const) {
+        expect(menu.getAttribute("tabindex")).toBe("0");
+        const trigger = menu.querySelector(":scope > rect.siren-link-menu-trigger");
+        expect([
+          Number(trigger?.getAttribute("x")),
+          Number(trigger?.getAttribute("y")),
+          Number(trigger?.getAttribute("width")),
+          Number(trigger?.getAttribute("height")),
+        ]).toEqual([10, boxTop, 100, 40]);
+        expect(menu.querySelector(":scope > g.siren-link-menu-items")?.querySelectorAll("a")).toHaveLength(2);
+      }
+    });
+
+    it("paints the menus after everything else, so no message or note covers them", () => {
+      const svg = renderMenu();
+
+      const children = Array.from(svg.children);
+      expect(children.slice(-2).map((c) => c.getAttribute("class"))).toEqual(["siren-link-menu", "siren-link-menu"]);
+    });
+  });
+
   it("renders message labels, participant labels, and the title via textContent only, never as parsed markup", () => {
     const diagram = buildMessageFixture({ line: "solid", head: "filled" });
     diagram.title = "<script>alert(1)</script>";

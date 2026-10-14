@@ -36,6 +36,10 @@ const PARTICIPANT_PADDING_Y = 12;
 const ACTOR_FIGURE_HEIGHT = 2 * PARTICIPANT_PADDING_Y;
 /** Minimum horizontal gap between adjacent participant lane boxes. */
 const LANE_GAP = 40;
+/** Horizontal room either side of a link-menu entry's label. */
+const LINK_MENU_PADDING_X = 10;
+/** Vertical room above and below a link-menu entry's label. */
+const LINK_MENU_PADDING_Y = 6;
 /** Left margin before the first participant lane's box. */
 const LEFT_MARGIN = 20;
 /**
@@ -250,12 +254,7 @@ function layoutParticipants(
   const participants: PositionedParticipant[] = [];
   let nextLeft = LEFT_MARGIN;
 
-  // One `link` per participant at most, mirroring `layoutClassDiagram`'s
-  // `interactionByClassId` — the later one wins if an author repeats it.
-  const interactionByParticipantId = new Map<string, ResolvedInteraction>();
-  for (const interaction of model.interactions) {
-    interactionByParticipantId.set(interaction.targetId, interaction);
-  }
+  const linksByParticipantId = mergeLinks(model.interactions);
 
   for (const decl of model.participants) {
     const labelBox = layoutLabel(decl.label, options.measureText, SEQUENCE_PARTICIPANT_LINE);
@@ -277,13 +276,89 @@ function layoutParticipants(
       bottom: 0,
       width,
       height,
-      interaction: interactionByParticipantId.get(decl.id) ?? null,
+      ...linksOf(linksByParticipantId.get(decl.id) ?? [], width, options),
     });
 
     nextLeft = nextLeft + width + LANE_GAP;
   }
 
   return participants;
+}
+
+/**
+ * Each participant's links, merged as Mermaid 12.2.0 merges them into the
+ * participant's `links` object: in document order, and a later link with an
+ * earlier one's label replacing that one's url in its place (measured:
+ * `links A: {"Home": x, "Docs": d}` then `link A: Home @ z` gives
+ * `{Home: z, Docs: d}`). A `Map` keyed by label keeps exactly that order on
+ * `set`, as an object does on assignment.
+ */
+function mergeLinks(interactions: ResolvedInteraction[]): Map<string, ResolvedInteraction[]> {
+  const byLabelByParticipant = new Map<string, Map<string, ResolvedInteraction>>();
+  for (const interaction of interactions) {
+    let byLabel = byLabelByParticipant.get(interaction.targetId);
+    if (byLabel === undefined) {
+      byLabel = new Map();
+      byLabelByParticipant.set(interaction.targetId, byLabel);
+    }
+    byLabel.set(interaction.tooltip ?? interaction.action, interaction);
+  }
+  return new Map(
+    [...byLabelByParticipant].map(([participantId, byLabel]) => [participantId, [...byLabel.values()]]),
+  );
+}
+
+/**
+ * A single link makes the participant's box that link (the `seq-link`
+ * decision); two or more become a menu, and the box itself links nowhere.
+ */
+function linksOf(
+  links: ResolvedInteraction[],
+  participantWidth: number,
+  options: LayoutOptions,
+): Pick<PositionedParticipant, "interaction" | "linkMenu"> {
+  if (links.length < 2) return { interaction: links[0] ?? null, linkMenu: null };
+
+  let width = participantWidth;
+  let textHeight = 0;
+  for (const link of links) {
+    const size = options.measureText.measure(link.tooltip ?? link.action);
+    width = Math.max(width, size.width + LINK_MENU_PADDING_X * 2);
+    textHeight = Math.max(textHeight, size.height);
+  }
+  // `x` is placed by `placeLinkMenus`, once the diagram's width is known.
+  return {
+    interaction: null,
+    linkMenu: { links, x: 0, width, rowHeight: textHeight + LINK_MENU_PADDING_Y * 2 },
+  };
+}
+
+/**
+ * Places each link menu toward the diagram's interior (see
+ * `PositionedSequenceLinkMenu.x`), and returns the diagram's extent grown to
+ * hold every menu — a menu wider than the diagram, or one hanging below a
+ * short diagram's last statement, would otherwise be cut off.
+ */
+function placeLinkMenus(
+  participants: PositionedParticipant[],
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  for (const participant of participants) {
+    const menu = participant.linkMenu;
+    if (!menu) continue;
+    const boxLeft = participant.x - participant.width / 2;
+    menu.x =
+      participant.x <= width / 2
+        ? boxLeft
+        : Math.max(0, boxLeft + participant.width - menu.width);
+    width = Math.max(width, menu.x + menu.width);
+    height = Math.max(
+      height,
+      participant.top + participant.height + menu.rowHeight * menu.links.length,
+    );
+  }
+  return { width, height };
 }
 
 /**
@@ -683,6 +758,12 @@ export function layoutSequence(
   );
   const rightmostBoxEdge = boxes.reduce((max, box) => Math.max(max, box.x + box.width), 0);
 
+  const extent = placeLinkMenus(
+    participants,
+    Math.max(rightmostParticipantEdge, rightmostBlockEdge, rightmostBoxEdge) + RIGHT_MARGIN,
+    lifelineBottom,
+  );
+
   return {
     title: model.title,
     accTitle: model.accTitle,
@@ -691,9 +772,8 @@ export function layoutSequence(
     boxes,
     elements,
     activations: ctx.closedActivations,
-    width:
-      Math.max(rightmostParticipantEdge, rightmostBlockEdge, rightmostBoxEdge) + RIGHT_MARGIN,
-    height: lifelineBottom,
+    width: extent.width,
+    height: extent.height,
   };
 }
 

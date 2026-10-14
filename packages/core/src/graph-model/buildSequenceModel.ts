@@ -122,8 +122,9 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     mentionOrder: [],
     // A link with no line — only a hand-built document has one — sorts last
     // and is mentioned after the whole walk.
-    pendingLinks: document.interactions
-      .map((interaction) => ({ targetId: interaction.targetId, line: interaction.line ?? Infinity }))
+    // A `links` statement that named no usable link still places its lane.
+    pendingLinks: [...document.interactions, ...(document.linkMentions ?? [])]
+      .map((link) => ({ targetId: link.targetId, line: link.line ?? Infinity }))
       .sort((a, b) => a.line - b.line),
     seenPairCounts: new Map<string, number>(),
     blockCounters: new Map<string, number>(),

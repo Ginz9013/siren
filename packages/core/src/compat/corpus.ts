@@ -4481,6 +4481,106 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-links-menu",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      links A: {"Home": "https://x.com", "Docs": "https://d.com"}
+      link A: Home @ https://z.com
+      link A: Wiki @ https://w.com`,
+    status: "supported",
+    meaning:
+      "`links A: {json}` gives A one link per entry, and `link A:` lines add " +
+      "to the same set. Measured on 12.2.0: A.links = {Home: z, Docs: d, " +
+      "Wiki: w} — document order, a later Home replacing the earlier one's " +
+      "url in its place. Mermaid shows them as a menu when A is clicked, by " +
+      "JavaScript; Siren draws the same links, in the same order, as a menu " +
+      "of real links under A's box, shown on hover or focus by CSS alone " +
+      "(decision on 01M3NM3BZ). A's box itself links nowhere.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const menus = Array.from(svg.querySelectorAll("g.siren-link-menu"));
+      // A is drawn at the top and again at the bottom, as Mermaid draws it,
+      // and each box carries the menu.
+      expectSame("a menu on each of A's boxes", menus.length, 2);
+      for (const menu of menus) {
+        expectSame(
+          "the links, merged in document order",
+          Array.from(menu.querySelectorAll("a")).map((a) => `${a.textContent} ${a.getAttribute("href")}`),
+          ["Home https://z.com", "Docs https://d.com", "Wiki https://w.com"],
+        );
+      }
+      expectSame(
+        "A's box is not itself a link",
+        svg.querySelector('g.siren-participant[data-siren-id="A"]')?.closest("a") ?? null,
+        null,
+      );
+    },
+  },
+  {
+    id: "seq-link-repeated",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      link A: Home @ https://x.com
+      link A: Docs @ https://d.com`,
+    status: "supported",
+    meaning:
+      "Two `link` lines on one participant give it two links (12.2.0: " +
+      "A.links = {Home, Docs}). Siren used to keep only the last one; both " +
+      "now reach its menu.",
+    assert: (result) => {
+      const menu = svgOf(result).querySelector("g.siren-link-menu");
+      expectSame(
+        "both links, in order",
+        Array.from(menu?.querySelectorAll("a") ?? []).map((a) => a.getAttribute("href")),
+        ["https://x.com", "https://d.com"],
+      );
+    },
+  },
+  {
+    id: "seq-links-mention",
+    kind: "sequence",
+    source: `sequenceDiagram
+      links C: {"Docs": "https://example.com"}
+      A->>B: hi
+      links B: {"Home": "https://example.org"}`,
+    status: "supported",
+    meaning:
+      "`links` names its participant the way `link` does. Measured on " +
+      "12.2.0: `links C` before the message creates lane C first (C, A, B), " +
+      "and `links B` reaches B, which only the message created. One link " +
+      "is no menu: the box itself is the link, as with `link`.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["C", "A", "B"]);
+      const hrefs = new Set(
+        Array.from(svgOf(result).querySelectorAll("a.siren-link")).map(
+          (a) => `${a.querySelector("g.siren-participant")?.getAttribute("data-siren-id")} ${a.getAttribute("href")}`,
+        ),
+      );
+      expectSame("each box links out", [...hrefs], ["C https://example.com", "B https://example.org"]);
+    },
+  },
+  {
+    id: "seq-links-not-json",
+    kind: "sequence",
+    source: `sequenceDiagram
+      links C: not-json
+      A->>B: hi`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 ignores a `links` whose text is not a JSON object " +
+      "without a word (C.links stays {}), but still creates lane C where it " +
+      "is written. Siren draws the same lanes and says why C has no links.",
+    warnings: ["links C: the text after the colon is not JSON; no link is added"],
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["C", "A", "B"]);
+      expectSame("no link", svgOf(result).querySelector("a"), null);
+    },
+  },
+  {
     id: "seq-implicit-participants",
     kind: "sequence",
     source: `sequenceDiagram

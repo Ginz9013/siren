@@ -453,6 +453,58 @@ describe("parseSequenceDiagram", () => {
     ]);
   });
 
+  it("parses links into one href interaction per entry of its JSON object, in the object's order", () => {
+    const source = `sequenceDiagram
+  participant A
+  links A: {"Home": "https://x.com", "Docs": "https://docs.x.com"}
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://x.com",
+        argument: null,
+        tooltip: "Home",
+        line: 3,
+        column: 3,
+      },
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://docs.x.com",
+        argument: null,
+        tooltip: "Docs",
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  // Mermaid 12.2.0 ignores each of these silently (measured: `A.links` stays
+  // `{}`) and still draws the diagram; Siren draws it too and says why the
+  // links are missing.
+  it.each([
+    ["text that is not JSON", "not-json"],
+    ["an empty object", "{}"],
+    ["JSON that is not an object", '["https://x.com"]'],
+  ])("warns on a links statement holding %s, and still parses the diagram", (_, json) => {
+    const source = `sequenceDiagram
+  participant A
+  links A: ${json}
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(document.interactions).toEqual([]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ severity: "warning", line: 3, column: 3 });
+    expect(diagnostics[0].message).toMatch(/links A/);
+  });
+
   it("returns a null document plus an error diagnostic for an unrecognized statement line, without throwing", () => {
     const source = `sequenceDiagram
   participant A

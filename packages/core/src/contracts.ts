@@ -765,6 +765,13 @@ export type SequenceStatement =
   | SequenceBreakStatement
   | SequenceRectStatement;
 
+/** A participant a `links` statement named without adding a link — see `SequenceDocument.linkMentions`. */
+export interface SequenceLinkMention {
+  targetId: string;
+  line: number;
+  column: number;
+}
+
 /**
  * The parsed `sequenceDiagram` source: title, flat participants list, box
  * groupings, the recursive statement tree, and an optional timeline block.
@@ -792,18 +799,28 @@ export interface SequenceDocument {
   boxes: SequenceBox[];
   statements: SequenceStatement[];
   /**
-   * `link A: Label @ url` statements, as written. Reuses the kind-agnostic
+   * `link A: Label @ url` statements, and one entry per link of a `links A:
+   * {"Label": "url"}` statement, as written. Reuses the kind-agnostic
    * `Interaction` shape class/flowchart already share (`interactionKind:
    * "href"`) rather than a sequence-only type: Mermaid's own class diagram
    * grammar already treats `link`/`callback` as older spellings of `click
    * ... href`/`click ... call` that "produce the same Interaction shapes... a
    * spelling, not a separate concept" (see `parseClassDiagram.ts`), and
    * sequence's `link` is the same idea under a third spelling. `Label` maps
-   * onto `Interaction.tooltip` — Mermaid's own popup-menu behavior for
-   * `link` is not something a static SVG renderer reproduces, so nothing
-   * else about it needs its own field.
+   * onto `Interaction.tooltip`. A participant left with one link after
+   * merging is that link; two or more become its menu
+   * (`PositionedParticipant.linkMenu`).
    */
   interactions: Interaction[];
+  /**
+   * The participants named by a `links A: ...` statement that added no
+   * link to `interactions` (its text was not a JSON object, or an empty
+   * one), in document order. Mermaid 12.2.0 still creates and places the
+   * lane such a statement names, exactly where a `link` would, so the model
+   * needs the mention even though there is nothing to attach. Absent reads
+   * as none — a document built by hand need not carry it.
+   */
+  linkMentions?: SequenceLinkMention[];
   /**
    * The `timeline:` block as written, or `null` when the document declares
    * none at all (as opposed to declaring an empty one) — the same
@@ -966,8 +983,46 @@ export interface PositionedParticipant {
   bottom: number;
   width: number;
   height: number;
-  /** The link this participant's box(es) wrap, or `null` — mirrors `PositionedClass.interaction`. */
+  /**
+   * The link this participant's box(es) wrap, or `null` — mirrors
+   * `PositionedClass.interaction`. Set only when the participant has exactly
+   * one link once its `link`/`links` statements are merged; two or more go
+   * to `linkMenu` instead, and this is `null`.
+   */
   interaction: ResolvedInteraction | null;
+  /**
+   * The menu of a participant with two or more links, or `null`. Absent
+   * reads as none.
+   */
+  linkMenu?: PositionedSequenceLinkMenu | null;
+}
+
+/**
+ * The links of a participant that has more than one — Mermaid's "click the
+ * participant for a menu of links" (decision on 01M3NM3BZ).
+ */
+export interface PositionedSequenceLinkMenu {
+  /**
+   * Every link, merged the way Mermaid 12.2.0 merges `links`/`link`
+   * statements: in document order, a later link with an earlier one's label
+   * replacing that one's url in its place. Each link's label is its `tooltip`.
+   */
+  links: ResolvedInteraction[];
+  /**
+   * The menu's left edge. It opens toward the diagram's interior so it is
+   * never cut off: a lane left of the diagram's middle hangs it from its
+   * box's left edge, growing rightward; any other lane from its box's right
+   * edge, growing leftward.
+   */
+  x: number;
+  /** At least the participant's own width, and wide enough for every label. */
+  width: number;
+  /**
+   * The height of one link's row. The rows hang below the top box,
+   * starting at its bottom edge, and above the bottom-row box, ending at
+   * its top edge — toward the diagram's interior in both cases.
+   */
+  rowHeight: number;
 }
 
 /** A message with layout-assigned y-coordinate and endpoint x-coordinates. */
