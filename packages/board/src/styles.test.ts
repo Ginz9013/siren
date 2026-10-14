@@ -21,7 +21,7 @@ function injectedChromeCss(): string {
  * The six chrome tokens as the root itself resolves them. The root, and not
  * some element inside the board, because jsdom resolves a custom property
  * only on the element that declares it and does not inherit one to a child —
- * and since ADR-0014 the one token block selects `:root` and nothing else.
+ * and since ADR-0014 the one token block selects the root and nothing else.
  */
 function chromeTokensOnRoot(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
@@ -59,10 +59,23 @@ describe("board chrome's color tokens", () => {
 
     const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
     const tokenBlocks = rules.filter(([, , body]) => /--siren-board-[\w-]+\s*:/.test(body));
-    expect(tokenBlocks.map(([, selector]) => selector.trim())).toEqual([":root"]);
+    expect(tokenBlocks.map(([, selector]) => selector.trim())).toEqual([":where(:root)"]);
     for (const token of Object.keys(CHROME)) {
       expect(tokenBlocks[0][2]).toContain(`${token}:`);
     }
+  });
+
+  it("declares its tokens with zero specificity, so a consumer's :root block wins in any order", () => {
+    // A board injects this stylesheet at the end of <head> on first use, after
+    // a consumer's linked CSS. When both token blocks were `:root` (0,1,0),
+    // the later one — board's — won, and the README's own theming example
+    // did nothing (01M3VYFBX). jsdom's cascade looks at order and not at
+    // specificity, so this reads the selector; the cascade is a browser's.
+    // And not `@layer`: jsdom fails to parse it and drops the whole sheet.
+    const css = injectedChromeCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    const tokenBlock = /([^{}]+)\{[^{}]*--siren-board-accent:/.exec(css)!;
+    expect(tokenBlock[1].trim()).toBe(":where(:root)");
+    expect(css).not.toMatch(/@layer/);
   });
 
   it("colors the control bar and error banner only through its tokens", () => {
@@ -72,8 +85,8 @@ describe("board chrome's color tokens", () => {
       selector: selector.trim(),
       body,
     }));
-    // ADR-0014 left `:root` as the only selector a token block can have.
-    const isTokenSelector = (part: string) => part === ":root";
+    // ADR-0014 left the root as the only element a token block selects (as `:where(:root)` since 01M3VYFBX).
+    const isTokenSelector = (part: string) => part === ":where(:root)";
     const tokenBlocks = rules.filter((rule) =>
       rule.selector.split(",").every((part) => isTokenSelector(part.trim())),
     );

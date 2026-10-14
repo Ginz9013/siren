@@ -13,6 +13,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 - `BoardOptions.onClick` delivers `click X call fn()` interactions, as `render()`'s `onClick` does.
   Board had no such option, so on a board every callback interaction did nothing when clicked, with
   no diagnostic (nook `01M2WWHF4`). `click X href` links were never affected.
+- A consumer's `:root { --siren-board-… }` override now wins, as the Theming section shows it.
+  Board injects its stylesheet after the page's own CSS, and its token block was also `:root`, so
+  board's defaults won on order and the override did nothing. The block is now `:where(:root)`,
+  which has zero specificity; the chrome rules themselves are unchanged (nook `01M3VYFBX`).
 
 ## [0.6.0] - 2026-10-14
 
