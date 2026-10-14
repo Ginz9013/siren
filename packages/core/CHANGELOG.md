@@ -29,6 +29,10 @@ While the version is 0.x, a minor release may contain breaking changes.
   statement at the whitespace after it. `Foo Bar` declares two states, `direction sideways` two
   states called `direction` and `sideways`, and `Foo Bar --> Done` Foo and the transition Bar → Done
   (nook `01M369AQW`). Such a document used to be refused outright.
+- A state diagram's `class` statement reads its class name as the whole rest of the line, as
+  Mermaid 12.2.0 does: `class Busy a,b` applies a class called `a,b` (which no `classDef` defines,
+  so it warns and paints nothing), and `class Busy` with no name is accepted with a warning. Both
+  documents used to be refused (nook `01M37GQRM`).
 
 ### Changed
 

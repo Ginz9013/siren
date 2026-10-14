@@ -1097,9 +1097,9 @@ describe("parseStateDiagram", () => {
     // *id* position, and a space after the comma reads the same.
     //
     // Deliberately not the other position: measured, `class Busy a,b` takes
-    // the whole tail as one class name (`classes=["a,b"]`), so the class
-    // name is a single `\w+` here and a state carrying two of them is
-    // written as two `class` statements.
+    // the whole tail as one class name (`classes=["a,b"]`), so a state
+    // carrying two classes is written as two `class` statements — see the
+    // test below for how the tail is read.
     for (const list of ["Busy,Done", "Busy, Done"]) {
       const document = documentOf(
         `stateDiagram-v2\n  classDef urgent fill:#f96\n  Idle --> Busy\n  Idle --> Done\n  class ${list} urgent\n`,
@@ -1110,6 +1110,37 @@ describe("parseStateDiagram", () => {
         `for "class ${list} urgent"`,
       ).toEqual([["Busy", "Done"]]);
     }
+  });
+
+  it("reads the apply-directive's class name as the whole rest of the line, as Mermaid does", () => {
+    // 01M37GQRM, measured on mermaid 12.2.0: `class Busy a,b` gives Busy
+    // `classes=["a,b"]` and `class Busy u extra` gives `["u extra"]` — the
+    // name is everything after the target list. No classDef carries such a
+    // name, so nothing is painted (`resolveStyles` warns), and the picture
+    // is Mermaid's. Siren used to refuse both documents outright.
+    for (const [statement, name] of [
+      ["class Busy a,b", "a,b"],
+      ["class Busy u extra", "u extra"],
+      ["class Busy, Idle u", "u"],
+    ]) {
+      const document = documentOf(`stateDiagram-v2\n  classDef u fill:#00f\n  Idle --> Busy\n  ${statement}\n`);
+      const apply = document.styles.filter((s) => s.styleKind === "apply");
+      expect(apply.map((s) => s.name), `for "${statement}"`).toEqual([name]);
+    }
+  });
+
+  it("accepts an apply-directive with no class name, applying nothing and saying so", () => {
+    // Measured on 12.2.0: `class Busy` and `class Busy,Idle` draw, giving the
+    // targets `classes=[""]` — nothing is painted. Siren used to refuse the
+    // document. A warning, since an author who wrote a target and no class
+    // has very likely left something out.
+    const { document, diagnostics } = parseStateDiagram("stateDiagram-v2\n  Idle --> Busy\n  class Busy,Idle\n");
+
+    expect(document).not.toBeNull();
+    expect((document as StateDocument).styles).toEqual([]);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ severity: "warning", line: 3, message: expect.stringContaining("names no class") }),
+    ]);
   });
 
   it("records `style X props` as a style on its comma-separated targets, in source order", () => {

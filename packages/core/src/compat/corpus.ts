@@ -3021,12 +3021,12 @@ line2\`"]`,
       "A,Ghost emphasis` and `class Ghost,A emphasis` both give `A` " +
       "`classes=[\"emphasis\"]`). The same measurement in the other two kinds that " +
       "share `resolveStyles`: a class diagram's `cssClass \"Ghost\" urgent` " +
-      "likewise adds no class and says nothing. A state diagram agrees " +
-      "about the silence but **not** about the drawing — there `class " +
-      "Ghost urgent` *declares* `Ghost` as a state carrying the class, a " +
-      "gap in that kind's own statement set which is why this row is " +
-      "written for a flowchart: it is a kind where Siren now matches " +
-      "Mermaid's picture exactly, so the row can claim support honestly. " +
+      "likewise adds no class and says nothing. A state diagram's database " +
+      "records `class Ghost urgent` as a state `Ghost` carrying the class, " +
+      "but re-measured on 12.2.0 with `--markup` no figure is drawn for it " +
+      "(01M37GQRM), so the picture agrees there too; this row is written " +
+      "for a flowchart because that is where the measurement was first " +
+      "made. " +
       "Siren used to raise an error-severity diagnostic here in all three " +
       "kinds — a divergence it invented, and the reason this construct " +
       "could not be recorded as supported until now.",
@@ -6378,6 +6378,32 @@ line2\`"]`,
       expectSame("a composite's frame is styled too", stateStyle(result, "Group"), "fill:#ff0");
       expectSame("each state in the comma list is styled", stateStyle(result, "Idle"), "stroke:#00f");
       expectSame("the last one too", stateStyle(result, "Done"), "stroke:#00f");
+    },
+  },
+  {
+    id: "st-class-name-tail",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef u fill:#00f
+      Idle --> Busy
+      class Busy a,b
+      class Idle`,
+    status: "supported",
+    meaning:
+      "An apply-directive's class name is the whole rest of the line. " +
+      "Measured on 12.2.0: `class Busy a,b` gives Busy `classes=[\"a,b\"]` " +
+      "(and `class Busy u extra` gives `[\"u extra\"]`), and `class Idle` " +
+      "gives `[\"\"]` — both draw, and neither paints anything, since no " +
+      "classDef carries those names. Siren draws the same unstyled picture " +
+      "and says why in two warnings; it used to refuse the document.",
+    warnings: [
+      'class applies "a,b", which no classDef defines; dropping the declaration.',
+      'class names no class to apply; nothing is applied, in "class Idle"',
+    ],
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Busy"]);
+      expectSame("Busy is unstyled", stateStyle(result, "Busy"), "");
+      expectSame("Idle is unstyled", stateStyle(result, "Idle"), "");
     },
   },
   {

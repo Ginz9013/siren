@@ -351,31 +351,33 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 /**
  * `class Busy urgent` — the apply-directive, in this kind's spelling of it.
  *
- * The **target list** is comma-separated and the **class name** is not, and
- * that asymmetry is measured rather than assumed (mermaid 11.17.2):
+ * The **target list** is comma-separated and the **class name** is the
+ * whole rest of the line, and that asymmetry is measured rather than
+ * assumed:
  *
  *     class Busy,Done urgent    →  classes=["urgent"] on *both* states
  *     class Busy, Done urgent   →  the same, so a space after the comma is spare
- *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name,
- *                                  matching no `classDef`, painting nothing
+ *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name
+ *     class Busy u extra        →  classes=["u extra"] — spaces too (12.2.0)
+ *     class Busy                →  classes=[""] — no name at all (12.2.0)
  *
- * So the second capture is a single `\w+`: a state wearing two classes is
- * written as two `class` statements, and measured, those *do* stack
- * (`classes=["alpha","beta"]`).
+ * So a state wearing two classes takes them from two `class` statements
+ * (measured, those *do* stack: `classes=["alpha","beta"]`), and a name
+ * like `alpha,beta` matches no `classDef` and paints nothing, which
+ * `resolveStyles` reports as a warning. Siren used to read the name as a
+ * single `\w+` and refuse the other two documents outright (01M37GQRM).
  *
- * The target list is greedy and backtracks, the way `parseFlowchart`'s
- * `CLASS_APPLY_RE` does — `[\w\s,]` cannot cross the space before the class
- * name and gives it back — which is what reads `class A,B x` and
- * `class A, B x` with one pattern instead of two. The alphabet is `\w`
- * alone, without the flowchart's `.`, because a state id is read in `\w+`
- * everywhere else in this file.
+ * The target list is ids joined by commas, with spaces allowed around a
+ * comma; the first space *not* followed by a comma ends it. The alphabet is
+ * `\w` alone, without the flowchart's `.`, because a state id is read in
+ * `\w+` everywhere else in this file.
  *
- * **Two operands, both required.** A lone `class` is a whole-document parse
- * error in Mermaid (measured), and this pattern declining it is what leaves
- * it to `RESERVED_WORD_RE` — the reservation that exists for exactly this
+ * **At least one target.** A lone `class` is a whole-document parse error
+ * in Mermaid (measured), and this pattern declining it is what leaves it to
+ * `RESERVED_WORD_RE` — the reservation that exists for exactly this
  * statement.
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = /^class\s+(\w+(?:\s*,\s*\w+)*)\s*,?(?:\s+(\S.*?))?\s*$/;
 
 /**
  * A bare id followed by whitespace and more — the first of several
@@ -1143,6 +1145,18 @@ export function parseStateDiagram(source: string): ParseResult {
     }
 
     const classApplyMatch = CLASS_APPLY_RE.exec(line);
+    if (classApplyMatch !== null && classApplyMatch[2] === undefined) {
+      // Targets and no class: measured, Mermaid draws the document and the
+      // targets wear `classes=[""]`, which paints nothing — so nothing is
+      // recorded, and the author is told.
+      diagnostics.push({
+        severity: "warning",
+        message: `class names no class to apply; nothing is applied, in "${line}"`,
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
     if (classApplyMatch !== null) {
       styles.push({
         styleKind: "apply",
