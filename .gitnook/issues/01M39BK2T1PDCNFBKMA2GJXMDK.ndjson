@@ -3,3 +3,5 @@
 {"id":"01M39BK2TAXFS1M744T9NBTT38","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M39BK2TA4ABS78F76QHXP83P","t":4,"a":"83a1","op":"label.add","v":"er"}
 {"id":"01M39BK2TA8VJ2952QB7VS5W7X","t":5,"a":"83a1","op":"label.add","v":"docs"}
+{"id":"01M4WAFRWP6QZPJTZHR6QC0F9Y","t":6,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14）：併入 `01M3C621W`，以 cancelled 關閉\n\nMermaid 12.2.0 重新量測：\n- `erDiagram / to` → parse error（`got 'IDENTIFYING'`）。\n- `one` → parse error（`got 'ONLY_ONE'`）。\n- `A to B` → parse error。\n- `direction` 仍是一個實體；`title My Diagram` 仍是三個實體。\n\nSiren 目前把 `to` 畫成一個框，零診斷。這已經不是「Siren 比較寬鬆所以無妨」：語料庫列 `er-name-cardinality-word` 把同一件事記成 `silently-wrong`，而做法 2（收緊）正是 `01M3C621W` 的範圍。\n\n剩下的工作只有改 `parseErDiagram.ts:1543` 那句錯誤的註解（\"an entity the author simply named `direction` or `to` alone\"），應該在 `01M3C621W` 落地時一起改，所以併過去。"}
+{"id":"01M4WAFW9ACA5D4KS1JPF0MZCG","t":7,"a":"83a1","op":"set","k":"status","v":"cancelled"}

@@ -2,3 +2,4 @@
 {"id":"01M3NM3BTH74SV1AZEQN1369BJ","t":2,"a":"83a1","op":"set","k":"description","v":"board sequence-flowchart-gaps 量測時發現。mermaid 11.17.2 接受 `title: Hello`、`Title: Hello`，title 為 \"Hello\"；Siren 的 `TITLE_RE` 是 `^title\\s+`，冒號形式落到 Unrecognized sequenceDiagram line。"}
 {"id":"01M3NM3BTH6Q0P97PK7BF6QGG1","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M3NM3BTHSZ27DQD516NJQEC8","t":4,"a":"83a1","op":"label.add","v":"sequence"}
+{"id":"01M4WAFTFTJ18YGE76ATX3QVWZ","t":5,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14，Mermaid 12.2.0）：仍成立，版本更新\n\nMermaid 12.2.0 接受 `title: Hello`、`Title: Hello`、`TITLE: hi`，`getDiagramTitle()` 回傳 \"Hello\" / \"hi\"。Siren 的 `TITLE_RE`（`parseSequenceDiagram.ts:50`）仍回報 `Unrecognized sequenceDiagram line: \"title: Hello\"`。\n\n過時：描述寫 `^title\\s+`，現在已經是 `/^title\\s+(.+)$/i`（不分大小寫）。"}

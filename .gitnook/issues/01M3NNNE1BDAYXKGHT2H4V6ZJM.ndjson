@@ -2,3 +2,4 @@
 {"id":"01M3NNNE1N71Z6WFWHG3KQPE4T","t":2,"a":"83a1","op":"set","k":"description","v":"board sequence-flowchart-gaps 的 spec review 發現。0CB 的 spec 把 accDescr 列入要不分大小寫的關鍵字，但 sequence parser 根本沒有 accDescr（單行 `accDescr: x` 與區塊 `accDescr { ... }` 都沒有），落到 Unrecognized sequenceDiagram line。flowchart 與 ER 已有 accDescr，可比照。實作前先用 probe 量 Mermaid 11.17.2 的兩種寫法與大小寫。"}
 {"id":"01M3NNNE1N1QMSTHGHT9FS54C7","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M3NNNE1N3P2NGQT007FV09VS","t":4,"a":"83a1","op":"label.add","v":"sequence"}
+{"id":"01M4WAFV9GK3XWPW6KKNND11MG","t":5,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14，Mermaid 12.2.0）：仍成立，「實作前先量」已完成\n\nMermaid 12.2.0：\n- 單行 `accDescr: hi there` 接受。\n- 區塊 `accDescr {\\nline one\\nline two\\n}` 接受，得到 \"line one\\nline two\"。\n- 大小寫不拘：`ACCDESCR:`、`AccDescr:`、`ACCDESCR {` 都可以。\n\nSiren 兩種寫法都回報 Unrecognized（`parseSequenceDiagram.ts` 只有 `ACC_TITLE_RE`，line 52）。"}

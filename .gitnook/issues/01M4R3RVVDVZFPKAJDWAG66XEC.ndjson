@@ -1,3 +1,4 @@
 {"id":"01M4R3RVVDKBN851W0Q8FCC316","t":1,"a":"83a1","op":"create","title":"flowchart: Siren 接受方括號內未加引號的括號，Mermaid 視為 parse error"}
 {"id":"01M4R3RVVPSDBBRX0027V2RTE7","t":2,"a":"83a1","op":"set","k":"description","v":"例：`P[Watering 灌溉控制器 (Rain / Pump / Wells)]` 在 mermaid 11.17.2 報 parse error（got 'PS'），Siren 接受。決定是否對齊（報錯或 warning），並加 compat corpus 列。"}
 {"id":"01M4R3RVVQ1WNJ18V05YS9ZGVC","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M4WAFVP80M0KEQGDRDMVG2HM","t":4,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14，Mermaid 12.2.0）：仍成立，內容不用改\n\nMermaid 12.2.0 對 `P[Watering 灌溉控制器 (Rain / Pump / Wells)]` 和 `P[a (b)]` 仍報 parse error（got 'PS'）。Siren 照常渲染，零診斷，corpus 沒有這一列。11.17.2 與 12.2.0 結論相同。"}
