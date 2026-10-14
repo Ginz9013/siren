@@ -20,12 +20,14 @@
  * - A Siren document carrying a `timeline:` block is **not** a Mermaid
  *   document — that block is Siren's own syntax. Probe the diagram half:
  *   `sed '/^timeline:/,$d' examples/flowchart-syntax.srn | ... -`
- * - Mermaid rejects a line that is nothing but `%%`. Its comment cleanup
- *   wants at least one character after the `%%`, while Siren strips from the
- *   first `%%` to the end of the line whatever follows. Siren is the more
- *   permissive of the two, so this breaks nothing — the condition is
- *   one-directional — but several `examples/*.srn` files use bare `%%` as a
- *   paragraph break and so cannot be fed to Mermaid as they stand.
+ * - A line that is nothing but `%%` is not a comment to Mermaid. Its comment
+ *   cleanup (`cleanupComments`, `^\s*%%(?!{)[^\n]+\n?`) wants at least one
+ *   character after the `%%` — a space will do — and leaves a bare `%%` to
+ *   the diagram's grammar: a flowchart draws it as a node named `%%` (or
+ *   refuses the document, above the header), an ER diagram refuses the
+ *   document, and sequence, class and state diagrams read it as a comment
+ *   after all. Siren refuses it too wherever Mermaid does not read it as a
+ *   comment (ADR-0017), so write `%% text` or a blank line instead.
  *
  * ## Why this is committed code rather than a note
  *

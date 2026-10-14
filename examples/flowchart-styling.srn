@@ -1,7 +1,7 @@
 %% examples/flowchart-styling.srn — every flowchart author-styling directive
 %% Siren accepts, in one document. Comment lines like these are stripped in
 %% every diagram kind.
-%%
+
 %% A file of its own rather than more lines in examples/complex-showcase.srn:
 %% that document is the flowchart animation showcase, and its 22 steps are
 %% what a reader is there to follow. Styling 11 nodes and 14 edges on top of

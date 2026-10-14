@@ -1096,6 +1096,121 @@ classDiagram
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
+  describe("a line that is nothing but `%%` (ADR-0017; measured on Mermaid 12.2.0)", () => {
+    // Mermaid's `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`: a comment
+    // needs at least one character after its `%%`. A bare `%%` line is left
+    // to the diagram's own grammar, which in a flowchart draws a node named
+    // `%%` and in an ER diagram refuses the document.
+    const FLOWCHART_DRAWS_IT =
+      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%", ' +
+      'and Mermaid draws this line as a node named "%%". Write "%% text", or leave the line blank.';
+    const MERMAID_REFUSES_IT =
+      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"; ' +
+      'Mermaid refuses the document too. Write "%% text", or leave the line blank.';
+
+    it("refuses a bare `%%` line below a flowchart header, where Mermaid draws a node named `%%`", () => {
+      const { document, diagnostics } = parseSiren("flowchart TB\n%%\nA-->B\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 2, column: 1 },
+      ]);
+    });
+
+    it("refuses an indented bare `%%` too, at the column of its `%%`, once per line", () => {
+      // `^\s*` before the `%%`: Mermaid's indented bare `%%` is a node too.
+      const { document, diagnostics } = parseSiren("flowchart TB\n  %%\nA-->B\n\t%%\nB-->C\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 2, column: 3 },
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 4, column: 2 },
+      ]);
+    });
+
+    it("refuses a bare `%%` line in an ER diagram, which Mermaid refuses outright", () => {
+      const { document, diagnostics } = parseSiren("erDiagram\n%%\nA ||--o{ B : has\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: MERMAID_REFUSES_IT, line: 2, column: 1 },
+      ]);
+    });
+
+    it("says Mermaid refuses a flowchart whose bare `%%` stands above the header, where it draws no node", () => {
+      // Measured: `%%\nflowchart TB\nA-->B` and `%%\ngraph TB\nA-->B` are
+      // parse errors on line 1; below the header the same line is a node.
+      const { document, diagnostics } = parseSiren("%%\ngraph TB\n%%\nA-->B\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: MERMAID_REFUSES_IT, line: 1, column: 1 },
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
+      ]);
+    });
+
+    it("reads a bare `%%` line as a comment in sequence, class and state diagrams, whose grammars Mermaid lets read it as one", () => {
+      // Measured: each kind's own lexer has a `%%` rule, so Mermaid draws
+      // these documents exactly as it draws them without the line.
+      for (const [header, body] of [
+        ["sequenceDiagram", "A->>B: hi"],
+        ["classDiagram", "A <|-- B"],
+        ["stateDiagram-v2", "A --> B"],
+      ]) {
+        const bare = parseSiren(`%%\n${header}\n%%\n  %%\n${body}\n%%`);
+        const without = parseSiren(`\n${header}\n\n\n${body}\n`);
+
+        expect([header, bare.diagnostics]).toEqual([header, []]);
+        expect([header, bare.document]).toEqual([header, without.document]);
+      }
+    });
+
+    it("still reads `%%` followed by nothing but spaces or a tab as a comment, as Mermaid does — any character after `%%` makes one", () => {
+      // `[^\n]+` matches a space as well as a word: measured, `%%   `, `%%\t`
+      // and `%%%` vanish in a flowchart and in an ER diagram alike.
+      for (const [header, body] of [
+        ["flowchart TB", "A-->B"],
+        ["erDiagram", "A ||--o{ B : has"],
+      ]) {
+        const spaced = parseSiren(`${header}\n%%   \n\t%%\t\n%%%\n${body}\n%%  `);
+        const without = parseSiren(`${header}\n\n\n\n${body}\n`);
+
+        expect([header, spaced.diagnostics]).toEqual([header, []]);
+        expect([header, spaced.document]).toEqual([header, without.document]);
+      }
+    });
+
+    it("refuses a bare `%%` on the document's last line, with or without a line break after it, and between CRLF line breaks", () => {
+      // Measured: `flowchart TB\nA-->B\n%%` and `…\n%%\n` both draw a `%%`
+      // node, and both refuse an ER diagram. `cleanupText` makes `\r\n`
+      // a `\n` before comments are read, so `%%\r\n` is bare too.
+      for (const ending of ["", "\n", "\r\n"]) {
+        expect(parseSiren(`flowchart TB\r\nA-->B\r\n%%${ending}`).diagnostics).toEqual([
+          { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
+        ]);
+        expect(parseSiren(`erDiagram\nA ||--o{ B : has\n%%${ending}`).diagnostics).toEqual([
+          { severity: "error", message: MERMAID_REFUSES_IT, line: 3, column: 1 },
+        ]);
+      }
+    });
+
+    it("leaves a `%%` trailing real syntax to the end-of-line comment rule — it is not a bare line", () => {
+      // Measured: Mermaid reads `A-->B %%` exactly as it reads `A-->B %% x`
+      // (a flowchart refuses both), so the bare-line rule has nothing to say
+      // about it; it means here what any end-of-line comment means.
+      for (const [header, body] of [
+        ["flowchart TB", "A-->B"],
+        ["erDiagram", "A ||--o{ B : has"],
+      ]) {
+        const bare = parseSiren(`${header}\n${body} %%\n${body} %%`);
+        const worded = parseSiren(`${header}\n${body} %% x\n${body} %% x`);
+
+        expect([header, bare]).toEqual([header, worded]);
+        expect([header, bare.diagnostics]).toEqual([header, []]);
+      }
+    });
+  });
+
   it("reports the same error for a second unnamed timeline: header, in all three diagram kinds", () => {
     // The unnamed block is declared at most once. A repeated header is not
     // a second block and not a no-op: it is the error that says only named

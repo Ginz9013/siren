@@ -8,6 +8,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart or ER document with a line that is nothing but `%%`, which is now refused
+(see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -79,6 +82,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Changed
 
+- **A line that is nothing but `%%` is refused in flowcharts and ER diagrams**, with an error at its
+  `%%` that says to write `%% text` or leave the line blank (ADR-0017, nook `01M4XSF9S`). Such a
+  line used to be stripped as a comment, but Mermaid 12.2.0 does not read it as one: its comment
+  cleanup wants at least one character after the `%%`, so a flowchart draws the line as a node
+  named `%%` (or, above the header, refuses the document) and an ER diagram refuses the document.
+  Sequence, class and state diagrams read it as a comment, as Mermaid's own grammars for them do,
+  and `%%` followed by a space, a tab or any text is still a comment everywhere.
+  `examples/flowchart-styling.srn` used one as a paragraph break; it is now a blank line.
 - A `style` on a node, state or entity now beats a class applied to it whichever line comes first,
   as Mermaid 12.2.0 paints it in flowchart, class, state and ER diagrams. Before, the later line
   won, so `style A fill:#0ff` written above `class A alpha` drew the class's fill (nook `01M39F9N1`,

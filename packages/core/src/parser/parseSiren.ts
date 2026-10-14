@@ -61,6 +61,14 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * document that renders in Mermaid renders the same way here; a
  * quote-aware rule would be a silent divergence instead.
  *
+ * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
+ * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
+ * comment needs at least one character — a space will do — after its
+ * `%%`; a bare `%%` is left to the diagram's grammar. What that grammar
+ * makes of it differs by kind (`bareCommentMessage`), so the line is still
+ * blanked here and the kind decides, once the header is known, whether the
+ * document is refused for it (ADR-0017).
+ *
  * Mermaid's order matters for one thing. Its `cleanupComments` removes only
  * whole-line comments, and then its `encodeEntities` drops a style line's
  * last `;` — so on a line with an end-of-line comment, that `;` may be the
@@ -98,18 +106,55 @@ function asMermaidReads(source: string): {
   asWritten: <T>(result: T) => T;
   frontmatter: FrontmatterRead;
   directives: DirectivesRead;
+  bareCommentLines: BareCommentLine[];
 } {
   const frontmatter = readFrontmatter(tagQuotesRewritten(source).split(/\r\n|\r|\n/).join("\n"));
   const directives = readDirectives(frontmatter.source);
-  const wholeLinesBlanked = directives.source
-    .split("\n")
-    .map((line) => (line.trimStart().startsWith("%%") ? "" : line));
+  const linesAsWritten = directives.source.split("\n");
+  const bareCommentLines = linesAsWritten.flatMap((line, index) =>
+    line.trimStart() === "%%" ? [{ line: index + 1, column: line.length - 1 }] : [],
+  );
+  const wholeLinesBlanked = linesAsWritten.map((line) =>
+    line.trimStart().startsWith("%%") ? "" : line,
+  );
   const read = styleLines(wholeLinesBlanked.join("\n"));
   const lines = read.source.split("\n").map((line) => {
     const commentStart = line.indexOf("%%");
     return commentStart === -1 ? line : line.slice(0, commentStart);
   });
-  return { lines, asWritten: read.asWritten, frontmatter, directives };
+  return { lines, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
+}
+
+/** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */
+interface BareCommentLine {
+  line: number;
+  column: number;
+}
+
+const BARE_COMMENT_DRAWN =
+  'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%", ' +
+  'and Mermaid draws this line as a node named "%%". Write "%% text", or leave the line blank.';
+const BARE_COMMENT_REFUSED =
+  'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"; ' +
+  'Mermaid refuses the document too. Write "%% text", or leave the line blank.';
+
+/**
+ * What Mermaid makes of a bare `%%` line `at` in a document of `header`'s
+ * kind, as the refusal to give for it — `null` where the kind's grammar
+ * reads the line as a comment after all (sequence, class and state: their
+ * lexers have a `%%` rule of their own), so it means here what it means
+ * there. A flowchart draws the line as a node below its header and refuses
+ * the document above it; an ER diagram refuses it anywhere.
+ */
+function bareCommentMessage(header: Header | null, at: BareCommentLine): string | null {
+  switch (header?.kind) {
+    case "flowchart":
+      return at.line > header.index + 1 ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED;
+    case "er":
+      return BARE_COMMENT_REFUSED;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -131,10 +176,13 @@ function asMermaidReads(source: string): {
  * frontmatter Mermaid refuses — one that is not YAML, or whose
  * `displayMode` has no mapping to go into — refuses the whole document
  * here too, as its one error, and the diagram below it is not read; so does
- * a wrap directive Mermaid cannot write into a bare-word init.
+ * a wrap directive Mermaid cannot write into a bare-word init. So does a
+ * line that is nothing but `%%` in a flowchart or an ER diagram, one error
+ * at each such line's `%%` (ADR-0017): Mermaid does not read it as a
+ * comment there.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, asWritten, frontmatter, directives } = asMermaidReads(source);
+  const { lines, asWritten, frontmatter, directives, bareCommentLines } = asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       return { document: null, diagnostics: read.diagnostics, config: {} };
@@ -144,6 +192,13 @@ export function parseSiren(source: string): ParseResult {
   // the kind it names, and Mermaid's `detectInit` files an init's `config`
   // under that kind's diagram type.
   const header = headerOf(lines);
+  const bareCommentRefusals = bareCommentLines.flatMap((at): Diagnostic[] => {
+    const message = bareCommentMessage(header, at);
+    return message === null ? [] : [{ severity: "error", message, ...at }];
+  });
+  if (bareCommentRefusals.length > 0) {
+    return { document: null, diagnostics: bareCommentRefusals, config: {} };
+  }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
   const { document, diagnostics } = asWritten(dispatch(lines, header));
   return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
