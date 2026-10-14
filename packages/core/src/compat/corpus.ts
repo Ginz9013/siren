@@ -3540,6 +3540,32 @@ line2\`"]`,
   // classDiagram
   // -------------------------------------------------------------------------
   {
+    id: "cls-acc",
+    kind: "class",
+    source: `classDiagram
+      accTitle: Orders
+      accDescr: how orders move
+      class Order`,
+    status: "supported",
+    meaning:
+      "`accTitle:` and `accDescr:` give a class diagram its accessible title " +
+      "and description, a `<title>` and a `<desc>` on the root, drawn nowhere " +
+      "on the canvas — as Mermaid 12.2.0 writes them for every kind. Lower " +
+      "case only in this kind: `ACCTITLE: T` is the class `ACCTITLE` with the " +
+      "member `T` there. Siren drew classes called `accTitle` and `accDescr`, " +
+      "each with the text as a member, with no diagnostic (01M4WVVN9).",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector(":scope > title");
+      const desc = svg.querySelector(":scope > desc");
+      expectSame("the accessible title", title?.textContent, "Orders");
+      expectSame("the accessible description", desc?.textContent, "how orders move");
+      expectSame("labelled by it", svg.getAttribute("aria-labelledby"), title?.getAttribute("id"));
+      expectSame("described by it", svg.getAttribute("aria-describedby"), desc?.getAttribute("id"));
+      expectSame("no class is drawn for either line", classes(result), ["Order"]);
+    },
+  },
+  {
     id: "cls-class-bare",
     kind: "class",
     source: `classDiagram
@@ -5024,6 +5050,33 @@ line2\`"]`,
         stateCenter(result, "Running").y > stateCenter(result, "Idle").y,
         true,
       );
+    },
+  },
+  {
+    id: "st-acc",
+    kind: "state",
+    source: `stateDiagram-v2
+      accTitle: Orders
+      accDescr: how orders move
+      Idle --> Busy`,
+    status: "supported",
+    meaning:
+      "`accTitle:` and `accDescr:` give a state diagram its accessible title " +
+      "and description, a `<title>` and a `<desc>` on the root that " +
+      "aria-labelledby/aria-describedby name, drawn nowhere on the canvas — " +
+      "Mermaid 12.2.0 writes both for this kind as for every other (any " +
+      "case, space allowed before the colon, the braced block too). Siren " +
+      "read both lines as descriptions and drew states called `accTitle` " +
+      "and `accDescr`, with no diagnostic (01M4WVVN9).",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector(":scope > title");
+      const desc = svg.querySelector(":scope > desc");
+      expectSame("the accessible title", title?.textContent, "Orders");
+      expectSame("the accessible description", desc?.textContent, "how orders move");
+      expectSame("labelled by it", svg.getAttribute("aria-labelledby"), title?.getAttribute("id"));
+      expectSame("described by it", svg.getAttribute("aria-describedby"), desc?.getAttribute("id"));
+      expectSame("no state is drawn for either line", states(result), ["Idle", "Busy"]);
     },
   },
   {

@@ -18,6 +18,7 @@ import type {
 import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { plainLabel } from "../label/label";
 import { parseStyleProperties } from "./parseDeclarationList";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import {
   listAcceptedHeaders,
   matchStateDirection,
@@ -164,6 +165,16 @@ const KEYWORD_ONLY_RE = /^state(?:\s+\w+)?$/i;
  * unrecognized-line diagnostic instead of entering a state table.
  */
 const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/d;
+
+/**
+ * `accTitle: text`, `accDescr: text` and the opening of the braced
+ * `accDescr { ... }` — read before `STATE_DESCRIPTION_RE`, which matches the
+ * first two as well. Any case, whitespace allowed before the colon, as
+ * Mermaid 12.2.0's state lexer reads them (01M4WVVN9).
+ */
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/i;
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
+const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
 
 /**
  * The other spelling of the very same thing — `state "waiting" as Idle`.
@@ -556,6 +567,8 @@ export function parseStateDiagram(source: string): ParseResult {
    * what is wrong, and no half-parsed document reaches the next stage.
    */
   let sawError = false;
+  let accTitle: string | null = null;
+  let accDescr: string | null = null;
 
   /**
    * The document's own rank direction, once a statement at the document's
@@ -1220,6 +1233,44 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
+    // The two accessibility statements (01M4WVVN9). Read before the
+    // description patterns, which would otherwise take `accTitle: T` for a
+    // state called `accTitle` described "T" — the box Siren used to draw.
+    // Measured on 12.2.0: any case, whitespace allowed before the colon, and
+    // the braced block read as in every kind; a lone `accTitle` with no
+    // colon is still an ordinary state.
+    const accTitleMatch = ACC_TITLE_RE.exec(line);
+    if (accTitleMatch !== null) {
+      accTitle = accTitleMatch[1].trim();
+      continue;
+    }
+    const accDescrMatch = ACC_DESCR_RE.exec(line);
+    if (accDescrMatch !== null) {
+      accDescr = accDescrMatch[1].trim();
+      continue;
+    }
+    if (ACC_DESCR_BLOCK_RE.test(line)) {
+      const block = readAccDescrBlock(lines, index, rawLine.indexOf("{"));
+      if (!block.closed) {
+        diagnostics.push({
+          severity: "error",
+          message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        break;
+      }
+      accDescr = block.description;
+      if (block.rest === null) {
+        index = block.closeIndex;
+      } else {
+        lines[block.closeIndex] = block.rest;
+        index = block.closeIndex - 1;
+      }
+      continue;
+    }
+
     // A note, written onto the state it names. Read before the bare-state
     // and description patterns for the reason `classDef` is: neither may
     // claim a statement opening with one of the words this parser reserves.
@@ -1477,6 +1528,8 @@ export function parseStateDiagram(source: string): ParseResult {
 
   const document: StateDocument = {
     kind: "state",
+    accTitle,
+    accDescr,
     // `TB` is Mermaid's own default for a document that names no direction,
     // measured: the header alone reports `TB`.
     direction: documentDirection ?? "TB",

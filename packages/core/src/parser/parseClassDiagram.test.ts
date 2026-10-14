@@ -1155,3 +1155,34 @@ describe("the header a class diagram rejects", () => {
     );
   });
 });
+
+describe("parseClassDiagram — accTitle and accDescr", () => {
+  it("reads them as the diagram's accessible title and description, never as classes", () => {
+    // 01M4WVVN9, measured on mermaid 12.2.0: lower-case `accTitle: T`,
+    // `accTitle : T` and `accDescr:D` set the fields and draw nothing, and
+    // the braced block reads as in every kind. Siren drew classes called
+    // `accTitle` and `accDescr`, each with the text as a member.
+    const { document, diagnostics } = parseOk(
+      "classDiagram\n  accTitle : Orders\n  accDescr {\n    how\n      orders move\n  }\n  class A\n",
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("Orders");
+    expect(document.accDescr).toBe("how\norders move");
+    expect(document.classes.map((c) => c.id)).toEqual(["A"]);
+    expect(parseOk("classDiagram\n  accDescr:D\n  class A\n").document.accDescr).toBe("D");
+  });
+
+  it("leaves the capital spelling to the class-member syntax, as Mermaid's lexer does", () => {
+    // Measured: a class diagram's acc rules are lower case only, so
+    // `ACCTITLE: T` is the class `ACCTITLE` with the member `T`.
+    const { document } = parseOk("classDiagram\n  ACCTITLE: T\n");
+    expect(document.accTitle).toBeNull();
+    expect(document.classes.map((c) => c.id)).toEqual(["ACCTITLE"]);
+  });
+
+  it("refuses an empty or unclosed accDescr block, both parse errors in Mermaid", () => {
+    for (const source of ["classDiagram\n  accDescr {\n  }\n  class A\n", "classDiagram\n  accDescr {\n  one\n  class A\n"]) {
+      expect([source, parseClassDiagram(source).document]).toEqual([source, null]);
+    }
+  });
+});

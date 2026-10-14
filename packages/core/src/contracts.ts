@@ -1887,6 +1887,18 @@ export interface StyleDecl {
  */
 export interface ClassDocument {
   kind: "class";
+  /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:` statement.
+   * Draws nothing on the canvas; reaches only the rendered SVG's `<title>`
+   * (01M4WVVN9: Siren used to draw a class called `accTitle` for it).
+   */
+  accTitle: string | null;
+  /**
+   * The screen-reader-only description — `accDescr:` or the braced
+   * `accDescr { ... }` block. Reaches only the rendered SVG's `<desc>`.
+   * `null` when the document writes none, or only an empty block.
+   */
+  accDescr: string | null;
   direction: Direction;
   classes: ClassDecl[];
   relationships: ClassRelationship[];
@@ -2014,6 +2026,10 @@ export interface ResolvedStyle {
  * interactions and styles, and the resolved timeline.
  */
 export interface ClassModel {
+  /** Carried through unchanged from `ClassDocument.accTitle`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `ClassDocument.accDescr`. */
+  accDescr: string | null;
   direction: Direction;
   classes: ResolvedClass[];
   relationships: ResolvedClassRelationship[];
@@ -2173,6 +2189,10 @@ export interface PositionedClassNote {
  * `render()` takes it from the model.
  */
 export interface PositionedClassDiagram {
+  /** Carried through unchanged from `ClassModel.accTitle`; becomes the root's `<title>`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `ClassModel.accDescr`; becomes the root's `<desc>`. */
+  accDescr: string | null;
   direction: Direction;
   classes: PositionedClass[];
   relationships: PositionedClassRelationship[];
@@ -2571,6 +2591,18 @@ export interface StateRegion {
 export interface StateDocument {
   kind: "state";
   /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:` statement.
+   * Draws nothing on the canvas; reaches only the rendered SVG's `<title>`
+   * (01M4WVVN9: Siren used to draw a state called `accTitle` for it).
+   */
+  accTitle: string | null;
+  /**
+   * The screen-reader-only description — `accDescr:` or the braced
+   * `accDescr { ... }` block. Reaches only the rendered SVG's `<desc>`.
+   * `null` when the document writes none, or only an empty block.
+   */
+  accDescr: string | null;
+  /**
    * The whole diagram's rank direction: the `direction LR` (or `TB`/`BT`/
    * `RL`) the author wrote at the document's own level, outside every
    * composite, and `TB` when they wrote none.
@@ -2751,6 +2783,10 @@ export interface ResolvedStateTransition {
  * states, identified transitions, and the resolved timeline.
  */
 export interface StateModel {
+  /** Carried through unchanged from `StateDocument.accTitle`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `StateDocument.accDescr`. */
+  accDescr: string | null;
   /**
    * The whole diagram's rank direction, carried through from
    * `StateDocument.direction` — authored, already resolved to one of the
@@ -2974,6 +3010,10 @@ export interface PositionedStateTransition {
  * model.
  */
 export interface PositionedStateDiagram {
+  /** Carried through unchanged from `StateModel.accTitle`; becomes the root's `<title>`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `StateModel.accDescr`; becomes the root's `<desc>`. */
+  accDescr: string | null;
   states: PositionedState[];
   transitions: PositionedStateTransition[];
   width: number;

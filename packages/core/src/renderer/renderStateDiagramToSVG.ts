@@ -10,6 +10,7 @@ import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
+import { appendAccessibleText } from "./appendAccessibleText";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -74,6 +75,10 @@ export function renderStateDiagramToSVG(diagram: PositionedStateDiagram): SVGSVG
   sizeCanvas(svg, diagram.width, diagram.height);
 
   const scope = mintIdScope();
+  // The diagram's accessible title and description, first (01M4WVVN9):
+  // Mermaid 12.2.0 writes them for this kind as for every other.
+  appendAccessibleText(svg, scope, diagram.accTitle, diagram.accDescr);
+
   svg.appendChild(buildDefs(scope));
 
   // Every transition's line, then every transition's label, then the states:

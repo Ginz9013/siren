@@ -703,6 +703,8 @@ describe("buildGraphModel", () => {
 
   it("dispatches a kind: \"class\" document to buildClassModel, tagging the result \"class\"", () => {
     const document: SirenDocument = {
+      accTitle: null,
+      accDescr: null,
       kind: "class",
       direction: "TB",
       classes: [
@@ -1540,6 +1542,8 @@ describe("a subgraph in the graph model", () => {
 
 describe("buildGraphModel — a state document", () => {
   const stateDocument: SirenDocument = {
+    accTitle: null,
+    accDescr: null,
     kind: "state",
     direction: "TB",
     regions: [],

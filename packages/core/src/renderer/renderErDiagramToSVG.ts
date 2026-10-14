@@ -11,6 +11,7 @@ import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
+import { appendAccessibleText } from "./appendAccessibleText";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -161,24 +162,7 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   //
   // Before `<defs>`, because Mermaid puts them first and an accessible name
   // is read from the first `<title>` a consumer finds.
-  if (diagram.accTitle !== null) {
-    const accTitleId = `chart-title${scope}`;
-    const accTitleEl = document.createElementNS(SVG_NS, "title");
-    accTitleEl.setAttribute("id", accTitleId);
-    accTitleEl.textContent = diagram.accTitle;
-    svg.appendChild(accTitleEl);
-    svg.setAttribute("aria-labelledby", accTitleId);
-  }
-  // Its own `if` rather than an `else` or a shared one: two statements, two
-  // stores in Mermaid, and a document may write either alone.
-  if (diagram.accDescr !== null) {
-    const accDescrId = `chart-desc${scope}`;
-    const accDescrEl = document.createElementNS(SVG_NS, "desc");
-    accDescrEl.setAttribute("id", accDescrId);
-    accDescrEl.textContent = diagram.accDescr;
-    svg.appendChild(accDescrEl);
-    svg.setAttribute("aria-describedby", accDescrId);
-  }
+  appendAccessibleText(svg, scope, diagram.accTitle, diagram.accDescr);
 
   svg.appendChild(buildDefs(scope));
 

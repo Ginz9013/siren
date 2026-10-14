@@ -145,6 +145,8 @@ export function buildStateModel(document: StateDocument): StateModelResult {
   );
 
   const model: StateModel = {
+    accTitle: document.accTitle,
+    accDescr: document.accDescr,
     // Authored and already resolved by the parser, so it passes through the
     // way a composite's own direction does a few lines above.
     direction: document.direction,

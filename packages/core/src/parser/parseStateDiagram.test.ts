@@ -1239,6 +1239,26 @@ describe("parseStateDiagram", () => {
     expect(documentOf("stateDiagram-v2\n  A\n  direction Td\n").direction).toBe("TB");
   });
 
+  it("reads accTitle and accDescr as the diagram's accessible title and description, never as states", () => {
+    // 01M4WVVN9, measured on mermaid 12.2.0: `accTitle: T` and `accDescr: D`
+    // set the two fields and draw nothing, in any case and with whitespace
+    // before the colon, and the braced block reads as in every kind
+    // (`readAccDescrBlock`). Siren read both lines as descriptions and drew
+    // states called `accTitle` and `accDescr`, with no diagnostic.
+    const document = documentOf("stateDiagram-v2\n  ACCTITLE : Orders\n  accDescr {\n    how\n      orders move\n  }\n  A\n");
+    expect(document.accTitle).toBe("Orders");
+    expect(document.accDescr).toBe("how\norders move");
+    expect(document.states.map((s) => s.id)).toEqual(["A"]);
+
+    expect(documentOf("stateDiagram-v2\n  accDescr:D\n  A\n").accDescr).toBe("D");
+    expect(documentOf("stateDiagram-v2\n  accDescr {\n  }\n  A\n").accDescr).toBeNull();
+    // A lone `accTitle` with no colon is still an ordinary state.
+    expect(documentOf("stateDiagram-v2\n  accTitle\n").states.map((s) => s.id)).toEqual(["accTitle"]);
+
+    const unclosed = parseStateDiagram("stateDiagram-v2\n  accDescr {\n  one\n  A\n");
+    expect(unclosed.document).toBeNull();
+  });
+
   it("records `style X props` as a style on its comma-separated targets, in source order", () => {
     // Measured (mermaid 12.2.0, `--markup`): `style Busy fill:#f00` paints
     // Busy's rect `fill:#f00 !important`, and `style A,B fill:#f00` paints
@@ -1588,7 +1608,9 @@ describe("parseStateDiagram", () => {
     // And the words Mermaid does not reserve stay ordinary subjects here too
     // (measured: `direction : hi`, `end : hi`, `hide : hi` each declare a
     // described state) — the third position the survivors are checked in.
-    for (const word of ["hide", "end", "direction", "fork", "join", "choice", "accTitle", "accDescr"]) {
+    // `accTitle : hi` and `accDescr : hi` are not among them: there they are
+    // the accessibility statements (01M4WVVN9).
+    for (const word of ["hide", "end", "direction", "fork", "join", "choice"]) {
       const document = documentOf(`stateDiagram-v2\n  ${word} : hi\n`);
       expect(document.states.map((s) => [s.id, s.descriptions.map((d) => d.text)]), `for "${word} : hi"`).toEqual([
         [word, ["hi"]],

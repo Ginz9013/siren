@@ -63,6 +63,11 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- State and class diagrams read `accTitle:` and `accDescr:` (and the braced block) as the diagram's
+  accessible title and description, drawn as the SVG's `<title>` and `<desc>`. Siren used to draw a
+  state or a class called `accTitle` and another called `accDescr` for them, with no diagnostic
+  (nook `01M4WVVN9`). State diagrams read the keywords in any case; class diagrams in lower case
+  only, as Mermaid 12.2.0 does.
 - `x.o-->y` in a flowchart is the node `x.o` and a plain arrow, as Mermaid reads it. It was read as
   the node `x.` with a circle-headed arrow, with no diagnostic.
 - A flowchart's `classDef default` now styles every node, under any other class or `style`, as

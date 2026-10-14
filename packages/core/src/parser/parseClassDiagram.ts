@@ -21,8 +21,19 @@ import type {
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
+
+/**
+ * `accTitle: text`, `accDescr: text` and the opening of the braced
+ * `accDescr { ... }`. Whitespace may stand before the colon; **lower case
+ * only**, because a class diagram's acc rules are not `/i` in Mermaid
+ * 12.2.0 — `ACCTITLE: T` is a class with a member there (01M4WVVN9).
+ */
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/;
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/;
+const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/;
 /**
  * The headers this parser accepts, asked for by kind rather than written out
  * — both spellings, from the list the dispatcher routes by. Hand-writing
@@ -424,6 +435,8 @@ export function parseClassDiagram(source: string): ParseResult {
    * next stage.
    */
   let sawError = false;
+  let accTitle: string | null = null;
+  let accDescr: string | null = null;
   /**
    * The document's layout direction. `TB` until a `direction` statement
    * says otherwise; a second one wins over the first, the way a later
@@ -548,6 +561,44 @@ export function parseClassDiagram(source: string): ParseResult {
     if (directionStatement !== null) {
       direction = directionStatement;
       return startIndex;
+    }
+
+    // The two accessibility statements (01M4WVVN9), read before the member
+    // syntax `Class : member`, which would otherwise take `accTitle: T` for
+    // a class called `accTitle` with the member `T` — the box Siren used to
+    // draw. Lower case only, as Mermaid 12.2.0's class lexer reads them:
+    // `ACCTITLE: T` *is* that class, measured.
+    const accTitleMatch = ACC_TITLE_RE.exec(line);
+    if (accTitleMatch !== null) {
+      accTitle = accTitleMatch[1].trim();
+      return startIndex;
+    }
+    const accDescrMatch = ACC_DESCR_RE.exec(line);
+    if (accDescrMatch !== null) {
+      accDescr = accDescrMatch[1].trim();
+      return startIndex;
+    }
+    if (ACC_DESCR_BLOCK_RE.test(line)) {
+      // Read as in every kind (`readAccDescrBlock`), except that a class
+      // diagram's lexer refuses an *empty* block as well as an unclosed one
+      // (both parse errors, measured), so both are refused here.
+      const block = readAccDescrBlock(lines, startIndex, rawLine.indexOf("{"));
+      if (!block.closed || block.description === null) {
+        diagnostics.push({
+          severity: "error",
+          message: block.closed
+            ? "Empty `accDescr { }` block: a class diagram needs a description inside it"
+            : "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        return block.closed ? block.closeIndex : lines.length;
+      }
+      accDescr = block.description;
+      if (block.rest === null) return block.closeIndex;
+      lines[block.closeIndex] = block.rest;
+      return block.closeIndex - 1;
     }
 
     const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
@@ -974,6 +1025,8 @@ export function parseClassDiagram(source: string): ParseResult {
 
   const document: ClassDocument = {
     kind: "class",
+    accTitle,
+    accDescr,
     direction,
     classes,
     relationships,
