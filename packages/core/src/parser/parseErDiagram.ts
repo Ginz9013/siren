@@ -1257,16 +1257,6 @@ interface ErLineRefusal {
 }
 
 /**
- * A line `readLine` stopped reading inside a backticked word — the run is
- * still open where the line ends (`CONTINUES`). Nothing on it is taken: the
- * caller reads the next line onto this one and hands the whole back, so
- * the all-or-nothing rule holds over the lines the run spans.
- */
-interface ErLineContinuation {
-  continues: true;
-}
-
-/**
  * Everything `line` declares, given the block it began inside — or `null`
  * when any part of it is unreadable.
  *
@@ -1315,7 +1305,7 @@ function readLine(
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
   after: string,
-): ErLineReading | ErLineRefusal | ErLineContinuation | null {
+): ErLineReading | ErLineRefusal | typeof CONTINUES | null {
   const entities: ErEntityDecl[] = [];
   const plainEndpoints: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
@@ -1363,7 +1353,7 @@ function readLine(
         return null;
       }
       if (read === CONTINUES) {
-        return { continues: true };
+        return CONTINUES;
       }
       appends.push({ entity: open, attributes: read.attributes });
       rest = rest.slice(read.length).trimStart();
@@ -1450,17 +1440,7 @@ function readLine(
       // `beta`'s fill) while a property only the earlier one names survives,
       // and that is exactly what `resolveStyles` does with a sequence of
       // applications.
-      for (const name of splitIdList(apply[2])) {
-        styles.push({
-          styleKind: "apply",
-          authoredAs: "class",
-          targetIds: splitIdList(apply[1]),
-          name,
-          properties: [],
-          line: where.line,
-          column: where.column,
-        });
-      }
+      styles.push(...applications(splitIdList(apply[2]), splitIdList(apply[1]), "class", where));
       // Its own length, not the line's: `class` never left the initial
       // condition, so the stream continues. See `CLASS_RE`.
       rest = rest.slice(apply[0].length).trimStart();
@@ -1511,21 +1491,10 @@ function readLine(
       claim(relationship.decl.left);
       claim(relationship.decl.right);
       relationships.push(relationship.decl);
-      const endClasses = [
-        ...relationship.leftClasses.map((name) => ({ name, target: relationship.decl.left })),
-        ...relationship.rightClasses.map((name) => ({ name, target: relationship.decl.right })),
-      ];
-      for (const { name, target } of endClasses) {
-        styles.push({
-          styleKind: "apply",
-          authoredAs: ":::",
-          targetIds: [target],
-          name,
-          properties: [],
-          line: where.line,
-          column: where.column,
-        });
-      }
+      styles.push(
+        ...applications(relationship.leftClasses, [relationship.decl.left], ":::", where),
+        ...applications(relationship.rightClasses, [relationship.decl.right], ":::", where),
+      );
       rest = rest.slice(relationship.length).trimStart();
       continue;
     }
@@ -1544,17 +1513,7 @@ function readLine(
     // construct in two spellings (measured: both reach `setClass` and leave
     // `cssClasses="default urgent"`), so it becomes the same `apply` and
     // differs only in the keyword a diagnostic would quote.
-    for (const name of head.classes) {
-      styles.push({
-        styleKind: "apply",
-        authoredAs: ":::",
-        targetIds: [declared.name],
-        name,
-        properties: [],
-        line: where.line,
-        column: where.column,
-      });
-    }
+    styles.push(...applications(head.classes, [declared.name], ":::", where));
     rest = rest.slice(head.length).trimStart();
 
     if (head.opensBlock) {
@@ -1576,6 +1535,29 @@ function readLine(
     memberships,
     remainingOpenBlocks: depth,
   };
+}
+
+/**
+ * One `apply` per class in `names`, in source order, onto `targetIds`, stamped
+ * at `where` — what `class A x,y`, `A:::x,y` and `:::` on a relationship end
+ * all become, differing only in the keyword `authoredAs` keeps for a
+ * diagnostic. Each declaration gets its own copy of the target list.
+ */
+function applications(
+  names: readonly string[],
+  targetIds: readonly string[],
+  authoredAs: "class" | ":::",
+  where: SourcePosition,
+): StyleDecl[] {
+  return names.map((name) => ({
+    styleKind: "apply",
+    authoredAs,
+    targetIds: [...targetIds],
+    name,
+    properties: [],
+    line: where.line,
+    column: where.column,
+  }));
 }
 
 /**
@@ -1703,6 +1685,11 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
  * the caller reads the next line onto this one and asks again, and only a
  * document that ends with the run still open is refused — which Mermaid
  * refuses too ("got '1'").
+ *
+ * `readLine` answers with it too, for a line it stopped reading inside such
+ * a run. Nothing on that line is taken: the caller reads the next line onto
+ * it and hands the whole back, so the all-or-nothing rule holds over the
+ * lines the run spans.
  */
 const CONTINUES = "continues";
 
@@ -1965,6 +1952,14 @@ function unimplementedIn(line: string): string | null {
   return null;
 }
 
+/** A line held open by a backticked run, and its refusal if the document ends inside it. */
+interface PendingLine {
+  text: string;
+  lineNumber: number;
+  column: number;
+  refusal: string;
+}
+
 /**
  * Parses Siren ER-diagram source text — an `erDiagram` header and the
  * entities declared under it. Never throws: a malformed line is reported as
@@ -2084,7 +2079,7 @@ export function parseErDiagram(source: string): ParseResult {
    * again from where the run began, so a run that never closes costs
    * exactly the statement it opened in.
    */
-  let pending: { text: string; lineNumber: number; column: number; refusal: string } | null = null;
+  let pending: PendingLine | null = null;
 
   /**
    * Adds diagnostics read off one line to the document's, and marks the
@@ -2196,6 +2191,13 @@ export function parseErDiagram(source: string): ParseResult {
     let lineNumber = index + 1;
     let column = rawLine.length - rawLine.trimStart().length + 1;
     const continuing: boolean = pending !== null;
+    /** This line, held over for the next to be read onto it, refused with `refusal` if none is. */
+    const carried = (refusal: string): PendingLine => ({
+      text: continuing ? line : rawLine.trimStart(),
+      lineNumber,
+      column,
+      refusal,
+    });
     if (pending !== null) {
       // Read before the blank-line skip and before every statement pattern:
       // inside the run, a line is characters of a name and nothing else.
@@ -2244,13 +2246,8 @@ export function parseErDiagram(source: string): ParseResult {
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
       const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
-      if (reading !== null && "continues" in reading) {
-        pending = {
-          text: continuing ? line : rawLine.trimStart(),
-          lineNumber,
-          column,
-          refusal: `Unrecognized erDiagram attribute: "${line.split("\n")[0]}"`,
-        };
+      if (reading === CONTINUES) {
+        pending = carried(`Unrecognized erDiagram attribute: "${line.split("\n")[0]}"`);
         continue;
       }
       if (reading === null || "refusal" in reading) {
@@ -2422,14 +2419,9 @@ export function parseErDiagram(source: string): ParseResult {
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
     const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
-    if (reading !== null && "continues" in reading) {
+    if (reading === CONTINUES) {
       const first = line.split("\n")[0];
-      pending = {
-        text: continuing ? line : rawLine.trimStart(),
-        lineNumber,
-        column,
-        refusal: unimplementedIn(first) ?? `Unrecognized erDiagram line: "${first}"`,
-      };
+      pending = carried(unimplementedIn(first) ?? `Unrecognized erDiagram line: "${first}"`);
       continue;
     }
     if (reading !== null && !("refusal" in reading)) {
