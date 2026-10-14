@@ -9184,6 +9184,37 @@ line2\`"]`,
     },
   },
   {
+    id: "er-style-class-shorthand-spaced",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      classDef calm fill:#9cf
+      CUSTOMER :::urgent ||--o{ ORDER ::: calm : places
+      ITEM ::: calm , urgent`,
+    status: "supported",
+    meaning:
+      "`:::` with whitespace around it. Mermaid's lexer skips whitespace " +
+      "between any two tokens and `:::` is a token of its own, so the " +
+      "spaced spellings are the same construct as the glued ones. Measured " +
+      "on 12.2.0 (`--markup`): `CUSTOMER` is painted `fill:#f96`, `ORDER` " +
+      "`fill:#9cf`, and `ITEM` — `calm` then `urgent` — `fill:#f96`, the " +
+      "later class winning; the relationship is still recorded between " +
+      "`CUSTOMER` and `ORDER`. `A ::: x`, `A::: x`, `A[\"al\"] ::: x` and " +
+      "`A ::: x { int y }` are each measured to give the class too. Until " +
+      "ticket backlog-batch-1014/07 Siren read `:::` only glued to the name " +
+      "and refused every spaced spelling as an unrecognized line. A newline " +
+      "is not whitespace here: `A :::` with the list on the next line is a " +
+      "parse error in Mermaid (\"got 'NEWLINE'\"), and refused here.",
+    assert: (result) => {
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "fill:#f96");
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#9cf");
+      expectSame("ITEM's inline style", erEntityStyle(result, "ITEM"), "fill:#f96");
+      expectSame("the relationships drawn", erRelationships(result), [
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
+  },
+  {
     id: "er-class-reserved-word",
     kind: "er",
     source: `erDiagram
@@ -9207,7 +9238,29 @@ line2\`"]`,
       "name (`style end fill:red`, `classDef end fill:red`), because " +
       "`style\\b` and `classDef\\b` switch to a condition with no keywords — " +
       "so those are left alone. A quoted class name is refused by Mermaid " +
-      "anyway (`class A \"end\"` → `got 'ENTITY_NAME'`).",
+      "anyway (`class A \"end\"` → `got 'ENTITY_NAME'`).\n\n" +
+      "**Not only those five words** (backlog-batch-1014/07). A class-list " +
+      "member is `UNICODE_TEXT` alone, so every lexer rule that outranks the " +
+      "name rule refuses one. Measured on 12.2.0, one probe per word in each " +
+      "of the seven positions above (`class A w`, `class w A`, " +
+      "`class A x,w`, `A:::w`, `A:::x,w`, `A:::w ||--o{ B : y`, " +
+      "`A ||--o{ B:::w : y`): the cardinality and body words — `one` " +
+      "(`got 'ONLY_ONE'`), `many` (`'ZERO_OR_MORE'`), `to` " +
+      "(`'IDENTIFYING'`) — `erDiagram` (`'ER_DIAGRAM'`) and `u-x` / `u.x` " +
+      "(`'MD_PARENT'`), any case; and a member opening a multi-word " +
+      "cardinality or a glued one (`class A zero or more`, " +
+      "`A:::only one to many B : y`, `A:::u||--o{ B : y`). Siren read every " +
+      "one as an ordinary class — `class A zero or more` even as the class " +
+      "`zero` and two entities, `or` and `more` — and refuses them now with " +
+      "the same \"Reserved word\" diagnostic. `only`, `zero`, `u` and `ux` " +
+      "alone are ordinary classes in Mermaid and here.\n\n" +
+      "**And a number.** The lexer's number rules come before its name rule " +
+      "too, with no word boundary, so `class A 2` and `class A 1abc` " +
+      "(`got 'NUM'`), `A:::1.5` (`'DECIMAL_NUM'`) and `A:::1` " +
+      "(`'ENTITY_ONE'`) are each refused in every position, while `A:::x1` " +
+      "is a class. Siren refuses a digit-headed member by name (\"Number … " +
+      "cannot stand in a class list\"). The row's status and count do not " +
+      "move: one construct, measured wider.",
   },
   {
     id: "er-style-target-colon",
