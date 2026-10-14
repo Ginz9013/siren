@@ -24,6 +24,28 @@ function styleDecl(
 }
 
 describe("resolveStyles", () => {
+  it("returns only targets it was handed as valid, whatever the declarations name — the promise callers write through", () => {
+    // `buildFlowchartModel` assigns each result to `nodeById.get(targetId)!`;
+    // one unknown id here is a TypeError out of `render()`, not a diagnostic
+    // (01M37GQS1). Every statement shape names unknown ids below, first,
+    // last and alone.
+    const valid = new Set(["A", "B"]);
+    const resolved = resolveStyles(
+      [
+        styleDecl({ styleKind: "classDef", name: "hot", properties: [{ property: "fill", value: "#f00" }] }),
+        styleDecl({ styleKind: "style", targetIds: ["Ghost"], properties: [{ property: "fill", value: "#0f0" }] }),
+        styleDecl({ styleKind: "style", targetIds: ["A"], properties: [{ property: "fill", value: "#0f0" }] }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["X", "B", "Y"], name: "hot" }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["Z"], name: "hot" }),
+      ],
+      valid,
+      [],
+    );
+
+    expect(resolved.map((r) => r.targetId).sort()).toEqual(["A", "B"]);
+    for (const { targetId } of resolved) expect(valid.has(targetId)).toBe(true);
+  });
+
   /**
    * Characterization, written before the "unknown target" rule changed and
    * expected to pass unchanged after it.

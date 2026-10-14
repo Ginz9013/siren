@@ -47,7 +47,14 @@ import { unsafeStyleValue } from "../unsafeStyleValue";
  * Only targets that end up with at least one declaration appear in the
  * result, so a target whose every declaration was rejected is absent rather
  * than present-and-empty — the renderer's "no styles, no `style` attribute"
- * case, reached without it having to test for an empty list.
+ * case, reached without it having to test for an empty list. *
+ * **Every `targetId` in the result is one of `validTargetIds`** — a target
+ * the document names but nothing declares is dropped here, silently, the
+ * way Mermaid drops it. That is a promise callers lean on rather than a
+ * detail: `buildFlowchartModel` writes each result straight onto
+ * `nodeById.get(targetId)!`, so a result naming an unknown id would crash
+ * `render()` with a TypeError instead of returning a diagnostic (found by
+ * mutation, 01M37GQS1). `resolveStyles.test.ts` pins it.
  */
 export function resolveStyles(
   declarations: readonly StyleDecl[],
