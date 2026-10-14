@@ -179,8 +179,9 @@ function polyline(points: readonly Point[], hops: readonly LineHop[], cornerRadi
 export function connectorPathData(points: readonly Point[], curve: Curve, hops: readonly LineHop[] = []): string {
   const drawnHops = curveDrawsHops(curve) ? hops : [];
   const cornerRadius = curveCornerRadius(curve);
-  if (drawnHops.length > 0 || cornerRadius !== undefined) {
-    return polyline(points, drawnHops, cornerRadius);
+  if (drawnHops.length > 0 && cornerRadius === undefined) {
+    // A sharp-cornered curve with hops: straight through the points.
+    return polyline(points, drawnHops);
   }
   switch (curve) {
     case "basis":
@@ -194,7 +195,6 @@ export function connectorPathData(points: readonly Point[], curve: Curve, hops: 
     case "stepAfter":
       return step(points, 1);
     case "rounded":
-      // Drawn above: it rounds its corners. Spelled out for the switch's sake.
       return polyline(points, drawnHops, cornerRadius);
   }
 }

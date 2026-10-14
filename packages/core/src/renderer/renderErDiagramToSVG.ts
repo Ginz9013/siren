@@ -32,7 +32,7 @@ const MARKER_NAME: Record<ErCardinality, string> = {
 /**
  * Dash for a `nonIdentifying` relationship. Measured: Mermaid gives that
  * line the class `edge-pattern-dashed`, and 12.2.0's ER stylesheet still
- * rules it `stroke-dasharray: 8,8` (`dist/chunks/mermaid.esm/erDiagram-VZDIDQZ7.mjs`,
+ * rules it `stroke-dasharray: 8,8` (`erDiagram-VZDIDQZ7.mjs`,
  * line 1548), later in the sheet than — and so winning over — the shared
  * `.edge-pattern-dashed{stroke-dasharray:3}`. That `8,8` is what Mermaid
  * draws under `look: "classic"`, measured in headless Chrome. Under its

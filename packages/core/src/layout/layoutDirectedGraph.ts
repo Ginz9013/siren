@@ -1465,6 +1465,15 @@ function placeTerminalLabels(
 }
 
 /**
+ * How close two coordinates are to count as one: ELK's coordinates are
+ * floats, and a run it draws straight can differ by rounding noise.
+ */
+const SAME_COORDINATE = 1e-6;
+
+/** Whether `a` and `b` are one coordinate, to within `SAME_COORDINATE`. */
+const sameCoordinate = (a: number, b: number): boolean => Math.abs(a - b) < SAME_COORDINATE;
+
+/**
  * `points` with every repeated point and every point in the middle of a
  * straight run dropped: a chain's routes meet end to end at its invisible
  * points, and a route ELK passes through a frame's boundary keeps a bend
@@ -1474,14 +1483,14 @@ function withoutStraightRuns(points: readonly Point[]): Point[] {
   const kept: Point[] = [];
   for (const point of points) {
     const last = kept.at(-1);
-    if (last !== undefined && Math.abs(last.x - point.x) < 1e-6 && Math.abs(last.y - point.y) < 1e-6) continue;
+    if (last !== undefined && sameCoordinate(last.x, point.x) && sameCoordinate(last.y, point.y)) continue;
     const before = kept.at(-2);
     // Straight on, not doubling back: a turn of 180° is a bend worth keeping.
     if (
       before !== undefined &&
       last !== undefined &&
-      ((Math.abs(before.x - last.x) < 1e-6 && Math.abs(last.x - point.x) < 1e-6) ||
-        (Math.abs(before.y - last.y) < 1e-6 && Math.abs(last.y - point.y) < 1e-6)) &&
+      ((sameCoordinate(before.x, last.x) && sameCoordinate(last.x, point.x)) ||
+        (sameCoordinate(before.y, last.y) && sameCoordinate(last.y, point.y))) &&
       (last.x - before.x) * (point.x - last.x) + (last.y - before.y) * (point.y - last.y) > 0
     ) {
       kept[kept.length - 1] = point;

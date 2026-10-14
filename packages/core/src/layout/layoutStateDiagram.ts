@@ -21,7 +21,6 @@ import {
 } from "./layoutDirectedGraph";
 import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
-
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { plainLabel } from "../label/label";
 import {
