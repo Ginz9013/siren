@@ -257,9 +257,14 @@ const CLASS_DEF_RE = new RegExp(
  * refusing: the style condition's word rule has no `:`, and `style:
  * style styleComponent` concatenates with no separator, so measured with
  * `--markup` (12.2.0) **`CUSTOMER`'s own rect carries
- * `style=":ORDERfill !important"`**, with no error. CONTEXT.md's third rule:
- * Mermaid's picture contradicts the document, so Siren refuses and says
- * why, rather than calling the line malformed.
+ * `style=":ORDERfill !important"`**, with no error. So this is the
+ * exception to the absolute condition, as the `er-style-target-colon` row
+ * records it: Mermaid renders the line, but wrongly and silently, and
+ * CONTEXT.md's first rule — reject rather than render wrongly — is what
+ * applies, not the third (the third would have Siren *draw* what the
+ * document says, and a relationship cannot be styled in this kind at all —
+ * `er-style-statement`). Siren
+ * refuses and says why, rather than calling the line malformed.
  *
  * Any member of the target list, which is an `idList` (`style A,B:C …`).
  */
@@ -296,41 +301,86 @@ const STYLE_RELATIONSHIP_TARGET_RE = new RegExp(
  */
 const CLASS_RE = new RegExp(
   `^class\\b\\s+(${idListSource(NAME_SOURCE)})\\s+(${idListSource(NAME_SOURCE)})`,
-  "iu",
+  "diu",
 );
 
 /**
- * A word of `RESERVED_BARE_NAMES` at the head of a class-list member, as
- * Mermaid's lexer finds one there — `\b`-terminated, as its keyword rules
- * are, so `endx` is an ordinary class and `end-x` is `END` then `-x`.
+ * What Mermaid's lexer finds at the head of a member of the class lists
+ * `match` read in `groups`, when it is not a name — a keyword, or a number
+ * — or `null` when every member is a name.
+ *
+ * A class list is an `idList`, whose members are `UNICODE_TEXT` alone, and
+ * `class\b` and `:::` leave the lexer in its initial condition, where every
+ * keyword rule outranks the name rule. So a member is refused wherever
+ * `KEYWORD_AT_NAME_HEAD_RE` or `MULTI_WORD_CARDINALITY_RE` claims its head —
+ * the same two sets `bareNameTokenLength` asks of a name position, read
+ * `\b`-terminated, so `endx` and `oneX` are ordinary classes and `end-x` is
+ * `END` then `-x`.
+ *
+ * Measured (12.2.0), every word in every class-list position — both halves
+ * of a `class` statement, after `:::` on an entity and after `:::` on either
+ * end of a relationship: the five `RESERVED_BARE_NAMES` ("got 'END'" …),
+ * the cardinality and body words (`one` → 'ONLY_ONE', `many` →
+ * 'ZERO_OR_MORE', `to` → 'IDENTIFYING'), `erDiagram` → 'ER_DIAGRAM' and
+ * `u-x` → 'MD_PARENT', in any case, are each a parse error; `only`, `zero`,
+ * `u` and `ux` are ordinary classes.
+ *
+ * **And a number**, because the lexer's number rules (`[0-9]+\.[0-9]+`,
+ * `[0-9]+` with no word boundary, and `1` as a cardinality) also come before
+ * its name rule, and none of them is `UNICODE_TEXT`. Measured (12.2.0):
+ * `class A 2` and `class A 1abc` → got 'NUM', `A:::1.5` → got
+ * 'DECIMAL_NUM', `A:::1` → got 'ENTITY_ONE', in every position; `A:::x1` is
+ * an ordinary class. So a class name, unlike an entity name, may not begin
+ * with a digit at all.
+ *
+ * ⚠️ **The last member is read with what follows the list**, because two of
+ * those rules look past a word: `class A zero or more` is 'ZERO_OR_MORE'
+ * and `A:::u||--o{ B : y` is 'MD_PARENT' (`u(?=[.\-|])`), measured, though
+ * `zero` and `u` alone are classes. A member before a comma has only the
+ * comma after it, which neither rule reads.
  *
  * ⚠️ **Asked of the class lists only, never of a `style` or `classDef`
- * name.** Measured (12.2.0): `class A end`, `class end u`, `class A u,end`
- * and `A:::end` are each a parse error ("got 'END'"), because `class\b`
- * and `:::` leave the lexer in its initial condition, where the keyword
- * rules outrank the name rule; `style end fill:red` and `classDef end
- * fill:red` are accepted, because `style\b` and `classDef\b` switch to the
- * style condition, which has no keywords. The same holds for every word of
- * the set, in any case.
+ * name.** `style\b` and `classDef\b` switch to the style condition, which
+ * has no keywords: `style end fill:red` and `classDef end fill:red` are
+ * accepted (measured).
  */
-const RESERVED_AT_CLASS_HEAD_RE = /^(?:end|subgraph|classdef|class|style)\b/iu;
+interface ClassMemberHead {
+  /** The token at the member's head, as written. */
+  head: string;
+  /** Whether that token is a number rather than a keyword. */
+  number: boolean;
+}
 
-/** The first reserved word heading a member of `members`, as written — or `null`. */
-const reservedClassMember = (members: readonly string[]): string | null => {
-  for (const member of members) {
-    const found = RESERVED_AT_CLASS_HEAD_RE.exec(member);
-    if (found !== null) {
-      return found[0];
+function reservedClassMember(match: RegExpExecArray, groups: readonly number[]): ClassMemberHead | null {
+  for (const group of groups) {
+    const list = match[group];
+    if (list === undefined) {
+      continue;
+    }
+    const members = splitIdList(list);
+    const after = match.input.slice(match.indices![group]![1]);
+    for (const [index, member] of members.entries()) {
+      const text = index === members.length - 1 ? member + after : member;
+      const keyword = KEYWORD_AT_NAME_HEAD_RE.exec(text) ?? MULTI_WORD_CARDINALITY_RE.exec(text);
+      if (keyword !== null) {
+        return { head: keyword[0], number: false };
+      }
+      const number = /^(?:[0-9]+\.[0-9]+|[0-9]+)/u.exec(member);
+      if (number !== null) {
+        return { head: number[0], number: true };
+      }
     }
   }
   return null;
-};
+}
 
-/** The refusal for a reserved word found in a class list on `line`. */
-const reservedClassRefusal = (word: string, line: string): ErLineRefusal => ({
-  refusal:
-    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
-    `and refuses the line, in "${line}"`,
+/** The refusal for what `reservedClassMember` found in a class list on `line`. */
+const reservedClassRefusal = ({ head, number }: ClassMemberHead, line: string): ErLineRefusal => ({
+  refusal: number
+    ? `Number "${head}" cannot stand in a class list in erDiagram: a class name in Mermaid cannot begin ` +
+      `with a digit, and it refuses the line, in "${line}"`
+    : `Reserved word "${head}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
+      `and refuses the line, in "${line}"`,
 });
 
 /**
@@ -441,6 +491,21 @@ const alternation = (spellings: readonly string[]): string =>
     .join("|");
 
 /**
+ * An optional `:::` and the class list after it — the apply-directive
+ * written onto a name, as `ENTITY_HEAD_RE` and both ends of
+ * `RELATIONSHIP_SOURCE` read it. One capturing group: the list.
+ *
+ * **Whitespace on either side of the `:::` is skipped**, because Mermaid's
+ * lexer skips it between any two tokens and `:::` is a token of its own.
+ * Measured (12.2.0): `A :::x ||--o{ B : y`, `A ||--o{ B ::: z : y`,
+ * `A ::: x`, `A::: x`, `A["al"] ::: x` and `A ::: x { int y }` each give
+ * the class exactly as the unspaced spelling does. A newline is not
+ * skipped — `A :::` with the list on the next line is a parse error ("got
+ * 'NEWLINE'") — and a line here never holds one.
+ */
+const CLASS_LIST_SOURCE = `(?:\\s*:::\\s*(${idListSource(NAME_SOURCE)}))?`;
+
+/**
  * One relationship:
  * `<entity> <cardinality> <body> <cardinality> <entity> : <label>`, in
  * either spelling of each of the three middle tokens — **and they mix**,
@@ -473,8 +538,9 @@ const alternation = (spellings: readonly string[]): string =>
  * label `<p>places<br>many</p>`), and `readLabelAt` places a problem in it
  * by where its group begins.
  *
- * **Either end may carry `:::` and a class list** (01M39FA7F), directly
- * after its name — Mermaid's productions 8–10,
+ * **Either end may carry `:::` and a class list** (01M39FA7F), after its
+ * name and with or without whitespace around it (`CLASS_LIST_SOURCE`) —
+ * Mermaid's productions 8–10,
  * `entityName ::: idList relSpec entityName ::: idList : role`. Measured
  * (12.2.0): `A:::x ||--o{ B:::z : y` gives `A` the class `x` and `B` the
  * class `z`, and the relationship is still recorded between `A` and `B`, so
@@ -486,10 +552,10 @@ const alternation = (spellings: readonly string[]): string =>
  * reads.
  */
 const RELATIONSHIP_SOURCE =
-  `^(${ANY_NAME_SOURCE})(?::::(${idListSource(NAME_SOURCE)}))?(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
+  `^(${ANY_NAME_SOURCE})${CLASS_LIST_SOURCE}(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
   `\\s*(${alternation(Object.keys(LINE_BY_SPELLING))})\\s*` +
   `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${ANY_NAME_SOURCE})` +
-  `(?::::(${idListSource(NAME_SOURCE)}))?\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
+  `${CLASS_LIST_SOURCE}\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
 
 /**
  * ⚠️ **Not anchored on the end of the line.** Mermaid's grammar is
@@ -518,7 +584,14 @@ function readRelationship(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
-): { decl: ErRelationshipDecl; leftClasses: string[]; rightClasses: string[]; length: number } | null {
+): {
+  decl: ErRelationshipDecl;
+  leftClasses: string[];
+  rightClasses: string[];
+  /** A keyword or number heading a member of either end's class list — see `reservedClassMember`. */
+  reservedClass: ClassMemberHead | null;
+  length: number;
+} | null {
   const match = RELATIONSHIP_RE.exec(text);
   if (match === null) {
     return null;
@@ -574,6 +647,7 @@ function readRelationship(
     },
     leftClasses: leftClasses === undefined ? [] : splitIdList(leftClasses),
     rightClasses: rightClasses === undefined ? [] : splitIdList(rightClasses),
+    reservedClass: reservedClassMember(match, [2, 7]),
     length: match[0].length,
   };
 }
@@ -900,7 +974,7 @@ const END_RE = /^end\b\s*/iu;
  */
 const ENTITY_HEAD_RE = new RegExp(
   `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))\\s*\\])?` +
-    `(?::::(${idListSource(NAME_SOURCE)}))?(\\s*\\{)?`,
+    `${CLASS_LIST_SOURCE}(\\s*\\{)?`,
   "du",
 );
 const ATTRIBUTE_BLOCK_CLOSE = "}";
@@ -1039,6 +1113,8 @@ interface ErEntityHead {
   alias: Label | null;
   /** The classes a `:::` applied to it, in source order; empty when it wrote none. */
   classes: string[];
+  /** A keyword or number heading a member of that class list — see `reservedClassMember`. */
+  reservedClass: ClassMemberHead | null;
   opensBlock: boolean;
   length: number;
 }
@@ -1074,7 +1150,14 @@ function readEntityHead(
       return null;
     }
     if (token < name.length) {
-      return { name: text.slice(0, token), alias: null, classes: [], opensBlock: false, length: token };
+      return {
+        name: text.slice(0, token),
+        alias: null,
+        classes: [],
+        reservedClass: null,
+        opensBlock: false,
+        length: token,
+      };
     }
   }
   // The over-reach guard the name alphabet needs: `-` and `.` are each a
@@ -1100,6 +1183,7 @@ function readEntityHead(
     name: unquoteName(name),
     alias: aliasGroup === null ? null : readLabelInto(match, aliasGroup, at, diagnostics),
     classes: classes === undefined ? [] : splitIdList(classes),
+    reservedClass: reservedClassMember(match, [4]),
     opensBlock: brace !== undefined,
     length: whole.length,
   };
@@ -1356,7 +1440,7 @@ function readLine(
 
     const apply = CLASS_RE.exec(rest);
     if (apply !== null) {
-      const word = reservedClassMember([...splitIdList(apply[1]), ...splitIdList(apply[2])]);
+      const word = reservedClassMember(apply, [1, 2]);
       if (word !== null) {
         return reservedClassRefusal(word, line);
       }
@@ -1400,11 +1484,10 @@ function readLine(
 
     const relationship = readRelationship(rest, restAt(), diagnostics);
     if (relationship !== null) {
-      // A reserved word after either end's `:::` is a keyword to Mermaid's
-      // lexer, and the line a parse error — see `RESERVED_AT_CLASS_HEAD_RE`.
-      const reservedClass = reservedClassMember([...relationship.leftClasses, ...relationship.rightClasses]);
-      if (reservedClass !== null) {
-        return reservedClassRefusal(reservedClass, line);
+      // A keyword or number after either end's `:::` is not a name to Mermaid's
+      // lexer, and the line a parse error — see `reservedClassMember`.
+      if (relationship.reservedClass !== null) {
+        return reservedClassRefusal(relationship.reservedClass, line);
       }
       // Both endpoints join the one entity list, in the order the line names
       // them — measured, a relationship declares its entities exactly as a
@@ -1451,9 +1534,8 @@ function readLine(
     if (head === null) {
       return null;
     }
-    const reservedClass = reservedClassMember(head.classes);
-    if (reservedClass !== null) {
-      return reservedClassRefusal(reservedClass, line);
+    if (head.reservedClass !== null) {
+      return reservedClassRefusal(head.reservedClass, line);
     }
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
@@ -1845,7 +1927,11 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     // `A U--o{ B : x` reports `leftCard="MD_PARENT"` too, and without the
     // flag that document was told it was unrecognized rather than
     // unimplemented.
-    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s+u(?=[-.|])`, "iu"),
+    //
+    // And with a `:::` class list on that name, which is the same construct
+    // (measured, 12.2.0): `A:::x u--o{ B : y` and `A ::: x u..o{ B : y`
+    // report `leftCard="MD_PARENT"` with the class on `A`.
+    pattern: new RegExp(`^${ANY_NAME_SOURCE}${CLASS_LIST_SOURCE}\\s+u(?=[-.|])`, "iu"),
     name: 'the "u" (MD_PARENT) relationship cardinality',
   },
   {
