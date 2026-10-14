@@ -43,6 +43,9 @@ While the version is 0.x, a minor release may contain breaking changes.
   (nook `01M4WAFCY`). They used to be refused.
 - A state diagram reads `[*]` on a line of its own as its level's start pseudo-state, as Mermaid
   12.2.0 draws it; a later `[*] --> A` leaves from the same disc (nook `01M4WSRMX`).
+- Flowchart node ids may hold `-` wherever Mermaid's lexer allows it — anywhere the next
+  character is not `>`, `-` or `.` — so `a-b --> c`, `a-b-->c-d`, `-a` and `a-` read as Mermaid
+  12.2.0 reads them (nook `01M2SVAFT`). They used to be refused.
 
 ### Changed
 
@@ -57,6 +60,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- `x.o-->y` in a flowchart is the node `x.o` and a plain arrow, as Mermaid reads it. It was read as
+  the node `x.` with a circle-headed arrow, with no diagnostic.
 - A flowchart's `classDef default` now styles every node, under any other class or `style`, as
   Mermaid 12.2.0 paints it. It used to be recorded and applied to nothing, with no diagnostic (nook
   `01M39F94W`).

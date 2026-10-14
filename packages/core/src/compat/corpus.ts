@@ -1825,6 +1825,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
   // flowchart — node ids
   // -------------------------------------------------------------------------
   {
+    id: "fc-node-id-dash",
+    kind: "flowchart",
+    source: `flowchart TB
+      a-b-->c-d
+      x.o-->y`,
+    status: "supported",
+    meaning:
+      "A node id may hold `-` wherever the next character is not `>`, `-` or " +
+      "`.`, the three that begin an arrow — Mermaid's own id rule. Measured " +
+      "on 12.2.0: `a-b-->c-d` is the nodes `a-b` and `c-d` and one edge, with " +
+      "no space needed before the arrow; `a-b-c`, `-a` and `a-` are ids; " +
+      "`a--b`, `a-.b` and `a - b` are parse errors. Siren refused every dash " +
+      "id (01M2SVAFT). Widening the alphabet moved the arrow markers' guard " +
+      "with it: an `o` or `x` right after an id character is the id's, so " +
+      "`x.o-->y` is the node `x.o` and a plain arrow, as Mermaid reads it — " +
+      "Siren used to read it as `x.` and a circle-headed arrow, silently.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["a-b[a-b]", "c-d[c-d]", "x.o[x.o]", "y[y]"]);
+      expectSame("edges", edges(result), ["a-b-c-d", "x.o-y"]);
+    },
+  },
+  {
     id: "fc-node-id-dot",
     kind: "flowchart",
     source: `flowchart TB

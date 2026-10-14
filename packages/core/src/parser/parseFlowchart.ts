@@ -127,12 +127,21 @@ const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
  * that run whole. This pattern is what accepts it: one or more word
  * characters, then any number of "a run of dots, optionally closed by one
  * dash, then more word characters" segments — the exact shape a guarded
- * dotted body has, and no wider. `-` is not a general id character here:
- * `a-b` is a separate gap this ticket does not claim, and the dash this
- * pattern admits is only ever the one immediately after a dot, measured
- * where `a.-b` puts it.
+ * dotted body has.
+ *
+ * **And `-`, wherever it cannot begin an arrow** (01M2SVAFT). Mermaid's own
+ * id rule takes a dash unless the next character is `>`, `-` or `.` — the
+ * three an arrow's body starts with — and that is the whole of it, measured
+ * on mermaid 12.2.0: `a-b --> c` and `a-b-->c` are both the node `a-b` and an
+ * edge, `a-b-c` is one node, `-a` and `a-` (before a space) are nodes,
+ * `a-b---c`, `a-b==>c` and `a-b-.->c` end the id at the arrow, and `a--b`,
+ * `a-.b` and `a - b` are parse errors. So a dash may open the id before a
+ * word character, and may follow any run of it on the same lookahead — or
+ * end it, since an endpoint arrives here trimmed and `a-`, `b --> a-` and
+ * `a-:::x` all name `a-` (measured).
  */
-const ID_RUN = String.raw`\w+(?:\.+-?\w*)*`;
+const ID_DASH = String.raw`-(?=[^>\-.]|$)`;
+const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
 
 /**
  * Every bracket spelling of a node, paired with the shape it names — the
@@ -413,7 +422,12 @@ const EDGE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^|"])+`;
 const PIPE_LABEL = String.raw`(?:\s*\|(${EDGE_LABEL_CONTENT})\|)?`;
 
 /** What may decorate an arrow's from-end, and what may decorate its to-end. */
-const FROM_MARKER = String.raw`<|(?<!\w)[ox]`;
+// An `o` or `x` right after an id character is the id's, not a marker:
+// `a-o-->b` and `a.o-->b` are the nodes `a-o` and `a.o` with plain arrows in
+// mermaid 12.2.0 (measured, 01M2SVAFT), since both `-` and `.` are in its id
+// alphabet. Only `\w` was guarded before, which read `a.o-->b` as `a.` and
+// a circle-headed arrow, silently.
+const FROM_MARKER = String.raw`<|(?<![\w.-])[ox]`;
 const TO_MARKER = String.raw`[>ox]`;
 
 /**
@@ -466,7 +480,7 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * closer too refused both, and refused them for the dotted stroke alone,
  * which is a rule no author could predict.
  */
-const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<!\w)[ox])|(?<!\w))\.+-`;
+const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<![\w.-])[ox])|(?<!\w))\.+-`;
 
 /**
  * An arrow written as one run: a marker, a body, a marker.
