@@ -1436,8 +1436,16 @@ const SILENTLY_WRONG = 2;
  * error-severity diagnostic naming the curve. Nothing broke: before T7 every
  * `interpolate` line was refused as an unrecognized style declaration, and
  * no row recorded it. `silently-wrong` does not move.
+ *
+ * **15 → 14: a stricter rule relaxed to Mermaid's picture.** The direction
+ * this number is meant to go. `01M39FAVK` lowered "applies a name no classDef defines" from an
+ * error to a warning in the shared `resolveStyles` (decided 2026-10-14):
+ * Mermaid 12.2.0 accepts such a name in all four kinds that style, records
+ * it and paints nothing. `er-style-class-shorthand`, which was refused only
+ * by that rule, draws now and moves to `supported`, asserting the unstyled
+ * entity and the warning. `silently-wrong` does not move.
  */
-const REJECTED = 15;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

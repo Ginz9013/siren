@@ -30,6 +30,13 @@ While the version is 0.x, a minor release may contain breaking changes.
   states called `direction` and `sideways`, and `Foo Bar --> Done` Foo and the transition Bar → Done
   (nook `01M369AQW`). Such a document used to be refused outright.
 
+### Changed
+
+- Applying a class name no `classDef` defines (`A:::ghost`, `class A ghost`, `cssClass "A" ghost`)
+  is a **warning** now, not an error, in flowchart, class, state and ER diagrams: the diagram is
+  drawn with the target unstyled, as Mermaid 12.2.0 draws it, instead of not at all. A target that
+  does not exist is still dropped in silence (nook `01M39FAVK`).
+
 ### Fixed
 
 - State diagrams refuse all ten words Mermaid 12.2.0 reserves, adding `href`, `default` and

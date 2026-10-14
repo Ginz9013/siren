@@ -1175,7 +1175,7 @@ describe("buildClassModel", () => {
 
     expect(diagnostics).toEqual([
       {
-        severity: "error",
+        severity: "warning",
         message:
           'cssClass applies "emphsis", which no classDef defines; dropping the declaration.',
         line: 6,

@@ -8141,7 +8141,7 @@ line2\`"]`,
     source: `erDiagram
       CUSTOMER ||--o{ ORDER : places
       ORDER:::urgent`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`:::` is the apply-directive written onto the entity instead of as a " +
       "statement of its own. Measured: `ORDER:::urgent` reaches the same " +
@@ -8162,7 +8162,18 @@ line2\`"]`,
       "speaks). Mermaid draws this document and paints nothing, so Siren is " +
       "the stricter of the two here — a divergence this row now measures " +
       "rather than one it hides, and the reason the number fell by two and " +
-      "not by three.",
+      "not by three.\n\n" +
+      "**Supported since `01M39FAVK`.** That rule is a **warning** now, in " +
+      "all four kinds that style: re-measured on 12.2.0, ER, flowchart, " +
+      "class and state diagrams each accept an undefined class name, " +
+      "record it and paint nothing, so the picture is Mermaid's and only " +
+      "the author is told. The unknown-target / unknown-name distinction " +
+      "survives, as a warning versus silence.",
+    warnings: ['::: applies "urgent", which no classDef defines; dropping the declaration.'],
+    assert: (result) => {
+      expectSame("ORDER is drawn, unstyled, as Mermaid draws it", erEntityStyle(result, "ORDER"), "");
+      expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]", "ORDER[ORDER]"]);
+    },
   },
   {
     id: "er-style-class-shorthand-defined",

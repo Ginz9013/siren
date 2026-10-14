@@ -3724,7 +3724,7 @@ class A missing
 
     expect(result.diagnostics).toEqual([
       {
-        severity: "error",
+        severity: "warning",
         message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
         line: 3,
         column: 1,
@@ -3734,7 +3734,7 @@ class A missing
       // undefined classDef *name* still speaks — the two are different
       // mistakes, and only the first is one Mermaid also tolerates.
       {
-        severity: "error",
+        severity: "warning",
         message: 'class applies "missing", which no classDef defines; dropping the declaration.',
         line: 6,
         column: 1,
@@ -3875,13 +3875,13 @@ A[Start]:::ghost --> B[End]:::ghost
     // thing that will not be styled — under the keyword they typed.
     expect(result.diagnostics).toEqual([
       {
-        severity: "error",
+        severity: "warning",
         message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
         line: 2,
         column: 1,
       },
       {
-        severity: "error",
+        severity: "warning",
         message: '::: applies "ghost", which no classDef defines; dropping the declaration.',
         line: 2,
         column: 1,
@@ -7677,13 +7677,13 @@ highlight subgraph:1 outline
 
     expect(result.diagnostics).toEqual([
       {
-        severity: "error",
+        severity: "warning",
         message: '::: applies "urgent", which no classDef defines; dropping the declaration.',
         line: 3,
         column: 3,
       },
       {
-        severity: "error",
+        severity: "warning",
         message: 'class applies "missing", which no classDef defines; dropping the declaration.',
         line: 4,
         column: 3,

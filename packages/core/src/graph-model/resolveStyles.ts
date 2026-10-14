@@ -85,11 +85,18 @@ export function resolveStyles(
     if (declaration.styleKind === "apply") {
       const defined = definitions.get(declaration.name ?? "");
       if (defined === undefined) {
-        // Applying a name nothing defines is a typo, and a silent one:
-        // without this the target is simply not styled, and the author is
-        // left comparing two spellings by eye.
+        // Applying a name nothing defines is usually a typo, and a silent
+        // one: without this the target is simply not styled, and the author
+        // is left comparing two spellings by eye. So it speaks — but as a
+        // **warning** (01M39FAVK, decided 2026-10-14). Mermaid 12.2.0
+        // accepts it in all four kinds, records the class and paints
+        // nothing, so the picture drawn here, the target unstyled, is
+        // Mermaid's; an error would cost the whole picture, which is the
+        // trade the compatibility condition exists to refuse. The
+        // distinction from an unknown *target*, dropped in silence as
+        // Mermaid drops it, is kept: the two are different mistakes.
         diagnostics.push({
-          severity: "error",
+          severity: "warning",
           message: `${declaration.authoredAs} applies "${declaration.name}", which no classDef defines; dropping the declaration.`,
           line: declaration.line,
           column: declaration.column,
