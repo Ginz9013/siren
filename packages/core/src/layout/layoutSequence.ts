@@ -686,6 +686,7 @@ export function layoutSequence(
   return {
     title: model.title,
     accTitle: model.accTitle,
+    accDescr: model.accDescr,
     participants,
     boxes,
     elements,

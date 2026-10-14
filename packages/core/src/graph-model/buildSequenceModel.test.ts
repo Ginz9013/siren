@@ -9,6 +9,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -52,6 +53,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("Alice"), participantKind: "participant" },
@@ -93,6 +95,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -135,6 +138,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -170,6 +174,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -192,6 +197,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -218,6 +224,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -244,6 +251,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -268,6 +276,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -292,6 +301,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [],
       boxes: [],
@@ -311,6 +321,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -339,6 +350,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -363,6 +375,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -385,6 +398,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: "Order confirmation flow",
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -420,6 +434,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -465,6 +480,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -510,6 +526,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -578,6 +595,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -654,6 +672,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -691,6 +710,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -726,6 +746,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -771,6 +792,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -810,6 +832,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -838,6 +861,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -880,6 +904,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -912,6 +937,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [
@@ -946,6 +972,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -981,6 +1008,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1021,6 +1049,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1063,6 +1092,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
@@ -1083,6 +1113,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1140,6 +1171,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1205,6 +1237,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1259,6 +1292,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1308,6 +1342,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },
@@ -1363,6 +1398,7 @@ describe("buildSequenceModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },

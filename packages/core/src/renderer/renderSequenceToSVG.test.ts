@@ -85,6 +85,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
   return {
     title: null,
     accTitle: null,
+    accDescr: null,
     participants: [alice, bob],
     boxes: [],
     elements: [],
@@ -506,6 +507,7 @@ describe("renderSequenceToSVG", () => {
     const withAccTitle: PositionedSequenceDiagram = {
       ...buildParticipantsFixture(),
       accTitle: "A short accessible title",
+      accDescr: null,
     };
     const withoutAccTitle = buildParticipantsFixture();
 

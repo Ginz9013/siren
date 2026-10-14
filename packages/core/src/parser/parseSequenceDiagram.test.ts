@@ -333,6 +333,79 @@ describe("parseSequenceDiagram", () => {
     expect(result.diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
+  it("reads accDescr's one-line spelling in any case, with or without space around the colon, last one winning", () => {
+    // Measured on Mermaid 12.2.0: `accDescr: hi there`, `ACCDESCR: hi`,
+    // `accDescr : hi` and `accDescr:hi` all set the description, and of two
+    // the later wins. `accTitle : hi` reads the same way.
+    for (const [lines, accDescr] of [
+      ["accDescr: hi there", "hi there"],
+      ["ACCDESCR: hi", "hi"],
+      ["accDescr : hi", "hi"],
+      ["accDescr:hi", "hi"],
+      ["accDescr: a\n  accDescr: b", "b"],
+    ]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${lines}\n  A->>B: x\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.accDescr).toBe(accDescr);
+      expect(document.participants).toEqual([]);
+    }
+
+    expect(parseOk(`sequenceDiagram\n  accTitle : hi\n  A->>B: x\n`).document.accTitle).toBe("hi");
+  });
+
+  it("reads accDescr's braced spelling across lines, dropping each line's leading whitespace and blank lines", () => {
+    // Measured on Mermaid 12.2.0: the block below gives "line one\nline two",
+    // `accDescr{one}` and `accDescr { one }` give "one", `accDescr { one` /
+    // `two }` gives "one\ntwo", and an empty block gives "" — which writes
+    // no <desc> — so it reads as no description at all.
+    for (const [block, accDescr] of [
+      ["accDescr {\n    line one\n\n      line two\n  }", "line one\nline two"],
+      ["accDescr{one}", "one"],
+      ["ACCDESCR { one }", "one"],
+      ["accDescr { one\n  two }", "one\ntwo"],
+      ["accDescr {\n  }", null],
+      ["accDescr: a\n  accDescr {\n    b\n  }", "b"],
+    ]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${block}\n  A->>B: x\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.accDescr).toBe(accDescr);
+      expect(document.statements.map((s) => s.kind)).toEqual(["message"]);
+    }
+  });
+
+  it("reads what follows an accDescr block's closing brace as the next statement, as Mermaid does", () => {
+    // Measured on Mermaid 12.2.0: `accDescr { one } A->>B: x` draws the
+    // message, so does `}` followed by it on a later line, and
+    // `accDescr { one } extra` is a parse error.
+    for (const block of ["accDescr { one } A->>B: x", "accDescr {\n    one\n  } A->>B: x"]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${block}\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.accDescr).toBe("one");
+      expect(document.statements.map((s) => s.kind)).toEqual(["message"]);
+    }
+
+    const refused = parseSequenceDiagram(`sequenceDiagram\n  accDescr { one } extra\n  A->>B: x\n`);
+    expect(refused.document).toBeNull();
+    expect(refused.diagnostics).toEqual([
+      expect.objectContaining({ severity: "error", line: 2, column: 20 }),
+    ]);
+  });
+
+  it("refuses an accDescr block that never closes, naming the line that opened it", () => {
+    // Mermaid 12.2.0 reads every line after an unclosed `accDescr {` as the
+    // description and draws an empty diagram — not what the document says,
+    // so Siren refuses it rather than drawing that.
+    const result = parseSequenceDiagram(`sequenceDiagram\n  accDescr {\n  one\n  A->>B: x\n`);
+
+    expect(result.document).toBeNull();
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: "error", line: 2, message: expect.stringContaining("accDescr") }),
+    ]);
+  });
+
   it("parses accTitle into the document's accTitle field, distinct from title", () => {
     const source = `sequenceDiagram
   title Order confirmation flow

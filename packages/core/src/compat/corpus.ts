@@ -4243,6 +4243,50 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-acc-descr",
+    kind: "sequence",
+    source: `sequenceDiagram
+      accDescr: how a browser asks for orders
+      A->>B: Hello`,
+    status: "supported",
+    meaning:
+      "`accDescr:` gives the diagram its screen-reader-only description, a " +
+      "`<desc>` on the `<svg>` that the root names with aria-describedby — " +
+      "Mermaid 12.2.0 writes both in the `render()` code every kind shares, " +
+      "the same as `er-acc-descr`. Nothing is drawn on the canvas.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const desc = svg.querySelector(":scope > desc");
+      if (desc === null) throw new Error("no <desc> was drawn");
+      expectSame("the accessible description text", desc.textContent, "how a browser asks for orders");
+      expectSame("the root svg is described by that desc", svg.getAttribute("aria-describedby"), desc.getAttribute("id"));
+      expectSame("no accessible title was invented", svg.querySelector(":scope > title"), null);
+    },
+  },
+  {
+    id: "seq-acc-descr-multiline",
+    kind: "sequence",
+    source: `sequenceDiagram
+      accDescr {
+        how a browser
+        asks for orders
+      }
+      A->>B: Hello`,
+    status: "supported",
+    meaning:
+      "`accDescr`'s braced spelling. Measured on 12.2.0: the description is " +
+      "the block's lines with each one's leading whitespace dropped, " +
+      "\"how a browser\\nasks for orders\". Its own row because it is its own " +
+      "statement in Mermaid's grammar (`acc_descr_multiline_value`).",
+    assert: (result) => {
+      expectSame(
+        "the accessible description text",
+        svgOf(result).querySelector(":scope > desc")?.textContent,
+        "how a browser\nasks for orders",
+      );
+    },
+  },
+  {
     id: "seq-link",
     kind: "sequence",
     source: `sequenceDiagram

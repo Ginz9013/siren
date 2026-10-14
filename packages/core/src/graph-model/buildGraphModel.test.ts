@@ -643,6 +643,7 @@ describe("buildGraphModel", () => {
       kind: "sequence",
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         { id: "A", label: plainLabel("A"), participantKind: "participant" },

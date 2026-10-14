@@ -15,6 +15,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   because Mermaid rejects it too (nook `01M3NM3BT`).
 - ER diagrams read `accTitle:` and `accDescr:` in any case and with whitespace before the colon
   (`ACCDESCR: hi`, `accTitle : hi`), as Mermaid 12.2.0 does (nook `01M4WAFD4`).
+- Sequence diagrams read `accDescr: text` and the braced `accDescr { ... }` block, in any case,
+  and draw the description as the SVG's `<desc>` with `aria-describedby` on the root, as Mermaid
+  12.2.0 does. A block's lines lose their leading whitespace, an empty block is no description, and
+  a block that never closes is refused. `accTitle : text`, with a space before the colon, is read
+  too (nook `01M3NNNE1`).
 
 ### Fixed
 

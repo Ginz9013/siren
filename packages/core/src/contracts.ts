@@ -781,6 +781,13 @@ export interface SequenceDocument {
    * canvas and reaches no accessibility tree entry of its own.
    */
   accTitle: string | null;
+  /**
+   * The diagram's screen-reader-only description — Mermaid's `accDescr:`
+   * statement or its braced `accDescr { ... }` block. Reaches only the
+   * rendered SVG's `<desc>` element. `null` when the document writes none,
+   * or only an empty block, which Mermaid writes no `<desc>` for.
+   */
+  accDescr: string | null;
   participants: SequenceParticipantDecl[];
   boxes: SequenceBox[];
   statements: SequenceStatement[];
@@ -914,6 +921,8 @@ export interface SequenceModel {
   title: string | null;
   /** Carried through unchanged from `SequenceDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
   accTitle: string | null;
+  /** Carried through unchanged from `SequenceDocument.accDescr`, as `accTitle` is. */
+  accDescr: string | null;
   /**
    * Every lane, declared or created by a mention, in first-mention order —
    * the left-to-right order the layout draws them in (ADR-0013).
@@ -1098,6 +1107,8 @@ export interface PositionedSequenceDiagram {
   title: string | null;
   /** Carried through unchanged; drawn as the SVG's `<title>` element, never on the canvas. */
   accTitle: string | null;
+  /** Carried through unchanged; drawn as the SVG's `<desc>` element, never on the canvas. */
+  accDescr: string | null;
   participants: PositionedParticipant[];
   boxes: PositionedBox[];
   /** Messages, blocks, and destroy marks, in document order. */

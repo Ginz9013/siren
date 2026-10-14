@@ -178,6 +178,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   const model: SequenceModel = {
     title: document.title,
     accTitle: document.accTitle,
+    accDescr: document.accDescr,
     participants,
     boxes,
     statements,

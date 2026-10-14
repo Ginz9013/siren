@@ -22,6 +22,7 @@ function coreModel(): SequenceModel {
   return {
     title: null,
     accTitle: null,
+    accDescr: null,
     interactions: [],
     participants: [
       {
@@ -171,6 +172,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -261,6 +263,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -353,6 +356,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -445,6 +449,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -575,6 +580,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -664,6 +670,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [participant("A", "Alice"), participant("B", "Bob"), participant("C", "Carol")],
       boxes: [],
@@ -741,6 +748,7 @@ describe("layoutSequence", () => {
     const withoutBlock: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [participant("A", "Alice"), participant("B", "Bob")],
       boxes: [],
@@ -833,6 +841,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
@@ -887,6 +896,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
@@ -925,6 +935,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -960,6 +971,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice")],
       boxes: [],
@@ -985,6 +997,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1006,6 +1019,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1033,6 +1047,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1060,6 +1075,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice")],
       boxes: [],
@@ -1097,6 +1113,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), carol],
       boxes: [],
@@ -1151,6 +1168,7 @@ describe("layoutSequence", () => {
     const withBottomRow: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1182,6 +1200,7 @@ describe("layoutSequence", () => {
     const withoutBottomRow: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ ...declaredParticipant("A", "Alice"), destroyedAt: 4 }, carol],
       boxes: [],
@@ -1207,6 +1226,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: "Grouped",
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
@@ -1262,6 +1282,7 @@ describe("layoutSequence", () => {
     const withoutBox: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob"), carol],
       boxes: [],
@@ -1306,6 +1327,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1329,6 +1351,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1367,6 +1390,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: "Grouped",
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [

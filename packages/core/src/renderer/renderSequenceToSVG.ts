@@ -117,6 +117,18 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-labelledby", accTitleId);
   }
+  // `accDescr` becomes the `<desc>` after it, which the root names with
+  // `aria-describedby` — Mermaid 12.2.0 writes both in the `render()` code
+  // every kind shares (`addSVGa11yTitleDescription`), as `renderErDiagramToSVG`
+  // does. Its own `if`: a document may write either statement alone.
+  if (diagram.accDescr !== null) {
+    const accDescrId = `chart-desc${scope}`;
+    const accDescrEl = document.createElementNS(SVG_NS, "desc");
+    accDescrEl.setAttribute("id", accDescrId);
+    accDescrEl.textContent = diagram.accDescr;
+    svg.appendChild(accDescrEl);
+    svg.setAttribute("aria-describedby", accDescrId);
+  }
 
   svg.appendChild(buildDefs(scope));
 
