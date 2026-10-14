@@ -182,6 +182,26 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
+  it("reads `[*]` on a line of its own as the level's start pseudo-state", () => {
+    // 01M4WSRMX, measured on mermaid 12.2.0 with `--markup`: a lone `[*]`
+    // draws the start disc of the level it is written at (`root_start`, or
+    // the composite's own start), and a later `[*] --> A` leaves from that
+    // same disc rather than a second one. `Foo [*]` is Foo and the start.
+    expect(documentOf("stateDiagram-v2\n  A --> B\n  [*]\n").states.map((s) => [s.kind, s.id])).toEqual([
+      ["state", "A"],
+      ["state", "B"],
+      ["start", null],
+    ]);
+    const shared = documentOf("stateDiagram-v2\n  [*]\n  [*] --> A\n");
+    expect(shared.states.filter((s) => s.kind === "start")).toHaveLength(1);
+    const nested = documentOf("stateDiagram-v2\n  state C {\n    X\n    [*]\n  }\n");
+    expect(nested.states.filter((s) => s.kind === "start").map((s) => s.parentId)).toEqual(["C"]);
+    expect(documentOf("stateDiagram-v2\n  Foo [*]\n").states.map((s) => [s.kind, s.id])).toEqual([
+      ["state", "Foo"],
+      ["start", null],
+    ]);
+  });
+
   it("still refuses a line whose rest is not a statement, reporting it where the rest starts", () => {
     const { document, diagnostics } = parseStateDiagram("stateDiagram-v2\n  Idle -> Busy\n");
 

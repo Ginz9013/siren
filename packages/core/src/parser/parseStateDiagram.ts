@@ -1276,6 +1276,17 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
+    // `[*]` on a line of its own is the level's start pseudo-state.
+    // Measured on mermaid 12.2.0 (`--markup`): it draws the start disc of
+    // the level it is written at, and a later `[*] --> A` leaves from that
+    // same disc — so it is `declarePseudoState`'s one-per-level start, as a
+    // transition's from side is (01M4WSRMX). `Foo [*]` reaches here too,
+    // as the rest of a line whose leading id was split off.
+    if (line === PSEUDO_STATE) {
+      declarePseudoState("start", lineNumber, column);
+      continue;
+    }
+
     const stateMatch = STATE_DECL_RE.exec(line);
     if (stateMatch !== null) {
       // A word of Mermaid's own, written where a state id belongs. Refused

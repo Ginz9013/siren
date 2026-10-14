@@ -5231,6 +5231,24 @@ line2\`"]`,
     },
   },
   {
+    id: "st-lone-pseudo-start",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*]
+      [*] --> Idle`,
+    status: "supported",
+    meaning:
+      "`[*]` on a line of its own is the level's start pseudo-state. Measured " +
+      "on 12.2.0 (`--markup`): the start disc is drawn, and the transition " +
+      "after it leaves from that same disc rather than a second one — one " +
+      "start per level, as two `[*] -->` lines share one. Inside a composite " +
+      "it is that composite's start. Siren refused the line (01M4WSRMX).",
+    assert: (result) => {
+      expectSame("one start disc and the state", stateFigures(result), ["start:1: disc", "Idle: box"]);
+      expectSame("transitions", transitions(result), ["start:1-Idle: "]);
+    },
+  },
+  {
     id: "st-end-pseudo-state",
     kind: "state",
     source: `stateDiagram-v2

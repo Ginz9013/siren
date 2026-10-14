@@ -41,6 +41,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 - State diagrams read every statement keyword in any case, as Mermaid 12.2.0 does: `CLASSDEF`,
   `CLASS`, `STYLE`, `DIRECTION` and its value (`Direction Rl`), `STATE C {` and `STATE "x" AS y`
   (nook `01M4WAFCY`). They used to be refused.
+- A state diagram reads `[*]` on a line of its own as its level's start pseudo-state, as Mermaid
+  12.2.0 draws it; a later `[*] --> A` leaves from the same disc (nook `01M4WSRMX`).
 
 ### Changed
 
