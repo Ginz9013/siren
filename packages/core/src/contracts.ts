@@ -473,16 +473,17 @@ export interface DiagramParseResult {
 /** Result of `parseSiren`. */
 export interface ParseResult extends DiagramParseResult {
   /**
-   * The document's **document config**, as Mermaid 12.2.0 reads it: its
-   * frontmatter's `config`, with a frontmatter `displayMode` folded into
-   * `config.gantt.displayMode` as Mermaid folds it, merged under its
-   * `%%{init}%%` directives' settings (and a `%%{wrap}%%` as `wrap`) as
-   * Mermaid's `preprocessDiagram` merges them — an init wins where both set
-   * a value, and an init's `config` is filed under the diagram type's key.
-   * Kept as the author wrote it and applied nowhere yet; `{}` when the
-   * document carries none. A frontmatter `title` is not kept here — it is
-   * not config — and is only reported, as a warning that it is not drawn
-   * yet.
+   * The document's **document config**, as Mermaid 12.2.0's
+   * `preprocessDiagram` reads it: its frontmatter's `config`, with a
+   * frontmatter `displayMode` folded into `config.gantt.displayMode`, merged
+   * under its `%%{init}%%` directives' settings — an init wins where both
+   * set a value. It is not quite what the author wrote: an init's `config`
+   * is filed under the diagram type's key (`flowchart`, `sequence`,
+   * `classDiagram`, `stateDiagram`, `er`), a `%%{wrap}%%` adds `wrap`, and
+   * a lone init holding a list holds its items under their indexes. Applied
+   * nowhere yet; `{}` when the document carries none. A frontmatter `title`
+   * is not kept here — it is not config — and is only reported, as a
+   * warning that it is not drawn yet.
    */
   config: Record<string, unknown>;
 }

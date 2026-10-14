@@ -31,7 +31,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   `wrap`. Nothing is **applied yet**: each top-level key is reported as a warning at the directive
   that decided it, or at the frontmatter's opening fence. An init that is not valid JSON is
   reported, and then, as in Mermaid, no init in the document is read; the diagram is still drawn.
-  A directive Mermaid does not read (`%%{foo}%%`) is removed with a warning (nook `01M4XSF9J`).
+  A directive Mermaid does not read (`%%{foo}%%`) is removed with a warning. A `%%{wrap}%%` beside
+  a lone bare-word init (`%%{init: dark}%%`) refuses the document with an error at the wrap
+  directive, as Mermaid refuses it ("Cannot create property 'wrap' on string 'dark'"). A lone
+  init holding a list (`%%{init: [1, 2]}%%`) reads as its items under their indexes, as Mermaid's
+  merge reads it (nook `01M4XSF9J`).
 
 - Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
   12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
@@ -89,8 +93,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 - An init directive spread over several lines no longer breaks the document. It used to be
   removed one line at a time as a `%%` comment, so its middle lines were read as diagram text and
   refused, where Mermaid removes the whole directive and draws the diagram. Every directive is now
-  removed whole before comments are, and blanked in place, so the line and column of every other
-  diagnostic still point at what the author wrote (nook `01M4XSF9J`).
+  removed whole before comments are, and blanked in place with spaces, so the line and column of
+  every other diagnostic still point at what the author wrote — on the directive's own line too
+  (`  %%{wrap}%%  classDiagrm` reports column 15, not 5) (nook `01M4XSF9J`).
 - Flowchart nodes have twice their original positive text padding, without scaling text or changing wrapping;
   subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds retain
   their existing geometry (nook `01M4XKQXA`).

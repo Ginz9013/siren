@@ -130,31 +130,47 @@ function asMermaidReads(source: string): {
  * diagnostics come first, as its lines do. A
  * frontmatter Mermaid refuses — one that is not YAML, or whose
  * `displayMode` has no mapping to go into — refuses the whole document
- * here too, as its one error, and the diagram below it is not read.
+ * here too, as its one error, and the diagram below it is not read; so does
+ * a wrap directive Mermaid cannot write into a bare-word init.
  */
 export function parseSiren(source: string): ParseResult {
   const { lines, asWritten, frontmatter, directives } = asMermaidReads(source);
-  if (frontmatter.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    return { document: null, diagnostics: frontmatter.diagnostics, config: {} };
+  for (const read of [frontmatter, directives]) {
+    if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+      return { document: null, diagnostics: read.diagnostics, config: {} };
+    }
   }
-  // The kind the header names, as `dispatch` finds it: Mermaid's
-  // `detectInit` needs the diagram type to file an init's `config` under.
-  const header = lines.find((line) => line.trim().length > 0);
-  const kind = header === undefined ? null : matchDiagramHeader(header.trim());
-  const documentConfig = documentConfigOf(frontmatter, directives, kind);
-  const { document, diagnostics } = asWritten(dispatch(lines));
+  // One reading of the header serves both: `dispatch` hands the document to
+  // the kind it names, and Mermaid's `detectInit` files an init's `config`
+  // under that kind's diagram type.
+  const header = headerOf(lines);
+  const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
+  const { document, diagnostics } = asWritten(dispatch(lines, header));
   return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
 }
 
 /**
- * `parseSiren`'s reading of `lines`, the document without its comments and
- * with Mermaid's style-line rule applied: every position it finds is in
- * those lines.
+ * The document's header: the first line of `lines` that is not blank, its
+ * index, and the kind it names (`null` when it names none). `null` when
+ * every line is blank.
  */
-function dispatch(lines: readonly string[]): DiagramParseResult {
-  const firstNonBlankIndex = lines.findIndex((line) => line.trim().length > 0);
+interface Header {
+  index: number;
+  kind: DiagramKind | null;
+}
 
-  if (firstNonBlankIndex === -1) {
+function headerOf(lines: readonly string[]): Header | null {
+  const index = lines.findIndex((line) => line.trim().length > 0);
+  return index === -1 ? null : { index, kind: matchDiagramHeader(lines[index]!.trim()) };
+}
+
+/**
+ * `parseSiren`'s reading of `lines`, the document without its comments and
+ * with Mermaid's style-line rule applied, whose `header` is `headerOf(lines)`:
+ * every position it finds is in those lines.
+ */
+function dispatch(lines: readonly string[], header: Header | null): DiagramParseResult {
+  if (header === null) {
     const diagnostics: Diagnostic[] = [
       {
         severity: "error",
@@ -166,24 +182,21 @@ function dispatch(lines: readonly string[]): DiagramParseResult {
     return { document: null, diagnostics };
   }
 
-  const rawLine = lines[firstNonBlankIndex];
-  const trimmed = rawLine.trim();
-  // The comment-free source every per-kind parser sees. Line count and
-  // line order are untouched, so their diagnostics' line numbers still
-  // match the document the author wrote.
-  const strippedSource = lines.join("\n");
-
-  const kind = matchDiagramHeader(trimmed);
-  if (kind !== null) {
-    return PARSE_KIND[kind](strippedSource);
+  if (header.kind !== null) {
+    // The comment-free source every per-kind parser sees. Line count and
+    // line order are untouched, so their diagnostics' line numbers still
+    // match the document the author wrote.
+    return PARSE_KIND[header.kind](lines.join("\n"));
   }
 
+  const rawLine = lines[header.index]!;
+  const trimmed = rawLine.trim();
   const column = rawLine.length - rawLine.trimStart().length + 1;
   const diagnostics: Diagnostic[] = [
     {
       severity: "error",
       message: `Expected ${HEADER_SPELLINGS}, found "${trimmed}"`,
-      line: firstNonBlankIndex + 1,
+      line: header.index + 1,
       column,
     },
   ];

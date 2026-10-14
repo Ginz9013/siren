@@ -3115,4 +3115,68 @@ describe("a document's directives", () => {
     expect(document?.kind).toBe("flowchart");
     expect(config).toEqual({ theme: "dark" });
   });
+
+  it("keeps every later column: an error after a directive on the same line points at the column the author wrote", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — no diagram type
+    // detected for `classDiagrm`.
+    const { document, diagnostics } = parseSiren("  %%{wrap}%%  classDiagrm\n  class A");
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => [d.line, d.column])).toEqual([[1, 15]]);
+  });
+
+  it("keeps every later column on the line where a multi-line init ends", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — a parse error at
+    // `flowchartTB`.
+    const { document, diagnostics } = parseSiren('%%{init: {\n  "theme": "dark"}}%% flowchartTB\n  A --> B');
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => [d.line, d.column])).toEqual([[2, 23]]);
+  });
+
+  it("reports a key at the init that last changed it, not at a later init whose value Mermaid's merge refuses", () => {
+    // Measured (12.2.0): config `{ flowchart: { curve: "basis" } }` — a
+    // scalar never replaces an object in `assignWithDepth`.
+    const { config, diagnostics } = parseSiren(
+      '%%{init: {"flowchart": {"curve": "basis"}}}%%\n%%{init: {"flowchart": 1}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(config).toEqual({ flowchart: { curve: "basis" } });
+    expect(diagnostics.map((d) => [d.message, d.line])).toEqual([
+      ['Document config "flowchart" is read but not applied yet; the diagram is drawn without it.', 1],
+    ]);
+  });
+
+  it("reads a lone init holding a list as Mermaid's merge reads it: each item under its index", () => {
+    // Measured (12.2.0): `detectInit` hands back `[1, 2]`, and
+    // `cleanAndMerge({}, [1, 2])` (es-toolkit's `merge`) makes it
+    // `{ "0": 1, "1": 2 }`; A --> B drawn.
+    const { document, config } = parseSiren("%%{init: [1, 2]}%%\nflowchart TB\n  A --> B");
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ 0: 1, 1: 2 });
+  });
+
+  it("refuses the document, at the wrap directive, when a bare-word init leaves `wrap` nowhere to go — Mermaid refuses it too", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "Cannot create
+    // property 'wrap' on string 'dark'".
+    expect(parseSiren("%%{init: dark}%%\n  %%{wrap}%%\nflowchart TB\n  A --> B")).toEqual({
+      document: null,
+      diagnostics: [
+        {
+          severity: "error",
+          message:
+            'Wrap directive cannot be written into the init directive "dark", which is not a mapping; ' +
+            "Mermaid refuses the document too.",
+          line: 2,
+          column: 3,
+        },
+      ],
+      config: {},
+    });
+  });
+
+  it("drops an init's `config` when there are several inits, as Mermaid's sanitizing does before any move", () => {
+    // Measured (12.2.0, `detectInit`): `{ theme: "dark", look: "neo" }`.
+    const { config } = parseSiren(
+      '%%{init: {"theme": "dark"}}%%\n%%{init: {"config": {"curve": "basis"}, "look": "neo"}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(config).toEqual({ theme: "dark", look: "neo" });
+  });
 });

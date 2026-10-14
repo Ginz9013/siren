@@ -1,5 +1,6 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
 import type { Diagnostic } from "../contracts";
+import type { SourcePosition } from "../label/label";
 import type { DiagramKind } from "./parseDirection";
 
 /**
@@ -23,13 +24,7 @@ export interface FrontmatterRead {
   source: string;
   config: Record<string, unknown>;
   diagnostics: Diagnostic[];
-  position: Position;
-}
-
-/** A line and column in the document the author wrote, both from 1. */
-interface Position {
-  line: number;
-  column: number;
+  position: SourcePosition;
 }
 
 /**
@@ -242,21 +237,41 @@ function lastLineBreakInWhitespaceRun(text: string, from: number): number {
  * A document's `%%{…}%%` directives, read as Mermaid 12.2.0 reads them, and
  * the document left behind once they are gone.
  *
- * - `source` is the document with every directive blanked in place, as the
- *   frontmatter is: every character but the line breaks removed.
+ * - `source` is the document with every directive blanked in place: each
+ *   of its characters but a line break made a space, so every later line
+ *   and column — on the directive's last line too — is where the author
+ *   wrote it.
  * - `init` is what its init directives say, or `undefined` when none says
  *   anything; `positions` says which directive decided each of its
  *   top-level keys.
  * - `wrap` is what its wrap directives say, and where, or `undefined` when
  *   they say nothing.
- * - `diagnostics` says what was removed unread.
+ * - `diagnostics` says what was removed unread, as warnings, or why Mermaid
+ *   refuses the whole document, as one error.
  */
-export interface DirectivesRead {
+export interface DirectivesRead extends InitsRead {
   source: string;
-  init: Record<string, unknown> | undefined;
-  wrap: { value: boolean; position: Position } | undefined;
-  positions: Map<string, Position>;
+  wrap: { value: boolean; position: SourcePosition } | undefined;
   diagnostics: Diagnostic[];
+}
+
+/** What a document's init directives say together, and which decided each top-level key. */
+interface InitsRead {
+  init: Record<string, unknown> | undefined;
+  positions: Map<string, SourcePosition>;
+}
+
+/** One init directive's arguments as read, and where the directive starts. */
+interface InitRead {
+  args: unknown;
+  position: SourcePosition;
+}
+
+/** One directive whose type holds `wrap`, its type, and where it starts. */
+interface WrapDirective {
+  match: RegExpMatchArray;
+  type: string;
+  position: SourcePosition;
 }
 
 /**
@@ -298,28 +313,28 @@ const INIT_TYPE = /(?:init\b)|(?:initialize\b)/;
  * is removed whole rather than left half behind as diagram text.
  */
 export function readDirectives(text: string): DirectivesRead {
-  const inits: { args: unknown; position: Position }[] = [];
-  const wraps: { match: RegExpMatchArray; type: string; position: Position }[] = [];
+  const inits: InitRead[] = [];
+  const wraps: WrapDirective[] = [];
   const diagnostics: Diagnostic[] = [];
+  let unreadable = false;
   let source = "";
   let copied = 0;
   for (const match of text.matchAll(DIRECTIVE)) {
     const position = positionOf(text, match.index);
     const type = match[1] ?? match[2] ?? "";
-    if (!type.includes("wrap") && !INIT_TYPE.test(type)) {
-      diagnostics.push({ severity: "warning", message: removedUnread(type), ...position });
-    }
-    if (type.includes("wrap")) {
-      wraps.push({ match, type, position });
-    }
     if (INIT_TYPE.test(type)) {
       try {
         inits.push({ args: argumentsOf(match), position });
       } catch {
+        unreadable = true;
         diagnostics.push({ severity: "warning", message: INIT_NOT_JSON, ...position });
       }
+    } else if (type.includes("wrap")) {
+      wraps.push({ match, type, position });
+    } else {
+      diagnostics.push({ severity: "warning", message: removedUnread(type), ...position });
     }
-    source += text.slice(copied, match.index) + match[0].replace(/[^\n]/g, "");
+    source += text.slice(copied, match.index) + match[0].replace(/[^\n]/g, " ");
     copied = match.index + match[0].length;
   }
   source += text.slice(copied);
@@ -327,13 +342,26 @@ export function readDirectives(text: string): DirectivesRead {
   // JSON ends it, and it hands back no init at all — the readable ones
   // before it included (measured on 12.2.0). Mermaid only logs it and draws
   // the diagram.
-  const unreadable = diagnostics.some(({ message }) => message === INIT_NOT_JSON);
-  const { init, positions } = unreadable ? { init: undefined, positions: new Map<string, Position>() } : initOf(inits);
+  const { init, positions } = unreadable ? { init: undefined, positions: new Map<string, SourcePosition>() } : initOf(inits);
   const wrap = wrapOf(wraps);
   if (wrap === undefined) {
     for (const { type, position } of wraps) {
       diagnostics.push({ severity: "warning", message: removedUnread(type), ...position });
     }
+  } else if (!unreadable && inits.length === 1 && isScalar(inits[0]!.args)) {
+    // `processDirectives` writes `wrap` into what `detectInit` handed back,
+    // and one init's arguments are handed back as they are: a bare word or
+    // any other truthy scalar takes no property, and the assignment throws
+    // ("Cannot create property 'wrap' on string 'dark'", measured on
+    // 12.2.0). Where Mermaid throws, it draws nothing; so does this.
+    const refusal: Diagnostic = {
+      severity: "error",
+      message:
+        `Wrap directive cannot be written into the init directive "${String(inits[0]!.args)}", ` +
+        "which is not a mapping; Mermaid refuses the document too.",
+      ...wrap.position,
+    };
+    return { source, init: undefined, wrap: undefined, positions: new Map(), diagnostics: [refusal] };
   }
   return { source, init, wrap, positions, diagnostics: inDocumentOrder(diagnostics) };
 }
@@ -342,47 +370,48 @@ export function readDirectives(text: string): DirectivesRead {
  * What `detectInit` makes of a document's readable init directives, and
  * which of them decided each top-level key.
  *
- * - **One** is taken as it is written; arguments that are not a mapping —
- *   a bare word, a list — say nothing, as Mermaid's config ends up holding
- *   nothing of them.
+ * - **One** is handed back as it is written, to be merged over the
+ *   frontmatter's config by `cleanAndMerge` — es-toolkit's `merge`, which
+ *   reads a list as a mapping from each index to its item and a bare word
+ *   as nothing (measured on 12.2.0: `[1, 2]` reads `{"0": 1, "1": 2}`).
  * - **Several** are merged in order by `assignWithDepth`, after Mermaid's
  *   `sanitizeDirective` has been over each. Of what that sanitizing drops,
  *   only `config` — not a Mermaid config key — is dropped here, because only
  *   it changes what is read: one init's `config` is moved under the
  *   diagram's own key (`documentConfigOf`), several inits' never is
  *   (measured on 12.2.0). The rest it drops — keys Mermaid has no setting
- *   for — is kept as written, as the frontmatter's config is.
+ *   for — is kept as written, as the frontmatter's config is. A key is
+ *   decided by the last init whose value `assignWithDepth` took for it.
  */
-function initOf(inits: readonly { args: unknown; position: Position }[]): {
-  init: Record<string, unknown> | undefined;
-  positions: Map<string, Position>;
-} {
-  const positions = new Map<string, Position>();
-  if (inits.length === 1) {
-    const { args, position } = inits[0]!;
-    if (!isMapping(args)) {
-      return { init: undefined, positions };
-    }
-    for (const key of Object.keys(args)) {
-      positions.set(key, position);
-    }
-    return { init: args, positions };
-  }
+function initOf(inits: readonly InitRead[]): InitsRead {
+  const positions = new Map<string, SourcePosition>();
   if (inits.length === 0) {
     return { init: undefined, positions };
+  }
+  if (inits.length === 1) {
+    const { args, position } = inits[0]!;
+    if (!isObject(args)) {
+      return { init: undefined, positions };
+    }
+    const init: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args)) {
+      define(init, key, value);
+      positions.set(key, position);
+    }
+    return { init, positions };
   }
   const init: Record<string, unknown> = {};
   for (const { args, position } of inits) {
     if (!isMapping(args)) {
       continue;
     }
-    delete args.config;
-    assignWithDepth(init, args, 2);
-    for (const [key, value] of Object.entries(args)) {
-      if (value !== null) {
+    const sanitized = Object.fromEntries(Object.entries(args).filter(([key]) => key !== "config"));
+    for (const [key, value] of Object.entries(sanitized)) {
+      if (takes(ownValue(init, key), value)) {
         positions.set(key, position);
       }
     }
+    assignWithDepth(init, sanitized, 2);
   }
   return { init, positions };
 }
@@ -394,9 +423,7 @@ function initOf(inits: readonly { args: unknown; position: Position }[]): {
  * says nothing, and two of them say `false`. Their arguments are parsed as
  * an init's are, and one that is not JSON makes them all say nothing.
  */
-function wrapOf(
-  wraps: readonly { match: RegExpMatchArray; type: string; position: Position }[],
-): DirectivesRead["wrap"] {
+function wrapOf(wraps: readonly WrapDirective[]): DirectivesRead["wrap"] {
   try {
     wraps.forEach(({ match }) => argumentsOf(match));
   } catch {
@@ -455,18 +482,14 @@ function assignWithDepth(dst: unknown, src: unknown, depth: number): unknown {
   }
   if (isObject(src) && isObject(dst)) {
     for (const [key, value] of Object.entries(src)) {
-      const current = Object.prototype.hasOwnProperty.call(dst, key)
-        ? (dst as Record<string, unknown>)[key]
-        : undefined;
-      if (typeof value === "object") {
-        if (value === null) {
-          continue;
-        }
+      const current = ownValue(dst, key);
+      if (!takes(current, value)) {
+        continue;
+      }
+      if (isObject(value)) {
         const into = current === undefined ? (Array.isArray(value) ? [] : {}) : current;
-        if (typeof into === "object") {
-          define(dst, key, assignWithDepth(into, value, depth - 1));
-        }
-      } else if (typeof current !== "object") {
+        define(dst, key, assignWithDepth(into, value, depth - 1));
+      } else {
         define(dst, key, value);
       }
     }
@@ -475,7 +498,8 @@ function assignWithDepth(dst: unknown, src: unknown, depth: number): unknown {
 }
 
 /**
- * Mermaid's `cleanAndMerge` — lodash's `merge({}, defaults, data)` — over
+ * Mermaid's `cleanAndMerge` — es-toolkit's `merge({}, defaults, data)`
+ * (`es-toolkit/compat`, which Mermaid 12.2.0 imports in lodash's place) — over
  * the values JSON and YAML can hold: a fresh object holding `defaults`, then
  * `data` merged into it all the way down. A mapping merges into a mapping (or
  * a list) key by key, a list into a list index by index, and anything else,
@@ -490,9 +514,7 @@ function cleanAndMerge(defaults: Record<string, unknown>, data: Record<string, u
 
 function mergeInto(target: object, source: object): void {
   for (const [key, value] of Object.entries(source)) {
-    const current = Object.prototype.hasOwnProperty.call(target, key)
-      ? (target as Record<string, unknown>)[key]
-      : undefined;
+    const current = ownValue(target, key);
     if (Array.isArray(value)) {
       const into = Array.isArray(current) ? current : [];
       mergeInto(into, value);
@@ -505,6 +527,20 @@ function mergeInto(target: object, source: object): void {
       define(target, key, value);
     }
   }
+}
+
+/**
+ * Whether `assignWithDepth` takes `value` for a key now holding `current`:
+ * never a `null`; anything where nothing is yet; and otherwise only an
+ * object for an object or a scalar for a scalar.
+ */
+function takes(current: unknown, value: unknown): boolean {
+  return value !== null && (current === undefined || isObject(value) === isObject(current));
+}
+
+/** `target`'s own value for `key`, never one it inherits — a `__proto__` key included. */
+function ownValue(target: object, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(target, key) ? (target as Record<string, unknown>)[key] : undefined;
 }
 
 function isObject(value: unknown): value is object {
@@ -530,7 +566,7 @@ function inDocumentOrder(diagnostics: Diagnostic[]): Diagnostic[] {
 }
 
 /** Where `index` falls in `text`, as a line and column from 1. */
-function positionOf(text: string, index: number): Position {
+function positionOf(text: string, index: number): SourcePosition {
   const lineStart = text.lastIndexOf("\n", index - 1) + 1;
   return { line: text.slice(0, lineStart).split("\n").length, column: index - lineStart + 1 };
 }
