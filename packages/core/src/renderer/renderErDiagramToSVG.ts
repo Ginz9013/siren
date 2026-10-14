@@ -71,12 +71,20 @@ const DASH_PATTERN = "8,8";
  * inner one saying *one* or *many* and the outer one saying *mandatory* or
  * *optional*.
  *
- * The **pixel counts** are Siren's (ADR-0004), and they differ from
- * Mermaid's in one deliberate way: every glyph here sits outside the entity
- * box, because `refX` equals `markerWidth` throughout — the convention
- * `renderClassDiagramToSVG` and `renderToSVG` already keep, so a marker
- * attaches by its tip wherever it is applied. Mermaid instead centres the
- * almond *on* the box's edge, half-burying it.
+ * The **placement** is Mermaid's too, measured from the same end markers:
+ * a bar or circle marker attaches by its right-hand edge (`refX` equals
+ * `markerWidth`), so its glyphs sit outside the entity box, while a "many"
+ * marker attaches at the middle of its almond (`refX` 27 of 45, 39 of 57),
+ * so half the almond lies inside the box and the box, painted after every
+ * line, covers it. The farthest glyphs reach 15, 27, 24 and 34 out. (Siren
+ * once kept every glyph outside the box, which made the two "many" markers
+ * reach 42 and 54 and stretched every ER picture along its ranks to keep
+ * them on their runs; nook decision `01M4W687VYADT35JXWTPSCBQ9G`.) Mermaid's start
+ * markers are its end markers mirrored (`refX` 0 or 18), which is what
+ * `orient="auto-start-reverse"` draws from one definition here — but for
+ * half a pixel: its `zeroOrMoreStart` circle sits at `cx` 45.5, 27.5 out,
+ * where the mirror is 28. The stroke width and colours are the theme's
+ * (ADR-0004).
  *
  * How far each marker reaches out from the box is what layout keeps
  * straight at that end of the route (`CARDINALITY_MARKER_REACH` in
@@ -186,9 +194,10 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   // (ADR-0016). A line routed past an entity it does not join runs under
   // that box rather than across its text, and no line — this
   // relationship's or a later one's — crosses a label, because every label
-  // is drawn after every line. The boxes at a line's own ends change
-  // nothing: layout stops the route on the box's edge, and every marker
-  // glyph sits outside it (`buildMarker`).
+  // is drawn after every line. And the boxes at a line's own ends hide the
+  // half of a "many" almond that lies inside them (`buildMarker`), as
+  // Mermaid's boxes hide its own: layout stops the route on the box's edge,
+  // and the almond is centred there.
   for (const relationship of diagram.relationships) {
     svg.appendChild(buildRelationship(relationship, scope));
   }
@@ -347,27 +356,36 @@ function buildDefs(scope: string): SVGDefsElement {
   zeroOrOne.append(bar(21), hollowCircle(9, GLYPH_HEIGHT / 2));
   defs.appendChild(zeroOrOne);
 
-  // One or more: the foot against the box, a bar outside it. The taller box
-  // is the foot's: its curves reach `FOOT_LENGTH / 2` above and below the
-  // line, where a bar reaches `GLYPH_HEIGHT / 2`.
-  const oneOrMore = buildMarker(MARKER_NAME.oneOrMore + scope, 63, FOOT_LENGTH);
-  oneOrMore.append(crowsFoot(63), bar(21, FOOT_LENGTH / 2));
+  // One or more: the almond centred on the box's edge, half of it buried in
+  // the box, and a bar 24 out — Mermaid's `oneOrMoreEnd` (`refX` 27, bar at
+  // 3, almond 9 to 45). The taller box is the almond's: its curves reach
+  // `FOOT_LENGTH / 2` above and below the line, where a bar reaches
+  // `GLYPH_HEIGHT / 2`.
+  const oneOrMore = buildMarker(MARKER_NAME.oneOrMore + scope, 45, FOOT_LENGTH, 27);
+  oneOrMore.append(crowsFoot(45), bar(3, FOOT_LENGTH / 2));
   defs.appendChild(oneOrMore);
 
-  // Zero or more: the foot against the box, the hollow circle outside it.
-  const zeroOrMore = buildMarker(MARKER_NAME.zeroOrMore + scope, 63, FOOT_LENGTH);
-  zeroOrMore.append(crowsFoot(63), hollowCircle(15, FOOT_LENGTH / 2));
+  // Zero or more: the almond as above and the hollow circle outside it,
+  // centred 28 out — Mermaid's `zeroOrMoreEnd` (`refX` 39, circle `cx` 11,
+  // almond 21 to 57).
+  const zeroOrMore = buildMarker(MARKER_NAME.zeroOrMore + scope, 57, FOOT_LENGTH, 39);
+  zeroOrMore.append(crowsFoot(57), hollowCircle(11, FOOT_LENGTH / 2));
   defs.appendChild(zeroOrMore);
 
   return defs;
 }
 
 /**
- * One empty `<marker>`, attaching by its right-hand edge so that everything
- * drawn in it sits outside the entity box, and flipping at the start end so
+ * One empty `<marker>`, attaching at `refX` and flipping at the start end so
  * that one definition serves both.
+ *
+ * `refX` is the point on the box's edge. Left of it is outside the box; right
+ * of it, inside. A marker of bars and circles attaches by its right-hand edge
+ * (the default), so all of it sits outside. A "many" marker attaches at the
+ * middle of its almond, so half the almond lies inside the box, where the
+ * entity, painted after every line, covers it — Mermaid's own placement.
  */
-function buildMarker(id: string, width: number, height: number): SVGMarkerElement {
+function buildMarker(id: string, width: number, height: number, refX: number = width): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
   marker.setAttribute("id", id);
   // Not the SVG default: `userSpaceOnUse` keeps a marker a fixed absolute
@@ -376,7 +394,7 @@ function buildMarker(id: string, width: number, height: number): SVGMarkerElemen
   marker.setAttribute("markerUnits", "userSpaceOnUse");
   marker.setAttribute("markerWidth", String(width));
   marker.setAttribute("markerHeight", String(height));
-  marker.setAttribute("refX", String(width));
+  marker.setAttribute("refX", String(refX));
   marker.setAttribute("refY", String(height / 2));
   marker.setAttribute("orient", "auto-start-reverse");
   return marker;
@@ -409,9 +427,10 @@ function hollowCircle(cx: number, cy: number): SVGCircleElement {
 }
 
 /**
- * The "many" glyph, with its nearest point at `tipX`: a closed almond of
+ * The "many" glyph, with its innermost point at `tipX`: a closed almond of
  * two quadratic curves, `FOOT_LENGTH` long and `FOOT_LENGTH / 2` across at
- * its widest.
+ * its widest. Its marker attaches at the almond's middle, so `tipX` is
+ * `FOOT_LENGTH / 2` inside the entity box.
  *
  * Measured, and worth stating because the name misleads: Mermaid's
  * `one_or_more` and `zero_or_more` markers draw this and not three prongs
@@ -431,8 +450,8 @@ function crowsFoot(tipX: number): SVGPathElement {
     `M${farX},${centerY} Q${midX},${centerY - spread} ${tipX},${centerY}` +
       ` Q${midX},${centerY + spread} ${farX},${centerY}`,
   );
-  // Never filled: the almond is an outline, and a fill would make it a
-  // solid blob against the box.
+  // Never filled: the almond is an outline, and a fill would make its
+  // outer half a solid blob against the box.
   path.setAttribute("fill", "none");
   return path;
 }

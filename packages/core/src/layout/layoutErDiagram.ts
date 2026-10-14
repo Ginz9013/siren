@@ -42,23 +42,27 @@ const ENTITY_PADDING_Y = 8;
 
 /**
  * How far out from its entity box each cardinality's marker reaches along the
- * line, by the glyph farthest from the box: the bars, circle and foot
- * `renderErDiagramToSVG` draws, every one of them outside the box (ADR-0004).
- * Exactly one is two bars, the outer 15 out; zero or one a bar and then a
- * circle of radius 6 centred 21 out; one or more a 36-long foot and then a
- * bar 42 out; zero or more the foot and then a circle centred 48 out.
+ * line, by the glyph farthest from the box: the bars, circle and almond
+ * `renderErDiagramToSVG` draws, placed as Mermaid 12.2.0's end markers place
+ * them. Exactly one is two bars, the outer 15 out; zero or one a bar and then
+ * a circle of radius 6 centred 21 out; one or more an almond centred on the
+ * box's edge, half of it inside the box, and a bar 24 out; zero or more the
+ * almond and a circle centred 28 out, reaching 34 (nook decision
+ * `01M4W687VYADT35JXWTPSCBQ9G`). The buried half of an almond needs no
+ * straight run: it lies under the box, not along the line.
  *
  * The core keeps that much of each end of the route straight
  * (`straightEnds`), so the marker lies on the line rather than past its
- * first bend. The renderer's own test reads the drawn markers and holds
- * every end of every route to them, so a marker redrawn longer without this
- * table following it fails there.
+ * first bend. The renderer's own test reads the drawn markers and requires
+ * this table to equal them, so a marker redrawn without this table following
+ * it fails there — longer, because the marker would run past the bend;
+ * shorter, because the picture would be stretched for nothing.
  */
 export const CARDINALITY_MARKER_REACH: Record<ErCardinality, number> = {
   onlyOne: 15,
   zeroOrOne: 27,
-  oneOrMore: 42,
-  zeroOrMore: 54,
+  oneOrMore: 24,
+  zeroOrMore: 34,
 };
 
 /**

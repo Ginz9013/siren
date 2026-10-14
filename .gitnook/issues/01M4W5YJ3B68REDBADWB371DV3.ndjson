@@ -1,0 +1,5 @@
+{"id":"01M4W5YJ3BA51905B2GB7CC5K3","t":1,"a":"83a1","op":"create","title":"ER cardinality markers half-buried as Mermaid draws them"}
+{"id":"01M4W5YJ3MDXWVNTF0CHDW6QE5","t":2,"a":"83a1","op":"set","k":"description","v":"Follow-up to 01M4VP6AV: adopt Mermaid 12.2.0's marker placement (the almond centred on the box edge), so the straight run each end keeps shrinks from 42/54 to 24/34 and ER pictures stretch less along the rank axis. Amends the marker geometry recorded under ADR-0004's line."}
+{"id":"01M4W5YJ3MJWN9WWDM1Z47TJB5","t":3,"a":"83a1","op":"label.add","v":"elk-migration"}
+{"id":"01M4W5Z50Y0S9EWM49HPX3NESS","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4W6BKCH4ANPFD0BTP9MPNA9","t":5,"a":"83a1","op":"set","k":"status","v":"done"}

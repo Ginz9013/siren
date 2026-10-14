@@ -24,7 +24,8 @@ Mermaid 12 it measured the difference and wrote it down: a long arrow keeps its 
 route's end never runs it through a box (`01M4VBHWY`), a frame fits its contents with its own
 padding (`01M4VDB3X`), a frame's title moves clear of the routes crossing it (`01M4VFW4X`), class
 multiplicities stay off lines and boxes (`01M4VHSY2`), a state's note stays in its block
-(`01M4VKTJ2`), and an ER cardinality marker stays on its line (`01M4VP6AV`). The layout engine
+(`01M4VKTJ2`), and an ER cardinality marker stays on its line (`01M4VP6AV`, with Mermaid's
+half-buried almond, `01M4W687V`). The layout engine
 decision is nook `01M4VA67H`; the amendment of ADR-0001 that puts ELK behind the shared core and
 removes dagre is `01M4VPWF5`.
 
@@ -109,12 +110,17 @@ removes dagre is `01M4VPWF5`.
   and left/right (was 58.3% / 77.8%).
 - **An ER cardinality marker stays on its line.** Each end of a relationship now runs straight out
   of its entity, past the rounded corner, for at least as far as its marker reaches (15px for
-  exactly one, 27 for zero or one, 42 for one or more, 54 for zero or more), so a crow's foot no
+  exactly one, 27 for zero or one, 24 for one or more, 34 for zero or more), so a crow's foot no
   longer sticks out past the first bend — a self-relationship's loop reaches out that far too.
   Mermaid 12.2.0's markers do overrun the bend; Siren departs from it here. ER diagrams grow along
-  their ranks to make the room (the ER subgraph parity fixture's boxes span 1622px instead of
-  1271px); the parity numbers are unchanged. The layout core's edges take a `straightEnds` length
-  for it; no other diagram kind sets one.
+  their ranks to make the room (the ER subgraph parity fixture's boxes span 1422px instead of
+  1271px; Mermaid's 1321px); the parity numbers are unchanged. The layout core's edges take a
+  `straightEnds` length for it; no other diagram kind sets one.
+- **An ER "many" marker is half buried in its entity, as Mermaid draws it.** The almond of a
+  one-or-more or zero-or-more marker is now centred on the entity's edge, with the half inside the
+  box hidden under it, and its bar or circle sits 24 or 28px out (was every glyph outside the box,
+  the almond's tip on the edge and the outer glyph 42 or 48px out). Every glyph is where Mermaid
+  12.2.0's ER markers put it. ER diagrams are shorter along their ranks for it (nook `01M4W687V`).
 - The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 
 ### Added

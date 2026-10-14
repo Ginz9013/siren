@@ -8,10 +8,25 @@ import type {
 } from "../contracts";
 import { cornerCut, ROUNDED_CORNER_RADIUS } from "../curve/roundedCorner";
 import { render } from "../index";
+import { CARDINALITY_MARKER_REACH } from "../layout/layoutErDiagram";
 import { plainLabel, plainRun } from "../label/label";
 import { connectorPathData } from "./connectorCurve";
 import { renderErDiagramToSVG } from "./renderErDiagramToSVG";
 import { CANVAS_GUTTER } from "./sizeCanvas";
+
+/**
+ * The default theme's own text, read off disk: vitest empties any `.css`
+ * import, `?raw` included (see `theme/default.test.ts`).
+ */
+const defaultThemeCss = (
+  globalThis as unknown as {
+    process: {
+      getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
+    };
+  }
+).process
+  .getBuiltinModule("node:fs")
+  .readFileSync(`${(import.meta as unknown as { dirname: string }).dirname}/../theme/default.css`, "utf8");
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
 const rowsLabel = (...rows: string[]): Label => ({
@@ -503,6 +518,93 @@ describe("renderErDiagramToSVG", () => {
       0, 1, 1,
     ]);
     expect(zeroOrMore.foot[0]).toBeLessThan(zeroOrMore.circle[0]);
+  });
+
+  it("places each cardinality's glyphs where Mermaid 12.2.0's end markers put them, the almond half inside the box", () => {
+    // Measured from Mermaid 12.2.0's `_neo` end markers, the ones an ER
+    // diagram is drawn with (`chunk-RLXJHMIZ.mjs` lines 1163-1199), as
+    // distances out from the box (`refX - x`; negative is inside the box):
+    //
+    //   onlyOneEnd     refX 18  `M3,0 L3,18 M9,0 L9,18`         bars 15 and 9
+    //   zeroOrOneEnd   refX 30  circle cx 9 r 6, `M21,0 L21,18`   circle 21, bar 9
+    //   oneOrMoreEnd   refX 27  `M3,9 L3,27 M9,18 Q27,0 45,18 …`  bar 24, almond 18 to -18
+    //   zeroOrMoreEnd  refX 39  circle cx 11 r 6, almond 21 to 57 circle 28, almond 18 to -18
+    //
+    // Reach (refX to the farthest glyph): 15, 27, 24, 34. The start markers
+    // are these mirrored (`refX` 0 or 18), which `orient="auto-start-reverse"`
+    // on one definition draws.
+    const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES]));
+
+    const figure = (cardinality: ErCardinality) => {
+      const marker = markerFor(svg, cardinality);
+      const refX = Number(marker.getAttribute("refX"));
+      const bars: number[] = [];
+      const circles: { center: number; r: number }[] = [];
+      const almonds: { far: number; near: number }[] = [];
+      for (const glyph of Array.from(marker.children)) {
+        if (glyph.tagName === "line") bars.push(refX - Number(glyph.getAttribute("x1")));
+        if (glyph.tagName === "circle") {
+          circles.push({ center: refX - Number(glyph.getAttribute("cx")), r: Number(glyph.getAttribute("r")) });
+        }
+        if (glyph.tagName === "path") {
+          const xs = Array.from((glyph.getAttribute("d") ?? "").matchAll(/(-?[\d.]+),(-?[\d.]+)/g), (pair) =>
+            Number(pair[1]),
+          );
+          // The curve's own ends, not its control points: the first and the
+          // middle on-curve point (`M far Q mid near Q mid far`).
+          almonds.push({ far: refX - Math.min(...xs), near: refX - Math.max(...xs) });
+        }
+      }
+      return {
+        bars: bars.sort((a, b) => a - b),
+        circles,
+        almonds,
+        reach: markerReach(marker),
+        orient: marker.getAttribute("orient"),
+      };
+    };
+
+    expect(figure("onlyOne")).toEqual({
+      bars: [9, 15], circles: [], almonds: [], reach: 15, orient: "auto-start-reverse",
+    });
+    expect(figure("zeroOrOne")).toEqual({
+      bars: [9], circles: [{ center: 21, r: 6 }], almonds: [], reach: 27, orient: "auto-start-reverse",
+    });
+    expect(figure("oneOrMore")).toEqual({
+      bars: [24], circles: [], almonds: [{ far: 18, near: -18 }], reach: 24, orient: "auto-start-reverse",
+    });
+    expect(figure("zeroOrMore")).toEqual({
+      bars: [], circles: [{ center: 28, r: 6 }], almonds: [{ far: 18, near: -18 }], reach: 34,
+      orient: "auto-start-reverse",
+    });
+
+    // Every glyph inside the marker's own viewport, so none is clipped.
+    for (const cardinality of ["onlyOne", "zeroOrOne", "oneOrMore", "zeroOrMore"] as const) {
+      const marker = markerFor(svg, cardinality);
+      const width = Number(marker.getAttribute("markerWidth"));
+      const height = Number(marker.getAttribute("markerHeight"));
+      for (const glyph of Array.from(marker.children)) {
+        const xs: number[] = [];
+        const ys: number[] = [];
+        if (glyph.tagName === "line") {
+          xs.push(Number(glyph.getAttribute("x1")), Number(glyph.getAttribute("x2")));
+          ys.push(Number(glyph.getAttribute("y1")), Number(glyph.getAttribute("y2")));
+        }
+        if (glyph.tagName === "circle") {
+          const [cx, cy, r] = ["cx", "cy", "r"].map((name) => Number(glyph.getAttribute(name)));
+          xs.push(cx - r, cx + r);
+          ys.push(cy - r, cy + r);
+        }
+        if (glyph.tagName === "path") {
+          for (const pair of (glyph.getAttribute("d") ?? "").matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) {
+            xs.push(Number(pair[1]));
+            ys.push(Number(pair[2]));
+          }
+        }
+        for (const x of xs) expect(x >= 0 && x <= width, `${cardinality} x ${x} in 0..${width}`).toBe(true);
+        for (const y of ys) expect(y >= 0 && y <= height, `${cardinality} y ${y} in 0..${height}`).toBe(true);
+      }
+    }
   });
 
   it("hangs each marker on the end of the line the author wrote it against", () => {
@@ -998,6 +1100,21 @@ D }o--}| E : five
 `,
   };
 
+  it("keeps each end straight for exactly the marker drawn there, no more", () => {
+    // The table layout keeps straight is the drawn reach, not a bound on
+    // it: a table longer than the marker stretches the picture along the
+    // rank axis for nothing (the "many" markers once reached 42 and 54
+    // with every glyph outside the box, and the table followed them).
+    const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES]));
+    const drawn = Object.fromEntries(
+      (["onlyOne", "zeroOrOne", "oneOrMore", "zeroOrMore"] as const).map((cardinality) => [
+        cardinality,
+        markerReach(markerFor(svg, cardinality)),
+      ]),
+    );
+    expect(CARDINALITY_MARKER_REACH).toEqual(drawn);
+  });
+
   it.each(Object.entries(documents))(
     "%s: each end's straight run, past the rounded corner, is as long as the marker drawn on it",
     (_, source) => {
@@ -1033,6 +1150,90 @@ D }o--}| E : five
         }
       }
       expect(shortfalls).toEqual([]);
+    },
+  );
+
+  it.each(Object.entries(documents))(
+    "%s: the half of an almond inside the box lies under the entity, which is painted over it",
+    (_, source) => {
+      // Mermaid centres a "many" almond on the box's edge, so half of it is
+      // inside the box and the box, drawn after the lines (ADR-0016), hides
+      // it. That half must land wholly within the entity's own rectangle —
+      // a box with an attribute table included — and that rectangle must be
+      // filled opaquely, or the buried half shows through.
+      const { svg } = render(source, document.createElement("div"), { measureText });
+      const entities = Array.from(svg!.querySelectorAll("g.siren-er-entity")).map((group) => {
+        const rect = group.querySelector("rect.siren-er-entity-frame")!;
+        const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
+        return { group, x, y, width, height };
+      });
+      const on = (value: number, edge: number) => Math.abs(value - edge) < 1e-6;
+      let buried = 0;
+      const problems: string[] = [];
+      for (const line of Array.from(svg!.querySelectorAll("path.siren-er-relationship-line"))) {
+        const points = line
+          .getAttribute("data-siren-points")!
+          .split(" ")
+          .map((pair) => {
+            const [x, y] = pair.split(",").map(Number);
+            return { x, y };
+          });
+        const id = line.parentElement!.getAttribute("data-siren-id");
+        const ends = [
+          { name: "start", tip: points[0], next: points[1], marker: line.getAttribute("marker-start")! },
+          { name: "end", tip: points[points.length - 1], next: points[points.length - 2], marker: line.getAttribute("marker-end")! },
+        ];
+        for (const { name, tip, next, marker } of ends) {
+          const markerEl = svg!.querySelector(`marker[id="${marker.slice("url(#".length, -1)}"]`)!;
+          const almond = markerEl.querySelector("path.siren-er-cardinality-crows-foot");
+          if (almond === null) continue;
+          const pairs = Array.from((almond.getAttribute("d") ?? "").matchAll(/(-?[\d.]+),(-?[\d.]+)/g), (pair) => [
+            Number(pair[1]),
+            Number(pair[2]),
+          ]);
+          const depth = Math.max(...pairs.map(([x]) => x)) - Number(markerEl.getAttribute("refX"));
+          // A quadratic curve reaches half way to its control point.
+          const halfWidth = (Math.max(...pairs.map(([, y]) => y)) - Math.min(...pairs.map(([, y]) => y))) / 4;
+          if (depth <= 0) {
+            problems.push(`${id} ${name}: no part of the almond is inside the box (depth ${depth})`);
+            continue;
+          }
+          buried++;
+          const length = Math.hypot(tip.x - next.x, tip.y - next.y);
+          const into = { x: (tip.x - next.x) / length, y: (tip.y - next.y) / length };
+          const box = entities.find(
+            (e) =>
+              ((on(tip.x, e.x) || on(tip.x, e.x + e.width)) && tip.y >= e.y && tip.y <= e.y + e.height) ||
+              ((on(tip.y, e.y) || on(tip.y, e.y + e.height)) && tip.x >= e.x && tip.x <= e.x + e.width),
+          );
+          if (box === undefined) {
+            problems.push(`${id} ${name}: ends on no entity's edge`);
+            continue;
+          }
+          const corners = [-halfWidth, halfWidth].flatMap((across) =>
+            [0, depth].map((along) => ({
+              x: tip.x + into.x * along - into.y * across,
+              y: tip.y + into.y * along + into.x * across,
+            })),
+          );
+          for (const corner of corners) {
+            const inside =
+              corner.x >= box.x - 1e-6 && corner.x <= box.x + box.width + 1e-6 &&
+              corner.y >= box.y - 1e-6 && corner.y <= box.y + box.height + 1e-6;
+            if (!inside) problems.push(`${id} ${name}: buried almond reaches ${corner.x},${corner.y}, outside its box`);
+          }
+          if (!paintsBefore(line, box.group)) problems.push(`${id} ${name}: the box is painted under the almond`);
+        }
+      }
+      expect(problems).toEqual([]);
+      expect(buried).toBeGreaterThan(0);
+
+      // Opaque: the frame's fill is the node surface, with no opacity of its
+      // own, and the surface is a solid colour.
+      const frameRule = defaultThemeCss.match(/\.siren-er-entity-frame\s*\{([^}]*)\}/)![1];
+      expect(frameRule).toContain("fill: var(--siren-node-fill);");
+      expect(frameRule).not.toMatch(/opacity/);
+      expect(defaultThemeCss).toMatch(/--siren-node-fill:\s*#[0-9a-fA-F]{6};/);
     },
   );
 });
