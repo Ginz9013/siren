@@ -113,10 +113,11 @@ export function readFrontmatter(text: string): FrontmatterRead {
   }
   const diagnostics: Diagnostic[] = [];
   if (parsed.config && !isMapping(parsed.config)) {
-    // Mermaid keeps a truthy `config` of any kind and merges it with lodash,
-    // which spreads a string's characters or a list's items into keys no
-    // diagram reads; it draws the diagram (measured on 12.2.0). Siren keeps
-    // nothing of it and says so.
+    // Mermaid keeps a truthy `config` of any kind and merges it with
+    // es-toolkit's `merge` (imported in lodash's place), which reads a string
+    // as nothing and spreads a list's items into index keys no diagram reads;
+    // it draws the diagram (measured on 12.2.0). Siren keeps nothing of it
+    // and says so.
     diagnostics.push({
       severity: "warning",
       message: "Frontmatter config is not a mapping; it is ignored, and the diagram is drawn without it.",
