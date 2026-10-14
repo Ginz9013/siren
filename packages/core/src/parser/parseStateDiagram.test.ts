@@ -776,38 +776,77 @@ describe("parseStateDiagram", () => {
     expect(diagnostics[0].message).toContain('Unrecognized timeline verb "wobble"');
   });
 
-  it("refuses each construct this kind does not implement by name, rather than as an unrecognized line", () => {
-    // CONTEXT.md's opening policy: while a construct is unimplemented, Siren
-    // rejects it *and says what is missing*, so an author knows to route
-    // around it. Every one of these is valid Mermaid (measured, 11.17.2, via
-    // scripts/mermaid-probe.mjs) and carries a `rejected` corpus row; the
-    // generic "Unrecognized stateDiagram line" would tell the author their
-    // document was malformed, which is a different and untrue claim.
-    const cases: [string, string][] = [
-      // The note construct itself is implemented now; these are the two of
-      // its spellings that are not, each still valid Mermaid. Measured:
-      // `note right of [*] : x` attaches the note to the level's *start*
-      // pseudo-state, and a `note ... of X` line with no colon opens the
-      // multi-line form that runs to `end note`.
-      ["note right of [*] : the beginning", 'a note on a "[*]" pseudo-state'],
-      ["note left of [*] : the beginning", 'a note on a "[*]" pseudo-state'],
-      ["note right of Idle", 'a multi-line "note ... end note"'],
-    ];
+  it("hangs `note … of [*]` on the start pseudo-state of the level it is written at", () => {
+    // 01M36DWFN gap 1, measured on mermaid 12.2.0: the note lands on the
+    // level's start pseudo-state whichever side of an arrow the author's
+    // `[*]` sits on — `root_start` at the top, `C_start` inside `state C`.
+    // Both spellings, and the multi-line form, attach the same way.
+    const top = documentOf("stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]\n  note right of [*] : begins\n");
+    expect(top.states.map((s) => [s.kind, s.id, s.note])).toEqual([
+      ["start", null, { position: "right of", label: plainLabel("begins") }],
+      ["state", "Idle", null],
+      ["end", null, null],
+    ]);
 
-    for (const [statement, named] of cases) {
-      const { document, diagnostics } = parseStateDiagram(
-        `stateDiagram-v2\n  Idle --> Busy\n  ${statement}\n`,
-      );
+    const nested = documentOf(
+      "stateDiagram-v2\n  state C {\n    [*] --> X\n    note left of [*]\n      inner\n    end note\n  }\n",
+    );
+    expect(nested.states.filter((s) => s.kind === "start").map((s) => [s.parentId, s.note])).toEqual([
+      ["C", { position: "left of", label: plainLabel("inner") }],
+    ]);
+  });
 
-      expect(document, `for "${statement}"`).toBeNull();
-      const refusal = diagnostics.find((d) => d.line === 3);
-      expect(refusal, `for "${statement}"`).toBeDefined();
-      expect(refusal!.severity, `for "${statement}"`).toBe("error");
-      expect(refusal!.message, `for "${statement}"`).toContain(named);
-      // Named, and quoting the author's own line back at them — the same
-      // shape every other diagnostic in this parser takes.
-      expect(refusal!.message, `for "${statement}"`).toContain(`"${statement}"`);
-      expect(refusal!.message, `for "${statement}"`).not.toContain("Unrecognized");
+  it("refuses `note … of [*]` at a level with no start pseudo-state, which Mermaid cannot draw either", () => {
+    // Measured on 12.2.0: with only an end `[*]` at that level, Mermaid
+    // invents a start with no shape and fails to render ("No such shape:
+    // undefined"), at the top level and inside a composite alike.
+    for (const source of [
+      "stateDiagram-v2\n  Idle --> [*]\n  note right of [*] : done?\n",
+      "stateDiagram-v2\n  state C {\n    X --> [*]\n    note right of [*] : inner\n  }\n",
+    ]) {
+      const { document, diagnostics } = parseStateDiagram(source);
+      expect(document, source).toBeNull();
+      expect(diagnostics.map((d) => [d.severity, d.message.includes("no start pseudo-state")]), source).toEqual([
+        ["error", true],
+      ]);
+    }
+  });
+
+  it("reads a multi-line `note … end note` as one row per non-blank line, without the source's indent", () => {
+    // 01M36DWFN gap 2, measured on mermaid 12.2.0: the note's text reaches
+    // the state with its indentation (`"line one\n      line two"`), but the
+    // drawn note is two rows, `line one` and `line two`, with no leading
+    // space and no row for a blank line. `END NOTE` closes it too, and a
+    // colon is ordinary text inside it.
+    const document = documentOf(
+      "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle\n    line one\n\n      line two: ok\n  END NOTE\n",
+    );
+    expect(document.states[0].note?.position).toBe("right of");
+    expect(document.states[0].note?.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "line one",
+      "line two: ok",
+    ]);
+
+    const { document: unclosed, diagnostics } = parseStateDiagram(
+      "stateDiagram-v2\n  Idle --> Busy\n  note right of Idle\n    never closed\n",
+    );
+    expect(unclosed).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 3]]);
+  });
+
+  it("reads a note's side in any case, and draws it on the side the words name (CONTEXT.md's third rule)", () => {
+    // 01M36DWFN gap 3, decided 2026-09-23. Mermaid 12.2.0 accepts
+    // `note LEFT OF Idle`, records "LEFT OF" verbatim, and then draws it on
+    // the *right* — its side test is an exact `=== "left of"`. The document
+    // names the left, so Siren draws the left, as CONTEXT.md's third rule
+    // says, and the multi-line form reads the same way.
+    for (const [statement, position] of [
+      ["note LEFT OF Idle : shouty", "left of"],
+      ["note Right Of Idle : mixed", "right of"],
+      ["note left  of Idle : spaced", "left of"],
+    ] as const) {
+      const document = documentOf(`stateDiagram-v2\n  Idle --> Busy\n  ${statement}\n`);
+      expect(document.states[0].note?.position, statement).toBe(position);
     }
   });
 

@@ -33,6 +33,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   Mermaid 12.2.0 does: `class Busy a,b` applies a class called `a,b` (which no `classDef` defines,
   so it warns and paints nothing), and `class Busy` with no name is accepted with a warning. Both
   documents used to be refused (nook `01M37GQRM`).
+- State-diagram notes: `note … of [*]` hangs on the level's start pseudo-state, as Mermaid 12.2.0
+  draws it (a level with no start is refused, since Mermaid cannot draw it either); the multi-line
+  `note … end note` is read as one row per non-blank line; and a note's side is read in any case,
+  `note LEFT OF X` drawn on the left as the line says, where Mermaid draws it on the right
+  (nook `01M36DWFN`). All three used to be refused.
 
 ### Changed
 

@@ -77,9 +77,9 @@ export function buildStateModel(document: StateDocument): StateModelResult {
         }
       : // A pseudo-state carries no descriptions and can carry none — `[*]`
         // is not an id, so no description statement can name one — and no
-        // direction, because only a composite has a block to write one in,
-        // and no note, because `note right of [*]` is refused by name in
-        // the parser. What it does carry is its level, which is what chooses
+        // direction, because only a composite has a block to write one in.
+        // It may carry a note: the parser hangs `note … of [*]` on the
+        // level's start (01M36DWFN). What it does carry is its level, which is what chooses
         // its id — and a region is a level of its own (measured: each
         // divider comes back with a `_start` of its own).
         {
@@ -93,7 +93,7 @@ export function buildStateModel(document: StateDocument): StateModelResult {
           descriptions: [],
           parentId: levelOf(state.parentId, state.regionIndex),
           direction: null,
-          note: null,
+          note: state.note,
         },
     // A composite's regions follow it immediately, so the list reads in the
     // order the picture nests — frame, its regions, then what they hold.

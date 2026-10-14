@@ -6172,6 +6172,79 @@ line2\`"]`,
     },
   },
   {
+    id: "st-note-pseudo-start",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle
+      Idle --> [*]
+      note right of [*] : begins here`,
+    status: "supported",
+    meaning:
+      "A note on `[*]` hangs on the level's **start** pseudo-state, whichever " +
+      "`[*]` the author meant. Measured on 12.2.0: the note lands on " +
+      "`root_start` (on `C_start` inside `state C`), never on an end, and is " +
+      "drawn as an ordinary note beside the start disc. A level whose only " +
+      "`[*]` is an end makes Mermaid invent a start with no shape and fail to " +
+      "render, so Siren refuses that document, saying why (01M36DWFN).",
+    assert: (result) => {
+      expectSame("the note is drawn on the start disc", stateNoteText(result, "start:1"), ["begins here"]);
+      expectSame("and not on the end", stateNoteText(result, "end:1"), []);
+    },
+  },
+  {
+    id: "st-note-multiline",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      note right of Idle
+        line one
+
+          line two
+      end note`,
+    status: "supported",
+    meaning:
+      "The multi-line note, `note … of X` with no colon, running to `end " +
+      "note`. Measured on 12.2.0: the text reaches the state with its source " +
+      "indentation (`\"line one\\n      line two\"`), but the drawn note is one " +
+      "row per non-blank line with no leading space — `line one`, `line two` " +
+      "— so the rows are what Siren reads (01M36DWFN).",
+    assert: (result) => {
+      expectSame(
+        "one row per line, no indent, no blank row",
+        labelRows(svgOf(result).querySelector('g.siren-state[data-siren-id="Idle"] text.siren-note-text')),
+        ["line one", "line two"],
+      );
+    },
+  },
+  {
+    id: "st-note-position-case",
+    kind: "state",
+    source: `stateDiagram-v2
+      direction LR
+      Idle --> Busy
+      note LEFT OF Busy : shouty`,
+    status: "supported",
+    meaning:
+      "A note's side in any case — **the first corpus row of CONTEXT.md's " +
+      "third rule** (decided on 01M36DWFN, 2026-09-23). Mermaid 12.2.0 " +
+      "accepts `note LEFT OF Busy`, records the position verbatim as " +
+      "`\"LEFT OF\"`, and then picks the side with an exact `=== \"left of\"`, " +
+      "so it draws the note on the **right**, exactly where `right of` would " +
+      "put it — the opposite of what the line says, with no diagnostic. " +
+      "Mermaid's *record* is right and only its drawing is wrong, so this is " +
+      "still a measurement of meaning against picture: the document names " +
+      "the left, and Siren draws the left. The row asserts Siren's picture.",
+    assert: (result) => {
+      const note = stateNoteRect(result, "Busy");
+      const box = stateRect(result, "Busy");
+      expectSame(
+        `the note is drawn left of Busy (${JSON.stringify([note, box])})`,
+        note.right <= box.left,
+        true,
+      );
+    },
+  },
+  {
     id: "st-note",
     kind: "state",
     source: `stateDiagram-v2

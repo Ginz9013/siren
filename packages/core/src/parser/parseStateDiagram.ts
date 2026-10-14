@@ -7,6 +7,7 @@ import type {
   SirenTimeline,
   StateDecl,
   StateDocument,
+  StateNote,
   StateNotePosition,
   StateRegion,
   StateStereotype,
@@ -14,7 +15,8 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { readLabelAt } from "../label/readLabelAt";
+import { readLabelAt, readTextAt } from "../label/readLabelAt";
+import { plainLabel } from "../label/label";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
@@ -229,8 +231,8 @@ const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/d;
  * - **Case-insensitive**, as Mermaid's own lexer rule is
  *   (`/^(?:.*<<fork>>)/i`): `<<CHOICE>>`, `<<FORK>>` and `<<Join>>` each
  *   report the lowercase `type`. Unlike a note's position (see
- *   `isNotePosition`), the casing changes nothing about what Mermaid then
- *   *records*, so there is no wrong picture to decline here.
+ *   `notePositionOf`), the casing changes nothing about what Mermaid then
+ *   *records*, so there is no wrong picture to correct here.
  * - **No spaces inside the angle brackets.** `state X << choice >>` is *not*
  *   a stereotype: measured, it declares nothing and `X` comes back
  *   `type="default"`, because Mermaid's rule spells the brackets literally.
@@ -288,10 +290,11 @@ const DIVIDER_RE = /^(?:--)+$/;
  *   *lexical* error, not a note drawn over the box, so `over` is a sequence
  *   diagram's word and not this kind's.
  * - **The target is read in `\w+`**, the alphabet every other state id in
- *   this file is read in — so `note right of [*] : text`, which Mermaid does
- *   accept (it attaches the note to the level's *start* pseudo-state,
- *   measured), is deliberately not matched here and is refused by name in
- *   `UNIMPLEMENTED` instead.
+ *   this file is read in, **or is `[*]`**: Mermaid attaches `note right of
+ *   [*] : text` to the level's *start* pseudo-state, whichever side of an
+ *   arrow the author's `[*]` sits on (measured, 12.2.0; 01M36DWFN). Which
+ *   pseudo-state that is can only be known once the level is read, so it is
+ *   settled after the loop — see `pendingPseudoNotes`.
  * - **The text may not contain a colon.** `note right of Idle : a : b : c`
  *   is a parse error in Mermaid, so a second colon is not text — it is a
  *   malformed line, and letting `.*` swallow it would draw a picture for a
@@ -301,7 +304,18 @@ const DIVIDER_RE = /^(?:--)+$/;
  *   `STATE_DESCRIPTION_RE` carries for `Empty :`, and for the same measured
  *   reason.
  */
-const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/di;
+const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+|\[\*\])\s*:\s*([^:]*\S)\s*$/di;
+
+/**
+ * `note right of Idle` with no colon — the opening of the multi-line form,
+ * whose text runs to a line `end note` (any case, measured: `END NOTE` closes
+ * it too). Measured on mermaid 12.2.0: the text reaches the state with its
+ * source indentation, but the drawn note is one row per non-blank line with
+ * no leading space — so that is what is read, each line through the label
+ * reader on its own (01M36DWFN). A colon is ordinary text inside the block.
+ */
+const NOTE_BLOCK_RE = /^note\s+((?:left|right)\s+of)\s+(\w+|\[\*\])\s*$/i;
+const END_NOTE_RE = /^end\s+note$/i;
 
 /**
  * The two positions, as `StateNotePosition` spells them — and the gate that
@@ -315,13 +329,18 @@ const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/di;
  * (`"RIGHT OF"`), then decides which side to draw on with an exact
  * `position === "left of"` comparison. So `note LEFT OF X : t` renders in
  * Mermaid as a **right-of** note: a wrong picture with no diagnostic, from
- * Mermaid's own case sensitivity. Siren will neither copy that nor silently
- * pick the other side, so an uncanonical spelling is declined here and
- * refused as an unrecognized line — CONTEXT.md's one exception to the
- * compatibility condition, applied where it was written for.
+ * Mermaid's own case sensitivity. Re-measured on 12.2.0 with the same result.
+ *
+ * Siren reads the side in any case and draws it where the words say —
+ * CONTEXT.md's third rule (decided on 01M36DWFN, 2026-09-23): the document is
+ * unambiguous and Mermaid's picture contradicts it. It used to refuse the
+ * spelling as an unrecognized line instead, which cost a document Mermaid
+ * draws. Whitespace between the words is folded too (`left  of`).
  */
-const isNotePosition = (spelling: string): spelling is StateNotePosition =>
-  spelling === "left of" || spelling === "right of";
+const notePositionOf = (spelling: string): StateNotePosition | null => {
+  const folded = spelling.toLowerCase().replace(/\s+/g, " ");
+  return folded === "left of" || folded === "right of" ? folded : null;
+};
 
 /**
  * `note "floating" as N` — the note spelling that belongs to no state.
@@ -435,32 +454,13 @@ const STYLE_RE = /^style\s+([\w\s,]*[\w,])\s+([^\s].*)$/;
  * The table shrinks as constructs land: a composite opened with a quoted
  * description used to sit here, and left by being implemented rather than by
  * having its message reworded (`COMPOSITE_OPEN_RE` reads both spellings now),
- * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`).
+ * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`), and so
+ * did the last two entries, a note on `[*]` and the multi-line note
+ * (01M36DWFN). **It is empty now**, and kept: the next construct measured
+ * and not yet implemented belongs here, refused by name, rather than in the
+ * unrecognized-line message.
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
-  {
-    // The note construct itself is implemented (`NOTE_RE`); these are the
-    // two spellings of it that are not, each measured to be valid Mermaid
-    // and each left here so it is refused by name rather than as a
-    // malformed line.
-    //
-    // Measured: `note right of [*] : the beginning` attaches the note to the
-    // level's **start** pseudo-state — `root_start` — whichever side of an
-    // arrow the author's `[*]` lines put it on (a document whose only `[*]`
-    // is an *end* still reports the note on `root_start`, with the end left
-    // bare). Siren's pseudo-states carry generated ids and no note, so this
-    // is a gap and says so.
-    pattern: /^note\s+(?:left|right)\s+of\s+\[\*\]/,
-    name: () => 'a note on a "[*]" pseudo-state',
-  },
-  {
-    // Measured: `note right of Idle` with no colon opens the multi-line
-    // form, whose text runs to a closing `end note` and reaches the state as
-    // one string with newlines in it. A single-line note is `NOTE_RE`'s;
-    // this spelling needs a drawn box of several rows and has none.
-    pattern: /^note\s+(?:left|right)\s+of\s+\w+\s*$/,
-    name: () => 'a multi-line "note ... end note"',
-  },
 ];
 
 /**
@@ -785,6 +785,41 @@ export function parseStateDiagram(source: string): ParseResult {
     column: number,
   ): void => {
     declareState(id, line, column).note = { position, label };
+  };
+
+  /**
+   * Notes written on `[*]`, waiting for their level to be read. Mermaid hangs
+   * such a note on the level's **start** pseudo-state whichever `[*]` the
+   * author meant (measured, 12.2.0) — and the start may be written after the
+   * note, so it is looked up once the whole document is read.
+   */
+  const pendingPseudoNotes: {
+    parentId: string | null;
+    regionIndex: number | null;
+    note: StateNote;
+    line: number;
+    column: number;
+  }[] = [];
+
+  /** A note on `target` — a state, which it declares if need be, or `[*]`. */
+  const noteOn = (
+    target: string,
+    position: StateNotePosition,
+    label: Label,
+    line: number,
+    column: number,
+  ): void => {
+    if (target === PSEUDO_STATE) {
+      pendingPseudoNotes.push({
+        parentId: currentParentId(),
+        regionIndex: currentRegionIndex(),
+        note: { position, label },
+        line,
+        column,
+      });
+      return;
+    }
+    annotateState(target, position, label, line, column);
   };
 
   /**
@@ -1180,15 +1215,48 @@ export function parseStateDiagram(source: string): ParseResult {
     // and description patterns for the reason `classDef` is: neither may
     // claim a statement opening with one of the words this parser reserves.
     const noteMatch = NOTE_RE.exec(line);
-    if (noteMatch !== null && isNotePosition(noteMatch[1])) {
-      const [, position, targetId] = noteMatch;
-      annotateState(
-        targetId,
-        position,
-        readLabelIn(noteMatch, 3, lineNumber, column),
+    const notePosition = noteMatch === null ? null : notePositionOf(noteMatch[1]);
+    if (noteMatch !== null && notePosition !== null) {
+      noteOn(noteMatch[2], notePosition, readLabelIn(noteMatch, 3, lineNumber, column), lineNumber, column);
+      continue;
+    }
+
+    // The multi-line form: every line up to `end note` is the note's text,
+    // one row per non-blank line, each read as a label on its own so a
+    // problem in it points at its own line and column.
+    const noteBlockMatch = NOTE_BLOCK_RE.exec(line);
+    const blockPosition = noteBlockMatch === null ? null : notePositionOf(noteBlockMatch[1]);
+    if (noteBlockMatch !== null && blockPosition !== null) {
+      const close = lines.findIndex((candidate, at) => at > index && END_NOTE_RE.test(candidate.trim()));
+      if (close === -1) {
+        diagnostics.push({
+          severity: "error",
+          message: `Unclosed multi-line note: no "end note" ends the note opened in "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        break;
+      }
+      const rows: Label["rows"] = [];
+      const texts: string[] = [];
+      for (let at = index + 1; at < close; at++) {
+        const text = lines[at].trim();
+        if (text.length === 0) continue;
+        const read = readTextAt(text, { line: at + 1, column: lines[at].length - lines[at].trimStart().length + 1 }, "html");
+        diagnostics.push(...read.diagnostics);
+        if (read.hasError) sawError = true;
+        rows.push(...read.label.rows);
+        texts.push(read.label.text);
+      }
+      noteOn(
+        noteBlockMatch[2],
+        blockPosition,
+        rows.length === 0 ? plainLabel("") : { text: texts.join("\n"), rows },
         lineNumber,
         column,
       );
+      index = close;
       continue;
     }
 
@@ -1288,6 +1356,33 @@ export function parseStateDiagram(source: string): ParseResult {
       column,
     });
     sawError = true;
+  }
+
+  // Each `note … of [*]` onto its level's start pseudo-state, the last one
+  // written winning as two notes on one state do. A level with no start
+  // has nothing Mermaid can draw the note on: measured on 12.2.0, it invents
+  // a start with no shape and fails to render ("No such shape: undefined"),
+  // so the document is refused, saying why.
+  for (const pending of pendingPseudoNotes) {
+    const start = states.find(
+      (state) =>
+        state.id === null &&
+        state.kind === "start" &&
+        state.parentId === pending.parentId &&
+        state.regionIndex === pending.regionIndex,
+    );
+    if (start === undefined) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          'A note on "[*]" hangs on its level\'s start, and this level has no start pseudo-state — write `[*] --> …` here, or note a named state',
+        line: pending.line,
+        column: pending.column,
+      });
+      sawError = true;
+      continue;
+    }
+    start.note = pending.note;
   }
 
   // A block the author never closed, reported in the words they opened it

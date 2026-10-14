@@ -506,6 +506,10 @@ function buildPseudoState(state: PositionedState): SVGGElement {
 
   if (state.kind === "start") {
     g.appendChild(buildCircle("siren-state-start", center, radius));
+    // A start may carry the note written on `[*]` (01M36DWFN), drawn as any
+    // state's note is, inside its group so it animates with the disc. An
+    // end never carries one: Mermaid hangs every `[*]` note on the start.
+    appendNote(g, state);
     return g;
   }
 
