@@ -88,10 +88,10 @@
       Board is the right host for a page that shows *one* diagram
       (demos/step-reveal.html), since it owns a container outright — its own
       full-bleed sizing, pan/zoom viewport and floating Prev/Next/Reset bar.
-      This page shows three side by side and needs the third one's callback
-      interaction delivered, which BoardOptions has no field for, so it calls
-      render() itself and drives the returned controller from the two buttons
-      above — the same controller board would have driven.
+      This page shows three side by side, so it calls render() itself —
+      passing onClick for the third one's callback interaction, as
+      BoardOptions.onClick would — and drives the returned controller from the
+      two buttons above, the same controller board would have driven.
 
       The example documents live at examples/class-core.srn,
       examples/class-structure.srn and examples/class-full.srn as standalone

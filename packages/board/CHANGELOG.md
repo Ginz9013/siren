@@ -8,6 +8,12 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `BoardOptions.onClick` delivers `click X call fn()` interactions, as `render()`'s `onClick` does.
+  Board had no such option, so on a board every callback interaction did nothing when clicked, with
+  no diagnostic (nook `01M2WWHF4`). `click X href` links were never affected.
+
 ## [0.6.0] - 2026-10-14
 
 Requires `siren-core` ^0.6.0. Diagrams look different: see the

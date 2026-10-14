@@ -1,5 +1,11 @@
 import { render } from "siren-core";
-import type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "siren-core";
+import type {
+  AnimationController,
+  Diagnostic,
+  InteractionTarget,
+  SirenRenderResult,
+  TextMeasurer,
+} from "siren-core";
 import { ensureStylesInjected } from "./styles";
 import { createCanvasTextMeasurer } from "./textMeasurer";
 import { createDefaultControls } from "./defaultControls";
@@ -43,6 +49,13 @@ export interface BoardOptions {
   playInterval?: number;
   /** Fired whenever `playing` changes: `play()`, `pause()`, the last step, or anything else that stops playback. */
   onPlaybackChange?: (playing: boolean) => void;
+  /**
+   * Called when a reader clicks an element the author made clickable with
+   * `click X call fn()`; passed unchanged to core's `render()` on every
+   * render (see `RenderOptions.onClick`). Omit it and those clicks do
+   * nothing. `click X href` needs no handler: it is drawn as a link.
+   */
+  onClick?: (target: InteractionTarget) => void;
 }
 
 /**
@@ -206,7 +219,11 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    * default, the first block).
    */
   function renderDocument(source: string, full: boolean, name: string | null = null) {
-    return render(source, viewport.content, { measureText, timeline: full ? false : (name ?? true) });
+    return render(source, viewport.content, {
+      measureText,
+      onClick: options.onClick,
+      timeline: full ? false : (name ?? true),
+    });
   }
 
   /**

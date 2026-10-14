@@ -443,10 +443,19 @@
         }
 
         try {
+          // A `click X call fn()` names a function in the host's code, so the
+          // gallery, as host, shows the last one clicked under the diagnostics.
+          let diagnosticsText = "";
           const board = createBoard(mount, {
             source: entry.source,
             onStepChange: (step, total) => {
               stageSteps.textContent = `step ${step} / ${total}`;
+            },
+            onClick: (target) => {
+              const argument = target.argument === null ? "" : JSON.stringify(target.argument);
+              notes.textContent = [diagnosticsText, `onClick: ${target.id} → ${target.action}(${argument})`]
+                .filter(Boolean)
+                .join("\n");
             },
           });
           entry.board = board;
@@ -455,10 +464,11 @@
           const warnings = board.diagnostics.filter((d) => d.severity === "warning");
           if (errors.length || warnings.length) {
             notes.className = errors.length ? "error" : "warning";
-            notes.textContent = [
+            diagnosticsText = [
               ...errors.map((d) => `error: ${d.message}`),
               ...warnings.map((d) => `warning: ${d.message}`),
             ].join("\n");
+            notes.textContent = diagnosticsText;
           }
 
           stageSteps.textContent =
