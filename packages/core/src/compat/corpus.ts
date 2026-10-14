@@ -2987,6 +2987,26 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-style-beats-class",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef alpha fill:#f00,stroke:#00f
+      A
+      style A fill:#0ff
+      class A alpha`,
+    status: "supported",
+    meaning:
+      "A `style` beats an applied class **whichever is written first**. " +
+      "Measured on 12.2.0 (flowchart): with `style` above the `class` line the " +
+      "target still paints the `style`'s `fill`, keeping the class's " +
+      "`stroke` — `fill:#0ff !important;stroke:#00f !important`. Siren used " +
+      "to let the later line win, drawing the class's `fill` with no " +
+      "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment).",
+    assert: (result) => {
+      expectSame("A's frame", nodeStyle(result, "A"), "fill:#0ff;stroke:#00f");
+    },
+  },
+  {
     id: "fc-style-classdef",
     kind: "flowchart",
     source: `flowchart TB
@@ -6407,6 +6427,26 @@ line2\`"]`,
     },
   },
   {
+    id: "st-style-beats-class",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef alpha fill:#f00,stroke:#00f
+      Idle --> Busy
+      style Busy fill:#0ff
+      class Busy alpha`,
+    status: "supported",
+    meaning:
+      "A `style` beats an applied class **whichever is written first**. " +
+      "Measured on 12.2.0 (state): with `style` above the `class` line the " +
+      "target still paints the `style`'s `fill`, keeping the class's " +
+      "`stroke` — `fill:#0ff !important;stroke:#00f !important`. Siren used " +
+      "to let the later line win, drawing the class's `fill` with no " +
+      "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment). The state half could only appear once `style X` was read (01M36C24S).",
+    assert: (result) => {
+      expectSame("Busy's rect", stateStyle(result, "Busy"), "fill:#0ff;stroke:#00f");
+    },
+  },
+  {
     id: "st-direction-document",
     kind: "state",
     source: `stateDiagram-v2
@@ -8455,6 +8495,26 @@ line2\`"]`,
         "how orders relate to customers",
       );
       expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]"]);
+    },
+  },
+  {
+    id: "er-style-beats-class",
+    kind: "er",
+    source: `erDiagram
+      classDef alpha fill:#f00,stroke:#00f
+      A
+      style A fill:#0ff
+      A:::alpha`,
+    status: "supported",
+    meaning:
+      "A `style` beats an applied class **whichever is written first**. " +
+      "Measured on 12.2.0 (ER, with `:::`): with `style` above the `class` line the " +
+      "target still paints the `style`'s `fill`, keeping the class's " +
+      "`stroke` — `fill:#0ff !important;stroke:#00f !important`. Siren used " +
+      "to let the later line win, drawing the class's `fill` with no " +
+      "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment).",
+    assert: (result) => {
+      expectSame("A's box", erEntityStyle(result, "A"), "fill:#0ff;stroke:#00f");
     },
   },
   {

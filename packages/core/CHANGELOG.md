@@ -36,6 +36,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Changed
 
+- A `style` on a node, state or entity now beats a class applied to it whichever line comes first,
+  as Mermaid 12.2.0 paints it in flowchart, class, state and ER diagrams. Before, the later line
+  won, so `style A fill:#0ff` written above `class A alpha` drew the class's fill (nook `01M39F9N1`,
+  ADR-0008 amended).
 - Applying a class name no `classDef` defines (`A:::ghost`, `class A ghost`, `cssClass "A" ghost`)
   is a **warning** now, not an error, in flowchart, class, state and ER diagrams: the diagram is
   drawn with the target unstyled, as Mermaid 12.2.0 draws it, instead of not at all. A target that

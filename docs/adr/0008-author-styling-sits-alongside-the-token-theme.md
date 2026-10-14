@@ -205,3 +205,21 @@ and a replacement would silently drop the properties the author only ever wrote 
 lives in `buildFlowchartModel`, which sorts a document's `linkStyle` statements into the two lists
 and hands each to `resolveStyles` on its own; `resolveStyles` itself stays shared and stays
 unaware, since it is read by a diagram kind that has no fallback to resolve.
+
+## Amendment (`style` is a tier above applied classes)
+
+The Consequences above flatten `style`, `classDef` and `cssClass` into one list per target with
+the last declaration of a property winning, whatever statement wrote it. Measured on Mermaid 12.2.0
+(nook `01M39F9N1`), that is not Mermaid's picture: in flowchart, class, state and ER diagrams alike,
+and for `:::` as well as `class`/`cssClass`, a `style` on a target beats a class applied to it
+**whichever is written first** — `style A fill:#0ff` above `class A alpha` still paints `#0ff`.
+Siren drew the class's `fill` for that source with no diagnostic, a silently different picture in
+four kinds at once.
+
+So `resolveStyles` applies a target's declarations in two tiers: every applied class first, every
+`style` after, each tier in source order. Last-declaration-wins still settles everything *within* a
+tier — two `style`s on one node, two classes on one node — and a property still keeps the position
+it was first given, so a class's `stroke` stays after the `fill` it shares with the `style` that
+overrode it. Like the `linkStyle default` tier above, this is a tier between statements and not a
+specificity model: nothing about selectors or inheritance is introduced, and the output is still one
+flat inline list per target.

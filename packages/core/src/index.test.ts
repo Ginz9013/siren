@@ -3748,7 +3748,7 @@ class A missing
     ).toBe("fill:#fdd");
   });
 
-  it("flattens a flowchart's `style` and `classDef` into one ordered list per node, last declaration of a property winning (ADR-0008)", () => {
+  it("flattens a flowchart's `style` and `classDef` into one ordered list per node, a `style` winning over a class whichever comes first (ADR-0008)", () => {
     const result = render(
       `flowchart TD
 Later[Later] --> Earlier[Earlier]
@@ -3767,11 +3767,13 @@ class Earlier emphasis
         .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
         .getAttribute("style");
 
-    // Nothing about being a `classDef` or a `style` wins; writing last does.
-    // The property keeps the position of its first declaration either way,
-    // so `fill` stays ahead of `stroke` in both nodes.
+    // A `style` wins over an applied class whichever is written first — the
+    // tier ADR-0008's 2026-10-14 amendment records, measured on Mermaid
+    // 12.2.0 (01M39F9N1); until then, writing last won, and `Earlier` drew
+    // the class's `#fdd`. The property keeps the position of its first
+    // declaration either way, so `fill` stays ahead of `stroke` in both.
     expect(frameStyle("Later")).toBe("fill:#0f0;stroke:#c00");
-    expect(frameStyle("Earlier")).toBe("fill:#fdd;stroke:#c00");
+    expect(frameStyle("Earlier")).toBe("fill:#0f0;stroke:#c00");
   });
 
   it("lands a flowchart node's `color` on its label text, leaving the frame everything else", () => {

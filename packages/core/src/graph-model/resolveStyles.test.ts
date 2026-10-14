@@ -355,6 +355,44 @@ describe("resolveStyles", () => {
       ]);
       expect(diagnostics).toEqual([]);
     });
+
+    it("lets a `style` beat an applied class whichever is written first", () => {
+      // 01M39F9N1. Measured on mermaid 12.2.0, in flowchart, ER, class and
+      // state diagrams alike, with `:::` as well as `class`: `style A
+      // fill:#0ff` written *before* `class A alpha` still wins —
+      // `fill:#0ff !important;stroke:#00f !important`. Source order decides
+      // only within a layer (two `style`s, or two classes), never between
+      // them. Siren used to apply the later of the two, so this source drew
+      // `fill:#f00` with no diagnostic.
+      const alpha = styleDecl({
+        styleKind: "classDef",
+        name: "alpha",
+        properties: [
+          { property: "fill", value: "#f00" },
+          { property: "stroke", value: "#00f" },
+        ],
+      });
+      const style = styleDecl({ styleKind: "style", targetIds: ["A"], properties: [{ property: "fill", value: "#0ff" }] });
+      const apply = styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: "alpha" });
+
+      for (const order of [
+        [alpha, style, apply],
+        [alpha, apply, style],
+      ]) {
+        expect(resolveStyles(order, new Set(["A"]), [])).toEqual([
+          {
+            targetId: "A",
+            style: {
+              frame: [
+                { property: "fill", value: "#0ff" },
+                { property: "stroke", value: "#00f" },
+              ],
+              text: [],
+            },
+          },
+        ]);
+      }
+    });
   });
 
   /**

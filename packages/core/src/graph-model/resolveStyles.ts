@@ -78,10 +78,12 @@ export function resolveStyles(
    */
   const byTargetId = new Map<string, { frame: Map<string, string>; text: Map<string, string> }>();
 
+  // Each statement's contribution, worked out in source order so the
+  // diagnostics come out in the order the author wrote the lines.
+  const appliedBy = new Map<StyleDecl, StyleProperty[]>();
   for (const declaration of declarations) {
     if (declaration.styleKind === "classDef") continue;
 
-    let applied: StyleProperty[];
     if (declaration.styleKind === "apply") {
       const defined = definitions.get(declaration.name ?? "");
       if (defined === undefined) {
@@ -103,10 +105,26 @@ export function resolveStyles(
         });
         continue;
       }
-      applied = defined;
+      appliedBy.set(declaration, defined);
     } else {
-      applied = acceptedProperties(declaration, diagnostics);
+      appliedBy.set(declaration, acceptedProperties(declaration, diagnostics));
     }
+  }
+
+  // Then applied in two layers: every class first, every `style` after,
+  // each layer in source order (the sort is stable). Measured on mermaid
+  // 12.2.0 in flowchart, ER, class and state diagrams, with `:::` as well
+  // as `class`: a `style` beats an applied class **whichever is written
+  // first** — `style A fill:#0ff` above `class A alpha` still paints
+  // `#0ff` (01M39F9N1). Plain source order, which this used to be, drew
+  // the class's `fill` instead, with no diagnostic. Within a layer the
+  // later statement still wins, and a property keeps the position it was
+  // first given, so the class's `stroke` stays after the `fill` it shares.
+  const layerOf = (declaration: StyleDecl) => (declaration.styleKind === "style" ? 1 : 0);
+  const layered = [...appliedBy.keys()].sort((a, b) => layerOf(a) - layerOf(b));
+
+  for (const declaration of layered) {
+    const applied = appliedBy.get(declaration)!;
 
     for (const targetId of declaration.targetIds) {
       // Naming a target in a styling statement does not declare it, exactly
