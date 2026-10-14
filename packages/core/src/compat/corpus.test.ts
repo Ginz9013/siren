@@ -1488,8 +1488,17 @@ const SILENTLY_WRONG = 0;
  * rows added beside them (above-block, class-before-classDef,
  * style-beats-class, entity-and-cluster, color, nested, shared-name) are
  * new and `supported`; they pin what was measured, and none moves a count.
+ *
+ * **12 → 11: a construct started working.** `01M3BXNYR`: a relationship end
+ * naming an ER `subgraph` cluster joins the cluster's frame and draws no box
+ * for the name, as Mermaid 12.2.0 does — routed by ELK to the frame itself,
+ * not through a representative member as the note above once said.
+ * `er-subgraph-entity-name` moves to `supported`, asserting the line's end
+ * on the frame's boundary. The four rows beside it (relationship above the
+ * block — which Mermaid 12.2.0 fails to render, both ends clusters, a
+ * cluster to itself, a nested cluster) are new and `supported`.
  */
-const REJECTED = 12;
+const REJECTED = 11;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

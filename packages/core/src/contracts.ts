@@ -3385,6 +3385,10 @@ export interface ErDocument {
    * `relationships` alone would leave nothing able to say that `ZZZ` came
    * before `A` and after nothing. De-duplication is still `buildErModel`'s,
    * so a name appears here once per mention.
+   *
+   * **Except a relationship end that named a `subgraph` cluster**: that
+   * mention is the frame's, not an entity's, and is not listed (see
+   * `ErRelationshipDecl.left`).
    */
   entities: ErEntityDecl[];
   /** The relationships declared, in source order. */
@@ -3529,7 +3533,13 @@ export type ErRelationshipLine = "identifying" | "nonIdentifying";
  * asymmetric pair for that reason.
  */
 export interface ErRelationshipDecl {
-  /** The entity named first on the line. */
+  /**
+   * The entity named first on the line — or a `subgraph` cluster's name:
+   * measured (mermaid 12.2.0), an end naming a cluster joins the cluster's
+   * frame and draws no box, and the parser then lists no entity of that
+   * name (`er-subgraph-entity-name`). `buildErModel` resolves it to the
+   * frame. The same holds for `right`.
+   */
   left: string;
   /** The marker written next to `left` — **not** Mermaid's `cardA`. */
   leftCardinality: ErCardinality;
@@ -3714,9 +3724,15 @@ export interface ResolvedErRelationship {
    * `er-relationship-id-space` is what pins it.
    */
   id: string;
-  /** The entity at the left-hand end, as the source wrote it. */
+  /**
+   * The entity at the left-hand end, as the source wrote it — or, where the
+   * source named a `subgraph` cluster there, that cluster's **generated** id
+   * (`subgraph:1`), so layout routes the line to the frame itself (the
+   * flowchart's `GraphEdge` does the same for `one --> two`). `id` keeps the
+   * author's words either way.
+   */
   from: string;
-  /** The entity at the right-hand end. */
+  /** The entity at the right-hand end, or a cluster's id — see `from`. */
   to: string;
   /** The marker drawn against `from`. */
   fromCardinality: ErCardinality;

@@ -360,6 +360,9 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     edges: model.relationships.map(
       (relationship): DirectedGraphEdge => ({
         id: relationship.id,
+        // Either end may be a cluster's id (`s1 ||--o{ B : r`, with `s1` a
+        // block): the core routes it to the frame itself, as it does a
+        // flowchart's `one --> two`.
         from: relationship.from,
         to: relationship.to,
         // Every ER relationship carries a label — measured, the `: label` is

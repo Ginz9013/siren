@@ -1909,8 +1909,11 @@ describe("parseErDiagram reads subgraph clusters", () => {
     // measured, writing `s1 ||--|| B : r` *before* the block leaves `s1`
     // undrawn as well (its edge then points at a node `getData()` does not
     // carry).
+    //
+    // (01M3BXNYR) The relationship-end half of this — `s1 ||--|| B : r` —
+    // is no longer refused: it draws to the frame, pinned below and by the
+    // corpus row `er-subgraph-entity-name`. The bare mention stays refused.
     for (const source of [
-      "erDiagram\n  subgraph s1\n    A\n  end\n  s1 ||--|| B : r\n",
       "erDiagram\n  subgraph s1\n    A\n  end\n  s1\n  A ||--|| B : r\n",
     ]) {
       const { document, diagnostics } = parseErDiagram(source);
@@ -1919,6 +1922,42 @@ describe("parseErDiagram reads subgraph clusters", () => {
         'Unimplemented erDiagram construct: an entity sharing its name with a ' +
           '`subgraph` cluster ("s1"), in "subgraph s1"',
       ]);
+    }
+  });
+
+  it("draws no entity for a relationship end naming a cluster, in either order", () => {
+    // (01M3BXNYR) Measured (mermaid 12.2.0): the relationship's phantom
+    // entity is dropped by `getData()` and the edge starts at the frame.
+    // Written above the block, Mermaid 12.2.0 fails to render; Siren reads
+    // the same document either way (user decision, 2026-10-14).
+    for (const source of [
+      "erDiagram\n  subgraph s1\n    A\n  end\n  s1 ||--o{ B : r\n",
+      "erDiagram\n  s1 ||--o{ B : r\n  subgraph s1\n    A\n  end\n",
+    ]) {
+      const { document, diagnostics } = parseErDiagram(source);
+      expect(diagnostics).toEqual([]);
+      const er = document as ErDocument;
+      expect(er.entities.map((entity) => entity.name).sort()).toEqual(["A", "B"]);
+      expect(er.relationships.map(({ left, right }) => [left, right])).toEqual([["s1", "B"]]);
+    }
+  });
+
+  it("still refuses a cluster name at a relationship end that is more than a name", () => {
+    // Only a plain end — outside every block, no `:::` — can be the frame's.
+    // An end inside a block would claim the frame as that block's member, an
+    // end with a class would style a phantom, and a name two blocks share
+    // has no one frame to join: each stays refused by name until measured.
+    for (const source of [
+      "erDiagram\n  subgraph s1\n    A\n  end\n  s1:::c ||--o{ B : r\n",
+      "erDiagram\n  subgraph s1\n    A\n  end\n  subgraph s2\n    s1 ||--o{ B : r\n  end\n",
+      "erDiagram\n  subgraph s1\n    A\n  end\n  subgraph s1\n    C\n  end\n  s1 ||--o{ B : r\n",
+    ]) {
+      const { document, diagnostics } = parseErDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+        'Unimplemented erDiagram construct: an entity sharing its name with a ' +
+          '`subgraph` cluster ("s1"), in "subgraph s1"',
+      );
     }
   });
 

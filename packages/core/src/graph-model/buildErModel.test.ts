@@ -690,6 +690,22 @@ describe("buildErModel resolves subgraph clusters", () => {
     ]);
   });
 
+  it("resolves a relationship end naming a cluster to the cluster's id, keeping the authored id", () => {
+    // Measured (mermaid 12.2.0): `subgraph s1 / A / end / s1 ||--o{ B : r`
+    // hands the edge the **cluster** `s1` and draws no box for the name. The
+    // parser leaves no entity `s1` behind, so the end is the frame's.
+    const { model, diagnostics } = buildErModel({
+      ...documentGrouping([block({ name: "s1", entityNames: ["A"] })], "A", "B"),
+      relationships: [relates("s1", "B")],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.entities.map((entity) => entity.id)).toEqual(["A", "B"]);
+    expect(
+      model.relationships.map(({ id, from, to }) => ({ id, from, to })),
+    ).toEqual([{ id: "s1:B", from: "subgraph:1", to: "B" }]);
+  });
+
   it("warns when a quoted entity name collides with a cluster's generated id", () => {
     // ⚠️ **The reason ADR-0010's separating argument does not reach this
     // kind, made to bite.** A quoted ER entity name takes anything — 

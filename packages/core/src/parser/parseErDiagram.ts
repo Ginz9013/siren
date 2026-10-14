@@ -1109,6 +1109,13 @@ function readEntityHead(
 interface ErLineReading {
   /** The entities named, in source order, relationship endpoints included. */
   entities: ErEntityDecl[];
+  /**
+   * The mentions in `entities` that are a relationship's end and nothing
+   * more: no `:::` on that end, and written outside every `subgraph` block.
+   * Only such a mention may name a cluster rather than an entity — see the
+   * shared-name rule at the end of `parseErDiagram`.
+   */
+  plainEndpoints: ErEntityDecl[];
   /** The relationships named, in source order. */
   relationships: ErRelationshipDecl[];
   /**
@@ -1226,6 +1233,7 @@ function readLine(
   after: string,
 ): ErLineReading | ErLineRefusal | ErLineContinuation | null {
   const entities: ErEntityDecl[] = [];
+  const plainEndpoints: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
   const styles: StyleDecl[] = [];
   const malformedStyles: string[] = [];
@@ -1402,10 +1410,16 @@ function readLine(
       // them — measured, a relationship declares its entities exactly as a
       // bare name does and Mermaid's table interleaves the two kinds of
       // statement in first-mention order. `buildErModel` de-duplicates.
-      entities.push(
-        { name: relationship.decl.left, alias: null, attributes: [] },
-        { name: relationship.decl.right, alias: null, attributes: [] },
-      );
+      const leftEnd: ErEntityDecl = { name: relationship.decl.left, alias: null, attributes: [] };
+      const rightEnd: ErEntityDecl = { name: relationship.decl.right, alias: null, attributes: [] };
+      entities.push(leftEnd, rightEnd);
+      // Outside every block and with no `:::` of its own, an end is nothing
+      // but a name — which is all a cluster endpoint may be (see the
+      // shared-name rule at the end of `parseErDiagram`).
+      if (depth === 0) {
+        if (relationship.leftClasses.length === 0) plainEndpoints.push(leftEnd);
+        if (relationship.rightClasses.length === 0) plainEndpoints.push(rightEnd);
+      }
       // **Both endpoints join the open block**, measured rather than
       // assumed: `subgraph sales / CUSTOMER ||--o{ ORDER : places / end`
       // answers `nodes:["CUSTOMER","ORDER"]`, because Mermaid's
@@ -1471,6 +1485,7 @@ function readLine(
   }
   return {
     entities,
+    plainEndpoints,
     relationships,
     diagnostics,
     styles,
@@ -1970,6 +1985,8 @@ export function parseErDiagram(source: string): ParseResult {
    * fills it.
    */
   const registeredBlocks = new Map<string, ErSubgraph>();
+  /** Every `ErLineReading.plainEndpoints` taken, for the shared-name rule. */
+  const plainEndpoints = new Set<ErEntityDecl>();
   /**
    * A line that ended inside a backticked word, with every line read onto
    * it since — `null` when no run is open. The reader's third mode, and the
@@ -2012,6 +2029,7 @@ export function parseErDiagram(source: string): ParseResult {
     line: string,
   ): void => {
     entities.push(...reading.entities);
+    for (const endpoint of reading.plainEndpoints) plainEndpoints.add(endpoint);
     report(reading.diagnostics);
     // Membership is replayed here rather than written as the line was read,
     // so a line that turned out unreadable claims no members — the
@@ -2393,27 +2411,48 @@ export function parseErDiagram(source: string): ParseResult {
     sawError = true;
   }
 
-  // ⚠️ **A name worn by an entity and by a cluster at once, refused by
-  // name — the silent mis-render this construct arrives with.**
+  // ⚠️ **A name worn by an entity and by a cluster at once.**
   //
-  // Measured (mermaid 11.17.2), and the same answer whichever statement
-  // comes first: `subgraph s1 / A / end / s1 ||--|| B : r` records a
-  // phantom entity `entity-s1-1` that `getData()` throws away, handing the
-  // edge the **cluster** `s1` as its start; a bare `s1` after the block
-  // records the same phantom and `getData()` drops it too; and writing the
-  // relationship *before* the block leaves the edge pointing at a node
-  // `getData()` does not carry. In every one of them Mermaid draws **no
-  // box** for `s1` — the frame has taken the name.
+  // Measured (mermaid 12.2.0): the relationship production calls
+  // `addEntity` on both endpoints unconditionally and only then asks
+  // `subGraphLookup.has(...)`, so `subgraph s1 / A / end / s1 ||--|| B : r`
+  // records a phantom entity `entity-s1-1` that `getData()` throws away and
+  // hands the edge the **cluster** `s1` as its start. Mermaid draws no box
+  // for `s1`: the frame has taken the name, and the line ends on the frame.
   //
-  // Every reading this parser has is an ordinary entity, so it would draw
-  // that box: a third figure beside the frame, with no diagnostic anywhere.
-  // Refused instead, at the header rather than at the mention, because the
-  // construct is the *sharing* and neither half is wrong on its own.
-  // Order-independent for the same reason, which is also what keeps it out
-  // of `UNIMPLEMENTED`: no pattern over one line can see the other half.
-  const mentioned = new Set(entities.map((entity) => entity.name));
+  // **A relationship's end may therefore name a cluster**, and such a
+  // mention is not an entity: it is dropped from `entities` here, so no box
+  // is drawn, and the relationship keeps the name for `buildErModel` to
+  // resolve to the frame. In either order — the user's decision
+  // (2026-10-14): written *above* the block, Mermaid 12.2.0 fails to render
+  // at all (`Referenced shape does not exist: entity-s1-0`, its edge
+  // pointing at the phantom it then drops), and Siren draws what the
+  // document says, the same frame-to-entity line.
+  //
+  // Only a **plain** end qualifies (`plainEndpoints`): one written outside
+  // every block and with no `:::`. Anything else sharing the name — a bare
+  // `s1`, an attribute block, an end inside a block (which would claim the
+  // frame as a member), an end carrying a class, or a name two blocks share
+  // — is still refused by name, at the header rather than at the mention,
+  // because the construct is the *sharing* and neither half is wrong on its
+  // own. Order-independent for the same reason, which is also what keeps it
+  // out of `UNIMPLEMENTED`: no pattern over one line can see the other half.
+  const blocksByName = new Map<string, number>();
   for (const header of blockHeaders) {
-    if (!mentioned.has(header.name)) continue;
+    blocksByName.set(header.name, (blocksByName.get(header.name) ?? 0) + 1);
+  }
+  const refused = new Set<string>();
+  const clusterEnds = new Set<ErEntityDecl>();
+  for (const entity of entities) {
+    if (!blocksByName.has(entity.name)) continue;
+    if (plainEndpoints.has(entity) && blocksByName.get(entity.name) === 1) {
+      clusterEnds.add(entity);
+    } else {
+      refused.add(entity.name);
+    }
+  }
+  for (const header of blockHeaders) {
+    if (!refused.has(header.name)) continue;
     diagnostics.push({
       severity: "error",
       message:
@@ -2447,7 +2486,8 @@ export function parseErDiagram(source: string): ParseResult {
   const document: ErDocument = {
     kind: "er",
     direction,
-    entities,
+    // A relationship end that named a cluster is the frame's, not a box.
+    entities: entities.filter((entity) => !clusterEnds.has(entity)),
     relationships,
     subgraphs,
     styles,

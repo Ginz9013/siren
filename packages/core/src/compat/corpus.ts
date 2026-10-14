@@ -1132,6 +1132,18 @@ function erRelationshipLabelAnchor(
 }
 
 /**
+ * Every point one ER relationship's line is routed through, `from` end
+ * first — off `data-siren-points` (`pathPoints`), because the line is drawn
+ * rounded and its `d` holds control points the line never passes through.
+ */
+function erRelationshipRoute(result: SirenRenderResult, id: string): Point[] {
+  return pathPoints(
+    result,
+    `g.siren-er-relationship[data-siren-id="${id}"] path.siren-er-relationship-line`,
+  );
+}
+
+/**
  * The lines each cell of one column of an ER entity's attribute table draws,
  * top to bottom — one entry per cell, and in it one string per line a
  * reader sees.
@@ -8476,30 +8488,188 @@ line2\`"]`,
       subgraph s1
         A
       end
-      s1 ||--|| B : r`,
-    status: "rejected",
+      s1 ||--o{ B : r`,
+    status: "supported",
     meaning:
-      "A name worn by an entity and by a cluster at once — and **the silent " +
-      "mis-render ER clusters arrive with**, which is why it has a row of " +
-      "its own rather than living inside `er-subgraph`.\n\n" +
-      "Measured (mermaid 11.17.2): the relationship production calls " +
+      "A relationship endpoint naming a `subgraph` cluster joins the cluster's " +
+      "**frame**, and no box is drawn for the name.\n\n" +
+      "Measured (mermaid 12.2.0): the relationship production calls " +
       "`addEntity` on both endpoints unconditionally and only then asks " +
-      "`subGraphLookup.has(...)`, so this document records a phantom entity " +
-      "`entity-s1-1` that `getData()` throws away and hands the edge the " +
-      "**cluster** `s1` as its start — `getData.edges` answers " +
-      "`{start:\"s1\", end:\"entity-B-2\"}` with no entity node for `s1` at " +
-      "all. A bare `s1` after the block records the same phantom and " +
-      "`getData()` drops it just the same, and writing the relationship " +
-      "*above* the block leaves the edge pointing at a node `getData()` " +
-      "does not carry. In every one of them Mermaid draws **no box** for " +
-      "`s1`: the frame has taken the name.\n\n" +
-      "Every reading Siren's parser has is an ordinary entity, so it would " +
-      "draw that box — a third figure beside the frame, with nothing in the " +
-      "picture to notice. Refused by name instead, at the header, because " +
-      "the construct is the *sharing* and neither half is wrong alone. " +
-      "Its exit is implementation: an endpoint that resolves to a frame, " +
-      "which `layoutDirectedGraph` already routes to the frame itself " +
-      "(`fc-subgraph-edge` is the flowchart's row for it).",
+      "`subGraphLookup.has(...)`, so the document records a phantom entity " +
+      "`entity-s1-1` that `getData()` throws away, and hands the edge the " +
+      "cluster `s1` as its start (`getData.edges` answers " +
+      "`{start:\"s1\", end:\"entity-B-2\"}`). In headless Chrome the " +
+      "drawing has two entity boxes (`A`, `B`) and one frame, and the line " +
+      "runs from the frame's bottom edge to `B`'s top edge with its markers " +
+      "at those two ends. Siren resolves the endpoint to the frame in " +
+      "`buildErModel`, and the shared ELK core routes to the frame itself, " +
+      "as it does for `fc-subgraph-edge`.",
+    assert: (result) => {
+      // No third figure: the name belongs to the frame, not to a box.
+      expectSame("the entities as drawn", erEntities(result), ["A[A]", "B[B]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:B: only-one-solid-zero-or-more",
+      ]);
+      const frame = erSubgraphBox(result, "s1");
+      const route = erRelationshipRoute(result, "s1:B");
+      const start = route[0];
+      const end = route[route.length - 1];
+      // The picture, not the claim: `TB`, so the line leaves the frame
+      // through its bottom edge and arrives at the top of `B`'s box, which
+      // is where Mermaid 12.2.0 draws it.
+      expectSame("the line starts on the frame's boundary", onBoxBoundary(frame, start), true);
+      expectSame("on its bottom edge", start.y, frame.bottom);
+      expectSame("and ends on B's top edge", end.y, erEntityRect(result, "B").top);
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-before-block",
+    kind: "er",
+    source: `erDiagram
+      s1 ||--o{ B : r
+      subgraph s1
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "`er-subgraph-entity-name` with the relationship written **above** the " +
+      "block: the line still joins the frame `s1`, and no box is drawn for " +
+      "the name.\n\n" +
+      "⚠️ **Mermaid 12.2.0 itself fails to render this order** — measured in " +
+      "headless Chrome, `render()` throws `JsonImportException: Referenced " +
+      "shape does not exist: entity-s1-0`: the relationship recorded the " +
+      "phantom entity before the block existed, its edge points at that " +
+      "phantom, and `getData()` then drops the phantom because the name has " +
+      "become a cluster's. The document is unambiguous — the same statements " +
+      "as the other order, which Mermaid draws frame-to-box — so Siren draws " +
+      "that picture in both orders (user decision, 2026-10-14; CONTEXT.md's " +
+      "rule for where Mermaid's own output contradicts the document).",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["B[B]", "A[A]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:B: only-one-solid-zero-or-more",
+      ]);
+      const frame = erSubgraphBox(result, "s1");
+      const route = erRelationshipRoute(result, "s1:B");
+      expectSame("the line starts on the frame's boundary", onBoxBoundary(frame, route[0]), true);
+      expectSame(
+        "and ends on B's boundary",
+        onBoxBoundary(erEntityRect(result, "B"), route[route.length - 1]),
+        true,
+      );
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-both-clusters",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      subgraph s2
+        C
+      end
+      s1 ||--o{ s2 : r`,
+    status: "supported",
+    meaning:
+      "Both ends of one relationship may name a cluster: the line joins the " +
+      "two frames, and neither name draws a box.\n\n" +
+      "Measured (mermaid 12.2.0, headless Chrome): two entity boxes (`A`, " +
+      "`C`), two frames, and the line from `s1`'s bottom edge to `s2`'s top " +
+      "edge, a cardinality marker at each — the flowchart's `fc-subgraph-edge` " +
+      "picture, in this kind.",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["A[A]", "C[C]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:s2: only-one-solid-zero-or-more",
+      ]);
+      const route = erRelationshipRoute(result, "s1:s2");
+      const start = route[0];
+      const end = route[route.length - 1];
+      expectSame("the line leaves the bottom of `s1`'s frame", start.y, erSubgraphBox(result, "s1").bottom);
+      expectSame("and arrives at the top of `s2`'s", end.y, erSubgraphBox(result, "s2").top);
+      expectSame("on `s1`'s boundary", onBoxBoundary(erSubgraphBox(result, "s1"), start), true);
+      expectSame("and on `s2`'s", onBoxBoundary(erSubgraphBox(result, "s2"), end), true);
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-self",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      s1 ||--o{ s1 : r`,
+    status: "supported",
+    meaning:
+      "A relationship from a cluster to itself is a loop on the **frame**, " +
+      "and no box is drawn for the name.\n\n" +
+      "Measured (mermaid 12.2.0, headless Chrome): one entity box (`A`), one " +
+      "frame, and the line leaving the frame's left edge and coming back to " +
+      "it lower down — outside the frame, not through `A`. ELK routes a " +
+      "cluster's self-loop itself; there is no special case here.",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["A[A]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:s1: only-one-solid-zero-or-more",
+      ]);
+      const frame = erSubgraphBox(result, "s1");
+      const route = erRelationshipRoute(result, "s1:s1");
+      expectSame("the loop starts on the frame's boundary", onBoxBoundary(frame, route[0]), true);
+      expectSame(
+        "and comes back to it",
+        onBoxBoundary(frame, route[route.length - 1]),
+        true,
+      );
+      expectSame(
+        "at a different point",
+        route[0].x === route[route.length - 1].x && route[0].y === route[route.length - 1].y,
+        false,
+      );
+      // Around the frame, not buried in it: a loop drawn inside would cross
+      // the member it is not about.
+      expectSame(
+        "and runs outside the frame between them",
+        route.every((point) => !insideBox(frame, point)),
+        true,
+      );
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-nested",
+    kind: "er",
+    source: `erDiagram
+      subgraph outer
+        subgraph inner
+          A
+        end
+        C
+      end
+      inner ||--o{ B : r`,
+    status: "supported",
+    meaning:
+      "A cluster nested in another may be a relationship's end: the line " +
+      "joins the **inner** frame and crosses the outer one, and no box is " +
+      "drawn for the name.\n\n" +
+      "Measured (mermaid 12.2.0, headless Chrome): three entity boxes (`A`, " +
+      "`C`, `B`), two frames, and the line from `inner`'s bottom edge — not " +
+      "`outer`'s — down to `B`'s top edge.",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["A[A]", "C[C]", "B[B]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "inner:B: only-one-solid-zero-or-more",
+      ]);
+      const inner = erSubgraphBox(result, "inner");
+      const route = erRelationshipRoute(result, "inner:B");
+      expectSame("the line starts on the inner frame's boundary", onBoxBoundary(inner, route[0]), true);
+      expectSame("on its bottom edge", route[0].y, inner.bottom);
+      expectSame(
+        "not on the outer frame's",
+        onBoxBoundary(erSubgraphBox(result, "outer"), route[0]),
+        false,
+      );
+      expectSame("and ends on B's top edge", route[route.length - 1].y, erEntityRect(result, "B").top);
+    },
   },
   {
     id: "er-subgraph-style",
