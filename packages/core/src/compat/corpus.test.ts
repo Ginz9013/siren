@@ -1479,8 +1479,17 @@ const SILENTLY_WRONG = 0;
  * and Siren now reads it as one attribute and draws the cell as Mermaid
  * 12.2.0 does — one row per line, indentation gone.
  * `er-attribute-backtick-multiline` moves to `supported`.
+ *
+ * **14 → 12: two constructs started working.** `01M3BXN5N`: a `style` or
+ * `class` naming an ER `subgraph` block below its `end` paints the cluster —
+ * the frame's `<rect>`, and its title for an author's `color` — as Mermaid
+ * 12.2.0 does. `er-subgraph-style` and `er-subgraph-class` move to
+ * `supported`, asserting the declared value on the drawn frame. The seven
+ * rows added beside them (above-block, class-before-classDef,
+ * style-beats-class, entity-and-cluster, color, nested, shared-name) are
+ * new and `supported`; they pin what was measured, and none moves a count.
  */
-const REJECTED = 14;
+const REJECTED = 12;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -1205,6 +1205,23 @@ function erEntityStyle(result: SirenRenderResult, id: string): string {
 }
 
 /**
+ * Every ER cluster as drawn, in draw order: its title, the inline author
+ * style on its frame `<rect>`, and the one on its title `<text>` — `""` for
+ * none. Read off the drawn elements because that is where an author's
+ * `style s1` / `class s1` either lands or silently does not: the model
+ * holding the declaration proves nothing about the picture.
+ */
+function erSubgraphStyles(
+  result: SirenRenderResult,
+): { title: string; frame: string; text: string }[] {
+  return elements(result, "g.siren-er-subgraph").map((g) => ({
+    title: g.querySelector("text.siren-er-subgraph-label")?.textContent ?? "",
+    frame: g.querySelector("rect.siren-er-subgraph-frame")?.getAttribute("style") ?? "",
+    text: g.querySelector("text.siren-er-subgraph-label")?.getAttribute("style") ?? "",
+  }));
+}
+
+/**
  * The inline author style on every **text** one ER entity draws — its name
  * first, then each attribute cell in the order `erAttributeRows` reads them.
  *
@@ -8465,24 +8482,27 @@ line2\`"]`,
         A ||--|| B : r
       end
       style s1 fill:#f96`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "⚠️ **A cluster is a legal `style` target in this kind**, measured " +
       "and not assumed — which is the opposite of a relationship, whose id " +
       "reaches nothing at all (`er-style-target-colon`). Mermaid's ER " +
       "`addCssStyles` looks up `this.entities.get(id)` **and** " +
-      "`this.subGraphLookup.get(id)`, and this very document answers " +
-      "`getSubGraphs() -> [{id:\"s1\", …, cssStyles:[\"fill:#f96\"]}]`.\n\n" +
-      "`01M395S26` implements the cluster and leaves its paint to a ticket " +
-      "of its own, so the directive is refused by name: dropped instead, it " +
-      "would go in silence — `resolveStyles` drops an unknown target " +
-      "exactly as Mermaid does — and a frame Mermaid fills would come out " +
-      "unfilled with nothing to notice.\n\n" +
-      "**Order-sensitive, and the refusal reads the order.** A `style s1` " +
-      "written *above* the block reaches `addCssStyles` before " +
-      "`addSubGraph` has registered the name and paints nothing at all " +
-      "(measured — `cssStyles` comes back empty), which is the same picture " +
-      "Siren draws by dropping it; that document is not refused.",
+      "`this.subGraphLookup.get(id)`; this very document answers " +
+      "`getSubGraphs() -> [{id:\"s1\", …, cssStyles:[\"fill:#f96\"]}]`, " +
+      "and mermaid 12.2.0 draws the cluster's rect `fill:#f96 !important` " +
+      "(headless Chrome, computed fill `rgb(255, 153, 102)`).\n\n" +
+      "Siren paints the frame `<rect>` with the declaration inline (ADR-0008). " +
+      "The author names the block; the frame's id is the generated " +
+      "`subgraph:1`, and `buildErModel` rewrites the one into the other in " +
+      "the set it hands `resolveStyles` (01M3BXN5N). Read off the drawn " +
+      "frame, because a declaration that reached the model and not the " +
+      "picture would leave every diagnostic empty.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
   },
   {
     id: "er-subgraph-class",
@@ -8493,7 +8513,7 @@ line2\`"]`,
       end
       classDef urgent fill:#f96
       class s1 urgent`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "The row above's construct under the other keyword, and a row of its " +
       "own for the reason `er-style-class-statement` is one beside " +
@@ -8503,13 +8523,191 @@ line2\`"]`,
       "look.\n\n" +
       "Measured, `setClass` reaches `this.subGraphLookup` exactly as " +
       "`addCssStyles` does: this document answers `getSubGraphs() -> " +
-      "[{id:\"s1\", classes:[\"urgent\"], …}]` and `getData()` carries " +
-      "`cssClasses:\"urgent\"` on the group node. Refused by name for the " +
-      "same reason, and paid off by the same ticket.\n\n" +
+      "[{id:\"s1\", classes:[\"urgent\"], …}]`, and mermaid 12.2.0 draws the " +
+      "cluster `g.cluster urgent` with its rect `fill:#f96 !important`.\n\n" +
       "The third spelling is **not** a gap: `subgraph s1:::urgent` is a " +
       "parse error in Mermaid (\"Expecting 'EOF', 'NEWLINE', 'SQS', " +
       "'SEMI', got 'STYLE_SEPARATOR'\"), so there is nothing there to " +
       "implement.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-style-above-block",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      style s1 fill:#f96
+      class s1 urgent
+      subgraph s1
+        A ||--|| B : r
+      end`,
+    status: "supported",
+    meaning:
+      "**Order-sensitive, measured.** Mermaid's `addSubGraph` registers a " +
+      "block's name at its closing `end`, so a `style` or `class` written " +
+      "*above* the block looks the name up before it exists and paints " +
+      "nothing: mermaid 12.2.0 draws this cluster's rect with no style at " +
+      "all (computed fill the theme's `rgb(249, 249, 251)`), and no error. " +
+      "Siren draws the same — an unstyled frame, no diagnostic — because " +
+      "the parser resolves a block name only against the blocks already " +
+      "closed (`ErStyleDecl.clusterTargets`).",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-class-before-classdef",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      class s1 urgent
+      classDef urgent fill:#f96`,
+    status: "supported",
+    meaning:
+      "Only the *block* must come first; the `classDef` need not. Measured " +
+      "(mermaid 12.2.0): `class s1 urgent` above `classDef urgent` still " +
+      "paints the cluster `fill:#f96 !important` — the class is looked up " +
+      "when the picture is drawn, not when `setClass` runs. Siren's shared " +
+      "`resolveStyles` pairs a definition with its directive in any order.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-style-beats-class",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      classDef urgent fill:#f00,stroke:#00f
+      style s1 fill:#0ff
+      class s1 urgent`,
+    status: "supported",
+    meaning:
+      "A cluster follows the entity's rule (`er-style-beats-class`): " +
+      "`style` beats an applied class **whichever is written first**. " +
+      "Measured (mermaid 12.2.0), both orders draw the cluster rect " +
+      "`fill:#0ff !important;stroke:#00f !important` — the `style`'s fill, " +
+      "the class's stroke. Siren gets it from `resolveStyles`' two tiers " +
+      "(ADR-0008, 2026-10-14 amendment), unchanged.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#0ff;stroke:#00f", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-class-entity-and-cluster",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      classDef urgent fill:#f96
+      class A,s1 urgent`,
+    status: "supported",
+    meaning:
+      "One `class` statement listing an entity and a cluster paints both. " +
+      "Measured (mermaid 12.2.0): `A`'s box and the `s1` rect both come out " +
+      "`rgb(255, 153, 102)`, `B` keeps its palette fill — `setClass` tries " +
+      "both maps for every id it is given.",
+    assert: (result) => {
+      expectSame("A's box", erEntityStyle(result, "A"), "fill:#f96");
+      expectSame("B's box", erEntityStyle(result, "B"), "");
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-style-color",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      style s1 fill:#f96,color:#0a0`,
+    status: "supported",
+    meaning:
+      "An author's `color` on a cluster reaches its **title**, the one text " +
+      "a cluster draws. Measured (mermaid 12.2.0, headless Chrome): the " +
+      "cluster label's computed colour is `rgb(0, 170, 0)`, the rect's fill " +
+      "`#f96`; the same holds through `classDef … color:#0a0` + `class`. " +
+      "Siren routes `color` to the title's `<text>` spelled `fill`, the " +
+      "word SVG paints text with (ADR-0008's label amendment), and leaves it " +
+      "off the frame. The entities inside are not recoloured — measured, " +
+      "neither box changes.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "fill:#0a0" },
+      ]);
+      expectSame("A's box", erEntityStyle(result, "A"), "");
+    },
+  },
+  {
+    id: "er-subgraph-class-nested",
+    kind: "er",
+    source: `erDiagram
+      subgraph outer
+        subgraph inner
+          A ||--|| B : r
+        end
+        C
+      end
+      classDef urgent fill:#f96
+      class outer urgent`,
+    status: "supported",
+    meaning:
+      "A class on an outer cluster stays on the outer cluster. Measured " +
+      "(mermaid 12.2.0): `outer`'s rect is `fill:#f96 !important` while " +
+      "`inner`'s carries no style and keeps the theme's fill, and no entity " +
+      "changes — nothing cascades from a block to what it holds, as nothing " +
+      "cascades between Siren's targets (ADR-0008).",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "outer", frame: "fill:#f96", text: "" },
+        { title: "inner", frame: "", text: "" },
+      ]);
+      expectSame("C's box", erEntityStyle(result, "C"), "");
+    },
+  },
+  {
+    id: "er-subgraph-style-shared-name",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      style s1 fill:#f96
+      subgraph s1
+        B
+      end
+      style s1 stroke:#00f`,
+    status: "supported",
+    meaning:
+      "Two blocks may share a name, and a `style` reaches the one **closed " +
+      "most recently** before it. Measured (mermaid 12.2.0, `getSubGraphs`): " +
+      "the first block, holding `A`, answers `cssStyles:[\"fill:#f96\"]` and " +
+      "the second, holding `B`, `cssStyles:[\"stroke:#00f\"]` — " +
+      "`subGraphLookup` is a map each `end` overwrites. Drawn in that order " +
+      "here, each frame wearing its own generated id.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+        { title: "s1", frame: "stroke:#00f", text: "" },
+      ]);
+    },
   },
   {
     id: "er-style-statement",

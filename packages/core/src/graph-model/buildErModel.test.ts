@@ -717,6 +717,97 @@ describe("buildErModel resolves subgraph clusters", () => {
     expect(model.subgraphs.map((subgraph) => subgraph.id)).toEqual(["subgraph:1"]);
   });
 
+  it("paints the cluster a `style` or `class` reached, under its generated id", () => {
+    // Measured (mermaid 12.2.0, headless Chrome): `subgraph s1 / A / end /
+    // style s1 fill:#f96` draws the cluster rect with `fill:#f96
+    // !important`, and `class s1 urgent` does the same with the classDef's
+    // declarations — Mermaid's ER `addCssStyles` and `setClass` look up
+    // `subGraphLookup` beside `entities`. Which block a name reached is the
+    // parser's to say (`ErStyleDecl.clusterTargets`, because the answer
+    // depends on where the statement was written); this stage turns that
+    // block into the id it generated for it, so the shared resolver sees an
+    // ordinary target and stays unaware of clusters.
+    const sales = block({ name: "s1", entityNames: ["A"] });
+    const other = block({ name: "s2", entityNames: ["B"] });
+    const { model, diagnostics } = buildErModel({
+      ...documentGrouping([sales, other], "A", "B"),
+      styles: [
+        {
+          styleKind: "classDef",
+          authoredAs: "classDef",
+          targetIds: [],
+          name: "urgent",
+          properties: [{ property: "stroke", value: "#00f" }],
+        },
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["s2"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#f96" },
+            { property: "color", value: "#0a0" },
+          ],
+          clusterTargets: new Map([["s2", other]]),
+        },
+        // `class A,s1 urgent`: one statement, an entity and a cluster —
+        // measured, both are painted.
+        {
+          styleKind: "apply",
+          authoredAs: "class",
+          targetIds: ["A", "s1"],
+          name: "urgent",
+          properties: [],
+          clusterTargets: new Map([["s1", sales]]),
+        },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.subgraphs.map((subgraph) => subgraph.id)).toEqual(["subgraph:1", "subgraph:2"]);
+    expect(model.styles).toEqual([
+      {
+        targetId: "A",
+        style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
+      },
+      {
+        targetId: "subgraph:1",
+        style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
+      },
+      {
+        targetId: "subgraph:2",
+        style: {
+          frame: [{ property: "fill", value: "#f96" }],
+          text: [{ property: "fill", value: "#0a0" }],
+        },
+      },
+    ]);
+  });
+
+  it("paints no cluster for a name the parser did not resolve to one", () => {
+    // `style s1 fill:#f96` written *above* `subgraph s1 ... end` reaches
+    // Mermaid's `addCssStyles` before the name is registered and paints
+    // nothing (measured: the cluster rect carries no style). The parser
+    // says so by leaving `clusterTargets` without `s1`, and a bare name
+    // that is neither an entity nor a resolved cluster reaches nothing —
+    // not even a cluster whose *generated* id it happens to spell.
+    const { model, diagnostics } = buildErModel({
+      ...documentGrouping([block({ name: "s1", entityNames: ["A"] })], "A"),
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["s1", "subgraph:1"],
+          name: null,
+          properties: [{ property: "fill", value: "#f96" }],
+        },
+      ],
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.styles).toEqual([]);
+  });
+
   it("lets the block that closes first keep a name two blocks claimed", () => {
     // ⚠️ **Closing order, not opening order**, and the two disagree exactly
     // when one block nests inside another. Measured: `subgraph outer / A /

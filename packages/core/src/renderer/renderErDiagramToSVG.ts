@@ -236,15 +236,21 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   frame.setAttribute("y", String(subgraph.y));
   frame.setAttribute("width", String(subgraph.width));
   frame.setAttribute("height", String(subgraph.height));
+  // The author's `style s1 …` / `class s1 …`, on the rect the theme styles
+  // and not on the group — the placement ADR-0008 argues for an entity's
+  // box, and the element Mermaid 12.2.0 itself puts it on.
+  applyAuthorStyle(frame, subgraph.style?.frame ?? []);
   g.appendChild(frame);
 
   // Drawn by `drawLabel` at the anchor in the title strip: one plain row is
   // the `<text>`'s own `textContent`, anything else a row tspan per row
   // (ADR-0015).
-  appendLabel(
-    g,
-    drawPlaced(subgraph.label, "siren-er-subgraph-label"),
-  );
+  const title = drawPlaced(subgraph.label, "siren-er-subgraph-label");
+  // The title is the one text a cluster draws, so it is where an author's
+  // `color` lands — measured, Mermaid 12.2.0 colours the cluster label with
+  // it — already translated to the `fill` SVG paints text with.
+  applyAuthorStyle(title.text, subgraph.style?.text ?? []);
+  appendLabel(g, title);
 
   return g;
 }

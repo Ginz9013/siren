@@ -1922,49 +1922,60 @@ describe("parseErDiagram reads subgraph clusters", () => {
     }
   });
 
-  it("refuses by name a `style` or `class` that paints a cluster", () => {
+  it("resolves a `style` or `class` written below a block to that block", () => {
     // ⚠️ **A cluster is a legal style target in this kind**, measured and
     // not assumed: Mermaid's ER `addCssStyles` and `setClass` each look up
-    // `this.entities.get(id)` *and* `this.subGraphLookup.get(id)`, and
-    // probing `subgraph s1 / A / end / style s1 fill:#f96` answers
-    // `getSubGraphs() -> [{id:"s1", …, cssStyles:["fill:#f96"]}]`, while
-    // `class s1 urgent` answers `classes:["urgent"]` on the same record.
-    // So this is *not* the relationship case, where the directive reaches
-    // nothing at all and dropping it matches Mermaid exactly.
-    //
-    // `01M395S26` implements the cluster and leaves its paint to a ticket of
-    // its own. Left unread, the directive would be dropped in silence — by
-    // `resolveStyles`, whose rule for an unknown target is to drop it as
-    // Mermaid does — and a frame Mermaid fills would come out unfilled with
-    // nothing to notice. Refused by name instead.
+    // `this.entities.get(id)` *and* `this.subGraphLookup.get(id)`, and in
+    // headless Chrome (mermaid 12.2.0) `subgraph s1 / A / end / style s1
+    // fill:#f96` draws the cluster rect `fill:#f96 !important`, `class s1
+    // urgent` the classDef's declarations on it. Read, not refused; which
+    // block the name reached is said with the block itself.
     for (const [statement, keyword] of [
       ["style s1 fill:#f96", "style"],
       ["class s1 urgent", "class"],
     ]) {
       const { document, diagnostics } = parseErDiagram(
-        `erDiagram\n  subgraph s1\n    A\n  end\n  ${statement}\n  A ||--|| B : r\n`,
+        `erDiagram\n  subgraph s1\n    A\n  end\n  classDef urgent fill:#f96\n  ${statement}\n  A ||--|| B : r\n`,
       );
-      expect(document).toBeNull();
-      expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-        "Unimplemented erDiagram construct: a `" +
-          keyword +
-          '` statement painting a `subgraph` cluster ("s1"), in "' +
-          statement +
-          '"',
-      ]);
+      expect(diagnostics).toEqual([]);
+      const er = document as ErDocument;
+      const painting = er.styles.find((style) => style.authoredAs === keyword)!;
+      expect(painting.targetIds).toEqual(["s1"]);
+      expect(painting.clusterTargets?.get("s1")).toBe(er.subgraphs[0]);
     }
+  });
 
-    // **And the order matters, so the refusal reads it.** Measured, a
-    // `style` written *above* the block reaches Mermaid's `addCssStyles`
-    // before `addSubGraph` has registered the name, and paints nothing at
-    // all — `cssStyles` comes back empty. Siren drops that unknown target
-    // in silence too, which is the same picture, so refusing it would cost
-    // a document Mermaid draws.
-    const above = parseErDiagram(
-      "erDiagram\n  style s1 fill:#f96\n  subgraph s1\n    A\n  end\n  A ||--|| B : r\n",
+  it("resolves no block for a statement written above it, as Mermaid does not", () => {
+    // **The order matters, measured.** `addSubGraph` registers the name at
+    // the closing `end`, so a `style` (or `class`) written *above* the
+    // block finds no cluster and paints nothing — the rect carries no
+    // style in Mermaid 12.2.0's drawing. No rejection either: the document
+    // draws.
+    for (const statement of ["style s1 fill:#f96", "class s1 urgent"]) {
+      const { document, diagnostics } = parseErDiagram(
+        `erDiagram\n  classDef urgent fill:#f96\n  ${statement}\n  subgraph s1\n    A\n  end\n`,
+      );
+      expect(diagnostics).toEqual([]);
+      const painting = (document as ErDocument).styles.find(
+        (style) => style.styleKind !== "classDef",
+      )!;
+      expect(painting.clusterTargets?.get("s1")).toBeUndefined();
+    }
+  });
+
+  it("resolves a shared block name to the block closed most recently before the statement", () => {
+    // Measured (mermaid 12.2.0, `getSubGraphs`): `subgraph s1 / A / end /
+    // style s1 fill:#f96 / subgraph s1 / B / end` puts `fill:#f96` on the
+    // block holding `A`; a second `style s1 stroke:#00f` after the second
+    // block lands on the block holding `B`. `subGraphLookup` is a map the
+    // closing `end` overwrites.
+    const er = documentOf(
+      "erDiagram\n  subgraph s1\n    A\n  end\n  style s1 fill:#f96\n" +
+        "  subgraph s1\n    B\n  end\n  style s1 stroke:#00f\n",
     );
-    expect(above.diagnostics).toEqual([]);
-    expect(above.document).not.toBeNull();
+    const [first, second] = er.styles;
+    expect(first.clusterTargets?.get("s1")).toBe(er.subgraphs[0]);
+    expect(second.clusterTargets?.get("s1")).toBe(er.subgraphs[1]);
   });
 
   it("reads the bracketed title, in both of its measured spellings", () => {

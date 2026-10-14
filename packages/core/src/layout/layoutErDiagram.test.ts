@@ -785,6 +785,38 @@ describe("layoutErDiagram places subgraph clusters", () => {
     expect(frame.label.anchor.y - frame.y).toBe(12 + 45 / 2);
   });
 
+  it("carries a cluster's author style to its frame, by id, and the empty pair to the rest", () => {
+    // `style s1 fill:#f96,color:#0a0` below the block: `buildErModel` keys
+    // it on the generated id, and the frame wearing that id is the one that
+    // must carry it — a nested frame does not inherit it (measured, mermaid
+    // 12.2.0: `class outer urgent` paints `outer` and leaves `inner` plain).
+    const style = {
+      frame: [{ property: "fill", value: "#f96" }],
+      text: [{ property: "fill", value: "#0a0" }],
+    };
+    const laidOut = layoutErDiagram(
+      {
+        ...grouped,
+        entities: [
+          { id: "A", label: plainLabel("A"), attributes: [], parentId: "subgraph:2" },
+          { id: "B", label: plainLabel("B"), attributes: [], parentId: "subgraph:2" },
+          { id: "C", label: plainLabel("C"), attributes: [], parentId: "subgraph:1" },
+        ],
+        subgraphs: [
+          { id: "subgraph:1", label: plainLabel("outer"), parentId: null, direction: null },
+          { id: "subgraph:2", label: plainLabel("inner"), parentId: "subgraph:1", direction: null },
+        ],
+        styles: [{ targetId: "subgraph:1", style }],
+      },
+      options,
+    );
+
+    expect(laidOut.subgraphs.map((frame) => [frame.id, frame.style])).toEqual([
+      ["subgraph:1", style],
+      ["subgraph:2", { frame: [], text: [] }],
+    ]);
+  });
+
   it("draws a frame enclosing its members and nothing else", () => {
     const laidOut = layoutErDiagram(grouped, options);
     const frame = frameOf(laidOut, "subgraph:1");

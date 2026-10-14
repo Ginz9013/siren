@@ -3315,6 +3315,30 @@ export interface ErSubgraph {
   subgraphs: ErSubgraph[];
 }
 
+/**
+ * An ER `style`, `classDef`, `class` or `:::` statement: the shared
+ * `StyleDecl`, plus which of its targets named a `subgraph` cluster.
+ *
+ * ⚠️ **In this kind a cluster is a legal style target, and only at the
+ * position the statement was written in.** Measured (mermaid 12.2.0,
+ * headless Chrome): Mermaid's ER `addCssStyles` and `setClass` look up
+ * `subGraphLookup` beside `entities`, and `addSubGraph` fills that map at
+ * the block's closing `end` — so `style s1 fill:#f96` *below* `subgraph s1
+ * ... end` paints the frame, and the same line *above* the block paints
+ * nothing. Two blocks may share a name, and the one reached is the one
+ * closed most recently before the statement (measured:
+ * `subgraph s1 / A / end / style s1 … / subgraph s1 / B / end` paints the
+ * first). Only the parser reads in that order, so only it can answer; it
+ * answers with the block itself, and `buildErModel` turns the block into the
+ * id it generated for it.
+ *
+ * Absent, or without a given target, when that target named no closed block
+ * at the time — the target then reaches an entity of that name or nothing.
+ */
+export interface ErStyleDecl extends StyleDecl {
+  clusterTargets?: ReadonlyMap<string, ErSubgraph>;
+}
+
 export interface ErDocument {
   kind: "er";
   /**
@@ -3392,16 +3416,20 @@ export interface ErDocument {
    * author's own keyword kept in `StyleDecl.authoredAs` so a diagnostic
    * quotes the line they wrote.
    *
-   * ⚠️ **Only an entity can be a target, measured from Mermaid's own
-   * database rather than inferred.** `addCssStyles(ids, styles)` and
+   * ⚠️ **An entity or a cluster can be a target, and a relationship
+   * cannot — measured from Mermaid's own database rather than inferred.** `addCssStyles(ids, styles)` and
    * `setClass(ids, classNames)` each look up `this.entities.get(id)` and
    * `this.subGraphLookup.get(id)` and nothing else, so **no relationship
    * can ever be styled** — `style CUSTOMER:ORDER fill:#f96` parses, reaches
    * `addCssStyles`, and paints nothing. That is why `buildErModel` hands
-   * `resolveStyles` the entity ids alone and not the `addressable` list the
+   * `resolveStyles` entity and cluster ids alone and not the `addressable` list the
    * timeline gets.
+   *
+   * A **cluster** is the other target Mermaid's lookup reaches, and which
+   * one a statement reached depends on where it was written — see
+   * `ErStyleDecl.clusterTargets`.
    */
-  styles: StyleDecl[];
+  styles: ErStyleDecl[];
   /**
    * The `timeline:` block as written, or `null` when the document declares
    * none — the same field, with the same two meanings, that
@@ -3729,12 +3757,15 @@ export interface ErModel {
    */
   subgraphs: ResolvedErSubgraph[];
   /**
-   * Each styled entity's accepted declarations, already flattened by the
-   * shared `resolveStyles` — one entry per entity that ended up with at
-   * least one, and none for an entity the author styled with nothing.
+   * Each styled entity's and cluster's accepted declarations, already
+   * flattened by the shared `resolveStyles` — one entry per target that
+   * ended up with at least one, and none for a target the author styled
+   * with nothing. A cluster's entry is keyed on its **generated** id
+   * (`subgraph:1`), which `buildErModel` wrote in for the block name the
+   * author typed (see `ErStyleDecl.clusterTargets`).
    *
-   * ⚠️ **Only an entity can be a target, and a relationship deliberately
-   * cannot.** Measured from Mermaid's own database: `addCssStyles` and
+   * ⚠️ **An entity or a cluster can be a target, and a relationship
+   * deliberately cannot.** Measured from Mermaid's own database: `addCssStyles` and
    * `setClass` reach `entities` and `subGraphs` and nothing else, so
    * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
    * `CUSTOMER:ORDER` is exactly the id this model gives that relationship,
@@ -4019,6 +4050,21 @@ export interface PositionedErSubgraph {
   y: number;
   width: number;
   height: number;
+  /**
+   * Author declarations for this cluster — `style s1 …` or `class s1 …`
+   * written below its block (see `ErStyleDecl.clusterTargets`): the frame
+   * half onto the frame's `<rect>`, the text half (an author's `color`,
+   * spelled `fill`) onto the title's `<text>`, the one text a cluster draws.
+   * Measured, mermaid 12.2.0: the rect carries `fill:#f96 !important` and
+   * the title's colour follows `color:`; a nested cluster inherits none of
+   * its parent's.
+   *
+   * `layoutErDiagram` always writes it, the empty pair for a cluster
+   * nobody styled — `PositionedErEntity.style`'s rule. Optional only so a
+   * diagram built by hand need not spell the empty pair; absent reads as
+   * none, as `hops` does.
+   */
+  style?: AuthorStyle;
 }
 
 export interface PositionedErDiagram {

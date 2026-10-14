@@ -944,6 +944,46 @@ describe("renderErDiagramToSVG draws subgraph clusters", () => {
     expect(title?.hasAttribute("data-siren-id")).toBe(false);
   });
 
+  it("writes a cluster's author style onto its frame and its title, and nothing onto an unstyled one", () => {
+    // Measured (mermaid 12.2.0, headless Chrome): `style s1
+    // fill:#f96,color:#0a0` below the block puts `fill:#f96` on the
+    // cluster's rect and turns its title `rgb(0, 170, 0)`. The frame half
+    // goes on the rect the theme styles and the text half — the author's
+    // `color`, already spelled `fill` — on the title's `<text>`, ADR-0008's
+    // placement; neither on the group, where the theme's own rule would win.
+    const svg = renderErDiagramToSVG(
+      diagram(
+        [CUSTOMER],
+        { width: 400, height: 200 },
+        [],
+        [
+          {
+            ...FRAME,
+            style: {
+              frame: [
+                { property: "fill", value: "#f96" },
+                { property: "stroke", value: "#00f" },
+              ],
+              text: [{ property: "fill", value: "#0a0" }],
+            },
+          },
+          { ...FRAME, id: "subgraph:2", style: { frame: [], text: [] } },
+        ],
+      ),
+    );
+
+    const [styled, plain] = Array.from(svg.querySelectorAll("g.siren-er-subgraph"));
+    expect(styled.querySelector("rect.siren-er-subgraph-frame")?.getAttribute("style")).toBe(
+      "fill:#f96;stroke:#00f",
+    );
+    expect(styled.querySelector("text.siren-er-subgraph-label")?.getAttribute("style")).toBe(
+      "fill:#0a0",
+    );
+    expect(styled.hasAttribute("style")).toBe(false);
+    expect(plain.querySelector("rect.siren-er-subgraph-frame")?.hasAttribute("style")).toBe(false);
+    expect(plain.querySelector("text.siren-er-subgraph-label")?.hasAttribute("style")).toBe(false);
+  });
+
   it("paints a frame behind the boxes it groups", () => {
     // SVG has no z-index, so the order elements are appended in *is* the
     // stacking. A frame drawn after the entity it holds would cover it.

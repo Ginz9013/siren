@@ -7,6 +7,7 @@ import type {
   ErEntityDecl,
   ErRelationshipDecl,
   ErRelationshipLine,
+  ErStyleDecl,
   ErSubgraph,
   Label,
   ParseResult,
@@ -1930,7 +1931,7 @@ export function parseErDiagram(source: string): ParseResult {
    * `A / class A u / classDef u fill:red` paints `A` — and pairing them is
    * `resolveStyles`' job, which is where the other four kinds leave it too.
    */
-  const styles: StyleDecl[] = [];
+  const styles: ErStyleDecl[] = [];
   /**
    * The `subgraph` blocks written at the top level, in source order; a
    * nested one is inside its parent's own `subgraphs` instead.
@@ -1956,19 +1957,19 @@ export function parseErDiagram(source: string): ParseResult {
    */
   const blockHeaders: { name: string; line: string; lineNumber: number; column: number }[] = [];
   /**
-   * The names of the blocks whose `end` the reader has already passed —
+   * The blocks whose `end` the reader has already passed, by name —
    * Mermaid's `subGraphLookup`, which `addSubGraph` fills at the closing
-   * `end` and not at the header.
+   * `end` and not at the header, a later block of a name replacing an
+   * earlier one.
    *
-   * ⚠️ **The refusal below turns on this rather than on the whole
-   * document's blocks, and that is measured.** A `style s1 fill:#f96`
+   * ⚠️ **A style target resolves against this rather than against the
+   * whole document's blocks, and that is measured.** A `style s1 fill:#f96`
    * written *above* `subgraph s1 ... end` reaches `addCssStyles` before the
-   * name is registered and paints nothing — `cssStyles` comes back empty —
-   * which is the very picture `resolveStyles` already produces by dropping
-   * an unknown target. Refusing that document would cost a picture Mermaid
-   * draws.
+   * name is registered and paints nothing — the frame comes out unstyled
+   * in mermaid 12.2.0's drawing — while the same line below the block
+   * fills it.
    */
-  const registeredBlocks = new Set<string>();
+  const registeredBlocks = new Map<string, ErSubgraph>();
   /**
    * A line that ended inside a backticked word, with every line read onto
    * it since — `null` when no run is open. The reader's third mode, and the
@@ -2024,40 +2025,37 @@ export function parseErDiagram(source: string): ParseResult {
       }
     }
     for (const closed of openBlocks.slice(reading.remainingOpenBlocks)) {
-      registeredBlocks.add(closed.name);
+      // A later block of the same name replaces the earlier one, as
+      // Mermaid's `subGraphLookup.set` does at its `end`.
+      registeredBlocks.set(closed.name, closed);
     }
     openBlocks = openBlocks.slice(0, reading.remainingOpenBlocks);
     blockOpenedAt = blockOpenedAt.slice(0, reading.remainingOpenBlocks);
 
-    // ⚠️ **A cluster is a legal style target in this kind, and painting it
-    // is not implemented** — so the directive is refused by name rather
-    // than dropped. Measured from Mermaid's own ER database (11.17.2):
-    // `addCssStyles` and `setClass` each look up `this.entities.get(id)`
-    // **and** `this.subGraphLookup.get(id)`, and `style s1 fill:#f96` below
-    // `subgraph s1 ... end` comes back as `cssStyles:["fill:#f96"]` on the
-    // cluster, `class s1 urgent` as `classes:["urgent"]` on it. That is the
-    // opposite of a relationship, which reaches neither map and is dropped
-    // here on purpose (see `resolveStyles`' call in `buildErModel`).
+    // ⚠️ **A cluster is a legal style target in this kind** — measured
+    // from Mermaid's own ER database: `addCssStyles` and `setClass` each
+    // look up `this.entities.get(id)` **and** `this.subGraphLookup.get(id)`,
+    // and in mermaid 12.2.0's drawing `style s1 fill:#f96` below `subgraph
+    // s1 ... end` fills the frame, `class s1 urgent` paints the classDef on
+    // it. That is the opposite of a relationship, which reaches neither map
+    // (see `resolveStyles`' call in `buildErModel`).
     //
-    // Asked after the truncation above so that an `end` earlier on this
-    // very line has already registered its block, which is the order
-    // Mermaid reads the two statements in.
-    for (const style of reading.styles) {
+    // Resolved *here*, to the block itself, because only this reader knows
+    // which blocks had closed when the statement was read: a statement above
+    // its block paints nothing in Mermaid, and two blocks sharing a name
+    // answer with the one closed last. Asked after the truncation above so
+    // that an `end` earlier on this very line has already registered its
+    // block, which is the order Mermaid reads the two statements in.
+    const read: ErStyleDecl[] = reading.styles.map((style) => {
+      const clusterTargets = new Map<string, ErSubgraph>();
       for (const targetId of style.targetIds) {
-        if (!registeredBlocks.has(targetId)) continue;
-        diagnostics.push({
-          severity: "error",
-          message:
-            `Unimplemented erDiagram construct: a \`${style.authoredAs}\` statement ` +
-            `painting a \`subgraph\` cluster ("${targetId}"), in "${line}"`,
-          line: lineNumber,
-          column,
-        });
-        sawError = true;
+        const block = registeredBlocks.get(targetId);
+        if (block !== undefined) clusterTargets.set(targetId, block);
       }
-    }
+      return clusterTargets.size === 0 ? style : { ...style, clusterTargets };
+    });
     relationships.push(...reading.relationships);
-    styles.push(...reading.styles);
+    styles.push(...read);
     for (const segment of reading.malformedStyles) {
       diagnostics.push({
         severity: "error",
