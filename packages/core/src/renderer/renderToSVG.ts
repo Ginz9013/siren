@@ -166,23 +166,9 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
   const defs = document.createElementNS(SVG_NS, "defs") as SVGDefsElement;
   svg.appendChild(defs);
 
-  // Four layers, in Mermaid's order — `clusters → edgePaths → edgeLabels →
-  // nodes`, measured against mermaid 11.17.2 (`chunk-ZAI7H55H.mjs`) and
-  // adopted in ADR-0016. Document order is paint order, so the order of the
-  // four loops below *is* the picture's stacking, and it used to be wrong:
-  // nodes were drawn first and edges after, so an edge routed past a node
-  // it does not end at ran across that node's text.
-  //
-  // Frames first, because a frame is drawn *behind* what it groups. The
-  // class renderer puts namespaces here for the same reason, and the
-  // model's own order — outermost before nested — is what keeps an inner
-  // frame painted over its parent rather than under it. A frame is
-  // `fill: none`, so whether a line sits above or below it only decides
-  // which stroke wins where the two cross; first is where Mermaid puts it.
-  for (const subgraph of graph.subgraphs) {
-    svg.appendChild(buildSubgraph(subgraph));
-  }
-
+  // Document order is paint order. Flowchart puts every line below every
+  // frame and title as well as labels and nodes (ADR-0016):
+  // `edgePaths → clusters → edgeLabels → nodes`.
   // One marker per (shape, colour) pair actually drawn, and not one per
   // edge. A marker is a pure function of those two things, so two edges
   // wanting the same pair want the same picture and a second def for it
@@ -266,6 +252,13 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // makes is the split an edge makes too.
     applyInlineStyle(path, edge.style.frame);
     svg.appendChild(path);
+  }
+
+  // Keep frames and their titles above every line, but behind their nodes
+  // and edge labels. The model's outermost-before-nested order still
+  // paints each inner frame over its parent.
+  for (const subgraph of graph.subgraphs) {
+    svg.appendChild(buildSubgraph(subgraph));
   }
 
   // Every label after every line, in a loop of its own rather than beside

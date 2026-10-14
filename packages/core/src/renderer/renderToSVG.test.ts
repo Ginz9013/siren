@@ -1773,8 +1773,8 @@ describe("what a label paints behind its text", () => {
 });
 
 /**
- * Mermaid's layer order, which ADR-0016 adopts: `clusters → edgePaths →
- * edgeLabels → nodes` (mermaid 11.17.2, `chunk-ZAI7H55H.mjs`). SVG has no
+ * Flowchart's layer order in ADR-0016: `edgePaths → clusters →
+ * edgeLabels → nodes`. SVG has no
  * z-index, so the order is the document's, and these tests read it there.
  *
  * The fixture is the case the order exists for: two labelled edges, a
@@ -1805,12 +1805,14 @@ describe("the order a flowchart's layers are painted in", () => {
     return found;
   }
 
-  it("draws every edge's line above the frames and under every node", () => {
+  it("draws every edge's line under every frame, title, label background and node", () => {
     const svg = layered();
 
     const edges = positions(svg, "path.siren-edge");
-    expect(Math.min(...edges)).toBeGreaterThan(Math.max(...positions(svg, "g.siren-subgraph *")));
-    expect(Math.max(...edges)).toBeLessThan(Math.min(...positions(svg, "g.siren-node")));
+    expect(edges).toHaveLength(2);
+    for (const selector of ["g.siren-subgraph *", "text.siren-edge-label, svg > rect.test-background", "g.siren-node"]) {
+      expect(Math.max(...edges)).toBeLessThan(Math.min(...positions(svg, selector)));
+    }
   });
 
   it("draws every edge label, and what it paints behind its text, above every line and under every node", () => {

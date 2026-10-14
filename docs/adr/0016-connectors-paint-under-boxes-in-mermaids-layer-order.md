@@ -28,15 +28,27 @@ above every connector, so no other line crosses a label, and under every box.
 
 ## Decision
 
-Flowchart, class, state and ER diagrams paint in Mermaid's layer order:
+Class, state and ER diagrams paint in Mermaid's layer order:
 
 ```
 defs → frames → every connector line → every connector label → boxes → class notes
 ```
 
-Frames (subgraph, namespace, composite, ER subgraph) are all `fill: none`, so whether they sit
-above or below a line changes only which stroke wins where the two cross. Subgraph, namespace and
-ER subgraph frames stay first, as Mermaid's `clusters` are.
+Flowchart deliberately puts its lines below its subgraph frames and titles too (nook
+`01M4XJ8Y0`), so a line crossing a title cannot paint over the text:
+
+```
+defs → every edge line → subgraph frames and titles → every edge label → nodes
+```
+
+This changes only paint order, not routes or opacity. An unfilled or transparent frame still
+reveals a line beneath it; a filled frame can cover that line. Subgraphs keep their model order,
+outermost before nested, and their existing timeline targets.
+
+Frames (namespace, composite, ER subgraph) are all `fill: none`, so whether they sit
+above or below a line changes only which stroke wins where the two cross. Namespace and
+ER subgraph frames stay first, as Mermaid's `clusters` are. Flowchart subgraph frames use the
+exception above.
 
 A state diagram's composite frame is the exception: it stays among the states, after the lines. A
 composite is itself a `g.siren-state` in the model's state list and a timeline target under the
