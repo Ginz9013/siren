@@ -1461,8 +1461,20 @@ const SILENTLY_WRONG = 0;
  * `er-name-cardinality-word` an honest refusal; `silently-wrong` fell by
  * one for it (and by one more for `er-name-digit-head`, which works now),
  * so the sum of the two fell rather than held.
+ *
+ * **14 → 15: case (2), a divergence written down for the first time.**
+ * `01M3BXNYR` (part 2) found that `class A end` — a reserved word in a class
+ * list — was read here as "apply the class `end`" while Mermaid 12.2.0
+ * refuses the line ("got 'END'"). It was never measured because the guard
+ * that reserves those words was asked of names, not of class lists. Siren
+ * now refuses it by name, and `er-class-reserved-word` records it. Nothing
+ * that rendered stopped rendering: Mermaid draws no picture for it.
+ * `silently-wrong` does not move — the old reading drew a warning (no
+ * `classDef end`), so it was never silent. The same ticket's
+ * `er-style-class-shorthand-relationship` is new and `supported`, and
+ * `er-style-target-colon` stays `rejected` with a named refusal now.
  */
-const REJECTED = 14;
+const REJECTED = 15;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

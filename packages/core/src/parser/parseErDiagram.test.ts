@@ -2263,3 +2263,136 @@ describe("parseErDiagram — a name read where Mermaid's lexer reads one (01M3C6
     expect(refused("A {\n    int 123abc\n  }")).toBe(true);
   });
 });
+
+/**
+ * `:::` on a relationship's ends, a `style` aimed at a relationship id, and
+ * the reserved words in a class list (01M39FA7F, 01M3BXNYR part 2). Every
+ * expectation below was measured on mermaid 12.2.0 with
+ * `scripts/mermaid-probe.mjs`.
+ */
+describe("parseErDiagram — `:::` on a relationship end", () => {
+  it("applies a `:::` on the left end to that entity and keeps the relationship between the names", () => {
+    // Measured: `A:::x ||--o{ B : y` reports `A cssClasses="default x"` and
+    // the relationship `leftEntity="A" … rightEntity="B" label="y"` — the
+    // class never reaches the relationship's record.
+    const document = documentOf("erDiagram\n  A:::x ||--o{ B : y\n");
+    expect(document.entities.map((e) => e.name)).toEqual(["A", "B"]);
+    expect(document.relationships.map((r) => [r.left, r.right, r.label.text])).toEqual([
+      ["A", "B", "y"],
+    ]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "x",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("applies a `:::` on the right end, on both ends, and after a quoted name", () => {
+    // Measured, one probe apiece:
+    //   A ||--o{ B:::z : y                 → B cssClasses="default z"
+    //   A:::x ||--o{ B:::z : y             → A "default x", B "default z"
+    //   "Customer Account":::x ||--o{ B : y → "Customer Account" "default x"
+    //   A:::x,w ||--o{ B : y               → A "default x w"
+    // and in every one the relationship is still `A`/`B` (or the unquoted
+    // name) on its two ends, label `y`.
+    const applied = (source: string) =>
+      documentOf(source).styles.map((s) => [s.targetIds, s.name, s.authoredAs]);
+    const ends = (source: string) => documentOf(source).relationships.map((r) => [r.left, r.right]);
+
+    expect(applied("erDiagram\n  A ||--o{ B:::z : y\n")).toEqual([[["B"], "z", ":::"]]);
+    expect(ends("erDiagram\n  A ||--o{ B:::z : y\n")).toEqual([["A", "B"]]);
+
+    expect(applied("erDiagram\n  A:::x ||--o{ B:::z : y\n")).toEqual([
+      [["A"], "x", ":::"],
+      [["B"], "z", ":::"],
+    ]);
+
+    const quoted = 'erDiagram\n  "Customer Account":::x ||--o{ B : y\n';
+    expect(applied(quoted)).toEqual([[["Customer Account"], "x", ":::"]]);
+    expect(ends(quoted)).toEqual([["Customer Account", "B"]]);
+
+    expect(applied("erDiagram\n  A:::x,w ||--o{ B : y\n")).toEqual([
+      [["A"], "x", ":::"],
+      [["A"], "w", ":::"],
+    ]);
+  });
+});
+
+describe("parseErDiagram — a `style` aimed at a relationship id", () => {
+  it("refuses `style CUSTOMER:ORDER` by naming the reason: a relationship cannot be styled", () => {
+    // Measured (`--markup`, 12.2.0): Mermaid's style condition has no `:` in
+    // its word rule, so `CUSTOMER`'s own rect comes out carrying
+    // `style=":ORDERfill !important"` and nothing reports it. `addCssStyles`
+    // only ever reaches entities and subgraphs. Siren refuses — and the
+    // refusal says *why*, rather than calling the line malformed.
+    expect(refusalsFor("erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  style CUSTOMER:ORDER fill:#f96\n")).toEqual([
+      'Relationships cannot be styled in erDiagram: "CUSTOMER:ORDER" names the relationship between ' +
+        '"CUSTOMER" and "ORDER", and `style` reaches only entities and subgraphs, in "style CUSTOMER:ORDER fill:#f96"',
+    ]);
+    // Wherever it stands in the target list.
+    expect(refusalsFor("erDiagram\n  style A,B:C fill:#f96\n")).toEqual([
+      'Relationships cannot be styled in erDiagram: "B:C" names the relationship between ' +
+        '"B" and "C", and `style` reaches only entities and subgraphs, in "style A,B:C fill:#f96"',
+    ]);
+  });
+});
+
+describe("parseErDiagram — a reserved word in a class list", () => {
+  const reserved = (word: string, line: string) =>
+    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
+    `and refuses the line, in "${line}"`;
+
+  it("refuses `class A end` by name, as Mermaid refuses it", () => {
+    // Measured (12.2.0): `class\b` switches no lexer condition, so `end` is
+    // lexed as `END` and the line is a parse error, "got 'END'". The same
+    // for every word of `RESERVED_BARE_NAMES`, in either case:
+    //   class A subgraph → got 'SUBGRAPH'   class A class → got 'CLASS'
+    //   class A style → got 'STYLE'         class A classDef → got 'CLASSDEF'
+    //   class A END → got 'END'
+    expect(refusalsFor("erDiagram\n  A\n  class A end\n")).toEqual([reserved("end", "class A end")]);
+    for (const word of ["subgraph", "class", "style", "classDef", "END"]) {
+      expect(refusalsFor(`erDiagram\n  A\n  class A ${word}\n`)).toEqual([
+        reserved(word, `class A ${word}`),
+      ]);
+    }
+  });
+
+  it("refuses one in the target half and anywhere in either list, and leaves `style`/`classDef` names alone", () => {
+    // Measured (12.2.0): `class end u` → got 'END', `class A u,end` → got
+    // 'END', `class end-x u` → got 'END' (the keyword rule fires at the head
+    // of the token), while `class A endx` is the ordinary class `endx`, and
+    // `style end fill:red` / `classDef end fill:red` are accepted — the style
+    // condition has no keywords.
+    expect(refusalsFor("erDiagram\n  class end u\n")).toEqual([reserved("end", "class end u")]);
+    expect(refusalsFor("erDiagram\n  A\n  class A u,end\n")).toEqual([reserved("end", "class A u,end")]);
+    expect(refusalsFor("erDiagram\n  class A,Style u\n")).toEqual([reserved("Style", "class A,Style u")]);
+    expect(refusalsFor("erDiagram\n  class end-x u\n")).toEqual([reserved("end", "class end-x u")]);
+
+    expect(stylesOf("erDiagram\n  A\n  class A endx\n").map((s) => s.name)).toEqual(["endx"]);
+    expect(stylesOf("erDiagram\n  style end fill:red\n").map((s) => s.targetIds)).toEqual([["end"]]);
+    expect(stylesOf("erDiagram\n  classDef end fill:red\n").map((s) => s.name)).toEqual(["end"]);
+  });
+
+  it("refuses one after `:::`, on an entity and on either end of a relationship", () => {
+    // Measured (12.2.0): `A:::end`, `A:::u,end`, `A:::end-x`,
+    // `A:::end ||--o{ B : y` and `A ||--o{ B:::end : y` are each a parse
+    // error, "got 'END'" — `:::` changes no lexer condition. Likewise
+    // `A:::subgraph`, `A:::class`, `A:::style`, `A:::classDef`.
+    expect(refusalsFor("erDiagram\n  A:::end\n")).toEqual([reserved("end", "A:::end")]);
+    expect(refusalsFor("erDiagram\n  A:::u,end\n")).toEqual([reserved("end", "A:::u,end")]);
+    expect(refusalsFor("erDiagram\n  A:::end-x\n")).toEqual([reserved("end", "A:::end-x")]);
+    expect(refusalsFor("erDiagram\n  A:::classDef\n")).toEqual([reserved("classDef", "A:::classDef")]);
+    expect(refusalsFor("erDiagram\n  A:::end ||--o{ B : y\n")).toEqual([
+      reserved("end", "A:::end ||--o{ B : y"),
+    ]);
+    expect(refusalsFor("erDiagram\n  A ||--o{ B:::style : y\n")).toEqual([
+      reserved("style", "A ||--o{ B:::style : y"),
+    ]);
+  });
+});

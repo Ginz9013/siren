@@ -8483,6 +8483,66 @@ line2\`"]`,
     },
   },
   {
+    id: "er-style-class-shorthand-relationship",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      classDef calm fill:#9cf
+      CUSTOMER:::urgent ||--o{ ORDER:::calm : places`,
+    status: "supported",
+    meaning:
+      "`:::` on a relationship's ends. Mermaid's grammar has a production " +
+      "for `entityName ::: idList relSpec entityName ::: idList : role`, so " +
+      "either end, or both, may carry a class list. Measured on 12.2.0: " +
+      "this document paints `CUSTOMER` `fill:#f96` and `ORDER` `fill:#9cf` " +
+      "(`--markup`, `style=\"fill:… !important\"` on each box), and the " +
+      "relationship is recorded as `leftEntity=\"CUSTOMER\"` / " +
+      "`rightEntity=\"ORDER\"` — the class never reaches it, so its id stays " +
+      "`CUSTOMER:ORDER` and not `CUSTOMER:::urgent:ORDER`. One end alone, a " +
+      "quoted name (`\"Customer Account\":::x`), a class list (`A:::x,w`) " +
+      "and a cardinality glued on (`A:::x||--o{`) are each measured to " +
+      "behave the same way.\n\n" +
+      "The `:::` sits between the name and the cardinality — never after a " +
+      "bracketed alias, which a relationship end cannot carry at all " +
+      "(`A[\"Al\"]:::x ||--o{ B : y` is a parse error). Without a label the " +
+      "line is still refused, as in Mermaid (`A:::x ||--o{ B:::z` → parse " +
+      "error).",
+    assert: (result) => {
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "fill:#f96");
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#9cf");
+      expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]", "ORDER[ORDER]"]);
+      expectSame("the relationships drawn", erRelationships(result), [
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
+  },
+  {
+    id: "er-class-reserved-word",
+    kind: "er",
+    source: `erDiagram
+      A
+      class A end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason**: until 01M3BXNYR " +
+      "Siren read this as \"apply the class `end` to `A`\" while Mermaid " +
+      "refuses it, and no row said so. `class\\b` switches no lexer " +
+      "condition, so `end` is lexed as the `END` keyword — measured on " +
+      "12.2.0, a parse error, `got 'END'`. Siren now refuses it by name " +
+      "(\"Reserved word … cannot stand in a class list\").\n\n" +
+      "Measured position by position, for every word of " +
+      "`RESERVED_BARE_NAMES` (`end`, `subgraph`, `class`, `style`, " +
+      "`classDef`, any case): Mermaid refuses one in **either half** of a " +
+      "`class` statement (`class end u`, `class A u,end`) and after `:::` " +
+      "(`A:::end`, `A:::u,end`, `A:::end ||--o{ B : y`, " +
+      "`A ||--o{ B:::end : y`), and at the head of a member (`end-x`, but " +
+      "not `endx`). It **accepts** them as a `style` target or a `classDef` " +
+      "name (`style end fill:red`, `classDef end fill:red`), because " +
+      "`style\\b` and `classDef\\b` switch to a condition with no keywords — " +
+      "so those are left alone. A quoted class name is refused by Mermaid " +
+      "anyway (`class A \"end\"` → `got 'ENTITY_NAME'`).",
+  },
+  {
     id: "er-style-target-colon",
     kind: "er",
     source: `erDiagram
@@ -8508,10 +8568,13 @@ line2\`"]`,
       "So this is the **exception to the absolute condition**, in the form " +
       "CONTEXT.md states it: Mermaid renders it, but Mermaid renders it " +
       "*wrong* and says nothing, so Siren refuses rather than copying the " +
-      "bug. ⚠️ The refusal is real but **generic** today " +
-      "(`Unrecognized erDiagram line`), which tells the author their line " +
-      "is malformed rather than that they are styling something that cannot " +
-      "be styled. Naming it is what keeps this row here.\n\n" +
+      "bug. The refusal **names the reason** (01M39FA7F): the diagnostic " +
+      "says relationships cannot be styled in erDiagram, that " +
+      "`CUSTOMER:ORDER` names the relationship between `CUSTOMER` and " +
+      "`ORDER`, and that `style` reaches only entities and subgraphs — so " +
+      "the author learns they are styling something that " +
+      "cannot be styled, not that their line is malformed. Re-measured on " +
+      "12.2.0: the rect still carries `style=\":ORDERfill !important\"`.\n\n" +
       "This row is mine, not `01M3977QT`'s. It measured that a " +
       "relationship cannot be styled and drew the right conclusion for the " +
       "target set, but read this document as painting nothing; the `rect` " +

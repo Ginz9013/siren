@@ -247,6 +247,27 @@ const CLASS_DEF_RE = new RegExp(
 );
 
 /**
+ * `style CUSTOMER:ORDER fill:#f96` — a `style` aimed at a **relationship
+ * id**, refused by name (01M39FA7F).
+ *
+ * A relationship's id is `${from}:${to}`, so this is the spelling an author
+ * reaches for — and it can never work: Mermaid's `addCssStyles` looks only
+ * in `entities` and `subGraphs`. What Mermaid does with it is worse than
+ * refusing: the style condition's word rule has no `:`, and `style:
+ * style styleComponent` concatenates with no separator, so measured with
+ * `--markup` (12.2.0) **`CUSTOMER`'s own rect carries
+ * `style=":ORDERfill !important"`**, with no error. CONTEXT.md's third rule:
+ * Mermaid's picture contradicts the document, so Siren refuses and says
+ * why, rather than calling the line malformed.
+ *
+ * Any member of the target list, which is an `idList` (`style A,B:C …`).
+ */
+const STYLE_RELATIONSHIP_TARGET_RE = new RegExp(
+  `^style\\b\\s+(?:${STYLE_NAME_SOURCE}\\s*,\\s*)*(${STYLE_NAME_SOURCE}):(${STYLE_NAME_SOURCE})`,
+  "iu",
+);
+
+/**
  * `class ORDER urgent` — the apply-directive as a statement of its own.
  *
  * ⚠️ **`class\b` does *not* switch the lexer condition**, unlike its two
@@ -276,6 +297,40 @@ const CLASS_RE = new RegExp(
   `^class\\b\\s+(${idListSource(NAME_SOURCE)})\\s+(${idListSource(NAME_SOURCE)})`,
   "iu",
 );
+
+/**
+ * A word of `RESERVED_BARE_NAMES` at the head of a class-list member, as
+ * Mermaid's lexer finds one there — `\b`-terminated, as its keyword rules
+ * are, so `endx` is an ordinary class and `end-x` is `END` then `-x`.
+ *
+ * ⚠️ **Asked of the class lists only, never of a `style` or `classDef`
+ * name.** Measured (12.2.0): `class A end`, `class end u`, `class A u,end`
+ * and `A:::end` are each a parse error ("got 'END'"), because `class\b`
+ * and `:::` leave the lexer in its initial condition, where the keyword
+ * rules outrank the name rule; `style end fill:red` and `classDef end
+ * fill:red` are accepted, because `style\b` and `classDef\b` switch to the
+ * style condition, which has no keywords. The same holds for every word of
+ * the set, in any case.
+ */
+const RESERVED_AT_CLASS_HEAD_RE = /^(?:end|subgraph|classdef|class|style)\b/iu;
+
+/** The first reserved word heading a member of `members`, as written — or `null`. */
+const reservedClassMember = (members: readonly string[]): string | null => {
+  for (const member of members) {
+    const found = RESERVED_AT_CLASS_HEAD_RE.exec(member);
+    if (found !== null) {
+      return found[0];
+    }
+  }
+  return null;
+};
+
+/** The refusal for a reserved word found in a class list on `line`. */
+const reservedClassRefusal = (word: string, line: string): ErLineRefusal => ({
+  refusal:
+    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
+    `and refuses the line, in "${line}"`,
+});
 
 /**
  * The class **every ER entity already wears**, and the one name a `classDef`
@@ -416,12 +471,24 @@ const alternation = (spellings: readonly string[]): string =>
  * by `readLabel` (ADR-0015 — measured, `: "places<br/>many"` is the edge
  * label `<p>places<br>many</p>`), and `readLabelAt` places a problem in it
  * by where its group begins.
+ *
+ * **Either end may carry `:::` and a class list** (01M39FA7F), directly
+ * after its name — Mermaid's productions 8–10,
+ * `entityName ::: idList relSpec entityName ::: idList : role`. Measured
+ * (12.2.0): `A:::x ||--o{ B:::z : y` gives `A` the class `x` and `B` the
+ * class `z`, and the relationship is still recorded between `A` and `B`, so
+ * its id stays `${from}:${to}` and the class never reaches it. A quoted
+ * name takes one too (`"Customer Account":::x`), a cardinality may be glued
+ * on (`A:::x||--o{`, since `|` is in no name), and the list is an `idList`
+ * (`A:::x,w`). An aliased end is no relationship end at all in Mermaid
+ * (`A["Al"]:::x ||--o{ B : y` is a parse error), which this pattern never
+ * reads.
  */
 const RELATIONSHIP_SOURCE =
-  `^(${ANY_NAME_SOURCE})(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
+  `^(${ANY_NAME_SOURCE})(?::::(${idListSource(NAME_SOURCE)}))?(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
   `\\s*(${alternation(Object.keys(LINE_BY_SPELLING))})\\s*` +
   `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${ANY_NAME_SOURCE})` +
-  `\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
+  `(?::::(${idListSource(NAME_SOURCE)}))?\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
 
 /**
  * ⚠️ **Not anchored on the end of the line.** Mermaid's grammar is
@@ -450,12 +517,13 @@ function readRelationship(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
-): { decl: ErRelationshipDecl; length: number } | null {
+): { decl: ErRelationshipDecl; leftClasses: string[]; rightClasses: string[]; length: number } | null {
   const match = RELATIONSHIP_RE.exec(text);
   if (match === null) {
     return null;
   }
-  const [, left, leftMarker, body, rightMarker, right, quotedLabel, bareLabel] = match;
+  const [, left, leftClasses, leftMarker, body, rightMarker, right, rightClasses, quotedLabel, bareLabel] =
+    match;
   const label = quotedLabel ?? bareLabel;
   // Lower-cased for the lookup because Mermaid's lexer rules are all `/i` —
   // measured, `A ZERO OR ONE to many B : x` reports `ZERO_OR_ONE`, so the
@@ -501,8 +569,10 @@ function readRelationship(
       line: LINE_BY_SPELLING[spelling(body)],
       rightCardinality: CARDINALITY_BY_SPELLING[spelling(rightMarker)],
       right: unquoteName(right),
-      label: readLabelInto(match, quotedLabel !== undefined ? 6 : 7, at, diagnostics),
+      label: readLabelInto(match, quotedLabel !== undefined ? 8 : 9, at, diagnostics),
     },
+    leftClasses: leftClasses === undefined ? [] : splitIdList(leftClasses),
+    rightClasses: rightClasses === undefined ? [] : splitIdList(rightClasses),
     length: match[0].length,
   };
 }
@@ -1085,6 +1155,16 @@ interface ErLineReading {
 }
 
 /**
+ * A line `readLine` could read far enough to know **why** it must be
+ * refused — a construct Mermaid itself refuses or draws wrongly — with the
+ * message that names the reason. `null` stays the answer for a line it
+ * cannot read at all.
+ */
+interface ErLineRefusal {
+  refusal: string;
+}
+
+/**
  * Everything `line` declares, given the block it began inside — or `null`
  * when any part of it is unreadable.
  *
@@ -1133,7 +1213,7 @@ function readLine(
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
   after: string,
-): ErLineReading | null {
+): ErLineReading | ErLineRefusal | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
   const styles: StyleDecl[] = [];
@@ -1191,6 +1271,16 @@ function readLine(
     // same words are still refused where a *name* belongs (`A ||--o{ style :
     // x` is a parse error), so the reservation is what a word falls back to
     // once no statement here has claimed it.
+    const relationshipTarget = STYLE_RELATIONSHIP_TARGET_RE.exec(rest);
+    if (relationshipTarget !== null) {
+      const [, from, to] = relationshipTarget;
+      return {
+        refusal:
+          `Relationships cannot be styled in erDiagram: "${from}:${to}" names the relationship between ` +
+          `"${from}" and "${to}", and \`style\` reaches only entities and subgraphs, in "${line}"`,
+      };
+    }
+
     const style = STYLE_RE.exec(rest);
     if (style !== null) {
       const { properties, malformed } = parseStyleProperties(style[2]);
@@ -1244,6 +1334,10 @@ function readLine(
 
     const apply = CLASS_RE.exec(rest);
     if (apply !== null) {
+      const word = reservedClassMember([...splitIdList(apply[1]), ...splitIdList(apply[2])]);
+      if (word !== null) {
+        return reservedClassRefusal(word, line);
+      }
       // One `StyleDecl` per class name, in the order the author wrote them
       // — which is what gives the stacking its answer: measured, a later
       // class wins a property both name (`class A alpha,beta` paints
@@ -1284,6 +1378,12 @@ function readLine(
 
     const relationship = readRelationship(rest, restAt(), diagnostics);
     if (relationship !== null) {
+      // A reserved word after either end's `:::` is a keyword to Mermaid's
+      // lexer, and the line a parse error — see `RESERVED_AT_CLASS_HEAD_RE`.
+      const reservedClass = reservedClassMember([...relationship.leftClasses, ...relationship.rightClasses]);
+      if (reservedClass !== null) {
+        return reservedClassRefusal(reservedClass, line);
+      }
       // Both endpoints join the one entity list, in the order the line names
       // them — measured, a relationship declares its entities exactly as a
       // bare name does and Mermaid's table interleaves the two kinds of
@@ -1300,6 +1400,21 @@ function readLine(
       claim(relationship.decl.left);
       claim(relationship.decl.right);
       relationships.push(relationship.decl);
+      const endClasses = [
+        ...relationship.leftClasses.map((name) => ({ name, target: relationship.decl.left })),
+        ...relationship.rightClasses.map((name) => ({ name, target: relationship.decl.right })),
+      ];
+      for (const { name, target } of endClasses) {
+        styles.push({
+          styleKind: "apply",
+          authoredAs: ":::",
+          targetIds: [target],
+          name,
+          properties: [],
+          line: where.line,
+          column: where.column,
+        });
+      }
       rest = rest.slice(relationship.length).trimStart();
       continue;
     }
@@ -1307,6 +1422,10 @@ function readLine(
     const head = readEntityHead(rest, restAt(), diagnostics, after);
     if (head === null) {
       return null;
+    }
+    const reservedClass = reservedClassMember(head.classes);
+    if (reservedClass !== null) {
+      return reservedClassRefusal(reservedClass, line);
     }
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
@@ -1972,10 +2091,10 @@ export function parseErDiagram(source: string): ParseResult {
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
       const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
-      if (reading === null) {
+      if (reading === null || "refusal" in reading) {
         diagnostics.push({
           severity: "error",
-          message: `Unrecognized erDiagram attribute: "${line}"`,
+          message: reading?.refusal ?? `Unrecognized erDiagram attribute: "${line}"`,
           line: lineNumber,
           column,
         });
@@ -2141,7 +2260,7 @@ export function parseErDiagram(source: string): ParseResult {
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
     const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
-    if (reading !== null) {
+    if (reading !== null && !("refusal" in reading)) {
       take(reading, lineNumber, column, line);
       if (reading.openEntity !== null) {
         // A block left open where the line ended; its body is appended to
@@ -2159,7 +2278,7 @@ export function parseErDiagram(source: string): ParseResult {
     // above has declined it.
     diagnostics.push({
       severity: "error",
-      message: unimplementedIn(line) ?? `Unrecognized erDiagram line: "${line}"`,
+      message: reading?.refusal ?? unimplementedIn(line) ?? `Unrecognized erDiagram line: "${line}"`,
       line: lineNumber,
       column,
     });
