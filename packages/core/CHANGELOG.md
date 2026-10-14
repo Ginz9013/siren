@@ -38,6 +38,9 @@ While the version is 0.x, a minor release may contain breaking changes.
   `note … end note` is read as one row per non-blank line; and a note's side is read in any case,
   `note LEFT OF X` drawn on the left as the line says, where Mermaid draws it on the right
   (nook `01M36DWFN`). All three used to be refused.
+- State diagrams read every statement keyword in any case, as Mermaid 12.2.0 does: `CLASSDEF`,
+  `CLASS`, `STYLE`, `DIRECTION` and its value (`Direction Rl`), `STATE C {` and `STATE "x" AS y`
+  (nook `01M4WAFCY`). They used to be refused.
 
 ### Changed
 

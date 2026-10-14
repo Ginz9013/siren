@@ -212,3 +212,17 @@ export function matchClassDirection(line: string): Direction | null {
   const match = CLASS_DIRECTION_RE.exec(line);
   return match === null ? null : (CANONICAL_DIRECTION.get(match[1]) ?? null);
 }
+
+/**
+ * A state diagram's `direction` statement, which unlike a class diagram's is
+ * read in any case, keyword and value alike: measured on Mermaid 12.2.0,
+ * `Direction Rl` sets RL and `direction Td` sets TB in a state diagram,
+ * while the same lines leave a class diagram at TB (01M4WAFCY). So it is a
+ * matcher of its own rather than a flag on `matchClassDirection`.
+ */
+const STATE_DIRECTION_RE = new RegExp(`^direction\\s+(${ALTERNATION})$`, "i");
+
+export function matchStateDirection(line: string): Direction | null {
+  const match = STATE_DIRECTION_RE.exec(line);
+  return match === null ? null : (CANONICAL_DIRECTION.get(match[1].toUpperCase()) ?? null);
+}

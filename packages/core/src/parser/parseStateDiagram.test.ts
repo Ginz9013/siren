@@ -1182,6 +1182,43 @@ describe("parseStateDiagram", () => {
     ]);
   });
 
+  it("reads every statement keyword in any case, as Mermaid 12.2.0's lexer does", () => {
+    // 01M4WAFCY, measured on 12.2.0: CLASSDEF, CLASS, STYLE, DIRECTION (and
+    // its value: `Direction Rl` is RL, `direction Td` TB), `STATE C {` and
+    // `STATE "x" AS y` each read as their lower-case spelling. Siren refused
+    // them all as unrecognized lines.
+    const document = documentOf(
+      [
+        "stateDiagram-v2",
+        "  CLASSDEF u fill:#00f",
+        "  Idle --> Busy",
+        "  CLASS Busy u",
+        "  STYLE Idle fill:#f00",
+        "  Direction Rl",
+        "  STATE C {",
+        "    X",
+        "  }",
+        '  STATE "Long name" AS L',
+        "",
+      ].join("\n"),
+    );
+
+    expect(document.styles.map((s) => [s.styleKind, s.name ?? s.targetIds.join(",")])).toEqual([
+      ["classDef", "u"],
+      ["apply", "u"],
+      ["style", "Idle"],
+    ]);
+    expect(document.direction).toBe("RL");
+    expect(document.states.map((s) => [s.id, s.kind])).toEqual([
+      ["Idle", "state"],
+      ["Busy", "state"],
+      ["C", "composite"],
+      ["X", "state"],
+      ["L", "state"],
+    ]);
+    expect(documentOf("stateDiagram-v2\n  A\n  direction Td\n").direction).toBe("TB");
+  });
+
   it("records `style X props` as a style on its comma-separated targets, in source order", () => {
     // Measured (mermaid 12.2.0, `--markup`): `style Busy fill:#f00` paints
     // Busy's rect `fill:#f00 !important`, and `style A,B fill:#f00` paints

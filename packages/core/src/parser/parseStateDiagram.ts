@@ -20,7 +20,7 @@ import { plainLabel } from "../label/label";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
   listAcceptedHeaders,
-  matchClassDirection,
+  matchStateDirection,
   matchDiagramHeader,
 } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
@@ -180,7 +180,7 @@ const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/d;
  * `state "" as X` is a **parse error in Mermaid**, not a state with a blank
  * description.
  */
-const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/d;
+const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/di;
 
 /**
  * The statement that opens a composite state: `state Outer {`, or the same
@@ -213,7 +213,7 @@ const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/d;
  * that does not render. That anchor is also what keeps the two spellings
  * apart from the two description patterns below, which end at the id.
  */
-const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/d;
+const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/di;
 
 /**
  * `state Choice <<choice>>` — the marker that changes which figure a state
@@ -361,11 +361,20 @@ const notePositionOf = (spelling: string): StateNotePosition | null => {
 const FLOATING_NOTE_RE = /^note\s+"[^"]*"\s+as\s+\w+$/i;
 
 /**
+ * Every statement keyword in this file is read in any case — `classDef`,
+ * `class`, `style`, `state … as`, `direction` and its value, `note` and its
+ * side, the stereotypes — because every rule of Mermaid 12.2.0's state lexer
+ * is `/i`; measured, `CLASSDEF`, `CLASS`, `STYLE`, `DIRECTION LR`, `Direction
+ * Rl`, `STATE C {` and `STATE "x" AS y` all read as their lower-case
+ * spellings (01M4WAFCY).
+ */
+
+/**
  * `classDef urgent fill:#f96` — a named set of declarations, applied to
  * nothing on its own, spelled exactly as a flowchart and a class diagram
  * spell it.
  */
-const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/i;
 
 /**
  * `class Busy urgent` — the apply-directive, in this kind's spelling of it.
@@ -396,7 +405,7 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
  * `RESERVED_WORD_RE` — the reservation that exists for exactly this
  * statement.
  */
-const CLASS_APPLY_RE = /^class\s+(\w+(?:\s*,\s*\w+)*)\s*,?(?:\s+(\S.*?))?\s*$/;
+const CLASS_APPLY_RE = /^class\s+(\w+(?:\s*,\s*\w+)*)\s*,?(?:\s+(\S.*?))?\s*$/i;
 
 /**
  * A bare id followed by whitespace and more — the first of several
@@ -431,7 +440,7 @@ const LEADING_BARE_ID_RE = /^(\w+)\s+(?=\S)/;
  * `style Ghost fill:#00f` records a state `Ghost` that no figure is drawn
  * for), so it is left to `resolveStyles`, which drops unknown targets.
  */
-const STYLE_RE = /^style\s+([\w\s,]*[\w,])\s+([^\s].*)$/;
+const STYLE_RE = /^style\s+([\w\s,]*[\w,])\s+([^\s].*)$/i;
 
 /**
  * The constructs this parser reads well enough to *recognize* and does not
@@ -1102,11 +1111,11 @@ export function parseStateDiagram(source: string): ParseResult {
     // where the header put it. At the document's own level it is the whole
     // diagram's, and there the *first* one wins (see `documentDirection`).
     //
-    // Read with `matchClassDirection` rather than a pattern of this file's
-    // own, so the five spellings and the `TD` alias cannot drift between two
-    // regexes; the name is the class diagram's only because that is where
-    // the statement was first read.
-    const statementDirection = matchClassDirection(line);
+    // Read with `matchStateDirection`, beside the class diagram's matcher in
+    // `parseDirection.ts`, so the five spellings and the `TD` alias cannot
+    // drift between two places — but a matcher of its own, because this
+    // kind reads the statement in any case and a class diagram does not.
+    const statementDirection = matchStateDirection(line);
     if (statementDirection !== null) {
       if (openBlocks.length > 0) {
         // Onto the **region** it was written in, which for an undivided
