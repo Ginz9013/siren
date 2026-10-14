@@ -424,6 +424,24 @@ describe("parseErDiagram", () => {
     expect(document.entities.map((entity) => entity.name)).toEqual(["CUSTOMER", "ORDER"]);
   });
 
+  it("reads accTitle and accDescr in any case, with or without space around the colon", () => {
+    // Measured (mermaid 12.2.0): `ACCTITLE: hi`, `ACCDESCR: hi`,
+    // `AccTitle: Hi`, `accDescr:hi` and `accTitle : hi` each set the field
+    // and declare no entity beside `A`.
+    for (const [line, accTitle, accDescr] of [
+      ["ACCTITLE: hi", "hi", null],
+      ["ACCDESCR: hi", null, "hi"],
+      ["AccTitle: Hi", "Hi", null],
+      ["accDescr:hi", null, "hi"],
+      ["accTitle : hi", "hi", null],
+    ]) {
+      const document = documentOf(`erDiagram\n  ${line}\n  A\n`);
+      expect(document.accTitle).toBe(accTitle);
+      expect(document.accDescr).toBe(accDescr);
+      expect(document.entities.map((entity) => entity.name)).toEqual(["A"]);
+    }
+  });
+
   it("leaves both null when the document writes neither", () => {
     // `null` rather than `""`, the way `FlowchartDocument` spells it: the
     // renderer draws no `<title>` at all for a document that named none,
@@ -576,6 +594,15 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
     // The boundary: `accTitle {` has no such rule in Mermaid, so it stays
     // an ordinary entity opening an ordinary attribute block here.
     expect(namesOf("erDiagram\n  accTitle {\n    string x\n  }\n")).toEqual(["accTitle"]);
+  });
+
+  it("names the multi-line accDescr block in any case", () => {
+    // Measured (mermaid 12.2.0): `ACCDESCR {` / `line one` / `}` is the same
+    // description block as the lower-case one, so it is refused the same way
+    // rather than read as an entity called `ACCDESCR` with attributes.
+    expect(refusalsFor("erDiagram\n  ACCDESCR {\n    string x\n  }\n  CUSTOMER\n")).toEqual([
+      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "ACCDESCR {"',
+    ]);
   });
 
   it('names the "u" cardinality, the fifth one this parser does not draw', () => {

@@ -8249,6 +8249,30 @@ line2\`"]`,
     },
   },
   {
+    id: "er-case-acc",
+    kind: "er",
+    source: `erDiagram
+      ACCTITLE: Order book
+      AccDescr : how orders relate to customers
+      CUSTOMER`,
+    status: "supported",
+    meaning:
+      "`accTitle` and `accDescr` in any case, with whitespace allowed before " +
+      "the colon — the one pair of ER keywords that was still read in lower " +
+      "case only. Measured on 12.2.0: `ACCTITLE: hi`, `ACCDESCR: hi` and " +
+      "`accTitle : hi` each set the field and draw no box.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      expectSame("the accessible title text", svg.querySelector("title")?.textContent, "Order book");
+      expectSame(
+        "the accessible description text",
+        svg.querySelector("desc")?.textContent,
+        "how orders relate to customers",
+      );
+      expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]"]);
+    },
+  },
+  {
     id: "er-acc-descr-multiline",
     kind: "er",
     source: `erDiagram
@@ -8272,7 +8296,11 @@ line2\`"]`,
       "a description written in anything but two attribute-shaped words " +
       "was refused instead. `parseErDiagram` now names it and drains the " +
       "block, so the body's prose is not reported as malformed ER on top of " +
-      "the refusal.",
+      "the refusal.\n\n" +
+      "The same hole stayed open in capitals until `01M4WAFD4`: the guard " +
+      "was case-sensitive, so `ACCDESCR {` / `string x` / `}` — the same " +
+      "block in Mermaid 12.2.0 — drew the two boxes again. It is refused by " +
+      "name in any case now.",
   },
 
   {

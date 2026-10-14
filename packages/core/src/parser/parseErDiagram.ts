@@ -567,9 +567,13 @@ function readDirection(line: string): Direction | null {
  * unread — the same line `parseFlowchart` draws — and refused by name in
  * `UNIMPLEMENTED` below, because `ENTITY_HEAD_RE` would otherwise read it
  * as an entity called `accDescr` opening an attribute block.
+ *
+ * Both keywords are read in any case, with whitespace allowed before the
+ * colon, as Mermaid 12.2.0 reads them (measured: `ACCTITLE: hi`,
+ * `ACCDESCR: hi`, `accTitle : hi`, `accDescr:hi`).
  */
-const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
-const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/i;
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
 
 /**
  * The opening line of Mermaid's **braced** `accDescr { ... }`, which this
@@ -596,7 +600,10 @@ const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
  * is why the defect could sit here unseen: it only shows when the
  * description is written in two words that look like a type and a name.
  */
-const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
+// In any case: measured on 12.2.0, `ACCDESCR {` is the same block, and a
+// case-sensitive test let it through to `ENTITY_HEAD_RE` as an entity called
+// `ACCDESCR` — the silently wrong picture above, in capitals.
+const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/i;
 
 /**
  * `subgraph s1`, `subgraph s1["My Title"]`, `subgraph s1 [Bracket Title]` —

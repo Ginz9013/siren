@@ -13,6 +13,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 - Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
   12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
   because Mermaid rejects it too (nook `01M3NM3BT`).
+- ER diagrams read `accTitle:` and `accDescr:` in any case and with whitespace before the colon
+  (`ACCDESCR: hi`, `accTitle : hi`), as Mermaid 12.2.0 does (nook `01M4WAFD4`).
+
+### Fixed
+
+- An ER `ACCDESCR {` block in capitals is refused by name, as the lower-case block is. It used to be
+  read as an entity called `ACCDESCR`, so a body like `string x` drew an extra box with no
+  diagnostic.
 
 ## [0.6.0] - 2026-10-14
 
