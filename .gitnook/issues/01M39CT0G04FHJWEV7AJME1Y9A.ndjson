@@ -3,3 +3,4 @@
 {"id":"01M39CT0GASXH3C16TJSCYZD80","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M39CT0GAK0SR5K49FRZB286J","t":4,"a":"83a1","op":"label.add","v":"er"}
 {"id":"01M4WAFS33D43BAZ51XYEFDJGH","t":5,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14，Mermaid 12.2.0）：仍成立，待決問題 1 已有答案\n\nMermaid 12.2.0 仍記成一個屬性：`type=\"string\" name=\"a\\n    b\"`。Siren 仍拒收兩半（兩條 `Unrecognized erDiagram attribute`）；語料庫列 `er-attribute-backtick-multiline` 仍是 `rejected`。\n\n問題 1 的答案：12.2.0 的 `--markup` 把名字畫成兩個 tspan，分別是 `\"a\"`、`\"b\"`。也就是畫成兩行，tspan 文字裡沒有原始碼的縮排。"}
+{"id":"01M4X88M69PTXJNXMNEKSHPTZX","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
