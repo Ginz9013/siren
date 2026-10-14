@@ -2737,6 +2737,32 @@ describe("a document's frontmatter", () => {
     ).toEqual({ gantt: { barHeight: 30, displayMode: "compact" } });
   });
 
+  // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "Cannot create
+  // property 'displayMode' on boolean 'true'", and "... 'gantt' on string
+  // 'foo'": `processFrontmatter` writes `displayMode` into whatever
+  // `config.gantt` (or `config`) is, and a scalar takes no property.
+  for (const [where, config] of [
+    ["config.gantt", "config:\n  gantt: true\n"],
+    ["config", "config: foo\n"],
+  ] as const) {
+    it(`refuses the document, at the opening fence, when \`displayMode\` must be written into a scalar ${where}`, () => {
+      expect(parseSiren(`---\ndisplayMode: compact\n${config}---\nflowchart TD\n  A --> B`)).toEqual({
+        document: null,
+        diagnostics: [
+          {
+            severity: "error",
+            message:
+              `Frontmatter displayMode cannot be written into ${where}, which is not a mapping; ` +
+              "Mermaid refuses the document too.",
+            line: 1,
+            column: 1,
+          },
+        ],
+        config: {},
+      });
+    });
+  }
+
   it("refuses the document, at the opening fence, when its frontmatter is not YAML — Mermaid refuses it too", () => {
     // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "unexpected end of
     // the stream within a flow collection (2:1)".
@@ -2768,6 +2794,23 @@ describe("a document's frontmatter", () => {
       expect(diagnostics).toEqual([]);
       expect(document?.kind).toBe("flowchart");
       expect(config).toEqual({});
+    });
+  }
+
+  // Measured (probe, 12.2.0): each draws A --> B.
+  for (const config of ["foo", "[1]"] as const) {
+    it(`ignores a \`config: ${config}\` that is not a mapping, and says so at the opening fence`, () => {
+      const { document, diagnostics, config: read } = parseSiren(`---\nconfig: ${config}\n---\nflowchart TD\n  A --> B`);
+      expect(document?.kind).toBe("flowchart");
+      expect(read).toEqual({});
+      expect(diagnostics).toEqual([
+        {
+          severity: "warning",
+          message: "Frontmatter config is not a mapping; it is ignored, and the diagram is drawn without it.",
+          line: 1,
+          column: 1,
+        },
+      ]);
     });
   }
 
@@ -2817,6 +2860,49 @@ describe("a document's frontmatter", () => {
       expect(diagnostics[0]!.message).toMatch(/found "---"$/);
     });
   }
+
+  // Measured (probe, 12.2.0), both MERMAID REJECTS THIS: a closing fence
+  // closes only at the opening fence's own indent, so neither of these has
+  // a frontmatter at all.
+  for (const [what, source, column] of [
+    ["a deeper indent than the opening", "---\nconfig:\n  theme: forest\n  ---\nflowchart TD\n  A --> B", 1],
+    ["a shallower indent than the opening", "  ---\n  config:\n    theme: forest\n---\nflowchart TD\n  A --> B", 3],
+  ] as const) {
+    it(`does not read a frontmatter whose closing fence is at ${what}`, () => {
+      const { document, diagnostics, config } = parseSiren(source);
+      expect(document).toBeNull();
+      expect(config).toEqual({});
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatchObject({ severity: "error", line: 1, column });
+      expect(diagnostics[0]!.message).toMatch(/found "---"$/);
+    });
+  }
+
+  it("ends a frontmatter at its first closing fence, so a second `---` further down is diagram text", () => {
+    // Measured (probe, 12.2.0), MERMAID REJECTS THIS — "No diagram type
+    // detected" for the text from `config:` on: the frontmatter was
+    // `title: a` alone.
+    const { document, diagnostics } = parseSiren(
+      "---\ntitle: a\n---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
+    );
+    expect(document).toBeNull();
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ line: 4, column: 1 });
+    expect(errors[0]!.message).toMatch(/found "config:"$/);
+  });
+
+  it("leaves a `---` after the diagram to the diagram, though it is the document's last closing fence", () => {
+    // Measured (probe, 12.2.0), MERMAID REJECTS THIS — a parse error at
+    // the trailing `---`: Mermaid's rule looks for the last fence only to
+    // bound its search, and the frontmatter still closes at the first.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B\n---\n",
+    );
+    expect(document).toBeNull();
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => d.line)).toEqual([7]);
+  });
 
   it("keeps every later line's number: an error below a frontmatter points at the line the author wrote", () => {
     const { document, diagnostics } = parseSiren(

@@ -476,7 +476,11 @@ export interface ParseResult extends DiagramParseResult {
    * The document's **document config**, as Mermaid 12.2.0 reads it: its
    * frontmatter's `config`, with a frontmatter `displayMode` folded into
    * `config.gantt.displayMode` as Mermaid folds it. Kept as the author wrote
-   * it and applied nowhere yet; `{}` when the document carries none.
+   * it and applied nowhere yet; `{}` when the document carries none. A
+   * frontmatter `title` is not kept here — it is not config — and is only
+   * reported, as a warning that it is not drawn yet. `%%{init}%%` directives
+   * are not read into it yet; they join it, merged as Mermaid merges them, in
+   * a later change.
    */
   config: Record<string, unknown>;
 }

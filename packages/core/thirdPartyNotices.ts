@@ -21,27 +21,59 @@ import type { Plugin } from "vite";
  * in either bundle.
  */
 const require = createRequire(import.meta.url);
-const elkjsDir = dirname(require.resolve("elkjs/package.json"));
-const elkjs = JSON.parse(readFileSync(join(elkjsDir, "package.json"), "utf8")) as {
+
+/**
+ * One package the standalone bundles carry: its name and where it lives, its
+ * licence file, and the prose its notice section opens with. The version and
+ * the licence are read from the installed package.
+ */
+interface BundledPackage {
+  name: string;
+  url: string;
+  licenceFile: string;
+  about: readonly string[];
+  dir: string;
   version: string;
   license: string;
-};
-const jsYamlDir = dirname(require.resolve("js-yaml/package.json"));
-const jsYaml = JSON.parse(readFileSync(join(jsYamlDir, "package.json"), "utf8")) as {
-  version: string;
-  license: string;
-};
+}
+
+/** `name`, resolved from this package, with its installed version and licence. */
+function bundled(
+  name: string,
+  url: string,
+  licenceFile: string,
+  about: (license: string) => readonly string[],
+): BundledPackage {
+  const dir = dirname(require.resolve(`${name}/package.json`));
+  const { version, license } = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+    version: string;
+    license: string;
+  };
+  return { name, url, licenceFile, about: about(license), dir, version, license };
+}
+
+/** Every third-party package the standalone bundles carry, in notice order. */
+const BUNDLED: readonly BundledPackage[] = [
+  bundled("elkjs", "https://github.com/kieler/elkjs", "LICENSE.md", (license) => [
+    "Eclipse Layout Kernel, compiled to JavaScript. https://github.com/kieler/elkjs",
+    `Licensed under ${license}; distributed here under the`,
+    "Eclipse Public License 2.0, whose text follows. The source code is",
+    "available from the project above and from the npm package `elkjs`.",
+  ]),
+  bundled("js-yaml", "https://github.com/nodeca/js-yaml", "LICENSE", (license) => [
+    "YAML 1.2 parser for JavaScript, used to read a document's frontmatter.",
+    "https://github.com/nodeca/js-yaml",
+    `Licensed under ${license}, whose text follows.`,
+  ]),
+];
 
 /**
  * The bundle's first line, pointing at the notice file beside it.
  * `packageName` is the package whose bundle this is.
  */
 export function thirdPartyBanner(packageName: string): string {
-  return (
-    `/*! ${packageName} (MIT). Bundles elkjs ${elkjs.version} (${elkjs.license}, ` +
-    `https://github.com/kieler/elkjs) and js-yaml ${jsYaml.version} (${jsYaml.license}, ` +
-    "https://github.com/nodeca/js-yaml); see THIRD-PARTY-NOTICES.md. */"
-  );
+  const packages = BUNDLED.map(({ name, version, license, url }) => `${name} ${version} (${license}, ${url})`);
+  return `/*! ${packageName} (MIT). Bundles ${packages.join(" and ")}; see THIRD-PARTY-NOTICES.md. */`;
 }
 
 /**
@@ -55,8 +87,6 @@ export function thirdPartyNotices(packageName: string, bundleFile: string): Plug
   return {
     name: "siren-third-party-notices",
     generateBundle() {
-      const elkLicence = readFileSync(join(elkjsDir, "LICENSE.md"), "utf8");
-      const jsYamlLicence = readFileSync(join(jsYamlDir, "LICENSE"), "utf8");
       this.emitFile({
         type: "asset",
         fileName: "THIRD-PARTY-NOTICES.md",
@@ -66,23 +96,14 @@ export function thirdPartyNotices(packageName: string, bundleFile: string): Plug
           `\`dist/${bundleFile}\`, the standalone build of ${packageName}, bundles the`,
           `following third-party code. ${packageName} itself is MIT-licensed (see LICENSE).`,
           "",
-          `## elkjs ${elkjs.version}`,
-          "",
-          "Eclipse Layout Kernel, compiled to JavaScript. https://github.com/kieler/elkjs",
-          `Licensed under ${elkjs.license}; distributed here under the`,
-          "Eclipse Public License 2.0, whose text follows. The source code is",
-          "available from the project above and from the npm package `elkjs`.",
-          "",
-          elkLicence,
-          "",
-          `## js-yaml ${jsYaml.version}`,
-          "",
-          "YAML 1.2 parser for JavaScript, used to read a document's frontmatter.",
-          "https://github.com/nodeca/js-yaml",
-          `Licensed under ${jsYaml.license}, whose text follows.`,
-          "",
-          jsYamlLicence,
-          "",
+          ...BUNDLED.flatMap((pkg) => [
+            `## ${pkg.name} ${pkg.version}`,
+            "",
+            ...pkg.about,
+            "",
+            readFileSync(join(pkg.dir, pkg.licenceFile), "utf8"),
+            "",
+          ]),
         ].join("\n"),
       });
     },

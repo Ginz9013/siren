@@ -113,12 +113,13 @@ function asMermaidReads(source: string): {
  * after `asWritten` has moved the diagram's positions: it is the author's
  * data as written, and a config key spelled `line` or `column` is not a
  * position to move. Its diagnostics come first, as its lines do. A
- * frontmatter that is not YAML refuses the whole document, as it does in
- * Mermaid, and the diagram below it is not read.
+ * frontmatter Mermaid refuses — one that is not YAML, or whose
+ * `displayMode` has no mapping to go into — refuses the whole document
+ * here too, as its one error, and the diagram below it is not read.
  */
 export function parseSiren(source: string): ParseResult {
   const { lines, asWritten, frontmatter } = asMermaidReads(source);
-  if (frontmatter.refused) {
+  if (frontmatter.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return { document: null, diagnostics: frontmatter.diagnostics, config: {} };
   }
   const { document, diagnostics } = asWritten(dispatch(lines));

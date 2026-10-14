@@ -11,15 +11,14 @@ import type { Diagnostic } from "../contracts";
  *   wrote. A document with no frontmatter comes back as it was given.
  * - `config` is the frontmatter's `config` as written — the **document
  *   config** — or `{}` when there is none.
- * - `diagnostics` says what was read and is not applied, or why the
- *   frontmatter could not be read at all; `refused` is set in that last
- *   case, when Mermaid refuses the whole document too.
+ * - `diagnostics` says what was read and is not applied, as warnings, or
+ *   why Mermaid refuses the whole document, as one error — and then the
+ *   diagram below is not to be read at all.
  */
 export interface FrontmatterRead {
   source: string;
   config: Record<string, unknown>;
   diagnostics: Diagnostic[];
-  refused: boolean;
 }
 
 /**
@@ -55,13 +54,15 @@ const isLineBreak = (char: string | undefined): boolean => char === "\n" || char
  * - **YAML under the JSON schema** (`js-yaml`, as Mermaid uses it). A body
  *   that reads as anything but a mapping — a string, a list, nothing — is
  *   an empty frontmatter, not a mistake.
- * - **Only the keys Mermaid knows.** `config` is kept as written. A key
- *   Mermaid does not know is dropped unread, as Mermaid drops it.
+ * - **Only the keys Mermaid knows.** `config` is kept as written, with a
+ *   `displayMode` folded into `config.gantt.displayMode`; `title` is read
+ *   and, like every config key, reported as not applied. A key Mermaid does
+ *   not know (`siren:`) is dropped unread, as Mermaid drops it.
  */
 export function readFrontmatter(text: string): FrontmatterRead {
   const match = matchFrontmatter(text);
   if (match === undefined) {
-    return { source: text, config: {}, diagnostics: [], refused: false };
+    return { source: text, config: {}, diagnostics: [] };
   }
   const yamlBody = match.indent
     ? match.body
@@ -70,52 +71,65 @@ export function readFrontmatter(text: string): FrontmatterRead {
         .join("\n")
     : match.body;
   // The opening fence: line 1 always, since an indent holds no line break.
-  const at = { line: 1, column: match.indent.length + 1 };
+  const openingFence = { line: 1, column: match.indent.length + 1 };
+  // Where Mermaid throws, it draws nothing; so does this, as a diagnostic
+  // rather than a throw, and the document is read no further.
+  const refuse = (why: string): FrontmatterRead => ({
+    source: text,
+    config: {},
+    diagnostics: [{ severity: "error", message: `${why}; Mermaid refuses the document too.`, ...openingFence }],
+  });
   let loaded: unknown;
   try {
     loaded = load(yamlBody, { schema: JSON_SCHEMA });
   } catch (error) {
-    // Mermaid lets js-yaml's exception escape and draws nothing; so does
-    // this, as a diagnostic rather than a throw.
     const reason = error instanceof YAMLException ? error.reason : String(error);
-    return {
-      source: text,
-      config: {},
-      diagnostics: [
-        {
-          severity: "error",
-          message: `Frontmatter is not valid YAML (${reason}); Mermaid refuses the document too.`,
-          ...at,
-        },
-      ],
-      refused: true,
-    };
+    return refuse(`Frontmatter is not valid YAML (${reason})`);
   }
   const parsed = asMapping(loaded);
   const config = isMapping(parsed.config) ? parsed.config : {};
   if (parsed.displayMode) {
     // `processFrontmatter`: a top-level `displayMode` is Gantt's, and lands
-    // in `config.gantt` beside whatever the author wrote there.
+    // in `config.gantt` beside whatever the author wrote there — a missing
+    // or falsy `gantt` (or `config`) becomes a fresh one. A truthy scalar
+    // takes no property, and Mermaid's assignment to it throws ("Cannot
+    // create property 'displayMode' on boolean 'true'", measured on 12.2.0).
+    if (isScalar(parsed.config)) {
+      return refuse("Frontmatter displayMode cannot be written into config, which is not a mapping");
+    }
+    if (isScalar(config.gantt)) {
+      return refuse("Frontmatter displayMode cannot be written into config.gantt, which is not a mapping");
+    }
     const gantt = isMapping(config.gantt) ? config.gantt : {};
     gantt.displayMode = String(parsed.displayMode);
     config.gantt = gantt;
   }
   const diagnostics: Diagnostic[] = [];
+  if (parsed.config && !isMapping(parsed.config)) {
+    // Mermaid keeps a truthy `config` of any kind and merges it with lodash,
+    // which spreads a string's characters or a list's items into keys no
+    // diagram reads; it draws the diagram (measured on 12.2.0). Siren keeps
+    // nothing of it and says so.
+    diagnostics.push({
+      severity: "warning",
+      message: "Frontmatter config is not a mapping; it is ignored, and the diagram is drawn without it.",
+      ...openingFence,
+    });
+  }
   if (parsed.title) {
     diagnostics.push({
       severity: "warning",
       message: "Frontmatter title is read but not drawn yet; the diagram is drawn without it.",
-      ...at,
+      ...openingFence,
     });
   }
   for (const key of Object.keys(config)) {
-    diagnostics.push({ severity: "warning", message: notAppliedYet(key), ...at });
+    diagnostics.push({ severity: "warning", message: notAppliedYet(key), ...openingFence });
   }
   return {
     source: text.slice(0, match.length).replace(/[^\n]/g, "") + text.slice(match.length),
     config,
     diagnostics,
-    refused: false,
   };
 }
 
@@ -127,6 +141,11 @@ export function readFrontmatter(text: string): FrontmatterRead {
  */
 function notAppliedYet(key: string): string {
   return `Document config "${key}" is read but not applied yet; the diagram is drawn without it.`;
+}
+
+/** A value a property cannot be written into: a truthy string, number or boolean. */
+function isScalar(value: unknown): boolean {
+  return Boolean(value) && typeof value !== "object";
 }
 
 function isMapping(value: unknown): value is Record<string, unknown> {
