@@ -4,3 +4,5 @@
 {"id":"01M2FPYWQ4F5GKAFP1H45XG8KZ","t":4,"a":"83a1","op":"label.add","v":"a11y"}
 {"id":"01M2NPXK42Y713WK4K9P9KPN5K","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec non-goals 明寫「desktop mouse only in this slice」，是刻意排除，不是漏掉。動工前有兩個未答的設計決策：鍵盤操作要不要先取得 focus（tabindex？）、觸控手勢會不會跟頁面滾動搶事件（touch-action CSS）。維持 backlog，等有明確需求或先把設計決策問清楚再排。"}
 {"id":"01M4GAKA63ZAKPBGH7H90G6DCQ","t":6,"a":"83a1","op":"comment","body":"`.scratch/siren-board-viewport-slice/` 已遷移到 nook：`01M4GAJWC3BD8QCXW74D5ZV5DM`"}
+{"id":"01M4WRP2KJQ6PM912201AYG935","t":7,"a":"83a1","op":"comment","body":"## 取消（2026-10-14，使用者決定）\n\n清 backlog 時決定：這張票是 spec non-goals 留下的，標著「等有真實 consumer 需求再做」，到今天仍然沒有已知的 consumer 在等。與其先做出一套沒人用、之後要長期維護的公開行為，不如取消，等有實際需求時用 `nook issue set <ref> status backlog` 重開——票上的分析與待決問題都保留在這裡。"}
+{"id":"01M4WRP2T723EQHJ26FDGFQ2YV","t":8,"a":"83a1","op":"set","k":"status","v":"cancelled"}
