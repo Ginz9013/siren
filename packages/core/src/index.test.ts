@@ -849,7 +849,7 @@ end
     expect(result.svg!.querySelectorAll("i")).toHaveLength(0);
   });
 
-  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, and create/destroy inside and outside blocks", () => {
+  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, create inside and outside blocks, and destroy after the last message", () => {
     const container = document.createElement("div");
 
     const result = render(readExample("sequence-full"), container);
@@ -955,8 +955,8 @@ end
     expect(boxes).toHaveLength(1);
     expect(boxes[0]!.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
 
-    // Destroy marks for the two destroyed lifelines only — `destroy Ledger` at
-    // the top level, `destroy Retry` from inside the nested `alt`.
+    // Destroy marks for the two destroyed lifelines only — `destroy Retry` and
+    // `destroy Ledger`, both at the top level after the last message.
     expect(
       Array.from(svg.querySelectorAll("path.siren-destroy-mark"))
         .map((p) => p.getAttribute("data-siren-id"))

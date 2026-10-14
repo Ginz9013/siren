@@ -6,14 +6,15 @@
  * Lives under `scripts/`, never `src/`: ADR-0001 says this repo builds its own
  * renderer, and Mermaid is a measuring instrument here, not a dependency.
  */
+
 /**
  * Install the browser globals Mermaid's module-load path needs, before it
  * loads, and hand back the jsdom the SVG will later be read out of.
  *
- * `CSSStyleSheet` is only reached by the render path — `createCssStyles`
- * builds the stylesheet Mermaid emits inside the SVG — but it is installed
- * for both, because a global that appears only under a flag is a global that
- * is missing the first time someone else needs it.
+ * `CSSStyleSheet` is only reached by a render — `createCssStyles` builds the
+ * stylesheet Mermaid emits inside the SVG — but it is installed for a parse
+ * too, because a global that appears only for one caller is a global that is
+ * missing the first time another needs it.
  */
 export async function installDomGlobals() {
   const { JSDOM } = await import("jsdom");
@@ -34,10 +35,8 @@ export async function installDomGlobals() {
     // A sequence `box` line's color is tested by assigning it to a fresh
     // `new Option().style` (Mermaid's `parseBoxData`, where `window.CSS` is
     // missing, as it is in jsdom), so every `box` line threw "Option is not
-    // defined" without it. That fallback compares the value with what jsdom
-    // serializes it as, so write a box color in lower case (`box aqua Grp`):
-    // `box Aqua Grp` reads `Aqua` as part of the label here, where a browser's
-    // `CSS.supports` reads it as a color.
+    // defined" without it. What that fallback means for a box color's case
+    // is in `mermaid-probe.mjs`'s header.
     "Option",
   ];
   for (const name of names) {
@@ -52,13 +51,13 @@ export async function installDomGlobals() {
  *
  * jsdom parses and cascades but never lays anything out, so `getBBox` on an
  * SVG element does not exist at all and Mermaid's measuring pass throws on
- * the first label it sizes. A fixed box gets it past that, at the price named
- * in the header: **every coordinate this mode produces is this stub's answer
- * and not Mermaid's.** That is an acceptable price for a paint question and
- * not for any other, which is why the stubs are installed only for the modes
- * that render (`--paint`, `--markup`, `--html`) rather than beside the globals
- * above — the parse path must stay a measurement of Mermaid with nothing of
- * ours in it.
+ * the first label it sizes. A fixed box gets it past that, at a price:
+ * **every coordinate a stubbed render produces is this stub's answer and not
+ * Mermaid's.** That is an acceptable price for a paint question and not for
+ * any other, which is why the stubs are installed only by a caller that
+ * renders (`loadMermaid({ layoutStubs: true })`; the probe's render modes)
+ * rather than beside `installDomGlobals` — a parse must stay a measurement of
+ * Mermaid with nothing of ours in it.
  */
 export function installLayoutStubs(dom) {
   const box = () => ({ x: 0, y: 0, width: 40, height: 20 });

@@ -14,12 +14,16 @@
  *     A["<b>a<i>b</b>c</i>d"]'
  *     pnpm --filter siren-core probe --html some-diagram.mmd
  *
- * Two things to know before pointing it at an `examples/*.srn` file, both
+ * Three things to know before pointing it at an `examples/*.srn` file, all
  * measured the hard way:
  *
- * - A Siren document carrying a `timeline:` block is **not** a Mermaid
- *   document — that block is Siren's own syntax. Probe the diagram half:
- *   `sed '/^timeline:/,$d' examples/flowchart-syntax.srn | ... -`
+ * - A Siren document carrying timeline blocks is **not** a Mermaid document —
+ *   those blocks are Siren's own syntax. Probe the diagram half: everything
+ *   above the first `timeline:` or `timeline <name>:` header, found as Siren
+ *   finds it (below the frontmatter and directives, ignoring `%%` comments).
+ *   `stripTimelineBlocks` in `check-examples.mjs` is that rule, and
+ *   `pnpm --filter siren-core check-examples -- <file>` applies it when the
+ *   question is only whether Mermaid accepts the document.
  * - A line that is nothing but `%%` is not a comment to Mermaid. Its comment
  *   cleanup (`cleanupComments`, `^\s*%%(?!{)[^\n]+\n?`) wants at least one
  *   character after the `%%` — a space will do — and leaves a bare `%%` to
@@ -28,6 +32,11 @@
  *   document, and sequence, class and state diagrams read it as a comment
  *   after all. Siren refuses it too wherever Mermaid does not read it as a
  *   comment (ADR-0017), so write `%% text` or a blank line instead.
+ * - Write a sequence `box` color in lower case (`box aqua Grp`). Under jsdom,
+ *   which has no `window.CSS`, Mermaid's `parseBoxData` tests the color on a
+ *   fresh `new Option().style` and compares it with what jsdom serializes it
+ *   as, so `box Aqua Grp` reads `Aqua` as part of the label here, where a
+ *   browser's `CSS.supports` reads it as a color.
  *
  * ## Why this is committed code rather than a note
  *

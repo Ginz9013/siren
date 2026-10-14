@@ -292,8 +292,9 @@ diagram.srn: ERRORS (1 error(s), 0 warning(s), 5 step(s))
 - If the timeline rejects an id that `--ids` lists, that kind of element can't be
   animated yet. Leave it out of the timeline.
 - Every document you produce must, with its timeline blocks removed, pass the check the
-  Siren repository runs on its own examples (`pnpm --filter siren-core check-examples`):
-  real Mermaid 12.2.0 must accept it, which `OK` alone does not prove.
+  Siren repository runs on its own examples, run from a Siren checkout as
+  `pnpm --filter siren-core check-examples -- diagram.srn`: real Mermaid 12.2.0 must
+  accept it, which `OK` alone does not prove.
 
 If you can't run Node.js, check the document by hand against the rules above, and tell
 the user it hasn't been validated.
