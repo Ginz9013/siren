@@ -69,13 +69,13 @@ const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
  */
 const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
 /** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
-const LINK_RE = /^link\s+(\w+):\s*(.+?)\s*@\s*(\S+)$/i;
+const LINK_RE = /^link\s+(\w+)\s*:\s*(.+?)\s*@\s*(\S+)$/i;
 /**
  * `links A: {"Label": "url", ...}` — several links on a participant at once,
  * as one JSON object. Mermaid 12.2.0 parses the text after the colon with
  * `JSON.parse`; `readLinksInto` does the same.
  */
-const LINKS_RE = /^links\s+(\w+):\s*(.*)$/i;
+const LINKS_RE = /^links\s+(\w+)\s*:\s*(.*)$/i;
 /** The lone participant id argument of a `destroy` statement. */
 const DESTROY_ID_RE = /^(\w+)$/;
 
@@ -887,19 +887,6 @@ function parseBranches<TBranch extends { label: Label | null; body: SequenceStat
 }
 
 /**
- * Parses Siren sequence-diagram source text (a `sequenceDiagram` header,
- * `participant`/`actor` declarations, message statements, `title`,
- * `autonumber`/`autonumber off`, nested control-flow blocks,
- * `create participant`/`create actor` and `destroy` lifeline statements,
- * and `box ... end` participant groupings) into a `SequenceDocument`.
- * Never throws on malformed input —
- * syntax problems are reported as diagnostics instead.
- *
- * Only validates syntax shape: a message/destroy/block referencing a
- * participant id with no prior declaration is *not* rejected here — that's
- * `buildSequenceModel`'s job (ticket 02).
- */
-/**
  * Records one href interaction per entry of a `links` statement's JSON
  * object, in the object's own order, each entry's key as the label (carried
  * as `tooltip`, exactly as `link A: Label @ url` carries its label).
@@ -939,24 +926,33 @@ function readLinkEntries(
     warn("the text after the colon is not JSON");
     return 0;
   }
-  // Mermaid 12.2.0 iterates whatever `JSON.parse` returned, so an array or a
-  // string becomes links labelled "0", "1", ... — a menu the document never
-  // wrote. Only an object names its labels.
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    warn('expected a JSON object such as {"Label": "https://..."}');
-    return 0;
-  }
-  const entries = Object.entries(parsed);
+  // Mermaid 12.2.0 iterates whatever `JSON.parse` returned with `for...in`
+  // (measured), so an array or a string draws links labelled "0", "1", ...
+  // and a number, `true` or `null` draws none. `Object.entries` walks the
+  // same keys in the same order.
+  const entries =
+    typeof parsed === "string" || (typeof parsed === "object" && parsed !== null)
+      ? Object.entries(parsed)
+      : [];
   if (entries.length === 0) {
-    warn("the JSON object is empty");
+    warn("the JSON names no links");
     return 0;
   }
 
   let added = 0;
-  for (const [label, url] of entries) {
-    if (typeof url !== "string") {
-      warn(`the link "${label}" has no URL string`);
-      continue;
+  for (const [label, value] of entries) {
+    // Mermaid 12.2.0 records a non-string value as written ({"H": 5}) and
+    // then fails to render the diagram, or for null/false/0 draws an entry
+    // linking to about:blank. Siren draws the entry its db records, with
+    // the value's text as the href, and says so.
+    const url = typeof value === "string" ? value : String(value);
+    if (typeof value !== "string") {
+      state.diagnostics.push({
+        severity: "warning",
+        message: `links ${targetId}: the link "${label}" has a value that is not a string; it links to "${url}"`,
+        line,
+        column,
+      });
     }
     state.interactions.push({
       interactionKind: "href",
@@ -972,6 +968,19 @@ function readLinkEntries(
   return added;
 }
 
+/**
+ * Parses Siren sequence-diagram source text (a `sequenceDiagram` header,
+ * `participant`/`actor` declarations, message statements, `title`,
+ * `autonumber`/`autonumber off`, nested control-flow blocks,
+ * `create participant`/`create actor` and `destroy` lifeline statements,
+ * and `box ... end` participant groupings) into a `SequenceDocument`.
+ * Never throws on malformed input —
+ * syntax problems are reported as diagnostics instead.
+ *
+ * Only validates syntax shape: a message/destroy/block referencing a
+ * participant id with no prior declaration is *not* rejected here — that's
+ * `buildSequenceModel`'s job (ticket 02).
+ */
 export function parseSequenceDiagram(source: string): ParseResult {
   const lines = source.split(/\r\n|\r|\n/);
   const diagnostics: Diagnostic[] = [];

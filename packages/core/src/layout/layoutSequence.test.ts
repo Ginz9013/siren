@@ -1814,5 +1814,29 @@ describe("layoutSequence's participant links (01M3NM3BZ)", () => {
         expect(menu.x + menu.width).toBeLessThanOrEqual(diagram.width);
       }
     });
+
+    it("keeps every row of both of a lone participant's menus inside the canvas, top to bottom", () => {
+      // `participant A` and four links, nothing else: the bottom-row box's
+      // menu, which ends at that box's top edge, used to climb above y 0.
+      const model: SequenceModel = {
+        ...coreModel(),
+        participants: [coreModel().participants[0]!],
+        statements: [],
+        interactions: ["a", "b", "c", "d"].map((key) => link("A", key, `https://${key}.com`)),
+      };
+      const diagram = layoutSequence(model, { measureText: fakeMeasurer });
+      const alice = diagram.participants[0]!;
+      const menu = alice.linkMenu!;
+      const menuHeight = menu.rowHeight * menu.links.length;
+
+      // Rows as `PositionedSequenceLinkMenu.rowHeight` places them: below the
+      // top box's bottom edge, and above the bottom-row box's top edge.
+      const underTopBox = { top: alice.top + alice.height, bottom: alice.top + alice.height + menuHeight };
+      const overBottomBox = { top: alice.bottom - alice.height - menuHeight, bottom: alice.bottom - alice.height };
+      for (const rows of [underTopBox, overBottomBox]) {
+        expect(rows.top).toBeGreaterThanOrEqual(0);
+        expect(rows.bottom).toBeLessThanOrEqual(diagram.height);
+      }
+    });
   });
 });

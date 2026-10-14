@@ -4738,6 +4738,33 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-links-non-object",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      links A: ["https://x.com", "https://y.com"]`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 reads `links` with `JSON.parse` and walks the result " +
+      "with `for...in`, so JSON that is not an object still gives links " +
+      "(measured: an array gives A.links = {\"0\": x, \"1\": y}, the string " +
+      "\"ab\" gives {\"0\": \"a\", \"1\": \"b\"}, and 5 or null gives {}), and " +
+      "it draws them as a menu labelled 0, 1. Siren draws the same menu. An " +
+      "entry whose value is not a string is recorded as written ({\"H\": 5}); " +
+      "Mermaid then fails to render the diagram (`url.trim is not a " +
+      "function`) for 5, true or an object, and links null, false or 0 to " +
+      "about:blank. Siren draws such an entry with the value's text as its " +
+      "href and a warning.",
+    assert: (result) => {
+      const menu = svgOf(result).querySelector("g.siren-link-menu");
+      expectSame(
+        "links labelled by index, in order",
+        Array.from(menu?.querySelectorAll("a") ?? []).map((a) => `${a.textContent} ${a.getAttribute("href")}`),
+        ["0 https://x.com", "1 https://y.com"],
+      );
+    },
+  },
+  {
     id: "seq-implicit-participants",
     kind: "sequence",
     source: `sequenceDiagram

@@ -730,7 +730,17 @@ export function layoutSequence(
         : max,
     0,
   );
-  const lifelineBottom = endY + BOTTOM_MARGIN + bottomRowHeight;
+  // A bottom-row box's link menu opens upward, ending at that box's top edge
+  // (`PositionedSequenceLinkMenu.rowHeight`). A short diagram would push it
+  // above the canvas, so its lifeline is stretched until the rows fit
+  // between the top box and the bottom one.
+  const lifelineBottom = participants.reduce(
+    (bottom, p) =>
+      p.linkMenu && p.origin === "declared" && !ctx.destroyedBottomById.has(p.id)
+        ? Math.max(bottom, topRowTop + p.height + p.linkMenu.rowHeight * p.linkMenu.links.length + p.height)
+        : bottom,
+    endY + BOTTOM_MARGIN + bottomRowHeight,
+  );
 
   // Mermaid's own behavior for an activation that outlives the diagram was
   // not among the constructs this board measured; extending it to the

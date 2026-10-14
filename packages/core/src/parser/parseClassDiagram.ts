@@ -491,6 +491,14 @@ export function parseClassDiagram(source: string): ParseResult {
    * `classDef` in either source order and nothing downstream learns a third
    * spelling exists. `authoredAs` is `:::`, the word a diagnostic quotes,
    * as in a flowchart and an ER diagram.
+   *
+   * **A deliberate divergence from Mermaid (CONTEXT.md rule 3).** Measured,
+   * 12.2.0: a `:::name` or `cssClass` attach is painted only when it is
+   * written *before* its `classDef`; written after, the box wears the
+   * class but paints none of it, with no diagnostic, though the
+   * `classDef` names its declarations unambiguously. Siren pairs them in either order. Recorded in the
+   * corpus rows `cls-style-cssclass` and `cls-style-shorthand`, and on nook
+   * 01M4WT4KY.
    */
   const attachShorthand = (
     id: string,
@@ -789,6 +797,9 @@ export function parseClassDiagram(source: string): ParseResult {
 
     const cssClassMatch = CSS_CLASS_RE.exec(line);
     if (cssClassMatch !== null) {
+      // Paired with its `classDef` in either order — a divergence from
+      // Mermaid 12.2.0, which paints it only when written first; see
+      // `attachShorthand`.
       styles.push({
         styleKind: "apply",
         authoredAs: "cssClass",

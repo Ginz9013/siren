@@ -1020,7 +1020,9 @@ export interface PositionedSequenceLinkMenu {
   /**
    * The height of one link's row. The rows hang below the top box,
    * starting at its bottom edge, and above the bottom-row box, ending at
-   * its top edge — toward the diagram's interior in both cases.
+   * its top edge — toward the diagram's interior in both cases. The layout
+   * keeps the lifeline long enough for the rows to fit between the two
+   * boxes, so neither menu leaves the canvas.
    */
   rowHeight: number;
 }

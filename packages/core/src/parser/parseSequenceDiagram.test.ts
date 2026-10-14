@@ -484,13 +484,33 @@ describe("parseSequenceDiagram", () => {
     ]);
   });
 
+  // Measured on Mermaid 12.2.0: both spellings read with a space before the
+  // colon, giving A.links = {Home: "https://x.com"}.
+  it.each([
+    ["link", "link A : Home @ https://x.com"],
+    ["links", 'links A : {"Home": "https://x.com"}'],
+  ])("reads %s with whitespace before its colon", (_, statement) => {
+    const { document, diagnostics } = parseOk(`sequenceDiagram
+  participant A
+  ${statement}
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map((i) => [i.targetId, i.tooltip, i.action])).toEqual([
+      ["A", "Home", "https://x.com"],
+    ]);
+  });
+
   // Mermaid 12.2.0 ignores each of these silently (measured: `A.links` stays
   // `{}`) and still draws the diagram; Siren draws it too and says why the
   // links are missing.
   it.each([
     ["text that is not JSON", "not-json"],
     ["an empty object", "{}"],
-    ["JSON that is not an object", '["https://x.com"]'],
+    // Mermaid 12.2.0 iterates these with `for...in`, which finds no key.
+    ["a JSON number", "5"],
+    ["JSON null", "null"],
+    ["an empty array", "[]"],
   ])("warns on a links statement holding %s, and still parses the diagram", (_, json) => {
     const source = `sequenceDiagram
   participant A
@@ -503,6 +523,47 @@ describe("parseSequenceDiagram", () => {
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({ severity: "warning", line: 3, column: 3 });
     expect(diagnostics[0].message).toMatch(/links A/);
+  });
+
+  // Measured on Mermaid 12.2.0: it iterates whatever `JSON.parse` returned
+  // with `for...in`, so an array's or a string's indices become the labels —
+  // A.links = {"0": "https://x.com", "1": "https://y.com"} and
+  // {"0": "a", "1": "b"} — and it draws a menu of those links.
+  it.each([
+    ["a JSON array", '["https://x.com", "https://y.com"]', [["0", "https://x.com"], ["1", "https://y.com"]]],
+    ["a JSON string", '"ab"', [["0", "a"], ["1", "b"]]],
+  ])("reads %s as links labelled by index, as Mermaid does", (_, json, expected) => {
+    const { document, diagnostics } = parseOk(`sequenceDiagram
+  participant A
+  links A: ${json}
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map((i) => [i.tooltip, i.action])).toEqual(expected);
+  });
+
+  // Measured on Mermaid 12.2.0: A.links keeps the values as written,
+  // {"H": 5, "N": null, "G": "https://g.com"}. Its menu then hands each value
+  // to `sanitizeUrl`, which throws on 5 (the whole diagram fails to render)
+  // and turns null into about:blank. Siren draws every entry its db records,
+  // the value as the href's text, and warns that it was not a string.
+  it("draws a links entry whose value is not a string with that value as its href, and warns", () => {
+    const { document, diagnostics } = parseOk(`sequenceDiagram
+  participant A
+  links A: {"H": 5, "N": null, "G": "https://g.com"}
+`);
+
+    expect(document.interactions.map((i) => [i.tooltip, i.action])).toEqual([
+      ["H", "5"],
+      ["N", "null"],
+      ["G", "https://g.com"],
+    ]);
+    expect(diagnostics.map((d) => [d.severity, d.line, d.column])).toEqual([
+      ["warning", 3, 3],
+      ["warning", 3, 3],
+    ]);
+    expect(diagnostics[0]!.message).toMatch(/links A: .*"H"/);
+    expect(diagnostics[1]!.message).toMatch(/links A: .*"N"/);
   });
 
   it("returns a null document plus an error diagnostic for an unrecognized statement line, without throwing", () => {
