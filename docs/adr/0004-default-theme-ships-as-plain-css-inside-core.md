@@ -4,6 +4,9 @@ status: accepted
 
 # The default theme is plain CSS custom properties, shipped as part of `siren-core`
 
+> 本主題的方向將由 [ADR-0017](0017-a-siren-document-without-its-timeline-is-mermaid.md) 調整：
+> 自訂屬性的機制保留，token 的意義將改以 Mermaid 的 `themeVariables` 為鍵。在進行這項改變的 board 落地之前，本 ADR 維持原文。
+
 > The light/dark variants deferred below were shipped by ADR-0011 and then removed by
 > [ADR-0014](0014-the-default-theme-ships-one-palette.md): built-in theme variants are now a
 > deliberate *no*, not a deferral. The token structure this ADR establishes is unchanged, and

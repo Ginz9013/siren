@@ -4,6 +4,9 @@ status: accepted
 
 # The default theme ships one palette, declared once, and a second theme is the consumer's
 
+> 本主題的方向將由 [ADR-0017](0017-a-siren-document-without-its-timeline-is-mermaid.md) 調整：
+> Mermaid 的內建主題將成為 theme preset。在進行這項改變的 board 落地之前，本 ADR 維持原文。
+
 > Supersedes [ADR-0011](0011-core-ships-a-light-and-a-dark-palette.md).
 
 `siren-core`'s `default.css` and `siren-board`'s injected chrome stylesheet each declare exactly

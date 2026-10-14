@@ -220,7 +220,9 @@ would have lost the one thing that distinguishes it. The price is that the token
 *how* round `A(Round)` is; that is a proportion, and it is the renderer's. So a consumer
 redeclaring this token changes rectangles and subroutines and nothing else — which is a documented
 token silently narrowing its reach, and the reason it is written down here.
-_Avoid_: CSS variable, theme variable, dark mode, 主題切換 (there is no switch to name: one set of
+_Avoid_: CSS variable, theme variable (`themeVariables` is the **document config** key Mermaid
+spells a token's value under — the thing itself is still a design token), dark mode (say a
+**theme preset**'s dark variant), 主題切換 (there is no switch to name: one set of
 values, and a second theme is a consumer's own CSS)
 
 **Id scope**:
@@ -1152,6 +1154,46 @@ reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `
 the third sense of that word in this codebase after the class-diagram box and the `siren-*` CSS
 classes — say "the apply-directive" for the statement, and see **Class**), link style (two words —
 `linkStyle` is a directive spelled one way)
+
+**Document config**:
+The settings a Mermaid document carries about itself: its frontmatter (`config`, plus `title` and
+`displayMode`) and its `%%{init}%%` directives, merged as Mermaid merges them, with `init` winning
+a key both set. Read by Siren because Mermaid documents carry it; a key Siren reads but does not
+act on is reported rather than silently dropped. Frontmatter keys Mermaid does not know are
+dropped unread by Mermaid, which is the one place Siren-only meaning may live in a document
+outside a **timeline block** — see
+[ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md).
+_Avoid_: directive (alone — `init` is one of two spellings of this, and not every directive is
+config), front matter config, settings
+
+**Theme preset**:
+A named, complete set of **design token** values a consumer or user applies to diagrams, each
+with a light and a dark variant. Mermaid's built-in themes (`default`, `neutral`, `dark`, `forest`,
+`base`) are theme presets under their Mermaid names, so a document's `theme:` names one.
+_Avoid_: skin, template, theme (alone — ambiguous between the token mechanism and one set of values)
+
+**Apply mode**:
+How far a **theme preset** takes over the colors an author wrote. *Respect author* keeps every
+**author style**, as Mermaid does. *Semantic* gives **role classes** and **category classes** the
+preset's colors and keeps **decorative colors**. *Force* gives everything the preset's colors,
+keeping only which elements share a role, a category or a color.
+_Avoid_: override mode, strict mode
+
+**Role class**:
+A `classDef` whose name is in Siren's semantic vocabulary (a warning, an error, a success…): its
+meaning is the same under every **theme preset**, and a preset owns how it looks. The `classDef`'s
+own declarations are what Mermaid, and the *respect author* **apply mode**, draw.
+_Avoid_: semantic color, status class, token class
+
+**Category class**:
+A `classDef` whose name is not in the semantic vocabulary. It marks elements as one group; under
+a preset that takes it over, the group keeps a distinct color but the preset chooses it.
+_Avoid_: group color, custom class
+
+**Decorative color**:
+An author color carried by nothing named: `style X`, `classDef default`, a label's own
+`<span style>`, a `linkStyle`. It says how one element looks and not what it means.
+_Avoid_: hardcoded color, literal style (the values of a role or category class are literal too)
 
 **Interaction target**:
 A class, a flowchart node, or a sequence diagram participant the author made clickable, with
