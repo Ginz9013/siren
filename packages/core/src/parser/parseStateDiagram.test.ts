@@ -1329,7 +1329,24 @@ describe("parseStateDiagram", () => {
     // Case-insensitive, because Mermaid's lexer rules are: measured, `Note`,
     // `NOTE`, `Class`, `Style`, `Click`, `Scale` and `ClassDef` are each
     // refused exactly as their lowercase spelling is.
-    const reserved = ["note", "classDef", "class", "style", "click", "scale", "Note", "STYLE"];
+    //
+    // 01M2ZQQQ6, re-measured on 12.2.0: `href`, `default` and `stateDiagram`
+    // are reserved too (each a parse error alone and as an endpoint), so the
+    // set is ten words, not seven.
+    const reserved = [
+      "note",
+      "classDef",
+      "class",
+      "style",
+      "click",
+      "scale",
+      "href",
+      "default",
+      "stateDiagram",
+      "Note",
+      "STYLE",
+      "HREF",
+    ];
 
     for (const word of reserved) {
       const { document, diagnostics } = parseStateDiagram(
@@ -1382,7 +1399,18 @@ describe("parseStateDiagram", () => {
     // (mermaid 11.17.2), all **seven** are a parse error as a transition
     // endpoint — `state` among them, unlike on a line of its own. So the
     // reservation is a rule about the word, not about one line shape.
-    const reserved = ["state", "note", "classDef", "class", "style", "click", "scale"];
+    const reserved = [
+      "state",
+      "note",
+      "classDef",
+      "class",
+      "style",
+      "click",
+      "scale",
+      "href",
+      "default",
+      "stateDiagram",
+    ];
 
     for (const word of reserved) {
       for (const statement of [`Idle --> ${word}`, `${word} --> Idle`]) {
@@ -1397,6 +1425,47 @@ describe("parseStateDiagram", () => {
         expect(refusal!.message, `for "${statement}"`).toMatch(/reserved/i);
         expect(refusal!.message, `for "${statement}"`).toContain(`"${word}"`);
       }
+    }
+  });
+
+  it("refuses a reserved word as the subject of a description, `state` alone excepted", () => {
+    // The third place an id is read from Mermaid's INITIAL condition
+    // (01M2ZQQQ6). Measured (mermaid 12.2.0): `style : hi`, `scale : hi`,
+    // `click : hi`, `note : hi`, `class : hi`, `classDef : hi`, `href : hi`,
+    // `default : hi` and `stateDiagram : hi` are each a parse error, and
+    // case does not matter (`Note : hi` too). Siren declared a state for
+    // every one of them, with no diagnostic.
+    for (const word of ["style", "scale", "click", "note", "class", "classDef", "href", "default", "stateDiagram", "Note"]) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${word} : hi\n`,
+      );
+
+      expect(document, `for "${word} : hi"`).toBeNull();
+      const refusal = diagnostics.find((d) => d.line === 3);
+      expect(refusal?.severity, `for "${word} : hi"`).toBe("error");
+      expect(refusal?.message, `for "${word} : hi"`).toMatch(/reserved/i);
+      expect(refusal?.message, `for "${word} : hi"`).toContain(`"${word}"`);
+    }
+
+    // `state : hi` is tolerated and declares nothing, as `state` alone is
+    // (measured: no state, no error; `STATE : hi` the same).
+    for (const spelling of ["state", "STATE"]) {
+      const { document, diagnostics } = parseStateDiagram(
+        `stateDiagram-v2\n  Idle --> Busy\n  ${spelling} : hi\n`,
+      );
+
+      expect(diagnostics, `for "${spelling} : hi"`).toEqual([]);
+      expect((document as StateDocument).states.map((s) => s.id), `for "${spelling} : hi"`).toEqual(["Idle", "Busy"]);
+    }
+
+    // And the words Mermaid does not reserve stay ordinary subjects here too
+    // (measured: `direction : hi`, `end : hi`, `hide : hi` each declare a
+    // described state) — the third position the survivors are checked in.
+    for (const word of ["hide", "end", "direction", "fork", "join", "choice", "accTitle", "accDescr"]) {
+      const document = documentOf(`stateDiagram-v2\n  ${word} : hi\n`);
+      expect(document.states.map((s) => [s.id, s.descriptions.map((d) => d.text)]), `for "${word} : hi"`).toEqual([
+        [word, ["hi"]],
+      ]);
     }
   });
 

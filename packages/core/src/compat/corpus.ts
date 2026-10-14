@@ -4976,6 +4976,29 @@ line2\`"]`,
     },
   },
   {
+    id: "st-state-keyword-description",
+    kind: "state",
+    source: `stateDiagram-v2
+      state : hi
+      Lonely`,
+    status: "supported",
+    meaning:
+      "`state : text` declares **nothing**, as `state` alone does. Measured " +
+      "(mermaid 12.2.0): no state enters the table and nothing is an error, " +
+      "while every other reserved word as a description's subject — `note " +
+      ": hi`, `style : hi`, `href : hi` and the rest — is a parse error, " +
+      "which Siren now refuses by name too. Siren used to declare a state " +
+      "called `state` here (01M2ZQQQ6).",
+    assert: (result) => {
+      expectSame("states", states(result), ["Lonely"]);
+      expectSame(
+        "no box is drawn for the keyword",
+        texts(result, "g.siren-state text.siren-state-label"),
+        ["Lonely"],
+      );
+    },
+  },
+  {
     id: "st-state-keyword-only",
     kind: "state",
     source: `stateDiagram-v2

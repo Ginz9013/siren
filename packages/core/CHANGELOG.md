@@ -32,6 +32,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- State diagrams refuse all ten words Mermaid 12.2.0 reserves, adding `href`, `default` and
+  `stateDiagram`, and refuse them as a description's subject too (`note : hi`, `style : hi`), where
+  Siren used to draw a box called `note` or `style` with no diagnostic. `state : hi` declares
+  nothing, as Mermaid reads it (nook `01M2ZQQQ6`).
 - A sequence `link` may name a participant nothing declares. It used to fail with `click "B"
   references a target that does not exist` when only a message created B; now the link is a
   mention like any other, creating the lane where it is written, as Mermaid 12.2.0 does

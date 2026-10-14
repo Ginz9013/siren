@@ -61,7 +61,15 @@ const STATE_DECL_RE = /^(\w+)$/;
 /**
  * The words Mermaid's state-diagram lexer takes for itself, and which
  * therefore **cannot name a state** where an id is read from the lexer's
- * INITIAL condition — a line of its own, or either endpoint of a transition.
+ * INITIAL condition — a line of its own, either endpoint of a transition, or
+ * the subject of a description (`X : text`).
+ *
+ * **Ten words, not seven** (01M2ZQQQ6, re-measured on mermaid 12.2.0):
+ * `href`, `default` and `stateDiagram` are each a parse error alone, as an
+ * endpoint and as a description's subject, exactly like the seven below.
+ * They were missed because the first measurement only tried a fifteen-word
+ * candidate list. `stateDiagram-v2` needs no entry: its `-` is not `\w`, so
+ * no id read here can spell it.
  *
  * Measured against mermaid 11.17.2 with `scripts/mermaid-probe.mjs`, sixteen
  * keyword-shaped candidates in both of those positions. Exactly these seven
@@ -91,7 +99,7 @@ const STATE_DECL_RE = /^(\w+)$/;
  * `Note`, `NOTE`, `Class`, `Style`, `Click`, `Scale` and `ClassDef` are each
  * refused exactly as their lowercase spellings are.
  */
-const RESERVED_WORD_RE = /^(?:state|note|classDef|class|style|click|scale)$/i;
+const RESERVED_WORD_RE = /^(?:state|note|classDef|class|style|click|scale|href|default|stateDiagram)$/i;
 
 /**
  * The refusal for an id the author may not use, quoting their own line back
@@ -1199,6 +1207,20 @@ export function parseStateDiagram(source: string): ParseResult {
 
     const descriptionMatch = STATE_DESCRIPTION_RE.exec(line);
     if (descriptionMatch !== null) {
+      // The third INITIAL read site (01M2ZQQQ6). Measured on 12.2.0: a
+      // reserved subject is a parse error, except `state`, which is
+      // tolerated and declares nothing — as on a line of its own.
+      if (RESERVED_WORD_RE.test(descriptionMatch[1])) {
+        if (descriptionMatch[1].toLowerCase() === "state") continue;
+        diagnostics.push({
+          severity: "error",
+          message: reservedWordRefusal(descriptionMatch[1], line),
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
       describeState(
         descriptionMatch[1],
         readLabelIn(descriptionMatch, 2, lineNumber, column),
