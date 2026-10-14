@@ -336,8 +336,8 @@ A[Same] --> B[Same]
     });
 
     const rectA = result.svg!.querySelector('g[data-siren-id="A"] rect')!;
-    expect(rectA.getAttribute("width")).toBe("123");
-    expect(rectA.getAttribute("height")).toBe("45");
+    expect(Number(rectA.getAttribute("width"))).toBeCloseTo(123 * 2);
+    expect(Number(rectA.getAttribute("height"))).toBeCloseTo(45 + (45 - 21));
   });
 
   it("controller.next() reveals exactly the newly-current step's elements, is a no-op past the last step, and reset() restores the initial pending state", () => {
@@ -3130,7 +3130,7 @@ enter A fade
         }
         expect(bars[0]).toBeGreaterThan(left);
         expect(bars[1]).toBeLessThan(right);
-        expect(bars[0] - left).toBe(right - bars[1]);
+        expect(bars[0] - left).toBeCloseTo(right - bars[1], 10);
         // The label goes *between* the bars, not across one.
         expect(bars[1] - bars[0]).toBeGreaterThanOrEqual(label.width);
       },

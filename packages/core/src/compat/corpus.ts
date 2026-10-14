@@ -2847,7 +2847,8 @@ line2\`"]`,
   // text alone, as Mermaid's `<div>` does; the measurer's padding goes
   // outside it. Under the default measurer (8px a character, plus 16px of
   // padding) 21 characters fit in 175px and 22 do not, and a wrapped
-  // label's box — a rectangle node's width — is 175 + 16 = 191. Each
+  // label's box is 175 + 16 = 191, while the flowchart node enlarges only
+  // padding to twice the original, giving 175 + 32 = 207. Each
   // `meaning` quotes the lines mermaid 11.17.2 drew (headless Chrome, one
   // line per distinct glyph top in the label's `<div>`); the rows Siren
   // draws differ only because the default measurer is wider than Chrome's
@@ -2873,10 +2874,10 @@ line2\`"]`,
         "exceed two hundred",
         "pixels of width",
       ]);
-      // A rectangle takes its label box unchanged: 175px of text and the
-      // measurer's 16px of padding.
+      // A rectangle keeps 175px of text and enlarges only the measurer's
+      // 16px of padding to 32px.
       const box = nodeBox(result, "A");
-      expectSame("node width", box.right - box.left, 175 + 16);
+      expectSame("node width", box.right - box.left, 207);
     },
   },
   {
@@ -2897,7 +2898,7 @@ line2\`"]`,
         "籤用來測試換行行為是否會在字元之間斷開",
       ]);
       const box = nodeBox(result, "A");
-      expectSame("node width", box.right - box.left, 175 + 16);
+      expectSame("node width", box.right - box.left, 207);
     },
   },
   {
@@ -2915,7 +2916,7 @@ line2\`"]`,
       // Mermaid's own two lines, less the space each first line ends with.
       expectSame("label rows", nodeLabelRows(result, "P"), ["Watering 灌溉控制器 (Rain", "/ Pump / Wells)"]);
       const box = nodeBox(result, "P");
-      expectSame("node width", box.right - box.left, 175 + 16);
+      expectSame("node width", box.right - box.left, 207);
     },
   },
   {
@@ -2938,7 +2939,7 @@ line2\`"]`,
         "pixels",
       ]);
       const box = nodeBox(result, "A");
-      expectSame("node width", box.right - box.left, 175 + 16);
+      expectSame("node width", box.right - box.left, 207);
     },
   },
   {
@@ -2959,9 +2960,9 @@ line2\`"]`,
         "case",
       ]);
       // The word's 45 characters are 360px of text, and the box is that
-      // row with the measurer's 16px of padding — wider than 175 + 16.
+      // row with the measurer's padding doubled to 32px — wider than 207.
       const box = nodeBox(result, "A");
-      expectSame("node width", box.right - box.left, 45 * 8 + 16);
+      expectSame("node width", box.right - box.left, 392);
     },
   },
   {

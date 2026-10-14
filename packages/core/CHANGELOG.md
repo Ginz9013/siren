@@ -63,6 +63,12 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- Flowchart nodes have twice their original positive text padding, without scaling text or changing wrapping;
+  subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds retain
+  their existing geometry (nook `01M4XKQXA`).
+- Flowchart lines paint below subgraph frames and titles, edge labels and nodes, so a crossing
+  line cannot paint over their text (nook `01M4XJ8Y0`). Routes, styling and timeline targets stay
+  the same; transparent fills can still reveal the lines beneath them.
 - State and class diagrams read `accTitle:` and `accDescr:` (and the braced block) as the diagram's
   accessible title and description, drawn as the SVG's `<title>` and `<desc>`. Siren used to draw a
   state or a class called `accTitle` and another called `accDescr` for them, with no diagnostic

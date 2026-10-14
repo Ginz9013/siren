@@ -609,7 +609,9 @@ _Avoid_: line jump (Mermaid's code name), bridge, crossover
 **Subgraph**:
 A `subgraph Title ... end` block in a flowchart, drawn as a titled frame around the nodes declared
 inside it and laid out as an ELK compound node: the engine sizes the frame around its members, its
-12px padding and a band across its top for the title, and nothing after the engine moves it. The **fourth** grouping construct here,
+24px padding and a band across its top for the title, and nothing after the engine moves it.
+Flowchart nodes likewise double only their original positive text padding, retaining the original
+label geometry and wrap width; other diagram kinds keep their existing padding. The **fourth** grouping construct here,
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
 statements in time. Five things separate it from the namespace it most resembles, and none of them

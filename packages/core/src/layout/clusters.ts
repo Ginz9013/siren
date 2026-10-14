@@ -6,9 +6,8 @@
  * a cluster, the order Mermaid hands such frames to ELK in, and how the
  * frame the core placed becomes a positioned group.
  *
- * One module rather than a copy per adapter, because each of these is one
- * decision: two labelled frames padded, measured or ordered differently
- * would read as two constructs, and copies are free to drift.
+ * Shared mechanics with caller-specific padding: flowchart keeps more room
+ * inside its frames, while other diagram kinds retain the shared default.
  */
 import type { Direction, Label, LabelBox, PlacedLabel, TextMeasurer } from "../contracts";
 import { layoutLabel } from "../label/layoutLabel";
@@ -19,11 +18,11 @@ import type { DirectedGraphNode, DirectedGraphNodeBox } from "./layoutDirectedGr
  * side, and — doubled, with the title line between the two halves — how tall
  * the strip along its top is.
  *
- * One number for every kind's frame, because it is one figure: measured with
+ * The default for grouping frames: measured with
  * `--markup`, Mermaid draws a flowchart subgraph, an ER block and a state
  * composite alike as a `g.cluster` holding a `<rect>` and a title. Which
- * pixel count it is remains Siren's (ADR-0004), but one grouping frame
- * padded differently from another would read as two constructs.
+ * pixel count it is remains Siren's (ADR-0004). Flowchart overrides this
+ * default to give its nodes and subgraphs more breathing room.
  */
 export const SUBGRAPH_PADDING = 12;
 
@@ -57,6 +56,7 @@ export function clusterNode(group: {
   parentId?: string | null;
   title?: { width: number; height: number } | null;
   direction?: Direction | null;
+  padding?: number;
 }): DirectedGraphNode {
   return {
     id: group.id,
@@ -64,7 +64,7 @@ export function clusterNode(group: {
     height: 0,
     ...(group.parentId === undefined || group.parentId === null ? {} : { parentId: group.parentId }),
     cluster: {
-      padding: SUBGRAPH_PADDING,
+      padding: group.padding ?? SUBGRAPH_PADDING,
       ...(group.title === undefined || group.title === null ? {} : { title: group.title }),
       ...(group.direction === undefined || group.direction === null ? {} : { direction: group.direction }),
     },

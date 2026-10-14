@@ -46,6 +46,32 @@ function chainGraph(direction: GraphModel["direction"]): GraphModel {
 }
 
 describe("layoutGraph", () => {
+  it("doubles positive padding to node envelopes without changing label geometry or wrapping", () => {
+    const graph = chainGraph("TB");
+    graph.edges = [];
+    graph.nodes = graph.nodes.slice(0, 1);
+    const measureText: TextMeasurer = { measure: (text) => ({ width: text.length * 8 + 20, height: 31 }) };
+    const [node] = layoutGraph(graph, { measureText }).nodes;
+    expect(node!.width).toBe(48);
+    expect(node!.height).toBe(41);
+    expect(node!.labelBox.width).toBe(28);
+    expect(node!.labelBox.height).toBe(31);
+    graph.nodes[0]!.label = readLabel("A<br>B", { dialect: "html" }).label;
+    const [multiline] = layoutGraph(graph, { measureText }).nodes;
+    expect(multiline!.height).toBe(62);
+    expect(multiline!.labelBox.height).toBe(52);
+    graph.nodes[0]!.label = plainLabel("alpha beta gamma delta epsilon zeta");
+    const [wrapped] = layoutGraph(graph, { measureText }).nodes;
+    expect(wrapped!.label.rows).toHaveLength(2);
+    expect(wrapped!.labelBox.width).toBe(195);
+    expect(wrapped!.width).toBe(215);
+    for (const height of [21, 18]) {
+      const [unpadded] = layoutGraph(graph, { measureText: { measure: (text) => ({ width: text.length * 8, height }) } }).nodes;
+      expect(unpadded!.width).toBe(unpadded!.labelBox.width);
+      expect(unpadded!.height).toBe(unpadded!.labelBox.height);
+    }
+  });
+
   it("stacks ranks downward for a TB chain graph", () => {
     const graph = chainGraph("TB");
 
@@ -172,15 +198,14 @@ describe("layoutGraph", () => {
 
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
 
-    // `fakeMeasurer`: 8px per character wide, 24px tall.
-    expect([byId.A.width, byId.A.height]).toEqual([12 * 8 * 2, 24 * 2]);
+    // `fakeMeasurer`: 8px per character wide, 24px tall; the shape
+    // envelope adds 3px (doubling its original 3px vertical padding).
+    expect([byId.A.width, byId.A.height]).toEqual([12 * 8 * 2, 27 * 2]);
     // A one-character label gets a small diamond rather than the same one:
     // the box is proportional to the label, not the label plus a constant.
-    expect([byId.B.width, byId.B.height]).toEqual([1 * 8 * 2, 24 * 2]);
-    // A rect still takes the measured box exactly — the shape it is
-    // inscribed in is the box, so it needs nothing extra, and no existing
-    // flowchart changes size because shapes arrived.
-    expect([byId.C.width, byId.C.height]).toEqual([12 * 8, 24]);
+    expect([byId.B.width, byId.B.height]).toEqual([1 * 8 * 2, 27 * 2]);
+    // A rect takes the padded envelope exactly: no extra shape clearance.
+    expect([byId.C.width, byId.C.height]).toEqual([12 * 8, 27]);
 
     // The rule itself, stated as geometry rather than as the two numbers
     // above, because it is what a hexagon and a circle will be measured
@@ -250,8 +275,9 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
 
-    // `fakeMeasurer`: 8px per character wide, 24px tall. "A rather long
-    // label" is 19 characters, so `w = 152, h = 24`.
+    // `fakeMeasurer`: 8px per character wide, 24px tall; the shape
+    // envelope adds 3px (doubling its original 3px vertical padding). "A rather long
+    // label" is 19 characters, so `w = 152, h = 27`.
     const lean: Record<(typeof shapes)[number], number> = {
       hexagon: 1 / 4,
       parallelogram: 1 / 2,
@@ -265,8 +291,8 @@ describe("layoutGraph", () => {
       const short = byId[`${shape}-short`];
       expect([shape, long.width, long.height]).toEqual([
         shape,
-        152 + 2 * lean[shape] * 24,
-        24,
+        152 + 2 * lean[shape] * 27,
+        27,
       ]);
       // Proportional to the label rather than the label plus a constant, so
       // a one-character node stays small — the property ticket 01 asserted
@@ -274,11 +300,10 @@ describe("layoutGraph", () => {
       // fudge factors.
       expect([shape, short.width, short.height]).toEqual([
         shape,
-        8 + 2 * lean[shape] * 24,
-        24,
+        8 + 2 * lean[shape] * 27,
+        27,
       ]);
-      // And the box is the *smallest* one: one pixel narrower and the label
-      // would cross the outline.
+      // The shape clears the entire padded envelope, not only the glyphs.
       expect(long.width - 2 * lean[shape] * long.height).toBe(152);
     }
   });
@@ -330,8 +355,9 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
 
-    // `fakeMeasurer`: 8px per character wide, 24px tall. "A rather long
-    // label" is 19 characters, so `w = 152, h = 24`.
+    // `fakeMeasurer`: 8px per character wide, 24px tall; the shape
+    // envelope adds 3px (doubling its original 3px vertical padding). "A rather long
+    // label" is 19 characters, so `w = 152, h = 27`.
     const lean: Record<(typeof shapes)[number], number> = {
       round: 1 / 4,
       stadium: 1 / 2,
@@ -340,12 +366,11 @@ describe("layoutGraph", () => {
     for (const shape of shapes) {
       const long = byId[`${shape}-long`];
       const short = byId[`${shape}-short`];
-      expect([shape, long.width, long.height]).toEqual([shape, 152 + 2 * lean[shape] * 24, 24]);
+      expect([shape, long.width, long.height]).toEqual([shape, 152 + 2 * lean[shape] * 27, 27]);
       // Proportional to the label rather than the label plus a constant, so
       // a one-character node stays small.
-      expect([shape, short.width, short.height]).toEqual([shape, 8 + 2 * lean[shape] * 24, 24]);
-      // And the *smallest* such box: one pixel narrower and the label would
-      // cross the corner, or the bar.
+      expect([shape, short.width, short.height]).toEqual([shape, 8 + 2 * lean[shape] * 27, 27]);
+      // The shape clears the entire padded envelope at its corners or bars.
       expect(long.width - 2 * lean[shape] * long.height).toBe(152);
     }
 
@@ -354,7 +379,7 @@ describe("layoutGraph", () => {
     expect(byId["stadium-long"].width).toBeGreaterThan(byId["round-long"].width);
     expect(byId["round-long"].width).toBeGreaterThan(byId["subroutine-long"].width);
     expect(byId["subroutine-long"].width).toBeGreaterThan(byId["rect-long"].width);
-    expect([byId["rect-long"].width, byId["rect-long"].height]).toEqual([152, 24]);
+    expect([byId["rect-long"].width, byId["rect-long"].height]).toEqual([152, 27]);
   });
 
   it("gives a circle a diameter spanning its label's diagonal, so a wide label makes a large node on both axes", () => {
@@ -393,25 +418,26 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
 
-    // `fakeMeasurer`: 8px per character wide, 24px tall. "A rather long
-    // label" is 19 characters, so `w = 152, h = 24` and the diagonal is
-    // `hypot(152, 24)`.
-    const diagonal = Math.hypot(152, 24);
+    // `fakeMeasurer`: 8px per character wide, 24px tall; the shape
+    // envelope adds 3px (doubling its original 3px vertical padding). "A rather long
+    // label" is 19 characters, so `w = 152, h = 27` and the diagonal is
+    // `hypot(152, 27)`.
+    const diagonal = Math.hypot(152, 27);
     expect([byId.long.width, byId.long.height]).toEqual([diagonal, diagonal]);
     // Square, because an inscribed figure in a non-square box is an
     // ellipse and `A((x))` has to be a circle.
     expect(byId.long.width).toBe(byId.long.height);
     // Proportional to the label rather than the label plus a constant.
     expect([byId.short.width, byId.short.height]).toEqual([
-      Math.hypot(8, 24),
-      Math.hypot(8, 24),
+      Math.hypot(8, 27),
+      Math.hypot(8, 27),
     ]);
 
     // The diagonal, not the width: a box merely as wide as the label would
     // clip all four of its corners. The difference is unmistakable on the
-    // vertical axis — the same label in a rectangle is 24 tall and here it
-    // is more than six times that.
-    expect(byId.long.height).toBeGreaterThan(6 * byId["rect-long"].height);
+    // vertical axis — the same label in a rectangle is 27 tall and here it
+    // is more than five times that with the doubled padding.
+    expect(byId.long.height).toBeGreaterThan(5 * byId["rect-long"].height);
     // And the rule itself, stated as geometry: every corner of the centred
     // label is within the circle's radius of its centre.
     for (const id of ["long", "short"]) {
@@ -456,14 +482,15 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
 
-    // `fakeMeasurer`: 8px per character wide, 24px tall.
+    // `fakeMeasurer`: 8px per character wide, 24px tall; the shape
+    // envelope adds 3px (doubling its original 3px vertical padding).
     expect([byId.long.width, byId.long.height]).toEqual([
-      Math.hypot(152, 24) / (1 - 2 * lean),
-      Math.hypot(152, 24) / (1 - 2 * lean),
+      Math.hypot(152, 27) / (1 - 2 * lean),
+      Math.hypot(152, 27) / (1 - 2 * lean),
     ]);
     expect([byId.short.width, byId.short.height]).toEqual([
-      Math.hypot(8, 24) / (1 - 2 * lean),
-      Math.hypot(8, 24) / (1 - 2 * lean),
+      Math.hypot(8, 27) / (1 - 2 * lean),
+      Math.hypot(8, 27) / (1 - 2 * lean),
     ]);
 
     // Wider than the single circle holding the same label, and by exactly
@@ -526,9 +553,10 @@ describe("layoutGraph", () => {
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
 
-    // `fakeMeasurer`: 8px per character wide, 24px tall.
-    expect([byId.long.width, byId.long.height]).toEqual([152, 24 / (1 - 4 * lean)]);
-    expect([byId.short.width, byId.short.height]).toEqual([8, 24 / (1 - 4 * lean)]);
+    // `fakeMeasurer`: 8px per character wide, 24px tall; the shape
+    // envelope adds 3px (doubling its original 3px vertical padding).
+    expect([byId.long.width, byId.long.height]).toEqual([152, 27 / (1 - 4 * lean)]);
+    expect([byId.short.width, byId.short.height]).toEqual([8, 27 / (1 - 4 * lean)]);
 
     // No wider than the rectangle holding the same label — the sides are
     // straight, so nothing is reserved on an axis the outline does not
@@ -654,12 +682,12 @@ describe("a node's box, sized around its label", () => {
 
     const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
 
-    // Two 14px × 1.5 = 21px rows, padded once by the 24px line's other 3px.
+    // Two 21px rows plus 3px padding enlarged to 6px, once.
     expect(positioned.nodes[0].width).toBe(16);
-    expect(positioned.nodes[0].height).toBe(45);
+    expect(positioned.nodes[0].height).toBe(48);
   });
 
-  it("sizes a one-row plain label exactly as the measurer sizes its text", () => {
+  it("sizes a one-row plain label with enlarged padding around the measured text", () => {
     const graph: GraphModel = {
       direction: "TB",
       nodes: [
@@ -683,7 +711,7 @@ describe("a node's box, sized around its label", () => {
 
     const expected = fakeMeasurer.measure("Start");
     expect(positioned.nodes[0].width).toBe(expected.width);
-    expect(positioned.nodes[0].height).toBe(expected.height);
+    expect(positioned.nodes[0].height).toBe(expected.height + 3);
   });
 });
 
@@ -717,8 +745,8 @@ describe("a node's label, wrapped", () => {
     expect(node!.labelBox.width).toBe(175);
     expect(node!.labelBox.rows).toHaveLength(2);
     expect(node!.width).toBe(175);
-    // Two 21px rows and the measurer's 24 − 21 = 3px of padding, once.
-    expect(node!.height).toBe(45);
+    // Two 21px rows and the measurer's 3px padding enlarged to 6px, once.
+    expect(node!.height).toBe(48);
   });
 
   // The spec: a subgraph's title is plain text in Mermaid and is never
@@ -997,6 +1025,7 @@ describe("a graph with no subgraph", () => {
       nodes: graph.nodes.map((node) => ({
         id: node.id,
         ...fakeMeasurer.measure(node.label.text),
+        height: 27, // 21px text plus 3px padding enlarged to 6px.
       })),
       edges: graph.edges.map((edge) => ({
         id: edge.id,
@@ -1066,6 +1095,24 @@ describe("a subgraph's frame", () => {
   });
 
   const laidOut = (graph: GraphModel) => layoutGraph(graph, { measureText: fakeMeasurer });
+
+  it("keeps 24px padding on nested frames and above and below their title bands", () => {
+    const positioned = laidOut(model(
+      [node("A", "inner")], [],
+      [
+        { id: "outer", label: plainLabel("O"), parentId: null, direction: null },
+        { id: "inner", label: plainLabel("I"), parentId: "outer", direction: null },
+      ],
+    ));
+    const [outer, inner] = positioned.subgraphs;
+    for (const [frame, child] of [[outer!, inner!], [inner!, positioned.nodes[0]!]] as const) {
+      expect(child.x - frame.x).toBeCloseTo(24);
+      expect(frame.x + frame.width - child.x - child.width).toBeCloseTo(24);
+      expect(frame.y + frame.height - child.y - child.height).toBeCloseTo(24);
+      expect(child.y - frame.y).toBeCloseTo(24 * 2 + 24);
+      expect(frame.label.anchor.y - frame.y).toBeCloseTo(24 + 24 / 2);
+    }
+  });
 
   /** Whether `outer` wholly contains `inner`. */
   const contains = (
@@ -1342,10 +1389,10 @@ describe("a subgraph's frame", () => {
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
     const fan = [byId.Beta, byId.Gamma, byId.Delta];
     const fanWidth = Math.max(...fan.map((n) => n.x + n.width)) - Math.min(...fan.map((n) => n.x));
-    expect(fanWidth).toBeGreaterThan(byId.Alpha.width + 2 * 12);
-    // `SUBGRAPH_PADDING` of 12 at least, each side of the member…
-    expect(byId.Alpha.x - frame!.x).toBeGreaterThanOrEqual(12);
-    expect(frame!.x + frame!.width - (byId.Alpha.x + byId.Alpha.width)).toBeGreaterThanOrEqual(12);
+    expect(fanWidth).toBeGreaterThan(byId.Alpha.width + 2 * 24);
+    // Flowchart padding of 24 at least, each side of the member…
+    expect(byId.Alpha.x - frame!.x).toBeGreaterThanOrEqual(24 - 1e-9);
+    expect(frame!.x + frame!.width - (byId.Alpha.x + byId.Alpha.width)).toBeGreaterThanOrEqual(24 - 1e-9);
     // …and nowhere near the fan's width.
     expect(frame!.width).toBeLessThan(fanWidth / 2);
   });
@@ -1396,7 +1443,7 @@ describe("a subgraph's frame", () => {
     const [frame] = positioned.subgraphs;
     const [a] = positioned.nodes;
     // The 30-character title at 8px a character, plus padding each side.
-    expect(frame!.width).toBe(30 * 8 + 2 * 12);
+    expect(frame!.width).toBeCloseTo(30 * 8 + 2 * 24);
     expect(frame!.x + frame!.width / 2).toBeCloseTo(a!.x + a!.width / 2);
     expect(frame!.label.anchor.x).toBeCloseTo(a!.x + a!.width / 2);
   });
