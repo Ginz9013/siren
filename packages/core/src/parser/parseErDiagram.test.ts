@@ -2131,3 +2131,135 @@ describe("parseErDiagram — the `;` Mermaid drops from a style line", () => {
     ).toEqual([["warning", 2, 26]]);
   });
 });
+
+describe("parseErDiagram — a name read where Mermaid's lexer reads one (01M3C621W)", () => {
+  // Mermaid 12.2.0's ER lexer takes the first rule that matches, and its
+  // name rule comes after every keyword and number rule. Each case below is
+  // measured against it.
+  const entities = (source: string) => documentOf(source).entities.map((entity) => entity.name);
+  const refused = (body: string) => parseErDiagram(`erDiagram\n  ${body}\n`).document === null;
+
+  it("refuses a cardinality or statement keyword standing where a name belongs", () => {
+    for (const body of [
+      "CUSTOMER one ORDER",
+      "to",
+      "one",
+      "many",
+      "only one",
+      "zero or one",
+      "zero or many",
+      "one or more",
+      "optionally to",
+      "A to B",
+      "to ||--o{ B : x",
+      "A zero or one B",
+      // A keyword ends at a word boundary, so these begin with one too.
+      "to-do",
+      "one-x",
+      "class-a",
+      "style-x",
+      "end-x",
+      "erDiagram-x",
+      "u-boat",
+      "u.x",
+      "style",
+    ]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+  });
+
+  it("keeps a word the keyword rules cannot end inside as an ordinary name", () => {
+    expect(entities("erDiagram\n  many_x\n  uboat\n  only\n  zero\n  optionally\n  zero or\n  oneX\n")).toEqual([
+      "many_x",
+      "uboat",
+      "only",
+      "zero",
+      "optionally",
+      "zero",
+      "or",
+      "oneX",
+    ]);
+  });
+
+  it("splits a name at the end of its leading number, as the NUM rule does", () => {
+    for (const [body, names] of [
+      ["123abc", ["123", "abc"]],
+      ["1abc", ["1", "abc"]],
+      ["1-2", ["1", "-2"]],
+      ["1.5", ["1.5"]],
+      ["1.5.7", ["1.5", ".7"]],
+      ["007", ["007"]],
+      ["2 abc", ["2", "abc"]],
+    ] as const) {
+      expect([body, entities(`erDiagram\n  ${body}\n`)]).toEqual([body, names]);
+    }
+    // `1` before a space and a letter is a token of its own, not a name.
+    expect(refused("1 abc")).toBe(true);
+  });
+
+  it("reads a relationship whose left name splits as the number and a relationship from the rest", () => {
+    const document = documentOf("erDiagram\n  123abc ||--o{ B : x\n");
+    expect(document.entities.map((entity) => entity.name)).toEqual(["123", "abc", "B"]);
+    expect(document.relationships.map((r) => [r.left, r.right])).toEqual([["abc", "B"]]);
+  });
+
+  it("refuses a keyword or a split name as a relationship's right end or its label", () => {
+    for (const body of [
+      "A ||--o{ 123abc : x",
+      "A ||--o{ to : x",
+      "A ||--o{ to-do : x",
+      "A ||--o{ B : one",
+      "A ||--o{ B : to-do",
+      "A ||--o{ B : 123abc",
+      "A ||--o{ B : style",
+    ]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+  });
+
+  it("splits a second dotted number the same way", () => {
+    expect(entities("erDiagram\n  12.34.56\n")).toEqual(["12.34", ".56"]);
+  });
+
+  it("refuses a keyword or a split name as a subgraph's name or a member inside one", () => {
+    for (const body of [
+      "subgraph one\n  A\n  end",
+      "subgraph 123abc\n  A\n  end",
+      "subgraph to-do\n  A\n  end",
+      "subgraph 1\n  A\n  end",
+      "subgraph s1\n  one\n  end",
+      "subgraph s1\n  1\n  end",
+    ]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+    expect(documentOf("erDiagram\n  subgraph only\n  A\n  end\n").subgraphs.map((block) => block.name)).toEqual([
+      "only",
+    ]);
+  });
+
+  it("refuses a bare `1` ending a line when the next line opens with a name, as the lexer looks across the break", () => {
+    for (const body of ["1\n  A", "A\n  1\n  B", "1\n\n  A", "1\n  \"B\"", "1\n  2"]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+    // The control group: nothing after it, a block opening, or a timeline.
+    expect(entities("erDiagram\n  1\n")).toEqual(["1"]);
+    expect(entities("erDiagram\n  1 {\n    int x\n  }\n")).toEqual(["1"]);
+    expect(entities("erDiagram\n  1\n\ntimeline:\n  enter 1 fade\n")).toEqual(["1"]);
+  });
+
+  it("reads a multi-word cardinality only with single spaces, as Mermaid's rules spell it", () => {
+    for (const body of ["zero or  more", "zero  or more", "zero or\tmore", "only  x"]) {
+      expect([body, entities(`erDiagram\n  ${body}\n`)]).toEqual([body, body.split(/\s+/u)]);
+    }
+    expect(refused("ZERO OR MORE")).toBe(true);
+  });
+
+  it("leaves an attribute block to its own alphabet, where these words are ordinary", () => {
+    expect(attributesOf("erDiagram\n  A {\n    string one\n    one name\n    int to-do\n  }\n", "A").map(({ type, name }) => [type, name])).toEqual([
+      ["string", "one"],
+      ["one", "name"],
+      ["int", "to-do"],
+    ]);
+    expect(refused("A {\n    int 123abc\n  }")).toBe(true);
+  });
+});

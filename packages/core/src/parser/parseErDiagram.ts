@@ -479,6 +479,17 @@ function readRelationship(
   ) {
     return null;
   }
+  // And each bare end, and a bare label, must be one name token as Mermaid's
+  // lexer reads one (01M3C621W): `A ||--o{ to : x`, `A ||--o{ 123abc : x`
+  // and `A ||--o{ B : one` are parse errors, measured. A left end that is
+  // *not* one token is not a relationship from here — `123abc ||--o{ B : x`
+  // is the entity `123` and then a relationship from `abc` — so this
+  // declines and leaves the stream to read the name first.
+  if (
+    [left, right, bareLabel].some((text) => text !== undefined && !text.startsWith('"') && !isOneNameToken(text))
+  ) {
+    return null;
+  }
   return {
     decl: {
       // Unquoted here, once, so that every stage after this one sees the id
@@ -856,7 +867,55 @@ const ATTRIBUTE_BLOCK_CLOSE = "}";
  * ever fires at the head of a token.
  */
 const KEYWORD_AT_NAME_HEAD_RE =
-  /^(?:(?:erDiagram|classDef|class|subgraph|end|many|one|to)\b|u(?=[-.|])|--|\.\.|\.-|-\.)/iu;
+  /^(?:(?:erDiagram|style|classDef|class|subgraph|end|many|one|to)\b|u(?=[-.|])|--|\.\.|\.-|-\.)/iu;
+
+/**
+ * How much of `text` Mermaid's INITIAL lexer reads as **one** entity name
+ * at its head — or `null` when the token there is not a name at all.
+ *
+ * The lexer takes the first rule that matches (mermaid 12.2.0, rules read
+ * out of its bundle), and its name rule comes after every keyword and
+ * number rule, so the head of a name position is decided in that order
+ * (01M3C621W):
+ *
+ * 1. A keyword: `KEYWORD_AT_NAME_HEAD_RE`, plus the cardinality spellings
+ *    that open with an ordinary word — `only one`, `zero or one|more|many`,
+ *    `optionally to` — which only claim the word when the rest follows,
+ *    **one literal space apart**: Mermaid's rules are spelled with a space,
+ *    not `\s+`. Measured: `CUSTOMER one ORDER`, `only one`, `zero or one`,
+ *    `to-do` and `style-x` are parse errors; `only`, `zero` and `zero or`
+ *    are names, and so is every word of `zero or  more` (two spaces) and
+ *    `zero or<tab>more` — three boxes in Mermaid.
+ * 2. `[0-9]+\.[0-9]+`, one name (`1.5`; `1.5.7` is `1.5` and `.7`).
+ * 3. `1` before whitespace and a letter, quote or digit, or before a
+ *    relationship body: a token of its own, never a name (`1 abc` is a
+ *    parse error). ⚠️ That `\s+` crosses lines: `1` ending a line and `A`
+ *    opening the next is a parse error too, measured — which is why a
+ *    caller at the end of a line hands this the next line's text after it.
+ * 4. `[0-9]+`, with **no word boundary**: the digits are a name and the
+ *    rest is the next one — `123abc` is `123` and `abc`, `1-2` is `1` and
+ *    `-2`, measured.
+ * 5. Otherwise the name rule, `NAME_SOURCE`.
+ *
+ * A quoted name never reaches this: quoting takes anything.
+ */
+const MULTI_WORD_CARDINALITY_RE = /^(?:only one|zero or (?:one|more|many)|optionally to)\b/iu;
+const SPECIAL_ONE_RE = /^1(?=\s+[A-Za-z_"'0-9]|--|\.\.|\.-|-\.)/u;
+const NAME_AT_HEAD_RE = new RegExp(`^${NAME_SOURCE}`, "u");
+
+function bareNameTokenLength(text: string): number | null {
+  if (KEYWORD_AT_NAME_HEAD_RE.test(text) || MULTI_WORD_CARDINALITY_RE.test(text) || SPECIAL_ONE_RE.test(text)) {
+    return null;
+  }
+  const number = /^(?:[0-9]+\.[0-9]+|[0-9]+)/u.exec(text);
+  if (number !== null) {
+    return number[0].length;
+  }
+  return NAME_AT_HEAD_RE.exec(text)?.[0].length ?? null;
+}
+
+/** Whether a bare `name` is exactly one entity-name token, all of it. */
+const isOneNameToken = (name: string): boolean => bareNameTokenLength(name) === name.length;
 
 /**
  * A bare string Mermaid's lexer reads as **exactly one** `entityName` token —
@@ -893,9 +952,8 @@ const KEYWORD_AT_NAME_HEAD_RE =
  * statements and both tokens are names there; inside brackets the same
  * string is a parse error, because the grammar wants a `]` after the first.
  * Asking this in `readEntityHead`'s name position would cost a document
- * Mermaid draws. The name position's own over-reach — a bare `to`, `one` or
- * `many` draws a box here and is a parse error in Mermaid — is a separate,
- * unrowed gap; see the report on this ticket.
+ * Mermaid draws. The name position answers with `bareNameTokenLength`
+ * instead, which splits there where this refuses (01M3C621W).
  */
 function readsAsOneEntityName(bare: string): boolean {
   if (KEYWORD_AT_NAME_HEAD_RE.test(bare)) {
@@ -920,18 +978,34 @@ interface ErEntityHead {
  *
  * `at` is where `text` begins in the document, and `diagnostics` where a
  * problem in the alias is reported — only once the head is known to be one,
- * so a string this declines reports nothing.
+ * so a string this declines reports nothing. `after` is what follows `text`
+ * in the source when `text` runs to the end of its line, for the lexer rule
+ * that looks past it — see `bareNameTokenLength`.
  */
 function readEntityHead(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
+  after: string,
 ): ErEntityHead | null {
   const match = ENTITY_HEAD_RE.exec(text);
   if (match === null) {
     return null;
   }
   const [whole, name, quotedAlias, bareAlias, classes, brace] = match;
+  // Where Mermaid's lexer would read the head of this name — see
+  // `bareNameTokenLength`. A keyword there declines the head; a shorter
+  // token makes the head just that token, and the rest of the text is the
+  // next statement (`123abc` is the entities `123` and `abc`, measured).
+  if (!name.startsWith('"')) {
+    const token = bareNameTokenLength(text + after);
+    if (token === null) {
+      return null;
+    }
+    if (token < name.length) {
+      return { name: text.slice(0, token), alias: null, classes: [], opensBlock: false, length: token };
+    }
+  }
   // The over-reach guard the name alphabet needs: `-` and `.` are each a
   // whole name, so the alphabet admits `--`, which Mermaid's lexer reads as
   // a relationship body and refuses. Quoted, the same characters *are* a
@@ -1048,12 +1122,17 @@ interface ErLineReading {
  * arrived on an earlier line would keep the attributes of a line that was
  * refused. Returning `null` costs the document and says so, which is the
  * trade every refusal in this parser makes.
+ *
+ * `after` is the source past the end of `line` (`textAfter`), read only by
+ * the one name rule whose lookahead crosses a line break: a bare `1` ending
+ * the line is a name or a token of its own depending on what comes next.
  */
 function readLine(
   line: string,
   openEntity: ErEntityDecl | null,
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
+  after: string,
 ): ErLineReading | null {
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
@@ -1225,7 +1304,7 @@ function readLine(
       continue;
     }
 
-    const head = readEntityHead(rest, restAt(), diagnostics);
+    const head = readEntityHead(rest, restAt(), diagnostics, after);
     if (head === null) {
       return null;
     }
@@ -1553,7 +1632,8 @@ function readAttributes(
  * Read **last**, after every construct this parser does implement, so a
  * pattern here can never shadow a working one. Each is anchored on the
  * *statement* rather than on a bare word, which is what leaves an entity the
- * author simply named `direction` or `to` alone.
+ * author simply named `direction` alone. (Not `to`: alone, that is the
+ * cardinality keyword and refused — see `bareNameTokenLength`.)
  *
  * The table shrinks as constructs land. Every one of these has a ticket.
  */
@@ -1827,6 +1907,22 @@ export function parseErDiagram(source: string): ParseResult {
   };
 
   const lines = source.split(/\r\n|\r|\n/);
+  /**
+   * What follows line `index` in the source, as far as the one lexer rule
+   * that reads across a line break needs it: a newline and the next line
+   * with anything on it — or nothing, at the end of the diagram. See
+   * `bareNameTokenLength`. A timeline header ends what Mermaid would read,
+   * so it is never the text after.
+   */
+  const textAfter = (index: number): string => {
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const text = lines[next].trim();
+      if (text.length > 0) {
+        return isTimelineHeader(text) ? "" : `\n${text}`;
+      }
+    }
+    return "";
+  };
   for (const [index, rawLine] of lines.entries()) {
     if (index <= accDescrBlockThrough) {
       continue;
@@ -1875,7 +1971,7 @@ export function parseErDiagram(source: string): ParseResult {
     // and that an unreadable line is reported as an **attribute** rather
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks);
+      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
       if (reading === null) {
         diagnostics.push({
           severity: "error",
@@ -1950,7 +2046,17 @@ export function parseErDiagram(source: string): ParseResult {
     // trailing `end` is then a parse error, which is what Siren answers too
     // once `readLine` finds that `end` with nothing open.
     const header = SUBGRAPH_HEAD_RE.exec(line);
-    if (header !== null && !RESERVED_BARE_NAMES.has(header[1].toLowerCase())) {
+    // The name read as the lexer reads it, as anywhere else a name stands
+    // (01M3C621W): measured, `subgraph one`, `subgraph 123abc`, `subgraph
+    // to-do` and `subgraph 1` with a statement on the next line are each a
+    // parse error, so none of them is a header — the line falls through
+    // and is refused as one.
+    if (
+      header !== null &&
+      !RESERVED_BARE_NAMES.has(header[1].toLowerCase()) &&
+      (header[1].startsWith('"') ||
+        bareNameTokenLength(line.slice(header.indices![1]![0]) + textAfter(index)) === header[1].length)
+    ) {
       const name = unquoteName(header[1]);
       // The title if the header wrote one, otherwise the name — measured,
       // `subgraph s1` answers `title:"s1"`. The name is never read for tags.
@@ -2034,7 +2140,7 @@ export function parseErDiagram(source: string): ParseResult {
     // Every remaining statement, read left to right across the line — see
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks);
+    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
     if (reading !== null) {
       take(reading, lineNumber, column, line);
       if (reading.openEntity !== null) {

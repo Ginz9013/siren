@@ -412,8 +412,14 @@ describe("the corpus, case by case", () => {
  * has turned out to be an undercount. Every one of the seven was found by
  * widening what gets named, never by tightening a ratchet, and this one was
  * found by a ticket about something else entirely.
+ *
+ * **2 → 0: the ER name position, read as the lexer reads it.** `01M3C621W`
+ * made a bare name's head follow Mermaid's INITIAL lexer rule for rule
+ * (`bareNameTokenLength`): `er-name-cardinality-word` is refused now, as
+ * Mermaid refuses it, and moves to `rejected`; `er-name-digit-head` splits
+ * at the end of its number, as Mermaid does, and moves to `supported`.
  */
-const SILENTLY_WRONG = 2;
+const SILENTLY_WRONG = 0;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -1450,8 +1456,13 @@ const SILENTLY_WRONG = 2;
  * flowchart parsers share, measured on 12.2.0 to behave identically in all
  * three kinds. `er-acc-descr-multiline` moves to `supported`, asserting the
  * description and that no entity is drawn for the block's body.
+ *
+ * **13 → 14: case (1), a row leaving `silently-wrong`.** `01M3C621W` made
+ * `er-name-cardinality-word` an honest refusal; `silently-wrong` fell by
+ * one for it (and by one more for `er-name-digit-head`, which works now),
+ * so the sum of the two fell rather than held.
  */
-const REJECTED = 13;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

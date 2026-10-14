@@ -1049,7 +1049,9 @@ describe("render() keeps every cardinality marker on its relationship's end run"
 
   // The ER subgraph parity fixture's shape (nested blocks, a
   // self-relationship, relationships across block boundaries), a bare
-  // self-relationship, and a stack and a row of every cardinality.
+  // self-relationship, and a stack and a row of every cardinality. The first
+  // label is `first` and not `one`: a bare `one` there is the cardinality
+  // keyword, a parse error in Mermaid (01M3C621W).
   const documents: Record<string, string> = {
     "er-subgraphs": `erDiagram
 AUTHOR {
@@ -1084,7 +1086,7 @@ B ||--|| B : is
 A }|--o| B : x
 `,
     "every cardinality, TB": `erDiagram
-A }o--o{ B : one
+A }o--o{ B : first
 A }|--|{ C : two
 B |o--o| D : three
 C ||--}o D : four
@@ -1092,7 +1094,7 @@ D }o--}| E : five
 `,
     "every cardinality, LR": `erDiagram
 direction LR
-A }o--o{ B : one
+A }o--o{ B : first
 A }|--|{ C : two
 B |o--o| D : three
 C ||--}o D : four
