@@ -416,6 +416,25 @@ timeline:
     ]);
   });
 
+  it("accepts unquoted parentheses in a bracketed label, which Mermaid rejects — a recorded permissive divergence", () => {
+    // Measured on mermaid 12.2.0: `P[a (b)]` is a parse error ("got 'PS'"),
+    // and only the quoted `P["a (b)"]` draws, as the rect `a (b)`. Siren
+    // draws both, deliberately (nook 01M4R3RVV, at `LABEL_CONTENT`): a
+    // corpus row cannot hold it, since its source is not valid Mermaid, so
+    // this test is the record. Changing it is a policy change, not a fix.
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB
+  P[Watering 灌溉控制器 (Rain / Pump / Wells)]
+  Q["a (b)"] --> R[a (b)]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
+      ["P", "Watering 灌溉控制器 (Rain / Pump / Wells)", "rect"],
+      ["Q", "a (b)", "rect"],
+      ["R", "a (b)", "rect"],
+    ]);
+  });
+
   it("reads `A>text]` at an edge endpoint, where the arrow's own `>` must not be mistaken for the spelling's", () => {
     // The one spelling whose opening character also appears in `-->`. The
     // line is cut into endpoints at the arrow first, so what each pattern

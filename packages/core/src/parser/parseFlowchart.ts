@@ -51,6 +51,15 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
  * alternatives from overlapping, so this pattern cannot backtrack
  * exponentially over a line full of quotes.
  *
+ * An unquoted `(` or `)` is a label character here, and that is a known,
+ * deliberate divergence in Siren's permissive direction: Mermaid 12.2.0
+ * reads `P[a (b)]` as a parse error ("got 'PS'") and only accepts the
+ * quoted `P["a (b)"]`. Siren draws both as the rect labelled `a (b)`.
+ * Accepting more than Mermaid breaks no Mermaid document, and refusing it
+ * would take the picture away from documents that draw today (nook
+ * 01M4R3RVV). It is not a corpus row, because a corpus source must be valid
+ * Mermaid; `parseSiren.test.ts` pins it instead.
+ *
  * Written once and shared by both readers below, so that a label means the
  * same thing on a line of its own as it does at an edge endpoint.
  */
