@@ -53,7 +53,8 @@ Media o-- Artwork : cover
 Listener "1" --> "0..*" Media : rates
 Listener -- Player
 Player ..> Shelf : reads
-Artwork .. Player %% a dashed link, drawn without either endpoint marker
+%% a dashed link, drawn without either endpoint marker
+Artwork .. Player
 
 note "Every class-diagram feature Siren draws, in one document"
 note for Shelf "One shelf per media kind"

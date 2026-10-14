@@ -54,7 +54,8 @@
     "build": "vite build && vite build --mode standalone && node ../../scripts/build-types.mjs && cp src/theme/default.css dist/theme.css",
     "prepublishOnly": "pnpm test && pnpm build",
     "probe": "node scripts/mermaid-probe.mjs",
-    "parity": "node scripts/layout-parity.mjs"
+    "parity": "node scripts/layout-parity.mjs",
+    "check-examples": "node scripts/check-examples.mjs"
   },
   "dependencies": {
     "elkjs": "0.9.3",
