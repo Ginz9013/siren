@@ -4313,6 +4313,31 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-link-mention",
+    kind: "sequence",
+    source: `sequenceDiagram
+      link C: Docs @ https://example.com
+      A->>B: hi
+      link B: Home @ https://example.org`,
+    status: "supported",
+    meaning:
+      "A `link` names its participant the way a message does. Measured on " +
+      "12.2.0: `link C` creates lane C where it is written — first here, so " +
+      "the lanes are C, A, B — and `link B` reaches B, which only the " +
+      "message created.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["C", "A", "B"]);
+      // Each participant box is drawn at the top and again at the bottom, as
+      // Mermaid draws it, so each link appears twice; one of each is enough.
+      const hrefs = new Set(
+        Array.from(svgOf(result).querySelectorAll("a.siren-link")).map(
+          (a) => `${a.querySelector("g.siren-participant")?.getAttribute("data-siren-id")} ${a.getAttribute("href")}`,
+        ),
+      );
+      expectSame("both participants link out", [...hrefs], ["C https://example.com", "B https://example.org"]);
+    },
+  },
+  {
     id: "seq-implicit-participants",
     kind: "sequence",
     source: `sequenceDiagram

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { plainLabel } from "../label/label";
 import type { SequenceDocument, SequenceStatement } from "../contracts";
 import { buildSequenceModel } from "./buildSequenceModel";
+import { parseSequenceDiagram } from "../parser/parseSequenceDiagram";
 
 describe("buildSequenceModel", () => {
   it("assigns message ids of the form fromId-toId, suffixing a second message between the same pair with #2", () => {
@@ -1425,5 +1426,61 @@ describe("buildSequenceModel", () => {
       { kind: "exit", step: 2, targetId: "A-B", effect: "fade" },
       { kind: "exit", step: 2, targetId: "A", effect: "fade" },
     ]);
+  });
+
+  describe("a link names its participant, like any other mention (01M3NNNE6)", () => {
+    /** Parses and builds `body`, returning the lane order, the linked ids and the diagnostics. */
+    function build(body: string) {
+      const { document } = parseSequenceDiagram(`sequenceDiagram\n${body}\n`);
+      if (document === null || document.kind !== "sequence") throw new Error("expected a sequence document");
+      const { model, diagnostics } = buildSequenceModel(document);
+      return {
+        lanes: model.participants.map((p) => p.id),
+        linked: model.interactions.map((i) => i.targetId),
+        diagnostics: diagnostics.map((d) => d.message),
+      };
+    }
+
+    // Each case measured on Mermaid 12.2.0: a link creates its participant's
+    // lane, at the place in the document the link is written.
+    it("resolves a link to a participant only a message created", () => {
+      expect(build("  A->>B: x\n  link B: Docs @ https://x.com")).toEqual({
+        lanes: ["A", "B"],
+        linked: ["B"],
+        diagnostics: [],
+      });
+    });
+
+    it("creates the lane of a participant nothing else names, where the link is written", () => {
+      expect(build("  link C: Docs @ https://x.com\n  A->>B: x").lanes).toEqual(["C", "A", "B"]);
+      expect(build("  A->>B: x\n  link C: Docs @ https://x.com").lanes).toEqual(["A", "B", "C"]);
+      expect(build("  link C: Docs @ https://x.com").lanes).toEqual(["C"]);
+    });
+
+    it("places a link written inside a block between the statements around it", () => {
+      expect(build("  A->>B: x\n  loop L\n    link C: Docs @ https://x.com\n  end\n  B->>D: y").lanes).toEqual([
+        "A",
+        "B",
+        "C",
+        "D",
+      ]);
+    });
+
+    it("keeps a later declaration's label but the link's place", () => {
+      const { document } = parseSequenceDiagram(
+        "sequenceDiagram\n  link C: Docs @ https://x.com\n  participant A\n  participant C as See\n",
+      );
+      const { model } = buildSequenceModel(document as SequenceDocument);
+      expect(model.participants.map((p) => [p.id, p.label.text])).toEqual([
+        ["C", "See"],
+        ["A", "A"],
+      ]);
+    });
+
+    it("refuses a create after a link has already named the participant, as Mermaid does", () => {
+      expect(build("  link C: Docs @ https://x.com\n  create participant C\n  A->>C: x").diagnostics).toEqual([
+        'create participant "C" comes after "C" is already used; a created participant must be created before it is first named',
+      ]);
+    });
   });
 });

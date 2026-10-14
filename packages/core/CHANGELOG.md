@@ -23,6 +23,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- A sequence `link` may name a participant nothing declares. It used to fail with `click "B"
+  references a target that does not exist` when only a message created B; now the link is a
+  mention like any other, creating the lane where it is written, as Mermaid 12.2.0 does
+  (nook `01M3NNNE6`).
 - An ER `ACCDESCR {` block in capitals is refused by name, as the lower-case block is. It used to be
   read as an entity called `ACCDESCR`, so a body like `string x` drew an extra box with no
   diagnostic.
