@@ -1,0 +1,76 @@
+flowchart TB
+  classDef ask fill:#e0e7ff,stroke:#6366f1,stroke-width:2
+  classDef pick fill:#f8fafc,stroke:#94a3b8
+  classDef hall fill:#dcfce7,stroke:#16a34a,stroke-width:2
+  classDef crew fill:#ffedd5,stroke:#ea580c,stroke-width:2
+  classDef sign fill:#fef9c3,stroke:#ca8a04,stroke-width:2
+  classDef warn fill:#fee2e2,stroke:#dc2626,stroke-width:3,color:#7f1d1d
+
+  subgraph intro ["1. 籌備會先決定三件事（投票表決）"]
+    direction TB
+    K1["哪一個週末？<br/>避開颱風季"]:::ask
+    K2["要擺幾個攤位？<br/>上限四十攤"]:::ask
+    K3["主題是什麼？<br/>三選一"]:::ask
+    K1 --> K2 --> K3
+  end
+
+  K3 --> O1["A 二手書與舊唱片"]:::pick
+  K3 --> O2["B 在地小吃與甜點"]:::pick
+  K3 --> O3["C 手作市集加工作坊"]:::pick
+
+  O1 --> N1["向圖書館借長桌<br/>（要提早兩週）"]:::sign
+  O2 --> N2["準備洗手台<br/>（衛生所會來看）"]:::pick
+  O3 --> N3["工作坊報名表<br/>每場限十二人"]:::pick
+  O3 -.-> N4["材料費另計<br/>現場收現金"]:::sign
+
+  N4 -.-> W1["提醒 1<br/>零錢要準備夠<br/>百元鈔最容易不夠找"]:::warn
+
+  subgraph form ["2. 攤商報名表（三種主題都要）"]
+    direction TB
+    F1["攤位尺寸 2m × 2m<br/>自備桌椅"]:::pick
+    F3["聯絡方式：<br/>手機與 LINE<br/>緊急聯絡人"]:::crew
+  end
+
+  N1 & N2 & N3 --> F1
+  F1 --> Submit["3. 截止日收件，籌備會審核"]:::pick
+
+  subgraph office ["4. 里辦公處協助的部分"]
+    direction TB
+    H1["借用里民活動中心"]:::hall
+    H2["申請路權<br/>只封週六下午"]:::hall
+    H3["請志工隊支援：<br/>指揮交通<br/>維持出入口暢通"]:::hall
+    H4["廣播與公告欄<br/>提前一週張貼海報"]:::hall
+    H1 --> H2 --> H3
+    H1 --> H4
+  end
+
+  Submit --> H1
+
+  subgraph roster ["5. 排攤位（吃的和玩的分開）"]
+    direction TB
+    R1["抽籤決定位置<br/>小吃排在樹蔭下"]:::crew
+    R2["印出攤位地圖<br/>每攤發一張"]:::crew
+    R3["前一晚貼好編號"]:::crew
+    R1 --> R2 --> R3
+  end
+
+  F3 --> R1
+  Submit --> R1
+
+  R1 -.-> W2["提醒 2<br/>音響攤別排在書攤旁<br/>翻書的人想要安靜"]:::warn
+  H2 -.-> W2
+
+  H2 & R3 --> Open["6. 市集開幕，大家來逛"]:::pick
+
+  subgraph day ["7. 當天的流程"]
+    direction TB
+    D1["早上七點<br/>攤商進場布置"]:::sign
+    D2["十點開幕，里長致詞"]:::sign
+    D3["下午兩點<br/>工作坊與街頭表演"]:::sign
+    D4["傍晚收攤，一起打掃"]:::sign
+    D1 --> D2 --> D3 --> D4
+  end
+
+  Open --> D1
+
+  D4 -.-> W3["提醒 3<br/>垃圾要分類帶走<br/>回收桶放在活動中心門口<br/>明年還想借場地"]:::warn

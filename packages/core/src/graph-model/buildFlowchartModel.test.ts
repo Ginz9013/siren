@@ -397,24 +397,25 @@ describe("buildFlowchartModel's edge curve", () => {
         column: 3,
       },
     ]);
-    // No curve: below `default` there is only the renderer's `basis`.
+    // No curve: below `default` there is only the renderer's `rounded`.
     expect(overDefault.graph.edges.map((edge) => edge.curve)).toEqual([undefined, undefined]);
     expect(overDefault.diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 4]]);
   });
 
-  it("draws a name no curve has as `basis`, as Mermaid does, overriding `default`, with a warning listing the six curves", () => {
+  it("draws a name no curve has as `rounded`, as Mermaid 12 does, overriding `default`, with a warning listing the six curves", () => {
     // Mermaid matches the name exactly, so `Step` is as unknown as `zigzag`:
-    // it still takes edge 0 off `default`'s `step`, onto `basis`.
+    // it still takes edge 0 off `default`'s `step`, onto `rounded` — what
+    // Mermaid 12.2.0 draws every ELK-routed edge with (measured).
     const { graph, diagnostics } = buildFlowchartModel(
       chain([interpolate(["default"], "step", 4), interpolate(["0"], "Step", 5)]),
     );
 
-    expect(graph.edges.map((edge) => edge.curve)).toEqual(["basis", "step"]);
+    expect(graph.edges.map((edge) => edge.curve)).toEqual(["rounded", "step"]);
     expect(diagnostics).toEqual([
       {
         severity: "warning",
         message:
-          'linkStyle interpolate "Step" names no curve; drawing basis, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+          'linkStyle interpolate "Step" names no curve; drawing rounded, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
         line: 5,
         column: 3,
       },

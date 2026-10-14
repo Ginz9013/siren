@@ -1,0 +1,32 @@
+erDiagram
+%% ER subgraphs, nested, with relationships crossing their boundaries, a
+%% self-relationship and labelled relationships.
+
+AUTHOR {
+  string id PK
+  string name
+}
+
+subgraph library
+  subgraph shelves
+    BOOK {
+      string isbn PK
+      string title
+    }
+    SHELF
+  end
+  LOAN
+end
+
+subgraph members
+  MEMBER
+  CARD
+end
+
+AUTHOR ||--o{ BOOK : writes
+SHELF ||--|{ BOOK : holds
+BOOK ||--o{ LOAN : "lent as"
+MEMBER ||--o{ LOAN : borrows
+MEMBER ||--|| CARD : carries
+MEMBER |o--o{ MEMBER : refers
+AUTHOR }o..o{ MEMBER : "is also"

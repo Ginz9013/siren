@@ -375,7 +375,8 @@ describe("the corpus, case by case", () => {
  * reports — so a plain `A --> A` drew an arrow floating beside its node, in
  * a flowchart and in a state diagram, in silence, and no row said so. This
  * number was reading 1 for a class of four (`01M2SVA30`). It is at 0
- * because the geometry is synthesised now (`selfLoopAroundBox`), and the
+ * because the loop is now routed joined to its box (by the ELK layout core,
+ * after a stretch of Siren synthesising it under dagre), and the
  * cases that were never written down are written down: `fc-self-edge`,
  * `fc-self-edge-lr` and `st-composite-self-transition`, with
  * `st-self-transition` strengthened from "a loop was drawn" to where it is
@@ -597,8 +598,8 @@ const SILENTLY_WRONG = 2;
  * It then fell by **two, to 13**, when an edge started carrying a label.
  * `fc-edge-pipe-label` (`A -->|yes| B`) and `fc-edge-inline-label`
  * (`A -- yes --> B`) are `supported`: both spellings parse to the same
- * label on the same edge, dagre keeps space for it, and the text is drawn
- * in that space. Two, exactly as the ticket expected, and **both fell
+ * label on the same edge, the layout engine (dagre, then) kept space for it,
+ * and the text is drawn in that space. Two, exactly as the ticket expected, and **both fell
  * because code changed** — each already had a row here to leave, each was
  * honestly refused before and renders correctly now. `silently-wrong` is
  * untouched at 3.
@@ -624,8 +625,8 @@ const SILENTLY_WRONG = 2;
  * down and two up — so all three are written out rather than netted.**
  *
  * Down by one: `fc-stmt-subgraph` (`subgraph one / A --> B / end`) is
- * `supported`. The block parses, the nodes inside it belong to it, dagre
- * places the group as a cluster, and the frame is drawn with its title
+ * `supported`. The block parses, the nodes inside it belong to it, the layout
+ * engine (dagre, then) placed the group as a cluster, and the frame is drawn with its title
  * around the boxes it holds — asserted as enclosure off the rendered SVG,
  * not as "it parsed". That fall is code changing: the construct was honestly
  * refused before and renders correctly now.
@@ -855,7 +856,7 @@ const SILENTLY_WRONG = 2;
  *
  * **6 → 5, a row leaving the same way: it started working.**
  * `st-direction-document` is `supported` — `direction LR` at a state
- * diagram's own level now reaches dagre as the whole graph's rank direction,
+ * diagram's own level reached the layout engine (dagre, then) as the whole graph's rank direction,
  * with an assert that reads the successor's coordinates off the rendered SVG
  * rather than the absence of a diagnostic (`01M368FXB`). The document-level
  * and composite-level spellings of `direction` are now both implemented and

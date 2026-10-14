@@ -779,9 +779,10 @@ describe("how long an edge holds its endpoints apart", () => {
   };
 
   it("puts a longer arrow's target further down the rank order", () => {
-    // Three ranks apart rather than one, which is what mermaid 11.17.2 does
-    // with `A ----> B`: it reads `length=3` and hands it to dagre as
-    // `minlen`, measured. Asserted as a *strict* increase rather than
+    // Three ranks apart rather than one: mermaid 11.17.2 read `length=3` for
+    // `A ----> B` and handed it to dagre as `minlen`, measured. Mermaid 12 on
+    // ELK drops it; Siren keeps it (nook 01M4VA6MS, and the
+    // core's `chainOf`). Asserted as a *strict* increase rather than
     // against a number, because how tall a rank is belongs to the theme
     // (ADR-0004) while how many ranks apart the two nodes are is the
     // compatibility contract.
@@ -804,7 +805,7 @@ describe("how long an edge holds its endpoints apart", () => {
 });
 
 /**
- * An edge label is a box dagre has to keep clear, not decoration the
+ * An edge label is a box layout has to keep clear, not decoration the
  * renderer adds afterwards. That claim is about numbers — the ranks move
  * apart and the route reports where the space ended up — and neither half
  * of it is visible in the drawn path alone, which is why it is asserted
@@ -969,20 +970,19 @@ describe("the room an edge label is given", () => {
 /**
  * The regression that would otherwise be invisible.
  *
- * `layoutDirectedGraph` switches dagre's compound mode on **only when a
- * cluster is declared**, and its own comment says why: with compound mode on
- * dagre reserves extra horizontal room for self-edges, which shifts the
- * routing and the graph width of graphs that have no clusters at all. So a
- * flowchart adapter that declared a cluster unconditionally — one empty
- * cluster, or a `parentId` written as `undefined` in a way the `some` check
- * still counts — would move every diagram in the world by a few pixels with
- * every test in this repo still green and every picture subtly different.
+ * The shared core lays out what it is handed and nothing else: a group, an
+ * invisible chain point or a label each changes ELK's answer for every box
+ * around it. So a flowchart adapter that handed over something the document
+ * did not say — an empty group, a label for an edge that has none, a length
+ * for a plain arrow — would move every diagram in the world by a few pixels
+ * with every test in this repo still green and every picture subtly
+ * different.
  *
  * Asserted as an *equivalence* rather than against coordinates copied out of
  * a run: a graph whose model declares no subgraph must lay out exactly as the
- * shared core lays out the same boxes and edges with no clustering mentioned
- * at all. That says the thing that must stay true, and keeps saying it when
- * the theme retunes a number nobody promised.
+ * shared core lays out the same boxes and edges with nothing else mentioned.
+ * That says the thing that must stay true, and keeps saying it when the theme
+ * retunes a number nobody promised.
  */
 describe("a graph with no subgraph", () => {
   it("lays out exactly as the shared core does with no clustering mentioned at all", () => {
@@ -991,10 +991,9 @@ describe("a graph with no subgraph", () => {
     const throughAdapter = layoutGraph(graph, { measureText: fakeMeasurer });
 
     // The same three boxes and two edges, handed to the shared core with no
-    // `parentId` and no `isCluster` anywhere — which is the input that keeps
-    // compound mode off.
+    // group, no label and nothing else anywhere.
     const throughCore = layoutDirectedGraph({
-      rankdir: "TB",
+      direction: "TB",
       nodes: graph.nodes.map((node) => ({
         id: node.id,
         ...fakeMeasurer.measure(node.label.text),
@@ -1003,7 +1002,7 @@ describe("a graph with no subgraph", () => {
         id: edge.id,
         from: edge.from,
         to: edge.to,
-        minlen: edge.minLength,
+        minLength: edge.minLength,
       })),
     });
 
@@ -1011,7 +1010,7 @@ describe("a graph with no subgraph", () => {
       throughAdapter.nodes.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
     ).toEqual(throughCore.nodes);
     expect(throughAdapter.edges.map(({ id, points }) => ({ id, points }))).toEqual(
-      throughCore.edges,
+      throughCore.edges.map(({ id, points }) => ({ id, points })),
     );
     expect(throughAdapter.width).toBe(throughCore.width);
     expect(throughAdapter.height).toBe(throughCore.height);
@@ -1030,9 +1029,8 @@ describe("a graph with no subgraph", () => {
  * holds its own members and no one else's — and about the edges that make
  * grouping worth having: one that leaves a group, and one that joins two.
  *
- * `layoutDirectedGraph` already does all of it: `parentId`, `isCluster`, and
- * nested clusters (verified against `@dagrejs/dagre` directly before any of
- * this was written). Nothing about the shared core changed for this.
+ * The shared core does all of it: `parentId`, `cluster`, and nested groups —
+ * ELK sizes each frame around what it holds.
  */
 describe("a subgraph's frame", () => {
   /** A node, with everything a layout does not care about spelled once. */
@@ -1087,6 +1085,35 @@ describe("a subgraph's frame", () => {
     a.x + a.width > b.x &&
     a.y < b.y + b.height &&
     a.y + a.height > b.y;
+
+  it("orders groups and boxes as Mermaid hands them to ELK: groups first, the last-closed first, then the boxes", () => {
+    // Measured in headless Chrome, mermaid 12.2.0's default layout:
+    // `subgraph SA … end`, `subgraph SB … end`, then `X` — draws SB, SA, X
+    // from left to right, and the same with `X` declared first. Its
+    // `FlowDB.getData` lists subgraphs before vertices, in the reverse of the
+    // order their `end`s closed them, and ELK keeps that order.
+    const order = (nodes: GraphModel["nodes"]) => {
+      const positioned = laidOut(
+        model(nodes, [], [
+          { id: "subgraph:1", label: plainLabel("SA"), parentId: null, direction: null },
+          { id: "subgraph:2", label: plainLabel("SB"), parentId: null, direction: null },
+        ]),
+      );
+      const frames = positioned.subgraphs.map((frame) => ({ id: frame.id, x: frame.x }));
+      const x = positioned.nodes.filter((n) => n.id === "X").map((n) => ({ id: n.id, x: n.x }));
+      return [...frames, ...x].sort((a, b) => a.x - b.x).map((item) => item.id);
+    };
+    expect(order([node("A", "subgraph:1"), node("B", "subgraph:2"), node("X")])).toEqual([
+      "subgraph:2",
+      "subgraph:1",
+      "X",
+    ]);
+    expect(order([node("X"), node("A", "subgraph:1"), node("B", "subgraph:2")])).toEqual([
+      "subgraph:2",
+      "subgraph:1",
+      "X",
+    ]);
+  });
 
   it("encloses the nodes inside it, with room above them for its own title", () => {
     const positioned = laidOut(
@@ -1225,8 +1252,7 @@ describe("a subgraph's frame", () => {
   it("lays a subgraph's own members out in its own direction, independent of the outer graph's", () => {
     // The outer graph is TB, so an ungrouped `A --> B` would stack B below A.
     // A subgraph carrying its own `direction: "LR"` lays its own members out
-    // as a row instead — dagre's `recursiveClusterLayout`, reached through
-    // `layoutDirectedGraph`'s `rankdir` on the cluster node.
+    // as a row instead — its own ELK layout pass, in its own direction.
     const positioned = laidOut(
       model(
         [node("A", "subgraph:1"), node("B", "subgraph:1")],
@@ -1296,11 +1322,13 @@ describe("a subgraph's frame", () => {
     }
   });
 
-  // The spec: a frame is sized from what it holds and from its title, never
-  // from the region dagre reserved for the cluster. Measured, mermaid 12.2.0:
-  // a one-column group whose last member fans out to three boxes below it is
-  // framed one padding wider than its column (276px around 152px boxes),
-  // where 11.17.2 stretched the frame to the fan's full width (1013px).
+  // A frame is sized from what it holds and from its title, never from the
+  // ranks around it. Measured, mermaid 12.2.0: a one-column group whose last
+  // member fans out to three boxes below it is framed close around its
+  // column (276px around 152px boxes), where 11.17.2 stretched the frame to
+  // the fan's full width (1013px). ELK sizes the frame from its contents;
+  // the few pixels beyond the padding are the room it keeps for the three
+  // edges leaving through the frame's bottom.
   it("frames only what it holds, however wide the ranks below it spread", () => {
     const positioned = laidOut(
       model(
@@ -1312,20 +1340,20 @@ describe("a subgraph's frame", () => {
 
     const [frame] = positioned.subgraphs;
     const byId = Object.fromEntries(positioned.nodes.map((n) => [n.id, n]));
-    // The fan below is far wider than the one member; the frame ignores it.
     const fan = [byId.Beta, byId.Gamma, byId.Delta];
     const fanWidth = Math.max(...fan.map((n) => n.x + n.width)) - Math.min(...fan.map((n) => n.x));
     expect(fanWidth).toBeGreaterThan(byId.Alpha.width + 2 * 12);
-    // `SUBGRAPH_PADDING` of 12 each side of the member.
-    expect(frame!.x).toBe(byId.Alpha.x - 12);
-    expect(frame!.width).toBe(byId.Alpha.width + 2 * 12);
+    // `SUBGRAPH_PADDING` of 12 at least, each side of the member…
+    expect(byId.Alpha.x - frame!.x).toBeGreaterThanOrEqual(12);
+    expect(frame!.x + frame!.width - (byId.Alpha.x + byId.Alpha.width)).toBeGreaterThanOrEqual(12);
+    // …and nowhere near the fan's width.
+    expect(frame!.width).toBeLessThan(fanWidth / 2);
   });
 
-  // A frame's own self-loop is synthesised around the *frame*, not around
-  // the region dagre reserved for the cluster: with the frame hugging its
-  // members, a loop drawn around the reserved region would hang off the frame
-  // on a long lead, out where the fan below ends.
-  it("draws a subgraph's self-loop around the frame it hugs, not the region dagre reserved", () => {
+  // A frame's own self-loop belongs to the frame: it leaves the frame's
+  // outline and comes back to it, close by — not out where the fan below
+  // ends, which is what a loop around the region dagre reserved once did.
+  it("draws a subgraph's self-loop on the frame's own outline, close around it", () => {
     const positioned = laidOut(
       model(
         [node("Alpha", "subgraph:1"), node("Beta"), node("Gamma"), node("Delta")],
@@ -1336,14 +1364,23 @@ describe("a subgraph's frame", () => {
 
     const [frame] = positioned.subgraphs;
     const loop = positioned.edges.find((e) => e.id === "subgraph:1-subgraph:1")!;
+    const left = frame!.x;
     const right = frame!.x + frame!.width;
-    // TB, so the loop hangs off the right side: both ends on that edge, and
-    // the whole loop within its own reach of it (`SELF_LOOP_REACH`, 30).
-    expect(loop.points[0]!.x).toBeCloseTo(right);
-    expect(loop.points[loop.points.length - 1]!.x).toBeCloseTo(right);
+    const top = frame!.y;
+    const bottom = frame!.y + frame!.height;
+    const onOutline = (p: { x: number; y: number }) =>
+      p.x >= left - 0.5 && p.x <= right + 0.5 && p.y >= top - 0.5 && p.y <= bottom + 0.5 &&
+      (Math.abs(p.x - left) < 0.5 || Math.abs(p.x - right) < 0.5 || Math.abs(p.y - top) < 0.5 || Math.abs(p.y - bottom) < 0.5);
+    expect(onOutline(loop.points[0]!)).toBe(true);
+    expect(onOutline(loop.points[loop.points.length - 1]!)).toBe(true);
     for (const point of loop.points) {
-      expect(point.x).toBeGreaterThanOrEqual(right - 1e-6);
-      expect(point.x).toBeLessThanOrEqual(right + 30 + 1e-6);
+      const inside = point.x > left + 0.5 && point.x < right - 0.5 && point.y > top + 0.5 && point.y < bottom - 0.5;
+      expect(inside, JSON.stringify(point)).toBe(false);
+      // Within 40 of the frame on every side.
+      expect(point.x).toBeGreaterThanOrEqual(left - 40);
+      expect(point.x).toBeLessThanOrEqual(right + 40);
+      expect(point.y).toBeGreaterThanOrEqual(top - 40);
+      expect(point.y).toBeLessThanOrEqual(bottom + 40);
     }
   });
 
@@ -1392,5 +1429,50 @@ describe("a subgraph's frame", () => {
     // 24px answer pads the two rows by 3px, once.
     expect(twoRows.frame.label.labelBox.height).toBe(45);
     expect(twoRows.above - oneRow.above).toBe(21);
+  });
+});
+
+describe("an edge's line hops", () => {
+  // Each of A and B joined to both C and D: two routes run across between
+  // the rows and cross the others' vertical runs (the core's own test of
+  // the same four boxes).
+  const crossed = (): GraphModel => {
+    const node = (id: string) => ({
+      id,
+      label: plainLabel(id),
+      shape: "rect" as const,
+      style: { frame: [], text: [] },
+      parentId: null,
+      interaction: null,
+    });
+    const edge = (from: string, to: string) => ({
+      id: `${from}-${to}`,
+      from,
+      to,
+      ...PLAIN_ARROW,
+      style: { frame: [], text: [] },
+    });
+    return {
+      direction: "TB",
+      nodes: ["A", "B", "C", "D"].map(node),
+      edges: [edge("A", "D"), edge("B", "C"), edge("A", "C"), edge("B", "D")],
+      subgraphs: [],
+      accTitle: null,
+      accDescr: null,
+      timeline: { totalSteps: 0, entries: [] },
+    };
+  };
+
+  it("reach the positioned edge, each on a horizontal run of that edge's own route", () => {
+    const { edges } = layoutGraph(crossed(), { measureText: fakeMeasurer });
+    const hops = edges.flatMap((edge) => (edge.hops ?? []).map((hop) => ({ edge, hop })));
+    expect(hops.length).toBeGreaterThan(0);
+    for (const { edge, hop } of hops) {
+      const [a, b] = [edge.points[hop.segment], edge.points[hop.segment + 1]];
+      expect(a.y).toBe(hop.y);
+      expect(b.y).toBe(hop.y);
+      expect(Math.min(a.x, b.x)).toBeLessThan(hop.x);
+      expect(Math.max(a.x, b.x)).toBeGreaterThan(hop.x);
+    }
   });
 });

@@ -108,7 +108,10 @@
  * `getBBox` and friends are stubbed with a fixed box purely to let Mermaid's
  * measuring pass complete; every coordinate downstream of that stub is the
  * stub's answer rather than Mermaid's, and several arrive as `NaN`. Ask this
- * mode about paint, and ask the layout seam about geometry.
+ * mode about paint. Geometry — where Mermaid 12's default ELK layout puts a
+ * box, a frame or a route — is measured in a real browser instead:
+ * `scripts/layout-parity.mjs` draws the same source with Mermaid and with
+ * Siren in headless Chrome and compares the two pictures.
  *
  * ## What `--html` prints
  *

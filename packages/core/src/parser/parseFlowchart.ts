@@ -1186,10 +1186,11 @@ function readSubgraphTitle(
  *
  * Measured, not recalled: mermaid 11.17.2 records it as `dir="LR"` on that
  * subgraph and leaves the document's own direction where the header put it
- * (`scripts/mermaid-probe.mjs`). `layoutDirectedGraph` honors it the same
- * way, by way of dagre's own `recursiveClusterLayout`: a cluster node
- * carrying a `rankdir` of its own lays its children out as a sub-graph of
- * their own, independent of the outer graph's direction.
+ * (`scripts/mermaid-probe.mjs`). `layoutDirectedGraph` honors it the way
+ * Mermaid 12's ELK layout does: a cluster carrying a direction of its own
+ * lays its children out in it, independent of the outer graph's, for as
+ * long as no edge voids it (the **Boundary-crossing edge** rule; see
+ * `voidedDirections`).
  *
  * Read with `matchClassDirection` rather than a pattern of this file's own —
  * the spelling, the alias (`TD` → `TB`), and the diagnostic-worthy set of

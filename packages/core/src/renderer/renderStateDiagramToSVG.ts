@@ -6,7 +6,7 @@ import type {
   PositionedStateTransition,
   StyleProperty,
 } from "../contracts";
-import { DEFAULT_CURVE } from "../curve/curve";
+import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -236,7 +236,8 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
 
   const link = document.createElementNS(SVG_NS, "path");
   link.setAttribute("class", "siren-note-link");
-  drawConnectorRoute(link, note.connector, DEFAULT_CURVE);
+  // Rounded, with the line hops the layout found, as a transition line is.
+  drawConnectorRoute(link, note.connector, CONNECTOR_CURVE, note.connectorHops);
   // Explicit, for the same reason a transition line carries it: an open,
   // multi-segment path would otherwise be painted as a filled polygon.
   link.setAttribute("fill", "none");
@@ -263,7 +264,7 @@ function appendNote(g: SVGGElement, state: PositionedState): void {
 
 /**
  * Builds the `<g class="siren-state">` for a composite state: the
- * `<rect class="siren-composite-frame">` at the frame layout grew around
+ * `<rect class="siren-composite-frame">` at the frame layout sized around
  * everything the block holds, and the
  * `<text class="siren-composite-label">` titling it in the strip along its
  * top.
@@ -317,7 +318,7 @@ function buildComposite(state: PositionedState): SVGGElement {
 
 /**
  * Builds the `<g class="siren-state">` for one concurrent region — the
- * `<rect class="siren-state-region">` at the frame layout grew around that
+ * `<rect class="siren-state-region">` at the frame layout sized around that
  * region's members, and nothing else.
  *
  * **Untitled, and that is measured rather than a simplification.** With
@@ -361,7 +362,8 @@ function buildRegion(state: PositionedState): SVGGElement {
 
 /**
  * Draws one of a box's labels — the id, a description, a composite's title —
- * centred on the box's middle at the y layout measured it at, classed and
+ * centred on the box's middle (or, for a title the layout moved along its
+ * strip, on the `x` it reports) at the y layout measured it at, classed and
  * styled as that kind of label, and appends it to `g`.
  *
  * Every row of a label wears the author's text declarations through the
@@ -376,7 +378,9 @@ function appendStateLabel(
   centerX: number,
   style: StyleProperty[],
 ): void {
-  const drawn = drawLabel(planned.label, planned.labelBox, { x: centerX, y: planned.y }, className);
+  // A composite's title carries its own `x` where the layout moved it along
+  // the strip; every other label is centred on its box.
+  const drawn = drawLabel(planned.label, planned.labelBox, { x: planned.x ?? centerX, y: planned.y }, className);
   applyAuthorStyle(drawn.text, style);
   appendLabel(g, drawn);
 }
@@ -559,7 +563,9 @@ function buildTransition(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-transition-line");
-  drawConnectorRoute(line, transition.points, DEFAULT_CURVE);
+  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`:
+  // the curve layout kept the hops clear of).
+  drawConnectorRoute(line, transition.points, CONNECTOR_CURVE, transition.hops);
   // Explicit, not left to CSS: a transition's points make an open,
   // multi-segment path, which a default fill would paint as a filled polygon
   // spanning the states it connects.

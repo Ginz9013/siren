@@ -2,20 +2,26 @@ import type {
   Direction,
   Label,
   LayoutOptions,
-  Point,
   PositionedState,
   PositionedStateDiagram,
   PositionedStateNote,
   PositionedStateLabel,
   PositionedStateTransition,
   ResolvedState,
+  ResolvedStateTransition,
   StateModel,
+  StateNote,
 } from "../contracts";
 import {
-  clipRouteEndToBox,
   layoutDirectedGraph,
-  type DirectedGraphLayoutNodeBox,
+  type DirectedGraphEdge,
+  type DirectedGraphEdgeRoute,
+  type DirectedGraphNode,
+  type DirectedGraphNodeBox,
 } from "./layoutDirectedGraph";
+import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
+import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
+import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { plainLabel } from "../label/label";
 import {
   NO_WRAP,
@@ -88,60 +94,55 @@ const forkBarBox = (direction: Direction): { width: number; height: number } =>
     : { width: FORK_BAR_LENGTH, height: FORK_BAR_THICKNESS };
 
 /**
- * Gap between a composite state's frame and the boxes and frames it
- * encloses, and the margin above and below its own title inside the strip
- * along its top.
- *
- * The same number `layoutGraph` pads a subgraph's frame by, because it is
- * the same figure: measured with `--markup`, mermaid 11.17.2 draws a
- * composite as a titled frame exactly as it draws a flowchart subgraph.
- * Which pixel count it is remains Siren's (ADR-0004), but one grouping frame
- * padded differently from the other would read as two constructs.
- */
-const COMPOSITE_PADDING = 12;
-
-/**
- * Whether this kind of state is drawn as a **frame** — a box grown around
- * whatever names it as a parent — rather than as a figure of its own size.
+ * Whether this kind of state is drawn as a **frame** — a cluster the shared
+ * core sizes around whatever names it as a parent — rather than as a figure
+ * of its own size.
  *
  * Two kinds are, for the same structural reason and with two different
  * figures: a composite is the titled frame `state Outer {` opens, and a
  * concurrent region is the untitled one a `--` divides that block into.
- * Everything that grows, shifts, clips to or nests a frame asks this rather
- * than naming `"composite"`, so a second frame kind could not be half
+ * Everything that hands a frame to the core or asks for its level asks this
+ * rather than naming `"composite"`, so a second frame kind could not be half
  * added.
  */
 const isFrame = (kind: ResolvedState["kind"]): boolean =>
   kind === "composite" || kind === "region";
 
-/** Horizontal padding between a note box's edge and its text. */
-const NOTE_PADDING_X = 10;
-/** Vertical padding between a note box's edge and its text. */
-const NOTE_PADDING_Y = 8;
+/**
+ * The direction a composite or region whose block writes no `direction`
+ * lays its members out in: Mermaid 12.2.0's `DEFAULT_NESTED_DOC_DIR`
+ * (`stateDiagram-v2-MYRXERYP.mjs`, line 964), whatever the document's own.
+ */
+const NESTED_DIRECTION: Direction = "TB";
 
 /**
- * The id a state's note is known by inside the shared layout core, and the
- * id of the edge joining the two.
+ * A state carrying a note, with the note's label wrapped and measured.
  *
- * Prefixed away from everything a document can spell, the way
- * `layoutClassDiagram`'s `note:`/`note-link:` ids are: an authored state id
- * is `\w+` and cannot contain a colon, and a generated pseudo-state id is
- * `start:1`, so neither can collide with these. A state carries **at most
- * one** note (measured — a second one replaces the first), so the state's own
- * id is enough to name both without a counter.
+ * The note is keyed by the state's own id inside the shared layout core
+ * (`noteNodeId`, `noteLinkEdgeId`): a state carries **at most one** note
+ * (measured — a second one replaces the first), so the state's id is enough
+ * to name both the note and its link without a counter.
  */
-const noteNodeId = (stateId: string): string => `note:${stateId}`;
-const noteLinkEdgeId = (stateId: string): string => `note-link:${stateId}`;
+type NotedState = { state: ResolvedState; note: StateNote } & WrappedLabel;
+
+/**
+ * Whether `note` is written `left of` its state — the spelling whose link
+ * runs note → state, and whose connector is reversed to read state → note.
+ */
+const isLeftOf = (note: StateNote): boolean => note.position === "left of";
 
 /**
  * Computes state boxes and transition paths for a resolved `StateModel`.
  *
- * This is the state-diagram adapter over `layoutDirectedGraph`: it measures
- * each state's label, hands the resulting sizes to the shared layout core,
- * and reattaches the state diagram's own data to the coordinates that come
- * back. All graph-layout math lives in the core — including a
- * self-transition's loop, which is an ordinary edge whose two endpoints are
- * the same node and needs nothing special here.
+ * This is the state-diagram adapter over the shared ELK layout core
+ * (`layoutDirectedGraph`): it measures each state's label,
+ * hands the resulting sizes to the core — composites and concurrent regions
+ * as clusters, notes as boxes of their own, in Mermaid 12.2.0's order — and
+ * reattaches the state diagram's own data to the coordinates that come back.
+ * All graph-layout math lives in the core, frames, a transition's ends on a
+ * composite's frame and every self-transition's loop included; nothing here
+ * moves a box, a frame or a route afterwards (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
  */
 export function layoutStateDiagram(
   model: StateModel,
@@ -163,7 +164,7 @@ export function layoutStateDiagram(
    * and read the result back all work from the same list, and the box and
    * rows the note was sized around are the ones it is drawn with.
    */
-  const notedStates = model.states.flatMap((state) =>
+  const notedStates = model.states.flatMap((state): NotedState[] =>
     state.note === null
       ? []
       : [
@@ -194,116 +195,129 @@ export function layoutStateDiagram(
     ),
   );
 
+  /**
+   * A state as the core is handed it. A composite or a concurrent region
+   * goes as a cluster (`clusterNode`, as every kind's grouping frame does);
+   * a region has no title, so it asks for no band.
+   *
+   * The frame the core placed comes back through the states below rather
+   * than `placedFrame`: a composite's title is the plan's stack of labels
+   * (its name and any description rows), not one `PlacedLabel`.
+   */
+  const stateNode = (state: ResolvedState): DirectedGraphNode => {
+    const plan = planById.get(state.id)!;
+    if (isFrame(state.kind)) {
+      return clusterNode({
+        id: state.id,
+        parentId: state.parentId,
+        title: plan.labels.length === 0 ? null : titleSize(plan),
+        // `TB` when the block names none: Mermaid 12.2.0 gives every
+        // composite and region a direction of its own,
+        // `DEFAULT_NESTED_DOC_DIR` when its block writes no `direction`
+        // (`getDir`, `stateDiagram-v2-MYRXERYP.mjs` lines 964 and 1083), so
+        // even under a document-level `LR` an undirected block stacks its
+        // members.
+        direction: state.direction ?? NESTED_DIRECTION,
+      });
+    }
+    return {
+      id: state.id,
+      width: plan.width,
+      height: plan.height,
+      ...(state.parentId === null ? {} : { parentId: state.parentId }),
+    };
+  };
+
+  /**
+   * A note as the core is handed it: a box the layout places like any other,
+   * which is what keeps it from landing on top of a state — as Mermaid
+   * 12.2.0 places it, a node of its own. It joins the level its state is
+   * written at.
+   */
+  const noteNode = ({ state, labelBox }: NotedState): DirectedGraphNode => ({
+    id: noteNodeId(state.id),
+    ...noteBoxSize(labelBox),
+    ...(state.parentId === null ? {} : { parentId: state.parentId }),
+  });
+
+  /** A transition as the core is handed it. */
+  const transitionEdge = (transition: ResolvedStateTransition): DirectedGraphEdge => ({
+    id: transition.id,
+    from: transition.from,
+    to: transition.to,
+    // A labelled transition asks the core to keep room for the text on the
+    // line, and reports back where that room ended up.
+    ...(transition.label === null
+      ? {}
+      : { label: wrappedTransitionLabelById.get(transition.id)!.labelBox }),
+    // The radius the line hops keep clear of: a transition is drawn rounded
+    // (`CONNECTOR_CURVE`).
+    cornerRadius: CONNECTOR_CORNER_RADIUS,
+  });
+
+  /**
+   * The edge that puts a note beside the state it annotates, and whose route
+   * is the note's connector. **The side the author named is spent here, as
+   * this edge's direction** — Mermaid's own construction: `right of` runs
+   * state → note and `left of` runs note → state, so a `left of` note lands
+   * before its state along the diagram's direction and a `right of` one
+   * after it.
+   */
+  const noteLinkEdge = ({ state, note }: NotedState): DirectedGraphEdge => ({
+    id: noteLinkEdgeId(state.id),
+    from: isLeftOf(note) ? noteNodeId(state.id) : state.id,
+    to: isLeftOf(note) ? state.id : noteNodeId(state.id),
+    cornerRadius: CONNECTOR_CORNER_RADIUS,
+  });
+
+  // Where each note goes in the order the core is handed. Mermaid 12.2.0
+  // adds a note's box and its link where the `note` statement is written
+  // (`dataFetcher`, `stateDiagram-v2-MYRXERYP.mjs` line 1222); the model does
+  // not keep that place, so each note is handed over as if it were written
+  // right after the statement that first names its state — its box right
+  // after the state, its link right after the first transition naming the
+  // state, or after every transition when none does. Measured on the state
+  // parity fixtures (nook decision `01M4VKTJ2A1DGXAMYVF16BK2W3`): handing
+  // every link over after every transition instead mirrors
+  // `state-long-labels` left to right.
+  const notedById = new Map(notedStates.map((entry) => [entry.state.id, entry]));
+  const linksAfter = new Map<string, NotedState[]>();
+  const linksLast: NotedState[] = [];
+  for (const entry of notedStates) {
+    const first = model.transitions.find(
+      (transition) => transition.from === entry.state.id || transition.to === entry.state.id,
+    );
+    if (first === undefined) linksLast.push(entry);
+    else linksAfter.set(first.id, [...(linksAfter.get(first.id) ?? []), entry]);
+  }
+
   const laidOut = layoutDirectedGraph({
-    // The document's own rank direction — `TB` unless the author wrote a
-    // `direction` outside every composite, which is the default measured
-    // against mermaid 11.17.2. A *composite's* own direction is a separate
-    // thing and reaches dagre per cluster below; measured, the two are
-    // independent, so neither overrides the other.
-    rankdir: model.direction,
-    nodes: [
-      ...model.states.map((state) => {
-        const plan = planById.get(state.id)!;
-        return {
-          id: state.id,
-          width: plan.width,
-          height: plan.height,
-          // A composite is a *frame*: the states that name it as their parent
-          // are laid out inside it. What the core hands back for it is the box
-          // the core placed, which is *not* promised to have been sized from
-          // those states or to enclose them — a composite nested inside one
-          // carrying a `direction` comes back at exactly the size given above,
-          // never having been sized at all (see `isCluster` in
-          // `layoutDirectedGraph.ts` for the measured table). `compositeFrames`
-          // is where the frame the picture shows is actually computed, by
-          // union with the members, and that is why it cannot be skipped.
-          // The size above is still worth giving: it is the smallest the frame
-          // could sensibly be, and it is what a composite holding nothing is
-          // drawn at, since the core lays a childless cluster out as an
-          // ordinary box.
-          ...(isFrame(state.kind) ? { isCluster: true } : {}),
-          // Membership, and the only thing about a composite the shared core
-          // is told. `undefined` rather than `null` at the document's own
-          // level, because the core switches dagre's compound mode on by the
-          // *presence* of parentage — a field written as `null` would count.
-          ...(state.parentId === null ? {} : { parentId: state.parentId }),
-          // The composite's own `direction`, reaching dagre's
-          // `recursiveClusterLayout` through the one field it reads per
-          // cluster — the same port `layoutGraph` makes for a subgraph's.
-          ...(state.direction === null ? {} : { rankdir: state.direction }),
-        };
-      }),
-      // A note is a box the layout places like any other, which is what
-      // keeps it from landing on top of a state — the same answer
-      // `layoutClassDiagram` gives a class note, and the same one Mermaid
-      // gives this note (measured: it inserts the note into its own graph as
-      // a node and lets the layout engine place it).
-      //
-      // It joins the **level its state is written at**, so a note on a state
-      // inside a composite is laid out inside that composite's cluster and
-      // ends up inside the frame drawn for it, rather than floating outside
-      // the block whose state it annotates.
-      ...notedStates.map(({ state, labelBox }) => ({
-        id: noteNodeId(state.id),
-        width: labelBox.width + NOTE_PADDING_X * 2,
-        height: labelBox.height + NOTE_PADDING_Y * 2,
-        ...(state.parentId === null ? {} : { parentId: state.parentId }),
-      })),
-    ],
+    // The document's own direction — `TB` unless the author wrote a
+    // `direction` outside every composite. A composite's own is a separate
+    // thing and reaches the core per cluster below.
+    direction: model.direction,
+    // Every state in the order Mermaid 12.2.0 hands a state diagram to ELK:
+    // its `dataFetcher` (`stateDiagram-v2-MYRXERYP.mjs`, line 1127) walks the
+    // document statement by statement, adding each state where it is first
+    // named — both ends of a transition in turn — and a composite's members
+    // where its block is written, and each transition where it is written.
+    // `StateModel.states` and `StateModel.transitions` are already in that
+    // order, and the core keeps the order it is handed (`considerModelOrder`).
+    nodes: model.states.flatMap((state) => {
+      const entry = notedById.get(state.id);
+      return entry === undefined ? [stateNode(state)] : [stateNode(state), noteNode(entry)];
+    }),
     edges: [
-      ...model.transitions.map((transition) => ({
-        id: transition.id,
-        from: transition.from,
-        to: transition.to,
-        // A labelled transition asks the core to keep its ranks far enough
-        // apart for the text, and reports back where that space ended up.
-        ...(transition.label === null
-          ? {}
-          : { label: wrappedTransitionLabelById.get(transition.id)!.labelBox }),
-      })),
-      // The edge that puts the note beside the state it annotates, and whose
-      // route is the note's connector. It is never drawn as a transition:
-      // measured, Mermaid builds this one with `arrowhead: "none"`, which is
-      // what keeps it from reading as a transition into the note.
-      //
-      // **The side the author named is spent here, as this edge's
-      // direction** — measured from Mermaid's own construction, which is the
-      // only place the two spellings differ: `right of` runs state → note and
-      // `left of` runs note → state, and the rank order that falls out of
-      // that is the whole of what `left`/`right` mean. So a `left of` note
-      // lands *before* its state along the diagram's direction and a
-      // `right of` one *after* it, which is left and right under `direction
-      // LR` and above and below under the default `TB` — Mermaid's behaviour
-      // exactly, because it is Mermaid's mechanism.
-      ...notedStates.map(({ state, note }) => ({
-        id: noteLinkEdgeId(state.id),
-        from: note.position === "left of" ? noteNodeId(state.id) : state.id,
-        to: note.position === "left of" ? state.id : noteNodeId(state.id),
-      })),
+      ...model.transitions.flatMap((transition) => [
+        transitionEdge(transition),
+        ...(linksAfter.get(transition.id) ?? []).map(noteLinkEdge),
+      ]),
+      ...linksLast.map(noteLinkEdge),
     ],
   });
 
-  // Boxes as the shared core placed them, in *core* coordinates. The frames
-  // below are grown in this space and can reach outside it; the shift that
-  // follows moves everything into the space the diagram is finally described
-  // in. `layoutGraph` does exactly this, for exactly this reason.
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
-  const frameById = compositeFrames(model, boxById, planById);
-
-  // A frame grows outward — up for its title strip, out for its padding —
-  // so it can reach above and left of the corner the core laid the graph out
-  // from. Everything is shifted by however far it did, rather than a frame
-  // being drawn at a negative coordinate, which is off the canvas.
-  //
-  // `Math.max(0, ...)` over an empty list is `0`, so a diagram with no
-  // composite in it shifts by nothing and every coordinate below is the
-  // core's own number untouched.
-  const shift = {
-    x: Math.max(0, ...[...frameById.values()].map((frame) => -frame.x)),
-    y: Math.max(0, ...[...frameById.values()].map((frame) => -frame.y)),
-  };
-  const shifted = (point: Point): Point => ({ x: point.x + shift.x, y: point.y + shift.y });
 
   /**
    * Each styled state's declarations, keyed for lookup below.
@@ -319,77 +333,64 @@ export function layoutStateDiagram(
   );
 
   const states = model.states.map<PositionedState>((state) => {
-    // A composite is drawn at its *frame*, which is grown from the cluster
-    // box the core placed; everything else is drawn at the box itself.
-    const box = frameById.get(state.id) ?? boxById.get(state.id)!;
+    // A composite's box is its frame, as the core placed it.
+    const box = boxById.get(state.id)!;
     const plan = planById.get(state.id)!;
-    const placed = shifted(box);
     return {
       id: state.id,
       kind: state.kind,
       stereotype: state.stereotype,
-      x: placed.x,
-      y: placed.y,
+      x: box.x,
+      y: box.y,
       width: box.width,
       height: box.height,
       // The plan measured everything from the box's own top edge, before
       // the core knew where the box would go; this is where that box
-      // landed.
-      labels: plan.labels.map((planned) => ({ ...planned, y: placed.y + planned.y })),
+      // landed. A frame's title goes where the core put it across its
+      // band — centred, or moved along it clear of the routes crossing it.
+      labels: plan.labels.map((planned) => ({
+        ...planned,
+        y: box.y + planned.y,
+        ...(box.title === undefined ? {} : { x: box.title.x }),
+      })),
       style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
-      dividerY: plan.dividerY === null ? null : placed.y + plan.dividerY,
-      note: placeNote(state, wrappedNoteById, boxById, routeById, frameById, shifted),
+      dividerY: plan.dividerY === null ? null : box.y + plan.dividerY,
+      note: placeNote(state, wrappedNoteById, boxById, routeById),
     };
   });
 
   const transitions = model.transitions.map<PositionedStateTransition>((transition) => {
     const route = routeById.get(transition.id)!;
-
-    // An endpoint that is a composite names the *frame*. The shared core
-    // already clipped such a route to the cluster box it placed, which is
-    // the honest answer in its own coordinates — but a frame is grown
-    // outward from that box, by `COMPOSITE_PADDING` all round and a title
-    // strip along the top, so an arrowhead left where the core put it would
-    // land inside the frame by exactly that much. Growing the frame is this
-    // module's decision, so paying for it is too — with the core's own
-    // clipper, so that "on the boundary" means one thing in both spaces.
-    let points = route.points;
-    const fromFrame = frameById.get(transition.from);
-    if (fromFrame !== undefined) {
-      points = clipRouteEndToBox(points, fromFrame, "start");
-    }
-    const toFrame = frameById.get(transition.to);
-    if (toFrame !== undefined) {
-      points = clipRouteEndToBox(points, toFrame, "end");
-    }
-
     return {
       id: transition.id,
       from: transition.from,
       to: transition.to,
-      points: points.map(shifted),
+      points: route.points,
+      hops: route.hops,
       label:
         transition.label === null || route.labelAnchor === undefined
           ? null
           : {
               ...wrappedTransitionLabelById.get(transition.id)!,
-              anchor: shifted(route.labelAnchor),
+              anchor: route.labelAnchor,
             },
     };
   });
 
-  const bounds = diagramBounds(states, transitions);
-
   return {
     states,
     transitions,
-    // The core reports the bounds of the graph it placed, which never
-    // included the title strip a frame grows upward for; this takes
-    // whichever is larger so that neither a frame nor a route the core
-    // routed outside its own figure — a self-transition's loop is the case
-    // that reaches for room beside its box — is clipped by the `viewBox`.
-    width: Math.max(laidOut.width + shift.x, bounds.width),
-    height: Math.max(laidOut.height + shift.y, bounds.height),
+    // The core's extent holds every box, frame, route and label it placed.
+    width: laidOut.width,
+    height: laidOut.height,
+  };
+}
+
+/** A frame's title as the core keeps room for it: its labels stacked, as wide as the widest. */
+function titleSize(plan: StateBoxPlan): { width: number; height: number } {
+  return {
+    width: Math.max(...plan.labels.map((planned) => planned.labelBox.width)),
+    height: plan.labels.reduce((sum, planned) => sum + planned.labelBox.height, 0),
   };
 }
 
@@ -406,12 +407,11 @@ export function layoutStateDiagram(
  * which is the rule `SirenSubgraph.direction` already follows for a
  * flowchart.
  *
- * **Mermaid lays that one level out differently from Siren's shared core**,
- * which gives a cluster carrying no `rankdir` the graph's own (see
- * `rankdirFor` in `layoutDirectedGraph.ts`). This function answers what
- * *Mermaid* means, because it is choosing a figure and the figure is what
- * compatibility is owed; the ranks around it are the core's business and
- * that disagreement is the core's to settle.
+ * The layout agrees: every frame goes to the core with that direction
+ * (`NESTED_DIRECTION` when it names none), Mermaid 12.2.0's rule. Where a
+ * transition voids it (the **Boundary-crossing edge**) the core lays the
+ * level out in its parent's pass; the bar keeps the level's own figure,
+ * because it is chosen from what the author wrote, as Mermaid chooses it.
  */
 function levelDirections(model: StateModel): (state: ResolvedState) => Direction {
   // Every frame, not only every composite: a concurrent region is a level
@@ -439,150 +439,38 @@ function levelDirections(model: StateModel): (state: ResolvedState) => Direction
  * carries none.
  *
  * Both the box and the connector come straight back out of the core: the
- * note was a node of the laid-out graph and the connector was an edge, so
- * neither is computed here — what is done here is the two things the core
- * cannot know about. The route is **reordered to run from the state to the
- * note**, since the edge's own direction is the author's `left of`/`right of`
- * and a reader of `connector` should not have to ask which spelling produced
- * it; and a route ending on a *composite* is re-clipped to that composite's
- * grown frame, exactly as a transition naming one is, because the frame is
- * this module's own growth and the core clipped to the cluster box inside it.
+ * note was a node of the laid-out graph and the connector was an edge. The
+ * one thing done here is the order: the route is **reordered to run from the
+ * state to the note**, since the edge's own direction is the author's
+ * `left of`/`right of` and a reader of `connector` should not have to ask
+ * which spelling produced it — its line hops with it.
  */
 function placeNote(
   state: ResolvedState,
   wrappedNoteById: ReadonlyMap<string, WrappedLabel>,
-  boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
-  routeById: ReadonlyMap<string, { points: Point[] }>,
-  frameById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
-  shifted: (point: Point) => Point,
+  boxById: ReadonlyMap<string, DirectedGraphNodeBox>,
+  routeById: ReadonlyMap<string, DirectedGraphEdgeRoute>,
 ): PositionedStateNote | null {
   if (state.note === null) {
     return null;
   }
 
   const box = boxById.get(noteNodeId(state.id))!;
-  const placed = shifted(box);
-
-  // The edge runs state → note for `right of` and note → state for
-  // `left of`; the connector is always reported the first way round.
-  const routed = routeById.get(noteLinkEdgeId(state.id))!.points;
-  const stateEnd = state.note.position === "left of" ? "end" : "start";
-  const frame = frameById.get(state.id);
-  const clipped = frame === undefined ? routed : clipRouteEndToBox(routed, frame, stateEnd);
-  const fromState = state.note.position === "left of" ? [...clipped].reverse() : clipped;
+  const route = routeById.get(noteLinkEdgeId(state.id))!;
+  const reversed = isLeftOf(state.note);
 
   return {
     ...wrappedNoteById.get(state.id)!,
-    x: placed.x,
-    y: placed.y,
+    x: box.x,
+    y: box.y,
     width: box.width,
     height: box.height,
-    connector: fromState.map(shifted),
+    connector: reversed ? [...route.points].reverse() : route.points,
+    // Renumbered along the reversed route, and in the order it meets them.
+    connectorHops: reversed
+      ? route.hops.map((hop) => ({ ...hop, segment: route.points.length - 2 - hop.segment })).reverse()
+      : route.hops,
   };
-}
-
-/**
- * Each composite's frame, in the shared core's own coordinate space, by the
- * composite's id.
- *
- * A frame is grown from the cluster box the core placed until it clears
- * everything it holds by `COMPOSITE_PADDING` and has a strip along its top
- * for its own title. That is `layoutGraph`'s `subgraphFrames`, ported —
- * including its nesting: a frame must clear the whole of each frame *beneath*
- * it, title strip included, since that strip is the part that reaches
- * highest.
- *
- * **Taking the union with what the frame holds is required, not merely
- * conservative.** The core's cluster box is not promised to have been sized
- * from the members or to enclose them: a composite nested inside one that
- * declared a `direction` comes back at *exactly the size this module handed
- * in* — its own title strip — with the states it holds at coordinates outside
- * it (measured; the table is on `isCluster` in `layoutDirectedGraph.ts` and
- * the test that pins it is in `layoutDirectedGraph.test.ts`). This diagram
- * kind reaches that combination on ordinary input, since `state Outer {` may
- * hold both a `direction` and another `state Inner {`. So the member boxes in
- * the four `Math.min`/`Math.max` calls below are not padding-and-titles
- * arithmetic that the core has already done — they are the only thing making
- * the inner frame the right size at all, and deleting them as redundant
- * draws a title bar with its whole contents spilled out of it.
- *
- * Grown by recursion rather than by walking the model backwards, which is
- * what `layoutGraph` can do because its subgraphs are listed in pre-order. A
- * composite's place in `StateModel.states` is where it was first *named*,
- * and a composite can be named by a transition written above the block that
- * opens its parent — so parent-before-child is not a property of this list,
- * and asking each frame for its children's frames is what makes the order
- * right whatever the list says.
- */
-function compositeFrames(
-  model: StateModel,
-  boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
-  planById: ReadonlyMap<string, StateBoxPlan>,
-): Map<string, DirectedGraphLayoutNodeBox> {
-  const stateById = new Map(model.states.map((state) => [state.id, state]));
-  const memberIdsByParent = new Map<string, string[]>();
-  for (const state of model.states) {
-    if (state.parentId !== null) {
-      memberIdsByParent.set(state.parentId, [
-        ...(memberIdsByParent.get(state.parentId) ?? []),
-        state.id,
-      ]);
-    }
-  }
-
-  const frameById = new Map<string, DirectedGraphLayoutNodeBox>();
-
-  const frameOf = (id: string): DirectedGraphLayoutNodeBox => {
-    const already = frameById.get(id);
-    if (already !== undefined) {
-      return already;
-    }
-
-    const cluster = boxById.get(id)!;
-    const plan = planById.get(id)!;
-    // The plan's height *is* the title strip: padding, the title rows, then
-    // padding again before whatever the frame holds starts. A region has no
-    // title, so its plan is one padding and the clearance above its first
-    // member is the ordinary padding rather than a strip.
-    const strip = plan.height;
-
-    const held = (memberIdsByParent.get(id) ?? []).flatMap((memberId) => {
-      const member = stateById.get(memberId)!;
-      return [
-        isFrame(member.kind) ? frameOf(memberId) : boxById.get(memberId)!,
-        // A member's **note** is held by this frame too: it was laid out at
-        // the same level and is drawn inside the block, so a frame grown
-        // from the state boxes alone leaves it hanging outside the figure
-        // that holds the state it annotates.
-        ...(member.note === null ? [] : [boxById.get(noteNodeId(memberId))!]),
-      ];
-    });
-
-    const left = Math.min(cluster.x, ...held.map((box) => box.x - COMPOSITE_PADDING));
-    const top = Math.min(cluster.y, ...held.map((box) => box.y - strip));
-    const right = Math.max(
-      cluster.x + cluster.width,
-      // No narrower than its own title, whatever it holds.
-      left + plan.width,
-      ...held.map((box) => box.x + box.width + COMPOSITE_PADDING),
-    );
-    const bottom = Math.max(
-      cluster.y + cluster.height,
-      ...held.map((box) => box.y + box.height + COMPOSITE_PADDING),
-    );
-
-    const frame = { id, x: left, y: top, width: right - left, height: bottom - top };
-    frameById.set(id, frame);
-    return frame;
-  };
-
-  for (const state of model.states) {
-    if (isFrame(state.kind)) {
-      frameOf(state.id);
-    }
-  }
-
-  return frameById;
 }
 
 /**
@@ -629,15 +517,15 @@ function planStateBox(
   // would put a string the author never wrote on the picture — the same
   // reason a pseudo-state draws none.
   //
-  // So the plan is padding and nothing else. That number doubles as the
-  // clearance `compositeFrames` leaves above the first member, which for a
-  // region is the ordinary padding rather than a strip, and as the box a
-  // region holding nothing is drawn at — an empty region is a region
-  // (measured: two `--` in a row report three dividers, the middle empty).
+  // So the plan is padding and nothing else: the core keeps the ordinary
+  // padding above its first member rather than a title band, and lays a
+  // region holding nothing out as a box of its padding — an empty region is
+  // a region (measured: two `--` in a row report three dividers, the middle
+  // empty).
   if (state.kind === "region") {
     return {
-      width: COMPOSITE_PADDING * 2,
-      height: COMPOSITE_PADDING,
+      width: SUBGRAPH_PADDING * 2,
+      height: SUBGRAPH_PADDING,
       labels: [],
       dividerY: null,
     };
@@ -706,13 +594,11 @@ function planStateBox(
  * A composite's plan: the strip its title is drawn in, measured from the
  * frame's own top edge, and the smallest frame that strip could sit in.
  *
- * **The plan's `height` is the strip, not the frame.** A frame's height
- * comes from what it holds, which is not known until the shared core has
- * placed those members, so what is planned here is the part that *is* known:
- * padding, the title rows, padding again, which is what `compositeFrames`
- * then leaves clear above the first member. It doubles as the box a
- * composite holding nothing is drawn at, since the core lays a childless
- * cluster out as an ordinary node.
+ * **The plan's `height` is the strip, not the frame.** A frame's size comes
+ * from what it holds, which the shared core decides; what is planned here is
+ * the part that *is* known — padding, the title rows, padding again — which
+ * is the band the core keeps across the frame's top for the title
+ * (`titleSize`, with the same padding).
  *
  * No divider: the line under a described state's title label closes a
  * compartment, and a frame's title strip is not one — what is below it is
@@ -720,7 +606,7 @@ function planStateBox(
  */
 function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   const planned: PositionedStateLabel[] = [];
-  let bottom = COMPOSITE_PADDING;
+  let bottom = SUBGRAPH_PADDING;
 
   for (const label of labels) {
     // Never wrapped: measured, mermaid 11.17.2 draws a composite's title —
@@ -732,8 +618,8 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   }
 
   return {
-    width: Math.max(...planned.map((placed) => placed.labelBox.width)) + COMPOSITE_PADDING * 2,
-    height: bottom + COMPOSITE_PADDING,
+    width: Math.max(...planned.map((placed) => placed.labelBox.width)) + SUBGRAPH_PADDING * 2,
+    height: bottom + SUBGRAPH_PADDING,
     labels: planned,
     dividerY: null,
   };
@@ -748,44 +634,4 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
  */
 function placeLabel(wrapped: WrappedLabel, top: number): PositionedStateLabel {
   return { ...wrapped, y: top + wrapped.labelBox.height / 2 };
-}
-
-/**
- * The extent every drawn thing fits inside: state boxes, transition paths,
- * and the text anchored along them — each label at the box layout already
- * measured for it, so nothing here asks the measurer again.
- */
-function diagramBounds(
-  states: PositionedState[],
-  transitions: PositionedStateTransition[],
-): { width: number; height: number } {
-  let right = 0;
-  let bottom = 0;
-
-  const cover = (x: number, y: number) => {
-    right = Math.max(right, x);
-    bottom = Math.max(bottom, y);
-  };
-
-  for (const state of states) {
-    cover(state.x + state.width, state.y + state.height);
-    // A note is a figure of its own, and its connector a routed line of its
-    // own: neither is inside the state's box, so neither is covered by it.
-    if (state.note !== null) {
-      cover(state.note.x + state.note.width, state.note.y + state.note.height);
-      for (const point of state.note.connector) cover(point.x, point.y);
-    }
-  }
-
-  for (const transition of transitions) {
-    for (const point of transition.points) cover(point.x, point.y);
-    if (transition.label !== null) {
-      cover(
-        transition.label.anchor.x + transition.label.labelBox.width / 2,
-        transition.label.anchor.y + transition.label.labelBox.height / 2,
-      );
-    }
-  }
-
-  return { width: right, height: bottom };
 }

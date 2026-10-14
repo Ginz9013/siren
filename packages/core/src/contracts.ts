@@ -41,8 +41,9 @@ export interface Diagnostic {
  * Mermaid's alias for `TB` and is normalized away by the parser (see
  * `normalizeDirection`), so nothing downstream ever sees it.
  *
- * `layoutDirectedGraph` takes this type directly as its `rankdir` — the four
- * values are dagre's own, so there is nothing left to map.
+ * `layoutDirectedGraph` takes this type directly as its `direction`, and maps
+ * the four values onto ELK's own (`DOWN`, `UP`, `RIGHT`, `LEFT`) in one
+ * table, as Mermaid's `dir2ElkDirection` does.
  */
 export type Direction = "TB" | "BT" | "LR" | "RL";
 
@@ -192,10 +193,11 @@ export interface SirenEdge {
    * for `---->`.
    *
    * The one part of an arrow token that is not about drawing. Mermaid
-   * counts the dashes (or the dots) and hands the result to dagre as
-   * `minlen`; measured, `A --> B` is `length=1` and `A ----> B` is
-   * `length=3`, and the drawn diagram differs because the target sits
-   * further down the rank order. Named for what it means to the layout
+   * counts the dashes (or the dots) into the edge's `length`; measured,
+   * `A --> B` is `length=1` and `A ----> B` is `length=3`. Mermaid 12 on ELK
+   * then drops it and draws `---->` as `-->`; Siren keeps it, and the shared
+   * layout core holds the target that many layers further down (a departure
+   * the core documents, `chainOf`). Named for what it means to the layout
    * rather than for the characters it was counted from.
    */
   minLength: number;
@@ -1146,11 +1148,9 @@ export interface GraphNode {
    *
    * `null` rather than absent, the empty-not-absent rule `style` and `shape`
    * already follow. It matters more here than usual: this field is what
-   * `layoutGraph` turns into dagre's cluster parentage, and dagre's compound
-   * mode is switched on by the *presence* of parentage. A field that could
-   * be `undefined`-but-set would be an easy way to switch compound mode on
-   * for a document with no subgraph at all, which moves every diagram that
-   * has none.
+   * `layoutGraph` turns into the layout core's cluster parentage, so a field
+   * that could be `undefined`-but-set would be an easy way to hand the core a
+   * parent that is not there.
    */
   parentId: string | null;
   /**
@@ -1259,7 +1259,7 @@ export interface GraphEdge {
    * `null`-not-empty rule are described in full.
    *
    * Read by layout as well as by the renderer, which is what makes it
-   * unlike the three axes above: a label is a box dagre has to keep clear,
+   * unlike the three axes above: a label is a box the layout has to keep clear,
    * so it changes where the edge goes and not only what is drawn on it.
    */
   label: Label | null;
@@ -1301,10 +1301,10 @@ export interface GraphEdge {
    * diagnosed and settled to a drawable curve by `buildFlowchartModel`.
    *
    * Absent when no `interpolate` statement reached the edge, and the
-   * renderer reads absent as `DEFAULT_CURVE` (`basis`): an edge's shape only
+   * renderer reads absent as `FLOWCHART_DEFAULT_CURVE` (`rounded`): an edge's shape only
    * grows a field when the author wrote something for it, so a document
    * with no `interpolate` builds exactly the edges it built before. An
-   * unknown name the author did write is present, as the `basis` it draws.
+   * unknown name the author did write is present, as the `rounded` it draws.
    */
   curve?: Curve;
 }
@@ -1338,7 +1338,7 @@ export interface GraphModel {
   /**
    * Every `subgraph` the document declared, flattened into source order.
    * Empty when it declared none — and *only* then, which is what keeps a
-   * diagram with no grouping out of dagre's compound mode.
+   * diagram with no grouping free of clusters in the layout core.
    */
   subgraphs: ResolvedSubgraph[];
   /** Carried through unchanged from `FlowchartDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
@@ -1401,6 +1401,22 @@ export interface Point {
 }
 
 /**
+ * A **line hop**: where a route jumps another that crosses it, drawn as a
+ * half circle whose side follows the direction of travel — up on a horizontal
+ * run, toward +x on a vertical one (see `CONTEXT.md`). Computed by the
+ * shared layout core from every route at once — which route of a crossing
+ * carries the hop, and how large it may be, depend on both routes — and
+ * drawn by the renderer, which alone knows whether the edge's curve draws
+ * hops at all (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 7).
+ */
+export interface LineHop extends Point {
+  /** The half circle's radius: 6, or less where a corner or a neighbouring hop leaves less room. */
+  radius: number;
+  /** Which of the route's segments the hop sits on: `points[segment]` to `points[segment + 1]`. */
+  segment: number;
+}
+
+/**
  * Injectable text-measurement seam used by `layoutGraph` for label sizing.
  * Production wires a canvas/DOM-based measurer; tests use a deterministic
  * fake.
@@ -1418,8 +1434,7 @@ export interface LayoutOptions {
  * A node with layout-assigned position and size.
  *
  * `x`/`y` are the top-left corner of the bounding box (matches SVG `<rect x y>`
- * directly) — not the center. `layoutGraph` is responsible for converting from
- * dagre's center-based coordinates before returning.
+ * directly) — not the center, as the shared layout core reports every box.
  */
 export interface PositionedNode extends GraphNode {
   x: number;
@@ -1441,11 +1456,18 @@ export interface PositionedNode extends GraphNode {
 export interface PositionedEdge extends Omit<GraphEdge, "label"> {
   points: Point[];
   /**
+   * Where this edge's line jumps another that crosses it — the **line
+   * hops**, computed by the layout from every route (see `LineHop`). Not
+   * route points: `points` is the route either way. Whether they are drawn
+   * is the renderer's call, by the edge's curve. Absent reads as none.
+   */
+  hops?: LineHop[];
+  /**
    * `GraphEdge.label`, wrapped and placed: the label as drawn — its rows
    * after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
    * label-wrap ADR, nook `01M4R4WDZ`), so it may hold more rows than the
-   * author wrote — the box measured for those rows, which is the box dagre
-   * was asked to keep clear, and the centre of the space layout kept clear
+   * author wrote — the box measured for those rows, which is the box the
+   * layout was asked to keep clear, and the centre of the space layout kept clear
    * for it. `null` when the edge carries no label and asked for none.
    *
    * The anchor is reported by the layout rather than computed by the
@@ -2065,6 +2087,11 @@ export interface PositionedClassRelationship {
   toEnd: ClassRelationshipEnd;
   points: Point[];
   /**
+   * Where this relationship's line jumps another that crosses it — the
+   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
+   */
+  hops?: LineHop[];
+  /**
    * The relationship's label, wrapped and placed: the label as drawn — its
    * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
    * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
@@ -2119,6 +2146,14 @@ export interface PositionedClassNote {
   height: number;
   /** The connector path to the class this note is attached to; `null` for a free note. */
   linkPoints: Point[] | null;
+  /**
+   * The connector's **line hops**, as on `PositionedEdge.hops`, numbered along
+   * `linkPoints`. Absent reads as none. The same field a state note calls
+   * `PositionedStateNote.connectorHops`: each kind's hops are named after its
+   * own point list, and both come from one note handover in layout
+   * (`layout/notes.ts`).
+   */
+  linkHops?: LineHop[];
 }
 
 /**
@@ -2756,12 +2791,19 @@ export interface StateModelResult {
  * under the first sits below *all* of that description's rows.
  *
  * Centred on the box's horizontal middle, which the renderer takes from the
- * state's own `x`/`width`; only `y` is the label's to report.
+ * state's own `x`/`width`, unless `x` says otherwise.
  */
 export interface PositionedStateLabel {
   label: Label;
   labelBox: LabelBox;
   y: number;
+  /**
+   * The centre x of a composite's title, which the shared core may move
+   * along the band across the frame's top, off a route that crosses it
+   * there (nook decision `01M4VFW4XGRGSMTMQ12HME145W`). Absent on every
+   * other label, which is centred on its box.
+   */
+  x?: number;
 }
 
 /**
@@ -2805,6 +2847,13 @@ export interface PositionedStateNote {
    * as a transition into the note.
    */
   connector: Point[];
+  /**
+   * The connector's **line hops**, as on `PositionedEdge.hops`, numbered
+   * along `connector` (state to note). Absent reads as none. The same field
+   * a class note calls `PositionedClassNote.linkHops`, named after its own
+   * point list as this one is.
+   */
+  connectorHops?: LineHop[];
 }
 
 /**
@@ -2891,6 +2940,11 @@ export interface PositionedStateTransition {
   from: string;
   to: string;
   points: Point[];
+  /**
+   * Where this transition's line jumps another that crosses it — the **line
+   * hops**, as on `PositionedEdge.hops`. Absent reads as none.
+   */
+  hops?: LineHop[];
   /**
    * The transition's label, wrapped and placed: the label as drawn — its
    * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
@@ -3452,11 +3506,11 @@ export interface ResolvedErSubgraph {
    * `ErSubgraph.direction`, or `null` when it wrote none.
    *
    * ⚠️ **`null` is not "the document's direction" and must not be turned
-   * into one here.** `layoutDirectedGraph` gives a cluster with no
-   * direction of its own but a *directed* ancestor the graph's own
-   * `rankdir` (`rankdirFor`), which is both what Mermaid means and what
-   * makes the engine expand it; writing the document's direction in at this
-   * stage would hand every cluster a `rankdir` and lose that distinction.
+   * into one here.** The shared layout core lays a cluster with no
+   * direction of its own out in its enclosing cluster's pass — Mermaid
+   * 12.2.0's picture (`er-subgraph-nested`) — and writing the document's
+   * direction in at this stage would hand every cluster one and lose that
+   * distinction.
    */
   direction: Direction | null;
 }
@@ -3539,9 +3593,8 @@ export interface ErModel {
   /**
    * The whole diagram's rank direction, carried straight through from
    * `ErDocument.direction` — `TB` unless the author named one. Non-null for
-   * the reason that field gives, and `layoutErDiagram` hands it to
-   * `layoutDirectedGraph` as `rankdir` with nothing to map, since the four
-   * values are dagre's own.
+   * the reason that field gives, and `layoutErDiagram` hands it to the
+   * shared layout core as its `direction` with nothing to map.
    */
   direction: Direction;
   /**
@@ -3779,6 +3832,11 @@ export interface PositionedErRelationship {
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
   points: Point[];
+  /**
+   * Where this relationship's line jumps another that crosses it — the
+   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
+   */
+  hops?: LineHop[];
   /**
    * `ResolvedErRelationship.label`, wrapped and placed: the label as drawn
    * — its rows after wrapping at 200 × 12/14 ≈ 171.43px of its 12px text

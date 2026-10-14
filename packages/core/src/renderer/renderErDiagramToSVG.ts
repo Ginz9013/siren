@@ -7,7 +7,7 @@ import type {
   PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
-import { DEFAULT_CURVE } from "../curve/curve";
+import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
@@ -31,9 +31,22 @@ const MARKER_NAME: Record<ErCardinality, string> = {
 
 /**
  * Dash for a `nonIdentifying` relationship. Measured: Mermaid gives that
- * line the class `edge-pattern-dashed`, whose rule in the stylesheet it
- * emits inside the SVG is `stroke-dasharray: 8,8` — the whole of the
- * difference between `--` and `..` in its picture.
+ * line the class `edge-pattern-dashed`, and 12.2.0's ER stylesheet still
+ * rules it `stroke-dasharray: 8,8` (`erDiagram-VZDIDQZ7.mjs`,
+ * line 1548), later in the sheet than — and so winning over — the shared
+ * `.edge-pattern-dashed{stroke-dasharray:3}`. That `8,8` is what Mermaid
+ * draws under `look: "classic"`, measured in headless Chrome. Under its
+ * default `look: "neo"` an inline style overrides the sheet with a 2-on,
+ * 2-off pattern sized to the path's length (`generateDashArray`,
+ * `dist/chunks/mermaid.esm/chunk-RLXJHMIZ.mjs` line 762, applied at line
+ * 951) — for every kind's dashed edge alike.
+ *
+ * Siren keeps `8,8` and does not follow the neo figure, on purpose: it
+ * follows the neo dash for no kind (a flowchart's dotted edge is the
+ * theme's `4 3`, a class diagram's dashed line `6,4`), and the neo figure is
+ * not a pattern at all but a per-path list of dashes recomputed from the
+ * line's length and its markers' offsets. What has to match Mermaid is that
+ * `..` is dashed and `--` is not, which the stylesheet's figure says as well.
  *
  * Inline rather than a theme rule, for the reason `renderClassDiagramToSVG`
  * gives about its own: the dash is what the *document* said, not what the
@@ -48,19 +61,36 @@ const DASH_PATTERN = "8,8";
  * the line each one sits from the entity box.
  *
  * The **figure** is Mermaid's, measured from its own marker definitions
- * (11.17.2) and confirmed against a rendered ER diagram: a "one" is a
+ * (mermaid 12.2.0, `chunk-RLXJHMIZ.mjs` lines 1139–1162, and the `_neo`
+ * variants at lines 1163–1199 an ER diagram is drawn with — the same paths,
+ * in `userSpaceOnUse`) and confirmed against a rendered ER diagram in
+ * headless Chrome: a "one" is a
  * vertical bar, an "optional" is a small hollow circle, and a "many" is a
  * closed almond of two quadratic curves — **not** three prongs, whatever
  * the name "crow's foot" suggests. Each cardinality is two of those, the
  * inner one saying *one* or *many* and the outer one saying *mandatory* or
  * *optional*.
  *
- * The **pixel counts** are Siren's (ADR-0004), and they differ from
- * Mermaid's in one deliberate way: every glyph here sits outside the entity
- * box, because `refX` equals `markerWidth` throughout — the convention
- * `renderClassDiagramToSVG` and `renderToSVG` already keep, so a marker
- * attaches by its tip wherever it is applied. Mermaid instead centres the
- * almond *on* the box's edge, half-burying it.
+ * The **placement** is Mermaid's too, measured from the same end markers:
+ * a bar or circle marker attaches by its right-hand edge (`refX` equals
+ * `markerWidth`), so its glyphs sit outside the entity box, while a "many"
+ * marker attaches at the middle of its almond (`refX` 27 of 45, 39 of 57),
+ * so half the almond lies inside the box and the box, painted after every
+ * line, covers it. The farthest glyphs reach 15, 27, 24 and 34 out. (Siren
+ * once kept every glyph outside the box, which made the two "many" markers
+ * reach 42 and 54 and stretched every ER picture along its ranks to keep
+ * them on their runs; nook decision `01M4W687VYADT35JXWTPSCBQ9G`.) Mermaid's start
+ * markers are its end markers mirrored (`refX` 0 or 18), which is what
+ * `orient="auto-start-reverse"` draws from one definition here — but for
+ * half a pixel: its `zeroOrMoreStart` circle sits at `cx` 45.5, 27.5 out,
+ * where the mirror is 28. The stroke width and colours are the theme's
+ * (ADR-0004).
+ *
+ * How far each marker reaches out from the box is what layout keeps
+ * straight at that end of the route (`CARDINALITY_MARKER_REACH` in
+ * `layoutErDiagram`), so a marker never runs past the route's first bend.
+ * Redraw a marker longer and that table must follow; the test holding every
+ * drawn route end to its drawn marker fails until it does.
  */
 const GLYPH_HEIGHT = 18;
 const FOOT_LENGTH = 36;
@@ -71,9 +101,11 @@ const FOOT_LENGTH = 36;
  * `<rect class="siren-er-entity-frame">` at the box layout placed and the
  * `<text class="siren-er-entity-label">` naming it, centred inside.
  *
- * **A plain rectangle, measured rather than chosen.** With `--markup`,
- * mermaid 11.17.2 draws an entity as a `rect.basic.label-container` carrying
- * no `rx` at all, with the name in a `<text>` inside it. No `rx` is written
+ * **A plain rectangle, measured rather than chosen.** Mermaid 12.2.0 draws an
+ * entity with no attributes as a `rect.basic.label-container` carrying no
+ * `rx` at all (its `erBox` hands such an entity to `drawRect`,
+ * `chunk-VFTINRM2.mjs` line 5137; measured in headless Chrome), with the name
+ * inside it. No `rx` is written
  * here either, and for a second reason: a corner radius is decoration of the
  * box rather than the figure, so it belongs to the theme
  * (`--siren-node-border-radius`) where a consumer can reach it — ADR-0008,
@@ -114,8 +146,8 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   const scope = mintIdScope();
 
   // **Measured for ER rather than inherited**, because this repo already
-  // holds two different answers on this line. Real mermaid 11.17.2 renders
-  // an `erDiagram` carrying `accTitle:` and `accDescr:` with `<title>` and
+  // holds two different answers on this line. Real Mermaid 12.2.0 renders
+  // (measured in headless Chrome) an `erDiagram` carrying `accTitle:` and `accDescr:` with `<title>` and
   // `<desc>` as the root's first two children and `aria-labelledby` /
   // `aria-describedby` naming them — identical to what it does for a
   // flowchart, so `renderToSVG`'s arrangement is the one this kind follows.
@@ -162,9 +194,10 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   // (ADR-0016). A line routed past an entity it does not join runs under
   // that box rather than across its text, and no line — this
   // relationship's or a later one's — crosses a label, because every label
-  // is drawn after every line. The boxes at a line's own ends change
-  // nothing: layout stops the route on the box's edge, and every marker
-  // glyph sits outside it (`buildMarker`).
+  // is drawn after every line. And the boxes at a line's own ends hide the
+  // half of a "many" almond that lies inside them (`buildMarker`), as
+  // Mermaid's boxes hide its own: layout stops the route on the box's edge,
+  // and the almond is centred there.
   for (const relationship of diagram.relationships) {
     svg.appendChild(buildRelationship(relationship, scope));
   }
@@ -185,7 +218,7 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
 
 /**
  * Builds the `<g class="siren-er-subgraph">` for one cluster: a
- * `<rect class="siren-er-subgraph-frame">` at the frame layout grew around
+ * `<rect class="siren-er-subgraph-frame">` at the frame layout sized around
  * everything the block holds, and a
  * `<text class="siren-er-subgraph-label">` at the anchor in the strip along
  * its top edge.
@@ -199,8 +232,9 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
  * frames without reaching the other's.
  *
  * The anchor is layout's rather than computed here from the frame. That
- * strip is the reason the frame is as tall as it is — `subgraphFrames` grew
- * it to hold the title — so recomputing the position here would be a second
+ * strip is the reason the frame is as tall as it is — the layout core kept
+ * a band across the top for the title, and may move the title along it —
+ * so recomputing the position here would be a second
  * opinion on one number, free to drift from the space reserved for it.
  *
  * `data-siren-id` goes on the group, which is what makes a cluster a
@@ -247,7 +281,9 @@ function buildRelationship(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", "siren-er-relationship-line");
-  drawConnectorRoute(line, relationship.points, DEFAULT_CURVE);
+  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`: the
+  // curve layout kept the hops clear of).
+  drawConnectorRoute(line, relationship.points, CONNECTOR_CURVE, relationship.hops);
   // Explicit, not left to CSS: the route is an open, multi-segment path,
   // which a default fill would paint as a filled polygon spanning the
   // entities it joins.
@@ -320,27 +356,36 @@ function buildDefs(scope: string): SVGDefsElement {
   zeroOrOne.append(bar(21), hollowCircle(9, GLYPH_HEIGHT / 2));
   defs.appendChild(zeroOrOne);
 
-  // One or more: the foot against the box, a bar outside it. The taller box
-  // is the foot's: its curves reach `FOOT_LENGTH / 2` above and below the
-  // line, where a bar reaches `GLYPH_HEIGHT / 2`.
-  const oneOrMore = buildMarker(MARKER_NAME.oneOrMore + scope, 63, FOOT_LENGTH);
-  oneOrMore.append(crowsFoot(63), bar(21, FOOT_LENGTH / 2));
+  // One or more: the almond centred on the box's edge, half of it buried in
+  // the box, and a bar 24 out — Mermaid's `oneOrMoreEnd` (`refX` 27, bar at
+  // 3, almond 9 to 45). The taller box is the almond's: its curves reach
+  // `FOOT_LENGTH / 2` above and below the line, where a bar reaches
+  // `GLYPH_HEIGHT / 2`.
+  const oneOrMore = buildMarker(MARKER_NAME.oneOrMore + scope, 45, FOOT_LENGTH, 27);
+  oneOrMore.append(crowsFoot(45), bar(3, FOOT_LENGTH / 2));
   defs.appendChild(oneOrMore);
 
-  // Zero or more: the foot against the box, the hollow circle outside it.
-  const zeroOrMore = buildMarker(MARKER_NAME.zeroOrMore + scope, 63, FOOT_LENGTH);
-  zeroOrMore.append(crowsFoot(63), hollowCircle(15, FOOT_LENGTH / 2));
+  // Zero or more: the almond as above and the hollow circle outside it,
+  // centred 28 out — Mermaid's `zeroOrMoreEnd` (`refX` 39, circle `cx` 11,
+  // almond 21 to 57).
+  const zeroOrMore = buildMarker(MARKER_NAME.zeroOrMore + scope, 57, FOOT_LENGTH, 39);
+  zeroOrMore.append(crowsFoot(57), hollowCircle(11, FOOT_LENGTH / 2));
   defs.appendChild(zeroOrMore);
 
   return defs;
 }
 
 /**
- * One empty `<marker>`, attaching by its right-hand edge so that everything
- * drawn in it sits outside the entity box, and flipping at the start end so
+ * One empty `<marker>`, attaching at `refX` and flipping at the start end so
  * that one definition serves both.
+ *
+ * `refX` is the point on the box's edge. Left of it is outside the box; right
+ * of it, inside. A marker of bars and circles attaches by its right-hand edge
+ * (the default), so all of it sits outside. A "many" marker attaches at the
+ * middle of its almond, so half the almond lies inside the box, where the
+ * entity, painted after every line, covers it — Mermaid's own placement.
  */
-function buildMarker(id: string, width: number, height: number): SVGMarkerElement {
+function buildMarker(id: string, width: number, height: number, refX: number = width): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
   marker.setAttribute("id", id);
   // Not the SVG default: `userSpaceOnUse` keeps a marker a fixed absolute
@@ -349,7 +394,7 @@ function buildMarker(id: string, width: number, height: number): SVGMarkerElemen
   marker.setAttribute("markerUnits", "userSpaceOnUse");
   marker.setAttribute("markerWidth", String(width));
   marker.setAttribute("markerHeight", String(height));
-  marker.setAttribute("refX", String(width));
+  marker.setAttribute("refX", String(refX));
   marker.setAttribute("refY", String(height / 2));
   marker.setAttribute("orient", "auto-start-reverse");
   return marker;
@@ -382,9 +427,10 @@ function hollowCircle(cx: number, cy: number): SVGCircleElement {
 }
 
 /**
- * The "many" glyph, with its nearest point at `tipX`: a closed almond of
+ * The "many" glyph, with its innermost point at `tipX`: a closed almond of
  * two quadratic curves, `FOOT_LENGTH` long and `FOOT_LENGTH / 2` across at
- * its widest.
+ * its widest. Its marker attaches at the almond's middle, so `tipX` is
+ * `FOOT_LENGTH / 2` inside the entity box.
  *
  * Measured, and worth stating because the name misleads: Mermaid's
  * `one_or_more` and `zero_or_more` markers draw this and not three prongs
@@ -404,8 +450,8 @@ function crowsFoot(tipX: number): SVGPathElement {
     `M${farX},${centerY} Q${midX},${centerY - spread} ${tipX},${centerY}` +
       ` Q${midX},${centerY + spread} ${farX},${centerY}`,
   );
-  // Never filled: the almond is an outline, and a fill would make it a
-  // solid blob against the box.
+  // Never filled: the almond is an outline, and a fill would make its
+  // outer half a solid blob against the box.
   path.setAttribute("fill", "none");
   return path;
 }
@@ -488,8 +534,8 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
         // renderer here keeps: an attribute's type, name and keys are author
         // input drawn as written, never read for tags.
         text.textContent = cell.text;
-        // **Every cell, not just the name.** Measured with `--markup`
-        // (mermaid 11.17.2): an author's `color` reaches the name label and
+        // **Every cell, not just the name.** Measured in headless Chrome
+        // against Mermaid 12.2.0: an author's `color` reaches the name label and
         // every attribute label in the same box alike — a `class` names the
         // entity, not one of its rows. `renderStateDiagramToSVG` gives a
         // state's description rows the same reading.

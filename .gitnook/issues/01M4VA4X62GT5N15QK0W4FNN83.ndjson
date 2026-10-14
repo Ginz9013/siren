@@ -1,0 +1,5 @@
+{"id":"01M4VA4X62C9TQ3DKTTC5G8M13","t":1,"a":"83a1","op":"create","title":"layout: 照抄 Mermaid ELK adapter 未移植的前後處理（量得到改善才留）"}
+{"id":"01M4VA4XB32XAFE4FAZYG5VPGK","t":2,"a":"83a1","op":"label.add","v":"layout"}
+{"id":"01M4VA4XG47KMVB70ZAFDVNKJV","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T02b-port-mermaid-elk-passes.md`。"}
+{"id":"01M4VAWMXPAWDR6WS1C8RDE0TT","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4VCZBZGPBZDWE8TJ5RA8Q2X","t":5,"a":"83a1","op":"set","k":"status","v":"done"}

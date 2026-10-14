@@ -72,9 +72,65 @@ const box = (element) => {
 };
 const message = (error) => String(error && error.message ? error.message : error);
 
+// ─── Edge geometry ─────────────────────────────────────────────────────────
+// What metrics.mjs's measureEdges reads: each edge sampled into a polyline,
+// the boxes an edge can be drawn across, the group titles, and the size of
+// the picture. Points and boxes are both in the page's client px, so they
+// share one frame however each side scales or translates its SVG.
+
+// Sample a line every this many of its own units: fine enough that a
+// polyline through the samples is the line to within a pixel on any curve
+// either renderer draws.
+const SAMPLE_UNITS = 3;
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// Each path's \`d\` is sampled through a copy with its line jumps
+// straightened (see straightenArcs), placed beside the original so it sits in
+// the same coordinate system, then removed.
+function sampleEdges(host, selector) {
+  const edges = [];
+  for (const path of host.querySelectorAll(selector)) {
+    const d = path.getAttribute("d");
+    if (!d) continue;
+    const probe = document.createElementNS(SVG_NS, "path");
+    probe.setAttribute("d", straightenArcs(d));
+    const transform = path.getAttribute("transform");
+    if (transform) probe.setAttribute("transform", transform);
+    path.parentNode.appendChild(probe);
+    const length = probe.getTotalLength();
+    if (length > 0) {
+      const ctm = probe.getScreenCTM();
+      const steps = Math.max(2, Math.ceil(length / SAMPLE_UNITS));
+      const points = [];
+      for (let i = 0; i <= steps; i++) {
+        const p = probe.getPointAtLength((length * i) / steps);
+        points.push({ x: ctm.a * p.x + ctm.c * p.y + ctm.e, y: ctm.b * p.x + ctm.d * p.y + ctm.f });
+      }
+      edges.push({ points });
+    }
+    probe.remove();
+  }
+  return edges;
+}
+
+// The size of everything a side drew, in its own units: only the ratio is
+// read, so the units do not matter.
+function drawnSize(host) {
+  const svg = host.querySelector("svg");
+  if (svg === null) return { width: 0, height: 0 };
+  const { width, height } = svg.getBBox();
+  return { width, height };
+}
+
+// Mermaid draws every connector — flowchart edge, class relation (and the
+// link to a note), state transition, ER relationship — as a path in
+// \`.edgePaths\`.
+const MERMAID_EDGES = ".edgePaths > path, .edgePaths > g > path";
+
 // Mermaid: node groups are \`g.node\` whose DOM id carries the authored id
-// (see ids.mjs); clusters are \`g.cluster\` (flowchart, ER subgraph) and
-// \`g.statediagram-cluster\` (composite state), named by \`data-id\` when present.
+// (see ids.mjs); clusters are \`g.cluster\` (flowchart subgraph, class
+// namespace, ER subgraph) and \`g.statediagram-cluster\` (composite state),
+// named by \`data-id\` when present.
 async function drawMermaid(index, source, host) {
   const renderId = "pm" + index;
   const { svg } = await mermaid.render(renderId, source);
@@ -88,8 +144,18 @@ async function drawMermaid(index, source, host) {
   for (const g of host.querySelectorAll("g.cluster, g.statediagram-cluster")) {
     clusters[g.getAttribute("data-id") ?? g.id.slice(renderId.length + 1)] = box(g);
   }
-  const edges = host.querySelectorAll(".edgePaths > path, .edgePaths > g > path").length;
-  return { nodes, clusters, edges };
+  const edgeGeometry = {
+    edges: sampleEdges(host, MERMAID_EDGES),
+    // Every \`g.node\` is something a line can be drawn across: flowchart
+    // nodes, classes and class notes, states (a composite is a cluster, not a
+    // node), ER entities.
+    nodes: [...host.querySelectorAll("g.node")].map(box),
+    // A cluster's title in every diagram type: subgraph, namespace,
+    // composite state, ER subgraph block.
+    titles: [...host.querySelectorAll("g.cluster-label")].map(box).filter((b) => b.width > 1),
+    ...drawnSize(host),
+  };
+  return { nodes, clusters, edgeGeometry };
 }
 
 // Siren: every node group carries the authored id as data-siren-id. A
@@ -108,6 +174,19 @@ const ownBox = (g) => {
   for (const element of note) element.style.display = "";
   return measured;
 };
+// The one path each connector is drawn as, Mermaid's set of connectors:
+// flowchart edges, class relationships and note links, transitions, ER
+// relationships. (Arrowheads are markers, not paths of the connector.)
+const SIREN_EDGES =
+  "path.siren-edge, path.siren-relationship-line, path.siren-note-link, path.siren-transition-line, path.siren-er-relationship-line";
+// What a line can be drawn across, as Mermaid's g.node: flowchart nodes,
+// classes, class notes, states, ER entities. Composite states are dropped
+// below — they are clusters, as on Mermaid's side.
+const SIREN_OBSTACLES = "g.siren-node, g.siren-class, g.siren-note, g.siren-state, g.siren-er-entity";
+// The title text of a subgraph, namespace, composite state and ER subgraph
+// block — Mermaid's g.cluster-label.
+const SIREN_TITLES =
+  "text.siren-subgraph-label, text.siren-namespace-label, text.siren-composite-label, text.siren-er-subgraph-label";
 function drawSiren(source, host) {
   const result = sirenRender(source, host, { measureText: createCanvasTextMeasurer() });
   if (result.svg === null) {
@@ -116,18 +195,25 @@ function drawSiren(source, host) {
   }
   const nodes = {};
   const clusters = {};
-  for (const g of host.querySelectorAll("g.siren-node, g.siren-state, g.siren-er-entity")) {
+  for (const g of host.querySelectorAll("g.siren-node, g.siren-class, g.siren-state, g.siren-er-entity")) {
     const id = g.getAttribute("data-siren-id");
     if (g.querySelector(COMPOSITE)) clusters[id] = ownBox(g);
     else nodes[id] = ownBox(g);
   }
   // "clusters" is the key both sides share, Mermaid's own word for a group;
-  // on this side it holds subgraphs, composite states and ER subgraph blocks.
-  for (const g of host.querySelectorAll("g.siren-subgraph, g.siren-er-subgraph")) {
+  // on this side it holds subgraphs, class namespaces, composite states and
+  // ER subgraph blocks.
+  for (const g of host.querySelectorAll("g.siren-subgraph, g.siren-namespace, g.siren-er-subgraph")) {
     clusters[g.getAttribute("data-siren-id")] = box(g);
   }
-  const edges = host.querySelectorAll(".siren-edge, .siren-transition, .siren-er-relationship").length;
-  return { nodes, clusters, edges };
+  const obstacles = [...host.querySelectorAll(SIREN_OBSTACLES)].filter((g) => !g.querySelector(COMPOSITE));
+  const edgeGeometry = {
+    edges: sampleEdges(host, SIREN_EDGES),
+    nodes: obstacles.map(ownBox),
+    titles: [...host.querySelectorAll(SIREN_TITLES)].map(box).filter((b) => b.width > 1),
+    ...drawnSize(host),
+  };
+  return { nodes, clusters, edgeGeometry };
 }
 
 const diagrams = JSON.parse(document.getElementById("diagrams").textContent);
@@ -149,14 +235,15 @@ out.textContent = JSON.stringify(results);
 /**
  * Build the page.
  *
- * @param {{ mermaidUrl: string, sirenUrl: string, idsUrl: string,
+ * @param {{ mermaidUrl: string, sirenUrl: string, idsUrl: string, metricsUrl: string,
  *           diagrams: { file: string, source: string }[] }} input
  *   `mermaidUrl` is Mermaid's IIFE bundle (`dist/mermaid.min.js`, which sets
  *   the global `mermaid`); `sirenUrl` is siren-core's standalone ESM build
- *   (`dist/siren-core.js`, exporting `render`); `idsUrl` is `ids.mjs`.
+ *   (`dist/siren-core.js`, exporting `render`); `idsUrl` is `ids.mjs`;
+ *   `metricsUrl` is `metrics.mjs`, for `straightenArcs`.
  * @returns {string}
  */
-export function buildPage({ mermaidUrl, sirenUrl, idsUrl, diagrams }) {
+export function buildPage({ mermaidUrl, sirenUrl, idsUrl, metricsUrl, diagrams }) {
   // `</` inside a <script> element would end it early; `<\/` is the same
   // string to JSON.parse and invisible to the HTML parser.
   // The pictures' container is far wider than any fixture so neither picture
@@ -175,6 +262,7 @@ export function buildPage({ mermaidUrl, sirenUrl, idsUrl, diagrams }) {
 <script type="module">
 import { render as sirenRender } from ${JSON.stringify(sirenUrl)};
 import { mermaidNodeId } from ${JSON.stringify(idsUrl)};
+import { straightenArcs } from ${JSON.stringify(metricsUrl)};
 ${PAGE_SCRIPT}
 </script>
 </body>

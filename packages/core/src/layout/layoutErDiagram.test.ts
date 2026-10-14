@@ -745,9 +745,8 @@ describe("layoutErDiagram places subgraph clusters", () => {
     // "not enclosed" rather than "to the right of", because which side the
     // engine puts it on is the engine's business and this is not.
     expect(encloses(frame, boxOf(laidOut.entities, "C"))).toBe(false);
-    // And the frame is inside the canvas it is drawn on: a frame grows up
-    // and left of the box the core placed, so a layout that did not shift
-    // for it would report a negative coordinate, off the canvas.
+    // And the frame is inside the canvas it is drawn on: a frame drawn at a
+    // negative coordinate, or past the reported extent, is clipped.
     expect(frame.left).toBeGreaterThanOrEqual(0);
     expect(frame.top).toBeGreaterThanOrEqual(0);
     expect(frame.right).toBeLessThanOrEqual(laidOut.width);
@@ -784,10 +783,9 @@ describe("layoutErDiagram places subgraph clusters", () => {
   });
 
   it("puts a nested frame wholly inside the frame that holds it", () => {
-    // The shape that drew an entire `NaN` diagram with no diagnostic before
-    // `01M2XJWM4` (`UnplacedNodesError` names it): a cluster carrying a
-    // direction of its own with another cluster as a direct child. The
-    // engine compensates now, and this is ER's copy of the check the
+    // A cluster carrying a direction of its own with another cluster as a
+    // direct child — the shape that once drew an entire `NaN` diagram with
+    // no diagnostic (`01M2XJWM4`), and ER's copy of the check the
     // flowchart's `fc-subgraph-direction-nested` row already makes.
     const laidOut = layoutErDiagram(
       {
@@ -816,11 +814,160 @@ describe("layoutErDiagram places subgraph clusters", () => {
     expect(encloses(inner, boxOf(laidOut.entities, "B"))).toBe(true);
     expect(encloses(outer, inner)).toBe(true);
     expect(encloses(outer, boxOf(laidOut.entities, "C"))).toBe(true);
-    // `inner` declares no direction of its own, so its members take the
-    // **document's** `TB` and not `outer`'s `LR` — the rule `rankdirFor`
-    // holds, and the one the flowchart row measured against Mermaid.
+    // `inner` declares no direction of its own, so it is laid out in
+    // `outer`'s own pass, `LR`, and not in the document's `TB`. Measured in
+    // headless Chrome against Mermaid 12.2.0: `subgraph outer { direction
+    // LR; subgraph inner { A ||--o{ B : r }; C }` draws `A` and `B` side by
+    // side on one row — the flowchart's picture, the same ELK adapter.
     const a = boxOf(laidOut.entities, "A");
     const b = boxOf(laidOut.entities, "B");
-    expect(a.bottom).toBeLessThanOrEqual(b.top);
+    expect(a.right).toBeLessThanOrEqual(b.left);
+  });
+});
+
+/**
+ * The relationships, routed by the shared ELK core: orthogonal, as Mermaid
+ * 12.2.0 routes every ER relationship under its default ELK layout, the
+ * routes `rounded` with the line hops at their crossings.
+ */
+describe("layoutErDiagram — routes", () => {
+  const relationship = (from: string, to: string): ErModel["relationships"][number] => ({
+    ...CUSTOMER_PLACES_ORDER,
+    id: `${from}:${to}`,
+    from,
+    to,
+    label: plainLabel(`${from} to ${to}`),
+  });
+
+  /** Two entities each related to both of two others, and one related to itself. */
+  const crossing: ErModel = {
+    ...model("A", "B", "C", "D"),
+    relationships: [
+      relationship("A", "D"),
+      relationship("B", "C"),
+      relationship("A", "C"),
+      relationship("B", "D"),
+      relationship("C", "C"),
+    ],
+  };
+
+  it("routes every relationship orthogonally, from a point on its own left entity's box to one on its right entity's", () => {
+    const laidOut = layoutErDiagram(crossing, options);
+
+    for (const route of laidOut.relationships) {
+      expect(route.points.length, route.id).toBeGreaterThanOrEqual(2);
+      route.points.slice(1).forEach((point, index) => {
+        const previous = route.points[index];
+        const level = Math.abs(point.y - previous.y) < 1e-6;
+        const plumb = Math.abs(point.x - previous.x) < 1e-6;
+        expect(level || plumb, `${route.id} segment ${index}`).toBe(true);
+      });
+      const onOutline = (id: string, point: Point) => {
+        const box = boxOf(laidOut.entities, id);
+        const onX = Math.abs(point.x - box.left) < 1e-6 || Math.abs(point.x - box.right) < 1e-6;
+        const onY = Math.abs(point.y - box.top) < 1e-6 || Math.abs(point.y - box.bottom) < 1e-6;
+        return touches(box, point) && (onX || onY);
+      };
+      expect(onOutline(route.from, route.points[0]), `${route.id} starts on ${route.from}`).toBe(true);
+      expect(onOutline(route.to, route.points[route.points.length - 1]), `${route.id} ends on ${route.to}`).toBe(true);
+    }
+  });
+
+  it("reports the line hops on each relationship's own horizontal runs, clear of its rounded corners", () => {
+    // Each of A, B and C relates to two of D, E and F, so the routes run
+    // across between the rows and cross one another.
+    const laidOut = layoutErDiagram(
+      {
+        ...model("A", "B", "C", "D", "E", "F"),
+        relationships: [
+          relationship("A", "F"),
+          relationship("B", "E"),
+          relationship("C", "D"),
+          relationship("A", "D"),
+          relationship("B", "F"),
+          relationship("C", "E"),
+        ],
+      },
+      options,
+    );
+
+    const hops = laidOut.relationships.flatMap((route) => (route.hops ?? []).map((hop) => ({ route, hop })));
+    expect(hops.length).toBeGreaterThan(0);
+    // A relationship is drawn `rounded`, corners cut back 5px (Mermaid's
+    // `generateRoundedPath(points, 5)`); a hop keeps 2px clear of that.
+    const ROUNDING = 5;
+    for (const { route, hop } of hops) {
+      const [a, b] = [route.points[hop.segment], route.points[hop.segment + 1]];
+      expect(a.y, route.id).toBe(hop.y);
+      expect(b.y, route.id).toBe(hop.y);
+      expect(Math.min(a.x, b.x), route.id).toBeLessThan(hop.x);
+      expect(Math.max(a.x, b.x), route.id).toBeGreaterThan(hop.x);
+      expect(Math.abs(hop.x - a.x), route.id).toBeGreaterThanOrEqual(
+        hop.radius + 2 + (hop.segment > 0 ? ROUNDING : 0) - 1e-6,
+      );
+      expect(Math.abs(b.x - hop.x), route.id).toBeGreaterThanOrEqual(
+        hop.radius + 2 + (hop.segment + 2 < route.points.length ? ROUNDING : 0) - 1e-6,
+      );
+    }
+  });
+});
+
+/**
+ * The order the blocks and entities are handed to the core, which ELK keeps
+ * (`considerModelOrder`) — so it decides the picture. Mermaid 12.2.0's
+ * `ErDB.getData` (`erDiagram-VZDIDQZ7.mjs`, line 1340) lists every block
+ * before any entity, walking its block list backwards, and that list is in
+ * the order the blocks *closed* (the parser records one when it reduces its
+ * `end`, line 189).
+ */
+describe("layoutErDiagram — Mermaid's order", () => {
+  const block = (id: string, label: string, parentId: string | null = null) => ({
+    id,
+    label: plainLabel(label),
+    parentId,
+    direction: null,
+  });
+  const member = (id: string, parentId: string | null) => ({
+    id,
+    label: plainLabel(id),
+    attributes: [],
+    parentId,
+  });
+  const centreX = (laidOut: PositionedErDiagram, id: string) => {
+    const box = boxOf(laidOut.entities, id);
+    return (box.left + box.right) / 2;
+  };
+
+  it("lays sibling blocks out last-written first, and every block before an unrelated entity", () => {
+    // Measured in headless Chrome against Mermaid 12.2.0:
+    // `subgraph SA { A }`, `subgraph SB { B }`, then `X` draws SB, SA, X
+    // from left to right.
+    const laidOut = layoutErDiagram(
+      {
+        ...model(),
+        entities: [member("A", "subgraph:1"), member("B", "subgraph:2"), member("X", null)],
+        subgraphs: [block("subgraph:1", "SA"), block("subgraph:2", "SB")],
+      },
+      options,
+    );
+
+    expect(centreX(laidOut, "B")).toBeLessThan(centreX(laidOut, "A"));
+    expect(centreX(laidOut, "A")).toBeLessThan(centreX(laidOut, "X"));
+  });
+
+  it("lays nested blocks out last-closed first, inside the block that holds them", () => {
+    // Measured the same way: `subgraph O { subgraph I1 { A }, subgraph I2
+    // { B }, C }` draws C, I2, I1 inside O from left to right.
+    const laidOut = layoutErDiagram(
+      {
+        ...model(),
+        entities: [member("A", "subgraph:2"), member("B", "subgraph:3"), member("C", "subgraph:1")],
+        subgraphs: [block("subgraph:1", "O"), block("subgraph:2", "I1", "subgraph:1"), block("subgraph:3", "I2", "subgraph:1")],
+      },
+      options,
+    );
+
+    expect(centreX(laidOut, "C")).toBeLessThan(centreX(laidOut, "B"));
+    expect(centreX(laidOut, "B")).toBeLessThan(centreX(laidOut, "A"));
   });
 });

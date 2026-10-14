@@ -7,7 +7,7 @@ import type {
   PositionedSubgraph,
   StyleProperty,
 } from "../contracts";
-import { DEFAULT_CURVE } from "../curve/curve";
+import { FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPE_LEAN } from "../layout/layoutGraph";
@@ -232,8 +232,10 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     path.setAttribute("class", edgeClasses(edge));
     path.setAttribute("data-siren-id", edge.id);
     // The curve the model resolved from `linkStyle … interpolate`; an edge
-    // built without one (a hand-made fixture) is drawn on the default.
-    drawConnectorRoute(path, edge.points, edge.curve ?? DEFAULT_CURVE);
+    // no `interpolate` reached is drawn on the flowchart's default, `rounded`.
+    // Its line hops are drawn by that curve, or not at all where it is one
+    // that draws none (`basis`).
+    drawConnectorRoute(path, edge.points, edge.curve ?? FLOWCHART_DEFAULT_CURVE, edge.hops);
     // One marker per end, each pointing outward at the end it is applied
     // to — the class renderer's `auto-start-reverse` def, which is why
     // `<-->` needs one def rather than a mirrored pair.
@@ -394,7 +396,7 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
  * element the theme's own coverage check then has to account for.
  *
  * The anchor is used exactly as layout reported it. It is the centre of the
- * box dagre kept clear, which is *not* the middle of the route — a renderer
+ * box the layout kept clear, which is *not* the middle of the route — a renderer
  * that recomputed a mid-point from `points` would draw the text across the
  * line the space was reserved beside.
  */
@@ -455,9 +457,9 @@ function edgeClasses(edge: PositionedEdge): string {
  * have to learn a second vocabulary for the other.
  *
  * The anchor is layout's rather than computed here from the frame. That strip
- * is the reason the frame is as tall as it is — `subgraphFrames` grew it to
- * hold the title — so recomputing the position here would be a second opinion
- * on one number, free to drift from the space reserved for it.
+ * is the reason the frame is as tall as it is — the layout core sized the
+ * frame to hold the title — so recomputing the position here would be a
+ * second opinion on one number, free to drift from the space reserved for it.
  *
  * `data-siren-id` goes on the group, which is what makes a subgraph a
  * timeline target: ADR-0009 resolves a target to *every* element carrying its

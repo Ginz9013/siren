@@ -1,0 +1,156 @@
+%% commerce-domain — an e-commerce order domain: ordering, payment and
+%% fulfilment, told from the aggregate root outward: four namespaces, two
+%% notes, generics and stereotypes on a left-to-right class diagram.
+classDiagram
+direction LR
+
+namespace ordering {
+  class Order {
+    <<aggregate root>>
+    -OrderId id
+    -OrderStatus status
+    -List~OrderLine~ lines
+    -Money total
+    +addLine(Product product, int qty)
+    +removeLine(OrderLineId lineId)
+    +place() DomainEvent
+    +cancel(String reason) DomainEvent
+    -recalculate()
+  }
+  class OrderLine {
+    -OrderLineId id
+    -int quantity
+    -Money unitPrice
+    +subtotal() Money
+  }
+  class OrderStatus {
+    <<enumeration>>
+    DRAFT
+    PLACED
+    PAID
+    SHIPPED
+    CANCELLED
+  }
+}
+
+namespace catalog {
+  class Product {
+    +Sku sku
+    +String name
+    +Money price
+    +isAvailable() bool
+  }
+  class Money {
+    <<value object>>
+    +long amount
+    +Currency currency
+    +add(Money other) Money
+    +multiply(int factor) Money
+    +zero(Currency c)$ Money
+  }
+}
+
+namespace payment {
+  class PaymentMethod {
+    <<abstract>>
+    #String holderName
+    +authorize(Money amount)* PaymentResult
+    +refund(Money amount)* PaymentResult
+  }
+  class CreditCard {
+    -String token
+    -String last4
+    +authorize(Money amount) PaymentResult
+    +refund(Money amount) PaymentResult
+  }
+  class Wallet {
+    -String provider
+    -String accountRef
+    +authorize(Money amount) PaymentResult
+    +refund(Money amount) PaymentResult
+  }
+  class PaymentResult {
+    <<value object>>
+    +bool approved
+    +String transactionId
+    +String failureReason
+  }
+}
+
+namespace fulfilment {
+  class Shipment {
+    -ShipmentId id
+    -Address destination
+    -String trackingNumber
+    +dispatch(Carrier carrier)
+    +markDelivered()
+  }
+  class Address {
+    <<value object>>
+    +String line1
+    +String city
+    +String postalCode
+    +String country
+  }
+  class Carrier {
+    <<interface>>
+    +quote(Shipment s) Money
+    +book(Shipment s) String
+  }
+}
+
+class Customer {
+  +CustomerId id
+  +String email
+  -List~Address~ addressBook
+  +placeOrder(Cart cart) Order
+}
+
+class Repository~T~ {
+  <<interface>>
+  +findById(Id id) T
+  +save(T entity)
+  +delete(T entity)
+}
+
+class OrderService {
+  -Repository~Order~ orders
+  -EventBus bus
+  +checkout(Customer c, PaymentMethod pm) Order
+  +cancel(OrderId id, String reason)
+}
+
+class EventBus {
+  <<interface>>
+  +publish(DomainEvent event)
+  +subscribe(String topic, Handler h)
+}
+
+Customer "1" --> "0..*" Order : places
+Customer "1" o-- "1..*" Address : keeps
+Order "1" *-- "1..*" OrderLine : contains
+Order --> OrderStatus
+OrderLine "0..*" --> "1" Product : refers to
+OrderLine ..> Money
+Product ..> Money
+Order "1" --> "1..*" PaymentMethod : paid with
+PaymentMethod <|-- CreditCard
+PaymentMethod <|-- Wallet
+PaymentMethod ..> PaymentResult : returns
+Order "1" --> "0..*" Shipment : fulfilled by
+Shipment *-- Address
+Shipment --> Carrier : ships via
+OrderService ..> Repository : persists via
+OrderService --> EventBus : publishes to
+OrderService ..> Order : orchestrates
+
+note for Order "Invariant: total == sum of line subtotals"
+note for PaymentMethod "Add a new method by subclassing; Order never changes"
+
+classDef root fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
+classDef value fill:#10b98122,stroke:#10b981
+classDef port fill:#3b82f633,stroke:#3b82f6,stroke-width:2
+cssClass "Order" root
+cssClass "Money,PaymentResult,Address" value
+cssClass "Repository,EventBus,Carrier" port
+

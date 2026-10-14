@@ -144,15 +144,16 @@ describe("renderToSVG", () => {
     ]);
   });
 
-  it("draws an edge's route as d3's basis curve, Mermaid's default, ending on the route's last point", () => {
-    // d3-shape 3.2.0 curveBasis (src/curve/basis.js) through (40,20),
-    // (100,20), (100,80) — the worked example of connectorCurve.test.ts moved
-    // by (40,20): L to (5·p0 + p1)/6, one cubic per point after the second,
-    // a closing cubic and a final L onto the last point.
+  it("draws an edge's route rounded, Mermaid 12's default on ELK, ending on the route's last point", () => {
+    // Mermaid 12.2.0 forces every ELK-routed flowchart edge to `rounded`
+    // (`applyElkEdgeLayout`, elk-V4PLJRSU.mjs) and draws it with
+    // `generateRoundedPath(points, 5)`: the corner at (100,20) turns 90°, so
+    // it is cut back min(5 / sin 45°, 60/2, 60/2) = 7.0710678… along both
+    // segments and the two cut points are joined by a quadratic through it.
     const svg = renderToSVG(buildBentFixture());
 
     expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("d")).toBe(
-      "M40,20 L50,20 C60,20 80,20 90,30 C100,40 100,60 100,70 L100,80",
+      "M40,20 L92.92893218813452,20 Q100,20 100,27.071067811865476 L100,80",
     );
   });
 
@@ -1822,5 +1823,54 @@ describe("the order a flowchart's layers are painted in", () => {
     expect(labels).toHaveLength(3);
     expect(Math.min(...labels)).toBeGreaterThan(Math.max(...positions(svg, "path.siren-edge")));
     expect(Math.max(...labels)).toBeLessThan(Math.min(...positions(svg, "g.siren-node")));
+  });
+});
+
+describe("a flowchart's line hops", () => {
+  // Each of A and B joined to both C and D: two edges run across between
+  // the rows and cross the others' vertical runs, and the layout reports a
+  // hop where they do.
+  const SOURCE = "flowchart TD\nA --> D\nB --> C\nA --> C\nB --> D\n";
+
+  /** Every `d` command whose letter is `A`, with its arguments. */
+  const arcsOf = (path: Element) => path.getAttribute("d")!.match(/A[^A-Za-z]*/g) ?? [];
+
+  it("are drawn as half circles bulging up, while data-siren-points stays the route", () => {
+    const container = document.createElement("div");
+    const { svg } = render(SOURCE, container);
+    const paths = Array.from(svg!.querySelectorAll("path.siren-edge"));
+    const arcs = paths.flatMap(arcsOf);
+    expect(arcs.length).toBeGreaterThan(0);
+    for (const arc of arcs) {
+      // `A6,6 0 0 sweep x,y`: radius 6 (nothing here is near a corner), no
+      // rotation, the small arc.
+      expect(arc).toMatch(/^A6,6 0 0 [01] -?[\d.]+,-?[\d.]+ ?$/);
+    }
+    // Up, whichever way the line runs: from the point before the arc to its
+    // end is rightward with sweep 1 (clockwise) and leftward with sweep 0.
+    for (const path of paths) {
+      const d = path.getAttribute("d")!;
+      for (const [, x0, y0, sweep, x1, y1] of d.matchAll(/L(-?[\d.]+),(-?[\d.]+) A6,6 0 0 ([01]) (-?[\d.]+),(-?[\d.]+)/g)) {
+        expect(Number(y1)).toBeCloseTo(Number(y0), 6);
+        expect(sweep).toBe(Number(x1) > Number(x0) ? "1" : "0");
+      }
+    }
+    for (const path of paths) {
+      // The route, unchanged by its hops: as many points as the `d`'s
+      // `M`/`L`/`Q` ends without them, and none of the arc's own ends.
+      const route = path.getAttribute("data-siren-points")!.split(" ");
+      for (const arc of arcsOf(path)) {
+        const end = arc.trim().split(" ").at(-1)!;
+        expect(route).not.toContain(end);
+      }
+    }
+  });
+
+  it("are not drawn on an edge whose curve is basis", () => {
+    const container = document.createElement("div");
+    const { svg } = render(`${SOURCE}linkStyle default interpolate basis\n`, container);
+    const paths = Array.from(svg!.querySelectorAll("path.siren-edge"));
+    expect(paths.length).toBe(4);
+    expect(paths.flatMap(arcsOf)).toEqual([]);
   });
 });

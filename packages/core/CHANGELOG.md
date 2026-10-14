@@ -8,6 +8,149 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+**Every graph-shaped diagram is now laid out by ELK, as Mermaid 12 lays it out, and dagre is
+gone.** Flowcharts, class diagrams, state diagrams and ER diagrams are laid out by ELK's `layered`
+algorithm (elkjs 0.9.3, the version Mermaid 12.2.0 bundles), configured as Mermaid 12.2.0's default
+layout, behind one shared layout core. Almost every diagram of those four kinds looks different:
+routes are orthogonal with rounded corners and line hops, frames are the engine's, and boxes are
+ordered as Mermaid orders them. `@dagrejs/dagre` is no longer a dependency. Against Mermaid 12.2.0
+on the parity fixtures, Siren now draws the same crossings (flowchart 176 to its 176; class, state
+and ER 0) with no edge through an unrelated box, and agrees on above/below and left/right for
+99.6% / 97.8% of node pairs (flowchart), 97.3% / 100% (class), 100% / 98.5% (state) and 97.2% /
+100% (ER). The cost: the standalone `dist/siren-core.js` is about 545 KB gzipped (was about 83 KB),
+and the first layout in a page costs about 0.1s while the engine starts. Where Siren departs from
+Mermaid 12 it measured the difference and wrote it down: a long arrow keeps its length (nook
+`01M4VA6MS`), `linkStyle … interpolate` is still honoured (`01M4VANRC`, rule 6), straightening a
+route's end never runs it through a box (`01M4VBHWY`), a frame fits its contents with its own
+padding (`01M4VDB3X`), a frame's title moves clear of the routes crossing it (`01M4VFW4X`), class
+multiplicities stay off lines and boxes (`01M4VHSY2`), a state's note stays in its block
+(`01M4VKTJ2`), and an ER cardinality marker stays on its line (`01M4VP6AV`, with Mermaid's
+half-buried almond, `01M4W687V`). The layout engine
+decision is nook `01M4VA67H`; the amendment of ADR-0001 that puts ELK behind the shared core and
+removes dagre is `01M4VPWF5`.
+
+### Changed
+
+- **Flowcharts are laid out by ELK, as Mermaid 12 lays them out.** The layout engine for
+  flowcharts is now ELK's `layered` algorithm (elkjs 0.9.3, the version Mermaid 12.2.0 bundles),
+  configured with the options of Mermaid 12.2.0's own default layout. Almost every flowchart looks
+  different: edges are routed **orthogonally** and drawn with **rounded corners** (Mermaid's
+  `rounded`, radius 5) unless a `linkStyle … interpolate` names a curve, which is still honoured
+  and now applied to ELK's points (a name that is no curve draws `rounded`, as Mermaid 12 does);
+  siblings keep the order they were written in (the street-fair diagram's options A, B, C
+  now read left to right); groups are listed to the engine as Mermaid lists them; no edge is drawn
+  through an unrelated box. Against Mermaid 12.2.0 on the parity fixtures: 176 crossings to its
+  176, 0 edges through boxes (was 29), 99.6% / 97.8% agreement on above/below and left/right (was
+  91.6% / 61.0%).
+- **Edges that run back between subgraphs are laid out as Mermaid 12 lays them out.** Where the
+  subgraphs form a cycle (`A --> B` from one subgraph into another, `B --> C` back), the edge that
+  closes the cycle is laid out pointing the other way and still drawn from its source to its
+  target, so the subgraphs stack in Mermaid's order rather than mirrored (the garden-network fixture's
+  left/right agreement with Mermaid: 25.8% before, 92.1% after).
+- **A subgraph's frame fits what it holds.** As in Mermaid 12, a frame is pulled in after layout to
+  its members and the edges routed inside it, rather than also holding where edges leaving it cross
+  on their way out. It stops one of the subgraph's own padding (12px) beyond them, where Mermaid
+  stops 24px beyond: Mermaid's 24px measured worse against Mermaid's own pictures.
+- **The short sidestep at an edge's end is taken out**, as Mermaid 12 does: a jog of at most 16px
+  within 30px of a box is straightened when that adds no crossing and covers no more labels.
+  Unlike Mermaid, Siren also keeps the jog when straightening it would run the edge through a box.
+  The parity numbers above moved with the other two changes; keeping the jog off boxes left them
+  unchanged.
+- **A subgraph's frame is the engine's.** ELK sizes each frame around its members, its 12px
+  padding and a band for its title, and routes edges that end on a subgraph (`one --> two`) and a
+  subgraph's own loop (`one --> one`) to the frame itself. A title wider than its members widens
+  the frame and centres them under it.
+- **A subgraph's `direction` follows Mermaid 12's rule.** A declared direction is given up when an
+  edge whose ends have different parents passes through the subgraph — including an edge between
+  two of its own members at different nesting depths, which Mermaid 11 did not count. A subgraph
+  with no `direction` inside one that keeps its own is laid out in the enclosing subgraph's
+  direction (Mermaid 11 used the document's).
+- **A subgraph's title moves aside for the edges crossing its band.** Mermaid 12 centres the title
+  and draws an edge entering or leaving the subgraph from above straight through its words. Siren
+  moves the title along the band to the place nearest the centre that clears every such edge by
+  half a padding; it stays centred when nothing crosses, or when the frame has no room. Edges and
+  frames are unchanged. On the flowchart parity fixtures: 19 edges through a title (Mermaid 23);
+  crossings, agreement, reversals and detour unchanged.
+- **`A ----> B` still spans three ranks.** Mermaid 12 on ELK silently draws it like `-->`; Siren
+  keeps the length the document asks for.
+- **Class diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Relationships and note
+  connectors are routed orthogonally and drawn `rounded`, with line hops where they cross. A
+  namespace's frame is the engine's, sized around its members, its 12px padding and a band for its
+  title, and the title moves aside for routes and multiplicities crossing the band. Namespaces come
+  before the classes outside them, and an attached note sits a layer before its class, in Mermaid
+  12's order. Multiplicities are placed by the engine beside their own end, the from end's on the
+  right of the line and the to end's on its left; unlike Mermaid, Siren also moves one off any line
+  or box it lands on, and keeps it at its own end of a relationship laid out turned round. Against
+  Mermaid 12.2.0 on the three class parity fixtures: 0 crossings to its 0 (was 0), 0 edges through
+  boxes (was 1), 97.3% / 100% agreement on above/below and left/right (was 67.6% / 83.8%).
+- **State diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Transitions and note
+  connectors are routed orthogonally and drawn `rounded`, with line hops where they cross; a
+  self-transition, on a state or on a composite's frame, is an orthogonal loop. A composite's frame
+  is the engine's, sized around its members, its 12px padding and a band for its title, and the
+  title moves aside for routes crossing the band. A composite or concurrent region that names no
+  `direction` is laid out top to bottom whatever the document's direction, as Mermaid lays it out
+  (it used to follow a document-level `LR`); one that names a direction gives it up when a
+  transition crosses its boundary, by Mermaid 12's rule. A start or end sits on the line of its
+  transition. Unlike Mermaid, a note stays inside the composite its state is written in, and
+  writing it makes no composite give up its direction. Against Mermaid 12.2.0 on the four state
+  parity fixtures: 0 crossings to its 0 (was 1), 0 edges through boxes (was 0), 100% / 98.5%
+  agreement on above/below and left/right (was 87.7% / 66.2%).
+- **ER diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Relationships are routed
+  orthogonally and drawn `rounded` (they were `basis` curves), with line hops where they cross, and
+  a self-relationship is an orthogonal loop; each cardinality marker lies along its route's first
+  or last run. A relationship's label sits centred on its route. A `subgraph` block's frame is the
+  engine's, sized around its members, its 12px padding and a band for its title, and the title
+  moves aside for routes crossing the band. Blocks are handed to the engine in Mermaid's order —
+  sibling blocks last-written first, every block before the entities — so `subgraph SA`,
+  `subgraph SB`, `X` reads SB, SA, X from left to right, as in Mermaid. A block that names no
+  `direction` inside one that keeps its own is laid out in the enclosing block's direction (it used
+  to take the document's), and one that names a direction gives it up when a relationship crosses
+  its boundary, by Mermaid 12's rule. Against Mermaid 12.2.0 on the four ER parity fixtures: 0
+  crossings to its 0 (was 0), 0 edges through boxes (was 0), 97.2% / 100% agreement on above/below
+  and left/right (was 58.3% / 77.8%).
+- **An ER cardinality marker stays on its line.** Each end of a relationship now runs straight out
+  of its entity, past the rounded corner, for at least as far as its marker reaches (15px for
+  exactly one, 27 for zero or one, 24 for one or more, 34 for zero or more), so a crow's foot no
+  longer sticks out past the first bend — a self-relationship's loop reaches out that far too.
+  Mermaid 12.2.0's markers do overrun the bend; Siren departs from it here. ER diagrams grow along
+  their ranks to make the room (the ER subgraph parity fixture's boxes span 1422px instead of
+  1271px; Mermaid's 1321px); the parity numbers are unchanged. The layout core's edges take a
+  `straightEnds` length for it; no other diagram kind sets one.
+- **An ER "many" marker is half buried in its entity, as Mermaid draws it.** The almond of a
+  one-or-more or zero-or-more marker is now centred on the entity's edge, with the half inside the
+  box hidden under it, and its bar or circle sits 24 or 28px out (was every glyph outside the box,
+  the almond's tip on the edge and the outer glyph 42 or 48px out). Every glyph is where Mermaid
+  12.2.0's ER markers put it. ER diagrams are shorter along their ranks for it (nook `01M4W687V`).
+- The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
+
+### Added
+
+- `elkjs` **0.9.3** is a dependency (pinned exactly; licensed EPL-2.0). It is
+  external in the npm entry and bundled into the standalone `dist/siren-core.js`, which grows from
+  about 83 KB to about 545 KB gzipped and now ships with `dist/THIRD-PARTY-NOTICES.md`. `render()`
+  is still synchronous; the first diagram laid out in a page costs about 0.1s while the engine
+  initialises, later ones about 20ms for 40 nodes. siren-core must not run inside a Web Worker.
+- A graph the layout engine rejects is reported as an error diagnostic, like any other layout
+  failure.
+- **Line hops**, as Mermaid 12 draws them: where two flowchart edges cross, one of them jumps the
+  other with a half circle of radius 6 — on the horizontal line of the two, bulging up (the later
+  edge where neither is horizontal, bulging right on a vertical one), never inside a rounded
+  corner, smaller near a corner or next to another hop, and left out where less than 3.6 would
+  remain. Drawn on `rounded` (the default), `linear` and `step` edges; a `basis` edge draws none.
+  Lines that only meet at an end do not hop. The routes are unchanged — `data-siren-points` holds
+  no hop — and a hopped `step` edge's `d` is written as straight segments through the route, the
+  same picture as before. The layout reports each edge's hops (`PositionedEdge.hops`); class and
+  state connectors have them too (`PositionedStateTransition.hops`,
+  `PositionedStateNote.connectorHops`) and so do ER relationships
+  (`PositionedErRelationship.hops`).
+- `PositionedStateLabel.x`: the centre of a composite's title where the layout moved it along its
+  band.
+
+### Removed
+
+- `@dagrejs/dagre` is no longer a dependency, and the standalone build no longer bundles it or
+  lists it in `dist/THIRD-PARTY-NOTICES.md`. No diagram kind was laid out by it any more.
+
 ## [0.5.0] - 2026-10-12
 
 Flowcharts, class, state and ER diagrams now lay out much closer to Mermaid's own pictures:
@@ -46,16 +189,6 @@ diagram looks different. Breaking for a script or test that reads a connector's 
 
 ### Changed
 
-- **A subgraph's frame hugs what it holds.** It is sized from its member boxes and nested frames
-  plus its title — 12px of padding around the members, a title strip above, and at least as wide
-  as the title with the members centered under it — and no longer from the region dagre reserved
-  for the cluster, which stretches with the ranks around it. A one-column group whose last member
-  fans out to a wide rank below used to be drawn as wide as that fan, its column shoved to one
-  side; it is now one padding wider than its column, as Mermaid 12.2.0 draws it (measured: 276px
-  around 152px boxes, where 11.17.2 drew 1013px). An edge ending on a subgraph is attached to the
-  new frame, and a subgraph's self-loop (`one --> one`) is drawn around it rather than around the
-  reserved region.
-- The Mermaid the parity and probe scripts measure against is **12.2.0** (was 11.17.2).
 - **A flowchart node's label wraps** once its text is wider than 175px, as Mermaid wraps its labels
   at 200px of 16px text (scaled to the 14px a node is drawn at): Latin text at its spaces, CJK text
   between any two characters, never with closing punctuation such as `，` or `)` beginning a row.

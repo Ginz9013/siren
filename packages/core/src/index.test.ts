@@ -5147,9 +5147,10 @@ Alice-)Bob: open
 
     // --- the length, which no drawing of one edge can show ---
     //
-    // `Deploy ----> Archive` is `length=3` to Mermaid and reaches dagre as
-    // `minlen`, so the archive sits further down the rank order than the
-    // monitor a plain `<-->` put one rank below the same node. A comparison
+    // `Deploy ----> Archive` is `length=3` to Mermaid, and Siren's layout
+    // core holds its ends three layers apart, so the archive sits further
+    // down the rank order than the monitor a plain `<-->` put one rank below
+    // the same node. A comparison
     // inside one picture, between two edges leaving one node, so no number
     // from outside it is involved.
     const nodeBox = (
@@ -6674,16 +6675,17 @@ function holds(
 }
 
 /**
- * The three rows of `01M2XJWM4`'s matrix that already draw the right picture,
- * pinned as **coordinates** rather than as "no diagnostic" — characterization,
- * written before the rankdir-propagation step exists and expected green on
- * arrival.
+ * The three rows of `01M2XJWM4`'s matrix that drew the right picture under
+ * dagre, pinned now as **arrangements** — which boxes share a row or a column
+ * and which comes first — measured against Mermaid 12.2.0's default (ELK)
+ * layout in headless Chrome (nook 01M4VA67H). Exact coordinates belonged
+ * to the dagre era; how far apart a row's boxes sit belongs to the engine and
+ * the theme, while which boxes form the row is the document's meaning.
  *
- * "It still renders" is not the guarantee these need. Giving every cluster a
- * direction unconditionally would keep all three rendering while moving the
- * last one off dagre's ordinary compound path onto the per-cluster one, which
- * is a different placement of the same document. Only exact centres can say
- * that did not happen.
+ * Mermaid 12.2.0 draws, for the document below:
+ * - `direction LR` on both frames: A, B and C in one row, left to right.
+ * - `LR` outside, `TB` inside: A over B in one column, C to their right.
+ * - no direction anywhere: A, B, C in one column, top to bottom.
  */
 describe("render() — the nested-subgraph rows that already lay out correctly", () => {
   const nested = (outer: string, inner: string): string =>
@@ -6697,37 +6699,26 @@ ${inner}
     Inner --> C
   end`;
 
-  it("places the same boxes for `direction LR` on both frames", () => {
-    // Both frames left-to-right: `A`, `B` and `C` in one row, on one baseline.
-    expect(nodeCentres(renderInto(nested("    direction LR", "      direction LR")))).toEqual({
-      A: { x: 36, y: 128 },
-      B: { x: 110, y: 128 },
-      C: { x: 175, y: 128 },
-    });
+  it("places A, B and C in one row, in order, for `direction LR` on both frames", () => {
+    const { A, B, C } = nodeCentres(renderInto(nested("    direction LR", "      direction LR")));
+    expect(A.y).toBe(B.y);
+    expect(B.x).toBeGreaterThan(A.x);
+    expect(C.x).toBeGreaterThan(B.x);
   });
 
-  it("places the same boxes for `direction LR` outside and `direction TB` inside", () => {
-    // Each frame keeps its own direction: `A` over `B` in one column, `C`
-    // beside the frame holding them.
-    expect(nodeCentres(renderInto(nested("    direction LR", "      direction TB")))).toEqual({
-      A: { x: 52, y: 128 },
-      B: { x: 52, y: 210 },
-      C: { x: 154, y: 169 },
-    });
+  it("places A over B in one column and C beside them for `direction LR` outside and `direction TB` inside", () => {
+    const { A, B, C } = nodeCentres(renderInto(nested("    direction LR", "      direction TB")));
+    expect(A.x).toBe(B.x);
+    expect(B.y).toBeGreaterThan(A.y);
+    expect(C.x).toBeGreaterThan(A.x);
   });
 
-  it("places the same boxes for no direction anywhere", () => {
-    // No frame carries a direction, so this document goes through the layout
-    // engine's ordinary compound path and must keep doing so.
-    // (Since the 8 dagre margin: x is +8, because the outer frame's left
-    // edge is dagre's own cluster box and needs no shift; y is
-    // unchanged, because the frame's title strip already reached above 0 and
-    // the adapter's shift absorbs the margin.)
-    expect(nodeCentres(renderInto(nested("", "")))).toEqual({
-      A: { x: 149, y: 128 },
-      B: { x: 159, y: 210 },
-      C: { x: 55, y: 210 },
-    });
+  it("places A, B and C in one column, top to bottom, for no direction anywhere", () => {
+    const { A, B, C } = nodeCentres(renderInto(nested("", "")));
+    expect(A.x).toBe(B.x);
+    expect(B.x).toBe(C.x);
+    expect(B.y).toBeGreaterThan(A.y);
+    expect(C.y).toBeGreaterThan(B.y);
   });
 });
 
@@ -6827,16 +6818,20 @@ describe("render() — the layout combinations around per-cluster direction that
  * refuse honestly (`01M2XJVPX`), and now draws (`01M2XJWM4`).
  *
  * **Which direction the inner frame uses is the whole of this group, and it is
- * measured, not reasoned.** `scripts/mermaid-probe.mjs --markup` on this exact
- * document under mermaid 11.17.2 places `A` at `translate(63, 68)`, `B` at
- * `translate(63, 208)` and `C` at `translate(220.5, 53)`: `A` and `B` share an
- * x **exactly**, with `B` below `A`, and `C` is off to their right. So the
- * inner frame — the one with no `direction` of its own — lays out in the
- * *document's* `TB`, and it is the outer frame's `LR` that puts `C` beside it.
- * An inner frame that inherited its parent's `LR` would put `B` to the right
- * of `A` instead, render just as cleanly, and be the wrong picture; the
- * equality of those two x's is the only thing that tells the two apart, so it
- * is asserted rather than a "no diagnostic" check.
+ * measured, not reasoned — and it changed with Mermaid 12.** Under mermaid
+ * 11.17.2 (dagre) the inner frame with no `direction` of its own took the
+ * *document's* `TB` (`A` at `translate(63, 68)`, `B` at `translate(63, 208)`).
+ * Under mermaid 12.2.0's default ELK layout, measured in headless Chrome for
+ * nook 01M4VA67H, it takes the *enclosing frame's* `LR`: `A` at
+ * (56, 104) and `B` at (232, 104), one row, with `C` to their right at x 432.
+ * The outer frame is laid out in a pass of its own in its own direction, and
+ * a frame inside it that says nothing is laid out in that pass. Siren follows
+ * the current picture. **The state-diagram spelling differs, and that is
+ * measured too:** Mermaid 12.2.0 gives every composite a direction of its own,
+ * `TB` when its block writes none (`DEFAULT_NESTED_DOC_DIR`,
+ * `stateDiagram-v2-MYRXERYP.mjs` line 964), so `Inner` stacks `A` above `B`
+ * inside `Outer`'s `LR` row, with `C` to its right — measured in headless
+ * Chrome.
  */
 describe("render() — a cluster with its own direction holding a cluster with none", () => {
   const flowchart = `flowchart TB
@@ -6858,7 +6853,7 @@ describe("render() — a cluster with its own direction holding a cluster with n
     Inner --> C
   }`;
 
-  it("draws the flowchart spelling with the inner frame in the document's direction", () => {
+  it("draws the flowchart spelling with the inner frame in the enclosing frame's direction", () => {
     const result = renderInto(flowchart);
 
     expect(result.diagnostics).toEqual([]);
@@ -6866,21 +6861,19 @@ describe("render() — a cluster with its own direction holding a cluster with n
     expect(nanAttributes(result.svg!)).toEqual([]);
 
     const { A, B, C } = nodeCentres(result);
-    expect(A.x).toBe(B.x);
-    expect(B.y).toBeGreaterThan(A.y);
-    expect(C.x).toBeGreaterThan(A.x);
+    expect(A.y).toBe(B.y);
+    expect(B.x).toBeGreaterThan(A.x);
+    expect(C.x).toBeGreaterThan(B.x);
   });
 
-  it("draws it exactly as writing the document's own direction inside that frame does", () => {
+  it("draws it exactly as writing the enclosing frame's direction inside that frame does", () => {
     // The same claim as above, stated as the equivalence it is: an inner frame
-    // with no `direction` is the inner frame that wrote down the document's.
-    // `direction LR` inside `Inner` instead produces a different picture, which
-    // the row above pins as its own characterization.
+    // with no `direction` is the inner frame that wrote down its parent's.
     const written = `flowchart TB
   subgraph Outer
     direction LR
     subgraph Inner
-      direction TB
+      direction LR
       A --> B
     end
     Inner --> C
@@ -6903,7 +6896,7 @@ describe("render() — a cluster with its own direction holding a cluster with n
     expect(holds(outer, { x: inner.right, y: inner.bottom })).toBe(true);
   });
 
-  it("draws the state-diagram spelling on the same terms", () => {
+  it("draws the state-diagram spelling with the inner composite in its own default, top to bottom", () => {
     const result = renderInto(stateDiagram);
 
     expect(result.diagnostics).toEqual([]);
@@ -6955,7 +6948,7 @@ const measurableSources = {
  * The assertion these sources feed is "the diagnostic names the text that
  * could not be measured". Where a label happens to *be* an id, that assertion
  * also passes for a diagnostic naming ids instead of text — and this pipeline
- * has one of those: `UnplacedNodesError` lists node ids. A source whose label
+ * had one of those: the dagre core's guard listed node ids. A source whose label
  * and id are the same string cannot tell the two messages apart, so it would
  * pass whichever one arrived. Only `class` still has that shape, because
  * Mermaid's class syntax has no alias form to separate them with; the other
@@ -8528,15 +8521,36 @@ A --> C
       {
         severity: "warning",
         message:
-          'linkStyle interpolate "wobbly" names no curve; drawing basis, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+          'linkStyle interpolate "wobbly" names no curve; drawing rounded, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
         line: 5,
         column: 3,
       },
     ]);
-    // Both edges fall to `basis`: one by falling back, one as Mermaid draws.
+    // Both edges fall to `rounded`: one by falling back to the flowchart's
+    // default, one as Mermaid 12.2.0 draws a name it does not know — measured
+    // in headless Chrome, this document's two edges are both drawn with
+    // `generateRoundedPath`'s `Q` corners and no cubic.
     const path = (id: string) => result.svg!.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
-    expect(path("A-B").getAttribute("d")).toMatch(/C/);
-    expect(path("A-C").getAttribute("d")).toMatch(/C/);
+    for (const id of ["A-B", "A-C"]) {
+      expect(path(id).getAttribute("d"), id).toMatch(/Q/);
+      expect(path(id).getAttribute("d"), id).not.toMatch(/C/);
+    }
     expect(path("A-C").getAttribute("style")).toBe("stroke:#f00");
+  });
+});
+
+describe("render() — a flowchart keeps the model's order among siblings", () => {
+  // The street-fair diagram (a parity fixture): `K3` fans out to
+  // `O1`, `O2`, `O3` — options A, B and C — in that order. Mermaid 12.2.0
+  // draws them left to right as written (measured, parity report); dagre
+  // 3.1.1's ordering tie-break drew them C, B, A.
+  it("draws street-fair's options A, B, C left to right, as written", () => {
+    const source = readFileSync(new URL("../scripts/parity-fixtures/street-fair.mmd", TEST_FILE_URL), "utf8");
+    const container = document.createElement("div");
+    const { svg } = render(source, container);
+    if (svg === null) throw new Error("render() produced no <svg>");
+    const left = (id: string) =>
+      Number(svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!.getAttribute("x"));
+    expect(["O1", "O2", "O3"].sort((a, b) => left(a) - left(b))).toEqual(["O1", "O2", "O3"]);
   });
 });

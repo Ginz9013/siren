@@ -2369,9 +2369,9 @@ describe("a subgraph", () => {
  * alone and leaves the document's own direction where the header put it
  * (`scripts/mermaid-probe.mjs`, `subgraph Ingest / direction LR / A --> B /
  * end` -> `subgraphs: id="Ingest" ... dir="LR"`, `direction: TB`).
- * `layoutDirectedGraph` honors it the same way, by way of dagre's own
- * `recursiveClusterLayout`: a cluster node carrying a `rankdir` of its own
- * lays its children out as a sub-graph of their own.
+ * `layoutDirectedGraph` honors it the way Mermaid 12's ELK layout does: a
+ * cluster carrying a direction of its own lays its children out in it, for
+ * as long as no edge voids it.
  */
 describe("a direction written inside a subgraph", () => {
   it("is read onto that subgraph, not refused", () => {
@@ -2409,8 +2409,7 @@ describe("a direction written inside a subgraph", () => {
  * (`scripts/mermaid-probe.mjs`). Siren draws it the same way now: the
  * endpoint is recorded as the author wrote it here, resolved to the frame's
  * generated id by `buildFlowchartModel`, and routed by `layoutDirectedGraph`
- * through a member of the frame whose route is then clipped back to the
- * frame's own boundary.
+ * to the frame itself, as Mermaid 12's ELK layout routes it.
  *
  * It used to be **refused by name**, and this block used to pin the refusal.
  * That was the honest state while nothing could route it: the alternative

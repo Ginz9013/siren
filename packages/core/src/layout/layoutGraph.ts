@@ -1,27 +1,14 @@
 import type {
   GraphModel,
-  LabelBox,
   LayoutOptions,
   NodeShape,
-  Point,
   PositionedGraph,
   PositionedSubgraph,
-  ResolvedSubgraph,
-  TextMeasurer,
 } from "../contracts";
-import {
-  clipRouteEndToBox,
-  layoutDirectedGraph,
-  selfLoopAroundBox,
-  selfLoopLabelAnchor,
-  selfLoopSide,
-  type DirectedGraphLayoutNodeBox,
-} from "./layoutDirectedGraph";
-import { layoutLabel } from "../label/layoutLabel";
+import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
+import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame } from "./clusters";
 import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
-
-/** Gap between a subgraph's frame and the boxes and frames it encloses. */
-const SUBGRAPH_PADDING = 12;
 
 /**
  * How far a shape's outline leans in from the bounding box it is inscribed
@@ -227,6 +214,12 @@ function boxForLabel(shape: NodeShape, label: Box): Box {
   }
 }
 
+/** The core's `cornerRadius` for an edge drawn with `curve`: present only where the curve rounds its corners. */
+function cornerRadiusOf(curve: Curve): { cornerRadius?: number } {
+  const cornerRadius = curveCornerRadius(curve);
+  return cornerRadius === undefined ? {} : { cornerRadius };
+}
+
 /**
  * Computes node positions and edge paths for a resolved `GraphModel`.
  *
@@ -255,16 +248,12 @@ export function layoutGraph(
   );
 
   // A subgraph's title is measured once too, for the same two readers: the
-  // cluster size handed to the core below, and the frame grown afterwards.
-  // Never wrapped: Mermaid draws a subgraph's title as plain text, which it
-  // does not wrap (the label-wrap ADR, nook `01M4R4WDZ`).
-  const titleBoxById = new Map(
-    graph.subgraphs.map((subgraph) => [subgraph.id, layoutLabel(subgraph.label, options.measureText)]),
-  );
+  // title band the core keeps in the frame, and the renderer.
+  const titleBoxById = measureTitles(graph.subgraphs, options.measureText);
 
   // At the 12px an edge label is drawn at, not the node's 14px, and wrapped
   // at Mermaid's 200px scaled to that size (the label-wrap ADR, nook
-  // `01M4R4WDZ`): the box handed to dagre below and the one the renderer
+  // `01M4R4WDZ`): the box handed to the core below and the one the renderer
   // draws in are this one, and the rows drawn are the wrapped label's.
   const wrappedEdgeLabelById = new Map(
     graph.edges.flatMap((edge) =>
@@ -273,25 +262,16 @@ export function layoutGraph(
   );
 
   const laidOut = layoutDirectedGraph({
-    rankdir: graph.direction,
+    direction: graph.direction,
+    // Subgraphs before boxes, in Mermaid's order — see `mermaidClosingOrder`.
+    // The core keeps the order it is handed (ELK's `considerModelOrder`), so
+    // this order is a decision about the picture, not bookkeeping.
     nodes: [
-      ...graph.nodes.map((node) => ({
-        id: node.id,
-        // The shape decides how much box the measured label needs; the
-        // shared layout core is handed sizes and never learns a shape
-        // exists.
-        ...boxForLabel(node.shape, wrappedById.get(node.id)!.labelBox),
-        // Grouping, and the only thing about a subgraph the shared core is
-        // told. `undefined` rather than `null` when the node is in no
-        // subgraph, because the core switches dagre's compound mode on by
-        // the *presence* of parentage — a field written as `null` would
-        // count.
-        ...(node.parentId === null ? {} : { parentId: node.parentId }),
-      })),
-      // One cluster per subgraph — the machinery `layoutClassDiagram` has
-      // driven since the class board, reached by declaring a node a frame
-      // rather than by anything new here. `layoutDirectedGraph` needed no
-      // change at all, nesting included.
+      // Each subgraph goes to the core as a cluster. The core sizes and
+      // places the frame — around its members, its padding and a band for
+      // its title — and this adapter only says how much padding and how big
+      // a title (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2: nothing
+      // here moves a box or a frame afterwards).
       //
       // **The ids cannot collide with a node's, and not because they are
       // prefixed here.** `layoutClassDiagram` has to prefix a namespace's
@@ -302,84 +282,63 @@ export function layoutGraph(
       // guard is already discharged one stage earlier, in the stronger form:
       // unconstructible rather than avoided. Prefixing again would only
       // produce `subgraph:subgraph:1`.
-      ...graph.subgraphs.map((subgraph) => {
-        // The core sizes a cluster from its children and ignores what it is
-        // given here; the title's own size is passed anyway, as the smallest
-        // the frame could sensibly be — and as what a childless subgraph,
-        // which the core lays out as an ordinary box, is drawn at.
-        const label = titleBoxById.get(subgraph.id)!;
-        return {
+      ...mermaidClosingOrder(graph.subgraphs).map((subgraph) =>
+        clusterNode({
           id: subgraph.id,
-          isCluster: true,
-          width: label.width + SUBGRAPH_PADDING * 2,
-          height: label.height + SUBGRAPH_PADDING * 2,
-          ...(subgraph.parentId === null ? {} : { parentId: subgraph.parentId }),
-          // The subgraph's own `direction LR` (or `TB`/`BT`/`RL`), reaching
-          // dagre's `recursiveClusterLayout` through the one field it reads
-          // per cluster. `undefined` rather than `null` when the author
-          // wrote none, matching `parentId`'s own convention just above —
-          // the shared core switches this behavior on by the field's
-          // *presence*, so a subgraph that named no direction lays out along
-          // the outer graph's, exactly as before this field existed.
-          ...(subgraph.direction === null ? {} : { rankdir: subgraph.direction }),
-        };
-      }),
+          parentId: subgraph.parentId,
+          title: titleBoxById.get(subgraph.id)!,
+          // The subgraph's own `direction LR` (or `TB`/`BT`/`RL`). Whether
+          // it holds is the core's to decide, by Mermaid's rule (see
+          // `voidedDirections`).
+          direction: subgraph.direction,
+        }),
+      ),
+      ...graph.nodes.map((node) => ({
+        id: node.id,
+        // The shape decides how much box the measured label needs; the
+        // shared layout core is handed sizes and never learns a shape
+        // exists.
+        ...boxForLabel(node.shape, wrappedById.get(node.id)!.labelBox),
+        // Membership, and the only thing about a subgraph a member tells the
+        // core. `undefined` rather than `null` when the node is in no
+        // subgraph, matching the core's optional field.
+        ...(node.parentId === null ? {} : { parentId: node.parentId }),
+      })),
     ],
     edges: graph.edges.map((edge) => ({
       id: edge.id,
+      // Either end may name a subgraph (`one --> two`): the core routes it to
+      // the frame itself, as Mermaid's ELK layout does — measured, its route
+      // runs from one frame's bottom edge to the other's top edge.
       from: edge.from,
       to: edge.to,
       // The one part of an arrow token that reaches layout rather than the
-      // renderer: `A ----> B` puts B further down the rank order, so it is
-      // a rank constraint and not a proportion. Mermaid does exactly this —
-      // it hands its parsed `length` to dagre as `minlen`, measured — and
-      // drawing every length alike would be a silent mis-render by the
-      // compatibility corpus's own definition.
-      minlen: edge.minLength,
-      // The other part that reaches layout rather than the renderer, and a
-      // port rather than new machinery: the shared core has taken an edge
-      // label's size and returned where it put it since the class board,
-      // and `layoutClassDiagram` passes a relationship's label through this
-      // very field. What was missing was only that a flowchart edge had no
-      // label to pass.
-      //
-      // Measured with `options.measureText`, the one measurer every other
-      // piece of text in this pipeline goes through, so a long label
-      // reserves more room than a short one for the same reason a long node
-      // label makes a wider box.
+      // renderer: `A ----> B` puts B three layers below A. Mermaid 12 on ELK
+      // drops this (measured: drawn exactly as `-->`); Siren keeps it, a
+      // divergence the core implements and documents (`chainOf`).
+      minLength: edge.minLength,
+      // The other part of an edge that reaches layout rather than the
+      // renderer: the core keeps this much room on the line and reports
+      // where it put it. Measured with `options.measureText`, the one
+      // measurer every other piece of text in this pipeline goes through.
       ...(edge.label === null ? {} : { label: wrappedEdgeLabelById.get(edge.id)!.labelBox }),
+      // How the renderer will draw the edge's corners, which the line hops
+      // keep clear of: the radius of the curve it will be drawn with (the
+      // flowchart's default unless an `interpolate` chose another), absent
+      // where that curve draws them sharp.
+      ...cornerRadiusOf(edge.curve ?? FLOWCHART_DEFAULT_CURVE),
     })),
   });
 
-  // Boxes as the shared core placed them, in *core* coordinates. The frames
-  // below are grown in this space and can reach outside it; the translation
-  // that follows is what moves everything into the space the diagram is
-  // finally described in. `layoutClassDiagram` does exactly this, for
-  // exactly this reason.
-  const boxInCoreSpaceById = new Map(laidOut.nodes.map((box) => [box.id, box]));
-  const frames = subgraphFrames(graph.subgraphs, graph.nodes, boxInCoreSpaceById, titleBoxById);
-
-  // A frame grows outward — up for its title strip, out for its padding — so
-  // it can reach above and left of the corner the core laid the graph out
-  // from. Everything is shifted by however far it did, rather than a frame
-  // being drawn at a negative coordinate, which is off the canvas.
-  //
-  // `Math.max(0, ...)` over an empty list is `0`, so a document with no
-  // subgraph shifts by nothing and every coordinate below is the core's own
-  // number untouched.
-  const shift = {
-    x: Math.max(0, ...frames.map((frame) => -frame.x)),
-    y: Math.max(0, ...frames.map((frame) => -frame.y)),
-  };
-  const shifted = (point: Point): Point => ({ x: point.x + shift.x, y: point.y + shift.y });
-
+  const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
   const nodes = graph.nodes.map((node) => {
-    const box = boxInCoreSpaceById.get(node.id)!;
+    const box = boxById.get(node.id)!;
     return {
       ...node,
-      ...shifted(box),
+      x: box.x,
+      y: box.y,
       width: box.width,
       height: box.height,
       // The wrapped label and the box it was measured into: what the
@@ -388,66 +347,27 @@ export function layoutGraph(
     };
   });
 
-  // Edges whose endpoints are frames rather than boxes, re-attached to the
-  // frame this module drew.
-  //
-  // The shared core already clipped such an edge to the *cluster box* it
-  // placed, which is the honest answer in its own coordinates — but the frame
-  // is sized from what it holds, not from that box (`subgraphFrames`,
-  // below): taller by a title strip, and often far narrower, since dagre
-  // reserves a cluster the width of the ranks around it. An arrowhead left
-  // where the core put it would therefore land inside the frame, or hang in
-  // the air beside it. Drawing the frame is this module's decision, so
-  // paying for it is too — with the core's own clipper, which both drops the
-  // run inside the frame and pulls an end left outside it onto the frame's
-  // boundary, so that "on the boundary" means one thing in both spaces.
-  //
-  // A frame's own self-loop cannot be clipped into place at all — a loop
-  // drawn around the reserved region has nothing inside the frame to drop,
-  // and pulling its ends in leaves it hanging off the frame on a lead as
-  // long as the region is wide — so it is synthesised again around the
-  // frame, with the core's own geometry.
-  const frameById = new Map(frames.map((frame) => [frame.id, frame]));
-  const loopSide = selfLoopSide(graph.direction);
-
   const edges = graph.edges.map((edge) => {
     const route = routeById.get(edge.id)!;
-
-    let points = route.points;
-    let labelAnchor = route.labelAnchor;
-    const fromFrame = frameById.get(edge.from);
-    const toFrame = frameById.get(edge.to);
-    if (fromFrame !== undefined && edge.from === edge.to) {
-      points = selfLoopAroundBox(fromFrame, loopSide);
-      if (labelAnchor !== undefined) {
-        labelAnchor = selfLoopLabelAnchor(points, wrappedEdgeLabelById.get(edge.id)!.labelBox, loopSide);
-      }
-    } else {
-      if (fromFrame !== undefined) {
-        points = clipRouteEndToBox(points, fromFrame, "start");
-      }
-      if (toFrame !== undefined) {
-        points = clipRouteEndToBox(points, toFrame, "end");
-      }
-    }
-
     return {
       ...edge,
-      points: points.map(shifted),
+      points: route.points,
+      hops: route.hops,
       // `null` rather than absent: an edge that asked for no space has
       // nowhere to draw text, and one state is easier to read than a
       // missing field.
       label:
-        edge.label === null || labelAnchor === undefined
+        edge.label === null || route.labelAnchor === undefined
           ? null
-          : { ...wrappedEdgeLabelById.get(edge.id)!, anchor: shifted(labelAnchor) },
+          : { ...wrappedEdgeLabelById.get(edge.id)!, anchor: route.labelAnchor },
     };
   });
 
-  const subgraphs = frames.map((frame) => ({
-    ...frame,
-    ...shifted(frame),
-    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
+  // Back into the model's own order — outermost first, which is the order
+  // they are drawn in so that an inner frame is painted over its parent.
+  const subgraphs = graph.subgraphs.map<PositionedSubgraph>((subgraph) => ({
+    id: subgraph.id,
+    ...placedFrame(boxById.get(subgraph.id)!, subgraph.label, titleBoxById.get(subgraph.id)!),
   }));
 
   return {
@@ -457,115 +377,7 @@ export function layoutGraph(
     subgraphs,
     accTitle: graph.accTitle,
     accDescr: graph.accDescr,
-    // The core reports the extent of the graph *it* placed, which never
-    // included the title strip a frame grows upward for. Taking the larger
-    // of the two keeps a frame from being clipped by the `<svg>` it is drawn
-    // in — and with no subgraphs the second term is `0`, so the core's own
-    // numbers come through unchanged.
-    width: Math.max(laidOut.width + shift.x, ...subgraphs.map((s) => s.x + s.width)),
-    height: Math.max(laidOut.height + shift.y, ...subgraphs.map((s) => s.y + s.height)),
+    width: laidOut.width,
+    height: laidOut.height,
   };
-}
-
-/**
- * Each subgraph's frame, in the shared core's own coordinate space.
- *
- * A frame is sized from what it holds and nothing else: it clears every box
- * it holds by `SUBGRAPH_PADDING`, has a strip along its top for its own
- * title, and is at least as wide as that title, with what it holds centered
- * beneath. That is `layoutClassDiagram`'s `namespaceFrame`, ported.
- *
- * **The cluster box the core placed is not consulted.** Dagre sizes a
- * compound-graph cluster to the *region* it reserved for it, and that region
- * stretches with the ranks around it: a one-column group whose last member
- * fans out to three boxes below is handed back as wide as the fan, with the
- * column shoved to one side of it. Mermaid 12.2.0 (measured, headless Chrome)
- * draws that group one padding wider than its column — 276px around 152px
- * boxes — where 11.17.2 drew the whole reserved region, 1013px. Siren
- * follows the current picture: the frame hugs its members, the members stay
- * where dagre put them. The one exception is a subgraph with no members at
- * all, which has nothing to size from; the core laid it out as an ordinary
- * box at the title's size, and that box is its frame.
- *
- * Nor could the cluster box be trusted even as a lower bound: for a
- * `subgraph` nested inside one that declared a `direction`, the core hands
- * the inner cluster back at *exactly the size it was given*, never having
- * sized it at all, with its members at coordinates outside it (measured; see
- * `isCluster` in `layoutDirectedGraph.ts` for the table and
- * `layoutDirectedGraph.test.ts` for the test that pins it).
- *
- * **What is not ported is the nesting**, because a class diagram has none. A
- * frame must clear the whole of each frame *beneath* it — title strip
- * included, since that strip is the part that reaches highest — so the frames
- * are grown innermost first and each parent then grows around the children
- * already grown. The model lists subgraphs in pre-order, so walking it
- * backwards visits every child before its parent.
- */
-function subgraphFrames(
-  subgraphs: readonly ResolvedSubgraph[],
-  nodes: GraphModel["nodes"],
-  boxInCoreSpaceById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
-  titleBoxById: ReadonlyMap<string, LabelBox>,
-): PositionedSubgraph[] {
-  const nodeIdsByParent = new Map<string, string[]>();
-  for (const node of nodes) {
-    if (node.parentId !== null) {
-      nodeIdsByParent.set(node.parentId, [...(nodeIdsByParent.get(node.parentId) ?? []), node.id]);
-    }
-  }
-
-  const frameById = new Map<string, PositionedSubgraph>();
-
-  for (const subgraph of [...subgraphs].reverse()) {
-    const label = titleBoxById.get(subgraph.id)!;
-
-    const held: { x: number; y: number; width: number; height: number }[] = [
-      ...(nodeIdsByParent.get(subgraph.id) ?? []).map((id) => boxInCoreSpaceById.get(id)!),
-      ...subgraphs
-        .filter((child) => child.parentId === subgraph.id)
-        .map((child) => frameById.get(child.id)!),
-    ];
-
-    // Nothing to size from: the box the core laid out at the title's size.
-    const bounds =
-      held.length === 0
-        ? boxInCoreSpaceById.get(subgraph.id)!
-        : {
-            x: Math.min(...held.map((box) => box.x)),
-            y: Math.min(...held.map((box) => box.y)),
-            width: Math.max(...held.map((box) => box.x + box.width)) - Math.min(...held.map((box) => box.x)),
-            height: Math.max(...held.map((box) => box.y + box.height)) - Math.min(...held.map((box) => box.y)),
-          };
-
-    // As wide as the wider of the members and the title, centered on the
-    // members: a title longer than the column it heads widens the frame both
-    // ways, not off to one side.
-    const width = Math.max(bounds.width, label.width) + SUBGRAPH_PADDING * 2;
-    const left = bounds.x + bounds.width / 2 - width / 2;
-    const right = left + width;
-    // The title strip: padding, the title's rows, then padding again before
-    // whatever the frame holds starts.
-    const top = bounds.y - SUBGRAPH_PADDING * 2 - label.height;
-    const bottom = bounds.y + bounds.height + SUBGRAPH_PADDING;
-
-    frameById.set(subgraph.id, {
-      id: subgraph.id,
-      label: {
-        label: subgraph.label,
-        labelBox: label,
-        anchor: {
-          x: (left + right) / 2,
-          y: top + SUBGRAPH_PADDING + label.height / 2,
-        },
-      },
-      x: left,
-      y: top,
-      width: right - left,
-      height: bottom - top,
-    });
-  }
-
-  // Back into the model's own order — outermost first, which is the order
-  // they are drawn in so that an inner frame is painted over its parent.
-  return subgraphs.map((subgraph) => frameById.get(subgraph.id)!);
 }

@@ -1,0 +1,29 @@
+stateDiagram-v2
+%% Composite states: one keeping its own direction, one whose direction a
+%% transition into a member gives up, nesting, a self-transition on a state
+%% and on a composite, and a note on each side.
+
+[*] --> Queued
+Queued --> Queued : retry
+Queued --> Batch
+state Batch {
+  direction LR
+  Split --> Map
+  Map --> Merge
+}
+Batch --> Batch : again
+Batch --> Review
+state Review {
+  direction LR
+  [*] --> Draft
+  Draft --> Checked
+  state Checked {
+    Lint --> Test
+  }
+  Checked --> [*]
+}
+Queued --> Draft : shortcut
+note right of Queued : waits for a free worker
+Review --> Archive
+note left of Archive : kept for a year
+Archive --> [*]

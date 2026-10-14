@@ -1,10 +1,10 @@
 import type {
   ErAttribute,
   ErAttributeColumn,
+  ErCardinality,
   ErModel,
   LabelBox,
   LayoutOptions,
-  Point,
   PositionedErDiagram,
   PositionedErEntity,
   PositionedErAttributeCell,
@@ -12,12 +12,16 @@ import type {
   PositionedErRelationship,
   PositionedErSubgraph,
   ResolvedErEntity,
-  ResolvedErSubgraph,
 } from "../contracts";
+import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapErRelationshipLabel } from "../label/wrapLabel";
-import type { DirectedGraphLayoutNodeBox } from "./layoutDirectedGraph";
-import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import {
+  layoutDirectedGraph,
+  type DirectedGraphEdge,
+  type DirectedGraphNode,
+} from "./layoutDirectedGraph";
+import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame } from "./clusters";
 
 /**
  * Horizontal padding between an entity box's edge and its name, and vertical
@@ -37,18 +41,29 @@ const ENTITY_PADDING_X = 14;
 const ENTITY_PADDING_Y = 8;
 
 /**
- * How far a cluster's frame clears the boxes it holds on every side, and —
- * doubled, with the title line between the two halves — how tall the strip
- * along its top is.
+ * How far out from its entity box each cardinality's marker reaches along the
+ * line, by the glyph farthest from the box: the bars, circle and almond
+ * `renderErDiagramToSVG` draws, placed as Mermaid 12.2.0's end markers place
+ * them. Exactly one is two bars, the outer 15 out; zero or one a bar and then
+ * a circle of radius 6 centred 21 out; one or more an almond centred on the
+ * box's edge, half of it inside the box, and a bar 24 out; zero or more the
+ * almond and a circle centred 28 out, reaching 34 (nook decision
+ * `01M4W687VYADT35JXWTPSCBQ9G`). The buried half of an almond needs no
+ * straight run: it lies under the box, not along the line.
  *
- * `layoutGraph`'s `SUBGRAPH_PADDING` exactly, and the same number for the
- * same reason the entity padding matches a state box's: the *figure* is
- * Mermaid's (measured with `--markup`, an ER cluster is a `g.cluster` with
- * a `<rect>` and a `g.cluster-label` — the same two elements a flowchart
- * subgraph draws), while the pixel counts are Siren's (ADR-0004). Two
- * labelled frames padded differently would read as two constructs.
+ * The core keeps that much of each end of the route straight
+ * (`straightEnds`), so the marker lies on the line rather than past its
+ * first bend. The renderer's own test reads the drawn markers and requires
+ * this table to equal them, so a marker redrawn without this table following
+ * it fails there — longer, because the marker would run past the bend;
+ * shorter, because the picture would be stretched for nothing.
  */
-const SUBGRAPH_PADDING = 12;
+export const CARDINALITY_MARKER_REACH: Record<ErCardinality, number> = {
+  onlyOne: 15,
+  zeroOrOne: 27,
+  oneOrMore: 24,
+  zeroOrMore: 34,
+};
 
 /**
  * The four columns of an attribute table, in the order Mermaid draws them
@@ -211,13 +226,16 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
  * Places an `ErModel`'s entities, routes its relationships, and reports the
  * diagram's bounds.
  *
- * **Through the shared layout core.** Measured with `--markup`,
- * `erDiagram / CUSTOMER / ORDER` draws the two unrelated boxes at
- * `translate(28, 18)` and `translate(208, 18)` — the same y, side by side,
- * because nothing joins them and they share a rank — and a relationship
- * puts them on consecutive ranks instead. That is what a ranked graph
- * layout produces, so this asks for one rather than growing a second engine
- * beside `layoutDirectedGraph`.
+ * This is the ER adapter over the shared ELK layout core
+ * (`layoutDirectedGraph`): it measures each entity's box,
+ * hands the sizes to the core — `subgraph` blocks as clusters, with their
+ * padding and a band for their title — and reattaches the ER diagram's own
+ * data to the coordinates that come back. All graph-layout math lives in
+ * the core, frames and every relationship's route included, a
+ * self-relationship's loop among them; nothing here moves a box, a frame or
+ * a route afterwards (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
+ * What Mermaid 12.2.0 does with an ER diagram under ELK, and the parity
+ * numbers for this adapter, are nook decision `01M4VNEEYAHMFDVRAB4XSAHKCB`.
  *
  * **Every route runs from the relationship's `from` to its `to`**, which is
  * the source's own left-to-right order, and the two cardinalities travel
@@ -243,47 +261,36 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         [relationship.id, wrapErRelationshipLabel(relationship.label, options.measureText)] as const,
     ),
   );
+  /** Each block's title, measured once (`measureTitles`). */
+  const titleBoxById = measureTitles(model.subgraphs, options.measureText);
 
   const laidOut = layoutDirectedGraph({
-    // The document's own rank direction — `TB` unless the author wrote a
-    // `direction`, which is the default measured against mermaid 11.17.2.
-    // The four values are dagre's own, so there is nothing to map.
-    //
-    // A direction read by the parser and dropped here would be **silent**:
-    // no diagnostic is missing, a picture is still drawn, and only where the
-    // boxes landed says the author was disobeyed. That is why the test for
-    // this compares coordinates rather than counting diagnostics.
-    rankdir: model.direction,
+    // The document's own direction — `TB` unless the author wrote a
+    // `direction` outside every block. A block's own is a separate thing and
+    // reaches the core per cluster below.
+    direction: model.direction,
+    // Blocks before entities, in Mermaid 12.2.0's order — see
+    // `mermaidClosingOrder`. The core keeps the order it is handed (ELK's
+    // `considerModelOrder`), so this order is a decision about the picture,
+    // not bookkeeping. The entities follow in the model's order, the order
+    // they were first named — Mermaid's entity table's, which `getData`
+    // walks next.
     nodes: [
-      // **The clusters first, and that ordering is the engine's**: a
-      // cluster has to exist before a node can name it as `parentId`.
-      //
-      // The size handed in is the frame's title strip and nothing more,
-      // because the engine discards it: a cluster with no directed ancestor
-      // is grown from its children outright, and one that has a directed
-      // ancestor comes back at exactly the size it was given with its
-      // members outside it (the table in `DirectedGraphLayoutNode.isCluster`
-      // measures both). `subgraphFrames` below takes the union either way,
-      // which is what makes the second case draw.
-      //
-      // `rankdir` is the block's own direction and `undefined` when it
-      // declared none — deliberately not the document's. `rankdirFor` gives
-      // a directionless cluster with a *directed* ancestor the graph's
-      // rankdir, which is both Mermaid's meaning and what makes the engine
-      // expand it; writing the document's direction in here would hand
-      // every cluster one and lose that distinction (`01M2XJWM4`).
-      ...model.subgraphs.map((subgraph) => {
-        const label = layoutLabel(subgraph.label, options.measureText);
-        return {
+      // Each block goes to the core as a cluster: the core sizes and places
+      // the frame — around its members, its padding and a band for its
+      // title — and lays its members out in the block's own direction while
+      // no relationship voids it (the **Boundary-crossing edge** rule,
+      // Mermaid 12's). The ids cannot collide with an entity's: a block's is
+      // generated (`subgraph:1`, ADR-0010).
+      ...mermaidClosingOrder(model.subgraphs).map((subgraph) =>
+        clusterNode({
           id: subgraph.id,
-          width: label.width + SUBGRAPH_PADDING * 2,
-          height: label.height + SUBGRAPH_PADDING * 2,
-          isCluster: true,
-          ...(subgraph.parentId === null ? {} : { parentId: subgraph.parentId }),
-          ...(subgraph.direction === null ? {} : { rankdir: subgraph.direction }),
-        };
-      }),
-      ...model.entities.map((entity) => {
+          parentId: subgraph.parentId,
+          title: titleBoxById.get(subgraph.id)!,
+          direction: subgraph.direction,
+        }),
+      ),
+      ...model.entities.map((entity): DirectedGraphNode => {
         const plan = planById.get(entity.id)!;
         return {
           id: entity.id,
@@ -293,16 +300,27 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         };
       }),
     ],
-    edges: model.relationships.map((relationship) => ({
-      id: relationship.id,
-      from: relationship.from,
-      to: relationship.to,
-      // Every ER relationship carries a label — measured, the `: label` is
-      // required — so the core is always asked to hold the ranks apart for
-      // one, and it reports back where that space ended up. Sized from
-      // every row of the label (ADR-0015), so a `<br>` holds them further.
-      label: wrappedRelationshipLabelById.get(relationship.id)!.labelBox,
-    })),
+    edges: model.relationships.map(
+      (relationship): DirectedGraphEdge => ({
+        id: relationship.id,
+        from: relationship.from,
+        to: relationship.to,
+        // Every ER relationship carries a label — measured, the `: label` is
+        // required — so the core is always asked to keep room for one on the
+        // line, and it reports back where that room ended up. Sized from
+        // every row of the label (ADR-0015).
+        label: wrappedRelationshipLabelById.get(relationship.id)!.labelBox,
+        // The radius the line hops keep clear of: a relationship is drawn
+        // rounded (`CONNECTOR_CURVE`).
+        cornerRadius: CONNECTOR_CORNER_RADIUS,
+        // Each end runs straight for as long as the marker drawn along it,
+        // so a crow's foot never reaches past the bend.
+        straightEnds: {
+          start: CARDINALITY_MARKER_REACH[relationship.fromCardinality],
+          end: CARDINALITY_MARKER_REACH[relationship.toCardinality],
+        },
+      }),
+    ),
   });
 
   /**
@@ -322,24 +340,8 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
-  const frames = subgraphFrames(model, boxById, options);
-
-  // A frame grows outward — up for its title strip, out for its padding — so
-  // it can reach above and left of the corner the core laid the graph out
-  // from. Everything below is shifted by however far it did, rather than a
-  // frame being drawn at a negative coordinate, which is off the canvas.
-  // `Math.max(0, ...)` over an empty list is `0`, so a document with no
-  // block shifts by nothing and every coordinate is the core's own number
-  // untouched. `layoutGraph` does exactly this, one kind over.
-  const shift = {
-    x: Math.max(0, ...frames.map((frame) => -frame.x)),
-    y: Math.max(0, ...frames.map((frame) => -frame.y)),
-  };
-  const shifted = (point: Point): Point => ({ x: point.x + shift.x, y: point.y + shift.y });
-
   const entities: PositionedErEntity[] = model.entities.map((entity) => {
-    const placed = boxById.get(entity.id)!;
-    const box = { ...placed, ...shifted(placed) };
+    const box = boxById.get(entity.id)!;
     const { table, labelBox } = planById.get(entity.id)!;
     return {
       id: entity.id,
@@ -386,35 +388,37 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         fromCardinality: relationship.fromCardinality,
         toCardinality: relationship.toCardinality,
         line: relationship.line,
-        points: route.points.map(shifted),
+        points: route.points,
+        hops: route.hops,
         label:
           route.labelAnchor === undefined
             ? null
             : {
                 ...wrappedRelationshipLabelById.get(relationship.id)!,
-                anchor: shifted(route.labelAnchor),
+                anchor: route.labelAnchor,
               },
       };
     },
   );
 
-  const subgraphs = frames.map((frame) => ({
-    ...frame,
-    ...shifted(frame),
-    label: { ...frame.label, anchor: shifted(frame.label.anchor) },
-  }));
+  // Back into the model's own order — outermost first, which is the order
+  // they are drawn in so that an inner frame is painted over its parent. A
+  // block's box is its frame, as the core placed it, and its title goes
+  // where the core put it across the band.
+  const subgraphs = model.subgraphs.map(
+    (subgraph): PositionedErSubgraph => ({
+      id: subgraph.id,
+      ...placedFrame(boxById.get(subgraph.id)!, subgraph.label, titleBoxById.get(subgraph.id)!),
+    }),
+  );
 
   return {
     entities,
     relationships,
     subgraphs,
-    // The core reports the extent of the graph *it* placed, which never
-    // included the strip a frame grows upward for. Taking the larger of the
-    // two keeps a frame from being clipped by the `<svg>` it is drawn in —
-    // and with no blocks the second term is `0`, so the core's own numbers
-    // come through unchanged.
-    width: Math.max(laidOut.width + shift.x, ...subgraphs.map((s) => s.x + s.width)),
-    height: Math.max(laidOut.height + shift.y, ...subgraphs.map((s) => s.y + s.height)),
+    // The core's extent holds every box, frame, route and label it placed.
+    width: laidOut.width,
+    height: laidOut.height,
     // Neither is drawn on the canvas, so neither takes part in the geometry
     // above — measured, a document writing both reports the same entity
     // table as one writing neither. They pass through for the renderer,
@@ -422,95 +426,4 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     accTitle: model.accTitle,
     accDescr: model.accDescr,
   };
-}
-
-/**
- * Each cluster's frame, in the shared core's own coordinate space.
- *
- * `layoutGraph`'s `subgraphFrames`, ported — the same figure with the same
- * padding, grown from the cluster box the core placed until it clears every
- * box it holds and has a strip along its top for its own title.
- *
- * ⚠️ **Taking the union with what the frame holds is required, not merely
- * conservative, and it is the load-bearing half of this function.** The
- * obvious reading — the core already sized the cluster to hold its children
- * — is false for a block nested inside one that declared a `direction`:
- * there the core hands the inner cluster back at *exactly the size it was
- * given*, never having sized it at all, with its members at coordinates
- * outside it (measured; see `isCluster` in `layoutDirectedGraph.ts`). Drop
- * the member boxes out of the four `Math.min`/`Math.max` calls as redundant
- * and that document draws the inner frame at the size of its own title bar
- * with every box it holds spilled outside it.
- *
- * Frames are grown **innermost first** so that a parent can clear the whole
- * of each frame beneath it, title strip included — the model lists clusters
- * in pre-order, so walking it backwards visits every child before its
- * parent.
- */
-function subgraphFrames(
-  model: ErModel,
-  boxById: ReadonlyMap<string, DirectedGraphLayoutNodeBox>,
-  options: LayoutOptions,
-): PositionedErSubgraph[] {
-  const memberIdsByParent = new Map<string, string[]>();
-  for (const entity of model.entities) {
-    if (entity.parentId === null) continue;
-    memberIdsByParent.set(entity.parentId, [
-      ...(memberIdsByParent.get(entity.parentId) ?? []),
-      entity.id,
-    ]);
-  }
-
-  const frameById = new Map<string, PositionedErSubgraph>();
-
-  for (const subgraph of [...model.subgraphs].reverse()) {
-    // Every row of the title, stacked: a `<br>` in it makes the strip taller
-    // (ADR-0015).
-    const label = layoutLabel(subgraph.label, options.measureText);
-    const cluster = boxById.get(subgraph.id)!;
-
-    const held: { x: number; y: number; width: number; height: number }[] = [
-      ...(memberIdsByParent.get(subgraph.id) ?? []).map((id) => boxById.get(id)!),
-      ...model.subgraphs
-        .filter((child: ResolvedErSubgraph) => child.parentId === subgraph.id)
-        .map((child) => frameById.get(child.id)!),
-    ];
-
-    const left = Math.min(cluster.x, ...held.map((box) => box.x - SUBGRAPH_PADDING));
-    const top = Math.min(
-      cluster.y,
-      // The title strip: padding, the title line, then padding again before
-      // whatever the frame holds starts.
-      ...held.map((box) => box.y - SUBGRAPH_PADDING * 2 - label.height),
-    );
-    const right = Math.max(
-      cluster.x + cluster.width,
-      left + label.width + SUBGRAPH_PADDING * 2,
-      ...held.map((box) => box.x + box.width + SUBGRAPH_PADDING),
-    );
-    const bottom = Math.max(
-      cluster.y + cluster.height,
-      ...held.map((box) => box.y + box.height + SUBGRAPH_PADDING),
-    );
-
-    frameById.set(subgraph.id, {
-      id: subgraph.id,
-      label: {
-        label: subgraph.label,
-        labelBox: label,
-        anchor: {
-          x: (left + right) / 2,
-          y: top + SUBGRAPH_PADDING + label.height / 2,
-        },
-      },
-      x: left,
-      y: top,
-      width: right - left,
-      height: bottom - top,
-    });
-  }
-
-  // Back into the model's own order — outermost first, which is the order
-  // they are drawn in so that an inner frame is painted over its parent.
-  return model.subgraphs.map((subgraph) => frameById.get(subgraph.id)!);
 }

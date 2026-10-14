@@ -42,6 +42,7 @@ once.
 - [API](#api)
 - [Theming](#theming)
 - [Mermaid compatibility](#mermaid-compatibility)
+- [Layout engine](#layout-engine)
 - [Environment](#environment)
 - [License](#license)
 
@@ -143,7 +144,9 @@ if (svg === null) {
 ### Without a bundler
 
 The package also ships `dist/siren-core.js`, a single ES module that includes every
-dependency. You can load it directly from a CDN:
+dependency — including the [elkjs](https://github.com/kieler/elkjs) layout engine, which is
+licensed EPL-2.0, not MIT; its licence and notices ship beside the bundle
+as `dist/THIRD-PARTY-NOTICES.md`. You can load it directly from a CDN:
 
 ```html
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.4/dist/theme.css" />
@@ -485,6 +488,31 @@ construct isn't supported yet. Please
 Where Mermaid's output contradicts the document (for example, a note written `LEFT OF` a
 state that Mermaid draws on the right), Siren draws what the document says.
 
+## Layout engine
+
+Flowcharts, class diagrams, state diagrams and ER diagrams are laid out by ELK's `layered`
+algorithm, through [elkjs](https://github.com/kieler/elkjs) **0.9.3**. That version is pinned
+exactly because it is the one Mermaid 12.2.0 bundles, and the engine is configured with the
+options of Mermaid 12's default layout, so a diagram is arranged the way Mermaid 12 arranges it.
+Edges are routed orthogonally and drawn with rounded corners. Sequence diagrams have their own
+layout.
+
+- **`render()` stays synchronous.** The engine runs inside the call. Because of this,
+  siren-core can't run inside a Web Worker.
+- **First-layout latency.** The first graph-shaped diagram laid out in a page (or a Node
+  process) costs about 0.1s while the engine starts up. This happens once per process. After
+  that, a 40-node flowchart takes about 20ms.
+- **Bundle size.** elkjs is a dependency, and the npm entry (`dist/index.js`) leaves it external
+  so your bundler can dedupe it. Its compiled engine is about 1.6 MB minified (about 465 KB
+  gzipped). The standalone `dist/siren-core.js` includes it: about 2.1 MB minified, about 545 KB
+  gzipped.
+- **Licence of the standalone build.** elkjs 0.9.3 is licensed EPL-2.0, not MIT.
+  `dist/siren-core.js` distributes it under the Eclipse Public License 2.0, so
+  `dist/THIRD-PARTY-NOTICES.md` ships beside the bundle with elkjs's licence text, and the
+  bundle's first line points to that file. If you serve or redistribute `dist/siren-core.js`,
+  keep the notice file with it. The npm entry bundles no third-party code; elkjs's licence
+  travels in its own package.
+
 ## Environment
 
 - **Browsers**: any modern browser with ES2022 support.
@@ -503,4 +531,7 @@ state that Mermaid draws on the right), Siren draws what the document says.
 
 ## License
 
-[MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE)
+[MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE). siren-core depends on
+[elkjs](https://github.com/kieler/elkjs) (EPL-2.0); the standalone
+`dist/siren-core.js` bundles it, and `dist/THIRD-PARTY-NOTICES.md` carries its licence (see
+[Layout engine](#layout-engine)).

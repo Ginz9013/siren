@@ -1,0 +1,5 @@
+{"id":"01M4V732XPM3JCDP6BABK1SFK2","t":1,"a":"83a1","op":"create","title":"layout: state diagram 由 ELK 排版"}
+{"id":"01M4V7332J2MF5PYTDXQ7RBKMW","t":2,"a":"83a1","op":"label.add","v":"state"}
+{"id":"01M4V7337EZRS6XWYDFEAQVSD8","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T06-state-on-elk.md`。"}
+{"id":"01M4VJKRMMYS2NSBVR808R469P","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4VM05H7KHZ5YDGN3F44TQMY","t":5,"a":"83a1","op":"set","k":"status","v":"done"}

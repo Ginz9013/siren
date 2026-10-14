@@ -5,13 +5,14 @@
  *     pnpm --filter siren-core build             # the report draws dist/siren-core.js
  *     pnpm --filter siren-core parity            # every scripts/parity-fixtures/*.mmd
  *     pnpm --filter siren-core parity a.mmd b.mmd
- *     pnpm --filter siren-core parity --json     # one object per diagram
+ *     pnpm --filter siren-core parity --json     # { diagrams: [one per diagram], totals }
  *     SIREN_PARITY_CHROME=/path/to/chrome pnpm --filter siren-core parity
  *
  * For every diagram it draws the same source twice in one headless Chrome
  * page — once with `mermaid@12.2.0` at its defaults (`startOnLoad: false`,
  * no theme or layout settings), once with siren-core's standalone build and
- * the canvas text measurer siren-board uses — and reads back each node's box.
+ * the canvas text measurer siren-board uses — and reads back each node's box and
+ * each edge's path.
  * Nodes are matched across the two pictures by the id the author wrote
  * (`scripts/parity/ids.mjs` says how that id is read off Mermaid's DOM). Per
  * diagram it prints:
@@ -27,7 +28,24 @@
  * - **node size**: the mean of Siren's width over Mermaid's, and of the
  *   heights, with Siren's 14px text scaled to Mermaid's 16px and then raw,
  *   and the five nodes whose size is furthest from Mermaid's (every node's
- *   two boxes are in the `--json` output).
+ *   two boxes are in the `--json` output);
+ * - **edge metrics**, for each side on its own (they read one picture, not
+ *   the distance between two): how many times two edges cross, how many
+ *   edges are drawn across a node that is not one of their ends, how many
+ *   across a group's title, how many overshoot their ends and turn back,
+ *   the mean detour (drawn length over the straight distance between an
+ *   edge's ends), and the picture's aspect ratio. Each line is sampled along
+ *   its drawn path (`getPointAtLength`) with any line-jump arc straightened
+ *   first, so a crossing a jump marks is still counted.
+ *
+ * After the last diagram come the **totals** over every diagram both sides
+ * drew — each side's crossings, edges through nodes and through titles, and
+ * reversals, summed; how many diagrams each side failed to draw; and the
+ * structural agreement pooled over every matched pair in the corpus (the
+ * agreeing pairs summed over the pairs summed, not a mean of percentages).
+ * `--json` prints one object, `{ diagrams, totals }`: the per-diagram array
+ * under `diagrams`, the same totals beside it. In both, a side's one edge
+ * count is the number of lines its edge selector sampled.
  *
  * The metrics are pure functions in `scripts/parity/metrics.mjs`, tested with
  * `node --test scripts/parity`; this file is the part that needs Chrome.
@@ -52,7 +70,7 @@
  * ## Why it is not in CI and has no threshold
  *
  * The numbers move with the installed fonts and the browser version: a label
- * a pixel wider can reorder a dagre rank. A threshold would fail on a font
+ * a pixel wider can reorder an ELK layer. A threshold would fail on a font
  * update with no change to Siren, so this is a measurement for a developer —
  * each ticket of the Mermaid-parity board records its numbers before and
  * after — and never a test. Only a failure to *run* exits non-zero: Chrome
@@ -64,8 +82,16 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { exitCodeFor, failedSides, formatText, parseArgs } from "./parity/cli.mjs";
-import { compareLayouts, compareSizes } from "./parity/metrics.mjs";
+import {
+  corpusTotals,
+  exitCodeFor,
+  failedSides,
+  formatText,
+  formatTotals,
+  jsonReport,
+  parseArgs,
+  reportDiagram,
+} from "./parity/cli.mjs";
 import { buildPage, PENDING, RESULT_ID } from "./parity/page.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -188,27 +214,19 @@ async function main() {
       mermaidUrl: pathToFileURL(mermaidBundle()).href,
       sirenUrl: pathToFileURL(SIREN_BUILD).href,
       idsUrl: pathToFileURL(join(HERE, "parity", "ids.mjs")).href,
+      metricsUrl: pathToFileURL(join(HERE, "parity", "metrics.mjs")).href,
       diagrams,
     }),
   );
 
   const drawn = readResult(await dumpDom(chrome, pathToFileURL(pagePath).href));
-  const results = drawn.map((r) =>
-    failedSides(r).length === 0
-      ? {
-          ...r,
-          metrics: {
-            ...compareLayouts(r.mermaid.nodes, r.siren.nodes),
-            sizes: compareSizes(r.mermaid.nodes, r.siren.nodes),
-          },
-        }
-      : r,
-  );
+  const results = drawn.map(reportDiagram);
 
   if (args.json) {
-    process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+    process.stdout.write(jsonReport(results));
   } else {
     process.stdout.write(formatText(results));
+    process.stdout.write(`\n${formatTotals(corpusTotals(results))}`);
     for (const r of results) {
       for (const side of failedSides(r)) process.stderr.write(`parity: ${side} could not draw ${r.file}\n`);
     }

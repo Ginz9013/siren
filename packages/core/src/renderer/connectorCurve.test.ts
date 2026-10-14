@@ -225,3 +225,107 @@ describe("connectorPathData", () => {
     });
   });
 });
+
+describe("connectorPathData with line hops", () => {
+  // The arc Mermaid 12.2.0 draws (`lineJump.ts`'s `emitJump`): a line to
+  // `radius` before the crossing, then `A r,r 0 0 sweep` to `radius` past it
+  // — a half circle centred on the crossing. Expected strings are measured
+  // off Mermaid 12.2.0's own pictures where one is quoted, and otherwise
+  // worked from that definition.
+
+  it("draws a half circle across the crossing on a linear route", () => {
+    // Measured in Mermaid 12.2.0: a hop at (104.5, 137) on a rightward run
+    // is drawn `L98.5,137 A6,6 0 0 1 110.5,137`.
+    expect(
+      connectorPathData(
+        [
+          { x: 0, y: 137 },
+          { x: 200, y: 137 },
+        ],
+        "linear",
+        [{ x: 104.5, y: 137, radius: 6, segment: 0 }],
+      ),
+    ).toBe("M0,137 L98.5,137 A6,6 0 0 1 110.5,137 L200,137");
+  });
+
+  it("bulges up travelling left too: sweep 0 where the route runs toward −x", () => {
+    // Measured in Mermaid 12.2.0: a hop at (280, 117) on a leftward run is
+    // drawn `L286,117 A6,6 0 0 0 274,117` — from the right, counter-clockwise,
+    // over the top.
+    expect(
+      connectorPathData(
+        [
+          { x: 400, y: 117 },
+          { x: 100, y: 117 },
+        ],
+        "linear",
+        [{ x: 280, y: 117, radius: 6, segment: 0 }],
+      ),
+    ).toBe("M400,117 L286,117 A6,6 0 0 0 274,117 L100,117");
+  });
+
+  it("takes the sweep from the travel on a vertical run too: 1 going down, 0 going up", () => {
+    // Mermaid's `getArcSweepFlag`: on a segment that is not horizontal, the
+    // sign of its dy decides, as dx's does on one that is.
+    const down = connectorPathData(
+      [
+        { x: 50, y: 0 },
+        { x: 50, y: 100 },
+      ],
+      "linear",
+      [{ x: 50, y: 40, radius: 6, segment: 0 }],
+    );
+    expect(down).toBe("M50,0 L50,34 A6,6 0 0 1 50,46 L50,100");
+    const up = connectorPathData(
+      [
+        { x: 50, y: 100 },
+        { x: 50, y: 0 },
+      ],
+      "linear",
+      [{ x: 50, y: 40, radius: 6, segment: 0 }],
+    );
+    expect(up).toBe("M50,100 L50,46 A6,6 0 0 0 50,34 L50,0");
+  });
+
+  it("draws the hop on its own segment of a rounded route, between that segment's corners", () => {
+    // Every segment beside a corner is 10 long, so each corner is cut back
+    // by half of it, 5 (under 5 / sin 45° = 7.071): `L` to 5 short of the
+    // corner, `Q` through it to 5 past. The hop sits on the middle run.
+    expect(
+      connectorPathData(
+        [
+          { x: 0, y: 0 },
+          { x: 0, y: 10 },
+          { x: 200, y: 10 },
+          { x: 200, y: 20 },
+        ],
+        "rounded",
+        [{ x: 100, y: 10, radius: 6, segment: 1 }],
+      ),
+    ).toBe("M0,0 L0,5 Q0,10 5,10 L94,10 A6,6 0 0 1 106,10 L195,10 Q200,10 200,15 L200,20");
+  });
+
+  describe("which curves draw them", () => {
+    const run = [
+      { x: 0, y: 137 },
+      { x: 60, y: 137 },
+      { x: 200, y: 137 },
+    ];
+    const hop = [{ x: 104.5, y: 137, radius: 6, segment: 1 }];
+
+    it.each(["step", "stepBefore", "stepAfter"] as const)(
+      "%s draws them, on the route's own straight runs, as Mermaid's rewrite does",
+      (curve) => {
+        // Mermaid 12.2.0's `rewriteEdgePath` redraws a hopped `step*` line
+        // through the route's points: on an orthogonal route the line it
+        // draws is the one the step curve draws.
+        expect(connectorPathData(run, curve, hop)).toBe("M0,137 L60,137 L98.5,137 A6,6 0 0 1 110.5,137 L200,137");
+      },
+    );
+
+    it("basis does not: a soft curve has no straight run to jump from, and Mermaid skips it", () => {
+      expect(connectorPathData(run, "basis", hop)).toBe(connectorPathData(run, "basis"));
+      expect(connectorPathData(run, "basis", hop)).not.toContain("A");
+    });
+  });
+});

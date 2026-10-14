@@ -1,0 +1,81 @@
+%% examples/class-full.srn — every class-diagram feature Siren draws, in one
+%% document. Comment lines like these are stripped in every diagram kind.
+classDiagram
+%% Source: examples/class-full.srn, diagram half only (the timeline: block removed,
+%% bare %% lines dropped and the trailing comment after "Artwork .. Player"
+%% removed, because Mermaid rejects both).
+direction LR
+
+namespace catalog {
+  class Media {
+    <<abstract>>
+    +String title
+    #int durationInSeconds
+    -bool licensed
+    ~String catalogKey
+    +play()*
+    +describe() String
+  }
+  class Track {
+    +String artist
+    +int bpm
+    +play()
+    +remix(Track other) Track
+  }
+  class Podcast {
+    +String host
+    +int episode
+    +play()
+  }
+}
+
+class Playable {
+  <<interface>>
+  +play()
+  +stop()
+}
+
+class Shelf~T~ {
+  -Map~String, List~T~~ byGenre
+  -int loadedCount$
+  +add(String genre, T item)
+  +find(String genre) List~T~
+  +clear()$
+}
+
+class Player
+
+Listener : +String name
+Listener : +rate(Media item, int stars) bool
+
+Media <|-- Track
+Media <|-- Podcast
+Track ..|> Playable
+Shelf "1" *-- "0..*" Media : holds
+Media o-- Artwork : cover
+Listener "1" --> "0..*" Media : rates
+Listener -- Player
+Player ..> Shelf : reads
+Artwork .. Player
+
+note "Every class-diagram feature Siren draws, in one document"
+note for Shelf "One shelf per media kind"
+
+click Track call showDetails("track") "Inspect this class"
+click Playable href "https://mermaid.js.org/syntax/classDiagram.html" "Mermaid class syntax"
+
+%% Author styling: one class styled directly, and two more by a classDef the
+%% cssClass statement applies. The fills still carry an alpha channel, but the
+%% reason has changed. It used to be the only way out of a gap: a style reached
+%% a class's frame and never its label text, so an opaque fill left the theme's
+%% own label color stranded on top of it. `color` now reaches label text in
+%% both diagram kinds, so an opaque fill is a real option -- as long as it
+%% brings a `color` of its own. Translucent is kept here because it is still
+%% the better default and not because it is the only one: it needs no paired
+%% color, and it lets the themed background through, so these boxes follow
+%% whichever theme they are rendered under instead of pinning one.
+%% examples/flowchart-styling.srn shows the other choice.
+style Track fill:#f59e0b33,stroke:#f59e0b,stroke-width:2
+classDef external fill:#3b82f633,stroke:#3b82f6,stroke-width:2
+cssClass "Player,Artwork" external
+
